@@ -1,0 +1,118 @@
+---
+title: "रूटिंग"
+description: "React राउटर v8 के साथ एजेंट-नेटिव ऐप्स के लिए फ़ाइल-आधारित रूटिंग - पेज, डायनामिक पैरामीटर और नेविगेशन।"
+---
+
+# रूटिंग
+
+एजेंट-नेटिव ऐप्स `@react-router/fs-routes` से `flatRoutes()` के माध्यम से फ़ाइल-आधारित रूटिंग के साथ **React राउटर v8** का उपयोग करते हैं। `app/routes/` में प्रत्येक फ़ाइल URL बन जाती है। टेम्प्लेट डॉट-नोटेशन कन्वेंशन का उपयोग करते हैं - डॉट्स एक फ़ाइल नाम के अंदर URL सेगमेंट को अलग करते हैं।
+
+## फ़ाइल-आधारित रूटिंग {#file-based-routing}
+
+### फ़ाइल → URL मैपिंग
+
+| फ़ाइल                 | URL                | नोट्स                                  |
+| --------------------- | ------------------ | -------------------------------------- |
+| `_index.tsx`          | `/`                | सूचकांक मार्ग                          |
+| `settings.tsx`        | `/settings`        | सरल पृष्ठ                              |
+| `inbox.$threadId.tsx` | `/inbox/:threadId` | डॉट = `/`, `$` = गतिशील पैरामीटर       |
+| `_app.tsx`            | (कोई URL खंड नहीं) | पाथलेस लेआउट - `_` के साथ उपसर्ग       |
+| `inbox/route.tsx`     | `/inbox`           | फ़ोल्डर फॉर्म - `route.tsx` इंडेक्स है |
+
+डायनेमिक पैरामीटर के लिए `$` के साथ एक सेगमेंट को उपसर्ग करें। इसे एक पथहीन लेआउट मार्ग (कोई URL खंड नहीं) बनाने के लिए `_` के साथ उपसर्ग करें। टेम्प्लेट `flatRoutes()` का उपयोग करते हैं - उपरोक्त डॉट-नोटेशन फ़ाइल प्राथमिक है; नेस्टेड-फ़ोल्डर फॉर्म `inbox/route.tsx` भी काम करता है।
+
+<Diagram id="doc-block-1xvr59i" title={"पथहीन लेआउट पृष्ठों को लपेट देता है"} summary={"एक _app.tsx लेआउट (कोई URL खंड नहीं) साझा शेल को एक बार प्रस्तुत करता है; मिलान किए गए पृष्ठ इसके <आउटलेट/> के अंदर प्रस्तुत होते हैं, इसलिए एजेंट साइडबार कभी भी नेविगेशन पर प्रदर्शित नहीं होता है।"}>
+
+```html
+<div class="diagram-layout" data-rough>
+  <div class="diagram-shell">
+    <span class="diagram-pill accent">_app.tsx</span
+    ><small class="diagram-muted"
+      >pathless layout · स्थायी shell + एजेंट sidebar</small
+    >
+    <div class="diagram-outlet" data-rough>
+      <small class="diagram-muted">&lt;Outlet/&gt; — the matched page</small>
+      <div class="diagram-row">
+        <span class="diagram-pill">_index.tsx &rarr; /</span
+        ><span class="diagram-pill">settings.tsx &rarr; /settings</span
+        ><span class="diagram-pill"
+          >inbox.$threadId.tsx &rarr; /inbox/:threadId</span
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-layout .diagram-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+.diagram-layout .diagram-outlet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  margin-top: 6px;
+}
+.diagram-layout .diagram-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+```
+
+</Diagram>
+
+## एक नया पेज जोड़ना {#adding-a-page}
+
+फ़ाइल बनाएं और एक डिफ़ॉल्ट घटक निर्यात करें:
+
+```tsx
+// app/routes/settings.tsx
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+बस इतना ही - React राउटर इसे स्वचालित रूप से उठाता है, पंजीकरण की आवश्यकता नहीं है।
+
+## गतिशील पैरामीटर {#dynamic-params}
+
+```tsx
+// app/routes/inbox/$threadId.tsx
+import { useParams } from "react-router";
+
+export default function ThreadPage() {
+  const { threadId } = useParams();
+  return <div>Thread: {threadId}</div>;
+}
+```
+
+## नेविगेशन {#navigation}
+
+क्लाइंट-साइड नेविगेशन के लिए `<Link>` और प्रोग्रामेटिक नेविगेशन के लिए `useNavigate()` का उपयोग करें:
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/settings">Settings</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/inbox/${threadId}`);
+```
+
+## आगे क्या है
+
+- [**Client**](/docs/client) - एजेंट-मूल ब्राउज़र हुक और उपयोगिताएँ
+- [**Server**](/docs/server) - फ़ाइल-आधारित सर्वर रूट और `/_agent-native/` नेमस्पेस

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
+import { docSourceSlugFromFilename } from "../lib/docs-source";
 import { listDocFiles, readDocFile } from "./docs-files";
 
 interface DocSection {
@@ -20,7 +21,7 @@ async function loadDocSections(): Promise<DocSection[]> {
 
   const sections: DocSection[] = [];
   for (const file of files) {
-    const slug = file.replace(/\.md$/, "");
+    const slug = docSourceSlugFromFilename(file);
     const raw = await readDocFile(slug);
     const { data, content } = matter(raw);
     const title = data.title || slug;

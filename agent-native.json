@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "profile": "docs/no-bookkeeping",
+      "roots": [
+        {
+          "name": "Agent Native Docs",
+          "path": "packages/core/docs/content",
+          "kind": "docs",
+          "profile": "docs/no-bookkeeping",
+          "extensions": [".md", ".mdx"]
+        }
+      ],
+      "components": "packages/docs/app/components",
+      "hide": ["**/_*.md", "**/_*.mdx"]
+    }
+  }
+}

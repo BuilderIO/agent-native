@@ -337,6 +337,54 @@ describe("route warmup config", () => {
   });
 });
 
+describe("MCP integrations config", () => {
+  it("exposes default MCP integration catalog settings", () => {
+    const config = defineConfig();
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations).toEqual({
+      enabled: true,
+      custom: true,
+      defaults: { enabled: true, exclude: [] },
+    });
+  });
+
+  it("lets products disable or filter default MCP integration presets", () => {
+    const config = defineConfig({
+      mcpIntegrations: {
+        defaults: { include: ["context7", "sentry"], exclude: ["sentry"] },
+        custom: false,
+      },
+    });
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations).toEqual({
+      enabled: true,
+      custom: false,
+      defaults: {
+        enabled: true,
+        include: ["context7", "sentry"],
+        exclude: ["sentry"],
+      },
+    });
+  });
+
+  it("lets products hide the whole MCP integrations entry", () => {
+    const config = defineConfig({ mcpIntegrations: false });
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations.enabled).toBe(false);
+    expect(mcpIntegrations.custom).toBe(false);
+    expect(mcpIntegrations.defaults.enabled).toBe(false);
+  });
+});
+
 describe("agentNative Vite plugin preset", () => {
   it("returns a Vite preset with framework plugins and a config hook", () => {
     const plugins = flatPlugins(agentNative({ ssrStubs: ["yjs"] }));

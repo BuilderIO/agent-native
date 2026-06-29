@@ -138,6 +138,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: W3PMF2T3MW
+          # Sentry error reporting for the Tauri native process and webview.
+          CLIPS_DESKTOP_SENTRY_DSN: ${{ secrets.CLIPS_DESKTOP_SENTRY_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
+          CLIPS_DESKTOP_SENTRY_CLIENT_KEY: ${{ secrets.CLIPS_DESKTOP_SENTRY_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
+          CLIPS_DESKTOP_SENTRY_PROJECT_ID: ${{ secrets.CLIPS_DESKTOP_SENTRY_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
+          CLIPS_DESKTOP_SENTRY_INGEST_HOST: ${{ secrets.CLIPS_DESKTOP_SENTRY_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
+          CLIPS_DESKTOP_SENTRY_ENVIRONMENT: production
         with:
           projectPath: ${{ env.TAURI_APP_PATH }}
           tagName: clips-v__VERSION__

@@ -20,6 +20,24 @@ const messages = {
       "Open the Clips extension again to start recording.",
     gotIt: "Got it",
   },
+  builderCredits: {
+    pausedTitle: "Builder.io credits paused",
+    transcriptionDescription:
+      "Upgrade Builder.io to resume backup transcription. Existing native transcripts stay visible.",
+    cleanupDescription:
+      "Upgrade Builder.io to resume transcript cleanup, summaries, and AI titles. The native transcript was kept.",
+    settingsDescription:
+      "Upgrade Builder.io to resume backup transcription, transcript cleanup, summaries, and AI titles. Existing native transcripts stay visible.",
+    titleDescription:
+      "AI title generation is paused. Your transcript still works.",
+    upgrade: "Upgrade Builder.io",
+    retryAfterUpgrade: "Retry after upgrade",
+    openAiSetup: "AI setup",
+    featureBackupTranscription: "Backup transcription",
+    featureCleanup: "Transcript cleanup",
+    featureSummaries: "Summaries",
+    featureTitles: "AI titles",
+  },
   recorder: {
     cameraBlurTitle: "Blur background",
     cameraBlurDescription: "Keep yourself sharp, blur what's behind you",
@@ -328,6 +346,13 @@ const messages = {
       "We did not catch any speech in this recording. If that was intentional, you are all set. If not, check your microphone and speech permissions, then retry transcription.",
     retry: "Retry",
     transcriptUnavailable: "Transcript unavailable: {{reason}}",
+    transcriptUnavailableTitle: "Transcript unavailable",
+    providerNeedsAttention: "Provider needs attention",
+    providerNeedsAttentionDescription:
+      "The current provider paused this request. Switch to Builder.io or update the key, then retry.",
+    enableTranscriptionTitle: "Enable transcription",
+    enableTranscriptionDescription:
+      "Unlock captions, transcript search, and summaries for this Clip.",
     searchPlaceholder: "Search transcript",
     copyTranscript: "Copy transcript",
     downloadSrt: "Download .srt",
@@ -824,6 +849,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     replyingTo: "Replying to",
     commentAt: "Comment at",
     writeReply: "Write a reply...",
+    commentButton: "Comment",
+    composerPlaceholder: "Add a comment…",
+    mentionSomeone: "Mention someone",
+    addEmoji: "Add emoji",
   },
   shareMeeting: {
     pageTitle: "Meeting notes · Clips",

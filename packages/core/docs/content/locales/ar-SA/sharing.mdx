@@ -1,0 +1,316 @@
+---
+title: "المشاركة والخصوصية"
+description: "المشاركة بأسلوب Google-Docs، المضمنة في إطار العمل. يحصل كل مورد أنشأه المستخدم - المستندات، ولوحات المعلومات، والتصميمات، والمجموعات، والمقاطع، والتسجيلات، والنماذج - على نفس النموذج الخاص الافتراضي بمشاركة واحدة متسقة UI."
+---
+
+# المشاركة والخصوصية
+
+كل مورد ينشئه المستخدم في تطبيق وكيل أصلي - مستند، أو لوحة معلومات، أو تصميم، أو مجموعة، أو تحرير فيديو، أو تسجيل شاشة، أو نص اجتماع، أو نموذج، أو رابط حجز - يكون **خاصًا بالمنشئ بشكل افتراضي**. ولا يراها الأشخاص الآخرون إلا عندما يشاركها منشئ المحتوى بشكل صريح، أو يغير مستوى رؤيتها إلى `org` أو `public`.
+
+يبدو ويعمل مثل مستندات Google. نفس زر المشاركة، ونفس مربع الحوار، ونفس نموذج الرؤية ثلاثي المستويات، ونفس المنح لكل مستخدم/لكل مؤسسة - عبر كل قالب، بدون إعادة اختراع لكل تطبيق.
+
+## لماذا نموذج واحد {#why}
+
+تجعل معظم أطر عمل التطبيقات المشاركة مشروعًا خاصًا بكل ميزة. النتيجة: كل سطح يشبه المستند ينتهي به الأمر بمربع حوار المشاركة الخاص به، ومخطط الأذونات الخاص به، وأخطاء التحقق من الوصول الخاصة به. في الوكيل الأصلي، تعد المشاركة **إطار عمل بدائي**. يتم شحن أعمدة المخطط، ومساعدات التحقق من الوصول، والجزء المنبثق للمشاركة، والمشاركة القابلة للاستدعاء للوكيل actions مع المركز. يحصل القالب الجديد على قصة المشاركة الكاملة عن طريق إضافة عمودين وسطر واحد للتسجيل.
+
+يعني هذا أيضًا أن الوكيل لن يضطر أبدًا إلى تعلم نموذج مشاركة جديد لكل تطبيق. أخبر الوكيل "بمشاركة هذا مع Alice كمحرر" في أي قالب وسيتم تفعيل الإجراء `share-resource` نفسه.
+
+## مستويات الرؤية الثلاثة {#visibility}
+
+تعيش الرؤية التقريبية على المورد نفسه؛ المنح الدقيقة موجودة في جدول المشاركات المصاحبة.
+
+| الرؤية    | من يمكنه رؤيته                                                                           |
+| --------- | ---------------------------------------------------------------------------------------- |
+| `private` | تم منح المالك + الأشخاص صراحةً. **الافتراضي لكل مورد جديد.**                             |
+| `org`     | المالك + المنح الصريحة + أي شخص في نفس المؤسسة (للقراءة فقط).                            |
+| `public`  | المالك + المنح الصريحة + أي شخص لديه الرابط (للقراءة فقط). لا يظهر في قوائم/بحث الآخرين. |
+
+`public` هو مستوى هادئ بشكل متعمد: يمكن الوصول إلى المورد العام عن طريق رابط مباشر، ولكنه **لا** يظهر في الأشرطة الجانبية أو القوائم أو عمليات البحث الخاصة بالمستخدمين الآخرين. وهذا يبقي "عامًا لمشاركة URL" منفصلاً عن "عامًا للاكتشاف عبر المستخدمين". يتم الاشتراك بشكل صريح في المعارض وكتالوجات النماذج التي تريد حقًا اكتشاف المستخدمين المتعددين.
+
+<Diagram id="doc-block-1wqhwzj" title={"الرؤية، واتساع إلى الخارج"} summary={"الرؤية الخشنة للمورد تحدد الأرضية؛ تضيف منح المشاركة الصريحة في الجدول المصاحب أشخاصًا محددين في الأعلى."}>
+
+```html
+<div class="share-tiers">
+  <div class="diagram-card">
+    <span class="diagram-pill">private</span
+    ><small class="diagram-muted"
+      >owner + explicit grants only &middot; <strong>default</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">org</span
+    ><small class="diagram-muted">+ anyone in the same org (read-only)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">public</span
+    ><small class="diagram-muted"
+      >+ anyone with the link (read-only) &middot; hidden from others'
+      lists/search</small
+    >
+  </div>
+</div>
+```
+
+```css
+.share-tiers {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.share-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.share-tiers .diagram-arrow {
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## الأدوار في منحة الأسهم {#roles}
+
+عند المشاركة مع مستخدم أو مؤسسة معينة، فإنك تختار دورًا:
+
+- **العارض** — للقراءة فقط.
+- **المحرر** — قراءة + كتابة.
+- **المسؤول** — قراءة + كتابة + إدارة المشاركات (يمكن إضافة/إزالة أشخاص آخرين).
+
+يقوم `admin` بتغيير الملكية بواسطة NOT - لا يزال هناك مالك واحد بالضبط لكل مورد، بخلاف منح الأسهم.
+
+## ما يتم تغطيته {#covered}
+
+يستخدم كل قالب يقوم بتخزين العمل الذي قام المستخدم بتأليفه هذا النموذج. بشكل ملموس:
+
+- **المحتوى** — المستندات
+- **الشرائح** — التشكيلات
+- **التصميم** — التصاميم والأصول
+- **الفيديو** — المقطوعات الموسيقية
+- **المقاطع** — تسجيلات الشاشة (نمط المنوال)
+- **النماذج** — تعريفات النماذج
+- **التقويم** — الأحداث وروابط الحجز
+- **التحليلات** — لوحات المعلومات (يتم طرحها — راجع `AGENTS.md` لنموذج التحليلات)
+- **الإضافات** — تطبيقات صغيرة في وضع الحماية (راجع [Extensions](/docs/extensions#sharing))
+
+يستخدم كل واحد من هؤلاء نفس مساعد مخطط `ownableColumns()`، ونفس إجراء `share-resource`، ونفس `<ShareButton>` UI. انتقل من قالب إلى آخر وسيبدو مربع حوار المشاركة متطابقًا.
+
+## ما لم يتم تغطيته {#not-covered}
+
+توجد بعض المناطق خارج نظام المشاركة عمدًا:
+
+- **تطبيقات البيانات الشخصية** (البريد ووحدات الماكرو) — على نطاق المستخدم حسب التصميم. لا يوجد مفهوم "مشاركة البريد الوارد".
+- **تطبيقات المصدر الخارجي للحقيقة** — التحكم في الوصول موجود في النظام الأساسي، وليس في التطبيق الأصلي للوكيل.
+- **URLs العامة المجهولة** — الارتباطات الثابتة لنشر النموذج والارتباطات الثابتة لرابط الحجز التي تعرض URL للمستخدمين الذين قاموا بتسجيل الخروج هي محور منفصل. إنهم يعيشون جنبًا إلى جنب مع نظام المشاركة، وليس فوقه.
+
+## الحصة UI {#share-ui}
+
+يحصل كل مورد قابل للمشاركة على زر مشاركة في رأسه. يؤدي النقر عليه إلى فتح نافذة منبثقة مرتبطة بالزر (وليس مشروطًا) مع:
+
+- محدد الرؤية (`Private` / `Organization` / `Public link`).
+- الإكمال التلقائي "إضافة أشخاص أو فرق" — ابحث عن المستخدمين في المؤسسة أو الصق بريدًا إلكترونيًا.
+- مربع اختيار `إشعار people` بنمط محرّر مستندات Google لمنح البريد الإلكتروني الفردية.
+- قائمة المنح الحالية مع منتقي الأدوار وعنصر تحكم الإزالة.
+- زر نسخ الارتباط الذي يحترم الرؤية الحالية.
+
+زر المشاركة عبارة عن استيراد واحد:
+
+```tsx
+import { ShareButton } from "@agent-native/core/client";
+
+<ShareButton
+  resourceType="deck"
+  resourceId={deck.id}
+  resourceTitle={deck.title}
+/>;
+```
+
+بالنسبة للقوائم، قم بإسقاط `<VisibilityBadge visibility={row.visibility} />` بجوار كل صف حتى يتمكن المستخدمون من رؤية ما هو خاص مقابل ما هو مشترك.
+
+## نفس الطراز والوكيل وUI {#agent-and-ui}
+
+يقوم إطار العمل بتثبيت actions تلقائيًا في كل قالب - يستدعيها الوكيل كأدوات، ويستدعيها UI من خلال `useActionQuery` / `useActionMutation`:
+
+| الإجراء                   | ماذا يفعل                                                                                          |
+| ------------------------- | -------------------------------------------------------------------------------------------------- |
+| `share-resource`          | منح مستخدم أو مؤسسة حق الوصول إلى دور محدد. يتحكم `notify` الاختياري في إشعارات البريد الإلكتروني. |
+| `unshare-resource`        | إبطال الوصول لمستخدم أو مؤسسة.                                                                     |
+| `list-resource-shares`    | إظهار الرؤية الحالية بالإضافة إلى جميع المنح الصريحة.                                              |
+| `set-resource-visibility` | قم بالتغيير إلى `private`، أو `org`، أو `public`.                                                  |
+
+أخبر الوكيل "بمشاركة هذا التصميم مع فريق التسويق كمحررين" وسيقوم باستدعاء `share-resource` مقابل نفس نقطة النهاية التي يستخدمها UI. تظهر النتيجة في مربع حوار المشاركة في العرض التالي.
+
+## إنشاءه في قالب جديد {#building}
+
+إذا كنت تقوم بإنشاء قالب (راجع [Creating Templates](/docs/creating-templates))، فإن مشاركة الأسلاك تكون قصيرة. إضافتان إلى مخططك:
+
+```ts
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  data: text("data").notNull(),
+  ...ownableColumns(), // adds owner_email, org_id, visibility
+});
+
+export const deckShares = createSharesTable("deck_shares");
+```
+
+<DataModel
+  id="doc-block-1ebud6w"
+  title={"جدول المشاركات + الموارد المرافقة"}
+  summary={
+    "Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
+  }
+  entities={[
+    {
+      id: "deck",
+      name: "decks",
+      note: "...ownableColumns()",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "المصدر الوحيد للحقيقة للملكية.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "خاص | منظمة | عام",
+        },
+      ],
+    },
+    {
+      id: "deckShare",
+      name: "deck_shares",
+      note: "createSharesTable() — one row per grant",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "resource_id",
+          type: "text",
+          fk: "decks.id",
+          nullable: false,
+        },
+        {
+          name: "principal_type",
+          type: "enum",
+          note: "المستخدم | ORG",
+        },
+        {
+          name: "principal_id",
+          type: "text",
+          note: "email (user) or org id (org)",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "عارض | محرر | admin",
+        },
+        {
+          name: "created_by",
+          type: "text",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "deckShare",
+      to: "deck",
+      kind: "n-n",
+      label: "grants access to",
+    },
+  ]}
+/>
+
+مكالمة تسجيل واحدة في `server/db/index.ts`:
+
+```ts
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+registerShareableResource({
+  type: "deck",
+  resourceTable: schema.decks,
+  sharesTable: schema.deckShares,
+  displayName: "Deck",
+  titleColumn: "title",
+  getResourcePath: (deck) => `/deck/${deck.id}`,
+  getDb,
+});
+```
+
+بعد ذلك، تمر استعلامات القائمة/القراءة عبر `accessFilter()` وتكتب actions وتستخدم `assertAccess()` لفرض الأدوار.
+
+### أعلام التقسية الاختيارية {#hardening-flags}
+
+يقبل `registerShareableResource` علامتي أمان للموارد التي تنفذ تعليمات برمجية أو تحمل ثقة عالية:
+
+```ts
+registerShareableResource({
+  type: "extension",
+  resourceTable: schema.extensions,
+  sharesTable: schema.extensionShares,
+  // ...
+  allowPublic: false, // Reject set-resource-visibility → "public"
+  requireOrgMemberForUserShares: true, // Reject user grants to non-org emails
+});
+```
+
+يمنع `allowPublic: false` أي متصل - الوكيل أو UI - من ضبط رؤية المورد على `public`. يرفض `requireOrgMemberForUserShares: true` منح المستخدم الفردي لعناوين البريد الإلكتروني خارج مؤسسة مالك المورد. تقوم الامتدادات بتعيين كليهما: يتم تشغيل HTML للامتداد داخل إطار iframe الذي يستدعي actions وDB باعتباره _viewer_، لذا فإن الوصول العام سيكون رمزًا عشوائيًا باستخدام بيانات اعتماد العارض.
+
+<Callout id="doc-block-1ehh444" tone="risk">
+
+For resources that execute code or carry elevated trust (like extensions), set `allowPublic: false` and `requireOrgMemberForUserShares: true`. Otherwise a public share becomes arbitrary code running with the _viewer's_ credentials.
+
+</Callout>
+
+يوفر `getResourcePath` لرسائل البريد الإلكتروني الخاصة بالإشعارات رابطًا احتياطيًا مباشرًا عند إنشاء مشاركة بواسطة الوكيل أو متصل آخر غير UI. النمط الكامل (بما في ذلك ختم ملكية الإجراء الإنشاء وصفة الترحيل للجداول الموجودة) موجود في مهارة وكيل `sharing` - يقرأها الوكيل عند الطلب عند إنشاء ميزة مدركة للمشاركة.
+
+## الضمانات الأمنية {#security}
+
+مشاركة الرحلات على نموذج تحديد نطاق البيانات الأوسع لإطار العمل - الوصول إلى القائمة/القراءة/الكتابة إلى الجداول القابلة للملكية يمر عبر `accessFilter()` / `resolveAccess()` / `assertAccess()`, وتكون الموارد ذات العلامات `org_id` غير مرئية عبر المؤسسات. راجع [Security → Data Scoping](/docs/security#data-scoping) للتعرف على المسار الكامل وحارس CI وسطح التهديد.
+
+## انظر أيضًا {#see-also}
+
+- [Security & Data Scoping](/docs/security) — مرشح الوصول ونموذج الملكية الذي تعتمد عليه المشاركة.
+- [Authentication](/docs/authentication) — الجلسات والمؤسسات وكيفية تدفق الهوية إلى سياق الطلب.
+- [Extensions](/docs/extensions#sharing) — المشاركة في سطح التطبيق المصغر في وضع الحماية.
+- [Creating Templates](/docs/creating-templates) — توصيل `ownableColumns` بمخطط القالب الجديد.

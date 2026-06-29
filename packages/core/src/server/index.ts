@@ -1,6 +1,5 @@
 export {
   createServer,
-  upsertEnvFile,
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
@@ -325,6 +324,7 @@ export {
   unregisterFileUploadProvider,
   listFileUploadProviders,
   getActiveFileUploadProvider,
+  getActiveFileUploadProviderForRequest,
   uploadFile,
   builderFileUploadProvider,
   type FileUploadInput,
@@ -381,10 +381,19 @@ export {
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredential,
+  readDeployCredentialEnv,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
 } from "./credential-provider.js";
+export {
+  builderDesignSystemUrl,
+  getBuilderDesignSystemsBaseUrl,
+  startBuilderDesignSystemIndex,
+  type BuilderDesignSystemIndexFile,
+  type BuilderDesignSystemIndexOptions,
+  type BuilderDesignSystemIndexResult,
+} from "./builder-design-systems.js";
 export {
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,

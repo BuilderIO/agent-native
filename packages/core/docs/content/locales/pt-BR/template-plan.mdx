@@ -1,0 +1,1091 @@
+---
+title: "Planos Visuais"
+description: "Agent-Native Plans transforma o plano do seu agente de codificação em um documento estruturado e revisável — diagramas, wireframes, código anotado, comentários e links de compartilhamento. Instale uma vez a partir do CLI; os revisores com quem você compartilha editam como convidados e fazem login apenas para salvar ou compartilhar."
+---
+
+# Planos Visuais
+
+> **A maioria das pessoas instala o Plan como uma habilidade, não como um aplicativo de scaffold.** Um comando CLI
+> adiciona o `/visual-plan` e `/visual-recap` skills mais o plano hospedado
+> para seu agente de codificação — consulte [Plan plugin & marketplace](/docs/plan-plugin)
+> para as rotas de plugin e mercado. Modelo de bifurcação do plano (abordado em
+> [For developers](#for-developers)) é o caminho secundário, para auto-hospedagem ou
+> com base no próprio Plano.
+
+Agent-Native Plans é o modo de plano visual para agentes de codificação. Acontece uma coisa comum
+Codex, código Claude, Markdown ou plano de implementação colado em um plano de implementação estruturado
+superfície de revisão com rich text, diagramas, wireframes, orientações de código anotadas
+e árvores de arquivos, anotações, comentários e links compartilháveis.
+
+Tudo se resume a dois comandos. `/visual-plan` cria um plano **antes** do agente
+escreve código. `/visual-recap` transforma uma mudança que **já** aconteceu — um PR,
+commit, branch ou git diff — em uma revisão visual de código de alta altitude. Ambos abertos
+a mesma superfície de revisão, para que você possa anotar, comentar e enviar feedback ao
+agente da mesma maneira.
+
+<Diagram id="doc-block-woqr2s" title={"Dois comandos, uma superfície de revisão"} summary={"Ambos os comandos são publicados por meio do conector do Plano MCP hospedado na mesma superfície de anotação e comentário."}>
+
+```html
+<div class="diagram-plan">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      <span class="diagram-pill accent">/visual-plan</span
+      ><small class="diagram-muted"
+        >antes do codigo: arquitetura, UI, refatoracao</small
+      >
+    </div>
+    <div class="diagram-node">
+      <span class="diagram-pill">/visual-recap</span
+      ><small class="diagram-muted"
+        >depois do codigo: PR, commit, branch, diff</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Conector MCP do Plan<br /><small class="diagram-muted"
+      >plan.agent-native.com</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Superficie de revisao<br /><small class="diagram-muted"
+      >diagramas · wireframes · codigo anotado · comentarios</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-node">
+    Agente de codigo<br /><small class="diagram-muted"
+      >feedback devolvido</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-plan {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-plan .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-plan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-plan .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+```
+
+</Diagram>
+
+<WireframeBlock id="doc-block-114m1dg">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Plano de redesenho do checkout</h1><div style='flex:1'></div><button>Compartilhar</button><button class='primary'>Aprovar</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Wireframe atual</div><div class='wf-box'>Wireframe proposto</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Plano de implementação</strong><div class='wf-box'>Decisão: manter o shell atual do checkout</div><div class='wf-box'>Passo a passo de código anotado</div><div class='wf-box'>Perguntas em aberto</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comentários</strong><div class='wf-box'>Pin no CTA principal</div><div class='wf-box'>Pergunta para o agente</div><div class='wf-box'>Nota de texto resolvida</div><button class='primary'>Devolver feedback</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+Existem duas formas de entrar nos Planos:
+
+- **Do seu agente de codificação (CLI)** — um comando instala a habilidade e registra
+  o conector de planos hospedados e o autentica.
+- **No navegador** — qualquer pessoa com quem você compartilha pode abrir o editor e criar ou
+  edite como **convidado, sem inscrição**. Eles fazem login apenas quando desejam salvar
+  ou compartilhe.
+
+## Instale a habilidade {#install}
+
+Use o Agent-Native CLI. Esta é a configuração recomendada porque instala o
+Instruções de habilidade dos planos, registra o conector MCP dos planos hospedado, **e** é executado
+o fluxo de autenticação/configuração específico do cliente em uma única etapa, para que sua primeira chamada de ferramenta não aconteça
+atingiu uma parede OAuth:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+O comando instala ambos os comandos: `/visual-plan` e `/visual-recap`.
+
+Se você estiver usando um host baseado em bate-papo que aceita conectores MCP diretamente dos URLs
+(em vez de um cliente configurado com CLI), conecte o conector de Planos hospedado em
+`https://plan.agent-native.com/_agent-native/mcp` — consulte [MCP Clients](/docs/mcp-clients) para configuração específica do cliente.
+
+A autenticação é um login único do navegador durante a configuração — isso é intencional e é
+é o que permite ao agente persistir e compartilhar os planos que gera. O que a autenticação
+a etapa depende do seu cliente:
+
+- **Hosts compatíveis com OAuth** (código Claude) obtêm uma entrada MCP somente URL, além de um prompt para
+  execute `/mcp` e escolha **Autenticar**.
+- **Codex / Cowork** executa um curto fluxo de código de dispositivo do navegador: o CLI imprime um código,
+  abre a página de verificação e grava o conector assim que você aprovar.
+- Em um **shell ou CI não interativo**, a etapa de autenticação é ignorada e a exata
+  o comando a ser executado mais tarde é impresso para você.
+
+Por padrão, o CLI tem como alvo todos os clientes locais suportados que pode configurar. Passe
+`--client codex`, `--client claude-code` ou outro cliente específico quando você
+deseja restringir a configuração a um host:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+Passe `--no-connect` para registrar o conector sem autenticação e execute
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+quando estiver pronto ou escolha um `--client` mais estreito:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --no-connect
+```
+
+Para gerar automaticamente uma recapitulação em **cada pull request**, passe `--with-github-action`.
+Isso grava uma ação GitHub que executa a habilidade `visual-recap` em cada PR e
+publica um plano de recapitulação interativo com uma captura de tela embutida como um comentário fixo —
+veja [PR Visual Recap](/docs/pr-visual-recap).
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+Depois que o fluxo de trabalho for escrito, execute `npx @agent-native/core@latest recap setup` para configurar
+GitHub Actions segredos/variáveis sempre que possível e `npx @agent-native/core@latest recap doctor`
+para verificar se o repositório está pronto.
+
+Se você deseja apenas o arquivo de instruções portátil através do Skills CLI aberto, use:
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill visual-plan
+```
+
+Isso instala apenas as instruções de habilidade. Não registra o MCP hospedado
+conector, então use o caminho Agent-Native CLI quando desejar a configuração com um comando.
+
+> **Prefere um plugin de instalação única?** Código Claude e Codex podem ser adicionados
+> `BuilderIO/agent-native` diretamente como um mercado de plugins, que agrupa o
+> Planeje skills _e_ o conector em uma instalação e atualizações automáticas como o skills
+> melhorar — veja [Plan plugin & marketplace](/docs/plan-plugin).
+
+### Planos abertos dentro do VS Code {#vscode-extension}
+
+Se você mora no VS Code, instale o
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+para abrir a mesma superfície de revisão do plano em um painel lateral em vez de direcioná-lo para um
+guia separada do navegador. As ferramentas de planos ainda retornam o link normal da web e o MCP
+metadados também incluem uma transferência de código VS URL:
+
+```text
+vscode://builder.agent-native/open?url=<encoded-plan-url>
+```
+
+A extensão lida com esse URI, abre o plano decodificado URL em uma webview do VS Code,
+e inclui um comando para executar o fluxo de conexão Agent Native MCP existente para VS
+Código / Copiloto GitHub. Isto é especialmente útil no código Claude ou outro
+fluxo de trabalho do agente de codificação onde o plano deve ficar próximo aos arquivos que estão sendo editados.
+
+## Use-o do seu agente de codificação
+
+Após a instalação, peça ao seu agente o comando adequado ao trabalho:
+
+- `/visual-plan` cria um plano estruturado **antes** da implementação — para
+  arquitetura, back-end, refatoração, UI ou trabalho de produtos mistos — aproveitando
+  diagramas, wireframes, maquetes, protótipos clicáveis e código anotado
+  orientações e árvores de arquivos conforme o trabalho exige.
+- `/visual-recap` cria uma **revisão** em grande altitude de uma mudança que já
+  aconteceu — um PR, commit, branch ou git diff — como esquema, API, arquivo e
+  blocos antes/depois em vez de uma parede de diferenças brutas.
+
+O agente deve inspecionar primeiro a base de código e depois criar o plano visual quando
+a direção errada custaria caro. O link Planos retornado abre a revisão UI em
+no navegador ou no VS Code, para que você possa anotar, corrigir, escolher opções e solicitar
+atualizações antes do início das alterações no código.
+
+Quando já existir um plano Codex, código Claude, Markdown ou colado, use
+`/visual-plan`; o agente preserva esse plano de origem e cria uma revisão mais rica
+saia dele em vez de começar de novo.
+
+Se a primeira passagem ainda tiver decisões responsáveis, o agente pode fazer uma
+**Formulário de perguntas abertas** na parte inferior do mesmo plano. Respondendo e enviando
+o agente inicia uma revisão do plano existente.
+
+## O que você pode fazer com isso
+
+- **Revisão antes da implementação.** React para diagramas, wireframes, guias de opções,
+  Formulários de perguntas abertas, notas de risco, orientações de código anotadas e código
+  visualiza antes que o agente edite os arquivos.
+- **Comente diretamente sobre o plano.** Fixe o feedback em texto, imagens, wireframes ou
+  locações de telas; escolha se o comentário é para o agente ou para um humano
+  revisor; @mencione companheiros de equipe com fichas inline; e resolver comentários como
+  o plano evolui.
+- **Entregue o feedback ao agente de forma clara.** Comentários de texto anexados ao mais próximo
+  bloco de prosa, comentários visuais incluem metadados de destino exatos e navegador
+  a transferência inclui capturas de tela focadas para um pequeno conjunto de comentários visuais/de tela
+  locais em vez de uma imagem gigante difícil de ler.
+- **Exporte o resultado.** Mantenha um recibo HTML, Markdown ou JSON do plano
+  quando você precisar de uma transferência compatível com controle de origem.
+
+## Editando no navegador como convidado {#guest}
+
+As pessoas com quem você compartilha um plano não precisam instalar nada. Eles abrem os Planos
+editor e **crie e edite sem inscrição** — eles trabalham como convidados. Fazendo login
+é obrigatório apenas quando alguém deseja **salvar ou compartilhar** seu próprio trabalho.
+
+Quando um convidado faz login, os planos que ele criou como convidado são **reivindicados** em
+sua conta, então nada que eles construíram será perdido.
+
+Planeje edições em prosa in-line: clique em qualquer seção de texto, digite e formate com recursos avançados
+barra de ferramentas do editor ou menu de barra, e Planos salva automaticamente a redução subjacente. Revisão
+o modo de anotação torna temporariamente as seções de texto somente leitura para que os cliques possam fixar
+feedback; saia do modo de revisão para continuar editando a prosa.
+
+## Compartilhando e comentando {#sharing}
+
+Compartilhar e comentar são os fluxos de trabalho que precisam de uma conta:
+
+- **Visualizar** um plano público ou compartilhado funciona para qualquer pessoa com o link, sem conta
+  obrigatório.
+- **Comentar** em um plano compartilhado requer uma conta nativa do agente.
+- **Compartilhamento** de um plano (publicação em um link, compartilhamento privado, acesso de revisor,
+  revisão entre dispositivos ou em equipe) requer login. O login do Google aparece quando
+  as variáveis de ambiente padrão do Google OAuth estão configuradas.
+
+O conector de planos hospedados fica em `https://plan.agent-native.com/_agent-native/mcp`.
+Nunca coloque segredos compartilhados em arquivos de habilidades.
+
+## Modo de privacidade de arquivos locais {#local-files}
+
+Para trabalhos focados na privacidade, solicite o modo de arquivos locais:
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+ou defina a convenção para o ambiente do seu agente:
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+Neste modo o agente grava uma pasta MDX local e não deve chamar a pasta hospedada
+Planeje ferramentas MCP. Use uma pasta repo como `plans/<slug>/` quando quiser o plano
+fez check-in com o código. Use uma pasta temporária ou ignorada, como
+`/tmp/agent-native-plans/<slug>/` ou `.agent-native/plans/<slug>/`, quando
+o plano deve ficar fora do git. A pasta contém:
+
+- `plan.mdx`
+- `canvas.mdx` opcional
+- `prototype.mdx` opcional
+- `.plan-state.json` opcional
+
+Depois de escrever a pasta, o agente inicia uma pequena ponte localhost e abre o
+Plano UI hospedado nessa fonte somente local:
+
+```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+A ponte URL se parece com
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+A página é o visualizador normal do Plano, mas o navegador busca `plan.mdx`,
+`canvas.mdx`, `prototype.mdx`, `.plan-state.json` e recursos de imagem locais de
+a ponte localhost. O conteúdo do plano não é gravado no banco de dados hospedado e é
+não enviado através do Plano hospedado actions. Mantenha o processo de ponte em execução enquanto você
+revisão; o URL é local para sua máquina e não é um link de equipe compartilhável. O
+o comando serve grava o URL aberto em `.plan-url` por padrão para que os agentes de codificação possam
+capturá-lo sem raspar o stdout de longa duração; trate esse arquivo como somente local
+porque URL contém o token da ponte e não o confirme.
+
+No macOS, `--open` prefere o Chrome/Chromium porque o Safari pode bloquear o hospedado
+Página Plano HTTPS ao buscar uma ponte de host local HTTP. Para sem cabeça
+solução de problemas, execute:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify` inicia a ponte, verifica o comprovante da rede privada e JSON
+carga útil, imprime diagnósticos e sai.
+
+Se você executar o aplicativo Plan localmente com o mesmo `PLAN_LOCAL_DIR`, também poderá
+abra a rota editável do aplicativo:
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+Para pastas apoiadas por repositório, a rota local direta pode transportar o relativo ao repositório
+caminho da pasta para que as edições do navegador continuem gravando nessa pasta:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+O aplicativo Plan usa `apps.plan.roots[0].path` em `agent-native.json` como
+local de repositório padrão para planos locais promovidos, voltando para `plans/`:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+As rotas locais diretas do plano incluem uma ação de menu para salvar uma pasta local temporária
+nesse local do repositório. Após a promoção, a página reabre com `?path=...` e
+continua salvando automaticamente as edições MDX na pasta repo.
+
+O modo de arquivos locais evita que o conteúdo do plano ou recapitulação vá para o Agent-Native
+Banco de dados do plano. Também desativa o compartilhamento hospedado, comentários do navegador, histórico de planos,
+e publicar/exportar recibos até que você opte explicitamente pela publicação. Para mover um
+plano local no banco de dados hospedado, chame `publish-visual-plan` com o local
+Caminho da pasta MDX; isso carrega o plano, atribui a ele um ID hospedado e permite o compartilhamento
+e comentando e retorna o URL hospedado. O modo de arquivos locais não
+tornar automaticamente o LLM do seu agente de codificação local; escolha um local ou aprovado
+modele se esse limite de privacidade também é importante.
+
+## Sincronização de arquivos locais na área de trabalho {#desktop-local-sync}
+
+O Agent Native Desktop também oferece aos planos hospedados uma ponte nativa de pastas locais. Isto
+é diferente do modo de privacidade de arquivos locais: o banco de dados do Plano hospedado permanece o
+fonte de verdade para compartilhamento, comentários, histórico e revisão ao vivo, enquanto Desktop
+pode espelhar os arquivos de origem do plano atual em uma pasta de sua escolha.
+
+Abra um plano no Agent Native Desktop, use **Arquivos locais** actions do menu do plano,
+então:
+
+- **Vincular pasta local** — escolha a pasta para a origem MDX desse plano.
+- **Sincronize com a pasta local** — escreva `plan.mdx`, opcional `canvas.mdx`,
+  `prototype.mdx` opcional, `.plan-state.json` opcional e recursos de imagem.
+- **Importar edições locais** — leia a pasta e aplique-a
+  `import-visual-plan-source` com o carimbo de data/hora de atualização atual do plano.
+- **Sincronização automática de alterações** — continue exportando a fonte mais recente do plano hospedado depois
+  edições feitas no aplicativo.
+
+Este caminho não requer a clonagem do aplicativo Plan ou a execução de um CLI. É para
+revisão/edição do arquivo primeiro em torno de um plano hospedado, não para manter o conteúdo do plano fora
+do banco de dados hospedado.
+
+## Excluindo dados do plano hospedado {#delete-data}
+
+Proprietários conectados podem excluir seus planos hospedados e recapitulações da lista de Planos ou
+o menu de ação do plano.
+
+- **Exclusão reversível** move o plano para a guia **Excluído** e cria o plano normal
+  visualizações/links diretos param de funcionar e remove o acesso público criando a linha
+  privado. As linhas SQL são retidas para que o proprietário possa restaurar o plano posteriormente.
+- **Restaurar** está disponível na guia **Excluídos** para planos excluídos de forma reversível.
+- **A exclusão permanente** remove a linha do plano hospedado e os comentários no escopo do plano,
+  seções, eventos de atividades, instantâneos de versões, concessões de compartilhamento, relatórios de abuso e
+  Registros de ativos SQL. O UI requer a digitação de `DELETE <plan-id>` antes do final
+  botão ativa.
+
+A exclusão permanente remove os registros do banco de dados do aplicativo Plan e os ativos apoiados por SQL
+bytes/referências. Se uma implantação usar um provedor de upload externo, provedor
+a retenção de objetos segue o ciclo de vida desse provedor porque o upload compartilhado
+atualmente não expõe a exclusão de objetos. Modo de privacidade de arquivos locais
+mantém a fonte na pasta MDX local; excluir dados hospedados não
+toque nos arquivos locais.
+
+## Instruções úteis
+
+- "Use `/visual-plan` antes de alterar o fluxo de autenticação."
+- "Crie um `/visual-plan` para a nova tela de integração com estados de dispositivos móveis e computadores."
+- "Use `/visual-plan` no plano Markdown abaixo e facilite a revisão."
+- "Execute `/visual-recap` neste PR para que eu possa revisar primeiro o formato da mudança."
+- "Use `/visual-recap` na diferença entre `main` e esta ramificação."
+- "Use `/visual-recap` no modo de arquivos locais para que nenhum conteúdo de recapitulação seja gravado no banco de dados do plano."
+
+## Recuperando-se de erros de autenticação {#auth-errors}
+
+Se uma ferramenta de Planos retornar `needs auth`, `Unauthorized` ou `Sessão
+terminado`, não tente novamente. Autentique o conector com
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+para Codex ou execute novamente `/mcp` → **Autenticar** em um host compatível com OAuth. Iniciar um
+novo thread Codex ou reinicie/recarregue o cliente relevante antes de esperar a ferramenta
+registro a ser atualizado.
+
+## Para desenvolvedores
+
+O restante deste documento é para qualquer pessoa que faça bifurcação ou auto-hospedagem do modelo de Planos.
+A maioria dos usuários deve instalar a habilidade com o CLI em vez de criar o scaffold do aplicativo.
+
+### Início rápido
+
+```bash
+npx @agent-native/core@latest create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+A habilidade apoiada pelo aplicativo hospedado usa:
+
+- Aplicativo: `https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+
+O modelo local é útil quando você está desenvolvendo os próprios Planos, testando a persistência local ou executando uma superfície de revisão totalmente auto-hospedada.
+
+### Modelo de dados
+
+O esquema reside em `templates/plan/server/db/schema.ts`. Tabelas principais:
+
+| Tabela             | O que ele contém                                                                                                                                                                                                  |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | Cada plano ou recapitulação — `title`, `brief`, `kind` (plano/recapitulação), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, estatísticas de uso, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | Seções ordenadas dentro de um plano — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                                                 |
+| `plan_comments`    | Comentários encadeados — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                                               |
+| `plan_events`      | Registro de auditoria de eventos de agente/humanos em um plano                                                                                                                                                    |
+| `plan_versions`    | Snapshots pontuais do histórico de versões                                                                                                                                                                        |
+| `plan_shares`      | Concessões de compartilhamento por principal (visualizador/editor/administrador)                                                                                                                                  |
+| `plan_guest_mints` | Registros de limite de taxa para emissão de sessão de convidado                                                                                                                                                   |
+| `plan_assets`      | Recursos de imagem in-line armazenados como base64 (substituição quando não há provedor de upload)                                                                                                                |
+
+<DataModel
+  id="doc-block-jbmdmw"
+  title="Modelo de dados do plano"
+  summary={
+    "Uma linha do plano possui seções ordenadas, além de comentários, eventos, versões, compartilhamentos e ativos inline."
+  }
+  entities={[
+    {
+      id: "plans",
+      name: "plans",
+      note: "each plan or recap",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "kind",
+          type: "enum",
+          note: "plano | recapitular",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "hosted_plan_id",
+          type: "text",
+          nullable: true,
+          note: "hosted_plan_url paired",
+        },
+        {
+          name: "source_url",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "deleted_at",
+          type: "timestamp",
+          nullable: true,
+          note: "soft delete; deleted_by paired",
+        },
+      ],
+    },
+    {
+      id: "plan_sections",
+      name: "plan_sections",
+      note: "ordered sections within a plan",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "body",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "html",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "sort_order",
+          type: "integer",
+        },
+        {
+          name: "created_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_comments",
+      name: "plan_comments",
+      note: "threaded comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "anchor",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "message",
+          type: "text",
+        },
+        {
+          name: "resolution_target",
+          type: "text",
+          nullable: true,
+          note: "agent | human | null",
+        },
+        {
+          name: "mentions_json",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "resolved_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_events",
+      name: "plan_events",
+      note: "audit log of agent/human events",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_versions",
+      name: "plan_versions",
+      note: "point-in-time snapshots",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_shares",
+      name: "plan_shares",
+      note: "per-principal grants",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "visualizador | editor | administrador",
+        },
+      ],
+    },
+    {
+      id: "plan_guest_mints",
+      name: "plan_guest_mints",
+      note: "rate-limit records for guest session issuance",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+      ],
+    },
+    {
+      id: "plan_assets",
+      name: "plan_assets",
+      note: "inline image assets as base64",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "plans",
+      to: "plan_sections",
+      kind: "1-n",
+      label: "has sections",
+    },
+    {
+      from: "plans",
+      to: "plan_comments",
+      kind: "1-n",
+      label: "has comments",
+    },
+    {
+      from: "plans",
+      to: "plan_events",
+      kind: "1-n",
+      label: "has events",
+    },
+    {
+      from: "plans",
+      to: "plan_versions",
+      kind: "1-n",
+      label: "has versions",
+    },
+    {
+      from: "plans",
+      to: "plan_shares",
+      kind: "1-n",
+      label: "has shares",
+    },
+    {
+      from: "plans",
+      to: "plan_assets",
+      kind: "1-n",
+      label: "has assets",
+    },
+  ]}
+/>
+
+### Chave actions
+
+Actions em `templates/plan/actions/`:
+
+- **Criação** — `create-visual-plan`, `create-visual-recap`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`
+- **Leitura e edição** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
+- **Lifecycle** — `delete-visual-plan` para exclusão reversível, restauração e exclusão permanente com confirmação digitada somente pelo proprietário
+- **Publicação e compartilhamento** — `publish-visual-plan`
+- **Versões** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
+- **Comentários e feedback** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`
+- **Protótipo** — `convert-visual-plan-to-prototype`, `create-prototype-plan`
+- **Contexto e navegação** — `view-screen`, `navigate`
+
+### Blocos MDX personalizados {#custom-mdx-blocks}
+
+Os arquivos de origem dos planos são MDX, mas o aplicativo não renderiza JSX importado arbitrariamente
+componentes. Uma tag MDX personalizada deve ser registrada como um bloco de plano para que o servidor possa
+analisá-lo e serializá-lo, o navegador pode renderizá-lo e editá-lo, e o agente pode
+veja-o no vocabulário de bloco retornado por `get-plan-blocks`.
+
+Um bloco registrado possui três superfícies:
+
+- Um esquema livre de React e configuração MDX, seguro para código de servidor e agente.
+- Uma entrada de tipo/esquema de tempo de execução normalizado em `shared/plan-content.ts`.
+- Uma especificação de bloco de navegador com componentes `Read` e `Edit` React opcionais.
+
+Mantenha os blocos `type` e MDX `tag` estáveis. O `type` é armazenado em formato normalizado
+plano JSON; o `tag` é o nome do componente em `plan.mdx`. O registro trata
+os atributos básicos MDX `id`, `title`, `summary` e `editable`, então não
+repita-os em `toAttrs`.
+
+1. Adicione uma configuração compartilhada para o formato dos dados e ida e volta MDX.
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. Estender o modelo de conteúdo do plano normalizado em
+   `templates/plan/shared/plan-content.ts`.
+
+Adicione o novo `type` ao `PlanBlockType`, adicione uma interface de bloco correspondente ao
+União `PlanBlock` e adicione o mesmo formato de dados a `planBlockSchema`. Isso mantém
+salvamentos de banco de dados, importações de origem e patches `update-block` validando o personalizado
+bloquear em vez de rejeitá-lo como um tipo desconhecido.
+
+3. Registre a especificação do servidor livre de React em
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description:
+    "Uma nota de risco em markdown com severidade baixa, média ou alta.",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. Registre as especificações do navegador em
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description:
+    "Uma nota de risco em markdown com severidade baixa, média ou alta.",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+Com isso implementado, o Plano MDX pode usar:
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+O registro do servidor torna esta fonte importável/exportável e o cliente
+faz com que ele seja renderizado em `PlanBlockView`. Se o bloco deve ser gerado por
+agentes, mantenham `label`, `description`, `placement` e `empty` precisos; aqueles
+os campos fluem para o vocabulário do bloco ativo.
+
+Ao substituir um bloco existente, registre a substituição após o compartilhado
+registro da biblioteca. O último registro vence para `type` e MDX `tag`.
+
+Depois de adicionar um bloco, execute testes de plano focados:
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
+### Mapa de rota
+
+- `app/routes/plans.$id.tsx` — editor de plano/superfície de revisão
+- `app/routes/plans._index.tsx` — lista de planos
+- `app/routes/share.$token.tsx` — visualização do plano público/compartilhado
+- `app/routes/local-plans.$slug.tsx` — visualização do modo de arquivos locais
+
+### Modo local (avançado, off-line) {#local-mode}
+
+Para uso totalmente offline e sem conta, você pode executar o aplicativo Planos localmente e apontá-lo para as pastas MDX locais. Para o caminho sem banco de dados mais estrito, use [local-files privacy mode](#local-files), que lê pastas MDX em vez de criar linhas SQL locais. O modo local é um caminho separado e avançado, e não o fluxo hospedado padrão.
+
+## Eventos e notificações {#events}
+
+O modelo Plan emite quatro eventos no barramento de eventos da estrutura. Qualquer automação
+pode assiná-los, sem necessidade de código de integração personalizado.
+
+### Referência do evento {#event-reference}
+
+#### `plan.created`
+
+É acionado quando um novo plano visual ou recapitulação é criado.
+
+| Campo       | Tipo                  | Descrição                                                     |
+| ----------- | --------------------- | ------------------------------------------------------------- |
+| `planId`    | string                | Identificador exclusivo do plano                              |
+| `title`     | string                | Título do plano                                               |
+| `kind`      | `"plan"` \| `"recap"` | Seja um plano ou uma recapitulação                            |
+| `status`    | string                | Status inicial (por exemplo, `"review"`)                      |
+| `path`      | string                | Caminho relativo ao aplicativo (por exemplo, `/plans/plan-…`) |
+| `createdBy` | string                | Sempre `"agent"` para criação do plano                        |
+
+#### `plan.commented`
+
+É acionado quando um ou mais comentários são adicionados a um plano.
+
+| Campo              | Tipo                             | Descrição                                                                  |
+| ------------------ | -------------------------------- | -------------------------------------------------------------------------- |
+| `planId`           | string                           | Identificador do plano                                                     |
+| `title`            | string                           | Título do plano                                                            |
+| `kind`             | `"plan"` \| `"recap"`            | Planejar ou recapitular                                                    |
+| `commentIds`       | string[]                         | IDs dos novos comentários                                                  |
+| `commentCount`     | número                           | Número de novos comentários neste lote                                     |
+| `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Alvo dominante — `"agent"` se algum comentário for direcionado a um agente |
+| `excerpt`          | string                           | Primeiros 200 caracteres do primeiro comentário                            |
+| `author`           | string\| nulo                    | E-mail do comentarista, se conhecido                                       |
+| `path`             | string                           | Caminho relativo ao aplicativo                                             |
+
+#### `plan.published`
+
+É acionado quando um plano local é publicado (ou republicado) em um URL hospedado e compartilhável.
+
+| Campo                 | Tipo                  | Descrição                               |
+| --------------------- | --------------------- | --------------------------------------- |
+| `planId`              | string                | Identificador do plano local            |
+| `title`               | string                | Título do plano                         |
+| `kind`                | `"plan"` \| `"recap"` | Planejar ou recapitular                 |
+| `hostedPlanId`        | string                | Identificador do plano hospedado        |
+| `url`                 | string                | URL público completo do plano hospedado |
+| `requestedVisibility` | string                | `"public"`, `"private"`, etc.           |
+
+#### `plan.status.changed`
+
+É acionado quando o status de um plano muda (por exemplo, `review` → `approved`).
+
+| Campo       | Tipo                  | Descrição                      |
+| ----------- | --------------------- | ------------------------------ |
+| `planId`    | string                | Identificador do plano         |
+| `title`     | string                | Título do plano                |
+| `kind`      | `"plan"` \| `"recap"` | Planejar ou recapitular        |
+| `oldStatus` | string \| nulo        | Status anterior                |
+| `newStatus` | string                | Novo status                    |
+| `changedBy` | sequência \| nulo     | E-mail da pessoa que alterou   |
+| `path`      | string                | Caminho relativo ao aplicativo |
+
+### Receitas de automação {#automation-recipes}
+
+Essas automações são criadas solicitando ao agente do plano – não são necessárias alterações de código.
+O agente chama `manage-automations` com `action=define`, escreve um
+recurso `jobs/<name>.md` e a assinatura do evento começa imediatamente.
+
+#### Notificar via webhook quando alguém comentar sobre um plano
+
+Pergunte ao agente do plano:
+
+> "Quando alguém adiciona um comentário humano em um plano, POST envia uma mensagem para meu webhook."
+
+O agente cria uma automação como esta:
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
+  - "title": the plan title from the event payload
+  - "excerpt": the comment excerpt from the event payload
+  - "url": the base app URL concatenated with the path field from the event payload
+  - "author": the author field from the event payload (may be null)
+```
+
+Antes que a automação possa ser acionada, você precisa adicionar o webhook URL como uma chave ad-hoc:
+
+1. Vá para **Configurações → Chaves** e adicione uma chave chamada `NOTIFY_WEBHOOK` com seu
+   webhook URL (por exemplo, um webhook de entrada Slack, um endpoint HTTP genérico ou qualquer
+   serviço de notificação URL).
+2. Opcionalmente, defina uma lista de permissões URL na chave para restringir quais origens ela pode
+   POST para.
+
+A ferramenta `web-request` resolve `${keys.NOTIFY_WEBHOOK}` no lado do servidor antes
+envio — o URL bruto nunca aparece no contexto do agente.
+
+**Para direcionar Slack especificamente:** defina `NOTIFY_WEBHOOK` para seu Slack de entrada
+webhook URL
+(`https://hooks.slack.com/services/…`). O corpo de automação acima já
+produz uma carga útil que o webhook de entrada do Slack aceita por meio do `text` ou `blocks`
+campos — peça ao agente para formatar o corpo como uma mensagem Slack se você quiser mais rico
+formatação.
+
+#### Acorde o agente de codificação quando o feedback for direcionado a ele
+
+Para feedback direcionado ao agente de codificação (`resolutionTarget === "agent"`), pergunte:
+
+> "Quando um comentário do plano for direcionado ao agente, execute meu agente de codificação com o plano
+> trecho como contexto."
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is agent"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+Use the manage-notifications action or web-request tool to alert the coding agent
+that new agent-targeted feedback has arrived on plan ${planId}: "${excerpt}".
+Include the plan path so the agent can navigate directly to it.
+```
+
+Como a automação executa um loop completo do agente (`mode: agentic`), ela pode chamar
+`web-request`, enviar notificações ou invocar qualquer ação à qual o agente tenha acesso.
+O mecanismo exato de entrega depende de quais canais de notificação você possui
+configurado — o agente escolhe o melhor disponível.
+
+## O que vem a seguir
+
+- [**PR Visual Recap**](/docs/pr-visual-recap) — execute `/visual-recap` automaticamente em cada solicitação pull
+- [**Automations**](/docs/automations) — automações programadas e acionadas por eventos
+- [**Plan plugin & marketplace**](/docs/plan-plugin) — instale o Plano skills como um código Claude ou plugin Codex
+- [**Skills**](/docs/skills-guide) — como Agent-Native instala skills
+- [**MCP Clients**](/docs/mcp-clients) — configurando conectores MCP hospedados
+- [**Templates**](/docs/cloneable-saas) — o modelo clone e próprio

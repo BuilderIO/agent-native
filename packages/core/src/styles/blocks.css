@@ -1177,6 +1177,10 @@
   border-radius: var(--wf-radius);
   padding: 12px;
 }
+.plan-html-frame[data-style="sketchy"]:not([data-render-mode="design"])
+  :is(.wf-card, .wf-box) {
+  border-color: color-mix(in srgb, var(--wf-line) 72%, transparent);
+}
 .plan-html-frame:not([data-render-mode="design"]) .wf-pill,
 .plan-html-frame:not([data-render-mode="design"]) .wf-chip {
   display: inline-flex;
@@ -1193,10 +1197,18 @@
   background: var(--wf-accent-soft);
 }
 
-/* Once rough has drawn, hide the crisp borders so there's no doubling. Pills
-   keep their rounded crisp border (the rough overlay rounds them too). */
+/* Once rough has drawn, hide crisp borders only on elements rough.js actually
+   redraws. Broad helper containers keep theme-safe filled backgrounds and soft
+   borders so nested cards do not become a pile of overlapping sketch strokes. */
 .plan-html-frame[data-rough-ready]
-  :is(button, input, textarea, select, .wf-card, .wf-box, hr, [data-rough]) {
+  :is(
+    button,
+    input,
+    textarea,
+    select,
+    hr,
+    [data-rough]:not([data-rough="none"])
+  ) {
   border-color: transparent !important;
 }
 
@@ -1231,6 +1243,7 @@
   --wf-muted: var(--plan-muted, hsl(var(--muted-foreground)));
   --wf-line: var(--plan-line, hsl(var(--border)));
   --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
+  --wf-diagram-line: var(--wf-line);
   --wf-paper: var(--plan-document, hsl(var(--background)));
   --wf-card: var(--plan-block, hsl(var(--card)));
   --wf-accent: hsl(var(--ring));
@@ -1256,6 +1269,10 @@
   line-height: 1.4;
 }
 
+.plan-diagram-frame[data-theme="dark"] {
+  --wf-diagram-line: color-mix(in srgb, var(--wf-sketch) 72%, var(--wf-line));
+}
+
 .plan-diagram-frame[data-style="sketchy"] {
   --wf-font: var(--wf-font-hand);
   line-height: 1.32;
@@ -1275,9 +1292,7 @@
 }
 
 .plan-diagram-frame-content
-  > :is(.diagram-panel, .diagram-card, .diagram-box):not([data-rough]):not(
-    [data-diagram-frame]
-  ) {
+  > .diagram-panel:not([data-rough]):not([data-diagram-frame]) {
   --rough-skip: 1;
   background: transparent;
   border-color: transparent;
@@ -1318,7 +1333,8 @@
 
 .plan-diagram-frame
   :is(.diagram-panel, .diagram-card, .diagram-node, .diagram-box) {
-  border: 1.25px solid var(--wf-line);
+  --rough-stroke: var(--wf-diagram-line);
+  border: 1.25px solid var(--wf-diagram-line);
   border-radius: var(--wf-radius);
   background: var(--wf-card);
 }
@@ -1333,7 +1349,8 @@
     [class*="panel"],
     [class*="box"]
   ) {
-  border-color: var(--wf-line) !important;
+  --rough-stroke: var(--wf-diagram-line);
+  border-color: var(--wf-diagram-line) !important;
   background: var(--wf-card) !important;
   color: var(--wf-ink) !important;
 }
@@ -1366,7 +1383,8 @@
 
 .plan-diagram-frame
   :is(.diagram-pill, [class*="pill"], [class*="badge"], [class*="chip"]) {
-  border-color: var(--wf-line) !important;
+  --rough-stroke: var(--wf-diagram-line);
+  border-color: var(--wf-diagram-line) !important;
   background: var(--wf-paper) !important;
   color: var(--wf-ink) !important;
 }
@@ -1411,7 +1429,7 @@
    * variant used across the docs diagrams stays pill-shaped, not a full bar. */
   width: fit-content;
   max-width: 100%;
-  border: 1px solid var(--wf-line);
+  border: 1px solid var(--wf-diagram-line);
   border-radius: 999px;
   padding: 3px 11px;
   color: var(--wf-ink);
@@ -1453,6 +1471,16 @@
     [data-rough],
     hr
   ) {
+  border-color: color-mix(
+    in srgb,
+    var(--wf-diagram-line) 54%,
+    transparent
+  ) !important;
+}
+
+.plan-diagram-frame[data-rough-ready]
+  .plan-diagram-frame-content
+  > .diagram-panel:not([data-rough]):not([data-diagram-frame]) {
   border-color: transparent !important;
 }
 

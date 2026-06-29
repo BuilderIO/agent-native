@@ -1,0 +1,281 @@
+---
+title: "Banco de dados"
+description: "Conecte um banco de dados SQL portátil ao seu aplicativo nativo do agente e escreva o código Drizzle independente do provedor."
+---
+
+# Banco de dados
+
+Os aplicativos nativos do agente usam [Drizzle ORM](https://orm.drizzle.team) e oferecem suporte a back-ends SQL portáteis. Para qualquer coisa além do desenvolvimento local, conecte um banco de dados SQL persistente — Postgres, libSQL/Turso ou outro back-end compatível com Drizzle — configurando `DATABASE_URL`. Quando essa variável não é definida, o aplicativo volta para um arquivo SQLite local com configuração zero para que você possa começar a desenvolver imediatamente.
+
+<Diagram id="doc-block-16ajvk8" title="Um esquema, muitos back-ends" summary={"O código do aplicativo usa os auxiliares independentes de dialeto da estrutura. O dialeto é detectado automaticamente em DATABASE_URL em tempo de execução; unset significa um arquivo SQLite local."}>
+
+```html
+<div class="diagram-db">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">@agent-native/core/db/schema</span
+    ><small class="diagram-muted">table · text · integer · real · now</small
+    ><small class="diagram-muted">+ Drizzle query DSL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    DATABASE_URL<br /><small class="diagram-muted">dialect auto-detected</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <span class="diagram-pill"
+      >Postgres<br /><small class="diagram-muted">Neon · Supabase</small></span
+    ><span class="diagram-pill">libSQL / Turso</span
+    ><span class="diagram-pill">Cloudflare D1</span
+    ><span class="diagram-pill warn"
+      >SQLite file<br /><small class="diagram-muted"
+        >unset = local dev only</small
+      ></span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-db {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-db .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-db .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-db .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+```
+
+</Diagram>
+
+## Padrão local: arquivo SQLite {#default-sqlite}
+
+Quando `DATABASE_URL` não está definido, o aplicativo cria um banco de dados SQLite em `data/app.db`. Este é o padrão de configuração zero para desenvolvimento local – nenhuma configuração é necessária. Destina-se apenas ao desenvolvimento; para produção, defina `DATABASE_URL` como um banco de dados SQL persistente.
+
+Não confie nesse arquivo local para aplicativos implantados. Contêineres, funções sem servidor e ambientes de visualização podem redefinir seu sistema de arquivos, o que significa que um arquivo SQLite local pode desaparecer entre as reinicializações. Configure `DATABASE_URL` para um banco de dados hospedado persistente antes do uso em produção.
+
+## Conectando um banco de dados de produção {#production}
+
+Defina `DATABASE_URL` em seu arquivo `.env` ou ambiente do provedor de implantação para conectar um banco de dados hospedado. Turso não é obrigatório; use qualquer back-end SQL compatível com Drizzle adequado à sua implantação:
+
+```bash
+# Neon Postgres
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase Postgres
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# Plain Postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso (libSQL)
+DATABASE_URL=libsql://my-db-org.turso.io
+DATABASE_AUTH_TOKEN=your-token
+```
+
+A estrutura detecta automaticamente o dialeto do URL e configura o Drizzle adequadamente. Os adaptadores integrados cobrem Postgres URLs, libSQL/Turso URLs, arquivo SQLite URLs e ligações Cloudflare D1. As opções de produção comuns incluem Neon, Supabase, Turso/libSQL, Postgres simples, SQLite durável e ambientes gerenciados por Builder.io, quando disponíveis.
+
+## Banco de dados gerenciado Builder.io {#builder-managed}
+
+_Planejado (ainda não disponível):_ quando conectado ao Builder.io, seu aplicativo poderá usar um banco de dados gerenciado provisionado automaticamente, sem a necessidade de cadeias de conexão.
+
+## Onde reside o cliente do banco de dados {#db-client}
+
+Cada modelo cria um cliente Drizzle singleton preguiçoso chamando `createGetDb(schema)` de `@agent-native/core/db`. A localização canônica é `server/db/index.ts`:
+
+```ts
+// server/db/index.ts
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+Importe `getDb` deste caminho local de modelo — `../../server/db/index.js` em rotas, `../server/db/index.js` em actions — em vez de `@agent-native/core` diretamente. A exportação principal retorna uma instância genérica sem tipo; o `getDb()` do modelo carrega seus tipos de esquema. Consulte [Server](/docs/server#request-context) para saber como actions e rotas personalizadas o importam.
+
+## Esquema e consultas independentes de dialeto {#schema}
+
+O código do banco de dados do aplicativo deve usar o esquema de Drizzle e consultar DSL para que possa ser executado em vários provedores. Nunca escreva sintaxe somente SQLite (`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`) ou sintaxe somente Postgres no código do produto.
+
+Use os auxiliares de esquema da estrutura de `@agent-native/core/db/schema`:
+
+```ts
+import { table, text, integer, real, now } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  weight: real("weight"),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| Ajudante  | Propósito                                                                   |
+| --------- | --------------------------------------------------------------------------- |
+| `table`   | Definir uma tabela — delegar para `pgTable` ou `sqliteTable`                |
+| `text`    | Coluna de texto, compatível com `{ enum: [...] }`                           |
+| `integer` | Coluna inteira, `{ mode: "boolean" }` mapeia para Postgres booleano         |
+| `real`    | Coluna flutuante — `real` em SQLite, `double precision` em Postgres         |
+| `now`     | Carimbo de data e hora atual independente de dialeto para `.default(now())` |
+
+A tabela `tasks` acima define as mesmas colunas em cada back-end:
+
+<DataModel
+  id="doc-block-19her11"
+  title="A tabela de tarefas"
+  summary={
+    "Definida uma vez com os auxiliares do framework; o dialeto é escolhido em tempo de execução a partir de DATABASE_URL."
+  }
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Tabela de domínio. Adicione owner_email (ou ...ownableColumns()) para que o escopo no nível SQL filtre as linhas para o usuário autenticado.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "weight",
+          type: "real",
+          nullable: true,
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
+
+Nunca importe diretamente de `drizzle-orm/sqlite-core` ou `drizzle-orm/pg-core`. Sempre use `@agent-native/core/db/schema`.
+
+As tabelas que armazenam dados voltados ao usuário devem incluir uma coluna `owner_email` para que o escopo no nível SQL da estrutura possa filtrar linhas para o usuário autenticado — consulte [Security](/docs/security#data-scoping). As tabelas que também oferecem suporte ao compartilhamento com outros usuários ou organizações devem distribuir `...ownableColumns()`, o que adiciona `owner_email`, `org_id` e `visibility` em uma chamada — consulte [Sharing](/docs/sharing#building).
+
+Para leituras e gravações, use o construtor de consultas do Drizzle e os operadores portáteis do `drizzle-orm`:
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import { tasks } from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(tasks)
+  .where(and(eq(tasks.ownerEmail, userEmail), eq(tasks.done, false)))
+  .orderBy(desc(tasks.createdAt));
+
+await db.update(tasks).set({ done: true }).where(eq(tasks.id, taskId));
+```
+
+## Escotilhas de escape SQL brutas {#raw-sql}
+
+SQL bruto não é o código de aplicativo padrão API. Use-o apenas para migrações aditivas, verificações de integridade, consultas avançadas cuidadosamente revisadas que Drizzle não consegue expressar ou manutenção única. Mantenha-o parametrizado e independente de dialeto. Para carimbos de data/hora em esquemas Drizzle, prefira `.default(now())`; para a migração SQL, use `runMigrations()` para que as reescritas de compatibilidade suportadas pela estrutura e as instruções controladas por dialeto permaneçam centralizadas.
+
+Para casos em que você realmente precisa de SQL bruto fora das consultas Drizzle:
+
+- `getDbExec()` — converte automaticamente os parâmetros `?` em `$1` para Postgres
+- `isPostgres()` — verificação de dialeto em tempo de execução
+- `intType()` — retorna o tipo inteiro correto para o dialeto atual
+
+## Migrações e atualizações de esquema {#migrations}
+
+Em ambientes hospedados, várias visualizações de implantação, ramificações e o servidor de produção compartilham o mesmo banco de dados subjacente. Portanto, as atualizações do esquema do banco de dados devem seguir restrições rígidas para evitar perda de dados e interrupção do serviço.
+
+### A regra "Zero alterações destrutivas"
+
+Todas as atualizações do esquema do banco de dados devem ser **estritamente aditivas**.
+
+- **Não descarte tabelas ou colunas.**
+- **Não renomeie tabelas ou colunas.** Renomear uma coluna ou tabela parece uma sequência de soltar + criar para Drizzle, o que excluirá permanentemente seus dados de produção existentes.
+- Se uma coluna precisar ser renomeada ou substituída, adicione a nova coluna ao lado da antiga, atualize o código do seu aplicativo para ler/gravar em ambos, migre os dados e retire a coluna antiga apenas em uma versão posterior, quando nenhuma implantação ativa estiver fazendo referência a ela.
+
+> [!WARNING]
+> **Nunca execute `drizzle-kit push` em um banco de dados de produção.**
+> Os esquemas de banco de dados modelo definem apenas tabelas de domínio específicas do aplicativo; eles não definem tabelas de estrutura central (`user`, `session`, `application_state`, etc.). Se você executar `drizzle-kit push` na produção, o Drizzle detectará essas tabelas de estrutura como "fora do esquema" e tentará descartá-las, causando falha imediata em todo o sistema e perda de dados.
+
+### Caminho de migração seguro
+
+Em vez de enviar diretamente, as alterações de esquema devem ser aplicadas por meio de migrações SQL executadas na inicialização do aplicativo. Implemente migrações aditivas em um plugin de servidor (por exemplo, `server/plugins/db.ts`) invocando o auxiliar `runMigrations()` da estrutura:
+
+<AnnotatedCode
+  id="doc-block-vhf88u"
+  title={"Um plugin de migração aditivo"}
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+  }
+  annotations={[
+    {
+      lines: "6-7",
+      label: "Somente aditivo",
+      note: "`ADD COLUMN IF NOT EXISTS` é seguro para ser executado novamente e nunca descarta dados. As renomeações parecem drop+create para Drizzle, então adicione e migre.",
+    },
+    {
+      lines: "13-16",
+      label: "Controle de dialeto",
+      note: "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features.",
+    },
+    {
+      lines: "19",
+      label: "Tabela de versões por aplicativo",
+      note: "Cada aplicativo rastreia suas próprias versões aplicadas para que as migrações sejam idempotentes entre reinicializações e instâncias.",
+    },
+  ]}
+/>
+
+## Variáveis de ambiente {#environment-variables}
+
+| Variável              | Propósito                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | Sequência de conexão SQL persistente (não definida = SQLite local, que é durável apenas para desenvolvimento local) |
+| `DATABASE_AUTH_TOKEN` | Token de autenticação para provedores que exigem um token separado, como Turso/libSQL                               |

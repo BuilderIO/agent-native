@@ -1,0 +1,217 @@
+---
+title: "Recurring Jobs"
+description: "Cron-scheduled prompts the agent runs on its own — daily digests, weekly reports, hourly polling."
+---
+
+# Recurring Jobs
+
+A **recurring job** is a prompt that runs on a cron schedule. It's how the agent does things on its own: "every morning at 7 summarize my overnight emails," "every Monday post last week's signup numbers to Slack," "every hour sweep for stale drafts and delete them."
+
+Recurring jobs fire on a clock. To react to _events_ (a booking created, an email received) — same `jobs/` file format plus conditions — see [Automations](/docs/automations).
+
+Jobs live in the [workspace](/docs/workspace) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
+
+## A job file {#job-file}
+
+<AnnotatedCode
+  id="doc-block-3pl82t"
+  title="jobs/morning-digest.md"
+  filename="jobs/morning-digest.md"
+  language="markdown"
+  code={
+    '---\nschedule: "0 7 * * *"\nenabled: true\nrunAs: creator\n---\n\n# Morning digest\n\nSummarize the emails received overnight. Group by sender domain.\nPin the top 3 threads that look like they need a reply today to the\n"Needs reply" label. Draft replies for any that are obvious.'
+  }
+  annotations={[
+    {
+      lines: "2",
+      label: "When",
+      note: "Standard 5-field cron — `0 7 * * *` is every day at 07:00.",
+    },
+    {
+      lines: "3",
+      label: "Pause switch",
+      note: "Flip to `false` to stop the job without deleting it.",
+    },
+    {
+      lines: "4",
+      label: "Identity",
+      note: "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key.",
+    },
+    {
+      lines: "7-12",
+      label: "The prompt",
+      note: "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context.",
+    },
+  ]}
+/>
+
+That's it. The body is a prompt the agent runs at each scheduled firing. The agent has access to all the same tools and workspace context it has in an interactive chat — actions, skills, memory, connected MCP servers, sub-agents.
+
+## Frontmatter {#frontmatter}
+
+| Field        | Type                          | Default      | Description                                                                                            |
+| ------------ | ----------------------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `schedule`   | cron expression               | _(required)_ | Standard 5-field cron. `"0 7 * * *"` = every day at 07:00; `"0 */4 * * *"` = every 4 hours.            |
+| `enabled`    | boolean                       | `true`       | Flip to `false` to pause without deleting the job.                                                     |
+| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` runs with the job owner's identity and `ANTHROPIC_API_KEY`. `"shared"` uses the org's key. |
+| `createdBy`  | email                         | _(auto)_     | Populated when the job is created through the workspace UI or by the agent.                            |
+| `orgId`      | string                        | _(auto)_     | Org scope; inherited from the creator's active org.                                                    |
+| `lastRun`    | ISO timestamp                 | _(managed)_  | Written by the scheduler after each run.                                                               |
+| `lastStatus` | `"success"` \| `"error"` \| … | _(managed)_  | Latest outcome.                                                                                        |
+| `lastError`  | string                        | _(managed)_  | Error message if the last run failed.                                                                  |
+| `nextRun`    | ISO timestamp                 | _(managed)_  | Computed from `schedule`; used by the scheduler to decide when to fire next.                           |
+
+The `last*` and `nextRun` fields are written by the scheduler. You can read them to see the history, but don't edit them by hand — the next run will overwrite.
+
+## Cron syntax {#cron}
+
+Standard 5-field cron (minute, hour, day-of-month, month, day-of-week):
+
+| Cron           | Meaning                  |
+| -------------- | ------------------------ |
+| `*/5 * * * *`  | Every 5 minutes          |
+| `0 * * * *`    | Every hour on the hour   |
+| `0 */4 * * *`  | Every 4 hours            |
+| `0 7 * * *`    | Every day at 07:00       |
+| `0 9 * * 1`    | Every Monday at 09:00    |
+| `0 17 * * 1-5` | Weekdays at 17:00        |
+| `0 0 1 * *`    | First day of every month |
+
+The framework includes cron utilities (`isValidCron()` and `describeCron()`) for validating and rendering cron strings, used internally by the resource and scheduler layers.
+
+## Creating a job {#creating}
+
+### From the Workspace tab
+
+`+` → **Scheduled Task** in the workspace panel. Fill in the prompt and schedule. Saves as `jobs/<slug>.md` and starts running on the next matching tick.
+
+### By asking the agent
+
+> "Create a scheduled task that summarizes my unread emails every morning at 7."
+
+The agent writes the file for you.
+
+### By hand
+
+Drop a Markdown file in `jobs/` via the framework's resource APIs:
+
+```ts
+import { resourcePut } from "@agent-native/core/resources";
+
+await resourcePut(
+  ownerEmail,
+  "jobs/morning-digest.md",
+  `---
+schedule: "0 7 * * *"
+enabled: true
+---
+Summarize overnight emails.`,
+);
+```
+
+## How the scheduler runs {#how-scheduler-runs}
+
+The scheduler is a framework plugin (the internal `processRecurringJobs()` routine) that runs in-process: a `setInterval` fires every 60 seconds (with a 10-second startup delay) inside the agent chat plugin, wherever the server is running.
+
+<Diagram id="doc-block-14nqnkx" title="One scheduler tick" summary="Every 60s the scheduler finds due jobs, runs each as a fresh agent thread, and writes the outcome back to the job file.">
+
+```html
+<div class="sched">
+  <div class="diagram-box accent">
+    <code>setInterval</code> &bull; 60s &#8635;
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">1 &middot; scan</span
+    ><small class="diagram-muted"
+      >list every enabled <code>jobs/*.md</code> across all owners</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2 &middot; due?</span
+    ><small class="diagram-muted">compare <code>nextRun</code> to now</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">3 &middot; run</span
+    ><small class="diagram-muted"
+      >fresh agent thread, job body as the user message &mdash; actions, SQL,
+      A2A, email</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">4 &middot; record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code>, recompute <code>nextRun</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.sched {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 520px;
+}
+.sched .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.sched .diagram-box {
+  align-self: flex-start;
+}
+.sched .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
+}
+```
+
+</Diagram>
+
+<Callout id="doc-block-j6yn07" tone="risk">
+
+**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+
+</Callout>
+
+## Debugging a job {#debugging}
+
+- Open `jobs/<name>.md` in the workspace — the frontmatter shows `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron).
+- **Pause it:** flip `enabled: false`. The file stays put, just stops running.
+
+## Agent tool {#agent-tool}
+
+A single `manage-jobs` tool is registered in every template. The `action` parameter selects the operation:
+
+| Action   | Parameters                                                        | Purpose                                                      |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`   | Create a new recurring job                                   |
+| `list`   | `scope` (`personal`, `shared`, or all)                            | List all jobs with status (schedule, enabled, last/next run) |
+| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs` | Edit an existing job                                         |
+| `delete` | `name` (required)                                                 | Delete a job — always confirm with the user first            |
+
+**Personal vs shared scope.** Each job lives in either personal scope (runs as and is visible only to the creator) or shared/org scope (runs on behalf of the creator but is visible to org members). The `scope` and `runAs` parameters control this at create time. Org admins can update or delete any shared job; non-admin members can only manage their own.
+
+## Different from the scheduling package {#vs-scheduling-package}
+
+Don't confuse recurring jobs with `@agent-native/scheduling`:
+
+- **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in the workspace. Runs on any agent-native app.
+- **`@agent-native/scheduling`** — a reusable domain package for building calendar/booking features (event types, availability windows, bookings). Powers the `calendar` template and custom scheduling surfaces.
+
+Recurring jobs are "how do I make the agent act on its own?" The scheduling package is "how do I build a calendar app?" Different concerns.
+
+## What's next
+
+- [**Automations**](/docs/automations) — add event triggers and conditions to the same `jobs/` format
+- [**Workspace**](/docs/workspace) — where jobs live alongside skills, memory, and custom agents
+- [**Actions**](/docs/actions) — the tools a job calls
+- [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work

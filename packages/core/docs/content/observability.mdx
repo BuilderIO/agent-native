@@ -1,0 +1,387 @@
+---
+title: "Observability"
+description: "Agent traces, evals, feedback, A/B experiments, and the built-in dashboard — all with zero configuration."
+---
+
+# Agent Observability
+
+Every agent-native app gets observability out of the box. Traces, automated evals, user feedback, and A/B experiments work with zero configuration — all data lives in the app's own SQL database.
+
+This page covers _agent quality_ metrics: traces, cost, evals, and feedback stored in your database. For _product_ analytics (your app's events flowing to PostHog/Mixpanel/Amplitude), see [Tracking](/docs/tracking).
+
+## Three things called "evals"/"observability" — which do I want? {#which}
+
+These three pages are easy to confuse. Pick by the question you're asking:
+
+| Page                                                   | The question it answers                                    | When it runs                                 | Concern        |
+| ------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------- | -------------- |
+| **Observability evals** (this page, the _Evals_ tab)   | "How did my real production runs do?"                      | Passive, after every run (LLM-judge sampled) | Quality        |
+| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "Does the agent do the right thing on this fixed input?"   | Active, deterministic, a CI/deploy gate      | Quality        |
+| **[Observational Memory](/docs/observational-memory)** | "Is this long thread staying cheap and inside the window?" | Background compaction on long threads        | Cost / context |
+
+Observability and the CI Eval Gate both score _quality_ but from opposite ends — passive post-hoc scoring of real traffic vs. active pass/fail checks on fixed inputs. Observational Memory is unrelated to quality; it's about token cost and context-window pressure.
+
+## What's captured automatically {#captured}
+
+When a user sends a message, the framework automatically records:
+
+- **Token usage** — input, output, cache read, cache write
+- **Cost** — computed from token counts and model pricing
+- **Latency** — total duration and time per tool call
+- **Tool calls** — which actions were invoked, success/error status, duration
+- **Automated evals** — 5 quality scores computed after every run
+
+No code changes needed. The instrumentation hooks into `production-agent.ts` transparently.
+
+<Diagram id="doc-block-uk8piw" title="Every run feeds the loop" summary={"One agent run produces a trace, automated scores, and a feedback hook — all stored in the app's own SQL and surfaced on the dashboard. Experiments split traffic across config variants."}>
+
+```html
+<div class="obs-loop">
+  <div class="diagram-node">
+    Agent run<br /><small class="diagram-muted">production-agent.ts</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Captured automatically</span
+    ><small class="diagram-muted"
+      >tokens &middot; cost &middot; latency &middot; tool calls</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">Traces &amp; spans</div>
+    <div class="diagram-box">Evals (5 scorers + LLM judge)</div>
+    <div class="diagram-box">Feedback &amp; frustration index</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    Dashboard<br /><small class="diagram-muted"
+      >scoped to the signed-in user</small
+    >
+  </div>
+</div>
+```
+
+```css
+.obs-loop {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.obs-loop .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.obs-loop .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.obs-loop .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## The dashboard {#dashboard}
+
+Add the dashboard to any template with a single route:
+
+```tsx
+// app/routes/observability.tsx
+import { ObservabilityDashboard } from "@agent-native/core/client";
+
+export default function ObservabilityPage() {
+  return (
+    <div className="min-h-screen bg-background p-6">
+      <ObservabilityDashboard />
+    </div>
+  );
+}
+```
+
+All data is scoped to the signed-in user; there is no cross-user admin view today.
+
+The dashboard has 5 tabs:
+
+| Tab               | What it shows                                                                   |
+| ----------------- | ------------------------------------------------------------------------------- |
+| **Overview**      | Key metrics — runs, cost, latency, tool success rate, satisfaction, eval score  |
+| **Conversations** | Trace list with drill-down to individual spans (agent_run, llm_call, tool_call) |
+| **Evals**         | Automated eval scores by criteria, trends over time                             |
+| **Experiments**   | A/B test list with status badges, variant results with confidence intervals     |
+| **Feedback**      | Thumbs up/down stream, category breakdown, frustration scores                   |
+
+## User feedback {#feedback}
+
+### Explicit feedback
+
+Thumbs up/down buttons render inline on every agent message in the chat UI. Thumbs down opens a category popover (Inaccurate, Not helpful, Wrong tool, Too slow). This is wired into `AssistantChat.tsx` automatically.
+
+### Implicit feedback (frustration index)
+
+The framework computes a Frustration Index (0-100) from conversation signals:
+
+| Signal         | Weight | What it detects                     |
+| -------------- | ------ | ----------------------------------- |
+| Rephrasing     | 30%    | User repeats similar messages       |
+| Retry patterns | 20%    | "Try again", "no that's wrong"      |
+| Abandonment    | 20%    | Session ends shortly after response |
+| Sentiment      | 15%    | Negative language patterns          |
+| Length trend   | 15%    | Declining message lengths           |
+
+Score interpretation: 0-20 = healthy, 20-40 = friction, 40-60 = dissatisfied, 60+ = broken session.
+
+## Automated evals {#evals}
+
+Five deterministic scorers run after every agent run:
+
+| Criteria            | What it measures                                       | Score range |
+| ------------------- | ------------------------------------------------------ | ----------- |
+| `tool_success_rate` | % of tool calls without errors                         | 0-1         |
+| `step_efficiency`   | Penalizes excessive LLM iterations for tool-using runs | 0-1         |
+| `latency_score`     | Normalized against 10s/tool baseline                   | 0-1         |
+| `cost_efficiency`   | Normalized against cost baseline                       | 0-1         |
+| `error_recovery`    | Did the agent recover from tool errors?                | 0 or 1      |
+
+### LLM-as-judge (optional)
+
+Enable sampled LLM-based evaluation by setting `evalSampleRate`:
+
+```ts
+import { putSetting } from "@agent-native/core/settings";
+
+await putSetting("observability-config", {
+  enabled: true,
+  evalSampleRate: 0.05, // 5% of runs
+});
+```
+
+Custom criteria use natural language rubrics:
+
+```ts
+const criteria = {
+  name: "helpfulness",
+  description: "Was the response helpful and complete?",
+  rubric: "0.0 = unhelpful, 0.5 = partially helpful, 1.0 = fully resolved",
+};
+```
+
+## A/B experiments {#experiments}
+
+Test different models, temperatures, or agent configurations:
+
+```ts
+// Create via API
+POST /_agent-native/observability/experiments
+{
+  "name": "model-a-vs-b",
+  "variants": [
+    { "id": "control", "weight": 50, "config": { "model": "<your-model-id>" } },
+    { "id": "treatment", "weight": 50, "config": { "model": "<other-model-id>" } }
+  ],
+  "metrics": ["cost", "latency", "satisfaction"]
+}
+
+// Start the experiment
+PUT /_agent-native/observability/experiments/:id
+{ "status": "running" }
+```
+
+Use the real model identifiers your engine accepts in place of `<your-model-id>` / `<other-model-id>` (model names change often — check your provider/engine for the current ids). The agent loop automatically resolves the user's variant and applies the config override. Assignment uses consistent hashing — same user always gets the same variant.
+
+<Diagram id="doc-block-uy41av" title="Consistent-hash variant assignment" summary={"Each user hashes to a stable variant, the loop applies that variant's config override, and results roll up per variant with confidence intervals."}>
+
+```html
+<div class="exp">
+  <div class="diagram-node">
+    User id<br /><small class="diagram-muted">consistent hash</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill">control &middot; 50%</span
+      ><small class="diagram-muted">config override A</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill accent">treatment &middot; 50%</span
+      ><small class="diagram-muted">config override B</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Results per variant<br /><small class="diagram-muted"
+      >cost &middot; latency &middot; satisfaction</small
+    >
+  </div>
+</div>
+```
+
+```css
+.exp {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.exp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.exp .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Configuration {#config}
+
+All settings are stored in the `observability-config` key:
+
+```ts
+{
+  enabled: true,           // Master switch
+  capturePrompts: false,   // Store prompt content in traces
+  captureToolArgs: false,  // Store action input arguments
+  captureToolResults: false, // Store action results
+  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
+  exporters: []            // OTLP export targets
+}
+```
+
+<Callout id="doc-block-1xvsimn" tone="info">
+
+Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+
+</Callout>
+
+## API endpoints {#api}
+
+All auto-mounted at `/_agent-native/observability/`:
+
+| Method | Path                       | Purpose                        |
+| ------ | -------------------------- | ------------------------------ |
+| GET    | `/`                        | Overview stats                 |
+| GET    | `/traces`                  | List trace summaries           |
+| GET    | `/traces/:runId`           | Trace detail (summary + spans) |
+| GET    | `/traces/:runId/evals`     | Evals for a run                |
+| POST   | `/feedback`                | Submit feedback                |
+| GET    | `/feedback`                | List feedback                  |
+| GET    | `/feedback/stats`          | Feedback aggregation           |
+| GET    | `/satisfaction`            | Satisfaction scores            |
+| GET    | `/evals/stats`             | Eval statistics                |
+| POST   | `/experiments`             | Create experiment              |
+| GET    | `/experiments`             | List experiments               |
+| GET    | `/experiments/:id`         | Get experiment detail          |
+| PUT    | `/experiments/:id`         | Update experiment              |
+| POST   | `/experiments/:id/results` | Compute results                |
+| GET    | `/experiments/:id/results` | Get results                    |
+
+All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
+
+## Export to external platforms {#export}
+
+Send traces to Langfuse, Datadog, Grafana, or any OTel-compatible backend:
+
+```ts
+await putSetting("observability-config", {
+  enabled: true,
+  exporters: [
+    {
+      type: "otlp",
+      endpoint: "https://cloud.langfuse.com/api/public/otel",
+      headers: { Authorization: "Bearer sk-..." },
+    },
+  ],
+});
+```
+
+The framework emits `gen_ai.*` semantic convention spans compatible with the OpenTelemetry GenAI spec.
+
+## OpenTelemetry spans {#otel}
+
+Separate from the `exporters` config above (which ships the in-house traces to an OTLP endpoint), the agent loop can also emit **live OpenTelemetry spans** for every run, model call, and tool call — so a host that already runs an OTel collector sees agent activity alongside the rest of its distributed traces.
+
+This layer is **optional and no-op by default**:
+
+- `@opentelemetry/api` is an **optional dependency**. If it isn't installed, the helpers degrade to silent no-ops — nothing here ever throws into the agent loop.
+- Even when the api package _is_ present, it ships a default no-op tracer. Spans only become real once the **host registers a `TracerProvider`** (via `@opentelemetry/sdk-node` or similar). The framework deliberately does **not** depend on the heavy SDK/exporter packages or register a provider itself — instrumentation is opt-in by the embedding app.
+
+So the cost when you haven't wired OTel is a couple of cached property reads per call. To turn it on, install the api package plus your SDK and register a provider at server startup the same way you would for any other Node service.
+
+The agent loop emits three span kinds:
+
+| Span        | When                       | Attributes                                                        |
+| ----------- | -------------------------- | ----------------------------------------------------------------- |
+| `agent.run` | once per agent run         | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
+| `tool.call` | once per action invocation | `tool.name`, plus success/error status                            |
+| `llm.call`  | per model call             | timing + OK/error status                                          |
+
+Spans are finished with OK/ERROR status and record the error message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
+
+## Error reporting (Sentry) {#sentry}
+
+Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Browser and server events can go to the same Sentry project; split them into separate projects only when you want operational separation for ownership, volume, quotas, or alert routing.
+
+| Surface            | SDK               | Env var                                                        | Notes                                                                 |
+| ------------------ | ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Browser / SPA      | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`, `SENTRY_CLIENT_DSN`, or `SENTRY_DSN` | Captures unhandled errors and route-change breadcrumbs in the client. |
+| Nitro server       | `@sentry/node`    | `SENTRY_SERVER_DSN` or `SENTRY_DSN`                            | Captures 5xx responses and Nitro lifecycle errors. Per-request user.  |
+| `agent-native` CLI | `@sentry/node`    | _hardcoded_                                                    | Crash reports from the published CLI binary; not user-configurable.   |
+
+### Server-side configuration {#sentry-config}
+
+Set `SENTRY_SERVER_DSN` or the shared `SENTRY_DSN` in the deploy environment (Netlify dashboard, Cloudflare secrets, etc.). The framework auto-mounts a Nitro plugin that:
+
+1. Calls `Sentry.init` once at startup (idempotent — safe to call from multiple plugins).
+2. Resolves the user via `getSession(event)` on every API/framework request and attaches `id` / `email` / `username` plus an `orgId` tag to Sentry's per-request isolation scope. Static-asset paths are skipped to avoid extra DB hits.
+3. Captures every framework-route 5xx with searchable `route`, `method`, and `userAgent` tags.
+
+Optional knobs:
+
+- `SENTRY_SERVER_TRACES_SAMPLE_RATE` (float `0`–`1`) — opt in to performance tracing. Defaults to `0` (errors only). Invalid values clamp to `0`.
+- `AGENT_NATIVE_RELEASE` — overrides the `release` tag. Defaults to `agent-native-server@<core-version>`.
+
+### Templates
+
+Every template inherits this automatically — there's nothing to import. For SSR apps, the server injects a tiny browser config script when `SENTRY_CLIENT_DSN`, `VITE_SENTRY_CLIENT_DSN`, or shared `SENTRY_DSN` is available at runtime, so browser capture is not limited to Vite build-time env. Templates that want custom behavior (extra tags, different DSN per template, hard-disable Sentry) can override by exporting their own plugin from `server/plugins/sentry.ts`:
+
+```ts
+// server/plugins/sentry.ts
+import { createSentryPlugin } from "@agent-native/core/server";
+export default createSentryPlugin();
+```
+
+The CLI's hardcoded DSN is intentional — the published binary needs to phone home crashes regardless of which environment runs it. The server module never hardcodes a DSN because it runs inside customer environments where operators decide whether errors should reach Sentry at all.
+
+### Privacy & PII {#privacy}
+
+Both server and CLI initialize with `sendDefaultPii: false` and a `beforeSend` hook that strips:
+
+- `request.headers.authorization`, `cookie`, `set-cookie`, `proxy-authorization`
+- `request.cookies`
+- `user.ip_address` (auto-collected without consent)
+- `contexts.runtime_env` (process env snapshot)
+- Any event whose top-level exception type is `ValidationError` (treated as expected user-input rejection, not a bug).
+
+Identity fields explicitly set via `setUser({ id, email, username })` are preserved.
+
+## What's next
+
+- [**Tracking**](/docs/tracking) — product analytics (PostHog, Mixpanel, Amplitude) for your app's own events
+- [**Actions**](/docs/actions) — the operations that appear as tool calls in traces
+- [**Security**](/docs/security) — data scoping and credential handling

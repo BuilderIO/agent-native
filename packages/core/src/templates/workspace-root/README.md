@@ -97,7 +97,7 @@ cross-app trust:
 - `A2A_SECRET` — shared signing secret for cross-app A2A calls.
 
 Run `pnpm repair:workspace-org -- --name "<org>" --domain example.com --owner-email owner@example.com`
-to fill or validate those values without committing secrets. Existing
+to validate those values without writing env files. Existing
 organization rows should still be repaired through the app's org settings UI or
 authenticated org routes whenever possible.
 

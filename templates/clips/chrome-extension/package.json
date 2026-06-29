@@ -11,7 +11,7 @@
     "package": "pnpm build && tsx scripts/package.ts"
   },
   "dependencies": {
-    "@sentry/browser": "10.60.0"
+    "@sentry/browser": "10.62.0"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.0",

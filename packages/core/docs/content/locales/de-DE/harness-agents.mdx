@@ -1,0 +1,420 @@
+---
+title: "Harness-Agenten"
+description: "Führen Sie Claude Code, Codex, Pi und andere vollständige Codierungssysteme als eingebettete Agenten in Agent-Native aus, mit eigener Schleife, Sandbox, nativen Tools und wiederaufnehmbaren, von SQL unterstützten Sitzungen."
+search: "Harness Agents AgentHarness ai-sdk HarnessAgent Claude Code Codex Pi Cursor Mastra eingebetteter Codierungsagent discoverAgentHarness startAgentHarnessRun fortsetzbare Sitzungs-Sandbox-Host-Tools"
+---
+
+# Harness-Agenten
+
+> **Für wen ist das gedacht:** Host-Autoren, die eine vollständige Coding-Laufzeit verkabeln (Claude-Code,
+> Codex, Pi) als Agent in Agent-Native ein. Eine App erstellen? Beginnen Sie mit
+> [Creating Templates](/docs/creating-templates).
+
+Ein Harness-Agent ist eine vollständige Agentenlaufzeit – Claude-Code, Codex, Pi und ähnliches –
+das über eine eigene Schleife, einen eigenen Arbeitsbereich, native Dateitools, einen eigenen Sitzungsstatus und eine eigene Komprimierung verfügt
+Genehmigungsmodell und Sandbox-Verhalten. Agent-Native führt diese über den
+**`AgentHarness`** Substrat in `@agent-native/core/agent/harness`, streamt ihre
+Ereignisse in das normale Transkript und behält ihre native Sitzung als Thread bei
+kann pausieren und fortsetzen.
+
+Dies unterscheidet sich vom integrierten Chat-Agenten und vom Mitbringen Ihres eigenen Chats
+Laufzeit. Der integrierte Agent und `AgentEngine` sind für einen Modell-Roundtrip
+unter `runAgentLoop`. Ein Kabelbaum ist kein `AgentEngine`-Anbieter – er betreibt seinen
+Eigene End-to-End-Schleife, daher fährt Agent-Native sie als Sitzung und nicht als einzelne
+Modellaufruf.
+
+<Diagram id="doc-block-q2hd5a" title={"Ein Geschirr besitzt seine Schlaufe; Agent-Native steuert die Sitzung"} summary={"Das AgentHarness-Substrat creates/resumes der nativen Sitzung, streamt seine Ereignisse in das normale Transkript und behält zwischen den Runden den resumeState in SQL bei."}>
+
+```html
+<div class="diagram-harness">
+  <div class="diagram-box" data-rough>
+    <strong>AgentHarness substrate</strong
+    ><small class="diagram-muted">@agent-native/core/agent/harness</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Native harness loop</strong
+    ><small class="diagram-muted"
+      >Claude Code · Codex · Pi — own tools, sandbox, compaction</small
+    >
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">events &rarr; transcript</div>
+    <div class="diagram-pill ok">resumeState &rarr; SQL session</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-harness {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-harness .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-harness .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-harness .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Welches Codierungsdokument möchte ich? {#which-doc}
+
+| Sie möchten…                                                                       | Verwenden                                    |
+| ---------------------------------------------------------------------------------- | -------------------------------------------- |
+| Führen Sie Claude Code / Codex / Pi **als Agent** mit eigener Schleife + Tools aus | **Harness-Agenten** (diese Seite)            |
+| Rendern Sie einen **Codierungsarbeitsbereich UI** im Claude-Code/Codex-Stil        | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Tausch das Backend, das das **`run-code`-Tool** des Agenten ausführt               | [Adapters](/docs/sandbox-adapters)           |
+| Verpacken Sie ein CLI-Tool (`gh`, `ffmpeg`), damit der Agent anrufen kann          | [Adapters](/docs/sandbox-adapters)           |
+
+Angrenzende Oberflächen: Platzieren Sie einen Agenten, den Sie an anderer Stelle erstellt haben, hinter dem Chat von Agent-Native
+UI mit [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes); lass ein
+externer MCP-Hostaufruf in Ihre App über [External Agents](/docs/external-agents);
+Spawn-Hintergrund/Subagent läuft mit [Custom Agents & Teams](/docs/agent-teams).
+
+## Eingebaute Gurte {#built-in}
+
+`registerBuiltinAgentHarnesses()` registriert drei Adapter, die von der AI SDK unterstützt werden
+`HarnessAgent`:
+
+| Name                         | Laufzeit    | Sandbox | Genehmigungen |
+| ---------------------------- | ----------- | ------- | ------------- |
+| `ai-sdk-harness:claude-code` | Claude-Code | Ja      | Ja            |
+| `ai-sdk-harness:codex`       | Codex       | Ja      | nein          |
+| `ai-sdk-harness:pi`          | Pi          | nein    | Ja            |
+
+Ihre Laufzeitpakete sind **optionale Peer-Abhängigkeiten** und werden träge geladen, also ein
+Apps, die niemals ein Geschirr verwenden, zahlen nicht dafür. Jeder Adapter trägt eine
+`installPackage`-Hinweis (zum Beispiel „@ai-sdk/harness@canary“
+@ai-sdk/harness-codex@canary`); `resolveAgentHarness`löst eine klare Installation aus
+Fehler, wenn die Pakete fehlen, und`isAgentHarnessPackageInstalled(entry)`
+ermöglicht es Ihnen, zuerst zu prüfen.
+
+`registerBuiltinAgentHarnesses()` registriert auch die [ACP](#acp)-Kabelbäume
+(`acp`, `acp:gemini`, `acp:claude-code`).
+
+## ACP-Agenten {#acp}
+
+Agent-Native kann als [ACP](https://agentclientprotocol.com) (Agent Client) fungieren
+Protokoll) **Client** und steuern Sie einen lokalen Codierungsagenten – Gemini CLI, Claude Code,
+oder ein beliebiger ACP-kompatibler Agent – über dasselbe Substrat. Der Agent wird als
+lokaler Unterprozess, der durch Zeilenumbrüche getrennte JSON-RPC über stdio spricht; Editor von ACP
+↔ Agentenmodell hat genau diese Form.
+
+Dieser Adapter ist auf **lokale Codierung** ausgelegt. Der untergeordnete Prozess erbt die
+übergeordnete Umgebung, sodass der Agent alle lokalen CLI-Anmeldungen wiederverwendet, über die er bereits verfügt
+(zum Beispiel `gemini`- oder `claude`-Authentifizierung im Home-Verzeichnis des Benutzers). Es ist kein
+gehosteter oder Sandbox-Transport, und es handelt sich nicht um einen Chat/A2A-Transport – für diese
+siehe [Agent Surfaces](/docs/agent-surfaces).
+
+| Name              | Standardbefehl                                        | Fortsetzbar\* |
+| ----------------- | ----------------------------------------------------- | ------------- |
+| `acp`             | _(`command`/`args` über Konfiguration bereitstellen)_ | Ja            |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp`        | Ja            |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`              | Ja            |
+
+\*Resume funktioniert, wenn der Agent die `loadSession`-Fähigkeit ankündigt und
+wird andernfalls zu einer neuen Sitzung degradiert.
+
+```ts
+import {
+  registerBuiltinAgentHarnesses,
+  resolveAgentHarness,
+} from "@agent-native/core/agent/harness";
+
+registerBuiltinAgentHarnesses();
+
+// A built-in preset (command/args are overridable through the resolve config):
+const adapter = resolveAgentHarness("acp:gemini");
+
+// Or any ACP agent by command:
+const custom = resolveAgentHarness("acp", {
+  command: "gemini",
+  args: ["--experimental-acp"],
+});
+```
+
+Der Protokolltransport (`@zed-industries/agent-client-protocol`) ist optional
+Abhängigkeit wird träge über den `installPackage`-Hinweis geladen, genau wie die KI SDK
+Geschirr. Die Agent-Binärdatei selbst (`@google/gemini-cli`,
+`@zed-industries/claude-code-acp`, …) ist ein separater externer CLI; die Voreinstellungen
+Starten Sie es über `npx` und der Befehl/die Argumente bleiben überschreibbar, da Agent ACP
+Eintrittsflaggen entwickeln sich noch weiter.
+
+`permissionMode` wird mithilfe des Tool-Aufrufs auf ACP `session/request_permission` abgebildet
+Art der Agent-Berichte: Lesevorgänge werden immer ausgeführt, Bearbeitungen werden unter `allow-edits` ausgeführt und
+alles riskante Eingabeaufforderungen, es sei denn `allow-all`. Genehmigungen werden wie gewohnt angezeigt
+`approval-request`-Ereignisse. Der Adapter bedient `fs/read_text_file` und
+`fs/write_text_file` für den Sitzungsarbeitsbereich (verweigert entkommene Pfade
+it) und Schreibvorgänge geben `file-change`-Ereignisse aus; Terminalmethoden werden nicht angekündigt,
+daher verwendet der Agent seine eigene Shell.
+
+## Codex-Authentifizierung: Code UI vs. Nutzung von Sandboxen {#codex-auth}
+
+Es gibt zwei Codex-Oberflächen, die sich unterschiedlich authentifizieren:
+
+- **Agent-Native Code / Desktop** führt `codex exec` auf dem Computer des Benutzers aus. Wenn
+  Der Benutzer hat `codex login` ausgeführt. Bei dieser lokalen Ausführung wird alles ChatGPT wiederverwendet
+  Abonnement oder API-Schlüsselauthentifizierung der installierten Codex CLI-Berichte über
+  `codex login status`.
+- **`ai-sdk-harness:codex`** lädt `@ai-sdk/harness-codex`, das Codex antreibt
+  in der Kabelbaum-Sandbox durch `@openai/codex-sdk`. Es geschieht nicht lautlos
+  übernimmt die Desktop-`~/.codex`-Anmeldung des Benutzers, da die Sandbox möglicherweise remote ist
+  oder isoliert. Für vertrauenswürdige/private Sandboxen aktivieren Sie die Option `codexCliAuth: true`;
+  Agent-Native kopiert die lokale Codex CLI-Authentifizierungsdatei vor dem
+  Kabelbaum startet. Konfigurieren Sie für gehostete oder gemeinsam genutzte Sandboxes API-key/gateway
+  auth stattdessen.
+
+Wenn also jemand fragt, welches Paket den Codex OAuth-Pfad trägt: für lokale Codierung
+Sitzungen, verwenden Sie `@agent-native/core` / Desktop plus die installierten
+`@openai/codex` CLI und `codex login`. Für `ai-sdk-harness:codex` mit Sandbox,
+Verwenden Sie das explizite `codexCliAuth`-Opt-in, wenn Sie diesen Login in die Sandbox kopieren
+ist akzeptabel.
+
+```ts
+const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
+  codexCliAuth: true,
+});
+```
+
+`codexCliAuth: true` liest `CODEX_HOME/auth.json` oder `~/.codex/auth.json`. Zu
+zeigen Sie auf ein anderes lokales Login, übergeben Sie
+`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` oder
+`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
+
+## Registrieren und lösen {#register-resolve}
+
+```ts
+import {
+  registerBuiltinAgentHarnesses,
+  resolveAgentHarness,
+} from "@agent-native/core/agent/harness";
+
+registerBuiltinAgentHarnesses();
+const adapter = resolveAgentHarness("ai-sdk-harness:codex");
+```
+
+`resolveAgentHarness(name, config?)` gibt einen `AgentHarnessAdapter` zurück. Die
+optionales `config` wird an die Adapterfabrik weitergeleitet – für die AI SDK-Adapter
+das ist `AiSdkHarnessAdapterOptions` (`label`, `description`,
+`permissionMode`, `harnessOptions`, `agentOptions` und nur Codex
+`codexCliAuth`). Verwenden Sie `listAgentHarnesses()`, um aufzulisten, wofür registriert ist
+ein Pflücker.
+
+## Führe eine Runde aus {#run-a-turn}
+
+`startAgentHarnessRun` überbrückt eine Harness-Sitzung in den gemeinsam genutzten Run-Manager
+Lebenszyklus. Es erstellt (oder verwendet) die native Sitzung, behält sie bei und streamt die
+turn, übersetzt jedes Harness-Ereignis in Transkriptereignisse und trennt das
+Wiederaufnahmestatus, wenn die Runde abgeschlossen ist.
+
+```ts
+import { startAgentHarnessRun } from "@agent-native/core/agent/harness";
+
+const run = startAgentHarnessRun({
+  runId,
+  threadId,
+  adapter,
+  input: { prompt },
+  createSession: {
+    sessionId,
+    resumeState, // opaque value from a previous turn, if resuming
+    instructions,
+    sandbox, // required for sandboxed harnesses — see Sandbox Adapters
+    permissionMode: "allow-reads",
+    tools, // a narrow, intentional set of host tools (see below)
+  },
+  ownerEmail,
+  orgId,
+});
+```
+
+`startAgentHarnessRun` gibt den `ActiveRun` vom Run-Manager zurück, also der Zug
+wird in den vorhandenen Laufrouten, Transkripten und Stornierungen angezeigt, genau wie
+jede andere Agentenausführung. Übergeben Sie ein bereits erstelltes `session` anstelle von `createSession`
+um eine Sitzung fortzusetzen, die Sie im Speicher halten.
+
+## Sitzungen und Lebenslauf {#sessions}
+
+Ein Harness besitzt einen langlebigen nativen Sitzungsstatus. Agent-Native behält es in SQL
+damit ein Thread über Runden, Prozesse und Bereitstellungen hinweg überleben kann. Der `resumeState`
+ist **undurchsichtig** – Agent-Native speichert es und gibt es zurück, inspiziert es jedoch nie oder
+interpretiert es.
+
+<Diagram id="doc-block-u53lmj" title={"Fortsetzen über Runden, Prozesse und Bereitstellungen hinweg"} summary={"Bei jeder Runde wird ein undurchsichtiger „resumeState“ in SQL abgetrennt; In der nächsten Runde wird es wieder in createSession eingespeist, anstatt den Chatverlauf erneut abzuspielen."}>
+
+```html
+<div class="diagram-resume">
+  <div class="diagram-node" data-rough>
+    Runde N<br /><small class="diagram-muted">streamTurn</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    detach &rarr; resumeState<br /><small class="diagram-muted"
+      >opak · SQL-Harness-Sitzung</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    Runde N+1<br /><small class="diagram-muted"
+      >createSession.resumeState</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-resume {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-resume .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+```ts
+import {
+  getLatestAgentHarnessSessionForThread,
+  listAgentHarnessSessions,
+} from "@agent-native/core/agent/harness";
+
+const last = await getLatestAgentHarnessSessionForThread(threadId);
+// Feed last?.resumeState into createSession.resumeState on the next turn.
+```
+
+Der Store macht auch `saveAgentHarnessSession`, `updateAgentHarnessSession`,
+`getAgentHarnessSession`, `getAgentHarnessSessionByRunId`,
+`markAgentHarnessSessionStopped` und `ensureAgentHarnessSessionTables`.
+`startAgentHarnessRun` ruft die Speicher-/Aktualisierungs-/Stopppfade für Sie auf; Greifen Sie nach ihnen
+direkt nur in einem benutzerdefinierten Host.
+
+## Host-Tools und Berechtigungen {#host-tools}
+
+Ein Harness bringt seine eigenen nativen Tools mit (Lesen, Bearbeiten, Schreiben, Shell usw.), also
+Sie stellen die Dateibearbeitung **nicht** erneut als Host-Tools zur Verfügung. Passieren Sie nur eine **schmale,
+absichtliche Festlegung** von Agent-Native actions bis `createSession.tools`, wenn Sie
+Sie möchten, dass der Kabelbaum bestimmte App-Vorgänge erreicht – und `defineAction` beibehalten
+Authentifizierung, Anforderungskontext, Zeitüberschreitungen, Kürzung und schreibgeschützte Metadaten intakt, wenn
+Das tun Sie.
+
+`permissionMode` grenzt ein, was der Gurt ohne Genehmigung tun darf:
+
+| Modus         | Bedeutung                                                                       |
+| ------------- | ------------------------------------------------------------------------------- |
+| `allow-reads` | Standard. Liest ausgeführt; Änderungen und riskante actions-Eingabeaufforderung |
+| `allow-edits` | Lese- und Bearbeitungslauf; andere riskante actions-Eingabeaufforderung         |
+| `allow-all`   | Kein Genehmigungs-Gating                                                        |
+
+Wenn ein Kabelbaum zur Genehmigung pausiert, gibt er ein `approval-request`-Ereignis aus und
+Die Sitzung wird als `idle` markiert, wobei die ausstehende Genehmigung aufgezeichnet wird, sodass UI dies tun kann
+Auftauchen und nach der Entscheidung des Benutzers fortfahren. Siehe
+[Human Approval](/docs/human-approval) für die Genehmigungsoberfläche.
+
+## Ereignisse {#events}
+
+Eine Harness-Sitzung streamt `AgentHarnessEvent`-Werte, die Agent-Native
+übersetzt in den Standard-`AgentChatEvent`-Stream mit
+`agentHarnessEventToAgentChatEvents`. Die Ereignisunion umfasst `text-delta`,
+`thinking-delta`, `activity`, `tool-start`, `tool-done` (die einen tragen können
+`mcpApp`-Nutzlast für native Widgets), `approval-request`, `file-change`,
+`compaction`, `usage`, `error` und `done`. Denn Werkzeugergebnisse fließen durch das
+gleiche Übersetzung, aktionsdeklarierte native Widgets werden weiterhin gerendert – siehe
+[Native Chat-Oberfläche](/docs/native-chat-ui).
+
+## Hintergrundläufe und UI {#background-runs}
+
+Harness führt das Projekt in die gemeinsame `BackgroundAgentRun`-Form aus
+`createAgentHarnessBackgroundAgentController()` und sind über die
+vorhandene Laufrouten als `goalId=agent-harness`. Das bedeutet einen lang laufenden Claude
+Code oder Codex-Sitzung werden in denselben Hintergrundausführungs- und Transkriptoberflächen angezeigt
+als Agent Teams und andere Adapter, mit `listAgentHarnessBackgroundRuns`,
+`listAgentHarnessBackgroundTranscriptEvents`, `getAgentHarnessBackgroundRun` und
+`stopAgentHarnessBackgroundRun` verfügbar für benutzerdefinierte Hosts.
+
+## Benutzerdefinierte Adapter {#custom-adapters}
+
+Um eine Laufzeit einzuschließen, die nicht zu den integrierten Funktionen gehört, implementieren Sie
+`AgentHarnessAdapter` und registrieren Sie es. Der Adapter deklariert seine Fähigkeiten und
+erstellt Sitzungen; Eine Sitzung macht `streamTurn` und optional `continueTurn` verfügbar,
+`approve`, `detach`, `stop` und `destroy`.
+
+```ts
+import {
+  registerAgentHarness,
+  type AgentHarnessAdapter,
+} from "@agent-native/core/agent/harness";
+
+const myHarness: AgentHarnessAdapter = {
+  name: "acme:my-coder",
+  label: "Acme Coder",
+  description: "Runs the Acme coding agent.",
+  installPackage: "@acme/coder",
+  capabilities: {
+    sandbox: true,
+    resumable: true,
+    approvals: true,
+    hostTools: true,
+    fileEvents: true,
+  },
+  async createSession(opts) {
+    // Build your native session and adapt it to AgentHarnessSession.
+    return createAcmeSession(opts);
+  },
+};
+
+registerAgentHarness({
+  name: myHarness.name,
+  label: myHarness.label,
+  description: myHarness.description,
+  installPackage: myHarness.installPackage,
+  capabilities: myHarness.capabilities,
+  create: () => myHarness,
+});
+```
+
+Halten Sie das Laufzeitpaket optional mit einem dynamischen Import in `createSession` und einem
+`installPackage` Hinweis. Für brückengestützte Codierungskabelbäume ist ein echtes
+Sandbox/Workspace-Anbieter, anstatt einen beliebigen Codierungsagenten im
+Host-Prozess – siehe [Sandbox Adapters](/docs/sandbox-adapters). Der AI SDK-Adapter
+(`createAiSdkHarnessAdapter`, unterstützt durch `HarnessAgent` von `@ai-sdk/harness`) ist
+Eine Implementierung dieses Vertrags, nicht die öffentliche Abstraktion.
+
+## Nicht {#donts}
+
+- Fügen Sie Claude-Code, Codex, Cursor, Mastra oder Pi nicht als `AgentEngine` hinzu. Sie
+  eigene Schleife; Wenn Sie einen unter `AgentEngine.stream()` ausführen, wird die Schleife doppelt ausgeführt
+  und die Semantik des Sitzungslebenszyklus geht verloren.
+- Spielen Sie nicht jede Runde den gesamten Agent-Native-Chatverlauf in einem Geschirr ab. Fortsetzen
+  Stattdessen die Harness-Sitzung mit ihrem `resumeState`.
+- Don't store `resumeState` in `application_state`. It belongs in the harness
+  Sitzungs-SQL-Tabelle.
+- Machen Sie nicht standardmäßig jede App-Aktion für jede Harness-Sitzung verfügbar. Geben Sie es ab
+  kleines, gezieltes Werkzeugset.
+
+## Verwandte Dokumente {#related-docs}
+
+- [Native Chat-Oberfläche](/docs/native-chat-ui) – Stellen Sie Ihren eigenen Agenten hinter den Chat-Oberfläche mit `AgentChatRuntime`.
+- [Agent Surfaces](/docs/agent-surfaces) – wählen Sie Headless, Chat, Sidecar oder Voll-App.
+- [Agent-Native Code UI](/docs/code-agents-ui) – die wiederverwendbare Codierungsarbeitsbereichsoberfläche.
+- [Custom Agents & Teams](/docs/agent-teams) – Hintergrundausführungen und Subagentendelegierung.
+- [Sandbox Adapters](/docs/sandbox-adapters) – steckbare Ausführungs-Backends für Codierungskabelbäume.
+- [Human Approval](/docs/human-approval) – der zugelassene Oberflächenkabelbaum läuft.

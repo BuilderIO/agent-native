@@ -74,7 +74,9 @@ function shouldDropExpectedMediaPermissionError(
   const tags = context.tags ?? {};
   const isPermissionProbe =
     tags.surface === "permission" &&
-    (tags.permission === "mic" || tags.permission === "cam");
+    (!tags.permission ||
+      tags.permission === "mic" ||
+      tags.permission === "cam");
   const isOptionalBubbleCamera =
     tags.surface === "overlay" && tags.overlayPart === "bubble";
   if (!isPermissionProbe && !isOptionalBubbleCamera) return false;
@@ -87,9 +89,22 @@ function shouldDropExpectedMediaPermissionError(
   return (
     /\bNotAllowedError\b/i.test(text) ||
     /\bPermission (?:denied|dismissed)\b/i.test(text) ||
+    /\bPermission denied by system\b/i.test(text) ||
+    /\bNotReadableError\b/i.test(text) ||
+    /\bCould not start video source\b/i.test(text) ||
     /\b(?:NotFoundError|DevicesNotFoundError)\b/i.test(text) ||
     /\bRequested device not found\b/i.test(text)
   );
+}
+
+function shouldDropExpectedMediaPermissionEvent(event: Sentry.Event): boolean {
+  if (event.tags?.surface !== "permission") return false;
+  const exceptionText = (event.exception?.values ?? [])
+    .map((value) => `${value.type ?? ""}: ${value.value ?? ""}`)
+    .join(" ");
+  return shouldDropExpectedMediaPermissionError(exceptionText, {
+    tags: { surface: "permission" },
+  });
 }
 
 function scrubScopeString(value: string): string {
@@ -185,6 +200,7 @@ export function initExtensionSentry(surface: string): void {
         runtime: "chrome-extension",
         surface,
       };
+      if (shouldDropExpectedMediaPermissionEvent(event)) return null;
       return scrubEvent(event);
     },
   });

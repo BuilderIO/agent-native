@@ -1,0 +1,143 @@
+---
+title: "Processeurs en boucle"
+description: "Crochets d'observateur/garde-corps internes à la boucle qui surveillent la sortie diffusée en continu du modèle et les appels d'outils à mi-exécution et peuvent l'interrompre : la couture pour les garde-corps en temps réel et les portes de validation."
+---
+
+# Processeurs en boucle
+
+Un `Processor` est un **observateur/garde-corps** interne à la boucle pour l'exécution de l'agent. Il surveille la sortie diffusée en continu du modèle et l'outil l'appelle _au fur et à mesure que l'exécution progresse_, conserve son propre état de travail et peut **abandonner** l'exécution avant qu'un « terminé » ne soit revendiqué. Il s'agit de la condition structurelle préalable aux garde-fous en temps réel (bloquer les sorties interdites à mi-parcours) et à une porte de preuve de réalisation/de couverture (inspecter ce que le modèle est sur le point de faire et l'arrêter).
+
+<Diagram id="doc-block-17fm1db" title={"Où les trois crochets tirent en courant"} summary={"processOutputStream surveille chaque morceau, processOutputStep appelle les outils par réponse, processOutputResult enregistre un verdict à la fin. N'importe quel hook peut abandonner avec un TripWire."}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — contrôle les appels d’outils</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted"
+      >processOutputResult — décision</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
+}
+```
+
+</Diagram>
+
+> [!WARNING]
+> Un processeur est une **configuration**, pas un outil, pas une action, ni une création DSL. Les processeurs observent et modifient uniquement leur propre état de flux et `abort()`. Ils ne définissent jamais le comportement de l'application, ne remplacent jamais actions et n'apparaissent jamais dans le modèle. Les opérations d'application appartiennent à [actions](/docs/actions).
+
+## Les crochets {#hooks}
+
+Un processeur implémente n'importe quel sous-ensemble de trois hooks de cycle de vie facultatifs (la forme est empruntée aux processeurs de sortie de Mastra) :
+
+| Crochet               | Feux…                                                                        | Utilisez-le pour…                                                                      |
+| --------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `processOutputStream` | par morceau diffusé (texte/deltas de réflexion) pendant que le modèle génère | réagir à la sortie avant l'arrivée du tour complet                                     |
+| `processOutputStep`   | une fois par réponse du modèle, autour de l'exécution de l'outil             | inspectez les appels de l'outil, le modèle est sur le point de s'exécuter ; portez-les |
+| `processOutputResult` | une fois à la fin de l'exécution, avec le texte final de l'assistant         | enregistrer un verdict/une preuve de réussite sur la réponse complétée                 |
+
+Chaque processeur obtient son propre objet `state` mutable, à portée d'exécution, qui persiste dans chacun de ses appels de hook au cours d'une seule exécution et est **isolé** de l'état des autres processeurs.
+
+```ts
+import type { Processor } from "@agent-native/core";
+
+const noSecretsInOutput: Processor = {
+  name: "no-secrets",
+  processOutputStream({ part, abort }) {
+    if (part.type === "text" && /sk-live_/.test(part.text)) {
+      abort("Model attempted to emit a live secret token.", {
+        kind: "secret-leak",
+      });
+    }
+  },
+};
+
+const coverageGate: Processor = {
+  name: "proof-of-done",
+  processOutputStep({ toolCalls, state }) {
+    // Track what the model has actually done this run...
+    for (const call of toolCalls) {
+      (state.ran ??= new Set<string>()).add(call.name);
+    }
+  },
+  processOutputResult({ text, state }) {
+    // ...and record a verdict over the final answer.
+    const ran = state.ran as Set<string> | undefined;
+    state.verdict = ran?.has("run-tests") ? "verified" : "unverified";
+  },
+};
+```
+
+## Abandon avec `TripWire` {#tripwire}
+
+Un hook arrête l'exécution en appelant `abort(reason, meta?)`, qui renvoie un **`TripWire`**. La boucle l'attrape, émet un seul événement **`tripwire`**, s'arrête proprement et fait apparaître la raison comme message final de l'assistant.
+
+```ts
+import { TripWire } from "@agent-native/core";
+```
+
+L'événement `tripwire` porte :
+
+| Champ       | Tapez    | Remarques                                                         |
+| ----------- | -------- | ----------------------------------------------------------------- |
+| `reason`    | `string` | Raison lisible par l'homme transmise à `abort`.                   |
+| `processor` | `string` | Nom du processeur qui a abandonné, lorsqu'il a déclaré un `name`. |
+
+`TripWire` comporte également un `meta` structuré facultatif et le nom d'origine `processor` pour les consommateurs programmatiques qui le vérifient par `instanceof`. Parce qu'un arrêt est gracieux, `processOutputResult` se déclenche toujours sur le texte final (arrêté) afin qu'un processeur de preuve de réalisation puisse enregistrer son verdict même lorsque l'exécution a été interrompue.
+
+## Processeurs de câblage {#wiring}
+
+Les processeurs sont configurés en code via le tableau `processors` sur `runAgentLoop` :
+
+```ts
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  messages,
+  actions,
+  send,
+  signal,
+  processors: [noSecretsInOutput, coverageGate],
+});
+```
+
+**Zéro surcharge lorsqu'il n'est pas utilisé.** La boucle construit la chaîne de processeurs uniquement lorsqu'au moins un processeur est fourni ; lorsque `processors` est omis ou vide, aucun des codes de couture ne s'exécute et la boucle reste inchangée octet par octet. Les hooks s'exécutent dans l'ordre d'enregistrement et peuvent être synchronisés ou asynchrones.
+
+> [!NOTE]
+> La couture au niveau de la boucle est le livrable aujourd'hui et peut être appelée directement par les sous-agents, A2A, MCP et les tests. Faire passer `processors` via le gestionnaire de discussion HTTP (afin qu'un résolveur par requête puisse les configurer sans appeler directement `runAgentLoop`) est une plomberie pratique qui n'est pas encore câblée : configurez les processeurs sur le site d'appel `runAgentLoop` pour l'instant.
+
+## Connexe
+
+- [**Durable Resume**](/docs/durable-resume) — comment la boucle survit aux interruptions sans réexécuter les effets secondaires terminés.
+- [**Custom Agents & Teams**](/docs/agent-teams) — les sous-agents exécutent la même boucle et peuvent transporter leurs propres processeurs.
+- [**Observability**](/docs/observability) : enregistre les verdicts du processeur ainsi que les traces d'exécution.

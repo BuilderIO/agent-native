@@ -1,0 +1,778 @@
+---
+title: "Colaboração em tempo real"
+description: "Edição colaborativa multiusuário onde o agente de IA é um par de primeira classe: mesclagem CRDT, presença ao vivo, acesso rápido SSE e mesclagem granular no lado do servidor — em qualquer banco de dados SQL e qualquer host."
+---
+
+# Colaboração em tempo real
+
+Imagine abrir um documento e ver o cursor de um colega rolar até um parágrafo,
+então o texto se reescreve — cirurgicamente, sem perder o lugar. Isso
+par pode ser um companheiro de equipe. Pode ser o agente. Da estrutura
+perspectiva eles são idênticos: ambos produzem operações Yjs que se fundem
+livre de conflitos no documento compartilhado. Esta é a pedra angular do
+modelo de colaboração nativo do agente.
+
+## Visão {#vision}
+
+Editar junto com o agente é como trabalhar no Google Docs ou no Figma com
+um colega de trabalho instantâneo e incansável:
+
+Se você só precisa que UI seja atualizado quando o agente ou outro usuário grava em SQL, você não precisa de nada disso - use [`useDbSync`](/docs/client). Esta página é para coedição em nível de caractere de um único documento rich text (cursores compartilhados, mesclagem sem conflitos). Ambos utilizam o mesmo canal `/_agent-native/poll`.
+
+Isso se baseia em três tecnologias testadas em batalha: **Yjs** (CRDT para fusão sem conflitos), **TipTap** (editor de rich text) e **sincronização baseada em polling** (funciona em todos os ambientes de implantação, inclusive sem servidor e de borda).
+
+- **Mesclagem CRDT** — Edições simultâneas de humanos e agentes são mescladas sem
+  conflitos. Você digita um parágrafo; o agente reescreve outro; ambos
+  terreno limpo.
+- **Presença** — Um `PresenceBar` mostra quem está no documento no momento,
+  incluindo um indicador de presença do agente quando o agente está editando ativamente.
+- **O agente como editor de pares** — As edições do agente fluem pelos mesmos Yjs
+  infraestrutura como edições humanas. Eles aparecem ao vivo, sem interromper o cursor
+  posições, seleções ou pilha de desfazer.
+- **Funciona em qualquer lugar** — Qualquer banco de dados SQL compatível com Drizzle (SQLite, Postgres).
+  Qualquer alvo de hospedagem compatível com Nitro, incluindo serverless e edge.
+
+## Arquitetura {#architecture}
+
+O sistema de colaboração possui cinco camadas interligadas.
+
+<Diagram id="doc-block-ijg0gb" title="Cinco camadas interligadas" summary={"Desde o CRDT na memória até o transporte que transporta atualizações entre pares – cada camada tem um trabalho."}>
+
+```html
+<div class="diagram-stack">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">1 &middot; Yjs Y.Doc</span
+    ><small class="diagram-muted"
+      >CRDT &mdash; mesclagem sem conflitos, sem coordenador</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">2 &middot; Conteúdo canônico SQL</span
+    ><small class="diagram-muted"
+      >_collab_docs &mdash; durable source of truth, versioned</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill"
+      >3 &middot; reconciliação controlada por updatedAt</span
+    ><small class="diagram-muted"
+      >edições do agente se propagam pelo bump de SQL</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">4 &middot; Eleição do cliente líder</span
+    ><small class="diagram-muted">exatamente uma aba aplica o snapshot</small>
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill ok">5 &middot; caminho rápido SSE + polling</span
+    ><small class="diagram-muted"
+      >~dezenas de ms, degrada para polling de 2s em qualquer lugar</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-stack .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+```
+
+</Diagram>
+
+### 1. Yjs Y.Doc (camada CRDT)
+
+Cada documento colaborativo é um `Y.Doc` contendo tipos compartilhados — geralmente um
+`Y.XmlFragment` para rich text (a árvore de nós ProseMirror que o TipTap lê) ou
+`Y.Map` / `Y.Array` para dados estruturados JSON. Yjs mescla atualizações simultâneas
+sem coordenador central; quaisquer dois clientes que troquem seu alcance de estado
+o mesmo resultado independentemente da ordem.
+
+### 2. Conteúdo canônico SQL (fonte durável de verdade)
+
+O estado Yjs é persistido em uma tabela `_collab_docs` como binário codificado em base64.
+A tabela é gerenciada pela estrutura e independente do provedor (uso de SQLite e Postgres
+esquemas idênticos). Cada linha carrega uma coluna de versão com simultaneidade otimista
+para evitar corridas de gravação simultâneas. A compactação Tombstone é executada de forma oportunista
+quando o blob armazenado excede 4× o estado recém-codificado — sem trabalho em segundo plano
+obrigatório.
+
+### 3. Reconciliação controlada por `updatedAt` (propagação de edição de agente)
+
+O agente actions não envia Yjs em processo. Em vez disso, a ação edita o
+coluna de conteúdo canônico SQL e colisões `updatedAt`. O sistema de sincronização de alterações
+detecta o impacto, o editor aberto busca novamente o registro e o cliente principal
+aplica o novo conteúdo no Y.Doc compartilhado via `setContent`. Um `updatedAt`
+gate garante que apenas conteúdo genuinamente mais recente seja adotado – atrasando as respostas da enquete
+não é possível reverter a edição.
+
+### 4. Eleição do cliente principal (desduplicação)
+
+Quando várias guias são abertas, exatamente uma aplica um instantâneo SQL oficial
+no Y.Doc compartilhado. A liderança é a guia com o menor Yjs `clientID`
+entre os pares atualmente visíveis. A entrada de reconhecimento do agente usa
+`AGENT_CLIENT_ID` (max int) então nunca pode ser o líder. Uma edição de cliente
+sozinho é sempre o líder. A eleição é determinística e sem coordenação
+ida e volta (`isReconcileLeadClient` de `@agent-native/core/client`).
+
+### 5. Acesso rápido SSE + fallback de pesquisa (transporte)
+
+Os eventos de atualização da Collab viajam por dois caminhos:
+
+- **SSE fast-path** — O cliente assina `/_agent-native/poll-events`
+  (o mesmo `EventSource` usado por `useDbSync`). Chegam eventos de atualização de colaboração
+  estilo push, normalmente em dezenas de milissegundos. Embora SSE esteja íntegro,
+  o loop de pesquisa relaxa para uma cadência lenta (cerca de 12 s por padrão).
+- **Polling fallback** — `/_agent-native/poll?since=N` é pesquisado a cada 2 s
+  quando SSE não está disponível. Isso faz com que a colaboração funcione em qualquer implantação
+  destino — incluindo funções sem servidor onde há conexões persistentes
+  invocações impossíveis e diferentes podem lidar com solicitações diferentes.
+
+As atualizações locais do Yjs são debounced e unidas com `Y.mergeUpdates` (~80 ms)
+antes de ser enviado ao servidor, reduzindo o tráfego de rede no nível do pressionamento de tecla.
+O lote é liberado imediatamente em `visibilitychange` ou `pagehide`. UMA
+diferença de vetor de estado (`GET /:docId/state?stateVector=…`) é buscada somente em
+reconectar, estourar o buffer de anel ou a cada 15 ciclos de pesquisa — não em todos
+ciclo.
+
+Erros de rede usam espera exponencial com jitter, limitado a aproximadamente 15 s.
+
+<Diagram id="doc-block-18ahdfi" title={"Dois caminhos de edição, uma mesclagem"} summary={"Fluxo de teclas humanas Y.Doc → servidor → SSE. As edições do agente passam por SQL: a ação é atualizada em, o cliente principal se reconcilia e a alteração entra novamente em Yjs."}>
+
+```html
+<div class="diagram-collab">
+  <div class="lane">
+    <span class="diagram-pill">Edição humana</span>
+    <div class="diagram-node">
+      Y.Doc update<br /><small class="diagram-muted">debounce ~80 ms</small>
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      POST /update<br /><small class="diagram-muted">apply + persist</small>
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      SSE push<br /><small class="diagram-muted">to all peers</small>
+    </div>
+  </div>
+  <div class="lane">
+    <span class="diagram-pill warn">Edição do agente</span>
+    <div class="diagram-node">
+      A ação escreve SQL<br /><small class="diagram-muted"
+        >atualiza updatedAt</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      Cliente líder<br /><small class="diagram-muted"
+        >setContent no Y.Doc</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      POST /update<br /><small class="diagram-muted"
+        >re-enters Yjs &middot; SSE push</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-collab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-collab .lane {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-collab .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Início rápido {#quickstart}
+
+### 1. Instalar pacotes
+
+```bash
+pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap @tiptap/core
+```
+
+### 2. Adicionar Vite optimizarDeps
+
+Evita que Vite reagrupe o TipTap de maneiras incompatíveis durante o desenvolvimento:
+
+```ts
+// vite.config.ts
+import { reactRouter } from "@react-router/dev/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [reactRouter(), agentNative()],
+  optimizeDeps: {
+    include: [
+      "yjs",
+      "y-protocols/awareness",
+      "@tiptap/core",
+      "@tiptap/extension-collaboration",
+      "@tiptap/extension-collaboration-caret",
+      "@tiptap/y-tiptap",
+    ],
+  },
+});
+```
+
+### 3. Adicione o plugin do servidor de colaboração
+
+Sempre defina `resourceType` com o nome do recurso compartilhável registrado
+via `registerShareableResource`. Sem ele, os eventos push de colaboração são entregues
+para todos os usuários autenticados sem escopo no nível do documento e para o servidor
+registra um aviso único.
+
+```ts
+// server/plugins/collab.ts
+import { createCollabPlugin } from "@agent-native/core/server";
+
+export default createCollabPlugin({
+  table: "documents",
+  contentColumn: "content",
+  idColumn: "id",
+  resourceType: "document", // required for access-scoped event delivery
+});
+```
+
+### 4. Use o gancho do cliente
+
+```ts
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+} from "@agent-native/core/client";
+
+const TAB_ID = generateTabId(); // or Math.random().toString(36)
+
+const { ydoc, awareness, isLoading, activeUsers, agentActive, agentPresent } =
+  useCollaborativeDoc({
+    docId: documentId,
+    requestSource: TAB_ID,
+    user: {
+      name: emailToName(session.email),
+      email: session.email,
+      color: emailToColor(session.email),
+    },
+  });
+```
+
+### 5. Adicione extensões TipTap
+
+```ts
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+
+const editor = useEditor({
+  extensions: [
+    StarterKit.configure({ history: false }), // Yjs owns undo
+    Collaboration.configure({ document: ydoc }),
+    CollaborationCaret.configure({
+      provider: { awareness },
+      user: { name, color },
+    }),
+  ],
+  // Do NOT pass content here — Yjs owns the content
+});
+```
+
+### 6. Semente no primeiro carregamento (se houver conteúdo)
+
+A extensão Collaboration não é propagada automaticamente a partir de uma propriedade `content`. Se o
+Y.Doc está vazio e o documento tem conteúdo existente, propague-o:
+
+```ts
+useEffect(() => {
+  if (!ydoc || !editor || !isLoaded) return;
+  const fragment = ydoc.getXmlFragment("default");
+  if (fragment.length === 0 && initialContent) {
+    editor.commands.setContent(initialContent);
+  }
+}, [ydoc, editor, isLoaded]);
+```
+
+A identidade do usuário é derivada do e-mail da sessão. A estrutura fornece auxiliares `emailToColor()` e `emailToName()` para gerar cores de cursor consistentes e nomes de exibição de endereços de e-mail.
+
+## Comentários {#comments}
+
+Os modelos podem adicionar um sistema de comentários com discussões encadeadas em documentos. O sistema de comentários do modelo de conteúdo inclui uma implementação completa com:
+
+- Tabela `document_comments` SQL (tópicos, respostas, status resolvido)
+- As rotas REST do modelo de conteúdo para atualização/exclusão em `/api/comments/:id`; criar e listar executado através do `add-comment` / `list-comments` actions. Os modelos personalizados implementam seus próprios endpoints equivalentes na rota principal `POST /_agent-native/collab/:docId/search-replace`.
+- Barra lateral de comentários com visualização encadeada e resposta UI
+- Resolver/não resolver tópicos
+- **Botão Enviar para AI** — envia o contexto do tópico de comentários para o chat do agente via `sendToAgentChat()`
+- Agente actions: `list-comments`, `add-comment`
+- Sincronização de comentários Notion: ação `sync-notion-comments` para pull/push bidirecional
+
+## Rotas de colaboração {#collab-routes}
+
+Todas as rotas de colaboração são montadas automaticamente em `/_agent-native/collab/` pelo plugin de colaboração:
+
+| Rota                          | Propósito                                                       |
+| ----------------------------- | --------------------------------------------------------------- |
+| `GET /:docId/state`           | Buscar estado Y.Doc completo (base64)                           |
+| `POST /:docId/update`         | Aplicar atualização do cliente Yjs                              |
+| `POST /:docId/text`           | Aplicar substituição de texto completo (com base em diferenças) |
+| `POST /:docId/search-replace` | Localização/substituição cirúrgica em Y.XmlFragment             |
+| `POST /:docId/awareness`      | Sincronizar cursor/estado de presença                           |
+| `GET /:docId/users`           | Listar usuários ativos em um documento                          |
+
+## Ação de edição do agente {#edit-document}
+
+A ação `edit-document` do modelo de conteúdo é a principal forma pela qual os agentes fazem alterações em documentos no modo colaborativo:
+
+```bash
+# Edição única
+pnpm action edit-document --id doc123 --find "old text" --replace "new text"
+
+# Edições em lote
+pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
+
+# Excluir texto
+pnpm action edit-document --id doc123 --find "delete me" --replace ""
+```
+
+---
+
+## Kit de presença {#presence-kit}
+
+O kit de presença fornece cursor ao vivo de nível Liveblocks/Figma e primitivas de seleção na parte superior da camada de reconhecimento existente.
+
+Importe a presença e o editor do lado do cliente UI do subcaminho do navegador em foco:
+
+```ts
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+  useCollaborativeDoc,
+  usePresence,
+} from "@agent-native/core/client/collab";
+```
+
+Os auxiliares de presença do agente do lado do servidor permanecem no pacote de colaboração de nível inferior:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+### API público {#presence-public-api}
+
+| API                                                 | Propósito                                                                                                                                                                                   |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useCollaborativeDoc(options)`                      | Cria o `Y.Doc` estável e a instância de reconhecimento, lida com sincronização de vetor de estado, atalho SSE, fallback de pesquisa, usuários ativos e sinalizadores de presença de agente. |
+| `usePresence(awareness, localClientId)`             | Diva participantes remotos e publica campos de reconhecimento local arbitrários, como cursor, seleção, janela de visualização ou modo de ferramenta.                                        |
+| `<PresenceBar>`                                     | Renderiza os colaboradores ativos mais o agente de IA, com conexão opcional do modo de acompanhamento com clique no avatar.                                                                 |
+| `<LiveCursorOverlay>`                               | Renderiza rótulos de cursor remoto sobre um contêiner posicionado a partir de coordenadas 0-1 normalizadas.                                                                                 |
+| `<RemoteSelectionRings>`                            | Renderiza anéis e rótulos coloridos em torno de elementos DOM selecionados resolvidos pelo seu aplicativo.                                                                                  |
+| `useFollowUser(options)`                            | Invoca um retorno de chamada quando o participante seguido publica alterações na janela de visualização.                                                                                    |
+| `toNormalized()` / `fromNormalized()`               | Converta as coordenadas do ponteiro de/para as coordenadas normalizadas do contêiner.                                                                                                       |
+| `dedupeCollabUsersByEmail()`                        | Crie pilhas de avatares personalizadas sem que um usuário apareça uma vez por guia aberta.                                                                                                  |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Ganchos de cliente para colaboração estruturada Y.Map/Y.Array. Trate como de nível inferior até que um modelo comprove o padrão exato do produto.                                           |
+
+`UseCollaborativeDocOptions`:
+
+| Opção                 | Descrição                                                                               |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `docId`               | ID do documento ou `null` para desativar o gancho.                                      |
+| `pollInterval`        | Intervalo de pesquisa quando SSE não está disponível. Padrão: `2000`.                   |
+| `pollIntervalWithSse` | Intervalo de pesquisa lento enquanto SSE está íntegro. Padrão: `12000`.                 |
+| `pauseWhenHidden`     | Pausar atualização remota/pesquisa de presença enquanto estiver oculto. Padrão: `true`. |
+| `baseUrl`             | Prefixo do endpoint de colaboração. Padrão: `/_agent-native/collab`.                    |
+| `requestSource`       | ID de guia/fonte estável usado para ignorar ruído de atualização de origem própria.     |
+| `user`                | `{ name, email, color }` mostrado no cursor e presença UI.                              |
+
+`UseCollaborativeDocResult`:
+
+| Campo          | Descrição                                                                         |
+| -------------- | --------------------------------------------------------------------------------- |
+| `ydoc`         | `Y.Doc` estável para o `docId` atual.                                             |
+| `awareness`    | Instância do Yjs Awareness usada por cursores, seleções e modo de acompanhamento. |
+| `isLoading`    | O estado inicial do servidor ainda está carregando.                               |
+| `isSynced`     | O gancho alcançou o estado do servidor.                                           |
+| `activeUsers`  | Colaboradores humanos a partir da conscientização.                                |
+| `agentActive`  | O agente está editando ativamente no momento.                                     |
+| `agentPresent` | O agente tem uma entrada de conhecimento para este documento.                     |
+
+### Reconhecimento rápido {#fast-awareness}
+
+As mudanças no estado de reconhecimento agora se propagam em aproximadamente 150 ms, em vez do ciclo de pesquisa de 2s:
+
+- **Cliente → servidor**: qualquer chamada para `setPresence()` ou `awareness.setLocalStateField()` aciona um POST acelerado para `/_agent-native/collab/:docId/awareness` em 150 ms, unindo mudanças rápidas em uma única solicitação.
+- **Servidor → clientes**: o manipulador `postAwareness` emite um `AWARENESS_CHANGE_EVENT` após o armazenamento. O fluxo `/_agent-native/poll-events` SSE encaminha esses eventos no estilo push para pares conectados. As implantações somente de pesquisa continuam funcionando. Os cursores degradam a cadência de pesquisa sem erros.
+
+### `usePresence(awareness, localClientId)` {#use-presence}
+
+Retorna uma lista reativa de participantes remotos e um configurador para a carga de presença local:
+
+```ts
+import { usePresence } from "@agent-native/core/client";
+
+const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
+
+// Publish cursor position (normalized 0–1)
+setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
+
+// others: OtherPresence[]
+// {
+//   clientId: number
+//   user: { name, email, color }
+//   presence: { cursor?, selection?, viewport?, ... }
+//   isAgent: boolean   ← true for AGENT_CLIENT_ID
+// }
+```
+
+O agente (AGENT_CLIENT_ID) aparece como um participante de primeira classe com `isAgent: true`. Quando `agentUpdateSelection()` é chamado do lado do servidor, seus metadados de seleção fluem através de `usePresence` como qualquer outro participante.
+
+### `LiveCursorOverlay` {#live-cursor-overlay}
+
+Renderiza cursores remotos como rótulos absolutamente posicionados sobre um elemento contêiner:
+
+```tsx
+import { LiveCursorOverlay } from "@agent-native/core/client";
+
+// cursor positions stored as { x, y } normalized 0–1 under presence.cursor
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <LiveCursorOverlay
+    others={others} // from usePresence
+    containerRef={containerRef}
+    cursorKey="cursor" // key in presence payload (default: "cursor")
+  />
+</div>;
+```
+
+O cursor do agente é renderizado distintamente com um ícone brilhante. Os cursores desaparecem após 10s de inatividade com transições CSS suaves a 120ms.
+
+### `RemoteSelectionRings` {#remote-selection-rings}
+
+Renderiza anéis de contorno coloridos + tags de nome sobre elementos selecionados remotamente:
+
+```tsx
+import { RemoteSelectionRings } from "@agent-native/core/client";
+
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <RemoteSelectionRings
+    others={others}
+    selectionKey="selection" // key in presence payload (default: "selection")
+    resolveRect={(descriptor) =>
+      document.querySelector(descriptor)?.getBoundingClientRect() ?? null
+    }
+    containerRef={containerRef}
+  />
+</div>;
+```
+
+### `useFollowUser` {#follow-user}
+
+Invoque um retorno de chamada sempre que a janela de visualização do participante seguido for alterada:
+
+```ts
+import { useFollowUser } from "@agent-native/core/client";
+
+const { isFollowing, stopFollowing } = useFollowUser({
+  others,
+  followingId, // null to stop following
+  viewportKey: "viewport",
+  onViewport: (vp) => {
+    if (vp.fileId) setActiveFileId(vp.fileId);
+    if (vp.zoom) setZoom(vp.zoom);
+  },
+});
+```
+
+Os participantes publicam sua janela de visualização com `setPresence({ viewport: { fileId, zoom } })`.
+
+### Acessórios de modo de acompanhamento `PresenceBar` {#presence-bar-follow}
+
+O componente `PresenceBar` agora aceita adereços opcionais de modo de acompanhamento:
+
+```tsx
+<PresenceBar
+  activeUsers={activeUsers}
+  agentActive={agentActive}
+  onAvatarClick={(user) => {
+    // user is null for the agent avatar
+    const email = user?.email ?? "agent@system";
+    setFollowing((prev) => (prev === email ? null : email));
+  }}
+  followingEmail={followingEmail} // highlighted avatar + "Following X" chip
+/>
+```
+
+### Ajudantes de coordenadas normalizadas {#norm-coords}
+
+```ts
+import { toNormalized, fromNormalized } from "@agent-native/core/client";
+
+// In a pointer event handler:
+const norm = toNormalized(
+  e.clientX,
+  e.clientY,
+  container.getBoundingClientRect(),
+);
+setPresence({ cursor: norm });
+
+// In a cursor renderer:
+const px = fromNormalized(norm, container.getBoundingClientRect());
+```
+
+### Canalização do cursor do agente {#agent-cursor}
+
+actions do lado do servidor chama `agentUpdateSelection()` para publicar onde o agente está trabalhando. `edit-design` e `generate-design` actions do modelo de design chamam isso automaticamente. Outros modelos podem fazer o mesmo:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+
+agentEnterDocument(docId);
+agentUpdateSelection(docId, {
+  selection: "#target-element",
+  editingFile: "index.html",
+});
+try {
+  // ... perform edits ...
+} finally {
+  agentLeaveDocument(docId);
+}
+```
+
+Os metadados de seleção fluem através de `usePresence` em clientes conectados como `other.presence.selection`.
+
+---
+
+## Tabela de rotas {#routes}
+
+Todas as rotas são montadas automaticamente em `/_agent-native/collab/` pela colaboração
+plug-in:
+
+| Rota                          | Propósito                                                              |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| `GET /:docId/state`           | Estado Y.Doc completo (base64). Aceita `?stateVector=` para diferença  |
+| `POST /:docId/update`         | Aplicar atualização do cliente Yjs (base64). Máximo de 2 MB por padrão |
+| `POST /:docId/text`           | Aplicar substituição de texto completo (com base em diferenças)        |
+| `POST /:docId/search-replace` | Localização/substituição cirúrgica em Y.XmlFragment                    |
+| `POST /:docId/json`           | Aplicar comparação JSON completa a Y.Map/Y.Array                       |
+| `GET /:docId/json`            | Ler o estado JSON atual                                                |
+| `POST /:docId/patch`          | Aplicar operações de correção cirúrgica JSON (upsert/remove/reorder)   |
+| `POST /:docId/awareness`      | Sincronizar cursor/estado de presença                                  |
+| `GET /:docId/users`           | Listar usuários ativos em um documento                                 |
+
+## Transporte e desempenho {#transport}
+
+| Propriedade                             | Valor                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------- |
+| Atualizar rejeição                      | ~80 ms (reúne pressionamentos rápidos de teclas via `Y.mergeUpdates`)           |
+| Intervalo de pesquisa (sem SSE)         | 2 s (configurável via `pollInterval`)                                           |
+| Intervalo de pesquisa (SSE íntegro)     | ~12 s (configurável via `pollIntervalWithSse`)                                  |
+| Frequência de busca do vetor de estado  | Na reconexão, lacuna no buffer de anel ou a cada 15 ciclos de pesquisa          |
+| Recuo em caso de erro                   | Exonencial com jitter, limite de ~15 s                                          |
+| Carga útil máxima (gravações)           | 2 MB padrão, configurável via `maxPayloadBytes`                                 |
+| Limite de compactação                   | Blob armazenado > 4× codificação nova aciona compactação de marca para exclusão |
+| Leituras de banco de dados por gravação | 1 (versão CAS lida apenas dentro de `persistMergedState`)                       |
+
+## Segurança {#security}
+
+### Sempre defina `resourceType`
+
+```ts
+createCollabPlugin({
+  resourceType: "document", // the name passed to registerShareableResource
+});
+```
+
+Sem `resourceType` o plugin registra um aviso e transmite push de colaboração
+eventos para todos os usuários autenticados na implantação sem nível de documento
+escopo. Os não proprietários recorrem à recuperação do vetor estatal (seguro, mas maior
+latência) independentemente de `resourceType` estar definido.
+
+### Verificações de acesso
+
+Todas as rotas de colaboração requerem autenticação. Quando `resourceType` é definido, lê
+requerem pelo menos acesso de visualizador e gravações requerem acesso de editor, usando o
+mesmos ajudantes `resolveAccess` / `assertAccess` do sistema de compartilhamento. Um 404
+(não 403) é retornado em falhas de acesso para evitar vazamento da existência do documento.
+
+### Limites de carga útil
+
+Gravar rotas (`update`, `text`, `json`, `patch`, `search-replace`) rejeitadas
+cargas excedendo o limite configurado com HTTP 413. O padrão é 2 MB.
+Substituir por plugin:
+
+```ts
+createCollabPlugin({
+  resourceType: "document",
+  maxPayloadBytes: 512 * 1024, // 512 KB
+});
+```
+
+### Escopo do reconhecimento
+
+As rotas de conscientização (`POST /awareness`, `GET /users`) são controladas pelas mesmas
+verificação de acesso como leitura – um usuário que não tem acesso de visualizador não pode saber quem mais
+está editando um documento.
+
+## Padrões {#patterns}
+
+### Mesclagem granular do lado do servidor para dados estruturados
+
+Para documentos estruturados (apresentações de slides, criadores de formulários, arquivos de design), o Yjs
+o modelo de colaboração corporal pode entrar em conflito quando dois agentes ou usuários reescrevem o mesmo
+registro de nível superior simultaneamente. O padrão mais seguro é **granular no lado do servidor
+mesclagem**: defina uma ação que aceite um conjunto de operações direcionadas e
+aplica-os atomicamente, para que edições simultâneas em itens diferentes sobrevivam.
+
+**Slides (`patch-deck`)** — Em vez de substituir o deck inteiro JSON a cada
+alterar, a ação aceita operações por slide:
+
+```ts
+// Conceptual patch-deck action shape
+type PatchDeckOp =
+  | { type: "patch"; slideId: string; fields: Partial<SlideFields> }
+  | { type: "add"; position: number; slide: SlideData }
+  | { type: "delete"; slideId: string }
+  | { type: "reorder"; slideId: string; newIndex: number };
+```
+
+Dois usuários editando slides diferentes tiveram sucesso; não há nenhum golpe LWW em
+o nível do deck.
+
+**Formulários (`patch-form-fields`)** — Mesclagem em nível de campo com upsert/remover/reordenar
+operações para que edições simultâneas em campos de formulário diferentes sobrevivam.
+
+Use este padrão quando:
+
+- O documento é estruturado (itens dentro de um contêiner).
+- As edições simultâneas têm como alvo itens diferentes.
+- A colaboração corporal (Yjs `Y.XmlFragment`) é um exagero ou inaplicável.
+
+Use a colaboração corporal (Y.XmlFragment + TipTap) quando:
+
+- O documento é um rich text de formato livre onde qualquer região pode ser editada.
+- A mesclagem CRDT no nível do cursor é importante.
+
+### Escopo de desfazer colaborativo (Y.UndoManager)
+
+O modelo Design usa `Y.UndoManager` para definir o escopo de desfazer/refazer para o local
+edições do próprio usuário. Edições remotas de pares e edições de agentes nunca são desfeitas por um
+Cmd+Z do usuário.
+
+```ts
+import * as Y from "yjs";
+
+const LOCAL_EDIT_ORIGIN = "local";
+
+const undoManager = new Y.UndoManager(ydoc.getText("content"), {
+  trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+  captureTimeout: 800, // coalesce rapid slider drags into one undo step
+});
+
+// Wrap local edits with the tracked origin
+ydoc.transact(() => {
+  // apply local style change
+}, LOCAL_EDIT_ORIGIN);
+
+// Undo/redo — only reverses LOCAL_EDIT_ORIGIN transactions
+undoManager.undo(); // Cmd+Z
+undoManager.redo(); // Shift+Cmd+Z
+```
+
+Propriedades principais:
+
+- `trackedOrigins` deve ser um `Set`. Somente transactions com origem correspondente
+  são capturados na pilha de desfazer.
+- Atualizações remotas (origem `"remote"`) e atualizações de agente (origem `"agent"`) são
+  nunca capturado.
+- Recriar e descartar o gerenciador quando o documento ativo for alterado; obsoleto
+  os gestores possuem referências que podem crescer ilimitadamente.
+
+## Limitações conhecidas {#limitations}
+
+<Callout id="doc-block-1jqjsfm" tone="risk">
+
+**A reescrita simultânea na mesma região é last-write-wins.** Se o agente reescrever uma passagem enquanto um humano tiver edições não salvas na _exatamente a mesma região_, o instantâneo do cliente principal poderá atrapalhar a edição humana em andamento. As edições em regiões diferentes sempre são mescladas de forma limpa por meio do CRDT. Para documentos estruturados, use a mesclagem granular do lado do servidor para evitar isso completamente.
+
+</Callout>
+
+- **A reescrita simultânea na mesma região é LWW** — Se o agente reescrever um
+  passagem e um humano têm edições não salvas exatamente na mesma região, o
+  o instantâneo do cliente principal pode substituir as alterações em andamento do ser humano. Edições em
+  diferentes regiões se fundem corretamente através do CRDT. Mesclagem granular do lado do servidor
+  (veja acima) evita isso para documentos estruturados.
+- **Bloqueios de gravação em processo sem servidor** — O mapa `_writeLocks` é
+  processo local. Solicitações simultâneas chegando em diferentes servidores sem servidor
+  as invocações são serializadas na camada SQL CAS (simultaneidade otimista)
+  do que o bloqueio na memória. Isso é seguro, mas significa cenários de alto rendimento em
+  sem servidor pode haver mais tentativas CAS.
+- **A conscientização é por processo** — O armazenamento na memória da consciência é
+  processo local. Implantações sem servidor/multiprocessos apresentam reconhecimento parcial
+  estado por invocação. Os clientes ainda recebem instantâneos completos de reconhecimento de cada um
+  ciclo de pesquisa, para que os indicadores de presença sejam atualizados dentro de um intervalo de pesquisa.
+
+## Presença {#presence}
+
+O gancho `useCollaborativeDoc` retorna:
+
+- `activeUsers` — matriz de `CollabUser` (nome, email, cor) para todos os pares
+  atualmente no documento (fonte de conhecimento).
+- `agentActive` — `true` brevemente após o agente fazer uma edição (use para um
+  indicador visual transitório).
+- `agentPresent` — `true` enquanto o agente tem uma entrada de reconhecimento ativa
+  (pulsação de presença durável).
+
+Usar `emailToColor(email)` e `emailToName(email)` de
+`@agent-native/core/client` para gerar cores e exibição consistentes do cursor
+nomes de endereços de e-mail.
+
+Um `PresenceBar` renderizado com `activeUsers` mostra humano e agente ao vivo
+colaboradores. Presença por slide (quais usuários estão visualizando um determinado slide)
+camadas acima do mesmo estado de reconhecimento.
+
+## Documentos relacionados {#related}
+
+- [Real-Time Sync](/docs/client#usedbsync) — o `useDbSync` + `useChangeVersion`
+  sistema que fornece a reconciliação do editor de colisão `updatedAt`.
+- [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
+  e `assertAccess` para o modelo de acesso referenciado por `resourceType`.
+- [Sharing](/docs/sharing) — como os documentos são compartilhados e como o acesso é concedido.
+- [Template: Content](/docs/template-content) — implementação de referência de
+  edição colaborativa de rich text.
+- [Template: Slides](/docs/template-slides) — ação `patch-deck` granular para
+  edição simultânea estruturada.
+- [Template: Forms](/docs/template-forms) — `patch-form-fields` em nível de campo
+  mesclagem do lado do servidor.
+- [Template: Design](/docs/template-design) — `Y.UndoManager` desfazer/refazer escopo
+  para edições de usuários locais.

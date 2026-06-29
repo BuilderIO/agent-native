@@ -40,7 +40,7 @@ export function NewCompositionPopover({
       sessionStorage.removeItem("videos:new-composition-generating");
       window.dispatchEvent(new CustomEvent("videos:new-composition-status"));
       setTimeout(() => {
-        const match = window.location.pathname.match(/\/c\/([^\/]+)/);
+        const match = window.location.pathname.match(/\/c\/([^/]+)/);
         if (match && match[1] !== "new") {
           try {
             window.dispatchEvent(

@@ -1,0 +1,83 @@
+---
+title: "Aplicativos de agente puro"
+description: "Aplicativos em que o agente é o produto completo: o loop app-agent é a porta de entrada e UI é adicionado apenas quando humanos precisam dele."
+---
+
+# Aplicativos de agente puro
+
+Um aplicativo de agente puro é o fim mínimo do agente nativo: o loop app-agent é o
+produto, não um painel. Você envia uma solicitação do terminal, Slack, email, um
+trabalho agendado, outro agente ou bate-papo — "resumir meus e-mails não lidos", "postar o
+métricas diárias para Slack" — e o agente atua e retorna o resultado onde quer que esteja
+pertence. Ainda é um aplicativo real: actions, sessões, estado do aplicativo, histórico,
+configurações, credenciais e registros de compartilhamento, todos ativos em SQL.
+
+<Diagram id="doc-block-8brd1i" title={"O loop app-agent é a porta de entrada"} summary={"Muitos pontos de entrada alcançam um loop de agente sobre ações e estados SQL-backed; os resultados retornam para o local de origem da solicitação. A IU é adicionada apenas quando humanos precisam supervisionar."}>
+
+```html
+<div class="diagram-pure">
+  <div class="diagram-col">
+    <div class="diagram-pill">Terminal</div>
+    <div class="diagram-pill">Slack · e-mail</div>
+    <div class="diagram-pill">Job agendado</div>
+    <div class="diagram-pill">Another agent (A2A)</div>
+    <div class="diagram-pill">Chat</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Loop do agente do app</span
+    ><small class="diagram-muted">ações · sessões · estado do app em SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Resultado retornado<br /><small class="diagram-muted"
+      >to where it belongs</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-pure {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-pure .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-pure .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-pure .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+Alcance esta forma quando o trabalho é executado em segundo plano, a saída sai do
+aplicativo, o domínio é único ou você está criando um protótipo. O agente ainda precisa de um UI —
+não é um painel, mas um lugar para humanos supervisionarem, configurarem e orientarem —
+é por isso que mesmo aplicativos de agente puro geralmente montam o shell de bate-papo integrado.
+
+Este é o formato do produto **sem cabeça**. O guia de decisão completo, o que vem dentro
+a caixa, o scaffold, o acesso ao repositório e o compartilhamento de execução agora estão em um só lugar:
+
+→ [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
+
+## O que vem a seguir
+
+- [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless) — o guia completo de decisão sem cabeça e APIs
+- [**Getting Started**](/docs/getting-started) — crie primeiro um aplicativo de bate-papo ou um agente sem cabeça
+- [**Dispatch**](/docs/template-dispatch) — o modelo de espaço de trabalho que é um excelente ponto de partida para agente puro
+- [**Messaging the agent**](/docs/messaging) — como os usuários conversam com o agente pela web, Slack, Telegram, e-mail
+- [**Recurring Jobs**](/docs/recurring-jobs) — prompts agendados que o agente executa sozinho
+- [**Actions**](/docs/actions) — as ferramentas que seu agente puro chamará

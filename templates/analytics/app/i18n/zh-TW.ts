@@ -1,4 +1,7 @@
 const messages = {
+  root: {
+    whatsNew: "最新消息",
+  },
   navigation: {
     brand: "Analytics",
     ask: "提問",
@@ -22,6 +25,8 @@ const messages = {
     created: "建立於 {{date}}",
   },
   sidebar: {
+    collapseSidebar: "收合側邊欄",
+    expandSidebar: "展開側邊欄",
     collapseDashboards: "收起儀表板",
     expandDashboards: "展開儀表板",
     collapseAnalyses: "收起分析",
@@ -102,12 +107,46 @@ const messages = {
     credentials: "資料來源憑證",
     credentialsDescription: "API 金鑰和憑證在資料來源頁面管理。",
     manageDataSources: "管理資料來源",
+    dashboardTemplates: "儀表板範本",
+    dashboardTemplatesDescription: "需要起點時，可安裝來源程式碼控制的儀表板。",
+    openDashboardTemplates: "開啟目錄",
     languageTitle: "語言",
     languageLabel: "介面語言",
     about: "關於",
     aboutDescription:
       "Analytics 用於連線資料來源並建置自訂儀表板。連線 Google Analytics、BigQuery、Stripe 等，然後讓代理建立儀表板。",
     aboutUsage: "在資料來源頁面管理連線。使用查詢探索器執行臨時 BigQuery SQL。",
+    replayStorage: "工作階段回放儲存",
+    replayStorageDescription:
+      "工作階段回放錄製需要已設定的檔案上傳供應商。連線 Builder.io 以使用免費方案的物件儲存，或使用您自己的 S3 相容儲存桶。",
+    connected: "已連線",
+    connectBuilder: "連線 Builder.io",
+    checkingBuilder: "正在檢查 Builder.io...",
+    builderConnected: "已連線 Builder.io",
+    builderConnectedToast: "已連線 Builder.io",
+    builderConnectedFor: "已連線至 {{orgName}}。",
+    builderConnectedGeneric: "回放分塊儲存於 Builder.io。",
+    builderIncludes: "Builder.io 的免費方案包含回放分塊的物件儲存。",
+    s3Title: "S3 相容儲存",
+    secondary: "次要",
+    active: "使用中",
+    s3BuilderConnectedDescription:
+      "選用。使用您自己的儲存桶取代 Builder.io 儲存。",
+    s3CurrentProvider: "目前供應商：{{providerName}}。",
+    s3OwnBucketDescription:
+      "AWS S3、Cloudflare R2、DigitalOcean Spaces、MinIO 或任何 S3 相容服務。",
+    configureS3: "設定 S3",
+    hideS3: "隱藏",
+    s3EndpointLabel: "端點 URL",
+    s3BucketLabel: "儲存桶名稱",
+    s3AccessKeyLabel: "存取金鑰 ID",
+    s3SecretAccessKeyLabel: "私密存取金鑰",
+    s3RegionLabel: "地區（選用）",
+    s3PublicBaseUrlLabel: "公開基底 URL（選用）",
+    saveStorage: "儲存儲存設定",
+    storageRequired: "請輸入必填的儲存欄位。",
+    storageSaved: "已儲存儲存設定。",
+    storageSaveFailed: "無法儲存儲存設定。",
   },
   chat: {
     emptyState: "讓我分析儀表板、比較趨勢或深入檢視資料...",
@@ -155,6 +194,7 @@ const messages = {
     untitledDashboard: "未命名儀表板",
   },
   common: {
+    docs: "檔案",
     noData: "無資料",
     noDataAvailable: "無可用資料",
     rowsPerPage: "每頁行數：",
@@ -793,9 +833,15 @@ const messages = {
     path: "路徑",
     eventName: "事件",
     time: "時間",
+    storageSetupTitle: "連線回放儲存",
+    storageSetupDescription:
+      "工作階段回放錄製需要先設定儲存才能儲存分塊。連線 Builder.io 以使用免費方案儲存，或設定您自己的 S3 相容儲存桶。",
+    storageConnected: "已連線儲存",
+    connectBuilder: "使用 Builder.io（免費）",
+    configureS3: "設定 S3 儲存",
   },
   catalog: {
-    description: "來源程式碼控制的儀表板可隨時安裝到您的工作空間中。",
+    description: "需要起點時，可安裝儀表板範本。",
     noTemplatesFound: "沒有找到範本",
     tryDifferentCategory: "嘗試不同的目錄類別。",
     templatesCount: "{{count}} 個範本",

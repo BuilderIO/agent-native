@@ -1,0 +1,465 @@
+---
+title: "MCP 用戶端"
+description: "將您的 Agent-Native 應用程式連線到本機 MCP 伺服器（claude-in-chrome、檔案系統、Playwright等），以便代理獲得其工具。"
+---
+
+# MCP 用戶端
+
+**此頁面：為您的代理提供更多工具。** 將 Agent-Native 應用程式指向 MCP 伺服器（本機或遠端），以便他們的工具顯示在代理聊天中。這是 _client_ 方向，[MCP Protocol](/docs/mcp-protocol) 的鏡像（這使您的應用成為 MCP _server_）。
+
+| 如果你想……                                        | 閱讀                                     |
+| ------------------------------------------------- | ---------------------------------------- |
+| 將外部代理/主機連線到您的應用                     | [External Agents](/docs/external-agents) |
+| 為您的代理提供更多工具（使用其他 MCP 伺服器）     | **此頁面** — MCP 用戶端                  |
+| 建置在 Claude/ChatGPT 中渲染的行內 UI             | [MCP Apps](/docs/mcp-apps)               |
+| 較低階別的 MCP 伺服器參考（驗證、工具、自訂掛載） | [MCP Protocol](/docs/mcp-protocol)       |
+
+透過一個設定檔案，工作區中的每個 Agent-Native 應用都可以存取電腦上的 MCP 伺服器提供的工具：用於瀏覽器自動化的 `claude-in-chrome`、用於讀取檔案的 `@modelcontextprotocol/server-filesystem`、用於瀏覽器測試的 `@playwright/mcp` 以及任何使用 MCP 的其他工具。
+
+您還可以 [connect remote (HTTP) MCP servers at runtime](#remote-via-ui)（個人使用者或整個組織），而無需編輯設定檔案。
+
+每個來源都會解析為一個執行時 **MCP 管理器**，並且它學習的每個工具都會以防碰撞 `mcp__<server-id>__<tool>` 前綴登入到代理的工具註冊表中 - 可透過 `tool-search` 進行意圖搜尋。
+
+<Diagram id="doc-block-z6xhpm" title={"用戶端方向：多種來源，一種工具註冊表"} summary={"設定檔案、環境和執行時 UI 全部合併到 MCP 管理器中；它的工具與您的應用程式的操作一起顯示為前綴並且可透過工具搜尋。這是伺服器方向的鏡像。"}>
+
+```html
+<div class="mcp-merge">
+  <div class="diagram-col sources">
+    <div class="diagram-box" data-rough>
+      Workspace <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >跨應用共用</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      應用根 <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >每個應用覆蓋</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      <code>MCP_SERVERS</code> env<br /><small class="diagram-muted"
+        >CI / 正式環境</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      透過設定介面遠端設定<br /><small class="diagram-muted"
+        >personal &amp; org scope</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">MCP 管理器</span
+    ><small class="diagram-muted">merge &middot; hot-reload</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col out">
+    <div class="diagram-node">
+      Agent 工具 registry<br /><small class="diagram-muted"
+        ><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small
+      >
+    </div>
+    <div class="diagram-node">
+      <code>tool-search</code><br /><small class="diagram-muted"
+        >按意圖發現</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.mcp-merge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-merge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mcp-merge .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-merge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-merge code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+> 相反的方向 - 使 _your_ 應用程式成為其他主機使用的 MCP 伺服器 - 位於 [MCP Protocol](/docs/mcp-protocol) 和 [External Agents](/docs/external-agents) 中。
+
+## 內建瀏覽器和電腦使用功能 {#built-in-capabilities}
+
+Agent-Native 包括常見 stdio MCP 伺服器的本機開發切換。
+預設情況下它們處於關閉狀態，並且只能針對每個使用者或每個組織啟用
+當應用程式在本機執行時。跳過正式環境和託管無伺服器執行時
+即使舊設定行存在，這些內建函式和工作區資源
+樹不會將它們顯示為預設的 `mcp-servers/*.json` 資源。
+
+| 能力             | 伺服器 ID         | 指令                                                                    |
+| ---------------- | ----------------- | ----------------------------------------------------------------------- |
+| Chrome 開發工具  | `chrome-devtools` | `npx -y chrome-devtools-mcp@latest --autoConnect --no-usage-statistics` |
+| Playwright瀏覽器 | `playwright`      | `npx -y @playwright/mcp@latest`                                         |
+| 電腦使用         | `computer-use`    | `npx -y computer-use-mcp@latest`                                        |
+
+一次只能在一個範圍內啟用一種瀏覽器功能。啟用 Chrome DevTools 會停用同一使用者或組織的 Playwright，啟用 Playwright 會停用 Chrome DevTools。
+
+電腦使用僅限 macOS。在其他平台上，它被列為不可用，並且即使舊設定行包含它也會被跳過。
+
+Chrome DevTools 預設使用 `--autoConnect`。它附加到符合條件的正在執行的 Chrome 執行個體；它不會為您建立獨立的瀏覽器設定檔案或登入使用者的一般設定檔案。它需要啟用遠端偵錯的 Chrome 144+。當部署需要特定的偵錯端點時，可以稍後新增手動 `browser-url` 設定。
+
+內建程式保留在框架的 `settings` 表中，位於用於個人切換的 `u:<email>:mcp-builtin-capabilities` 和用於團隊切換的 `o:<orgId>:mcp-builtin-capabilities` 下。啟用後，它們會合併到執行時 MCP 管理器中，其範圍可見性格式與遠端伺服器相同，例如 `mcp__user_<emailhash>_playwright__*` 或 `mcp__org_<orgId>_chrome-devtools__*`。
+
+### 面向使用者的設定說明
+
+對敏感的內建程式使用簡潔、明確的設定副本：
+
+- **Chrome DevTools** 附加到正在執行的 Chrome 偵錯目標。告訴使用者
+  它用於瀏覽器測試和登入驗證，並且它
+  可能需要在工具出現之前啟用 Chrome 遠端偵錯。
+- **Playwright** 啟動一個獨立的瀏覽器。推薦它用於確定性
+  當不需要使用者的即時 Chrome 個人資料時進行品質檢查。
+- **電腦使用**可以操作本機應用程式。預設關閉，解釋一下
+  macOS 螢幕錄製和輔助功能提示，並在拍攝前詢問
+  敏感的 actions，例如購買、財務變化或帳戶更改。
+
+### 內建端點
+
+| 方法 | 路由                         | 目的                                                                  |
+| ---- | ---------------------------- | --------------------------------------------------------------------- |
+| GET  | `/_agent-native/mcp/builtin` | 列出內建功能、啟用的範圍、合併的 ID 和即時狀態。                      |
+| POST | `/_agent-native/mcp/builtin` | 更新範圍。主體：`{ scope, enabledIds }` 或 `{ scope, id, enabled }`。 |
+
+## 新增本機 MCP 伺服器 {#adding-a-server}
+
+在您的工作區根目錄（或單一應用程式根目錄 - 當兩者都存在時，工作區根目錄獲勝）建立 `mcp.config.json`：
+
+```jsonc
+{
+  "$schema": "https://agent-native.com/schema/mcp.config.json",
+  "servers": {
+    "claude-in-chrome": {
+      "command": "claude-in-chrome-mcp",
+      "args": [],
+      "env": { "LOG_LEVEL": "info" },
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@latest",
+        "/Users/me/projects",
+      ],
+    },
+  },
+}
+```
+
+形狀很小：由伺服器 ID 鍵入的 `servers` 對應，其中每個條目都是 stdio 啟動程式（`command` + `args` + 可選的 `env`）或遠端 `{ "type": "http", "url", "headers" }` 條目。
+
+<AnnotatedCode
+  id="doc-block-33w93e"
+  title={"mcp.config.json，帶註解"}
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
+  }
+  annotations={[
+    {
+      lines: "3",
+      label: "伺服器ID",
+      note: "鍵成為工具前綴：該伺服器的工具在代理的註冊表中顯示為 `mcp__claude-in-chrome__*`，因此它們不會與範本的操作發生衝突。",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` 生成本機二進制檔案。 Stdio 伺服器旨在用於**本機開發**- 它們在邊緣執行時中是無操作的。",
+    },
+    {
+      lines: "6",
+      label: "行程環境",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
+
+在下一次應用程式啟動時，您將看到：
+
+```
+[mcp-client] loaded config from /path/to/mcp.config.json (3 server(s))
+[mcp-client] connected to claude-in-chrome: 12 tools
+[mcp-client] connected to playwright: 9 tools
+[mcp-client] connected to filesystem: 4 tools
+```
+
+這些工具在代理的工具註冊表中註冊，前綴為 `mcp__<server-id>__<tool-name>`，因此它們不會與範本的 actions 發生衝突。它們也包含在 `tool-search` 中，因此代理可以透過意圖發現新連線的 MCP 功能，而不需要預先提供確切的前綴名稱。
+
+## 設定優先級 {#precedence}
+
+MCP 設定按此順序解析，第一個匹配獲勝：
+
+1. **工作空間根 `mcp.config.json`** — 透過 `package.json` 中的 `agent-native.workspaceCore` 偵測到。在工作區中的每個應用程式之間共用。
+2. **應用程式根 `mcp.config.json`** — 如果您不希望每個應用程式中都提供 MCP 伺服器，則按應用程式覆蓋。
+3. **`MCP_SERVERS` env var** — 具有相同形狀的 JSON 字串，適用於檔案沒有意義的 CI/正式環境。
+
+## 正式環境部署：`MCP_SERVERS` {#mcp-servers-env}
+
+對於正式環境部署，首選遠端 HTTP MCP 伺服器並設定完整設定
+形狀（或內部伺服器對應）作為環境變數：
+
+```bash
+MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/mcp","headers":{"Authorization":"Bearer paste-token-value-here"}}}}'
+```
+
+`MCP_SERVERS` 被解析為 JSON，因此 `${...}` 預留位置不會擴充功能
+在字串內。如果您將權杖儲存在另一個秘密中，請先將其展開
+寫入最終的 JSON 值。
+
+Stdio MCP 伺服器生成本機二進制檔案，用於本機開發。
+MCP 工具僅在 Node 執行時啟用 - Cloudflare Workers 和其他邊緣
+目標默默地跳過 MCP 並繼續應用程式的其餘部分工作
+通常。
+
+## 自動偵測：`claude-in-chrome` {#autodetect}
+
+如果您**沒有** `mcp.config.json` 並且 `claude-in-chrome-mcp` 二進制檔案位於 `PATH`（或眾所週知的安裝位置 `~/.claude-in-chrome/bin/claude-in-chrome-mcp`）上，則本機代理會將其自動註冊為預設 MCP 伺服器。將 `AGENT_NATIVE_DISABLE_MCP_AUTODETECT=1` 設定為選取退出。
+
+這意味著安裝了 claude-in-chrome 擴充功能的使用者無需更改設定即可獲得對他們開啟的每個 Agent-Native 應用程式的瀏覽器控制。
+
+## 透過設定 UI 遠端 MCP 伺服器 {#remote-via-ui}
+
+MCP（模型脈絡協議）伺服器為您的代理提供新的能力 - 例如連線到 Zapier、Cloudflare、Composio 或您公司的內部工具。連線後，代理可以像使用內建工具一樣使用這些工具。
+
+### 如何連線遠端 MCP 伺服器
+
+1. **伺服器名稱** - 供您自己參考的簡短標籤（例如“zapier”、“slack-tools”）。
+2. **URL** — MCP 伺服器提供者為您提供的 HTTPS 端點（例如 `https://mcp.zapier.com/s/abc123/mcp`）。這通常可以在提供者的儀表板或整合檔案中找到。
+3. **描述**（可選）- 關於此伺服器功能的註解。
+4. **標頭** — 伺服器所需的驗證憑證，每行一個。大多數伺服器需要 `Authorization` 標頭。範例：`Authorization: Bearer sk-your-key-here`。提供者的檔案會告訴您在此處放置什麼內容。
+
+點選“**測試**”以在儲存之前驗證連線。如果成功，您將看到可用工具的數量。點選“**連線**”進行新增。
+
+### 個人與組織範圍
+
+支援兩個範圍：
+
+- **個人** — 只有登入使用者才能獲得工具。儲存為使用者範圍設定。
+- **團隊** — 活躍組織中的每個人都可以獲得工具。所有者和管理員可以新增；成員只能看到該清單。儲存為組織範圍設定。
+
+在正在執行的 MCP 管理器中新增和刪除熱重載 — 無需重新啟動行程，也無需重新啟動伺服器。新的 `mcp__<scope>-<name>__*` 工具將在下一條訊息中向代理顯示，並且可透過 `tool-search` 進行搜尋。
+
+HTTPS URL 在任何地方都被接受； plain `http://` 在開發過程中僅允許用於 `localhost`。可選的驗證作為不記名權杖在每個請求上透過 `Authorization: Bearer …` 傳送。
+
+在底層，這些伺服器以 `u:<email>:mcp-servers-remote`（個人）或 `o:<orgId>:mcp-servers-remote`（團隊）鍵儲存在框架的 `settings` 表中，並在啟動時與 `mcp.config.json` 合併。
+
+### HTTP 端點
+
+| 方法   | 路由                                                  | 目的                                                               |
+| ------ | ----------------------------------------------------- | ------------------------------------------------------------------ |
+| GET    | `/_agent-native/mcp/servers`                          | 列出目前使用者的個人+組織伺服器的即時狀態。                        |
+| POST   | `/_agent-native/mcp/servers`                          | 新增伺服器。身體：`{ scope, name, url, headers?, description? }`。 |
+| DELETE | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Remove a server and reconfigure the manager.                       |
+| POST   | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Dry-run the existing server's connect + list-tools.                |
+| POST   | `/_agent-native/mcp/servers/test`                     | 在持久化之前試執行任意 URL。機身：`{ url, headers? }`。            |
+
+Stdio 伺服器在 Node 執行時之外仍然是無操作的，但遠端 HTTP MCP 伺服器可以在任何具有 `fetch` 的環境中工作 - 包括桌面正式環境版本。
+
+## 透過集線器共用 MCP 伺服器 {#hub}
+
+如果您的工作區執行多個 Agent-Native 應用程式（例如調度+郵件+剪輯），您可以將**一個**應用程式設定為中心，並讓其他應用程式自動拉取其組織範圍的 MCP 伺服器。沒有每個應用程式複製貼上 URL 和不記名權杖。請參閱 [Multi-App Workspace](/docs/multi-app-workspace) 了解使用 Dispatch 工作區 MCP 資源的規範方法。
+
+Dispatch 是傳統的中心 - 它已經跨應用進行協調。
+
+<Diagram id="doc-block-76g9ry" title={"中心模型：一個應用程式為組織範圍的 MCP 伺服器提供服務"} summary={"Dispatch 擁有組織範圍 MCP 伺服器；消費者應用程式將它們拉取並合併為 mcp__hub_<orgId>_<name>__*。僅共用組織範圍的行 - 個人憑證保持不變。"}>
+
+```html
+<div class="mcp-hub">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Dispatch hub</span
+    ><small class="diagram-muted">組織範圍 MCP 伺服器</small
+    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+  </div>
+  <div class="diagram-col arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  </div>
+  <div class="diagram-col consumers">
+    <div class="diagram-box" data-rough>
+      Mail<br /><small class="diagram-muted"
+        ><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Clips<br /><small class="diagram-muted">約每 60 秒 pull + merge</small>
+    </div>
+  </div>
+</div>
+<p class="diagram-muted note">
+  Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope)
+  servers are never re-exposed.
+</p>
+```
+
+```css
+.mcp-hub {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-hub .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-hub .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-hub .arrows .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-hub .note {
+  margin: 8px 0 0;
+  font-size: 0.85em;
+}
+.mcp-hub code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+對於新的工作區設定，首選\*\*在您
+想要工作區 skills 使用相同的全應用與選定應用授權模型，
+說明和參考資源。新增工作區資源：
+
+```json
+{
+  "type": "http",
+  "url": "https://example.com/mcp",
+  "headers": {
+    "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"
+  },
+  "description": "Shared MCP 工具s for workspace apps"
+}
+```
+
+將其儲存在 `mcp-servers/<name>.json` 下，型別為 `mcp-server`。所有應用
+資源由每個工作區應用程式載入；選定的資源僅載入
+具有有效調度授權的應用程式。從應用程式解析秘密預留位置
+秘密儲存，因此將原始不記名權杖放入 Dispatch Vault 並引用它們
+使用 `${keys.NAME}`，而不是將它們儲存在資源主體中。
+
+應用程式大約每分鐘重新整理一次合併的 MCP 設定，因此是中央資源
+編輯、授予更改和刪除無需部署即可生效。設定
+`AGENT_NATIVE_MCP_CONFIG_REFRESH_MS=0` 停用背景重新整理，或
+將其設定為至少 `5000` 毫秒的值以調整間隔。
+
+下面的舊集線器模式對於粗略的“共用每個組織範圍 MCP”仍然有用
+來自 Dispatch 的伺服器”設定以及已使用 MCP 的部署
+將 UI 設定為事實來源。
+
+### 1。在集線器應用程式上啟用集線器服務（調度）
+
+在調度的部署中設定環境變數：
+
+```bash
+AGENT_NATIVE_MCP_HUB_TOKEN=<a-long-random-secret>
+```
+
+Dispatch 現在掛載 `GET /_agent-native/mcp/hub/servers`，它返回儲存在其 `settings` 表中的每個組織範圍 MCP 伺服器，以及完整的 URL + 標頭，並透過權杖進行驗證。
+
+### 2。將消費應用程式指向中心
+
+對每個消費者進行設定（郵件、剪輯等）：
+
+```bash
+AGENT_NATIVE_MCP_HUB_URL=https://dispatch.acme.com
+AGENT_NATIVE_MCP_HUB_TOKEN=<the-same-secret>
+```
+
+啟動時，每個消費者都會拉取集線器的伺服器清單並將其合併到自己的 MCP 管理器中。這些工具對代理來說顯示為 `mcp__hub_<orgId>_<name>__*` — 與消費者自己的本機 `mcp__org_…` 不同，因此不會發生衝突。
+
+### 3。分享什麼內容
+
+僅共用**組織範圍**伺服器。使用者範圍（個人）伺服器由新增它們的使用者保留 - 中心絕不會跨應用程式重新公開個人憑證。
+
+集線器回應包括完整的驗證標頭（承載權杖等）。傳輸是 HTTPS，端點需要共用金鑰，並且它僅返回組織範圍行 - 將中心 URL + 權杖視為資料庫憑證。
+
+### 4。熱重載與重啟
+
+本機 UI 透過 `McpClientManager.reconfigure()` 在每個應用程式中新增熱重載 - 無需重新啟動。集線器來源的伺服器由工作區資源路徑使用的相同定期背景重新整理（大約 60 秒，可透過 `AGENT_NATIVE_MCP_CONFIG_REFRESH_MS` 調整或停用）來取得，因此在 Dispatch 中所做的更改會在大約一分鐘內傳播到所有消費者應用程式，而無需重新啟動。此外，消費者應用程式中的任何本機突變都會立即觸發該應用程式的重新設定。
+
+### 端點摘要
+
+| 方法 | 路由                             | 目的                                                                                               |
+| ---- | -------------------------------- | -------------------------------------------------------------------------------------------------- |
+| GET  | `/_agent-native/mcp/hub/servers` | 為所有組織範圍的伺服器提供完整的信用（不記名門控，僅在設定 `AGENT_NATIVE_MCP_HUB_TOKEN` 時安裝）。 |
+| GET  | `/_agent-native/mcp/hub/status`  | 返回設定 UI 卡的`{ serving, consuming, hubUrl }`。                                                 |
+
+## 狀態路由 {#status-route}
+
+每個應用程式都公開 `GET /_agent-native/mcp/status` 用於工具和入門：
+
+<Endpoint id="doc-block-ab4bv3" method="GET" path="/_agent-native/mcp/status" summary={"MCP 工具和入門的用戶端狀態"} responses={[
+  {
+    "status": "200",
+    "description": "Configured vs connected servers, tool inventory, and per-server errors.",
+    "example": "{\n  \"configuredServers\": [\"claude-in-chrome\", \"playwright\"],\n  \"connectedServers\": [\"claude-in-chrome\", \"playwright\"],\n  \"totalTools\": 21,\n  \"tools\": [\n    {\n      \"source\": \"claude-in-chrome\",\n      \"name\": \"mcp__claude-in-chrome__navigate\",\n      \"description\": \"Navigate the browser to a URL\"\n    }\n  ],\n  \"errors\": {}\n}"
+  }
+]}>
+
+Reports which configured servers connected, the total live tool count, the merged prefixed tool list, and any per-server connection errors. Use it to build "detected — your agent can now drive X" hints or to debug connection problems.
+
+</Endpoint>
+
+```json
+{
+  "configuredServers": ["claude-in-chrome", "playwright"],
+  "connectedServers": ["claude-in-chrome", "playwright"],
+  "totalTools": 21,
+  "tools": [
+    {
+      "source": "claude-in-chrome",
+      "name": "mcp__claude-in-chrome__navigate",
+      "description": "Navigate the browser to a URL"
+    }
+  ],
+  "errors": {}
+}
+```
+
+使用它來建置“偵測到 claude-in-chrome - 您的代理現在可以驅動 Chrome”入門提示，或偵錯 MCP 連線問題。
+
+## 故障模式 {#failures}
+
+個別 MCP 伺服器故障永遠不會導致代理關閉：
+
+- 設定錯誤的 `command` → 伺服器被跳過，其錯誤出現在 `errors.<server-id>` 下的 `/mcp/status` 中，而其他所有伺服器繼續工作。
+- `node_modules` 中缺少 MCP SDK → 所有 MCP 功能都會被跳過並出現警告；代理聊天可以使用零 MCP 工具繼續工作。
+- 在邊緣執行時中執行 → MCP 用戶端是無操作的。
+
+Agent-Native 將始終啟動；損壞的 MCP 設定僅意味著工具更少。
+
+## 安全 {#security}
+
+MCP 工具在您的電腦上執行，具有產生的行程具有的任何權限。像對待您願意讓代理驅動的任何其他可執行檔案清單一樣對待 `mcp.config.json`。來自 MCP 伺服器的工具出現在代理的工具使用迴圈中，就像您範本自己的 actions 一樣，因此請確保您信任您設定的每個伺服器。

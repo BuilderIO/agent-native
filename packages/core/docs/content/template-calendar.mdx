@@ -1,0 +1,377 @@
+---
+title: "Calendar"
+description: "An agent-powered calendar with Google Calendar sync and Calendly-style booking links. Schedule, find slots, and manage availability through plain English."
+---
+
+# Calendar
+
+An agent-powered calendar app. Connect your Google Calendar and the agent can read your schedule, find free slots, create events, and manage Calendly-style booking links — all in plain English. It replaces the Google Calendar + Calendly combo with one app you own.
+
+<WireframeBlock id="doc-block-6wsrao">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>May 3-9, 2026</strong><div style='flex:1'></div><button class='primary'>New Event</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>Sun 3</strong><strong>Mon 4</strong><strong>Tue 5</strong><strong>Wed 6</strong><strong>Thu 7</strong><strong>Fri 8</strong><strong>Sat 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>All-hands</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Design review</div><div></div><div class='wf-box'>Design crit</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Friday demo</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Focus block</div><div></div><div></div><div class='wf-box'>All-hands</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Skip-level</div><div></div><div></div><div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+When you open the app, the active calendar view is the primary surface. The agent still knows which day, week, or event you're looking at, so you can say "schedule a 30-minute call with Alex on this day" without spelling everything out.
+
+<Diagram id="doc-block-1vg8pim" title="How a scheduling request flows" summary="Whether you click in the calendar or ask the agent, the same actions read live from Google Calendar and write back to the same view.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      You click<br /><small class="diagram-muted"
+        >drag, toolbar, shortcuts</small
+      >
+    </div>
+    <div class="diagram-node">
+      You ask the agent<br /><small class="diagram-muted"
+        >"find a 1-hour slot next week"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · check-availability · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >live, multi-account</small
+      >
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">bookings · availability</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">Calendar view updates live</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## What you can do with it
+
+- **See your real Google Calendar** in day, week, or month view, with multiple accounts overlayed.
+- **Subscribe to ICS feeds** (HR time off, conference schedules, team calendars) — read-only, mixed into the same view.
+- **Set weekly availability** with timezone support — the agent uses this when finding free slots.
+- **Create public booking links** at `/book/{slug}` for things like "15-minute intro" or "30-minute demo." Configure durations, custom fields, and which conferencing tool to use.
+- **Ask the agent anything schedule-related**: "Am I free Thursday afternoon?" "Find a 1-hour slot next week and put 'Planning with Alex' on it." "Pause my demo booking link."
+- **Share booking links** with teammates so they can manage them too.
+
+## Getting started
+
+Live demo: [calendar.agent-native.com](https://calendar.agent-native.com).
+
+When you first open the app:
+
+1. Click **Settings**.
+2. Click **Connect Google Calendar** and approve.
+3. (Optional) Connect more Google accounts if you want personal + work overlayed.
+4. Open the main view — your real calendar will load.
+
+To create your first booking link:
+
+1. Click **Booking Links** in the sidebar.
+2. Click **New booking link**, set a title and duration.
+3. Share the public URL — visitors pick from your available slots.
+
+Or just ask the agent: "Create a 15-minute intro booking link with a name field."
+
+### Useful prompts
+
+- "What is on my calendar today?"
+- "Am I free Thursday afternoon for 30 minutes?"
+- "Find a 1-hour slot next week and put 'Planning with Alex' on it."
+- "Reschedule this event to Friday at 2pm." (when an event is selected)
+- "Switch to day view and jump to next Monday."
+- "Create a booking link called '15 min intro' at 15 minutes with a note field."
+- "Pause my '30 min demo' booking link."
+- "Block Friday afternoons on my availability."
+- "What meetings do I have about 'launch' this month?"
+
+The agent will query Google Calendar live for any schedule question — it never guesses.
+
+## For developers
+
+The rest of this doc is for anyone forking the Calendar template or extending it.
+
+### Quick start
+
+Create a new workspace with the Calendar template:
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template calendar
+cd my-app
+pnpm install
+pnpm dev
+```
+
+Open `http://localhost:8082` (the default Calendar dev port).
+
+To connect Google Calendar in dev, open the Settings view, paste a `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from [Google Cloud Console](https://console.cloud.google.com/), and click "Connect Google Calendar". The OAuth redirect URI is `http://localhost:8082/_agent-native/google/callback` in dev. Tokens are stored in the `oauth_tokens` SQL table and refresh automatically.
+
+### Key features
+
+**Live calendar views.** Day, week, and month views read directly from connected Google accounts, with optional read-only ICS feeds layered into the same schedule.
+
+**Availability and free-slot search.** Weekly availability rules, timezone support, and existing events all feed the same availability action the UI and agent use.
+
+**Booking links.** Public `/book/{slug}` pages collect name, email, custom fields, conferencing preferences, and cancellation/reschedule tokens.
+
+**Shareable management.** Booking links are private by default, but can be shared with teammates through the framework sharing actions.
+
+**Inline event previews.** The agent can embed compact event cards in chat with title, time, location, attendees, and a jump-back button.
+
+### Working with the agent
+
+The agent sees what you are looking at. The current calendar view, the selected date, and the selected event are included in every message as a `current-screen` block, so you can say "this event" or "this day" and it resolves correctly.
+
+Under the hood the agent calls actions like `list-events`, `check-availability`, `create-event`, `navigate`, and `update-availability`. Because events live in Google Calendar, the agent always queries the API instead of guessing — it will not return empty results without running a script first.
+
+### Data model
+
+Defined in `templates/calendar/server/db/schema.ts`. Only non-event data is stored locally:
+
+- `bookings` — confirmed appointments from public booking pages. Stores name, email, start, end, slug, optional notes, custom field responses, meeting link, a `cancelToken` for the public manage URL, and a `confirmed` or `cancelled` status.
+- `booking_links` — the Calendly-style link definitions. Slug, title, description, primary `duration`, optional `durations` list, `customFields`, `conferencing`, `color`, and an `isActive` flag. Uses the framework's `ownableColumns` so the sharing system applies.
+- `booking_slug_redirects` — remembers old slugs when a link is renamed so existing public URLs keep working.
+- `booking_link_shares` — share grants for booking links.
+
+<DataModel
+  id="doc-block-1bkv9ic"
+  title="Calendar data model"
+  summary={
+    "Only non-event data is stored locally — events live in Google Calendar. Booking links use ownableColumns so the sharing system applies."
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly-style link definitions (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "public page at /book/{slug}",
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "duration",
+          type: "int",
+          note: "primary duration in minutes",
+        },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "alternative durations",
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "conferencing",
+          type: "string",
+          note: "Google Meet / Zoom / custom",
+        },
+        {
+          name: "color",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "isActive",
+          type: "bool",
+          note: "pause without deleting",
+        },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "Confirmed appointments from public booking pages",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          fk: "booking_links.slug",
+        },
+        {
+          name: "name",
+          type: "string",
+        },
+        {
+          name: "email",
+          type: "string",
+        },
+        {
+          name: "start",
+          type: "datetime",
+        },
+        {
+          name: "end",
+          type: "datetime",
+        },
+        {
+          name: "notes",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+          note: "custom field responses",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "powers /booking/manage/{token}",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "confirmed | cancelled",
+        },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "Keeps old public URLs working after a link is renamed",
+      fields: [
+        {
+          name: "oldSlug",
+          type: "string",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "Share grants for booking links",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "viewer | editor | admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "has bookings",
+    },
+    {
+      from: "booking_links",
+      to: "booking_slug_redirects",
+      kind: "1-n",
+      label: "has old slugs",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
+
+Availability rules and per-user configuration live in the settings table, keyed by `calendar-availability`. Google OAuth tokens live in the framework `oauth_tokens` table. Ephemeral UI state (current view, date, selected event) lives in `application_state` under the `navigation` key.
+
+### Customizing it
+
+Every part of the app is editable source. Start here:
+
+- `templates/calendar/actions/` — every agent-callable operation. Add a new file with `defineAction` to expose new capability to both the agent and the frontend. Key files: `check-availability.ts`, `create-event.ts`, `list-events.ts`, `create-booking-link.ts`, `update-availability.ts`, `add-external-calendar.ts`, `navigate.ts`, `view-screen.ts`.
+- `templates/calendar/app/routes/` — the UI. `_app._index.tsx` is the calendar, `_app.availability.tsx` is the schedule editor, `_app.booking-links._index.tsx` and `_app.booking-links.$id.tsx` manage booking links, `_app.bookings.tsx` lists bookings, `_app.settings.tsx` is Settings, and `book.$slug.tsx` plus `meet.$username.$slug.tsx` are the public booking pages.
+- `templates/calendar/server/db/schema.ts` — add columns or tables with Drizzle. Keep the code dialect-agnostic so the template runs on SQLite, Postgres, Turso, D1, and Neon.
+- `templates/calendar/AGENTS.md` — agent instructions. Update this when you teach the agent new capabilities or conventions.
+- `templates/calendar/.agents/skills/` — detailed patterns the agent follows. Relevant skills: `event-management`, `availability-booking`, `real-time-sync`, `storing-data`, `delegate-to-agent`, `frontend-design`.
+- `templates/calendar/shared/api.ts` — the shared TypeScript types (`AvailabilityConfig`, `BookingLink`, `ExternalCalendar`, etc.) used by both the server and the client.
+
+If you add a feature, remember to update all four areas: UI, action, skill or AGENTS.md entry, and any application state the agent needs to see. That is what keeps the agent and the UI in parity.

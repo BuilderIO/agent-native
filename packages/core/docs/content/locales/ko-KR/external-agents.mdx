@@ -1,0 +1,757 @@
+---
+title: "외부 에이전트: Claude, ChatGPT, Codex, 커서, Cowork"
+description: "Claude, ChatGPT, Codex, Cursor, Claude Cowork 또는 MCP 호환 호스트를 호스팅된 에이전트 기본 앱에 연결한 다음 MCP 앱 및 딥 링크를 사용하여 아티팩트를 실행 중인 UI로 다시 왕복합니다."
+search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이전트 기본 연결 로컬 에이전트 도구 외부 에이전트"
+---
+
+# 외부 에이전트
+
+**이 페이지: 외부 에이전트 또는 MCP 호스트를 앱에 연결합니다.** Claude, ChatGPT, Codex, Cursor, Claude Cowork 또는 다른 MCP 호환 호스트가 호스팅된 에이전트 네이티브 앱을 구동하고 결과를 실행 중인 UI로 다시 왕복해야 할 때 사용합니다.
+
+| 원한다면...                                             | 읽기                               |
+| ------------------------------------------------------- | ---------------------------------- |
+| 외부 에이전트/호스트를 앱에 연결                        | **이 페이지** — 외부 에이전트      |
+| 에이전트에게 더 많은 도구 제공(다른 MCP 서버 사용)      | [MCP Clients](/docs/mcp-clients)   |
+| Claude/ChatGPT에서 렌더링되는 인라인 UI 빌드            | [MCP Apps](/docs/mcp-apps)         |
+| 하위 수준 MCP 서버 참조(인증, 도구, 사용자 정의 마운트) | [MCP Protocol](/docs/mcp-protocol) |
+
+에이전트 네이티브 앱은 MCP 호환 호스트(Claude, Claude Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Claude Cowork, VS Code GitHub Copilot, Goose, Postman,)에서 연결할 수 있습니다. MCPJam 및 표준을 구현하는 미래의 클라이언트입니다. 외부 에이전트는 아티팩트(초안, 이벤트, 대시보드) 생성에 능숙하지만 종종 터미널이나 다른 앱에 상주합니다. 브릿지가 없으면 사용자는 JSON의 벽을 얻게 되고 그것을 찾으러 가야 합니다.
+
+외부 에이전트 브리지가 루프를 닫습니다. 먼저 앱의 원격 MCP URL를 Claude 또는 ChatGPT와 같은 채팅 호스트에 붙여넣거나 로컬 코딩 에이전트에 대한 개발자 CLI 흐름을 실행하여 자체 에이전트를 **호스팅된** 앱에 연결합니다. 그런 다음 에이전트는 MCP를 통해 작업을 수행하고 호환 호스트의 인라인 **MCP 앱** UI 또는 정확히 생성된 항목에 초점을 맞춘 실제 앱을 여는 단일 **"&lt;앱&gt;에서 열기 →"** 링크를 사용자에게 전달합니다. 이는 기존 `navigate` / `application_state` 계약을 재사용합니다. UI는 이미 2초마다 소모합니다([Context Awareness](/docs/context-awareness) 참조) — 두 번째 탐색 메커니즘은 없습니다.
+
+<Diagram id="doc-block-18m3jj" title={"외부 에이전트 왕복"} summary={"외부 호스트가 MCP을 통해 도구를 호출합니다. 앱은 아티팩트와 Open 링크를 반환합니다. 이를 클릭하면 브라우저 세션이 해결되고 실행 중인 UI의 아티팩트에 초점이 맞춰집니다. 링크에는 권한 있는 상태가 없습니다."}>
+
+```html
+<div class="xa-trip">
+  <div class="diagram-box" data-rough>
+    외부 호스트<br /><small class="diagram-muted"
+      >Claude &middot; ChatGPT &middot; Codex &middot; Cursor</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">MCP 도구 call</span
+    ><small class="diagram-muted">e.g. <code>manage-draft</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    앱이 산출물을 생성<br /><small class="diagram-muted"
+      >+ <code>Open in &lt;app&gt; &rarr;</code> deep link / MCP App</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>사용자가 링크 클릭</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill ok"><code>/_agent-native/open</code></span
+    ><small class="diagram-muted"
+      >resolves the <strong>browser</strong> session</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Writes <code>navigate</code> app-state<br /><small class="diagram-muted"
+      >UI가 산출물에 포커스</small
+    >
+  </div>
+</div>
+```
+
+```css
+.xa-trip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.xa-trip .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.xa-trip .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.xa-trip code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+신원 규칙은 안전 경첩입니다. 링크는 단지 `view` + 레코드 ID + 필터이며, 레코드 중심 `navigate` 쓰기 범위는 **브라우저**에 로그인한 사람으로 제한되며 외부 에이전트의 MCP 토큰은 아닙니다. 그렇기 때문에 링크를 터미널이나 채팅 내용에 붙여넣어도 안전합니다.
+
+## 어떤 에이전트 경로가 필요합니까? {#which-agent-path}
+
+- **외부 MCP 호스트:** Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot/VS Code 또는 다른 MCP 호환 호스트가 호스팅된 에이전트 네이티브 앱을 호출해야 하는 경우 이 페이지를 사용하세요.
+- **Agent-Native 채팅 뒤에 숨은 자체 런타임:** 다른 프레임워크로 구축된 에이전트가 `<AssistantChat runtime={...}>`를 구동해야 하는 경우 [Agent Surfaces](/docs/agent-surfaces#byo-agent) 및 [Native 채팅 UI](/docs/native-chat-ui#byo-agent-runtimes)를 참조하세요.
+- **MCP 도구를 사용하는 앱:** 에이전트 네이티브 앱이 다른 MCP 서버에 의해 노출된 도구를 호출해야 하는 경우 [MCP Clients](/docs/mcp-clients)를 참조하세요.
+- **A2A를 통한 다른 앱 또는 에이전트:** 에이전트 기본 앱이 서로를 검색하고 위임해야 하는 경우 [Agent Mentions](/docs/agent-mentions) 및 [A2A](/docs/a2a-protocol)를 사용합니다.
+- **로컬 사용자 지정 하위 에이전트:** 에이전트 기본 작업 영역 자체 내에서 사용자 지정 에이전트 프로필을 원할 경우 [Workspace](/docs/workspace)를 사용하세요.
+
+## 간편한 설정 {#easy-setup}
+
+Agent-Native를 사용하려는 호스트에 하나의 원격 MCP 커넥터를 추가하세요.
+
+작업공간 또는 교차 앱 작업의 경우 Dispatch를 사용하세요.
+
+```text
+https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+Dispatch는 메일, 캘린더, 분석, Brain 및 귀하의
+작업 공간 앱. Dispatch의 **에이전트** 페이지에서 게이트웨이의 허용 여부를 선택하세요.
+모든 앱에 도달하거나 선택한 앱에만 접근합니다. 연결된 호스트는 다음을 얻습니다.
+`list_apps`, `ask_app` 및 `open_app`는 해당 부여된 세트로 필터링되었습니다.
+
+의도적으로 격리된 앱의 경우 해당 앱을 직접 사용하세요.
+
+```text
+https://mail.agent-native.com/_agent-native/mcp
+https://<your-app>.agent-native.com/_agent-native/mcp
+```
+
+호스팅된 모든 앱에는 다음 위치에 도우미 페이지도 있습니다.
+복사 가능한 URL가 있는 `https://&lt;app&gt;/_agent-native/mcp/connect` 및
+Claude, ChatGPT, 커서, Claude 코드, Codex 및 기타에 대한 호스트별 탭.
+
+### Claude 및 ChatGPT OAuth {#oauth}
+
+Claude / Claude 데스크탑: 사용자 정의 커넥터를 추가하고 MCP URL를 붙여넣고 클릭하세요.
+**연결**, Agent-Native 계정으로 로그인하고 MCP 범위를 승인하세요.
+채팅에서 커넥터를 활성화합니다. Claude 코드는 동일한 URL를 사용합니다.
+원격 HTTP MCP 서버에서 `/mcp`를 실행한 다음 **인증**을 선택하세요.
+
+ChatGPT: 맞춤 MCP 커넥터 또는 개발자 모드 앱이 있는 작업 공간을 사용하세요.
+활성화, 사용자 정의 커넥터/앱 생성, 동일한 MCP URL 붙여넣기, OAuth 선택,
+도구 검색/발견, Agent-Native로 로그인, 범위 승인 및 활성화
+채팅의 커넥터
+
+OAuth 부여는 호스트별 및 사용자별입니다. 호스트는 토큰을 저장하고
+도구/리소스 호출을 중재하므로 인라인 MCP 앱 미리보기는 원시 수신을 받지 않습니다.
+OAuth 토큰. ChatGPT는 검토 또는 게시된 커넥터 도구를 유지할 수 있습니다.
+다시 새로고침/검토할 때까지 스냅샷을 찍으므로 MCP 이후 커넥터를 다시 검색하세요.
+도구 또는 MCP 앱 메타데이터가 변경되었습니다. 아직 오래된 앱별 커넥터가 있는 경우
+각 오래된 커넥터를 디스패치, 새로 고치거나 다시 연결하는 것과 함께 활성화됩니다. 업데이트 중
+디스패치는 ChatGPT 또는 Claude의 캐시된 캘린더/메일/등을 다시 쓰지 않습니다.
+스냅샷. 범위는 다음과 같습니다:
+
+| 범위        | 그것이 가능하게 하는 것                   |
+| ----------- | ----------------------------------------- |
+| `mcp:read`  | 읽기 전용 도구 및 도구/리소스 검색        |
+| `mcp:write` | 초안 작성, 업데이트 및 기타 actions 변형  |
+| `mcp:apps`  | 인라인 MCP 앱, 차트, 대시보드, 초안 및 UI |
+
+Cursor, Goose, Postman, MCPJam 및 VS Code GitHub Copilot은 동일한 리모컨을 사용합니다.
+빌드가 원격 OAuth를 지원하는 경우 자체 MCP 서버 UI를 통해 MCP URL
+MCP 서버.
+
+### 빠른 테스트 프롬프트 {#quick-test}
+
+연결 후 다음 중 하나를 시도해 보세요:
+
+```text
+Use Agent-Native Analytics to generate a weekly conversion-rate bar chart and show it inline.
+```
+
+```text
+Use Agent-Native Mail to draft a short follow-up email to me, but do not send it.
+```
+
+MCP 앱을 지원하는 호스트에서 Analytics는 실제 대시보드 및 분석 경로를 인라인으로 렌더링할 수 있고, Mail은 초안 검토를 위해 실제 작성 UI 인라인을 렌더링할 수 있습니다. MCP 앱을 렌더링하지 않는 호스트에서 동일한 도구 호출은 여전히 **메일에서 초안 열기 →** 또는 **분석에서 대시보드 열기 →**와 같은 딥 링크를 반환합니다.
+
+## 고급 설정: 현지 에이전트 {#connect}
+
+Claude Code, Claude Code CLI, Codex, Claude Cowork, Cursor, OpenCode 및 GitHub Copilot/VS Code와 같은 컴퓨터의 로컬 에이전트 클라이언트에 이 흐름을 사용하세요. 커서 및 기타 OAuth 기본 클라이언트는 UI가 원격 MCP OAuth를 지원하는 경우 위의 붙여넣기-URL 흐름을 사용할 수도 있습니다.
+
+npm를 통해 연결 명령을 실행하세요:
+
+```bash
+npx @agent-native/core@latest connect https://dispatch.agent-native.com
+```
+
+이 명령은 어떤 로컬 에이전트 클라이언트가 MCP 구성을 받아야 하는지 묻습니다. 모든 클라이언트는 처음에 미리 선택됩니다. 선택한 후에는 선택 항목이 `~/.agent-native/connect.json`에 저장되므로 다음 실행에서 Enter 키를 눌러 다시 사용할 수 있거나 선택한 항목을 편집할 수 있습니다.
+
+Claude 코드, Claude 코드 CLI, 커서, OpenCode 및 GitHub Copilot/VS 코드의 경우 `connect`는 정적 헤더 없이 표준 원격 HTTP MCP 항목을 작성합니다. 클라이언트를 다시 시작하고 메시지가 표시되면 MCP UI에서 인증합니다. Codex 및 Claude Cowork의 경우 `connect`는 ​​호환 장치 코드 흐름을 사용합니다. 즉, 앱에서 브라우저를 열고 **승인**을 한 번 클릭하면 명령이 범위가 지정된 전달자 토큰 항목을 작성합니다. 클라이언트 혼합을 선택하면 두 가지가 모두 수행됩니다.
+
+브라우저 승인이 완료될 때까지 `connect` 명령을 계속 실행하세요. 만약
+대기 프로세스가 조기에 중지되어 브라우저에서는 승인이 성공할 수 있지만
+로컬 클라이언트 구성은 토큰을 수신하지 않습니다.
+
+이전에 이전 베어러 토큰 흐름을 통해 Claude 코드를 연결한 경우 동일한 `npx @agent-native/core@latest connect ... --client claude-code` 명령을 다시 실행하세요. CLI는 레거시 `Authorization` 헤더를 URL 전용 OAuth 항목으로 대체하고 `/mcp`에서 재인증하라고 알려줍니다.
+
+| 로컬 클라이언트               | `connect`가 작성한 구성                                 | 인증 흐름                                  |
+| ----------------------------- | ------------------------------------------------------- | ------------------------------------------ |
+| Claude 코드 / Claude 코드 CLI | `--scope`에 따라 `.mcp.json` 또는 `~/.claude.json`      | Claude의 `/mcp` UI의 표준 원격 MCP OAuth   |
+| 커서                          | `.cursor/mcp.json` 또는 `~/.cursor/mcp.json`            | 커서의 MCP UI에 있는 표준 리모컨 MCP OAuth |
+| 오픈코드                      | `opencode.json` 또는 `~/.config/opencode/opencode.json` | OpenCode의 MCP UI의 표준 원격 MCP OAuth    |
+| GitHub 부조종사/VS 코드       | `.vscode/mcp.json` 또는 VS Code 사용자 MCP 구성         | VS Code의 MCP UI의 표준 원격 MCP OAuth     |
+| Codex                         | `$CODEX_HOME/config.toml` 또는 `~/.codex/config.toml`   | 브라우저 승인 전달자 대체                  |
+| Claude 코워크                 | Claude 코드 MCP 모양을 사용하는 `~/.cowork/mcp.json`    | 브라우저 승인 전달자 대체                  |
+
+연결 후 에이전트 클라이언트를 다시 시작하여 새 MCP 서버를 선택합니다. 그러면 OAuth 기본 클라이언트가 MCP UI에서 인증하라는 메시지를 표시할 수 있습니다.
+
+로컬 MCP 구성 문제를 해결할 때 `Authorization`, `http_headers`를 수정하세요.
+로그를 공유하기 전의 토큰 값.
+호스트 MCP 세션; 연결 후 호스트 노출 도구를 사용하거나
+새 서버가 아직 표시되지 않은 경우 클라이언트.
+
+스크립트 또는 일회성 설치에 대한 선택기를 건너뛰려면 `--client codex`(또는 `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`)를 사용하세요.
+
+자사 앱 skills는 지침과 호스팅된 MCP 커넥터를 Agent Native CLI와 함께 설치합니다.
+
+```bash
+npx @agent-native/core@latest skills add assets              # alias: image-generation
+```
+
+Vercel/open Skills CLI 경로는 이식성만 원하는 경우에도 사용할 수 있습니다.
+지침:
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill assets
+```
+
+원시 `skills` CLI는 `SKILL.md` 파일만 설치합니다. 로컬 MCP 클라이언트는 여전히
+`npx @agent-native/core@latest connect https://assets.agent-native.com`와 같은 커넥터가 필요합니다.
+
+| 스킬     | 별명               |                    |
+| -------- | ------------------ | ------------------ |
+| `assets` | `image-generation` | 이미지/비디오 생성 |
+
+기본 클라이언트 선택은 지원되는 모든 로컬 클라이언트입니다. 설정 범위를 좁히려면 `--client codex`, `--client claude-code` 또는 다른 특정 대상을 추가하세요. 인라인 호스트(ChatGPT, Claude.ai, Claude 데스크톱 기본 채팅)는 채팅에서 선택기/변형 그리드를 렌더링합니다. CLI/링크 전용 호스트(Codex, Claude 코드, Claude 데스크톱 "코드" 탭)는 사용자가 브라우저에서 선택하고 핸드오프 요약을 다시 붙여넣는 "다음에서 열기 →" 링크를 반환합니다.
+
+Dispatch의 워크스페이스 게이트웨이 대신 격리된 앱이 꼭 필요한 경우
+해당 앱의 호스트에 동일한 명령을 실행하세요:
+
+```bash
+npx @agent-native/core@latest connect https://mail.agent-native.com
+```
+
+기존 앱별 클라이언트 설정을 위해 `connect --all`가 여전히 존재하지만 새로운
+작업 공간 설정에서는 단일 Dispatch 커넥터를 선호해야 합니다.
+
+연결은 **사용자별로, 범위가 지정되고 취소 가능**합니다. OAuth 경로에서 호스트는 `/mcp` 인증 후 토큰을 저장합니다. 대체 경로에서 권한을 부여한 브라우저 세션은 에이전트의 역할을 하는 ID입니다. 배포의 공유 비밀은 노출되지 않습니다.
+
+### 401 이후 재인증 {#reconnect}
+
+한 번 연결되면 인증은 장기간 지속되어야 합니다. 액세스 토큰은 기본적으로 30일 동안 지속되며(서버에서 `MCP_OAUTH_ACCESS_TOKEN_TTL`로 재정의, 예: `7d` 또는 `12h`) 365일 새로 고침 기간이 있으므로 임의의 401이 거의 발생하지 않습니다. 이런 일이 발생하면 다시 설치하는 대신 간단한 reconnect 명령을 사용하세요.
+
+```bash
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+```
+
+`reconnect`는 지정된 호스트 및 선택한 클라이언트(커넥터 이름에 관계없이 URL와 일치)에 대해 URL가 `/_agent-native/mcp`로 끝나는 MCP 구성 항목을 찾은 다음 설치된 skills를 건드리거나 전체 설치 흐름을 다시 실행하지 않고 인증 자료를 새로 고치거나 교체합니다. 기본 앱 URL(예: `https://plan.agent-native.com`)를 전달하면 `/_agent-native/mcp` 접미사가 유추됩니다. 인증 및 도구 로드는 클라이언트별로 이루어지므로 나중에 해당 클라이언트를 다시 시작하거나 다시 로드하세요. 새로 로드된 도구가 나타나려면 Codex에 새 세션이 필요합니다.
+
+Claude 코드에서 동등한 UI 경로는 다음과 같습니다. `/mcp`를 실행하고 관련 커넥터에 대해 **인증**(또는 **다시 연결**)을 선택합니다.
+
+단순히 401을 고치기 위해 스킬을 처음부터 다시 설치하지 마세요. `reconnect`가 올바른 도구입니다.
+
+### 연결 페이지 대체 {#connect-page-fallback}
+
+원격 OAuth URL를 직접 추가할 수 없는 MCP 클라이언트의 경우 브라우저에서 앱을 열고 **Connect** 어포던스(`https://&lt;app&gt;/_agent-native/mcp/connect`에서 제공)를 사용하세요. 로그인한 상태에서 **연결 / 승인**을 클릭하세요. 페이지에서는 감지된 에이전트를 구성하는 원클릭 딥 링크 또는 바로 붙여넣을 수 있는 `.mcp.json` 블록을 제공합니다.
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "mail": {
+      "type": "http",
+      "url": "https://mail.agent-native.com/_agent-native/mcp",
+      "headers": { "Authorization": "Bearer <minted-token>" },
+    },
+  },
+}
+```
+
+연결 후 에이전트 클라이언트를 다시 시작하여 새 MCP 서버를 선택합니다.
+
+표준 원격 MCP OAuth 흐름을 완료할 수 없는 MCP 클라이언트 또는 토큰을 명시적으로 붙여넣으려는 경우 일회성 디버깅에 이 수동 베어러 블록을 사용하세요.
+
+### 표준 리모컨 MCP OAuth {#standard-oauth}
+
+호스팅된 에이전트 기본 앱은 표준 원격 MCP OAuth 흐름도 지원합니다. MCP OAuth를 구현하는 클라이언트의 경우 정적 헤더 없이 원격 HTTP 서버 URL를 추가하세요.
+
+```bash
+claude mcp add --transport http agent-native \
+  https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+이는 `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code`가 귀하를 위해 작성하는 것과 동일한 URL 전용 항목입니다. 그런 다음 Claude 코드에서 `/mcp`를 실행하고 **인증**을 선택합니다. 클라이언트는 MCP 서버의 `401 WWW-Authenticate` 챌린지에서 인증을 검색하고, `/.well-known/oauth-protected-resource` 및 `/.well-known/oauth-authorization-server`를 가져오고, 공개 OAuth 클라이언트를 동적으로 등록하고, 앱의 인증 페이지를 열고, 결과 토큰을 안전하게 저장합니다. ChatGPT 개발자 모드 커넥터는 동일한 서버 URL를 사용합니다.
+
+```text
+https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+OAuth 흐름은 새로 고침 토큰 순환이 포함된 인증 코드 + PKCE입니다. 액세스 토큰은 정확한 MCP 리소스 URL에 대상 그룹으로 묶여 있으며 서명된 사용자/조직 ID를 전달하므로 도구 호출, `resources/read` 및 MCP 앱 iframe 시작 `tools/call`는 모두 기존 연결 생성 JWT 경로와 동일한 `runWithRequestContext` 테넌트 범위를 통해 실행됩니다. iframe은 원시 OAuth 토큰을 수신하지 않습니다. 호스트는 인증된 MCP 연결을 통해 통화를 중재합니다.
+
+현재 범위는 다음과 같습니다:
+
+| 범위        | 허용                                                      |
+| ----------- | --------------------------------------------------------- |
+| `mcp:read`  | 읽기 전용 MCP actions 및 일반 도구/리소스 검색            |
+| `mcp:write` | actions 및 `ask-agent` 메타 도구 변형                     |
+| `mcp:apps`  | MCP 지원되는 경우 앱 리소스 목록/읽기 및 인라인 UI 렌더링 |
+
+클라이언트가 명시적인 범위를 요청하지 않으면 앱은 세 가지 범위를 모두 허용하므로 커넥터는 브라우저에서 승인된 Connect 흐름처럼 작동합니다. 바로 붙여넣을 수 있는 구성 블록이 필요한 로컬 개발, 대체 호스트 및 클라이언트에 대해 베어러 토큰 연결 페이지와 `npx @agent-native/core@latest connect --token <token>` 대체를 유지하세요.
+
+## 카탈로그 계층 {#catalog-tiers}
+
+이것은 MCP 카탈로그 계층에 대한 표준 설명입니다. 다른 페이지는 여기에 링크되어 있습니다.
+
+MCP 서버는 호스팅된 커넥터(ChatGPT, Claude), 코드 클라이언트(Claude 코드, 커서, Codex) 및 로컬 CLI/stdio 프록시 등 **기본적으로 모든 호출자에게 컴팩트 카탈로그**를 제공합니다. 전체 작업 화면은 명시적으로 동의한 경우에만 제공됩니다. 카탈로그는 클라이언트 이름이나 사용자 에이전트에서 추론되지 않습니다.
+
+<Diagram id="doc-block-1v0t9nn" title={"두 개의 카탈로그 계층"} summary={"모든 호출자는 기본적으로 컴팩트 계층을 얻습니다. 전체 ~105개 도구 표면은 선택적으로만 제공됩니다. 도구 검색은 격차를 해소하므로 실제로 숨겨진 것은 없습니다."}>
+
+```html
+<div class="xa-tiers">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill ok"
+      >Compact / connector tier &middot; default</span
+    ><strong>~20&ndash;30 tools</strong
+    ><small class="diagram-muted"
+      >Template-declared app actions + cross-app builtins
+      (<code>list_apps</code>, <code>open_app</code>, <code>ask_app</code>,
+      <code>create_embed_session</code>) + always-present
+      <code>tool-search</code>.</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill accent">Full tier &middot; opt-in</span
+    ><strong>약 105개 도구</strong
+    ><small class="diagram-muted"
+      >Explicit opt-in only: <code>--full-catalog</code> token or
+      <code>AGENT_NATIVE_MCP_FULL_CATALOG=1</code>.</small
+    >
+  </div>
+</div>
+<p class="diagram-muted note">
+  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
+  compact default keeps context small without hiding capability.
+</p>
+```
+
+```css
+.xa-tiers {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.xa-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  flex: 1;
+  min-width: 240px;
+}
+.xa-tiers .diagram-arrow {
+  align-self: center;
+  font-size: 24px;
+  line-height: 1;
+}
+.xa-tiers .note {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 0.85em;
+}
+.xa-tiers code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+### 컴팩트/커넥터 계층(기본값) {#connector-tier}
+
+기본적으로 연결된 모든 에이전트는 작고 선별된 카탈로그를 봅니다(최대 20~30개의 도구 대 전체 표면의 경우 최대 105개).
+
+- **템플릿에서 선언된 앱 actions** — 안전한 앱 수준 허용 목록입니다. `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search` 및 유사한 계획의 경우
+- **내장된 교차 앱 도구** — `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
+- **`tool-search`**는 항상 존재하므로 목록 외부의 항목은 요청 시 계속 연결할 수 있습니다(아래 참조).
+
+목록 외부의 도구(예: `db-exec`, `seed-*`, 확장 제품군, 브라우저 세션 도구 및 context-xray 도구)는 광고되지 않으며 호출자가 전체 카탈로그를 선택하지 않는 한 "알 수 없는 도구"와 함께 해당 호출이 거부됩니다. 이렇게 하면 연결된 각 에이전트의 컨텍스트 창을 작게 유지하고 단일 테넌트 로컬 개발에만 안전한 풋건을 제거합니다. 커넥터 계층은 **템플릿이 `connectorCatalog`를 선언할 때마다** 활성화되며 환경 변수 뒤에 제어되지 않습니다.
+
+`tool-search`는 두 가지 방식으로 작동합니다. 도구 이름의 전체 메뉴와 한 줄 설명(저렴함, 스키마 없음)에 대한 **쿼리 없음**을 사용하여 호출하거나 매개변수 요약이 있는 순위 일치에 대한 쿼리를 사용하여 호출합니다. 이것이 압축된 클라이언트가 필요할 때 전체 표면 도구를 검색하고 로드하는 방법입니다.
+
+### 전체 등급(명시적 선택만 해당) {#full-tier}
+
+전체 ~105개의 도구 작업 화면은 명시적인 선택이 있는 경우에만 다음 두 가지 방법으로 제공됩니다.
+
+- **토큰당** — JWT에 `catalog_scope: "full"` 클레임을 포함하는 `--full-catalog`로 발행됩니다. 후속 요청은 해당 토큰에 대한 압축 필터를 우회합니다.
+
+  ````배시
+  npx @agent-native/core@latest 연결 https://plan.agent-native.com --client codex --full-catalog
+  ```
+
+  ````
+
+- **배포당** — `AGENT_NATIVE_MCP_FULL_CATALOG=1`(서버 프로세스 환경)를 설정하여 모든 호출자에게 전체 표면을 제공합니다. 토큰별 선택 없이 전체 표면을 원하는 단일 테넌트 호스팅 인스턴스에 사용하세요.
+
+### 템플릿 선언 {#catalog-declaration}
+
+템플릿은 `createAgentChatPlugin` 옵션에서 커넥터 카탈로그를 선언합니다.
+
+```ts
+export default createAgentChatPlugin({
+  appId: "plan",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  connectorCatalog: [
+    "create-visual-plan",
+    "get-visual-plan",
+    "list-visual-plans",
+    "update-visual-plan",
+    // … other safe app-level actions
+    "set-resource-visibility",
+    "share-resource",
+    "upload-image",
+    "navigate",
+    "view-screen",
+    "manage-automations",
+    "tool-search",
+  ],
+});
+```
+
+내장된 교차 앱 도구(`list_apps`, `open_app`, `ask_app`,
+`create_embed_session`, `create_workspace_app`, `list_templates`)는 항상
+선언된 목록에 관계없이 포함됩니다.
+
+## 연결된 후 수행할 수 있는 작업 {#what-you-can-do}
+
+에이전트가 연결되면 모든 발신자는 기본적으로 컴팩트 카탈로그를 받게 됩니다.
+([Catalog tiers](#catalog-tiers) 참조) — 코드/stdio 개발자 클라이언트, 로컬
+CLI 프록시 및 Claude 및 ChatGPT와 같은 채팅 호스트. 그 표면은
+템플릿 선언 앱 actions 및 내장된 교차 앱 동사(`list_apps`,
+`open_app`, `ask_app` 및 앱 전용 삽입 도우미). `ask_app`를 사용하여 라우팅
+앱 에이전트를 통한 자연어 작업(동일한 앱 간 진입점
+[A2A](/docs/a2a-protocol) 사용). `tool-search`는 항상 존재하므로 모든 도구
+요약 목록 외부에는 요청 시 계속 접근할 수 있습니다. 전체 ~105-도구를 얻으려면
+앞면에 표시, `--full-catalog`로 명시적으로 선택 또는
+`AGENT_NATIVE_MCP_FULL_CATALOG=1`. 모든 경우에 상담원에게 실제 작업을 요청하세요.
+그리고 실행 중인 앱에 바로 링크를 돌려줍니다.
+
+```
+> draft an email to John about the Q3 report
+
+Claude Code calls: manage-draft(to: "john@example.com", subject: "Q3 Report", body: "…")
+→ Open draft in Mail → https://mail.agent-native.com/_agent-native/open?app=mail&view=inbox&compose=…
+```
+
+해당 링크를 클릭하면 초안이 복원된 메일이 열립니다. 로그인한 사용자인 귀하가 있는 위치에 정확하게 초점이 맞춰집니다. 상담원은 귀하의 세션을 알 필요가 전혀 없습니다. 방금 아티팩트를 생성했습니다.
+
+### MCP 앱 호환성 {#mcp-apps-compatibility}
+
+에이전트 기본 앱도 공식 MCP 앱 확장을 사용합니다. 어떤 행동을 할 때
+`mcpApp` 선언, 서버 광고
+`extensions["io.modelcontextprotocol/ui"]`, `_meta.ui.resourceUri` 포함 /
+`tools/list`의 `_meta["ui/resourceUri"]` 및 HTML UI를 통해
+`resources/list` + `resources/read`를 `text/html;profile=mcp-app`로. 자원
+CSP 및 샌드박스 권한과 같은 보안 메타데이터는 리소스에 상주합니다.
+도구 설명자에 없는 항목 및 `resources/read` 콘텐츠
+
+ChatGPT/Claude 스타일 OAuth 앱 호스트의 경우 검색 표면은 기본적으로 압축되어 있습니다. `tools/list` 및 `resources/list`는 모든 작업별 MCP 앱 리소스 대신 일반 `open_app` 포함 경로를 광고합니다([Catalog tiers](#catalog-tiers) 참조). 채팅 호스트 검색에서 실제로 표시되어야 하는 경우에만 `mcpApp.compactCatalog: true`로 개별 작업을 표시하세요.
+
+이를 통해 클라이언트별 shim을 구축하는 대신 모든 호환 호스트에서 동일한 앱 표면을 사용할 수 있습니다. MCP 앱을 인라인으로 렌더링하는 호스트(및 메타데이터 변경 후 커넥터 캐시 정보)는 [MCP Apps → Client support and caching](/docs/mcp-apps#client-support)에 있습니다. 해당 페이지는 클라이언트 매트릭스의 단일 홈입니다.
+
+실제로 모든 에이전트 기반 앱은 지원 호스트에서 인라인 검토/편집을 위한 MCP 앱과 전체 앱으로의 범용 왕복을 위한 `link`를 모두 사용하여 작성되어야 합니다. iframe을 렌더링하지 않는 CLI/code-editor 클라이언트는 딥 링크로 대체됩니다. 인간 선택 도구는 해당 대체에 붙여넣기 단계를 추가할 수 있습니다. 예를 들어 자산 선택기가 대체 링크에서 열리고 사용자가 브라우저에서 미디어를 선택할 수 있도록 한 다음 사용자가 채팅에 다시 붙여넣는 핸드오프 요약을 복사합니다.
+
+### 최고 수준의 MCP 앱 브리지 {#mcp-app-bridge}
+
+`embedApp()`는 작업의 `link` 대상에서 시작하여 단기 포함 세션을 생성하고 서명된 앱 경로를 시작합니다. Claude 웹은 단일 프레임 이식 경로를 사용합니다. ChatGPT는 `window.openai` 호스트 API를 사용하여 제어된 경로 iframe을 가져옵니다. 모든 경로는 일반 React 경로를 렌더링합니다. 직접 수화 경로는 호스트 브리지를 통해 `ui/update-model-context`, `ui/message`, `ui/open-link` 및 `ui/request-display-mode`를 호출합니다. ChatGPT 경로는 `agentNative.mcpHost.*` postMessage를 통해 동일한 요청을 전달합니다. `embedApp({ height })`는 기본적으로 `560px`로 설정되고 `320-900px`로 고정됩니다.
+
+전체 브리지 세부정보는 [MCP Apps](/docs/mcp-apps)를 참조하세요. 이식 및 제어 프레임, 임베딩 모드, `ui/*` 및 postMessage 테이블, `embedStartUrl`, CSP 규칙, 확장 `srcDoc` 임베딩, 높이 클램핑, 전체 호스트 브리지 클라이언트 API.
+
+### 일반 교차 앱 동사 {#cross-app}
+
+액션별 도구 외에도 MCP 서버는 안정적인 동사 세트를 노출하므로 외부 에이전트는 앱별 액션 이름을 추측하지 않고도 예측 가능한 표면을 갖습니다.
+
+| 도구                                               | 부작용        | 반품                                                                                          |
+| -------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | 없음          | 작업 공간 앱 + 해당 URL / 실행 상태                                                           |
+| `open_app({ app, view?, path?, params?, embed? })` | 없음          | 딥 링크 또는 동일 출처 경로; `embed: true`는 지원되는 경우 전체 앱을 인라인으로 렌더링합니다. |
+| `ask_app({ app, message })`                        | 에이전트 루프 | 자연어 작업을 해당 앱의 인앱 에이전트로 라우팅합니다(`ask-agent`에 위임)                      |
+| `create_workspace_app({ name, template })`         | 비계          | 작업공간 경로를 통해 부팅된 새 앱과 실행 중인 URL + 딥 링크                                   |
+| `list_templates`                                   | 없음          | 허용 목록에 있는 템플릿만                                                                     |
+
+`create_workspace_app`는 허용 목록에 없는 템플릿을 거부합니다. `packages/shared-app-config/templates.ts`의 공개 템플릿 허용 목록은 신뢰할 수 있고 CI로 보호됩니다. 외부 에이전트는 이를 확장할 수 없습니다. 동일한 이름의 템플릿 작업은 기본 제공(코어보다 템플릿 우선 순위)을 재정의합니다. `MCPConfig.builtinCrossAppTools: false`로 전체 세트를 비활성화하세요.
+
+앱 호스트용 도구 및 리소스 카탈로그는 기본적으로 컴팩트합니다. [Catalog tiers](#catalog-tiers)를 참조하세요. `publicAgent.expose`는 컴팩트 카탈로그 외부의 안전한 읽기/수집 도구에 대한 선택 사항으로 남아 있습니다. `mcpApp.compactCatalog: true`를 채팅 호스트 검색에 나타나야 하는 actions에 대한 드문 예외로만 설정하세요.
+
+빠른 ChatGPT/Claude 핸드오프를 위해 이상적인 경로는 직접입니다. 아티팩트를 생성하거나 여는 작업을 호출한 다음 MCP 앱이 경로를 시작하도록 합니다. 메일 요청은 `manage_draft`를 호출하고 실제 작성 경로를 렌더링해야 합니다. 대시보드 요청은 `open_app({ path, embed: true })` 또는 `mcpApp`를 사용한 대시보드 작업을 호출하고 전체 Analytics 경로를 렌더링해야 합니다. 달력, 양식, 콘텐츠, 슬라이드, 디자인 및 클립은 초안/생성/검색 actions와 동일한 패턴을 따라야 합니다. `list_apps`는 모델이 부여된 앱 중에서 선택해야 할 때 유용합니다. 광범위한 `resources/list`, 전체 카탈로그 검색 또는 `ask_app` 위임은 명백한 UI 핸드오프를 위한 일반적인 경로가 되어서는 안 됩니다.
+
+### 앱별 둘러보기 {#tour}
+
+탐색 가능한 리소스를 생성하거나 나열하는 모든 허용 목록 템플릿은 `link` 빌더를 제공하고, 수집이 많은 템플릿은 연결된 에이전트가 라이브 상태를 가져올 수 있도록 GET + `publicAgent` 작업을 제공합니다.
+
+- **메일** — `manage-draft`는 `compose`로 인코딩된 딥 링크를 반환합니다. 클릭하면 초안이 `compose-<id>`로 복원된 받은 편지함이 열립니다. `list-emails` / `search-emails`는 필터링된 받은편지함 보기를 가리킵니다.
+- **캘린더** — `manage-event-draft`는 `calendarDraft` + `eventDraftId` 딥 링크를 반환합니다. 클릭하면 검토/전송을 위한 기본 이벤트 편집기가 있는 달력에 보이는 초안 자리 표시자가 열립니다. `create-event`는 여전히 `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })`를 반환합니다. 해당 이벤트가 날짜에 초점을 맞춘 캘린더에 클릭이 발생합니다.
+- **분석** — `update-dashboard` / `save-analysis`는 `buildDeepLink({ app: "analytics", view: "adhoc", params: { dashboardId } })`를 반환합니다. 상담원은 MCP를 통해 대시보드를 구축하고 "분석에서 대시보드 열기"를 돌려줍니다.
+- **디자인** — `get-design-snapshot`는 GET + `publicAgent` 수집 작업입니다. **라이브** Yjs 파일 콘텐츠와 해결된 조정 값을 반환하므로 에이전트는 원래 토큰이 아닌 조정된 디자인에서 계속됩니다. `apply-tweaks`는 "오픈 디자인" 편집기 링크를 사용하여 다시 왕복합니다.
+- **콘텐츠** — `pull-document`는 GET + `publicAgent` 수집 작업입니다. 열려 있는 실시간 협업 세션을 먼저 SQL로 플러시하여 외부 에이전트가 사용자가 보는 내용을 정확하게 수집한 다음 문서에 대한 딥 링크를 표시합니다.
+- **뇌** — `ask-brain` / `search-everything`는 인용된 답변과 기본 지식/캡처에 대한 딥 링크를 반환하므로 터미널 에이전트의 조회 링크는 실행 중인 앱의 소스로 바로 다시 연결됩니다.
+
+## 작성(템플릿 작성자용) {#authoring}
+
+위의 모든 내용은 앱을 연결하고 사용하는 **최종 사용자**를 위한 것입니다. 이 페이지의 나머지 부분은 앱을 훌륭한 외부 에이전트 시민으로 연결하는 **템플릿 작성자**를 위한 것입니다: `link` 빌더, 선택적 MCP 앱 UI, `/_agent-native/open` 경로 내부 및 actions 수집
+
+### `link` 빌더 {#link-builder}
+
+`defineAction`는 선택적 `link` 빌더를 허용합니다. 설정되면 해당 도구에 대한 모든 MCP/A2A 결과에 마크다운 `[label →](absoluteUrl)` 블록과 구조화된 `_meta["agent-native/openLink"] = { label, view, webUrl, desktopUrl, vscodeUrl }`가 자동으로 추가됩니다. `tools/list`는 `annotations["agent-native/producesOpenLink"]`와 설명 접미사를 추가하므로 외부 에이전트는 도구가 공개 가능한 링크를 생성하고 이를 표시해야 한다는 것을 알 수 있습니다.
+
+`buildDeepLink(...)`로 URL를 구축하세요. 이는 개방형 경로 형식에 대한 단일 정보 소스입니다. `/_agent-native/open` URL를 직접 포맷하지 마십시오.
+
+실제 예 — 메일의 `manage-draft` (`templates/mail/actions/manage-draft.ts`):
+
+```ts
+import { buildDeepLink } from "@agent-native/core/server";
+
+function composeDeepLink(draft: Record<string, string>): string {
+  return buildDeepLink({
+    app: "mail",
+    view: "inbox",
+    compose: encodeComposerDraft(draft), // base64url JSON → compose-<id> draft
+  });
+}
+
+export default defineAction({
+  // ...schema, run...
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const draft = (result as { draft?: Record<string, string> }).draft;
+    const id = (result as { id?: string }).id;
+    if (!draft || !id) return null;
+    return {
+      url: composeDeepLink(draft),
+      label: "Open draft in Mail",
+      view: "inbox",
+    };
+  },
+});
+```
+
+같은 방식으로 레코드 중심 보기에서 actions 지점을 나열/검색합니다. 달력의 `create-event`는 `"Open event in Calendar"` 레이블이 있는 `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })`를 반환합니다. 캘린더 초안 actions는 동일한 패턴을 사용합니다. `manage-event-draft`는 `"Review invite in Calendar"` 라벨이 있는 `buildDeepLink({ app: "calendar", view: "calendar", to: "/", params: { eventDraftId, calendarDraft, date } })`를 반환하므로 외부 에이전트는 이벤트를 먼저 만들지 않고도 직접 초안 검토 링크를 전달할 수 있습니다.
+
+### 선택적 MCP 앱 UI {#mcp-apps}
+
+Actions는 MCP 앱 확장을 지원하는 호스트에 대해 `mcpApp`를 사용하여 인라인 UI 리소스를 광고할 수 있습니다. `embedRoute({ title, openLabel, path })`를 편의 래퍼로 사용하거나 `embedApp(...)`를 `mcpApp.resource`에 직접 할당합니다. 모든 MCP 앱은 별도의 일반 HTML 위젯이 아닌 실제 React 경로입니다. 항상 `link` 빌더를 유지하세요. CLI 전용 호스트, 이전 클라이언트, MCP-Apps가 아닌 호스트는 이를 대체 수단으로 사용합니다.
+
+`embedRoute` 대 `embedApp`, `mcpApp` 구성 모양, CSP, 높이, `sendToAgentChat()` 삽입 경로 및 호스트 브리지 클라이언트 도우미 등 전체 작성 가이드는 [MCP Apps](/docs/mcp-apps)를 참조하세요.
+
+### `link` 계약 {#link-contract}
+
+`link` 빌더는 **순수하고 동기식이므로 I/O나 대기가 없습니다**. 최선의 노력을 다해 실행됩니다. 던지기, `null` 또는 `undefined`는 삼켜지고 **절대** 도구 호출에 실패하지 않습니다. 통화의 `args` 및 `result`만 읽습니다. DB를 쿼리하거나, 앱 상태를 읽거나, 다른 actions를 호출하면 안 됩니다. 열 수 있는 항목이 없으면 `null`를 반환하세요.
+
+`buildDeepLink({ app, view, params?, to?, compose? })`는 앱 상대 경로 `/_agent-native/open?app=…&view=…&<recordId>=…`를 반환합니다. MCP 레이어는 이를 절대 웹 URL(`toAbsoluteOpenUrl`, 요청 원본 사용), 데스크톱 `agentnative://open?…` URL(`toDesktopOpenUrl`) 및 `vscode://builder.agent-native/open?url=…`용 VS Code 확장 URL(`toVsCodeOpenUrl`)로 바꿉니다. 클라이언트가 `target: "desktop"` 신호를 보낼 때 마크다운 링크는 데스크톱 URL를 사용합니다.
+
+### `/_agent-native/open` 경로 {#open-route}
+
+사용자가 브라우저나 인라인 웹뷰에서 링크를 클릭하면 `GET /_agent-native/open`(`createOpenRouteHandler`, 핵심 경로 플러그인에 의해 마운트됨)가 아래 단계를 실행합니다.
+
+<Endpoint id="doc-block-owf9c6" method="GET" path="/_agent-native/open" summary={"딥링크 공개 경로 — 레코드에 브라우저 UI 초점을 맞춥니다."} auth={"Browser session via `getSession`. The auth guard bypasses this exact path; if unauthenticated it serves login HTML at the same URL, and the form reload re-enters authenticated (no `?next=` plumbing)."} params={[
+  {
+    "name": "app",
+    "in": "query",
+    "type": "string",
+    "description": "Target app id (e.g. `mail`)."
+  },
+  {
+    "name": "view",
+    "in": "query",
+    "type": "string",
+    "description": "View to focus; also folded into the `navigate` payload."
+  },
+  {
+    "name": "to",
+    "in": "query",
+    "type": "string",
+    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+  },
+  {
+    "name": "compose",
+    "in": "query",
+    "type": "string",
+    "description": "base64url-encoded draft, decoded into a `compose-<id>` application-state key."
+  },
+  {
+    "name": "f_*",
+    "in": "query",
+    "type": "string",
+    "description": "Filter params forwarded to the redirect so lists/dashboards open pre-filtered."
+  }
+]} responses={[
+  {
+    "status": "302",
+    "description": "Redirect to a safe same-origin relative path. Cross-origin, scheme-relative `//host`, and control-char redirects are rejected (open-redirect guard)."
+  },
+  {
+    "status": "200",
+    "description": "Login HTML served at the same URL when the browser session is unauthenticated."
+  }
+]}>
+
+Resolves the browser session, writes a one-shot `navigate` application-state command scoped to that session, and 302-redirects to a safe same-origin path. Always build the URL with `buildDeepLink(...)`; never hand-format it. Can be disabled per app with `disableOpenRoute`.
+
+</Endpoint>
+
+1. `getSession`를 통해 **브라우저** 세션을 해결합니다(인증 가드는 정확한 경로 `/_agent-native/open`를 우회합니다).
+2. 인증되지 않은 경우 구성된 로그인 HTML **동일한 URL**에서 제공됩니다. 양식의 성공 핸들러는 `window.location`를 다시 로드하여 인증된 경로를 다시 입력합니다. `?next=` 배관은 없습니다.
+3. `requestSource: "deep-link"`를 사용하여 브라우저 세션의 이메일로 범위가 지정된 기존 원샷 `navigate` 애플리케이션 상태 명령(페이로드 = 예약되지 않은 모든 쿼리 매개변수 + `view`)을 작성하고 `compose` base64url 초안을 `compose-<id>` 키로 디코딩합니다.
+4. 302-안전한 동일 출처 상대 경로(`to=`, 그렇지 않으면 `/<view>`, 그렇지 않으면 템플릿별 `resolveOpenPath`)로 리디렉션하여 `f_*` 필터 매개변수를 전달하므로 `navigate` 명령이 배수되기 전에 사전 필터링된 목록/대시보드가 열립니다.
+
+교차 원본, 구성표 상대 `//host` 및 제어 문자 리디렉션이 거부됩니다(개방형 리디렉션 보호). `disableOpenRoute`를 통해 앱별로 경로를 비활성화할 수 있습니다.
+
+#### 브라우저 세션 ID 규칙 {#identity-rule}
+
+링크는 **권한 없음**을 전달합니다. 이는 단지 `view` + 레코드 ID + 필터일 뿐입니다. 레코드 중심 `navigate` 쓰기는 **브라우저**에 로그인한 사람으로 범위가 지정되며 외부 에이전트의 MCP 토큰이 아닙니다. 따라서 하나의 ID로 인증된 에이전트는 사용자에게 링크를 전달할 수 있으며 해당 사용자가 링크를 클릭하면 *the user*가 로그인한 기록이 열립니다. 이것이 딥 링크가 터미널이나 채팅 기록에 안전하게 표시되도록 하는 것입니다. 이것이 연결되는 `navigate` / `application_state` 계약에 대해서는 [Context Awareness](/docs/context-awareness)를 참조하세요.
+
+### actions 수집 {#ingest}
+
+라이브 앱 상태를 자체 컨텍스트로 가져오기 위해 외부 에이전트가 읽는 작업은 다음과 같아야 합니다.
+
+```ts
+export default defineAction({
+  description: "…",
+  schema: z.object({ id: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  run: async ({ id }) => {
+    /* read LIVE state, not the stale DB snapshot column */
+  },
+});
+```
+
+`GET` + `readOnly`는 ​​작업을 부작용 없이 유지하고 화면 새로 고침 변경 이벤트에서 제외됩니다. `publicAgent`는 **명시적인 선택**입니다. 공개 웹 경로는 공개 MCP/A2A 노출을 의미하지 않습니다. [Actions](/docs/actions)를 참조하세요. 디자인/컨텐츠는 actions MUST 읽기 **라이브** 상태(오래된 DB 스냅샷 열이 아닌 Yjs 공동 작업 문서)를 수집하여 외부 에이전트가 사용자가 실제로 화면에 무엇을 가지고 있는지 볼 수 있도록 합니다. 콘텐츠의 `pull-document`는 열려 있는 라이브 공동 작업 세션을 먼저 SQL로 플러시합니다. 디자인의 `get-design-snapshot`는 라이브 Yjs 파일 콘텐츠와 사용자가 해결한 조정 값을 반환합니다.
+
+## 고급: 로컬 개발 및 수동 설정 {#advanced}
+
+위의 호스팅된 `connect` 흐름은 권장 경로입니다. 아래 옵션은 로컬 개발 및 수동 설정을 위한 것입니다.
+
+### 지역 개발 {#local-dev}
+
+앱을 로컬에서 실행한 후(`pnpm dev` / `npx @agent-native/core@latest dev`) 다음 명령 하나로 로컬 에이전트를 지정하세요.
+
+```bash
+npx @agent-native/core@latest mcp install --client claude-code|claude-code-cli|codex|cowork \
+  [--app <id>] [--scope user|project]
+```
+
+토큰(로컬 개발을 위한 작업 공간 `.env`에 임의의 `ACCESS_TOKEN`, 호스팅 원본을 감지한 경우 서명된 JWT)을 프로비저닝하고 멱등성 stdio 서버 항목을 작성합니다.
+
+- **claude-code / claude-code-cli** — `.mcp.json`(프로젝트 범위, 기본값) 또는 `~/.claude.json`(`--scope user`)의 `mcpServers` 항목입니다.
+- **동료** — `~/.cowork/mcp.json`의 동일한 Claude 코드 JSON 모양.
+- **codex** — `~/.codex/config.toml`의 `[mcp_servers.<name>]` 블록.
+
+항목은 기본적으로 실행 중인 로컬 앱의 `/_agent-native/mcp`에 대한 **얇은 stdio 프록시**인 `npx @agent-native/core@latest mcp serve --app <id>`를 실행합니다. 따라서 라이브 액션 레지스트리, HMR 및 올바른 딥 링크는 단일 정보 소스로 유지됩니다. 대신 프로세스 내에서 레지스트리를 빌드하려면 `--standalone`를 전달하세요. `npx @agent-native/core@latest mcp install`가 호스팅된 원본(작업 공간 `.env`의 로컬 호스트가 아닌 `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL`)을 감지하면 stdio 항목 대신 `Bearer` JWT를 사용하여 `<origin>/_agent-native/mcp`를 가리키는 `http` 클라이언트 항목을 작성합니다.
+
+동반 하위 명령:
+
+| 명령                                                       | 무엇을 하는가                                                     |
+| ---------------------------------------------------------- | ----------------------------------------------------------------- |
+| `npx @agent-native/core@latest mcp serve [--app <id>]`     | MCP stdio 전송을 실행합니다(클라이언트 구성이 생성됨).            |
+| `npx @agent-native/core@latest mcp install --client <c>`   | 토큰을 프로비저닝하고 클라이언트의 MCP 구성을 작성합니다(멱등성). |
+| `npx @agent-native/core@latest mcp uninstall --client <c>` | 클라이언트 구성(멱등성)에서 명명된 MCP 항목을 제거합니다.         |
+| `npx @agent-native/core@latest mcp status`                 | 해결된 MCP URL/포트, 토큰 상태 및 클라이언트별 항목을 표시합니다. |
+| `npx @agent-native/core@latest mcp token [--rotate]`       | 작업 공간 `.env`에서 로컬 `ACCESS_TOKEN`를 인쇄(또는 회전)합니다. |
+
+`install` 이후 클라이언트를 다시 시작하여 새 MCP 서버를 선택합니다.
+
+### 수동 `.mcp.json` HTTP 입력 {#manual-entry}
+
+또한 직접 제공한 토큰을 사용하여 배포된 모든 엔드포인트에 대해 직접 MCP 클라이언트 구성을 작성할 수도 있습니다(`ACCESS_TOKEN` 또는 호출자의 `sub` + `org_domain`를 전달하는 `A2A_SECRET` 서명 JWT). 따라서 도구는 테넌트 범위에서 실행됩니다.
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "analytics": {
+      "type": "http",
+      "url": "https://analytics.agent-native.com/_agent-native/mcp",
+      "headers": { "Authorization": "Bearer <ACCESS_TOKEN-or-JWT>" },
+    },
+  },
+}
+```
+
+이것은 `connect`가 작성한 것과 동일한 관리되지 않는 내용입니다. 전체 인증 환경 변수 매트릭스는 [MCP Protocol](/docs/mcp-protocol)를 참조하세요.
+
+### 개발 도구와 생산 도구 표면 {#dev-vs-prod}
+
+일반 로컬 개발(`NODE_ENV=development` 및 `AGENT_MODE !== "production"`)에서 MCP `tools/list`는 의도적으로 일반 내장 기능과 `publicAgent.requiresAuth === false`가 포함된 actions만 노출합니다. 즉, 앱별 actions(`requiresAuth: true`)를 수집하고 actions를 변경합니다(아니요). `publicAgent`)는 필터링됩니다(`filterPublicAgentActions`). 컴팩트 카탈로그는 인증 후 모든 호출자(`agent-native` 프록시를 사용하는 stdio/code 클라이언트, 로컬 CLI 및 채팅 스타일 원격 HTTP 호출자 모두)에 대한 기본값이므로 ChatGPT/Claude(또는 모든 클라이언트)는 거대한 전체 작업 카탈로그를 대화에 덤프할 수 없습니다. 전체 개발자 카탈로그는 명시적으로 동의한 경우에만 제공됩니다(`--full-catalog` 토큰 또는 `AGENT_NATIVE_MCP_FULL_CATALOG=1`). `tool-search`는 그 동안 모든 도구에 접근할 수 있도록 유지합니다.
+
+### 프로덕션과 개발 간 자사 앱 전환 {#dev-switch}
+
+이미 자사 호스팅 앱이 연결되어 있고 `pnpm dev:lazy`를 통해 로컬 프레임워크 변경 사항을 테스트하려는 경우 개발자 전환기를 사용하세요.
+
+```bash
+pnpm dev:lazy -- --apps mail,calendar,analytics
+
+npx @agent-native/core@latest connect dev --apps mail,calendar,analytics --client codex
+```
+
+`connect dev`는 ​​동일한 안정적인 MCP 서버 이름(`agent-native-mail`, `agent-native-calendar` 등)을 로컬 개발 지연 게이트웨이에 다시 작성하므로 도구 이름은 변경되지 않습니다. 개발 항목을 작성하기 전에 `~/.agent-native/connect-profiles.json`의 현재 프로덕션 항목을 백업합니다. 기본 게이트웨이는 `http://127.0.0.1:8080`입니다. 게이트웨이가 이동된 경우 `--gateway <url>` 또는 `--port <n>`를 사용하세요.
+
+다음으로 다시 전환:
+
+```bash
+npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --client codex
+```
+
+`connect dev`가 기존에 연결된 JWT에서 로컬 소유자 신원을 추론할 수 없는 경우 `--owner-email you@example.com`를 전달합니다. 이는 인증되지 않은 희박한 개발 표면 대신 전체 인증된 MCP 표면에 로컬 개발 도구를 유지합니다.
+
+## 작동 방식 및 보안 {#how-it-works}
+
+표준 OAuth 경로는 MCP 앱에 토큰을 노출하지 않습니다. 호스트는 OAuth 액세스/새로 고침 토큰을 저장하고 인증된 MCP 연결을 통해 도구 호출과 `resources/read`를 중재합니다. 삽입된 iframe은 전달자 비밀이 아닌 앱 데이터와 도구 결과를 수신합니다.
+
+또한 전체 앱 삽입은 MCP 전달자 토큰을 브라우저에 전달하지 않습니다. MCP 호출자는 SQL에 일회성 포함 티켓을 발행합니다. iframe 실행 경로는 이를 소비하고 수명이 짧은 iframe 안전 브라우저 세션 쿠키를 설정합니다. 랜딩 URL는 ​​제3자 쿠키가 차단될 때 클라이언트가 이를 캡처하고, 주소 표시줄에서 제거하고, 동일한 출처 `fetch` 호출에 첨부할 수 있을 만큼만 임시 `__an_embed_token` 쿼리 매개변수를 전달합니다. 삽입 세션은 경로 범위에 따라 다릅니다. 앱 가져오기에는 현재 포함된 대상이 포함되며 서버는 생성된 경로 외부의 토큰 재사용을 거부합니다. 앱 페이지는 의도적으로 `X-Frame-Options` 또는 CSP `frame-ancestors`를 생성하지 않으므로 Builder, 디자인 및 MCP 앱 호스트는 이를 iframe할 수 있습니다. 교차 출처 격리 호스트가 필요한 경우 브라우저 iframe 탐색도 COEP/CORP를 선택합니다.
+
+대체 호스팅 `connect` 흐름은 배포의 공유 비밀을 복사하지 않습니다. 대신:
+
+- 로그인된 브라우저 세션은 호출자의 `sub` + `org_domain` 및 고유한 `jti`를 전달하는 `A2A_SECRET` 서명 JWT인 **사용자별, 범위가 지정되고 취소 가능한** 토큰을 생성하므로 모든 도구 실행은 `runWithRequestContext`를 통해 테넌트 범위를 유지합니다.
+- 기존 `/_agent-native/mcp` 엔드포인트는 다른 전달자와 마찬가지로 해당 토큰을 허용합니다([MCP Protocol](/docs/mcp-protocol) 참조). 새 엔드포인트나 새 전송이 없습니다.
+- 동일한 연결 페이지에는 귀하가 발행한 모든 토큰이 나열되어 있으며 `jti`를 통해 해당 토큰을 **취소**할 수 있습니다. 개인 액세스 토큰처럼 취급합니다. 에이전트 클라이언트당 하나씩, 머신이 폐기되면 취소됩니다.
+- 에이전트가 전달한 딥 링크에는 특권 상태가 없습니다. 기록 중심의 `navigate` 쓰기 범위는 항상 **브라우저** 세션으로 지정되며 상담원의 토큰은 아닙니다. 따라서 링크를 터미널이나 채팅 내용에 붙여넣어도 안전합니다.
+
+## 해야 할 일/하지 말아야 할 일 {#do-dont}
+
+**해야 합니다**
+
+- `npx @agent-native/core@latest connect https://dispatch.agent-native.com`를 사용하여 자신의 에이전트를 Dispatch에 연결하세요. 하나의 격리된 앱을 원하는 경우에만 직접 앱 URL를 사용하세요.
+- 탐색 가능한 리소스(초안, 이벤트, 대시보드, 문서)를 생성하거나 나열하는 모든 작업에 `link` 빌더를 추가하세요.
+- 오픈 경로 형식을 위한 단일 정보 소스인 `buildDeepLink(...)`로 URL를 구축하세요.
+- `link`를 순수하고 동기적으로 유지하세요. 열 수 있는 항목이 없으면 `null`를 반환합니다.
+- 외부 에이전트가 actions GET + `readOnly` + `publicAgent`를 수집하고 오래된 DB 열이 아닌 라이브(Yjs) 상태를 읽도록 합니다.
+- 열린 경로가 브라우저 세션을 해결하도록 합니다. 레코드 ID를 딥 링크 매개변수로 전달하고 UI가 폴링된 `navigate` 명령을 통해 여기에 집중하도록 합니다.
+- 에이전트 클라이언트가 해제되면 `jti`에 의해 생성된 연결 토큰을 취소합니다.
+- `embedApp()` 주변의 경량 고정 장치로 MCP 앱을 테스트하고
+  `McpAppRenderer`; CSP, 호스트 컨텍스트, 앱 실행 및 브리지를 다룹니다.
+  실제 외부 호스트가 필요 없는 메시지 동작
+- ChatGPT 또는 Claude 웹을 검증할 때 셸 후에 새로운 도구 호출을 트리거하세요.
+  표시되는 iframe을 변경하고 측정합니다. 이전에 렌더링된 프레임은
+  동일한 대화에 여전히 캐시된 높이 또는 실행 동작이 표시될 수 있습니다.
+- ChatGPT/Claude 앱 호스트 카탈로그를 컴팩트하게 유지하세요. 파견을 사용하고
+  전체 앱 미리보기를 위한 `open_app({ embed: true })`; 특정 항목만 표시
+  `mcpApp.compactCatalog: true` 작업이 직접 나타나야 하는 경우
+  컴팩트한 호스트 검색 표면.
+
+**하지 마세요**
+
+- `connect`가 사용자별 취소 가능한 토큰을 생성할 수 있는 경우 배포의 공유 `ACCESS_TOKEN`/`A2A_SECRET`를 클라이언트 구성에 복사합니다.
+- `/_agent-native/open` URL를 직접 포맷하세요. 항상 `buildDeepLink`를 거쳐야 합니다.
+- `link` 빌더 내에서 I/O, 대기, DB 읽기 또는 앱 상태 읽기를 수행합니다.
+- 에이전트 토큰에 쓰기 위해 `navigate` 범위를 지정하거나 딥 링크를 통해 권한 있는 상태를 전달합니다. 이는 순수 포인터입니다.
+- 새로운 탐색 메커니즘을 개발합니다. 기존 `navigate` / `application_state` 계약에 연결됩니다.
+- 외부 에이전트에서 앱을 스캐폴딩할 때 공개 템플릿 허용 목록을 확대합니다. 허용 목록은 신뢰할 수 있고 보호됩니다.
+
+## 관련 {#related}
+
+- [MCP Apps](/docs/mcp-apps) — MCP 앱 UI, 포함 브리지 및 호스트 브리지 API를 작성합니다.
+- [MCP Protocol](/docs/mcp-protocol) — 자동 마운트된 MCP 서버 및 `ask-agent` 메타 도구.
+- [MCP Clients](/docs/mcp-clients) — 대칭 방향: 앱이 로컬/원격 MCP 서버를 사용합니다.
+- [A2A Protocol](/docs/a2a-protocol) — `ask-agent` 메타 도구 및 JSON-RPC 피어 호출.
+- [Actions](/docs/actions) — actions, `publicAgent`, GET / `readOnly`를 정의합니다.
+- [Context Awareness](/docs/context-awareness) — `navigate` / `application_state`는 개방형 경로 브리지와 계약합니다.

@@ -43,6 +43,9 @@ const arSA = {
   docs: {
     navigateAria: "تصفح الوثائق",
     onThisPage: "في هذه الصفحة",
+    copyMarkdown: "نسخ المستند كـ Markdown",
+    copiedMarkdown: "تم نسخ Markdown",
+    copyMarkdownError: "تعذر نسخ Markdown",
     previous: "السابق",
     next: "التالي",
   },
@@ -532,7 +535,7 @@ const arSA = {
       s004: "إملاء",
       s005: "يمكن أن ترى + تسمع",
       s006: "جميع القوالب",
-      s007: "البديل مفتوح المصدر لـ Loom وJam",
+      s007: "البديل مفتوح المصدر لـ Loom",
       s008: "الصق رابط Clips في الوكيل ويمكنه سماع النص وقراءة الملخصات ورؤية الإطارات ذات الطوابع الزمنية حتى لو لم يتمكن النموذج الخاص به من استيعاب الفيديو أو الصوت الخام.",
       s009: "جرّب",
       s010: "ما يمكنك القيام به",
@@ -1099,16 +1102,17 @@ const arSA = {
     },
   },
   skillsPage: {
-    metaTitle: "مهارات الوكيل - Visual Plan و Visual Recap لوكلاء البرمجة",
+    metaTitle:
+      "مهارات الوكيل - Visual Plan و Visual Recap و Visual Edit لوكلاء البرمجة",
     metaDescription:
-      "ثبّت مهارات مدعومة بتطبيقات Agent-Native ليستخدم وكيل البرمجة التخطيط المرئي وملخصات PR.",
+      "ثبّت مهارات مدعومة بتطبيقات Agent-Native ليستخدم وكيل البرمجة التخطيط المرئي وملخصات PR والتحرير المرئي المحلي.",
     metaOgDescription:
       "امنح وكيل البرمجة أوامر slash مدعومة بتطبيقات Agent-Native يمكنك استضافتها وفحصها وتخصيصها.",
     metaKeywords:
-      "مهارات الوكيل, visual plan, visual recap, وكيل برمجة, Claude Code, Codex, مراجعة PR, تخطيط, agent-native",
+      "مهارات الوكيل, visual plan, visual recap, visual edit, وكيل برمجة, Claude Code, Codex, مراجعة PR, تخطيط, agent-native",
     heroTitle: "امنح وكيل البرمجة قدرات جديدة",
     heroBody:
-      "ثبّت مهارات مدعومة بتطبيقات Agent-Native يمكنك تخصيصها بالكامل: تخطيط مرئي قبل التنفيذ وملخصات PR مرئية بعد وصول التغييرات.",
+      "ثبّت مهارات مدعومة بتطبيقات Agent-Native يمكنك تخصيصها بالكامل: تخطيط مرئي قبل التنفيذ وملخصات PR مرئية بعد وصول التغييرات وتحرير مرئي لتدفقات UI المحلية.",
     sectionTitle: "مهارات مدعومة بتطبيقات لوكلاء البرمجة",
     sectionBody:
       "استخدم روابط تطبيقات مستضافة قابلة للمشاركة أو ملفات محلية أو تطبيقا مستضافا ذاتيا/مخصصا؛ يحصل وكيلك على التعليمات وسطح MCP المطابق عند الحاجة.",
@@ -1133,6 +1137,15 @@ const arSA = {
       feature1: "يلخص تغييرات schema و API والملفات",
       feature2: "يمكنه اختياريا نشر تعليق PR مثبت",
       videoAriaLabel: "فيديو توضيحي لمهارة Visual Recap",
+    },
+    visualEdit: {
+      name: "تحرير مرئي",
+      tagline: "حرر تدفقات UI المحلية",
+      description:
+        "يفتح تطبيق localhost يعمل داخل Design كشاشات مرتبطة بعناوين URL للمراجعة والتحرير المرئي.",
+      feature1: "رتب تدفقات متعددة الشاشات من عناوين URL مرتبة",
+      feature2: "افحص حالات المسارات الحية وكررها وحسنها",
+      videoAriaLabel: "فيديو توضيحي لمهارة Visual Edit",
     },
   },
   downloadPage: {

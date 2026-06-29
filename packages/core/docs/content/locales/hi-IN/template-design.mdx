@@ -1,0 +1,425 @@
+---
+title: "डिज़ाइन"
+description: "एक एजेंट-मूल HTML प्रोटोटाइपिंग स्टूडियो - एक एजेंट के साथ इंटरैक्टिव अल्पाइन/Tailwind डिज़ाइन तैयार, परिष्कृत, पूर्वावलोकन और निर्यात करता है।"
+---
+
+# डिज़ाइन
+
+डिज़ाइन एक एजेंट-मूल HTML प्रोटोटाइपिंग स्टूडियो है। एक स्तरित ड्राइंग कैनवास के बजाय, एजेंट पूर्ण स्व-निहित अल्पाइन/Tailwind HTML प्रोटोटाइप उत्पन्न करता है, उन्हें एक आईफ्रेम में प्रस्तुत करता है, और आपको संकेतों और ट्विक नियंत्रणों के साथ परिणाम को परिष्कृत करने देता है।
+
+<WireframeBlock id="doc-block-bbd0n3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>उत्पाद लॉन्च पेज</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>जनरेट किया गया HTML प्रोटोटाइप</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>हीरो को अधिक सघन और CTA को अधिक स्पष्ट बनाएं।</span><div style='flex:1'></div><button class='primary'>संशोधन लागू करें</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+जब आप ऐप खोलते हैं, तो जेनरेट किया गया प्रोटोटाइप कार्यक्षेत्र का केंद्र होता है, जिसमें पूर्वावलोकन मोड, त्वरित संशोधन और निर्यात नियंत्रण हाथ में होते हैं। एजेंट जो कुछ भी उत्पादित करता है वह वास्तविक है HTML जिसे आप परिष्कृत, निर्यात या सौंप सकते हैं।
+
+<Diagram id="doc-block-g2rnsi" title={"एक कलाकृति, कोई अनुवाद नहीं"} summary={"एजेंट स्टैंडअलोन Alpine/Tailwind HTML उत्पन्न करता है; आईफ़्रेम, संपादन योग्य स्रोत और प्रत्येक निर्यात सभी समान फ़ाइलें पढ़ते हैं। एक लिंक्ड डिज़ाइन सिस्टम प्रत्येक पास में टोकन फीड करता है।"}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      प्रॉम्प्ट<br /><small class="diagram-muted">describe screen / page</small>
+    </div>
+    <div class="diagram-pill">डिजाइन सिस्टम</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">एजेंट जनरेट</span
+    ><small class="diagram-muted">स्वतंत्र HTML / JSX फाइलें</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    iframe preview<br /><small class="diagram-muted"
+      >नॉब समायोजित करें · Cmd+I से परिष्कृत करें</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · हैंडऑफ</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## इसे कब चुनें
+
+- **आप एक परिष्कृत लैंडिंग-पेज अवधारणा, उत्पाद UI दिशा, या ब्रांड अन्वेषण चाहते हैं** जो टूल को वास्तविक HTML के रूप में छोड़ सके - एक स्तरित ड्राइंग कैनवास नहीं।
+- \*\*आप स्थिर मॉकअप के बजाय अल्पाइन इंटरactions और Tailwind स्टाइल के साथ एक कार्यशील इंटरैक्टिव प्रोटोटाइप चाहते हैं।
+- **आप तेजी से दिशाओं की तुलना करना चाहते हैं**, कुछ प्रकार उत्पन्न करना चाहते हैं, सबसे मजबूत चुनना चाहते हैं, और परिष्कृत करना जारी रखना चाहते हैं।
+- **आप अपना डिज़ाइन आउटपुट चाहते हैं** - HTML, ZIP, या PDF निर्यात करें, या प्रोटोटाइप को कोडिंग टूल को सौंप दें।
+
+## आप इसके साथ क्या कर सकते हैं
+
+- **पूर्ण प्रोटोटाइप तैयार करें।** आपको आवश्यक स्क्रीन या पेज का वर्णन करें और एजेंट Tailwind स्टाइल और अल्पाइन इंटरactions के साथ एक कार्यशील HTML दस्तावेज़ बनाता है।
+- **वेरिएंट की तुलना करें।** कई दिशाओं से शुरू करें, सबसे मजबूत चुनें, फिर सुधार जारी रखें।
+- **विज़ुअली ट्विक करें।** सामान्य परिवर्तनों के लिए अंतर्निहित ट्विक नियंत्रणों का उपयोग करें, या एजेंट से कॉपी, लेआउट, रंग, रिक्ति और इंटरैक्शन अपडेट के लिए पूछें।
+- **डिज़ाइन सिस्टम लागू करें।** डिज़ाइन-सिस्टम प्राथमिकताओं को सहेजें और पुन: उपयोग करें ताकि उत्पन्न कार्य आपके ब्रांड के करीब रहे।
+- **संदर्भ आयात करें।** नए डिज़ाइन पास के संदर्भ के रूप में मौजूदा HTML या संदर्भ सामग्री लाएँ।
+- **वास्तविक फ़ाइलें निर्यात करें।** जेनरेट किए गए प्रोटोटाइप से HTML, ZIP, या PDF निर्यात करें।
+
+## आरंभ करना
+
+लाइव डेमो: [design.agent-native.com](https://design.agent-native.com).
+
+1. **कलाकृति का वर्णन करें।** स्क्रीन, प्रवाह, लैंडिंग पृष्ठ, या दृश्य के लिए पूछें
+   दिशा जो आप चाहते हैं। दर्शक, स्वर और किसी भी उत्पाद की बाधाएं शामिल करें।
+2. **दिशाओं की तुलना करें।** कुछ प्रकार उत्पन्न करें, सबसे मजबूत विकल्प चुनें, और
+   फिर से शुरू करने के बजाय सुधार करते रहें।
+3. **विवरण को ट्यून करें।** सामान्य दृश्य परिवर्तनों के लिए ट्विक नियंत्रण का उपयोग करें, या पूछें
+   लेआउट, कॉपी, रिस्पॉन्सिव और इंटरैक्शन परिवर्तन के लिए एजेंट।
+4. **उपयोगी होने पर निर्यात करें।** प्रोटोटाइप के बाद HTML, ZIP, या PDF डाउनलोड करें
+   किसी अन्य टूल या टीम के साथी को सौंपने के लिए तैयार है।
+
+### उपयोगी संकेत
+
+- "तकनीकी विश्लेषण उत्पाद के लिए तीन लैंडिंग-पेज दिशानिर्देश बनाएं।"
+- "इस डैशबोर्ड को ऑपरेशन टीम के लिए स्कैन करने के लिए सघन और आसान बनाएं।"
+- "हमारे सहेजे गए डिज़ाइन सिस्टम को लागू करें और मोबाइल लेआउट को सरल बनाएं।"
+- "अंतिम संस्करण चुने जाने के बाद इस प्रोटोटाइप को ZIP के रूप में निर्यात करें।"
+- "ब्रांड का रंग बदले बिना इस HTML को एक मजबूत मूल्य निर्धारण पृष्ठ में बदलें।"
+
+## डेवलपर्स के लिए
+
+इस दस्तावेज़ का शेष भाग डिज़ाइन टेम्प्लेट की खोज करने वाले या उसका विस्तार करने वाले किसी भी व्यक्ति के लिए है।
+
+### त्वरित शुरुआत
+
+```bash
+npx @agent-native/core@latest create my-design --standalone --template design
+cd my-design
+pnpm install
+pnpm dev
+```
+
+### डेटा मॉडल
+
+सभी डेटा Drizzle ORM के माध्यम से SQL में रहता है। स्कीमा: `templates/design/server/db/schema.ts`. डिज़ाइन और डिज़ाइन सिस्टम में मानक `ownableColumns` और एक मेल खाता फ़्रेमवर्क शेयर तालिका होती है, इसलिए वे प्रति-उपयोगकर्ता / प्रति-संगठन साझाकरण मॉडल में फिट हो जाते हैं।
+
+| तालिका                                   | इसमें क्या है                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `designs`                                | एक डिज़ाइन प्रोजेक्ट - `title`, `description`, `project_type` (`prototype` / `other`), `data` JSON ब्लॉब, और एक वैकल्पिक `design_system_id` लिंक |
+| `design_files`                           | डिज़ाइन से संबंधित व्यक्तिगत फ़ाइलें (`filename`, `content`, `file_type` डिफ़ॉल्ट रूप से `html`)                                                 |
+| `design_versions`                        | इतिहास और रोलबैक के लिए वैकल्पिक `label` के साथ डिज़ाइन के पॉइंट-इन-टाइम `snapshot`s                                                             |
+| `design_systems`                         | पुन: प्रयोज्य ब्रांड टोकन - `data` (रंग/टाइपोग्राफी/स्पेसिंग), `assets`, `custom_instructions`, और एक `is_default` ध्वज                          |
+| `design_shares` / `design_system_shares` | फ्रेमवर्क प्रिंसिपलों (उपयोगकर्ताओं या संगठनों) को भूमिकाओं (दर्शक, संपादक, व्यवस्थापक) से मैप करने वाली तालिकाएँ साझा करता है                   |
+
+<DataModel
+  id="doc-block-10gz2lx"
+  title={"डेटा मॉडल डिज़ाइन करें"}
+  summary={
+    "एक डिज़ाइन अपनी फ़ाइलों और संस्करणित स्नैपशॉट का स्वामी होता है, और वैकल्पिक रूप से एक पुन: प्रयोज्य डिज़ाइन सिस्टम को लिंक करता है। डिज़ाइन और सिस्टम दोनों स्वामित्व योग्य हैं, प्रत्येक एक फ्रेमवर्क शेयर तालिका के साथ है।"
+  }
+  entities={[
+    {
+      id: "designs",
+      name: "designs",
+      note: "A design project (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "project_type",
+          type: "text",
+          note: "prototype / other",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "starts as {}",
+        },
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "files",
+      name: "design_files",
+      note: "एक डिज़ाइन में फ़ाइलें",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "file_type",
+          type: "text",
+          note: "defaults to html",
+        },
+      ],
+    },
+    {
+      id: "versions",
+      name: "design_versions",
+      note: "इतिहास/रोलबैक",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "snapshot",
+          type: "json",
+        },
+        {
+          name: "label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "systems",
+      name: "design_systems",
+      note: "Reusable brand tokens (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "design_shares",
+      name: "design_shares",
+      note: "फ्रेमवर्क शेयर तालिका",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "system_shares",
+      name: "design_system_shares",
+      note: "फ्रेमवर्क शेयर तालिका",
+      fields: [
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "designs",
+      to: "files",
+      kind: "1-n",
+    },
+    {
+      from: "designs",
+      to: "versions",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "designs",
+      kind: "1-n",
+      label: "applied to",
+    },
+    {
+      from: "designs",
+      to: "design_shares",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "system_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
+
+एक डिज़ाइन प्रोजेक्ट तब तक एक शेल होता है जब तक उसमें सामग्री न हो: `create-design` एक खाली पंक्ति (`data: "{}"`) बनाता है, फिर `generate-design` वास्तविक स्टैंडअलोन HTML/JSX फ़ाइलें लिखता है। उत्पन्न आर्टिफैक्ट, संपादन योग्य स्रोत और प्रत्येक निर्यात सभी एक ही HTML से आते हैं, इसलिए अनुवाद करने के लिए कोई अलग "एआई मॉकअप" प्रारूप नहीं है। एक लिंक्ड डिज़ाइन सिस्टम टोकन और `custom_instructions` की आपूर्ति करता है जिसे एजेंट हर जेनरेशन पास पर सम्मान देता है।
+
+UI में रूट `templates/design/app/routes/` के अंतर्गत रहते हैं: `_index.tsx` (सूची), `design.$id.tsx` (संपादक), `present.$id.tsx` (प्रस्तुति), `design-systems.tsx` और `design-systems_.setup.tsx`, `templates.tsx`, `examples.tsx`, प्लस `settings.tsx` और `team.tsx`.
+
+### कुंजी actions
+
+प्रत्येक एजेंट-कॉल करने योग्य ऑपरेशन `templates/design/actions/` में एक TypeScript फ़ाइल है, जो `POST /_agent-native/actions/:name` पर ऑटो-माउंटेड है और CLI से `pnpm action <name>` के रूप में चलने योग्य है। समूह:
+
+- **डिज़ाइन** - `create-design` (खाली शेल), `generate-design` (लाइव बनाए रखने के लिए HTML/JSX सामग्री लिखें), `update-design`, `get-design`, `list-designs`, `duplicate-design`, `delete-design`, और `apply-tweaks` ट्विक-नॉब मान (उच्चारण रंग, घनत्व, आदि)।
+- **फ़ाइलें** - एक डिज़ाइन प्रोजेक्ट के अंदर फ़ाइलों के लिए `create-file`, `update-file`, `list-files`, `delete-file`।
+- **डिज़ाइन सिस्टम** - विश्लेषण से पहले ब्रांड डेटा इकट्ठा करने के लिए `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system`, और `analyze-brand-assets`।
+- **आयात** — `index-design-system-with-builder` for Builder-backed code/GitHub design-system indexing, plus `import-figma`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
+- **निर्यात और हैंडऑफ़** - किसी डिज़ाइन को कोडिंग-टूल हैंडऑफ़ में बदलने के लिए `export-html`, `export-pdf`, `export-svg`, `export-zip`, और `export-coding-handoff`।
+- **संदर्भ और नेविगेशन** - `view-screen` (वर्तमान डिज़ाइन, खुली फ़ाइल, दृश्य, लंबित प्रश्न या भिन्न ग्रिड), `get-design-snapshot` (बाहरी एजेंट के लिए वर्तमान स्थिति जारी रखने के लिए), और `navigate`।
+
+### एजेंट के साथ काम करना
+
+एजेंट को हमेशा पता होता है कि आपके पास क्या खुला है। वर्तमान डिज़ाइन, खुली फ़ाइल, सक्रिय दृश्य, और कोई भी लंबित प्रश्न या वैरिएंट ग्रिड `view-screen` द्वारा लौटाया जाता है और प्रत्येक संदेश में इंजेक्ट किया जाता है, ताकि आप डिज़ाइन का नाम लिए बिना "इसे सघन बनाएं" या "इस वैरिएंट को निर्यात करें" कह सकें।
+
+क्योंकि एक डिज़ाइन केवल स्टैंडअलोन HTML/JSX फ़ाइलें है, एजेंट उसी स्रोत को संपादित करता है जो iframe प्रस्तुत करता है और प्रत्येक निर्यात आता है - अनुवाद करने के लिए कोई अलग "AI मॉकअप" प्रारूप नहीं है। एक लिंक्ड डिज़ाइन सिस्टम टोकन की आपूर्ति करता है और एजेंट हर जेनरेशन पास पर `custom_instructions` का सम्मान करता है। पूर्वावलोकन में टेक्स्ट या एक क्षेत्र का चयन करें और एजेंट को ठीक उसी हिस्से पर केंद्रित करने के लिए Cmd+I दबाएं।
+
+### संपादक मॉडल
+
+कई स्क्रीन वाले काम के लिए Design पहले overview खोलता है। generation या बड़े
+updates के बाद editor screen overview खोलता है: एक infinite canvas जहां हर
+screen एक static frame है जिसे select, move, resize, drop या duplicate किया जा
+सकता है। जब किसी screen को focused scrolling या prototype interaction चाहिए, तो frame के full-view button का उपयोग करें।
+
+Single-screen mode scrolling, prototype behavior से interact करने, और एक
+rendered file के अंदर DOM/code layers edit करने के लिए है। Layers panel यही
+model दिखाता है: screens top-level frames हैं, और active screen के नीचे nested
+DOM/code layers होते हैं।
+
+जब coding agent को standalone prototype HTML बनाने के बजाय running local app को
+Design में खोलना हो, तब `/visual-edit` install करें:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Target app dev server चलने के बाद, `/visual-edit`
+`npx @agent-native/core@latest design connect` और `add-localhost-screens` का
+उपयोग करके हर requested path या URL को अपने URL-backed iframe screen के रूप में
+place करता है। `localhost:1234/onboarding/1`, `/onboarding/2`, और
+`/onboarding/3` जैसे numbered flows overview mode में separate ordered screens
+रहते हैं।
+
+Stable layer names के लिए meaningful elements पर
+`data-agent-native-layer-name` जोड़ें। Design semantic/text fallbacks से पहले
+इसे उपयोग करता है और इसी attribute को edit करके layer renames persist कर सकता
+है। Inline HTML text, classes, styles, attributes, source order, और छोटे
+structural changes के लिए local code-layer edits support करता है; visual
+code-layer edits आज केवल HTML files के लिए हैं। Localhost source mode local
+route artboards register और resolve कर सकता है, लेकिन local file reads/writes
+explicit permission controls harden होने तक bridge contract ही हैं।
+
+### Design संपादक एक्सटेंशन
+
+संपादक में **Tweaks** के बाद एक **Extensions** इंस्पेक्टर टैब शामिल है। यह
+Design-विशिष्ट plugin lane की तरह काम करता है: उपयोगकर्ता **+ Extension** पर
+क्लिक करके एजेंट से एक्सटेंशन बनवा सकते हैं, या ऐसा एक्सटेंशन इंस्टॉल कर सकते
+हैं जो `design.editor.inspector` slot घोषित करता है।
+
+Design एक्सटेंशन मानक extension sandbox के माध्यम से artboard के बगल में inline
+render होते हैं। host `window.slotContext` और `window.onSlotContext(...)`
+updates में वर्तमान `designId`, सक्रिय फ़ाइल, screen list, selected screen ids,
+selected element metadata, view mode, zoom, active tool, और tweak values भेजता
+है। इससे एक्सटेंशन वर्तमान selection की जानकारी दिखा सकता है, style controls
+दे सकता है, या खुले design के आसपास compact workflows बना सकता है।
+
+Deterministic काम के लिए, एक्सटेंशन extension bridge के माध्यम से app actions
+कॉल कर सकते हैं। AI-driven बदलावों के लिए, एक्सटेंशन से
+`agentNative.chat.send(...)` कॉल करवाएं जिसमें selected element selector/source
+id और मांगा गया बदलाव शामिल हो। एजेंट को पहले `view-screen` कॉल करना चाहिए,
+फिर element style, class, text, या move changes के लिए `apply-visual-edit`, या
+artboard placement changes के लिए `canvasFrames` के साथ `update-design` /
+`generate-design` का उपयोग करना चाहिए। sandbox, persistent state, और bridge
+APIs के लिए [Extensions](/docs/extensions#what-an-extension-can-do) देखें।
+
+### इसे अनुकूलित करना
+
+डिज़ाइन एक पूर्ण, क्लोन करने योग्य टेम्पलेट है। कुछ व्यावहारिक विस्तार विचार:
+
+- "हमारे टोकन और नमूना घटकों के साथ एक पुन: प्रयोज्य ईकॉमर्स डिज़ाइन सिस्टम जोड़ें।"
+- "एक निर्यात चरण जोड़ें जो ZIP को हमारी आंतरिक समीक्षा प्रणाली में अपलोड करता है।"
+- "मुझे मौजूदा लैंडिंग-पेज HTML पेस्ट करने दें और एजेंट से तीन मजबूत संस्करणों के लिए पूछें।"
+- "उत्पाद-पेज, डैशबोर्ड और ऑनबोर्डिंग-स्क्रीन ब्रीफ के लिए एक सहेजी गई प्रॉम्प्ट लाइब्रेरी जोड़ें।"
+- "हितधारक समीक्षा के लिए एक कस्टम PDF निर्यात प्रीसेट जोड़ें।"
+
+The agent edits routes, components, actions, and SQL-backed models as needed. See [Templates](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
+
+## आगे क्या
+
+- [**Templates**](/docs/cloneable-saas) - क्लोन-एंड-ओन मॉडल
+- [**Context Awareness**](/docs/context-awareness) - एजेंट को कैसे पता चलता है कि उपयोगकर्ता क्या देख रहा है
+- [**Creating Templates**](/docs/creating-templates) - एजेंट-नेटिव टेम्प्लेट के लिए वर्तमान बिल्ड पैटर्न

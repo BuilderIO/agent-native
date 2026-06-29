@@ -1,0 +1,235 @@
+---
+title: "Workspace Governance"
+description: "Verzweigung, CODEOWNERS, PR-Überprüfung und wie Dispatch die Laufzeit-Governance neben der Governance auf Git-Ebene handhabt."
+---
+
+# Workspace Governance
+
+> **Welches Workspace-Dokument?** Auf dieser Seite geht es um **Governance** – wer überprüft, genehmigt und besitzt was für viele Apps in einem Repo. Was ein Arbeitsbereich ist (die Anpassungsebene), erfahren Sie unter [Workspace](/docs/workspace); Informationen zur Bereitstellungsform (ein Monorepo, viele Apps) finden Sie unter [Multi-App Workspaces](/docs/multi-app-workspace).
+
+Dieser Leitfaden behandelt die betriebliche Seite der Ausführung eines agentennativen Arbeitsbereichs – wie man verzweigt, wer was überprüft, wie man Codebesitz einrichtet und wie die Dispatch-Steuerungsebene in Ihr Governance-Modell passt.
+
+<Diagram id="doc-block-16f33ny" title="Zwei Governance-Ebenen" summary={"Git regelt den Code; Dispatch regelt die Laufzeit. Sie ergänzen sich – wiederholen Sie nicht das eine in dem anderen."}>
+
+```html
+<div class="gov">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Git und GitHub</span
+    ><strong>Code-Governance</strong>
+    <div class="gov-list">
+      <span class="diagram-pill">CODEOWNERS</span
+      ><span class="diagram-pill">branch protection</span
+      ><span class="diagram-pill">PR-Review</span
+      ><span class="diagram-pill">git log / blame</span>
+    </div>
+  </div>
+  <div class="diagram-pill diagram-muted">+</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Dispatch</span
+    ><strong>Runtime governance</strong>
+    <div class="gov-list">
+      <span class="diagram-pill">vault secrets &amp; grants</span
+      ><span class="diagram-pill">workspace resources</span
+      ><span class="diagram-pill">agent profiles</span
+      ><span class="diagram-pill">approvals &amp; audit</span>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.gov {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.gov .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 240px;
+}
+.gov .gov-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+```
+
+</Diagram>
+
+## Verzweigung
+
+### Feature-Zweige
+
+Verwenden Sie kurzlebige Funktionszweige für alle Arbeiten:
+
+```
+main                         ← production
+├── feat/mail-filters        ← single-app change
+├── feat/core-oauth-refresh  ← framework change
+├── fix/analytics-chart      ← targeted bug fix
+└── feat/vault-encryption    ← dispatch/infra change
+```
+
+**Namenskonventionen:**
+
+- **Änderungen einzelner Apps:** `feat/<app>-<description>` oder `fix/<app>-<description>` – z. B. `feat/mail-thread-search`, `fix/calendar-recurrence-parse`
+- **Framework-Änderungen:** `feat/core-<description>` oder `fix/core-<description>` – z.B. `feat/core-polling-v2`
+- **Versandänderungen:** `feat/dispatch-<description>` – z.B. `feat/dispatch-vault-policies`
+- **App-übergreifende Änderungen:** Wenn eine Framework-Änderung Vorlagenaktualisierungen erfordert, führen Sie beide in einem Zweig durch, damit sie atomar versendet werden
+
+Halten Sie Zweige kurzlebig. Langlebige Zweige weichen von den Hauptzweigen ab und führen zu schmerzhaften Zusammenführungen – insbesondere in einem Monorepo, in dem mehrere Teams täglich pushen.
+
+### Nicht-Entwickler-Branche
+
+Nicht jeder, der Änderungen vornehmen muss, ist mit Git vertraut. [Builder.io](https://www.builder.io) unterstützt ein visuelles Verzweigungsmodell, das Git-Zweigen unter der Haube zuordnet – nützlich für Inhalts- und Textänderungen, Layoutanpassungen, Designiterationen und A/B-Tests ohne Entwicklungsumgebung.
+
+## Code-Eigentum
+
+Code Governance wird durch eine Handvoll Dateien im Repo-Stammverzeichnis konfiguriert:
+
+<FileTree
+  id="doc-block-u2qjg2"
+  title="Governance-Konfiguration im Repo"
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "Weist Reviewer automatisch je geändertem Pfad zu",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "Labelt PRs automatisch nach App",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Workspace-Ebene: breite Review",
+    },
+    {
+      path: "package.json",
+      note: "Workspace-Ebene: im Besitz des Plattformteams",
+    },
+  ]}
+/>
+
+Die CODEOWNERS-Datei von GitHub weist Prüfer automatisch PRs zu, basierend auf den geänderten Dateien. Erstellen Sie `.github/CODEOWNERS` im Repo-Root:
+
+```
+# Framework core — affects every app; platform team reviews all changes
+packages/core/                     @your-org/platform-team
+
+# Dispatch Kontrollebene – Geheimnisse, Integrationen, Arbeitsbereichsressourcen
+templates/dispatch/                @your-org/platform-team
+
+# Besitz pro App – jedes Team überprüft seine eigene App
+templates/mail/                    @your-org/mail-team
+templates/analytics/               @your-org/analytics-team
+templates/calendar/                @your-org/calendar-team
+# ... add an entry per app
+
+# Konfiguration auf Arbeitsbereichsebene – umfassende Überprüfung, da sie jeden betrifft
+.github/                           @your-org/platform-team
+package.json                       @your-org/platform-team
+pnpm-workspace.yaml                @your-org/platform-team
+```
+
+Wichtige Tipps: Verwenden Sie GitHub-Teams (`@org/team`), keine Einzelpersonen. Framework- und Dispatch-Änderungen sollten immer eine Plattformüberprüfung erfordern. Informationen zur Glob-Syntax und zu Mustern mit mehreren Eigentümern finden Sie unter [GitHub CODEOWNERS docs](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
+
+So aktivieren Sie erforderliche Überprüfungen: Einstellungen → Zweige → Zweigschutz für `main` → **Vor dem Zusammenführen ist eine Pull-Anfrage erforderlich** → **Überprüfung durch Codebesitzer erforderlich**.
+
+## PR-Kennzeichnung
+
+PRs per App automatisch kennzeichnen mit `.github/labeler.yml` (Auszug):
+
+```yaml
+app:mail:
+  - changed-files:
+      - any-glob-to-any-file: templates/mail/**
+app:analytics:
+  - changed-files:
+      - any-glob-to-any-file: templates/analytics/**
+core:
+  - changed-files:
+      - any-glob-to-any-file: packages/core/**
+```
+
+Dann fügen Sie die Aktion [actions/labeler](https://github.com/actions/labeler) hinzu – siehe README des Repos für den vollständigen Workflow YAML. Beschriftungen werden automatisch angewendet, wenn PRs geöffnet oder aktualisiert werden.
+
+## PR-Überprüfungsrichtlinien
+
+| Typ ändern                       | Wer bewertet                             | Worauf Sie achten sollten                                                                |
+| -------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Nur App** (`templates/<app>/`) | Eigentümer des App-Teams                 | Domänenkorrektheit, Aktionsschemata                                                      |
+| **Framework** (`packages/core/`) | Plattformteam + ein betroffenes App-Team | Breaking Changes, Leistung, Abwärtskompatibilität                                        |
+| **Schemamigrationen**            | Plattformteam + leitender Ingenieur      | Datensicherheit, Dialektagnostizismus (SQLite + Postgres)                                |
+| **Actions**                      | Eigentümerteam                           | Actions sind beide Agent-Tools, AND HTTP Endpunkte – Überprüfung aus beiden Blickwinkeln |
+| **App-übergreifendes A2A**       | Beide App-Teams                          | Wenn Sie eine A2A-Schnittstelle ändern, müssen die Anrufer davon erfahren                |
+| **Tresor/Ressourcen versenden**  | Plattform-Team                           | Geheimer Zugriff, Gewährungsbereich, wer was bekommt                                     |
+
+### Gleichzeitige Agentenarbeit
+
+Agent-native Arbeitsbereiche verfügen oft über mehrere KI-Agenten, die gleichzeitig im selben Zweig arbeiten. Dies ist beabsichtigt – die Agenten teilen sich einen Zweig und pushen unabhängig voneinander.
+
+<Callout id="doc-block-smcj91" tone="warning">
+
+**The later commit wins.** Two agents touching the same file won't conflict at commit time — the conflict surfaces at review. Run `pnpm run prep` (typecheck + test + format) before pushing, and don't revert changes you didn't make unless they're clearly broken.
+
+</Callout>
+
+Beim Überprüfen von PRs in dieser Umgebung:
+
+- **Machen Sie Änderungen, die Sie nicht vorgenommen haben, nicht rückgängig**, es sei denn, sie sind eindeutig fehlerhaft.
+- **Dateien können von mehreren Agenten** im selben PR geändert werden – das ist normal
+- **Führen Sie `pnpm run prep`** (Typprüfung + Test + Formatierung) aus, bevor Sie pushen, um Integrationsprobleme zwischen Agentenänderungen zu erkennen
+- **Wenn zwei Agenten dieselbe Datei berühren,** gewinnt der spätere Commit. Konflikte tauchen zum Zeitpunkt der Überprüfung auf, nicht zum Zeitpunkt der Festschreibung
+- **Beheben Sie Fehler in jedem Code im PR,** unabhängig davon, welcher Agent ihn geschrieben hat. Die PR wird als Ganzes überprüft.
+
+## Versand als Governance
+
+Die [Dispatch](/docs/dispatch)-App ist die Laufzeitsteuerungsebene des Arbeitsbereichs. Es ergänzt die Governance auf Git-Ebene durch die Laufzeit-Governance:
+
+| Bedenken                                 | Git und GitHub          | Versand                                                            |
+| ---------------------------------------- | ----------------------- | ------------------------------------------------------------------ |
+| Wer kann Code ändern?                    | CODEOWNERS, Zweigschutz | —                                                                  |
+| Wer kann auf Geheimnisse zugreifen?      | —                       | Vault-Richtlinie, Zuschüsse, Antragsworkflow                       |
+| Welche Anweisungen Agenten befolgen      | —                       | Globale Arbeitsbereichsressourcen (AGENTS.md, Anweisungen, skills) |
+| Welche Agenten werden gemeinsam genutzt? | —                       | Workspace-Agentenprofile                                           |
+| Integrationsinventar                     | —                       | Katalog für Workspace-Verbindungen und -Integrationen              |
+| Genehmigung von Laufzeitänderungen       | —                       | Versandgenehmigungsablauf                                          |
+| Audit-Trail                              | `git log` / `git blame` | Vault-Audit- und Versand-Audit-Protokolle                          |
+| Nachrichten und Routing                  | —                       | Slack / Telegram-Integration                                       |
+
+**Git übernimmt die Code-Governance. Dispatch übernimmt die Laufzeit-Governance.** Versuchen Sie nicht, Git-Workflows innerhalb von Dispatch zu replizieren oder umgekehrt.
+
+Dispatch verwaltet: Tresorgeheimnisse, wiederverwendbare Arbeitsbereichsverbindungen, Arbeitsbereichsressourcen (skills, Anweisungen, Agentenprofile, MCP-Server), Genehmigungen und Prüfprotokolle. Informationen zur Konfiguration öffentlicher App-Routen (`workspaceApp.audience` / `publicPaths` / `protectedPaths`) finden Sie unter [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment).
+
+Informationen zum Ressourcenmodell und zu den kanonischen Pfaden finden Sie unter [Workspace — Global resources](/docs/workspace#global-resources).
+
+## Setup-Checkliste
+
+Für einen neuen Arbeitsbereich nach dem Ausführen von `npx @agent-native/core@latest create`:
+
+**Git & GitHub:**
+
+- [ ] Erstellen Sie `.github/CODEOWNERS` mit Teameigentum pro App
+- [ ] Aktivieren Sie den Branch-Schutz auf `main` mit erforderlichen Code-Eigentümer-Überprüfungen
+- [ ] Fügen Sie `.github/labeler.yml` für die automatische Kennzeichnung von PRs per App hinzu
+- [ ] Erstellen Sie GitHub-Teams für jede App und das Plattformteam
+
+**Versand:**
+
+- [ ] Gemeinsame Geheimnisse zum Tresor hinzufügen (API-Schlüssel, OAuth-Anmeldeinformationen usw.)
+- [ ] Behalten Sie die standardmäßige Tresorrichtlinie für alle Apps bei oder wechseln Sie zu manuellen Gewährungen pro App
+- [ ] Synchronisieren Sie Tresorgeheimnisse, um sie an Apps zu übertragen
+- [ ] Dann registrieren Sie wiederverwendbare Workspace-Verbindungen für freigegebene Anbieterkonten
+      Gewähren Sie Apps wie Brain, Analytics, Mail oder Dispatch nur bei Bedarf
+      dieses Konto
+- [ ] Fügen Sie über die Seite „Ressourcen“ arbeitsbereichsweite skills-, Leitplanken-Anweisungen und Marken-/Firmenreferenzressourcen hinzu. Die vollständige Ressourcenmodelltabelle und das empfohlene Starterpaket finden Sie unter [Workspace](/docs/workspace#global-resources).
+- [ ] Konfigurieren Sie die Genehmigungsrichtlinie und die E-Mails der Genehmiger
+- [ ] Richten Sie SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) für Administratorbenachrichtigungen ein
+- [ ] Verbinden Sie Slack oder Telegram für Workspace-Messaging
+- [ ] Gemeinsam genutzte MCP-Server konfigurieren – `mcp-servers/<name>.json`-Arbeitsbereichsressourcen in Dispatch für All-App- oder ausgewählte App-Zuteilungen hinzufügen; Verwenden Sie `mcp.config.json` oder [MCP hub mode](/docs/mcp-clients#hub) für Bereitstellungen auf niedrigerer Ebene

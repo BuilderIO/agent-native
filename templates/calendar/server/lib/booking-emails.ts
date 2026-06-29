@@ -49,7 +49,7 @@ async function sendBestEffort(
   label: string,
   args: Parameters<typeof sendEmail>[0],
 ) {
-  if (!isEmailConfigured()) return;
+  if (!(await isEmailConfigured())) return;
   try {
     await sendEmail(args);
   } catch (error) {

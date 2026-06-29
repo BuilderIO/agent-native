@@ -1490,6 +1490,7 @@ const navItems: {
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
   { id: "general", labelKey: "settings.general", icon: IconSettings },
+  { id: "team", labelKey: "settings.team", icon: IconUsers },
   { id: "whats-new", labelKey: "settings.whatsNew", icon: IconHistory },
   { id: "drafting", labelKey: "settings.drafting", icon: IconSignature },
   { id: "automations", labelKey: "settings.automations", icon: IconBolt },
@@ -1497,7 +1498,6 @@ const navItems: {
   { id: "aliases", labelKey: "settings.aliases", icon: IconUsers },
   { id: "tracking", labelKey: "settings.tracking", icon: IconChartBar },
   { id: "slack", labelKey: "settings.slack", icon: IconBolt },
-  { id: "team", labelKey: "settings.team", icon: IconUsers },
 ];
 
 function isSettingsSection(value: string | null): value is SettingsSection {
@@ -1530,9 +1530,6 @@ export function SettingsPage() {
     <div className="flex flex-1 flex-col sm:flex-row overflow-hidden">
       {/* Top tabs on mobile, left sidebar on desktop */}
       <div className="sm:w-[200px] shrink-0 sm:border-e border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
-        <p className="hidden sm:block px-2 py-1.5 text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">
-          {t("settings.title")}
-        </p>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;
@@ -1572,7 +1569,10 @@ export function SettingsPage() {
         {activeSection === "slack" && <SlackIntakeSection />}
         {activeSection === "team" && (
           <div className="flex-1 overflow-y-auto">
-            <TeamPage createOrgDescription={t("settings.teamDescription")} />
+            <TeamPage
+              showTitle={false}
+              createOrgDescription={t("settings.teamDescription")}
+            />
           </div>
         )}
       </div>

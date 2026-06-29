@@ -43,6 +43,9 @@ const jaJP = {
   docs: {
     navigateAria: "ドキュメントを移動",
     onThisPage: "このページ",
+    copyMarkdown: "ドキュメントをMarkdownとしてコピー",
+    copiedMarkdown: "Markdownをコピーしました",
+    copyMarkdownError: "Markdownをコピーできませんでした",
     previous: "前へ",
     next: "次へ",
   },
@@ -536,7 +539,7 @@ const jaJP = {
       s004: "口述する",
       s005: "見える + 聞こえる",
       s006: "すべてのテンプレート",
-      s007: "Loom および Jam のオープンソース代替品",
+      s007: "Loom のオープンソース代替品",
       s008: "Clips リンクをエージェントに貼り付けると、そのモデルが生のビデオや音声を取り込むことができない場合でも、トランスクリプトを聞いたり、概要を読んだり、タイムスタンプ付きのフレームを表示したりできます。",
       s009: "試す",
       s010: "できること",
@@ -1104,16 +1107,16 @@ const jaJP = {
   },
   skillsPage: {
     metaTitle:
-      "Agent Skills - コーディングエージェント向け Visual Plan と Visual Recap",
+      "Agent Skills - コーディングエージェント向け Visual Plan、Visual Recap、Visual Edit",
     metaDescription:
-      "コーディングエージェントが視覚的な計画と PR レビュー要約を使えるように、Agent-Native アプリベースのスキルをインストールします。",
+      "コーディングエージェントが視覚的な計画、PR レビュー要約、ローカルの視覚編集を使えるように、Agent-Native アプリベースのスキルをインストールします。",
     metaOgDescription:
       "ホスト、確認、カスタマイズできる Agent-Native アプリで、コーディングエージェントにスラッシュコマンドを追加します。",
     metaKeywords:
-      "agent skills, visual plan, visual recap, コーディングエージェント, Claude Code, Codex, PR レビュー, 計画, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, コーディングエージェント, Claude Code, Codex, PR レビュー, 計画, agent-native",
     heroTitle: "コーディングエージェントに新しい力を追加",
     heroBody:
-      "完全にカスタマイズできる Agent-Native アプリベースのスキルをインストールします。実装前の視覚的な計画と、変更後の視覚的な PR レビュー要約に対応します。",
+      "完全にカスタマイズできる Agent-Native アプリベースのスキルをインストールします。実装前の視覚的な計画、変更後の視覚的な PR レビュー要約、ローカル UI フローの視覚編集に対応します。",
     sectionTitle: "コーディングエージェント向けアプリベーススキル",
     sectionBody:
       "ホストされた共有可能なアプリリンク、ローカルファイル、自分でホストまたはカスタマイズしたアプリを使えます。必要に応じて、エージェントには指示と対応する MCP サーフェスが渡されます。",
@@ -1138,6 +1141,15 @@ const jaJP = {
       feature1: "スキーマ、API、ファイル変更を要約",
       feature2: "必要に応じて固定 PR コメントを投稿",
       videoAriaLabel: "Visual Recap スキルのデモ動画",
+    },
+    visualEdit: {
+      name: "ビジュアル編集",
+      tagline: "ローカル UI フローを編集",
+      description:
+        "実行中の localhost アプリを Design 内で URL ベースの画面として開き、視覚的にレビューおよび編集します。",
+      feature1: "順序付き URL から複数画面フローを配置",
+      feature2: "ライブのルート状態を確認、複製、調整",
+      videoAriaLabel: "Visual Edit スキルのデモ動画",
     },
   },
   downloadPage: {

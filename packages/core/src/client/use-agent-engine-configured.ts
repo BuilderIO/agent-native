@@ -14,6 +14,83 @@ export interface UseAgentEngineConfiguredResult {
   state: AgentEngineConfiguredState;
 }
 
+export interface FetchAgentEngineConfiguredStateOptions {
+  missingFallback?: boolean;
+  timeoutMs?: number;
+}
+
+const DEFAULT_STATUS_CHECK_TIMEOUT_MS = 2500;
+
+async function fetchStatusJson(
+  path: string,
+  timeoutMs: number,
+): Promise<unknown | null> {
+  const controller =
+    typeof AbortController !== "undefined" ? new AbortController() : null;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => {
+      controller?.abort();
+      resolve(null);
+    }, timeoutMs);
+  });
+
+  const request = fetch(
+    agentNativePath(path),
+    controller ? { signal: controller.signal } : undefined,
+  )
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null)
+    .finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    });
+
+  return Promise.race([request, timeout]);
+}
+
+function hasConfiguredFlag(value: unknown): value is { configured: boolean } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "configured" in value &&
+    typeof (value as { configured?: unknown }).configured === "boolean"
+  );
+}
+
+export async function fetchAgentEngineConfiguredState(
+  enabled = true,
+  options?: FetchAgentEngineConfiguredStateOptions,
+): Promise<AgentEngineConfiguredState> {
+  if (!enabled) return "configured";
+
+  const timeoutMs =
+    typeof options?.timeoutMs === "number" && options.timeoutMs > 0
+      ? options.timeoutMs
+      : DEFAULT_STATUS_CHECK_TIMEOUT_MS;
+  const [envKeys, builderStatus, engineStatus] = await Promise.all([
+    fetchStatusJson("/_agent-native/env-status", timeoutMs),
+    fetchStatusJson("/_agent-native/builder/status", timeoutMs),
+    fetchStatusJson("/_agent-native/agent-engine/status", timeoutMs),
+  ]);
+
+  // All three failed — likely a flaky network; keep the caller in unknown
+  // unless this check is reacting to an explicit missing-key stream event.
+  if (envKeys == null && builderStatus == null && engineStatus == null) {
+    return options?.missingFallback ? "missing" : "unknown";
+  }
+
+  const keys = (envKeys ?? []) as Array<{
+    key: string;
+    configured: boolean;
+  }>;
+  const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
+  const anyConfigured =
+    llmKeys.some((k) => k.configured) ||
+    (hasConfiguredFlag(builderStatus) && builderStatus.configured) ||
+    (hasConfiguredFlag(engineStatus) && engineStatus.configured);
+  return anyConfigured ? "configured" : "missing";
+}
+
 /**
  * Shared "can the agent run?" gate — the single source of truth for the sidebar
  * composer and app prompt boxes. Checks the env-key / Builder / BYOK status
@@ -29,37 +106,12 @@ export function useAgentEngineConfigured(
   useEffect(() => {
     let cancelled = false;
     const check = async (options?: { missingFallback?: boolean }) => {
-      if (!enabled) {
-        setState("configured");
-        return;
-      }
-      const [envKeys, builderStatus, engineStatus] = await Promise.all([
-        fetch(agentNativePath("/_agent-native/env-status"))
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
-        fetch(agentNativePath("/_agent-native/builder/status"))
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
-        fetch(agentNativePath("/_agent-native/agent-engine/status"))
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
-      ]);
+      const nextState = await fetchAgentEngineConfiguredState(enabled, options);
       if (cancelled) return;
-      // All three failed — likely a flaky network; keep the current state.
-      if (envKeys == null && builderStatus == null && engineStatus == null) {
-        if (options?.missingFallback) setState("missing");
+      if (nextState === "unknown") {
         return;
       }
-      const keys = (envKeys ?? []) as Array<{
-        key: string;
-        configured: boolean;
-      }>;
-      const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
-      const anyConfigured =
-        llmKeys.some((k) => k.configured) ||
-        builderStatus?.configured === true ||
-        engineStatus?.configured === true;
-      setState(anyConfigured ? "configured" : "missing");
+      setState(nextState);
     };
     const onConfiguredChanged = () => {
       void check();

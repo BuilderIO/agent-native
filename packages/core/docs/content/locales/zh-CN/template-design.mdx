@@ -1,0 +1,416 @@
+---
+title: "设计"
+description: "代理原生 HTML 原型工作室 — 使用代理生成、完善、预览和导出交互式 Alpine/Tailwind 设计。"
+---
+
+# 设计
+
+Design 是一家代理原生 HTML 原型工作室。该代理不是分层绘图画布，而是生成完整的独立 Alpine/Tailwind HTML 原型，将它们渲染在 iframe 中，并允许您通过提示和调整控件来优化结果。
+
+<WireframeBlock id="doc-block-w6l6ln">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>产品发布页面</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>已生成 HTML 原型</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>让 hero 更紧凑，CTA 更清晰。</span><div style='flex:1'></div><button class='primary'>应用修订</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+当您打开应用程序时，生成的原型位于工作区的中心，预览模式、提示修订和导出控件触手可及。代理生产的所有东西都是真实的 HTML，您可以精炼、导出或移交。
+
+<Diagram id="doc-block-1rwuo8n" title={"一件神器，无需翻译"} summary={"代理生成独立的 Alpine/Tailwind HTML； iframe、可编辑源和每个导出都读取相同的文件。链接的设计系统将令牌输入到每个通道中。"}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      提示<br /><small class="diagram-muted">describe screen / page</small>
+    </div>
+    <div class="diagram-pill">设计系统</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">代理生成</span
+    ><small class="diagram-muted">独立 HTML / JSX 文件</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    iframe preview<br /><small class="diagram-muted"
+      >调整旋钮 · Cmd+I 优化</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · 交接</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 何时采摘
+
+- **您想要一个精美的登陆页面概念、产品 UI 方向或品牌探索**，可以让工具保持真实的 HTML — 而不是分层的画布。
+- **您需要一个可用的交互式原型**，具有 Alpine interactions 和 Tailwind 样式，而不是静态模型。
+- **您想要快速比较方向**，生成一些变体，选择最强的，然后不断完善。
+- **您想要自己拥有的设计输出** — 导出 HTML、ZIP 或 PDF，或将原型交给编码工具。
+
+## 你可以用它做什么
+
+- **生成完整的原型。**描述您需要的屏幕或页面，代理将创建一个具有 Tailwind 样式和 Alpine interactions 的工作 HTML 文档。
+- **比较变体。**从多个方向开始，选择最强的一个，然后继续完善。
+- **视觉上的调整。**使用内置的调整控件进行常见更改，或向代理询问副本、布局、颜色、间距和交互更新。
+- **应用设计系统。**保存并重用设计系统首选项，以便生成的作品更贴近您的品牌。
+- **导入参考。**引入现有的 HTML 或参考材料作为新设计阶段的上下文。
+- **导出真实文件。**从生成的原型中导出 HTML、ZIP 或 PDF。
+
+## 开始使用
+
+现场演示：[design.agent-native.com](https://design.agent-native.com)。
+
+1. **描述工件。**询问屏幕、流程、登陆页面或视觉效果
+   你想要的方向。包括受众、基调和任何产品限制。
+2. **比较方向。**生成一些变体，选择最强的一个，然后
+   不断完善而不是重新开始。
+3. **调整细节。**使用调整控件进行常见的视觉变化，或询问
+   布局、复制、响应式和交互更改的代理。
+4. **有用时导出。**原型完成后下载 HTML、ZIP 或 PDF
+   已准备好交给其他工具或队友。
+
+### 有用的提示
+
+- “为技术分析产品创建三个着陆页方向。”
+- “让此仪表板更密集，更易于运营团队扫描。”
+- “应用我们保存的设计系统并简化移动布局。”
+- “选择最终变体后，将此原型导出为 ZIP。”
+- “在不改变品牌颜色的情况下，将这个 HTML 变成更强大的定价页面。”
+
+## 对于开发者
+
+本文档的其余部分适用于任何派生设计模板或扩展它的人。
+
+### 快速启动
+
+```bash
+npx @agent-native/core@latest create my-design --standalone --template design
+cd my-design
+pnpm install
+pnpm dev
+```
+
+### 数据模型
+
+所有数据通过 Drizzle ORM 存储在 SQL 中。架构：`templates/design/server/db/schema.ts`。设计和设计系统采用标准 `ownableColumns` 和匹配的框架共享表，因此它们可以插入每用户/每组织共享模型。
+
+| 表                                       | 它包含什么                                                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `designs`                                | 一个设计项目 - `title`、`description`、`project_type` (`prototype` / `other`)、`data` JSON Blob 和可选的 `design_system_id` 链接 |
+| `design_files`                           | 属于某个设计的各个文件（`filename`、`content`、`file_type` 默认为 `html`）                                                       |
+| `design_versions`                        | 具有可选 `label` 的设计的时间点 `snapshot`，用于历史记录和回滚                                                                   |
+| `design_systems`                         | 可重复使用的品牌标记 - `data`（颜色/版式/间距）、`assets`、`custom_instructions` 和 `is_default` 标志                            |
+| `design_shares` / `design_system_shares` | 框架共享将主体（用户或组织）映射到角色（查看者、编辑者、管理员）的表                                                             |
+
+<DataModel
+  id="doc-block-e8dcoi"
+  title={"设计数据模型"}
+  summary={
+    "设计拥有其文件和版本化快照，并且可以选择链接可重用的设计系统。设计和系统都是可拥有的，每个都有一个框架共享表。"
+  }
+  entities={[
+    {
+      id: "designs",
+      name: "designs",
+      note: "A design project (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "project_type",
+          type: "text",
+          note: "prototype / other",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "starts as {}",
+        },
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "files",
+      name: "design_files",
+      note: "设计中的文件",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "file_type",
+          type: "text",
+          note: "defaults to html",
+        },
+      ],
+    },
+    {
+      id: "versions",
+      name: "design_versions",
+      note: "历史/回滚",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "snapshot",
+          type: "json",
+        },
+        {
+          name: "label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "systems",
+      name: "design_systems",
+      note: "Reusable brand tokens (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "design_shares",
+      name: "design_shares",
+      note: "框架股份表",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "system_shares",
+      name: "design_system_shares",
+      note: "框架股份表",
+      fields: [
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "designs",
+      to: "files",
+      kind: "1-n",
+    },
+    {
+      from: "designs",
+      to: "versions",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "designs",
+      kind: "1-n",
+      label: "applied to",
+    },
+    {
+      from: "designs",
+      to: "design_shares",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "system_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
+
+设计项目在包含内容之前是一个外壳：`create-design` 生成一个空行 (`data: "{}"`)，然后 `generate-design` 写入实际的独立 HTML/JSX 文件。生成的工件、可编辑源以及每个导出都来自同一个 HTML，因此没有单独的“AI 模型”格式需要翻译。链接设计系统提供代币和 `custom_instructions`，代理在每一代传递中都会兑现这些代币和 `custom_instructions`。
+
+UI 中的路由位于 `templates/design/app/routes/` 下：`_index.tsx`（列表）、`design.$id.tsx`（编辑）、`present.$id.tsx`（演示）、`design-systems.tsx` 和 `design-systems_.setup.tsx`、`templates.tsx`、`examples.tsx`，以及 `settings.tsx` 和`team.tsx`。
+
+### 密钥actions
+
+每个代理可调用操作都是 `templates/design/actions/` 中的 TypeScript 文件，自动安装在 `POST /_agent-native/actions/:name` 上，并可作为 `pnpm action <name>` 从 CLI 运行。分组：
+
+- **设计** - `create-design`（空壳）、`generate-design`（写入生成的 HTML/JSX 内容）、`update-design`、`get-design`、`list-designs`、`duplicate-design`、`delete-design` 和 `apply-tweaks` 用于持久保存实时调整旋钮值（强调色、密度等）。
+- **文件** - `create-file`、`update-file`、`list-files`、`delete-file` 用于设计项目内的文件。
+- **设计系统** - `create-design-system`、`update-design-system`、`get-design-system`、`list-design-systems`、`delete-design-system`、`set-default-design-system` 和 `analyze-brand-assets` 用于在分析之前收集品牌数据。
+- **导入** — `index-design-system-with-builder` for Builder-backed code/GitHub design-system indexing, plus `import-figma`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
+- **导出和移交** - `export-html`、`export-pdf`、`export-svg`、`export-zip` 和 `export-coding-handoff` 将设计转变为编码工具移交。
+- **上下文和导航** - `view-screen`（当前设计、打开的文件、视图、待决问题或变体网格）、`get-design-snapshot`（外部代理继续的当前状态）和 `navigate`。
+
+### 与代理合作
+
+代理始终知道您打开了什么。当前设计、打开的文件、活动视图以及任何待处理的问题或变体网格均由 `view-screen` 返回并注入到每条消息中，因此您可以说“使此更密集”或“导出此变体”，而无需命名设计。
+
+因为设计只是独立的 HTML/JSX 文件，所以代理编辑 iframe 渲染和每个导出来自的相同源 - 没有单独的“AI 模型”格式需要翻译。链接设计系统提供代币和代理在每一代通行证上兑现的 `custom_instructions`。在预览中选择文本或区域，然后按 Cmd+I 将代理集中在该部分上。
+
+### 编辑器模型
+
+Design 对多屏工作采用概览优先。生成或进行大范围更新后，编辑器会打开屏幕
+概览：一个无限画布，其中每个屏幕都是可选择、移动、调整大小、拖放或复制的
+静态框架。需要聚焦滚动或原型交互时，请使用框架的完整视图按钮。
+
+单屏模式用于滚动、与原型行为交互，以及编辑一个已渲染文件内的 DOM/代码
+层。图层面板也反映这种分工：屏幕是顶层框架，活动屏幕下嵌套 DOM/代码层。
+
+当编码代理需要在 Design 中打开正在运行的本地应用，而不是生成独立原型 HTML
+时，请安装 `/visual-edit`：
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+目标应用的开发服务器运行后，`/visual-edit` 会结合
+`npx @agent-native/core@latest design connect` 和 `add-localhost-screens`，把每个
+请求的 path 或 URL 放置为独立的 URL-backed iframe 屏幕。像
+`localhost:1234/onboarding/1`、`/onboarding/2`、`/onboarding/3` 这样的编号流程
+会在 overview 模式中保持为分开的有序屏幕。
+
+为了获得稳定的图层名称，请在有意义的元素上添加
+`data-agent-native-layer-name`。Design 会优先使用它，然后才使用语义/文本回
+退，并且可以通过编辑该属性来持久保存图层重命名。Inline HTML 支持本地代
+码层编辑，包括文本、class、style、attribute、源顺序和小型结构调整；可视
+代码层编辑目前仅支持 HTML。Localhost source mode 可以注册并解析本地路由
+artboard，但本地文件读写仍是桥接合同，直到显式权限控制完成加固。
+
+### Design 编辑器扩展
+
+编辑器在 **Tweaks** 之后包含一个 **Extensions** 检查器标签。它像 Design
+专属的插件通道：用户可以点击 **+ Extension** 让代理创建扩展，也可以安装声
+明 `design.editor.inspector` slot 的扩展。
+
+Design 扩展通过标准扩展 sandbox 内嵌渲染在 artboard 旁边。宿主会通过
+`window.slotContext` 和 `window.onSlotContext(...)` 更新传入当前
+`designId`、活动文件、屏幕列表、已选屏幕 id、已选元素元数据、视图模式、
+缩放、活动工具和 tweak 值。这样扩展就可以显示当前选择的信息、提供样式控
+件，或围绕打开的设计构建紧凑工作流。
+
+对于确定性的工作，扩展可以通过扩展桥调用 app actions。对于 AI 驱动的变
+更，让扩展调用 `agentNative.chat.send(...)`，并附带已选元素的 selector/source
+id 和请求的更改。代理应先调用 `view-screen`，然后用 `apply-visual-edit`
+处理元素 style、class、text 或 move 更改，或用带 `canvasFrames` 的
+`update-design` / `generate-design` 处理 artboard placement 更改。有关
+sandbox、持久状态和桥接 API，请参阅
+[Extensions](/docs/extensions#what-an-extension-can-do)。
+
+### 自定义它
+
+设计是一个完整的、可克隆的模板。一些实用的扩展想法：
+
+- “使用我们的令牌和示例组件添加可重用的电子商务设计系统。”
+- “添加一个导出步骤，将 ZIP 上传到我们的内部审核系统。”
+- “让我粘贴现有的登陆页面 HTML 并向代理询问三个更强的版本。”
+- “为产品页面、仪表板和入门屏幕简介添加已保存的提示库。”
+- “添加自定义 PDF 导出预设以供利益相关者审核。”
+
+代理根据需要编辑路线、组件、actions 和 SQL 支持的模型。请参阅 [Templates](/docs/cloneable-saas) 了解完整克隆、自定义、部署流程，如果这是您的第一个代理本机模板，请参阅 [Getting Started](/docs/getting-started)。
+
+## 下一步是什么
+
+- [**Templates**](/docs/cloneable-saas) — 克隆自有模型
+- [**Context Awareness**](/docs/context-awareness) — 代理如何知道用户正在查看的内容
+- [**Creating Templates**](/docs/creating-templates) — 代理原生模板的当前构建模式

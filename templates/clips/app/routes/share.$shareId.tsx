@@ -38,7 +38,7 @@ import { useLoaderData, useNavigate, useParams } from "react-router";
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { CommentsPanel } from "@/components/player/comments-panel";
-import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
+import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
@@ -797,8 +797,16 @@ export default function ShareRoute() {
               </DropdownMenu>
             ) : null}
             {viewerIsOwner ? (
-              <DeleteRecordingMenu
+              <RecordingOptionsMenu
                 recordingId={recording.id}
+                canDelete
+                canDownload={canDownloadRecording}
+                downloadPending={downloading}
+                downloadLabel={t("sharePage.downloadMp4")}
+                downloadingLabel={t("sharePage.downloading")}
+                onDownload={() => {
+                  void downloadRecording();
+                }}
                 onDeleted={() => navigate("/library", { replace: true })}
               />
             ) : null}

@@ -84,8 +84,8 @@ export function useNavigationState() {
     getNavigationState: ({ pathname, searchParams }) => {
       const state: NavigationState = { view: "forms" };
 
-      if (pathname === "/") {
-        state.view = "home";
+      if (pathname === "/" || pathname === "/ask") {
+        state.view = "ask";
       } else if (pathname.startsWith("/forms")) {
         const formMatch = pathname.match(/\/forms\/([^/]+)/);
         if (formMatch) {
@@ -109,7 +109,7 @@ export function useNavigationState() {
       } else if (pathname.startsWith("/f/")) {
         state.view = "public-form";
       } else if (pathname.startsWith("/team")) {
-        state.view = "team";
+        state.view = "settings";
       } else if (pathname.startsWith("/extensions")) {
         state.view = "extensions";
       } else if (pathname.startsWith("/form-preview")) {
@@ -132,7 +132,7 @@ export function useNavigationState() {
     navigateOptions: { flushSync: true, replace: true },
     onNavigate: (_command, path) => {
       void prewarmFormsRoutePath(path);
-      if (location.pathname === "/" && path !== "/") {
+      if (location.pathname === "/ask" && path !== "/ask") {
         markAgentChatHomeHandoff("forms");
       }
     },

@@ -67,6 +67,7 @@ import {
   registerBuiltinEngines,
   getStoredModelForEngine,
   normalizeModelForEngine,
+  isResolvedEngineUsableForRequest,
 } from "./engine/index.js";
 import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
@@ -533,6 +534,9 @@ export interface ActionEntry {
    *  Defaults to true; false lets safe metadata/read actions run with
    *  `ctx.userEmail` undefined when auth resolution returns 401/403. */
   requiresAuth?: boolean;
+  /** Max HTTP request body in bytes; the route 413s on `Content-Length` before
+   *  parsing. For public, no-auth POST actions. */
+  maxBodyBytes?: number;
   /** Whether the action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool surface (in-app assistant,
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
@@ -581,7 +585,7 @@ export interface ActionEntry {
    * predicate that resolves truthy for the call's args), the loop emits
    * `approval_required` and stops the turn instead of executing this action,
    * until a human approves the specific call. Set by `defineAction`'s
-   * `needsApproval` option. See `packages/core/docs/content/actions.md`.
+   * `needsApproval` option. See `packages/core/docs/content/actions.mdx`.
    */
   needsApproval?:
     | boolean
@@ -4206,8 +4210,11 @@ export function createProductionAgentHandler(
       `[agent-chat] resolved engine=${engine.name} model=${model} requestEngine=${requestEngine ?? "(none)"}`,
     );
 
-    // Check for API key before starting a run (only for anthropic engine)
-    if (engine.name === "anthropic" && !effectiveApiKey) {
+    if (
+      !(await isResolvedEngineUsableForRequest(engine, {
+        apiKey: effectiveApiKey,
+      }))
+    ) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");

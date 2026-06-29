@@ -1,0 +1,117 @@
+---
+title: "Using Your Agent"
+description: "The day-to-day loop of working with the agent: it sees what you're looking at, you direct it, embed it, go UI-light, and co-edit alongside it."
+---
+
+# Using Your Agent
+
+The defining idea behind agent-native is that the agent and the UI are **equal partners** — see [What Is Agent-Native?](/docs/what-is-agent-native) for the why. This section is about the other half of that promise: what it feels like to actually work with the agent once it's docked next to your app.
+
+There's a simple through-line. The agent **sees** what you're looking at, you **direct** it toward what you want, you can **embed** it anywhere, you can go fully **UI-light** when that's the better fit, and you can **co-edit** the same documents at the same time. Each of those is a page in this section.
+
+<Diagram id="doc-block-z4xjdy" title="The day-to-day loop" summary={"Five ways of working with a docked agent — each is a page in this section."}>
+
+```html
+<div class="diagram-loop">
+  <div class="diagram-card">
+    <strong>Sees</strong
+    ><small class="diagram-muted">your view &amp; selection</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Direct</strong
+    ><small class="diagram-muted">@-mentions &amp; voice</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Embed</strong><small class="diagram-muted">drop into any app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>UI-light</strong
+    ><small class="diagram-muted">chat is the product</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">Co-edit</span
+    ><small class="diagram-muted">live, side by side</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-loop {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-loop .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 130px;
+  flex: 1;
+}
+.diagram-loop .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## It sees what you're looking at {#it-sees}
+
+The agent isn't blind to your screen. Open an email and it knows which thread. Select a chart and it knows which chart. Highlight a paragraph and it can act on just that range. That shared awareness is what lets you say "reply to this" or "summarize the selection" without spelling out the context every time.
+
+This works because the current navigation and selection live in `application_state` SQL, which the agent reads as part of its context. The agent can also drive that same state back — opening a view, selecting a row — so you watch it work in the real UI rather than in a transcript.
+
+<Callout id="doc-block-wljfsx" tone="info">
+
+**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+
+</Callout>
+
+→ [**Context Awareness**](/docs/context-awareness) — navigation state, view-screen, navigate commands, and how the agent stays in sync with your screen.
+
+## You direct it {#you-direct-it}
+
+Most of the time you steer the agent by typing into the chat. Two things make that faster.
+
+**Mentions.** Tag a custom agent, a connected agent, or a file with `@` to pull it into the conversation — "let `@analytics` pull last week's numbers, then draft the summary." Mentions are how you reach the right specialist or attach the right context without leaving the composer.
+
+**Voice.** The composer has a microphone. Dictate a request instead of typing it, with provider options ranging from Builder's hosted transcription to bring-your-own-key to a browser fallback.
+
+→ [**Agent Mentions**](/docs/agent-mentions) — `@`-mention custom agents, connected agents, and files in chat.
+→ [**Voice Input**](/docs/voice-input) — dictation in the chat composer and how transcription is routed.
+
+## You embed it {#you-embed-it}
+
+The agent isn't a separate app you tab over to. It ships as a handful of React components — a sidebar, a raw panel, and a `sendToAgentChat()` call — that you drop into any app. Render `<AgentSidebar>` to give every screen a toggleable agent, or wire a button to hand a specific task off to the chat instead of running a one-shot LLM call.
+
+→ [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>`, `<AgentSidebar>`, and `sendToAgentChat()` into any React app.
+→ [**Agent Surfaces**](/docs/agent-surfaces) — choose whether the workflow should be headless, chat-first, embedded, or a full app.
+
+## You can go UI-light {#ui-light}
+
+Not every app needs a full dashboard. When the agent _is_ the product, you can skip most of the custom UI: open the app, ask for what you want, and let the agent do the rest. The agent still has its management surface — history, workspace, settings — but the primary interaction is conversation rather than clicks.
+
+→ [**Pure-Agent Apps**](/docs/pure-agent-apps) — apps where the agent is the whole product.
+
+## You co-edit with it {#you-co-edit}
+
+When you and the agent are working on the same document, you don't take turns. With real-time collaboration, the agent's edits stream in alongside yours — live cursors, no overwrites — the same way a teammate's would. You can keep typing while it works, and it sees your changes as they happen.
+
+→ [**Real-Time Collaboration**](/docs/real-time-collaboration) — multi-user collaborative editing with live cursors and agent edits in the same document.
+
+## What's next {#whats-next}
+
+- [**Context Awareness**](/docs/context-awareness) — the agent knows what you're looking at
+- [**Agent Mentions**](/docs/agent-mentions) — direct it with `@`-mentions
+- [**Voice Input**](/docs/voice-input) — direct it by speaking
+- [**Drop-in Agent**](/docs/drop-in-agent) — embed it in any React app
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) — go UI-light when the agent is the product
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — co-edit the same document together

@@ -12,10 +12,14 @@ const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
+const resolveSecretMock = vi.hoisted(() => vi.fn());
+const runWithRequestContextMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
   isOAuthConnected: vi.fn(),
+  resolveSecret: resolveSecretMock,
+  runWithRequestContext: runWithRequestContextMock,
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -60,6 +64,13 @@ describe("calendar Google auth status", () => {
     process.env.GOOGLE_CLIENT_SECRET = "client-secret";
     delete process.env.GOOGLE_LEGACY_CLIENT_ID;
     delete process.env.GOOGLE_LEGACY_CLIENT_SECRET;
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
     getOAuthAccountsMock.mockResolvedValue([
       {
         accountId: "steve@example.com",
@@ -506,6 +517,13 @@ describe("calendar Google OAuth exchange", () => {
     vi.clearAllMocks();
     process.env.GOOGLE_CLIENT_ID = "client-id";
     process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
   });
 
   it("stores the Google profile picture captured during OAuth", async () => {

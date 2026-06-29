@@ -198,7 +198,7 @@ function OpenLinkInterceptor() {
       if (!path) return;
 
       event.preventDefault();
-      if (location.pathname === "/" && path !== "/") {
+      if (location.pathname === "/ask" && path !== "/ask") {
         markAgentChatHomeHandoff("forms");
       }
       navigateWithAgentChatViewTransition(navigate, path);

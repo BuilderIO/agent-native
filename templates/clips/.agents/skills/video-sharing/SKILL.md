@@ -173,6 +173,13 @@ These endpoints follow the same access model as `/api/public-recording`:
 - Password-protected clips require `password=<pw>` once; successful JSON
   responses include short-lived tokenized links so the plaintext password is not
   copied into downstream agent prompts, browser history, or logs.
+- If the context or transcript response reports `transcript.status` as
+  `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
+  times before falling back to frames or telling the user no transcript exists.
+- If transcription failed because Builder transcription credits are exhausted,
+  tell the user to upgrade or connect Builder.io credits, or configure a Groq
+  key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not
+  transcribe Clips recordings.
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
 

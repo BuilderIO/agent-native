@@ -25,6 +25,7 @@ import {
   getAccountDisplayName,
   isConnected,
   gmailToEmailMessage,
+  getOAuth2Credentials,
   setAccountDisplayName,
 } from "./google-auth.js";
 import {
@@ -83,8 +84,8 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     tokens.expiry_date < Date.now() + 5 * 60 * 1000
   ) {
     try {
-      const clientId = process.env.GOOGLE_CLIENT_ID!;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+      const { clientId, clientSecret } =
+        await getOAuth2Credentials(accountEmail);
       const oauth = createOAuth2Client(
         clientId,
         clientSecret,

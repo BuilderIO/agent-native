@@ -9,6 +9,11 @@ describe("formsNavigateCommandPath", () => {
     vi.unstubAllEnvs();
   });
 
+  it("routes semantic ask and home commands to the Ask tab", () => {
+    expect(formsNavigateCommandPath({ view: "ask" })).toBe("/ask");
+    expect(formsNavigateCommandPath({ view: "home" })).toBe("/ask");
+  });
+
   it("prefers a command URL path over semantic fallback fields", () => {
     expect(
       formsNavigateCommandPath({

@@ -94,11 +94,16 @@ function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
  * `/app/organizations/Nicholas%20kipchumba%20Space/billing` which Builder's
  * router treats as unknown and silently bounces to `/app/projects`. The
  * Builder CLI-auth callback doesn't expose the org slug/id today, so we route
- * to the org-agnostic billing page — Builder resolves the active org from
- * session there and users with multiple orgs can switch from that screen.
+ * to the org-agnostic subscription page. Agent Native attribution lets Builder
+ * skip generic onboarding for new users who land there from an upgrade CTA.
  */
 async function buildUpgradeUrl(): Promise<string> {
-  return "https://builder.io/account/billing";
+  const url = new URL("https://builder.io/account/subscription");
+  url.searchParams.set("signupSource", "agent-native");
+  url.searchParams.set("agentNativeConnectSource", "gateway_quota_upgrade");
+  url.searchParams.set("agentNativeFlow", "connect_llm");
+  url.searchParams.set("framework", "agent-native");
+  return url.toString();
 }
 
 interface GatewayErrorBody {

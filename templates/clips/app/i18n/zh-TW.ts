@@ -19,6 +19,23 @@ const messages = {
     extensionSignedInDescription: "再次開啟 Clips 擴充功能即可開始錄製。",
     gotIt: "知道了",
   },
+  builderCredits: {
+    pausedTitle: "Builder.io 額度已暫停",
+    transcriptionDescription:
+      "升級 Builder.io 即可恢復備份轉錄。現有的原生轉錄仍會顯示。",
+    cleanupDescription:
+      "升級 Builder.io 即可恢復轉錄清理、摘要和 AI 標題。原生轉錄已保留。",
+    settingsDescription:
+      "升級 Builder.io 即可恢復備份轉錄、轉錄清理、摘要和 AI 標題。現有的原生轉錄仍會顯示。",
+    titleDescription: "AI 標題生成已暫停。你的轉錄仍可使用。",
+    upgrade: "升級 Builder.io",
+    retryAfterUpgrade: "升級後重試",
+    openAiSetup: "AI 設定",
+    featureBackupTranscription: "備份轉錄",
+    featureCleanup: "轉錄清理",
+    featureSummaries: "摘要",
+    featureTitles: "AI 標題",
+  },
   recorder: {
     cameraBlurTitle: "虛化背景",
     cameraBlurDescription: "讓你保持清晰，同時虛化身後的內容",
@@ -318,6 +335,12 @@ const messages = {
       "我們在這段錄製中沒有聽到任何講話。如果這是預期狀況，就不需要其他操作；如果不是，請檢查您的麥克風和語音權限，然後重試轉錄。",
     retry: "重試",
     transcriptUnavailable: "逐字稿不可用：{{reason}}",
+    transcriptUnavailableTitle: "轉錄無法使用",
+    providerNeedsAttention: "提供者需要處理",
+    providerNeedsAttentionDescription:
+      "目前提供者已暫停此請求。切換到 Builder.io 或更新金鑰，然後重試。",
+    enableTranscriptionTitle: "啟用轉錄",
+    enableTranscriptionDescription: "為此 Clip 啟用字幕、轉錄搜尋和摘要。",
     searchPlaceholder: "搜尋逐字稿",
     copyTranscript: "複製逐字稿",
     downloadSrt: "下載 .srt",
@@ -787,6 +810,10 @@ const messages = {
     replyingTo: "正在回覆",
     commentAt: "評論於",
     writeReply: "寫回覆...",
+    commentButton: "留言",
+    composerPlaceholder: "新增留言…",
+    mentionSomeone: "提及某人",
+    addEmoji: "新增表情符號",
   },
   shareMeeting: {
     pageTitle: "會議筆記 · Clips",

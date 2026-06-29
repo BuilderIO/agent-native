@@ -1,9 +1,8 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 
 /**
  * Loading placeholder for the design editor. Mirrors the real editor chrome
- * (toolbar + dot-grid canvas with a faux design frame) so the load reads as
+ * (side rails + canvas with a faux design frame) so the load reads as
  * "a design is coming" instead of a bare spinner on a black void.
  */
 export function DesignEditorSkeleton({
@@ -12,43 +11,37 @@ export function DesignEditorSkeleton({
   embedded?: boolean;
 }) {
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-background">
-      {/* Toolbar */}
-      <header
-        className={cn(
-          "shrink-0 border-b border-border",
-          embedded ? "h-10" : "h-12",
-        )}
-      >
-        <div className="flex h-full items-center gap-2 px-3">
-          <Skeleton className="h-5 w-5 rounded" />
-          <Skeleton className="h-5 w-40 rounded" />
-          <Skeleton className="h-4 w-16 rounded-full" />
-          <div className="ml-auto flex items-center gap-1.5">
-            {!embedded && <Skeleton className="h-7 w-44 rounded-md" />}
-            <Skeleton className="h-7 w-7 rounded-md" />
-            {!embedded && (
-              <>
-                <Skeleton className="h-7 w-16 rounded-md" />
-                <Skeleton className="h-7 w-14 rounded-md" />
-                <Skeleton className="h-7 w-16 rounded-md" />
-              </>
-            )}
+    <div className="flex h-full overflow-hidden bg-background">
+      {!embedded && (
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-[var(--design-editor-panel-bg)] lg:flex">
+          <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2">
+            <Skeleton className="size-8 rounded-md" />
+            <Skeleton className="h-5 min-w-0 flex-1 rounded" />
           </div>
-        </div>
-      </header>
+          <div className="shrink-0 border-b border-border p-2">
+            <div className="mb-2 flex items-center justify-between">
+              <Skeleton className="h-3 w-16 rounded" />
+              <div className="flex gap-1">
+                <Skeleton className="size-6 rounded-sm" />
+                <Skeleton className="size-6 rounded-sm" />
+              </div>
+            </div>
+            <Skeleton className="h-7 w-full rounded-sm" />
+          </div>
+          <div className="shrink-0 border-b border-border p-2">
+            <Skeleton className="h-7 w-full rounded-sm" />
+          </div>
+          <div className="flex-1 space-y-1 p-2">
+            <Skeleton className="h-6 w-full rounded-sm" />
+            <Skeleton className="h-6 w-11/12 rounded-sm" />
+            <Skeleton className="h-6 w-4/5 rounded-sm" />
+            <Skeleton className="h-6 w-2/3 rounded-sm" />
+          </div>
+        </aside>
+      )}
 
-      {/* Canvas */}
-      <div className="relative flex-1 overflow-hidden">
-        <div
-          className="absolute inset-0"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle, hsl(var(--border)) 1px, transparent 1px)",
-            backgroundSize: "24px 24px",
-          }}
-        />
-        <div className="relative flex h-full items-center justify-center p-8">
+      <main className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]">
+        <div className="flex h-full items-center justify-center p-8">
           <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
             {/* Faux browser bar */}
             <div className="flex items-center gap-2 border-b border-border px-4 py-3">
@@ -72,7 +65,50 @@ export function DesignEditorSkeleton({
             </div>
           </div>
         </div>
-      </div>
+
+        {!embedded && (
+          <div className="absolute bottom-4 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/10 bg-[#2c2c2c]/95 p-2 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9)]">
+            <div className="flex gap-1">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-11 w-16 rounded-md" />
+              ))}
+            </div>
+            <Skeleton className="h-12 w-px rounded-none bg-white/15" />
+            <div className="flex gap-1 rounded-lg bg-white/10 p-1">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton key={index} className="size-10 rounded-md" />
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {!embedded && (
+        <aside className="hidden w-64 shrink-0 flex-col border-l border-border bg-[var(--design-editor-panel-bg)] lg:flex">
+          <div className="shrink-0 border-b border-border p-2">
+            <div className="flex flex-wrap justify-end gap-1">
+              <Skeleton className="h-7 w-12 rounded-md" />
+              <Skeleton className="h-7 w-14 rounded-md" />
+              <Skeleton className="h-7 w-16 rounded-md" />
+              <Skeleton className="size-7 rounded-md" />
+            </div>
+          </div>
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
+            <div className="flex gap-1">
+              <Skeleton className="h-7 w-16 rounded-md" />
+              <Skeleton className="h-7 w-16 rounded-md" />
+            </div>
+            <Skeleton className="h-7 w-12 rounded-md" />
+          </div>
+          <div className="space-y-3 p-3">
+            <Skeleton className="h-4 w-24 rounded" />
+            <Skeleton className="h-7 w-full rounded-md" />
+            <Skeleton className="h-7 w-full rounded-md" />
+            <Skeleton className="h-4 w-20 rounded" />
+            <Skeleton className="h-24 w-full rounded-md" />
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

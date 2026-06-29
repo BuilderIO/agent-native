@@ -1,0 +1,1080 @@
+---
+title: "視覺計畫"
+description: "Agent-Native 計畫將您的編碼代理的計畫轉變為結構化的、可審閱的檔案 - 圖表、線框圖、帶註解的程式碼、註解和共用連結。從 CLI 安裝一次；您與之共用的審閱者以訪客身分進行編輯，登入後僅可儲存或共用。"
+---
+
+# 視覺計畫
+
+> **大多數人安裝 Plan 作為一項技能，而不是支架式應用程式。** 一個 CLI 指令
+> 新增 `/visual-plan` 和 `/visual-recap` skills 以及託管計畫
+> 連線到您的編碼代理 - 請參閱 [Plan plugin & marketplace](/docs/plan-plugin)
+> 用於外掛和市場路由。分叉計畫範本（參見
+> [For developers](#for-developers)) 是輔助路徑，用於自託管或
+> 建立在計畫本身之上。
+
+Agent-Native 計畫是編碼代理的視覺化計畫模式。它變成了普通
+Codex、Claude 程式碼、Markdown 或將實施計畫貼上到結構化中
+使用富文字、圖表、線框圖、帶註解的程式碼演練檢視表面
+以及檔案樹、註解、評論和可共用連結。
+
+它歸結為兩個指令。 `/visual-plan` 在代理之前**制定計畫
+編寫程式碼。 `/visual-recap` 將**已經發生的變化變成了 PR，
+提交、分支或 git diff — 進入高海拔視覺化程式碼審查。都開啟
+相同的審閱介面，因此您可以註解、評論並將意見回饋返回給
+以同樣的方式代理。
+
+<Diagram id="doc-block-14bxxm9" title={"兩個指令，一個檢視介面"} summary={"這兩個指令都透過託管的 Plan MCP 連線器發布到相同的註解和評論介面。"}>
+
+```html
+<div class="diagram-plan">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      <span class="diagram-pill accent">/visual-plan</span
+      ><small class="diagram-muted">寫程式碼前 — 架構、UI、重構</small>
+    </div>
+    <div class="diagram-node">
+      <span class="diagram-pill">/visual-recap</span
+      ><small class="diagram-muted">寫程式碼後 — PR、提交、分支、diff</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Plan MCP 連線器<br /><small class="diagram-muted"
+      >plan.agent-native.com</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    審閱介面<br /><small class="diagram-muted"
+      >圖表 · 線框圖 · 帶註解的程式碼 · 評論</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-node">
+    編碼代理<br /><small class="diagram-muted">意見回饋已交回</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-plan {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-plan .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-plan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-plan .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+```
+
+</Diagram>
+
+<WireframeBlock id="doc-block-aglxh2">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>結帳改版計畫</h1><div style='flex:1'></div><button>分享</button><button class='primary'>核准</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>目前線框圖</div><div class='wf-box'>擬議線框圖</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>實施計畫</strong><div class='wf-box'>決策：保留現有結帳外殼</div><div class='wf-box'>帶註解的程式碼演練</div><div class='wf-box'>開放問題</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>評論</strong><div class='wf-box'>主 CTA 上的標注</div><div class='wf-box'>給代理的問題</div><div class='wf-box'>已解決的文案備註</div><button class='primary'>交回意見回饋</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+有兩種方式進入計畫：
+
+- **來自您的編碼代理 (CLI)** — 一個指令即可安裝技能、註冊
+  託管計畫連線器，並對其進行驗證。
+- **在瀏覽器中** - 您與之共用的任何人都可以開啟編輯器並建立或
+  以**訪客身分進行編輯，無需註冊**。他們僅在想要儲存時才登入
+  或分享。
+
+## 安裝技能 {#install}
+
+使用 Agent-Native CLI。這是推薦的設定，因為它安裝了
+計畫技能說明，註冊託管計畫 MCP 連線器，**和**執行
+一步完成特定於用戶端的驗證/設定流程，因此您的第一個工具呼叫不會
+撞到 OAuth 牆：
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+該指令安裝兩個指令：`/visual-plan` 和 `/visual-recap`。
+
+如果您使用的是直接接受 MCP 連線器 URL 的基於聊天的主機
+（而不是 CLI 設定的用戶端），連線託管計畫連線器
+`https://plan.agent-native.com/_agent-native/mcp` — 請參閱 [MCP Clients](/docs/mcp-clients) 以了解特定於用戶端的設定。
+
+驗證是在設定時進行一次性瀏覽器登入 - 這是有意為之的
+是讓代理持續存在並共用其產生的計畫的原因。授權是什麼
+步驟取決於您的客戶：
+
+- **支援 OAuth 的主機**（Claude 程式碼）取得僅 URL 的 MCP 條目以及提示
+  執行`/mcp`並選取**驗證**。
+- **Codex / Cowork** 執行簡短的瀏覽器設備程式碼流程：CLI 列印程式碼，
+  開啟驗證頁面，並在核准後寫入連線器。
+- 在 **非互動式 shell 或 CI** 中，會跳過驗證步驟並執行準確的
+  為您列印稍後執行的指令。
+
+預設情況下，CLI 以它可以設定的每個受支援的本機用戶端為目標。透過
+`--client codex`、`--client claude-code` 或其他特定用戶端，當您
+想要將設定範圍縮小到一台主機：
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+透過`--no-connect`註冊連線器而不進行驗證，然後執行
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+當您準備好時，或者選取較窄的 `--client`：
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --no-connect
+```
+
+要自動生成**每個 pull request**的回顧，請傳遞 `--with-github-action`。
+這會編寫一個在每個 PR 上執行 `visual-recap` 技能的 GitHub 操作，並且
+發布了一個互動式回顧計畫，其中包含內嵌螢幕截圖作為置頂評論 -
+參見[PR Visual Recap](/docs/pr-visual-recap)。
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+工作流程編寫完成後，執行`npx @agent-native/core@latest recap setup`進行設定
+GitHub Actions 秘密/變數（如果可能）和 `npx @agent-native/core@latest recap doctor`
+驗證儲存庫是否已準備就緒。
+
+如果您只想透過開啟Skills CLI 來移植指令檔案，請使用：
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill visual-plan
+```
+
+這僅安裝技能說明。它不註冊託管的 MCP
+連線器，因此當您需要單指令設定時請使用 Agent-Native CLI 路徑。
+
+> **更喜歡一次性安裝外掛？** Claude 程式碼和 Codex 可以新增
+> `BuilderIO/agent-native` 直接作為外掛市場，捆綁了
+> 在一次安裝中規劃 skills*and* 連線器並自動更新為 skills
+> 改進 — 參見 [Plan plugin & marketplace](/docs/plan-plugin)。
+
+### 在 VS Code 中開啟計畫 {#vscode-extension}
+
+如果您使用 VS Code，請安裝
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+在側面板中開啟相同的計畫審核介面，而不是讓您進入
+單獨的瀏覽器分頁。計畫工具仍然返回正常的 Web 連結，並且 MCP
+中繼資料還包括 VS Code 切換 URL：
+
+```text
+vscode://builder.agent-native/open?url=<encoded-plan-url>
+```
+
+擴充功能處理 URI，在 VS Code Web 檢視中開啟解碼後的計畫 URL，
+並包含一個指令來執行 VS 的現有 Agent Native MCP 連線流程
+程式碼 / GitHub 副駕駛。這對於 Claude 程式碼或其他程式碼特別有用
+編碼代理工作流程，其中計畫應位於正在編輯的檔案旁邊。
+
+## 從您的編碼代理中使用它
+
+安裝後，向您的代理詢問適合工作的指令：
+
+- `/visual-plan` **在**實施之前建立結構化計畫 -
+  架構、後端、重構、UI 或混合產品工作 - 引入
+  圖表、線框圖、模型、可點選原型和帶註解的程式碼
+  工作需要的演練和檔案樹。
+- `/visual-recap` 對已經發生的變更進行高空**審查**
+  發生 — PR、提交、分支或 git diff — 作為架構、API、檔案和
+  之前/之後塊而不是原始差異牆。
+
+代理應首先檢查程式碼庫，然後在出現問題時建立視覺化計畫
+錯誤的方向將會付出高昂的代價。返回的計畫連結將在
+瀏覽器或 VS Code，以便您可以註解、更正、選取選項並詢問
+在程式碼更改開始之前更新。
+
+當 Codex、Claude 程式碼、Markdown 或貼上的計畫已存在時，使用
+`/visual-plan`；代理保留來源計畫並建置更豐富的評論
+從它開始，而不是重新開始。
+
+如果第一遍仍有可回答的決策，代理可以放置
+**開放式問題**表格位於同一計畫的底部。接聽並傳送
+它向代理啟動針對現有計畫的修訂。
+
+## 你可以用它做什麼
+
+- **實施前審查。** React 到圖表、線框圖、選項分頁，
+  開放問題表格、風險說明、帶註解的程式碼演練和程式碼
+  在代理編輯檔案之前進行預覽。
+- **直接對計畫發表評論。**將意見回饋固定到文字、圖片、線框或
+  畫布位置；選取評論是針對代理還是針對人類
+  審稿人； @提及有行內標籤的隊友；並將評論解決為
+  計畫不斷發展。
+- **清楚地將意見回饋意見回饋給代理。**文字評論附在最近的位置
+  散文塊，視覺註解包括精確的目標中繼資料和瀏覽器
+  交接包括一小部分視覺/畫布評論的重點螢幕截圖
+  位置而不是一張難以閱讀的巨型圖片。
+- **匯出結果。**保留計畫的 HTML、Markdown 或 JSON 收據
+  當您需要來源程式碼控制友好的切換時。
+
+## 以訪客身分在瀏覽器中進行編輯 {#guest}
+
+與您共用計畫的人不需要安裝任何東西。他們開啟計畫
+編輯器和**無需註冊即可建立和編輯** - 他們以訪客身分工作。登入
+僅當有人想要**儲存或共用**自己的作品時才需要。
+
+當訪客登入時，他們作為訪客建立的計畫將被**認領**到
+他們的帳戶，因此他們建置的任何內容都不會丟失。
+
+計畫行內散文編輯：點選進入任何文字部分，輸入豐富的格式
+編輯器工具列或斜線選單，並且計畫自動儲存基礎降價。評論
+註解模式暫時將文字部分變為唯讀，以便點選可以固定
+意見回饋；離開審閱模式以繼續編輯散文。
+
+## 分享和評論 {#sharing}
+
+分享和評論是需要帳戶的工作流程：
+
+- **檢視**公開或共用計畫適用於知道連結的任何人 - 無需帳戶
+  必需。
+- **對共用計畫發表評論**需要 Agent-Native 帳戶。
+- **共用**計畫（將其發布到連結、私人共用、審閱者存取權限，
+  跨設備或團隊審核）需要登入。Google 登入會在以下情況出現
+  標準 Google OAuth 環境變數已設定。
+
+託管計畫連線器位於 `https://plan.agent-native.com/_agent-native/mcp`。
+切勿將共用機密放入技能檔案中。
+
+## 本機檔案隱私模式 {#local-files}
+
+對於注重隱私的工作，請要求使用本機檔案模式：
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+或為您的代理環境設定約定：
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+在此模式下，代理寫入本機 MDX 資料夾，並且不得呼叫託管
+規劃 MCP 工具。當您需要該計畫時，請使用儲存庫資料夾，例如 `plans/<slug>/`
+已使用程式碼簽入。使用臨時或忽略的資料夾，例如
+`/tmp/agent-native-plans/<slug>/` 或 `.agent-native/plans/<slug>/`，當
+計畫應該遠離 git。該資料夾包含：
+
+- `plan.mdx`
+- 可選`canvas.mdx`
+- 可選`prototype.mdx`
+- 可選`.plan-state.json`
+
+寫入資料夾後，代理啟動一個小型本機主機橋並開啟
+針對僅限本機的來源託管計畫 UI：
+
+```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+橋梁 URL 看起來像
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+該頁面是普通的計畫檢視器，但瀏覽器取得 `plan.mdx`，
+`canvas.mdx`、`prototype.mdx`、`.plan-state.json` 以及來自
+本機主機橋。計畫內容不會寫入託管資料庫，而是
+未通過託管計畫 actions 傳送。保持橋接行程執行
+審查； URL 是您電腦的本機連結，不是可共用的團隊連結。
+serve指令預設將開啟的 URL 寫入`.plan-url`，因此編碼代理可以
+捕獲它而不抓取長時間執行的標準輸出；將該檔案視為僅本機檔案
+因為 URL 包含橋接權杖，所以不要提交它。
+
+在 macOS 上，`--open` 更喜歡 Chrome/Chromium，因為 Safari 可以阻止託管
+HTTPS 透過取得 HTTP 本機主機橋來計畫頁面。對於無頭
+故障排除，執行：
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify`啟動網橋，檢查私網預檢和JSON
+有效負載，列印診斷資訊，然後退出。
+
+如果您使用相同的 `PLAN_LOCAL_DIR` 在本機執行 Plan 應用，您還可以
+開啟可編輯的應用程式路由：
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+對於儲存庫支援的資料夾，直接本機路由可以攜帶儲存庫相對
+資料夾路徑，以便瀏覽器編輯繼續寫入該資料夾：
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+計畫應用程式使用 `agent-native.json` 中的 `apps.plan.roots[0].path` 作為
+升級本機計畫的預設儲存庫位置，回退到 `plans/`：
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+直接本機計畫路由包括儲存臨時本機資料夾的選單操作
+進入該儲存庫位置。升級後，頁面重新開啟，顯示 `?path=...` 和
+繼續將 MDX 編輯自動儲存到儲存庫資料夾。
+
+本機檔案模式可防止計畫或回顧內容進入 Agent-Native
+計畫資料庫。它還停用託管共用、瀏覽器評論、計畫歷史紀錄，
+並發布/匯出收據，直到您明確選取發布。行動
+本機規劃到託管資料庫中，用本機呼叫`publish-visual-plan`
+MDX 資料夾路徑；這將上傳計畫，為其分配託管 ID，啟用共用
+並評論，並返回託管的 URL。本機檔案模式沒有
+自動使您的編碼代理的 LLM 本機化；選取本機或核准的
+模型是否隱私邊界也很重要。
+
+## 桌面本機檔案同步 {#desktop-local-sync}
+
+Agent Native Desktop 還為託管計畫提供了本機本機資料夾橋。這個
+與本機檔案隱私模式不同：託管計畫資料庫仍然是
+共用、評論、歷史紀錄和即時評論的真實來源，而桌面
+可以將目前計畫的來源檔案鏡像到您選取的資料夾。
+
+在 Agent Native 桌面中開啟計畫，使用計畫選單的**本機檔案** actions，
+然後：
+
+- **連結本機資料夾** — 選取該計畫的 MDX 來源的資料夾。
+- **同步到本機資料夾** — 寫入 `plan.mdx`，可選 `canvas.mdx`，
+  可選的 `prototype.mdx`、可選的 `.plan-state.json` 和圖片資源。
+- **匯入本機編輯** - 讀取資料夾並透過
+  `import-visual-plan-source` 以及計畫的目前更新時間戳。
+- **自動同步更改** — 之後繼續匯出託管計畫的最新來源
+  在應用程式中進行的編輯。
+
+此路徑不需要克隆 Plan 應用程式或執行 CLI。這是為了
+圍繞託管計畫進行檔案優先審查/編輯，而不是保留計畫內容
+託管資料庫。
+
+## 刪除託管計畫資料 {#delete-data}
+
+已登入的所有者可以從計畫清單中刪除其託管計畫和摘要，或者
+計畫操作選單。
+
+- **軟刪除**將計畫移至**已刪除**分頁，製作正常計畫
+  檢視/直接連結停止工作，並透過建立行來刪除公開存取
+  私人。 SQL 行將被保留，以便所有者稍後可以恢復計畫。
+- **恢復**可從軟刪除計畫的**已刪除**分頁中取得。
+- **永久刪除**刪除託管計畫行和計畫範圍的評論，
+  部分、活動事件、版本快照、共用授權、濫用報告和
+  SQL 資產紀錄。 UI 需要在決賽前輸入 `DELETE <plan-id>`
+  按鈕啟用。
+
+永久刪除會刪除 Plan 應用的資料庫紀錄和 SQL 支援的資產
+位元組/引用。如果部署使用外部上傳提供者，則提供者
+物件保留遵循該提供者的生命週期，因為共用上傳
+抽象目前不公開物件刪除。本機檔案隱私模式
+將來源程式碼保留在本機 MDX 資料夾中；刪除託管資料不會
+觸摸本機檔案。
+
+## 有用的提示
+
+- “在更改驗證流程之前使用 `/visual-plan`。”
+- “為具有行動和桌面狀態的新入門螢幕建立 `/visual-plan`。”
+- “在下面的 Markdown 計畫上使用 `/visual-plan`，更容易審核。”
+- “在此 PR 上執行 `/visual-recap`，以便我可以先檢視更改的形狀。”
+- “在 `main` 和此分支之間的差異上使用 `/visual-recap`。”
+- “在本機檔案模式下使用 `/visual-recap`，因此不會將摘要內容寫入計畫資料庫。”
+
+## 從驗證錯誤中恢復 {#auth-errors}
+
+如果計畫工具返回 `needs auth`、`Unauthorized` 或“工作階段”
+已終止`，不要繼續重試。使用
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`對於 Codex，或在支援 OAuth 的主機中重新執行`/mcp` → **驗證**。開始一個
+在等待該工具之前新建 Codex 對話串或重新啟動/重新載入相關用戶端
+要更新的註冊表。
+
+## 對於開發者
+
+本檔案的其餘部分適用於任何分叉或自行託管計畫範本的人。
+大多數使用者應該使用 CLI 安裝該技能，而不是搭建應用程式。
+
+### 快速入門
+
+```bash
+npx @agent-native/core@latest create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+託管應用程式支援的技能使用：
+
+- 應用程式：`https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+
+當您開發計畫本身、測試本機持久性或執行完全自託管的審核介面時，本機範本非常有用。
+
+### 資料模型
+
+架構位於 `templates/plan/server/db/schema.ts` 中。核心表：
+
+| 表格               | 它包含什麼                                                                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | 每個計畫或回顧 - `title`、`brief`、`kind`（計畫/回顧）、`status`、`source`、`html`/`markdown`/`content`、`hosted_plan_id/url`、使用統計、`source_url`、 `deleted_at`/`deleted_by` |
+| `plan_sections`    | 計畫中的有序部分 - `type`、`title`、`body`、`html`、`sort_order`、`created_by`                                                                                                    |
+| `plan_comments`    | 主題評論 - `kind`、`status`、`anchor`、`message`、`resolution_target`、`mentions_json`、`resolved_by`                                                                             |
+| `plan_events`      | 計畫中代理/人工事件的審核記錄                                                                                                                                                     |
+| `plan_versions`    | 版本歷史紀錄的時間點快照                                                                                                                                                          |
+| `plan_shares`      | 每位主體的份額授予（檢視者/編輯者/管理員）                                                                                                                                        |
+| `plan_guest_mints` | 訪客工作階段發放限速紀錄                                                                                                                                                          |
+| `plan_assets`      | 內嵌圖片資源儲存為base64（沒有上傳提供者時的回退）                                                                                                                                |
+
+<DataModel
+  id="doc-block-6c4jyi"
+  title={"規劃資料模型"}
+  summary={"一個計畫行擁有有序部分以及評論、事件、版本、共用和行內資產。"}
+  entities={[
+    {
+      id: "plans",
+      name: "plans",
+      note: "each plan or recap",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "kind",
+          type: "enum",
+          note: "計畫|回顧",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "hosted_plan_id",
+          type: "text",
+          nullable: true,
+          note: "hosted_plan_url paired",
+        },
+        {
+          name: "source_url",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "deleted_at",
+          type: "timestamp",
+          nullable: true,
+          note: "soft delete; deleted_by paired",
+        },
+      ],
+    },
+    {
+      id: "plan_sections",
+      name: "plan_sections",
+      note: "ordered sections within a plan",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "body",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "html",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "sort_order",
+          type: "integer",
+        },
+        {
+          name: "created_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_comments",
+      name: "plan_comments",
+      note: "threaded comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "anchor",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "message",
+          type: "text",
+        },
+        {
+          name: "resolution_target",
+          type: "text",
+          nullable: true,
+          note: "agent | human | null",
+        },
+        {
+          name: "mentions_json",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "resolved_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_events",
+      name: "plan_events",
+      note: "audit log of agent/human events",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_versions",
+      name: "plan_versions",
+      note: "point-in-time snapshots",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_shares",
+      name: "plan_shares",
+      note: "per-principal grants",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "觀眾|編輯|行政",
+        },
+      ],
+    },
+    {
+      id: "plan_guest_mints",
+      name: "plan_guest_mints",
+      note: "rate-limit records for guest session issuance",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+      ],
+    },
+    {
+      id: "plan_assets",
+      name: "plan_assets",
+      note: "inline image assets as base64",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "plans",
+      to: "plan_sections",
+      kind: "1-n",
+      label: "has sections",
+    },
+    {
+      from: "plans",
+      to: "plan_comments",
+      kind: "1-n",
+      label: "has comments",
+    },
+    {
+      from: "plans",
+      to: "plan_events",
+      kind: "1-n",
+      label: "has events",
+    },
+    {
+      from: "plans",
+      to: "plan_versions",
+      kind: "1-n",
+      label: "has versions",
+    },
+    {
+      from: "plans",
+      to: "plan_shares",
+      kind: "1-n",
+      label: "has shares",
+    },
+    {
+      from: "plans",
+      to: "plan_assets",
+      kind: "1-n",
+      label: "has assets",
+    },
+  ]}
+/>
+
+### 金鑰actions
+
+Actions 中的 `templates/plan/actions/`：
+
+- **建立** — `create-visual-plan`、`create-visual-recap`、`create-ui-plan`、`create-prototype-plan`、`create-plan-design`、`create-visual-questions`
+- **閱讀和編輯** — `get-visual-plan`、`update-visual-plan`、`list-visual-plans`、`import-visual-plan-source`、`patch-visual-plan-source`、`read-visual-plan-source`、`export-visual-plan`
+- **生命週期** - `delete-visual-plan` 用於僅限所有者的軟刪除、恢復和鍵入確認永久刪除
+- **發布與分享** — `publish-visual-plan`
+- **版本** — `list-plan-versions`、`get-plan-version`、`restore-plan-version`
+- **評論和意見回饋** — `get-plan-feedback`、`reply-to-plan-comment`、`resolve-plan-comment`、`consume-plan-feedback`、`delete-plan-comment`
+- **原型** — `convert-visual-plan-to-prototype`、`create-prototype-plan`
+- **脈絡和導覽** — `view-screen`、`navigate`
+
+### 自訂 MDX 塊 {#custom-mdx-blocks}
+
+計畫來源檔案為 MDX，但應用程式不會渲染任意匯入的 JSX
+元件。自訂 MDX 標籤必須註冊為計畫塊，以便伺服器可以
+解析並序列化它，瀏覽器可以渲染和編輯它，代理可以
+在`get-plan-blocks`返回的塊詞匯中檢視它。
+
+註冊塊具有三個表面：
+
+- 無 React 的架構和 MDX 設定，對於伺服器和代理程式碼來說是安全的。
+- `shared/plan-content.ts` 中的規範化執行時型別/架構條目。
+- 具有 `Read` 和可選 `Edit` React 元件的瀏覽器塊規範。
+
+保持方塊 `type` 和 MDX `tag` 穩定。 `type` 以標準化儲存
+計畫JSON； `tag` 是 `plan.mdx` 中的元件名稱。註冊表句柄
+基本 MDX 屬性 `id`、`title`、`summary` 和 `editable`，因此不要
+在 `toAttrs` 中重複它們。
+
+1. 為資料形狀和 MDX 往返新增共用設定。
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. 擴充功能標準化計畫內容模型
+   `templates/plan/shared/plan-content.ts`.
+
+將新的`type`新增到`PlanBlockType`，新增匹配的塊介面
+`PlanBlock` 並集，並將相同的資料形狀新增到 `planBlockSchema`。這保持了
+資料庫儲存、來源匯入和驗證自訂的 `update-block` 補丁
+阻止而不是將其作為未知型別拒絕。
+
+3. 在
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description: "一條 markdown 風險說明，嚴重層級可為 low、medium 或 high。",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. 註冊瀏覽器規範
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description: "一條 markdown 風險說明，嚴重層級可為 low、medium 或 high。",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+完成後，計畫 MDX 可以使用：
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+伺服器註冊表使該來源可匯入/可匯出，而用戶端
+註冊表使其在 `PlanBlockView` 中呈現。如果該塊應該由
+代理，保持`label`、`description`、`placement`和`empty`精確；那些
+欄位流入即時塊詞匯表。
+
+當覆蓋現有塊時，在共用之後註冊覆蓋
+資料庫註冊。 `type` 和 MDX `tag` 的最後註冊均獲勝。
+
+新增塊後，執行重點計畫測試：
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
+### 路線圖
+
+- `app/routes/plans.$id.tsx` — 計畫編輯/審核介面
+- `app/routes/plans._index.tsx` — 計畫清單
+- `app/routes/share.$token.tsx` — 公開/共用平面圖
+- `app/routes/local-plans.$slug.tsx` — 本機檔案模式預覽
+
+### 本機模式（進階、離線） {#local-mode}
+
+對於完全離線、無帳戶的使用，您可以在本機執行計畫應用程式並將其指向本機 MDX 資料夾。對於更嚴格的無資料庫路徑，請使用 [local-files privacy mode](#local-files)，它從 MDX 資料夾讀取而不是建立本機 SQL 行。本機模式是一個單獨的進階路徑 - 不是預設的託管流程。
+
+## 事件和通知 {#events}
+
+計畫範本在框架事件總線上發出四個事件。任何自動化
+可以訂閱它們——無需自訂整合程式碼。
+
+### 事件參考 {#event-reference}
+
+#### `plan.created`
+
+建立新的視覺計畫或回顧時觸發。
+
+| 欄位        | 型別                  | 描述                                |
+| ----------- | --------------------- | ----------------------------------- |
+| `planId`    | 字串                  | 唯一計畫識別碼                      |
+| `title`     | 字串                  | 計畫標題                            |
+| `kind`      | `"plan"` \| `"recap"` | 這是計畫還是回顧                    |
+| `status`    | 字串                  | 初始狀態（例如`"review"`）          |
+| `path`      | 字串                  | 應用相對路徑（例如`/plans/plan-…`） |
+| `createdBy` | 字串                  | 建立計畫時始終為 `"agent"`          |
+
+#### `plan.commented`
+
+當一條或多條評論新增到計畫中時觸發。
+
+| 欄位               | 型別                             | 描述                                            |
+| ------------------ | -------------------------------- | ----------------------------------------------- |
+| `planId`           | 字串                             | 計畫識別碼                                      |
+| `title`            | 字串                             | 計畫標題                                        |
+| `kind`             | `"plan"` \| `"recap"`            | 計畫或回顧                                      |
+| `commentIds`       | 字串[]                           | 新評論的ID                                      |
+| `commentCount`     | 數字                             | 本批次新評論數                                  |
+| `resolutionTarget` | `"agent"` \| `"human"` \| `null` | 主要目標 - 如果任何評論針對代理，則為 `"agent"` |
+| `excerpt`          | 字串                             | 第一條評論的前 200 個字符                       |
+| `author`           | 字串\| 空                        | 評論者的電子郵件（如果知道）                    |
+| `path`             | 字串                             | 應用相對路徑                                    |
+
+#### `plan.published`
+
+當本機計畫發布（或重新發布）到託管可共用 URL 時觸發。
+
+| 欄位                  | 型別                  | 描述                      |
+| --------------------- | --------------------- | ------------------------- |
+| `planId`              | 字串                  | 本機計畫識別碼            |
+| `title`               | 字串                  | 計畫標題                  |
+| `kind`                | `"plan"` \| `"recap"` | 計畫或回顧                |
+| `hostedPlanId`        | 字串                  | 託管計畫識別碼            |
+| `url`                 | 字串                  | 託管計畫的完全公開 URL    |
+| `requestedVisibility` | 字串                  | `"public"`、`"private"`等 |
+
+#### `plan.status.changed`
+
+當計畫狀態更改時觸發（例如 `review` → `approved`）。
+
+| 欄位        | 型別                  | 描述             |
+| ----------- | --------------------- | ---------------- |
+| `planId`    | 字串                  | 計畫識別碼       |
+| `title`     | 字串                  | 計畫標題         |
+| `kind`      | `"plan"` \| `"recap"` | 計畫或回顧       |
+| `oldStatus` | 字串\| 空             | 之前的狀態       |
+| `newStatus` | 字串                  | 新狀態           |
+| `changedBy` | 字串\| 空             | 更改者的電子郵件 |
+| `path`      | 字串                  | 應用相對路徑     |
+
+### 自動化配方 {#automation-recipes}
+
+這些自動化是透過詢問計畫代理來建立的 - 無需更改程式碼。
+代理使用 `action=define` 呼叫 `manage-automations`，寫入
+`jobs/<name>.md`資源，事件訂閱立即開始。
+
+#### 當有人對計畫發表評論時透過 Webhook 進行通知
+
+詢問計畫代理：
+
+> “當有人對計畫新增人工評論時，POST 會向我的 webhook 傳送一條訊息。”
+
+代理建立這樣的自動化：
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
+  - "title": the plan title from the event payload
+  - "excerpt": the comment excerpt from the event payload
+  - "url": the base app URL concatenated with the path field from the event payload
+  - "author": the author field from the event payload (may be null)
+```
+
+在自動化啟動之前，您需要將 Webhook URL 新增為臨時金鑰：
+
+1. 轉到 **設定 → 金鑰** 並使用您的名稱新增名為 `NOTIFY_WEBHOOK` 的金鑰
+   webhook URL（例如 Slack 傳入 webhook、通用 HTTP 端點或任何
+   通知服務 URL)。
+2. 可以選取在金鑰上設定 URL 允許清單，以限制其可以存取的來源
+   POST 至。
+
+`web-request`工具之前解析了`${keys.NOTIFY_WEBHOOK}`伺服器端
+傳送 - 原始 URL 永遠不會出現在代理的脈絡中。
+
+**要專門針對 Slack：** 將 `NOTIFY_WEBHOOK` 設定為您的 Slack 傳入
+網路鉤子 URL
+(`https://hooks.slack.com/services/…`)。上面的自動化主體已經
+產生一個有效負載 Slack 的傳入 webhook 透過 `text` 或 `blocks` 接受
+欄位 - 如果您想要更豐富，請代理將內文格式化為 Slack 訊息
+格式化。
+
+#### 當意見回饋針對編碼代理時喚醒編碼代理
+
+對於針對編碼代理 (`resolutionTarget === "agent"`) 的意見回饋，請詢問：
+
+> “當計畫註解針對代理時，使用該計畫執行我的編碼代理
+> 摘錄作為脈絡。"
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is agent"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+Use the manage-notifications action or web-request tool to alert the coding agent
+that new agent-targeted feedback has arrived on plan ${planId}: "${excerpt}".
+Include the plan path so the agent can navigate directly to it.
+```
+
+因為自動化執行完整的代理迴圈（`mode: agentic`），所以它可以呼叫
+`web-request`，傳送通知或呼叫代理有權存取的任何操作。
+確切的傳遞機制取決於您擁有的通知管道
+已設定 - 代理會選取最佳的可用選項。
+
+## 下一步是什麼
+
+- [**PR Visual Recap**](/docs/pr-visual-recap) - 在每個 pull request 上自動執行 `/visual-recap`
+- [**Automations**](/docs/automations) — 事件觸發和計畫的自動化
+- [**Plan plugin & marketplace**](/docs/plan-plugin) — 將計畫 skills 安裝為 Claude 程式碼或 Codex 外掛
+- [**Skills**](/docs/skills-guide) — Agent-Native 如何安裝 skills
+- [**MCP Clients**](/docs/mcp-clients) — 設定託管 MCP 連線器
+- [**Templates**](/docs/cloneable-saas) — 克隆自有模型

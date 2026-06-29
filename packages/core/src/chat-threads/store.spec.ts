@@ -281,11 +281,11 @@ describe("chat thread store", () => {
     });
     expect(searchCall).toBeTruthy();
     const query = searchCall![0] as { sql: string; args: unknown[] };
-    expect(query.sql).toContain("LIKE ? ESCAPE '\\'");
+    expect(query.sql).toContain("LIKE ? ESCAPE '!'");
     expect(query.args.slice(1, 4)).toEqual([
-      "%100\\%\\_done%",
-      "%100\\%\\_done%",
-      "%100\\%\\_done%",
+      "%100!%!_done%",
+      "%100!%!_done%",
+      "%100!%!_done%",
     ]);
   });
 

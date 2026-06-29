@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildDashboardPanelGroups } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
+import {
+  clampDashboardColumns,
+  type SqlPanel,
+} from "../app/pages/adhoc/sql-dashboard/types";
+
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
@@ -75,6 +81,13 @@ function dashboardConfig() {
   };
 }
 
+function renderedRows(root: { columns?: number; panels: unknown[] }) {
+  return buildDashboardPanelGroups(
+    root.panels as SqlPanel[],
+    clampDashboardColumns(root.columns),
+  ).flatMap((group) => group.rows.map((row) => row.panels.map((p) => p.id)));
+}
+
 describe("mutate-dashboard", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
@@ -141,6 +154,34 @@ describe("mutate-dashboard", () => {
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
     expect(mocks.applyText).not.toHaveBeenCalled();
     expect(mocks.seedFromText).not.toHaveBeenCalled();
+  });
+
+  it("accepts row-aware structured placement operations", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "insertPanel",
+          panel: panel("new"),
+          nextToPanelId: "b",
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.panelOrder).toEqual(["a", "b", "new", "c"]);
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      columns: number;
+      panels: Array<{ id: string }>;
+    };
+    expect(saved.columns).toBe(3);
+    expect(renderedRows(saved)).toEqual([["a", "b", "new"], ["c"]]);
   });
 
   it("validates SQL-affecting mutations before saving", async () => {

@@ -205,21 +205,26 @@ async function mintHostedJwt(cwd: string): Promise<string | undefined> {
     process.env.AGENT_NATIVE_OWNER_EMAIL ||
     process.env.OWNER_EMAIL ||
     "owner@localhost";
+  let fileA2ASecret: string | undefined;
   if (!process.env.A2A_SECRET) {
     const baseDir = envBaseDir(cwd);
     const content =
       readEnvFile(path.join(baseDir, ".env.local")) +
       "\n" +
       readEnvFile(path.join(baseDir, ".env"));
-    const secret = getEnvValue(content, "A2A_SECRET");
-    if (secret) process.env.A2A_SECRET = secret;
+    fileA2ASecret = getEnvValue(content, "A2A_SECRET");
   }
   try {
     const { signA2AToken } = await import("../a2a/client.js");
-    return await signA2AToken(owner, undefined, undefined, {
-      preferGlobalSecret: true,
-      expiresIn: "30d",
-    });
+    return await signA2AToken(
+      owner,
+      undefined,
+      process.env.A2A_SECRET || fileA2ASecret,
+      {
+        preferGlobalSecret: true,
+        expiresIn: "30d",
+      },
+    );
   } catch (err: any) {
     logErr(
       `  Could not mint a hosted JWT (${err?.message ?? err}). ` +

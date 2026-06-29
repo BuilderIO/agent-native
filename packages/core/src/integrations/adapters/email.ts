@@ -5,6 +5,7 @@ import { getHeader, readRawBody as h3ReadRawBody } from "h3";
 
 import { getDbExec } from "../../db/client.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
+import { resolveSecret } from "../../server/credential-provider.js";
 import {
   sendEmail,
   isEmailConfigured,
@@ -37,7 +38,7 @@ let _resendUnverifiedWarned = false;
 let _sendgridUnverifiedWarned = false;
 
 function escapeLike(value: string): string {
-  return value.replace(/([\\%_])/g, "\\$1");
+  return value.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
 /**
@@ -113,8 +114,9 @@ export function emailAdapter(): PlatformAdapter {
     },
 
     async verifyWebhook(event: H3Event): Promise<boolean> {
-      const secret = process.env.EMAIL_INBOUND_WEBHOOK_SECRET;
-      const provider = getEmailProvider();
+      const secret =
+        (await resolveSecret("EMAIL_INBOUND_WEBHOOK_SECRET")) ?? undefined;
+      const provider = await getEmailProvider();
 
       if (provider === "resend") {
         return verifyResendWebhook(event, secret);
@@ -132,8 +134,10 @@ export function emailAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      const provider = getEmailProvider();
-      const agentAddress = process.env.EMAIL_AGENT_ADDRESS?.toLowerCase();
+      const provider = await getEmailProvider();
+      const agentAddress = (
+        await resolveSecret("EMAIL_AGENT_ADDRESS")
+      )?.toLowerCase();
       if (!agentAddress) {
         console.warn("[email] EMAIL_AGENT_ADDRESS not configured");
         return null;
@@ -246,7 +250,7 @@ export function emailAdapter(): PlatformAdapter {
       message: OutgoingMessage,
       context: IncomingMessage,
     ): Promise<void> {
-      const agentAddress = process.env.EMAIL_AGENT_ADDRESS;
+      const agentAddress = await resolveSecret("EMAIL_AGENT_ADDRESS");
       if (!agentAddress) {
         console.error("[email] EMAIL_AGENT_ADDRESS not configured");
         return;
@@ -259,9 +263,8 @@ export function emailAdapter(): PlatformAdapter {
       // EMAIL_FROM overrides the from-address — required when the receiving
       // address is on a sub-domain that can't be a verified sender (e.g.
       // *.resend.app). Inbound and outbound addresses can differ.
-      const fromAddress = process.env.EMAIL_FROM
-        ? process.env.EMAIL_FROM
-        : `${displayName} <${agentAddress}>`;
+      const emailFrom = await resolveSecret("EMAIL_FROM");
+      const fromAddress = emailFrom || `${displayName} <${agentAddress}>`;
 
       const subject = context.platformContext.subject as string;
       const reSubject = subject.startsWith("Re: ") ? subject : `Re: ${subject}`;
@@ -276,7 +279,7 @@ export function emailAdapter(): PlatformAdapter {
           inReplyTo: context.platformContext.messageId as string,
           references: buildReferencesHeader(context.platformContext),
           cc: context.platformContext.isCC
-            ? buildReplyAllCc(context)
+            ? buildReplyAllCc(context, agentAddress)
             : undefined,
         });
       } catch (err) {
@@ -288,7 +291,7 @@ export function emailAdapter(): PlatformAdapter {
       message: OutgoingMessage,
       target: OutboundTarget,
     ): Promise<void> {
-      const agentAddress = process.env.EMAIL_AGENT_ADDRESS;
+      const agentAddress = await resolveSecret("EMAIL_AGENT_ADDRESS");
       if (!agentAddress) {
         console.error("[email] EMAIL_AGENT_ADDRESS not configured");
         return;
@@ -325,9 +328,11 @@ export function emailAdapter(): PlatformAdapter {
     },
 
     async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
-      const hasAgentAddress = !!process.env.EMAIL_AGENT_ADDRESS;
-      const hasEmailProvider = isEmailConfigured();
-      const hasWebhookSecret = !!process.env.EMAIL_INBOUND_WEBHOOK_SECRET;
+      const hasAgentAddress = !!(await resolveSecret("EMAIL_AGENT_ADDRESS"));
+      const hasEmailProvider = await isEmailConfigured();
+      const hasWebhookSecret = !!(await resolveSecret(
+        "EMAIL_INBOUND_WEBHOOK_SECRET",
+      ));
       const configured = hasAgentAddress && hasEmailProvider;
 
       return {
@@ -339,10 +344,10 @@ export function emailAdapter(): PlatformAdapter {
           hasAgentAddress,
           hasEmailProvider,
           hasWebhookSecret,
-          provider: getEmailProvider(),
+          provider: await getEmailProvider(),
         },
         error: !configured
-          ? "Set EMAIL_AGENT_ADDRESS and either RESEND_API_KEY or SENDGRID_API_KEY"
+          ? "Save EMAIL_AGENT_ADDRESS and either RESEND_API_KEY or SENDGRID_API_KEY in settings"
           : undefined,
       };
     },
@@ -737,7 +742,7 @@ async function isRateLimited(senderEmail: string): Promise<boolean> {
           FROM integration_pending_tasks
          WHERE platform = ?
            AND created_at >= ?
-           AND payload LIKE ? ESCAPE '\\'
+           AND payload LIKE ? ESCAPE '!'
       `,
       args: ["email", cutoff, `%"senderId":"${escapeLike(senderEmail)}"%`],
     });
@@ -906,8 +911,11 @@ function buildReferencesHeader(ctx: Record<string, unknown>): string {
  * Build CC list for reply-all when agent was CC'd.
  * Include original To addresses and other CC addresses, excluding the agent and the original sender.
  */
-function buildReplyAllCc(context: IncomingMessage): string[] | undefined {
-  const agentAddress = process.env.EMAIL_AGENT_ADDRESS?.toLowerCase();
+function buildReplyAllCc(
+  context: IncomingMessage,
+  agentAddress: string,
+): string[] | undefined {
+  const normalizedAgentAddress = agentAddress.toLowerCase();
   const senderEmail = context.senderId?.toLowerCase();
   const toAddresses = (context.platformContext.to as string[]) || [];
   const ccAddresses = (context.platformContext.cc as string[]) || [];
@@ -916,7 +924,7 @@ function buildReplyAllCc(context: IncomingMessage): string[] | undefined {
   for (const addr of [...toAddresses, ...ccAddresses]) {
     const normalized = addr.toLowerCase().trim();
     // Exclude agent address and original sender (sender goes in To)
-    if (normalized !== agentAddress && normalized !== senderEmail) {
+    if (normalized !== normalizedAgentAddress && normalized !== senderEmail) {
       allRecipients.add(normalized);
     }
   }

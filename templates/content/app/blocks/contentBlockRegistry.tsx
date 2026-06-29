@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
+import { builderDocsBlocks } from "./BuilderDocsBlocks";
 import {
   ContentBlockMarkdown,
   ContentBlockMarkdownEditor,
@@ -54,6 +55,9 @@ export const contentBlockRegistry = new BlockRegistry();
 registerLibraryBlocks(contentBlockRegistry, {
   overrides: { table: { type: "table-block" } },
 });
+for (const block of builderDocsBlocks) {
+  contentBlockRegistry.register(block);
+}
 contentBlockRegistry.register(inlineDatabaseBlock);
 
 type ContentBlockRenderContext = BlockRenderContext & {

@@ -125,9 +125,15 @@ function normalizeSourcePath(filePath: string): string | null {
 export function isContentSourcePath(filePath: string): boolean {
   const normalized = normalizeSourcePath(filePath);
   if (!normalized) return false;
+  if (isBuilderMdxSourcePath(normalized)) return false;
   return CONTENT_SOURCE_EXTENSIONS.some((ext) =>
     normalized.toLowerCase().endsWith(ext),
   );
+}
+
+export function isBuilderMdxSourcePath(filePath: string): boolean {
+  const normalized = normalizeSourcePath(filePath);
+  return !!normalized && normalized.toLowerCase().endsWith(".builder.mdx");
 }
 
 export function isValidContentSourceId(id: string | null | undefined): boolean {

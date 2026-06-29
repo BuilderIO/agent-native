@@ -15,6 +15,7 @@ import { hasCollabState, getText } from "@agent-native/core/collab";
 import { eq } from "drizzle-orm";
 
 import type { TweakDefinition } from "../../shared/api.js";
+import { shouldUseLiveFileContent } from "../../shared/html-content.js";
 import {
   resolveTweaksToCssVars,
   type TweakSelections,
@@ -78,7 +79,14 @@ export async function buildDesignSnapshot(
     try {
       if (await hasCollabState(f.id)) {
         const live = await getText(f.id, "content");
-        if (typeof live === "string" && live.length > 0) {
+        if (
+          typeof live === "string" &&
+          shouldUseLiveFileContent({
+            liveContent: live,
+            storedContent: f.content,
+            fileType: f.fileType,
+          })
+        ) {
           content = live;
           source = "collab";
         }

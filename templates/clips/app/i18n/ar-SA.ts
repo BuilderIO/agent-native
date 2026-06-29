@@ -19,6 +19,24 @@ const messages = {
     extensionSignedInDescription: "افتح إضافة Clips مرة أخرى لبدء التسجيل.",
     gotIt: "حسنًا",
   },
+  builderCredits: {
+    pausedTitle: "تم إيقاف أرصدة Builder.io مؤقتًا",
+    transcriptionDescription:
+      "قم بترقية Builder.io لاستئناف النسخ الاحتياطي. ستبقى النصوص الأصلية الحالية ظاهرة.",
+    cleanupDescription:
+      "قم بترقية Builder.io لاستئناف تنظيف النصوص والملخصات وعناوين الذكاء الاصطناعي. تم الاحتفاظ بالنص الأصلي.",
+    settingsDescription:
+      "قم بترقية Builder.io لاستئناف النسخ الاحتياطي وتنظيف النصوص والملخصات وعناوين الذكاء الاصطناعي. ستبقى النصوص الأصلية الحالية ظاهرة.",
+    titleDescription:
+      "تم إيقاف إنشاء عناوين الذكاء الاصطناعي مؤقتًا. سيظل النص يعمل.",
+    upgrade: "ترقية Builder.io",
+    retryAfterUpgrade: "أعد المحاولة بعد الترقية",
+    openAiSetup: "إعداد الذكاء الاصطناعي",
+    featureBackupTranscription: "النسخ الاحتياطي",
+    featureCleanup: "تنظيف النص",
+    featureSummaries: "الملخصات",
+    featureTitles: "عناوين الذكاء الاصطناعي",
+  },
   recorder: {
     cameraBlurTitle: "تمويه الخلفية",
     cameraBlurDescription: "ابقَ واضحًا وموّه ما خلفك",
@@ -330,6 +348,13 @@ const messages = {
       "ولم نلتقط أي كلام في هذا التسجيل. إذا كان ذلك مقصودًا، فأنت جاهز تمامًا. إذا لم يكن الأمر كذلك، فتحقق من أذونات الميكروفون والكلام، ثم أعد محاولة النسخ.",
     retry: "أعد المحاولة",
     transcriptUnavailable: "النص غير متوفر: {{reason}}",
+    transcriptUnavailableTitle: "النص غير متوفر",
+    providerNeedsAttention: "يحتاج المزوّد إلى اهتمام",
+    providerNeedsAttentionDescription:
+      "أوقف المزوّد الحالي هذا الطلب مؤقتًا. انتقل إلى Builder.io أو حدّث المفتاح، ثم أعد المحاولة.",
+    enableTranscriptionTitle: "تفعيل النسخ",
+    enableTranscriptionDescription:
+      "فعّل التسميات التوضيحية والبحث في النصوص والملخصات لهذا المقطع.",
     searchPlaceholder: "نص البحث",
     copyTranscript: "نسخ النص",
     downloadSrt: "تحميل .srt",
@@ -825,6 +850,10 @@ const messages = {
     replyingTo: "الرد على",
     commentAt: "تعليق عند",
     writeReply: "اكتب ردًا...",
+    commentButton: "تعليق",
+    composerPlaceholder: "أضف تعليقًا…",
+    mentionSomeone: "أذكر شخصًا",
+    addEmoji: "أضف رمزًا تعبيريًا",
   },
   shareMeeting: {
     pageTitle: "ملاحظات الاجتماع · Clips",

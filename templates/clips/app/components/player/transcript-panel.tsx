@@ -1,8 +1,13 @@
 import {
   agentNativePath,
+  appPath,
   openBuilderConnectPopup,
   useT,
 } from "@agent-native/core/client";
+import {
+  BUILDER_CREDITS_UPGRADE_URL,
+  isBuilderCreditsExhaustedMessage,
+} from "@shared/builder-credits";
 import {
   IconSearch,
   IconCopy,
@@ -119,8 +124,19 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   // configuration issue — missing key, quota error, rejected key, etc.
   // Builder connection is the recommended fix in all these cases.
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
+  const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
-    !noSpeechFailure && isTranscriptionSetupNeeded(failureReason);
+    !noSpeechFailure &&
+    !builderCreditsPaused &&
+    isTranscriptionSetupNeeded(failureReason);
+
+  if (status === "failed" && builderCreditsPaused) {
+    return (
+      <div className="p-4">
+        <BuilderCreditsPausedNotice mode="transcription" onRetry={onRetry} />
+      </div>
+    );
+  }
 
   if (status === "failed" && needsSetup) {
     return (
@@ -222,7 +238,10 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         </div>
       ) : null}
 
-      {cleanup?.status === "failed" ? (
+      {cleanup?.status === "failed" &&
+      isBuilderCreditsExhaustedMessage(cleanup.failureReason) ? (
+        <BuilderCreditsPausedNotice mode="cleanup" className="mx-3 mt-3" />
+      ) : cleanup?.status === "failed" ? (
         <div className="mx-3 mt-3 rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground flex items-start gap-2">
           <IconBolt className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <span>{friendlyCleanupFailure(cleanup.failureReason, t)}</span>
@@ -307,6 +326,94 @@ function sanitizeFilename(s: string): string {
   return s.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase();
 }
 
+const BUILDER_CREDITS_FEATURE_LABELS = [
+  "builderCredits.featureBackupTranscription",
+  "builderCredits.featureCleanup",
+  "builderCredits.featureSummaries",
+  "builderCredits.featureTitles",
+] as const;
+
+function BuilderCreditsPausedNotice({
+  mode,
+  onRetry,
+  className,
+}: {
+  mode: "transcription" | "cleanup";
+  onRetry?: () => void;
+  className?: string;
+}) {
+  const t = useT();
+  return (
+    <div
+      className={cn(
+        "rounded-md border border-amber-300/70 bg-amber-50/80 p-3 text-amber-950 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100",
+        className,
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        <div className="mt-0.5 rounded-md bg-amber-100 p-1 dark:bg-amber-400/15">
+          <IconBolt className="h-4 w-4 text-amber-700 dark:text-amber-200" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div>
+            <p className="text-sm font-semibold">
+              {t("builderCredits.pausedTitle")}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-900/80 dark:text-amber-100/80">
+              {mode === "cleanup"
+                ? t("builderCredits.cleanupDescription")
+                : t("builderCredits.transcriptionDescription")}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {BUILDER_CREDITS_FEATURE_LABELS.map((key) => (
+              <span
+                key={key}
+                className="rounded-full border border-amber-300/70 bg-white/70 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100"
+              >
+                {t(key)}
+              </span>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <Button asChild size="sm" className="h-8">
+              <a
+                href={BUILDER_CREDITS_UPGRADE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <IconExternalLink className="h-3.5 w-3.5" />
+                {t("builderCredits.upgrade")}
+              </a>
+            </Button>
+            {onRetry ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 border-amber-300/80 bg-white/70 text-amber-950 hover:bg-amber-100 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100 dark:hover:bg-amber-900/40"
+                onClick={onRetry}
+              >
+                {t("builderCredits.retryAfterUpgrade")}
+              </Button>
+            ) : null}
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-8 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:text-amber-100 dark:hover:bg-amber-900/40"
+            >
+              <a href={appPath("/settings#ai-providers")}>
+                {t("builderCredits.openAiSetup")}
+              </a>
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Returns true when the transcription failure is due to a provider
  * configuration problem — missing key, quota exceeded, key rejected,
@@ -326,6 +433,7 @@ function isTranscriptionSetupNeeded(
     r.includes("no backup transcription provider") ||
     r.includes("no fallback provider") ||
     r.includes("quota") ||
+    r.includes("credits exhausted") ||
     r.includes("rate limit") ||
     r.includes("rejected the api key") ||
     r.includes("connect builder")
@@ -395,6 +503,7 @@ function friendlyCleanupFailure(
   }
   if (
     normalized.includes("incomplete") ||
+    isBuilderCreditsExhaustedMessage(reason) ||
     normalized.includes("connect builder") ||
     normalized.includes("not configured") ||
     normalized.includes("api key")
@@ -542,9 +651,11 @@ function TranscriptSetupCard({
   }
 
   const isProviderError =
-    failureReason?.toLowerCase().includes("quota") ||
-    failureReason?.toLowerCase().includes("rate limit") ||
-    failureReason?.toLowerCase().includes("rejected the api key");
+    !isBuilderCreditsExhaustedMessage(failureReason) &&
+    (failureReason?.toLowerCase().includes("quota") ||
+      failureReason?.toLowerCase().includes("credits exhausted") ||
+      failureReason?.toLowerCase().includes("rate limit") ||
+      failureReason?.toLowerCase().includes("rejected the api key"));
   const isConnectedFallbackError =
     builderConfigured === true && !isProviderError;
 
@@ -554,17 +665,17 @@ function TranscriptSetupCard({
         <div>
           <p className="text-sm font-medium">
             {isProviderError
-              ? "Transcription provider error"
+              ? t("transcriptPanel.providerNeedsAttention")
               : isConnectedFallbackError
-                ? "Transcript unavailable"
-                : "Enable transcription"}
+                ? t("transcriptPanel.transcriptUnavailableTitle")
+                : t("transcriptPanel.enableTranscriptionTitle")}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             {isProviderError
-              ? "Your API key hit a quota or auth error. Switch to Builder.io or update your key."
+              ? t("transcriptPanel.providerNeedsAttentionDescription")
               : isConnectedFallbackError
                 ? "No speech was captured locally, and backup transcription did not finish. Retry in a moment."
-                : "Unlock captions, transcript search, and summaries for this Clip."}
+                : t("transcriptPanel.enableTranscriptionDescription")}
           </p>
         </div>
 

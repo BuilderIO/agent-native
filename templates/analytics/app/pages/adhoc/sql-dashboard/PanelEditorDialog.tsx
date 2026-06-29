@@ -229,7 +229,7 @@ function PanelEditorContent({
         `The \`demo\` source is reserved for the built-in Node Exporter demo and does not satisfy REAL_DATA_REQUIRED unless the user explicitly asks to work on that demo dashboard. ` +
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
         `Use the \`mutate-dashboard\` action with code like \`dashboard.insertPanel({"id":"new-panel","title":"New Panel","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atBottom();\` ` +
-        `to append, or \`.before("panel-id")\`, \`.after("panel-id")\`, or \`.atIndex(n)\` to place the panel. ` +
+        `to append, or \`.nextTo("panel-id")\`, \`.atRow(2)\`, \`.atRowStart(2)\`, \`.before("panel-id")\`, \`.after("panel-id")\`, or \`.atIndex(n)\` to place the panel. Prefer \`.nextTo("panel-id")\` or \`.atRow(rowNumber)\` for visible row placement requests; they keep the chart in the intended rendered row and expand/rebalance that row when needed. ` +
         `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
         `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
@@ -238,6 +238,7 @@ function PanelEditorContent({
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
         `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
+        `Use \`get-sql-dashboard.layout.groups[].rows[].rowNumber/panelIds\` to identify and verify visible rows. ` +
         `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +
         `After the mutation saves, verify the returned panelCount, appliedOps, and insertedPanelIds; the UI refreshes automatically.`,

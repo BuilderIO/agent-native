@@ -105,6 +105,31 @@ describe("DocsLanguagePicker", () => {
     expect(zhLink.getAttribute("data-an-prefetch")).toBe("render");
   });
 
+  it("renders locale options in product order", () => {
+    renderPicker();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Language:/ }));
+
+    const optionLabels = screen
+      .getAllByRole("link")
+      .map((link) => link.textContent?.trim());
+
+    expect(optionLabels).toEqual([
+      "System",
+      "English (en-US)",
+      "Español (es-ES)",
+      "Français (fr-FR)",
+      "Deutsch (de-DE)",
+      "Português (Brasil) (pt-BR)",
+      "简体中文 (zh-CN)",
+      "繁體中文 (zh-TW)",
+      "日本語 (ja-JP)",
+      "한국어 (ko-KR)",
+      "हिन्दी (hi-IN)",
+      "العربية (ar-SA)",
+    ]);
+  });
+
   it("stores the selected preference while routing client-side", async () => {
     renderPicker();
 

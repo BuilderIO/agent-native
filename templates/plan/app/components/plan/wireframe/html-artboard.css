@@ -225,6 +225,10 @@
   border-radius: var(--wf-radius);
   padding: 12px;
 }
+.plan-html-frame[data-style="sketchy"]:not([data-render-mode="design"])
+  :is(.wf-card, .wf-box) {
+  border-color: color-mix(in srgb, var(--wf-line) 72%, transparent);
+}
 .plan-html-frame:not([data-render-mode="design"]) .wf-pill,
 .plan-html-frame:not([data-render-mode="design"]) .wf-chip {
   display: inline-flex;
@@ -241,10 +245,18 @@
   background: var(--wf-accent-soft);
 }
 
-/* Once rough has drawn, hide the crisp borders so there's no doubling. Pills
-   keep their rounded crisp border (the rough overlay rounds them too). */
+/* Once rough has drawn, hide crisp borders only on elements rough.js actually
+   redraws. Broad helper containers keep theme-safe filled backgrounds and soft
+   borders so nested cards do not become a pile of overlapping sketch strokes. */
 .plan-html-frame[data-rough-ready]
-  :is(button, input, textarea, select, .wf-card, .wf-box, hr, [data-rough]) {
+  :is(
+    button,
+    input,
+    textarea,
+    select,
+    hr,
+    [data-rough]:not([data-rough="none"])
+  ) {
   border-color: transparent !important;
 }
 
@@ -279,6 +291,7 @@
   --wf-muted: var(--plan-muted, hsl(var(--muted-foreground)));
   --wf-line: var(--plan-line, hsl(var(--border)));
   --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
+  --wf-diagram-line: var(--wf-line);
   --wf-paper: var(--plan-document, hsl(var(--background)));
   --wf-card: var(--plan-block, hsl(var(--card)));
   --wf-accent: hsl(var(--ring));
@@ -306,6 +319,10 @@
   line-height: 1.4;
 }
 
+.plan-diagram-frame[data-theme="dark"] {
+  --wf-diagram-line: color-mix(in srgb, var(--wf-sketch) 72%, var(--wf-line));
+}
+
 .plan-diagram-frame[data-style="sketchy"] {
   --wf-font: var(--wf-font-hand);
   line-height: 1.32;
@@ -321,12 +338,11 @@
 .plan-diagram-frame-content {
   width: 100%;
   padding: 8px 0;
+  direction: inherit;
 }
 
 .plan-diagram-frame-content
-  > :is(.diagram-panel, .diagram-card, .diagram-box):not([data-rough]):not(
-    [data-diagram-frame]
-  ) {
+  > .diagram-panel:not([data-rough]):not([data-diagram-frame]) {
   --rough-skip: 1;
   background: transparent;
   border-color: transparent;
@@ -367,7 +383,8 @@
 
 .plan-diagram-frame
   :is(.diagram-panel, .diagram-card, .diagram-node, .diagram-box) {
-  border: 1.25px solid var(--wf-line);
+  --rough-stroke: var(--wf-diagram-line);
+  border: 1.25px solid var(--wf-diagram-line);
   border-radius: var(--wf-radius);
   background: var(--wf-card);
 }
@@ -382,13 +399,27 @@
     [class*="panel"],
     [class*="box"]
   ) {
-  border-color: var(--wf-line) !important;
+  --rough-stroke: var(--wf-diagram-line);
+  border-color: var(--wf-diagram-line) !important;
   background: var(--wf-card) !important;
   color: var(--wf-ink) !important;
 }
 
 .plan-diagram-frame :is(.diagram-node, .diagram-box, .diagram-card) {
   max-width: 100%;
+}
+
+/* Base padding so primitive text never touches the box edge, even when an author
+ * diagram omits its own padding. The wildcard selectors mirror the theme-color
+ * rules above so every box/card/panel variant authors use is covered. Author CSS
+ * (higher specificity, scoped to the diagram instance) still overrides this when
+ * it sets padding explicitly. */
+.plan-diagram-frame :is(.diagram-node, .diagram-box, [class*="box"]) {
+  padding: 8px 12px;
+}
+.plan-diagram-frame
+  :is(.diagram-card, .diagram-panel, [class*="card"], [class*="panel"]) {
+  padding: 14px 16px;
 }
 
 .plan-diagram-frame :is(.diagram-node, .diagram-box, .diagram-card) small {
@@ -402,7 +433,8 @@
 
 .plan-diagram-frame
   :is(.diagram-pill, [class*="pill"], [class*="badge"], [class*="chip"]) {
-  border-color: var(--wf-line) !important;
+  --rough-stroke: var(--wf-diagram-line);
+  border-color: var(--wf-diagram-line) !important;
   background: var(--wf-paper) !important;
   color: var(--wf-ink) !important;
 }
@@ -432,15 +464,24 @@
 }
 
 .plan-diagram-frame[data-style="sketchy"] :is(.diagram-node, .diagram-box) {
-  padding-inline: 7px;
+  padding-inline: 12px;
 }
 
-.plan-diagram-frame .diagram-pill {
+.plan-diagram-frame
+  :is(.diagram-pill, [class*="pill"], [class*="badge"], [class*="chip"]) {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--wf-line);
+  justify-content: center;
+  /* A pill hugs its label. `fit-content` is a definite cross size, so a flex
+   * column with the default `align-items: stretch` no longer blows the pill out
+   * to full width (the number chips and short status labels stay pill-shaped).
+   * The wildcard selectors match the theme-color rules so every pill/badge/chip
+   * variant used across the docs diagrams stays pill-shaped, not a full bar. */
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--wf-diagram-line);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 3px 11px;
   color: var(--wf-ink);
   background: var(--wf-paper);
 }
@@ -480,5 +521,15 @@
     [data-rough],
     hr
   ) {
+  border-color: color-mix(
+    in srgb,
+    var(--wf-diagram-line) 54%,
+    transparent
+  ) !important;
+}
+
+.plan-diagram-frame[data-rough-ready]
+  .plan-diagram-frame-content
+  > .diagram-panel:not([data-rough]):not([data-diagram-frame]) {
   border-color: transparent !important;
 }

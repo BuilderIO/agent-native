@@ -1,0 +1,464 @@
+---
+title: "扩展"
+description: "用户在模板内构建的迷你应用程序 - Analytics 中的自定义 KPI 磁贴、日历中的会议准备清单、邮件中的联系人 CRM 小部件。无需部署，无需编辑代码，无需更改架构。"
+---
+
+# 扩展
+
+扩展是**用户在模板内构建的迷你应用程序**。
+
+如果您使用过 QuickBooks Online，您就会看到该模型：QBO 提供核心会计产品，用户可以使用小型自定义小部件（自定义报告、工资计算器、税收规则检查器），这些小部件位于同一个应用程序内并使用相同的数据。扩展是该想法的代理本机版本，只不过您的用户不编写任何代码。他们描述他们想要什么，然后代理构建它。
+
+框架很重要：扩展不是通用的“做你想做的”沙箱。它是一个**迷你应用程序，扩展了特定模板**（邮件、分析、日历、剪辑、设计）并使用该模板的 actions 和数据。邮件扩展可以读取电子邮件。 Analytics 扩展读取仪表板的指标。日历扩展作用于打开的事件。它们感觉像是主机产品的一部分，因为它们*是*主机产品的一部分。
+
+使扩展发挥作用的三件事：
+
+- **无需代码，无需部署。** 代理编写它们并且它们在几秒钟内即可生效。存储在数据库中，而不是存储库中。
+- **对模板数据的完全访问权限。**扩展可以调用代理调用的相同 actions - 邮件中的 `list-emails`、幻灯片中的 `list-decks`、剪辑中的 `list-recordings` - 因此它们拥有主机应用程序拥有的一切。
+- **内置存储。**每个扩展都有自己的每用户/每组织键值存储，因此它可以保存状态，而无需添加新的 SQL 表。
+
+如果模板不应公开用户编写的扩展，请设置
+`extensionTools: false` 在 `createAgentChatPlugin()` 上。这删除了
+面向客服人员的分机 actions 和提示指导，同时留下其余部分
+应用程序代理完好无损。
+
+<Diagram id="doc-block-1bni74h" title={"沙盒桥"} summary={"扩展 HTML 在隔离的 iframe 中运行，仅通过一组固定的桥接助手到达主机 - 每个调用都经过范围和访问检查。"}>
+
+```html
+<div class="ext-bridge">
+  <div class="diagram-card sandbox" data-rough>
+    <span class="diagram-pill warn">Sandboxed iframe</span
+    ><small class="diagram-muted"
+      >Alpine.js HTML &middot; no host cookies, session, or DOM</small
+    >
+    <div class="ext-helpers">
+      <span class="diagram-pill">appAction</span
+      ><span class="diagram-pill">appFetch</span
+      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">extensionData</span
+      ><span class="diagram-pill">extensionFetch</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      宿主模板<br /><small class="diagram-muted"
+        >actions，自动限定作用域的 SQL</small
+      >
+    </div>
+    <div class="diagram-box">
+      Secret proxy<br /><small class="diagram-muted"
+        ><code>${keys.NAME}</code>，锁定域名</small
+      >
+    </div>
+    <div class="diagram-box">
+      外部 API<br /><small class="diagram-muted">仅通过 extensionFetch</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.ext-bridge {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ext-bridge .sandbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 240px;
+}
+.ext-bridge .ext-helpers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ext-bridge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ext-bridge .diagram-arrow {
+  font-size: 24px;
+}
+```
+
+</Diagram>
+
+扩展也可以**在本地文件模式下由存储库支持**。在该工作流程中，
+`agent-native.json`声明一个`extensions`文件夹，每个扩展都有一个
+`extension.json` 清单加上 HTML 条目文件，应用程序渲染这些
+文件通过相同的沙箱。文件支持的扩展通过更改来编辑
+存储库文件；数据库支持的扩展保持运行时创建/编辑/共享
+经验如下所述。
+
+## 快速图库 {#gallery}
+
+人们实际构建的真实扩展，按他们所使用的模板分组。每个扩展都是一个专注的东西 - 而不是一把瑞士军刀。
+
+### 邮件
+
+用户正在阅读来自 `priya@acme.com` 的电子邮件。什么样的小部件可以提供帮助？
+
+- **联系人备注** — 粘贴到用户正在向其发送电子邮件的任何人的便签本。加载该联系人的注释，让用户记下更多内容。
+- **与此人最近的话题** - 与开放联系人的最后五个话题的小列表，与收件箱视图分开。
+- **CRM 丰富** — 从您的 CRM 中提取联系人的公司规模、上次会议日期或未结交易。
+- **会议安排程序快捷方式** — 将“下周找个时间”变成一键式“发送这些时段”小部件。
+
+草图 - 联系人备注（保存与您的电子邮件发送者相关的备注）：
+
+```html
+<div
+  class="p-4"
+  x-data="{
+    contactEmail: window.slotContext?.contactEmail,
+    note: '',
+    async init() {
+      if (!this.contactEmail) return;
+      const saved = await extensionData.get('notes', this.contactEmail);
+      if (saved) this.note = JSON.parse(saved.data).text;
+    },
+    async save() {
+      await extensionData.set('notes', this.contactEmail, { text: this.note });
+    }
+  }"
+>
+  <p class="text-xs text-muted-foreground mb-2" x-text="contactEmail"></p>
+  <textarea
+    x-model="note"
+    @blur="save()"
+    class="w-full rounded-md border bg-background p-2 text-sm"
+    rows="4"
+    placeholder="Notes about this contact..."
+  ></textarea>
+</div>
+```
+
+### 分析
+
+用户正在盯着仪表板。缺少的图块是什么？
+
+- **自定义 KPI 框** — 非内置面板的指标的单个大数字。 “试验本周开始”，“MRR 与上个月相比的增量。”
+- **目标跟踪器** — 提取用户选择的指标并显示针对用户输入的目标的进度。
+- **热门客户排行榜** — 将指标与客户表连接起来，排名前 10 名。
+
+草图 - 自定义 KPI 框（调用分析模板的 `appAction` 查询之一）：
+
+```html
+<div
+  class="p-4"
+  x-data="{
+  value: null,
+  async init() {
+    const result = await appAction('query-agent-native-analytics', {
+      metric: 'trials_started',
+      range: '7d'
+    });
+    this.value = result?.total ?? 0;
+  }
+}"
+>
+  <p class="text-xs uppercase tracking-wider text-muted-foreground">
+    Trials this week
+  </p>
+  <p class="text-3xl font-bold mt-1" x-text="value ?? '—'"></p>
+</div>
+```
+
+### 日历
+
+用户有一个未完成的活动。那一刻什么会有帮助？
+
+- **会议准备清单** — 自动加载开放活动的议程项目、与会者和之前的话题摘要。
+- **旅行时间** — “距离任务地点的下一次会议还有 35 分钟。”
+- **时区助手** — 以每位与会者当地时间一目了然地显示会议时间。
+
+### 剪辑
+
+用户正在查看屏幕录制内容。是什么增强了这种观点？
+
+- **操作项提取器** — 读取剪辑记录（代理通过 `appAction` 获取它），列出待办事项。
+- **自动共享** — 一键“将此剪辑的链接发布到我的#recordings Slack 频道。”
+- **亮点卷轴** — 提取代理生成的章节并将其转变为快速导航菜单。
+
+### 设计
+
+用户打开了草稿 Alpine/Tailwind 页面。什么可以平滑原型设计循环？
+
+- **品牌色样** - 从用户的品牌配置中提取调色板，单击可将颜色复制到编辑器中。
+- **资产选择器** — 列出用户已上传的图像，点击时删除 URL。
+- **间距检查器** — 显示活动页面使用的间隙/填充/边距标记，以便用户可以保持一致。
+
+所有这些的模式：扩展是关于用户位于主机模板内的**那一刻**。客服人员已经知道哪个联系人、哪个仪表板、哪个事件、哪个剪辑——扩展程序使用该上下文。
+
+## 用户如何构建 {#building}
+
+简单路径：
+
+1. **点击侧边栏中的“新扩展程序”**（或仅在聊天中询问）。
+2. **用一句话描述您想要的内容。**“我正在向联系人发送电子邮件的便签本。” “本周开始试用 KPI 盒子。”
+3. **代理将其写入并显示在您的扩展列表中，可供使用。**
+
+没有要编辑的文件，无需部署。代理选择正确的助手（`appAction`、`extensionData`、`extensionFetch`）并编写 Alpine.js HTML。
+
+如果扩展程序需要 API 密钥（CRM 令牌、天气 API），代理会告诉您要添加什么以及在哪里添加。密钥经过加密存储并锁定到特定域。
+
+如果您想稍后更改某些内容，只需说：“在我的联系人备注中添加搜索框。”代理就地编辑 HTML — 无需重新生成整个内容。
+
+每个更改都有版本控制。打开扩展查看器的历史记录控件即可查看
+保存的版本，检查与先前版本的差异，并恢复
+旧名称/描述/图标/内容快照而不更改所有权或
+分享。
+
+## 扩展程序可以做什么 {#capabilities}
+
+在 iframe 沙箱内，每个扩展在 `window` 上都有这些帮助程序：
+
+| 帮手                                             | 目的                                   | 示例                                                      |
+| ------------------------------------------------ | -------------------------------------- | --------------------------------------------------------- |
+| `appAction(name, params)`                        | 调用任意主机模板的actions              | `appAction('list-emails', { view: 'inbox' })`             |
+| `appFetch(path, options)`                        | 调用`/_agent-native/*`下允许的框架端点 | `appFetch('/_agent-native/application-state/navigation')` |
+| `dbQuery(sql, args)`                             | 从 SQL 读取（自动调整范围给用户）      | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | 写入SQL                                | `dbExec('INSERT INTO ...')`                               |
+| `extensionFetch(url, options)`                   | 通过带有秘密的安全代理攻击外部 API     | `extensionFetch('https://api.github.com/user')`           |
+| `extensionData.set(collection, id, data, opts?)` | 保留每个扩展的数据（用户/组织范围）    | `extensionData.set('notes', id, { text: '...' })`         |
+| `extensionData.list(collection, opts?)`          | 列出持久化项目                         | `extensionData.list('notes', { scope: 'all' })`           |
+| `extensionData.get(collection, id, opts?)`       | 获取单个项目                           | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | 删除持久化项目                         | `extensionData.remove('notes', 'note-1')`                 |
+
+三个经验法则：
+
+- **优先选择 `appAction` 而不是 `dbQuery`。** Actions 是模板的官方界面 — 它们为您处理访问控制、范围界定和验证。仅当没有合适的操作时才获取原始 SQL。
+- **使用 `appAction` 作为模板数据。**扩展 `appFetch` 仅限于框架 `/_agent-native/*` 端点；模板 `/api/*` 路由被 iframe 网桥阻止。
+- **优先选择 `extensionData` 而不是创建新表。** 每个扩展都有自己独立的键值存储。没有架构，就没有迁移。设置 `{ scope: 'org' }` 与用户的组织共享，`'user'`（默认）设置为私有。
+
+```html
+<script>
+  // Private to me
+  await extensionData.set('notes', 'note-1', { title: 'My note' });
+
+  // Shared with my org
+  await extensionData.set('notes', 'team-note', { title: 'Team note' }, { scope: 'org' });
+
+  // List everything visible to me (mine + org)
+  const all = await extensionData.list('notes', { scope: 'all' });
+</script>
+```
+
+外部 API 通过 `extensionFetch`，它代理呼叫服务器端并通过 `${keys.NAME}` 模板替换机密：
+
+```html
+<script>
+  const res = await extensionFetch('https://api.github.com/user', {
+    headers: { Authorization: 'Bearer ${keys.GITHUB_TOKEN}' },
+  });
+</script>
+```
+
+实际密钥永远不会到达浏览器。每个密钥都被锁定到域白名单，因此泄露的扩展程序无法将其渗透到其他地方。
+
+## 插槽 - 在主机 UI 内放置扩展 {#slots}
+
+上面的图库描述了扩展程序的用途。槽位描述了它出现的*位置*。
+
+默认情况下，扩展程序位于扩展程序列表中自己的页面上 - 像打开小应用程序一样打开它。这对于仪表板、计算器和独立小部件来说很好。
+
+但最 QBO 形状的用例是不同的：用户希望将其小部件固定在模板的 UI 内部 - 在邮件侧边栏中的联系信息下方、分析仪表板的一角、日历事件的右侧。这就是**老虎机**的用途。
+
+插槽是模板附带的命名小部件区域：
+
+| 模板     | 插槽示例                       | 它出现的地方                       |
+| -------- | ------------------------------ | ---------------------------------- |
+| **邮件** | `mail.contact-sidebar.bottom`  | 位于每个电子邮件线程的联系信息下方 |
+| **分析** | `analytics.dashboard.tiles`    | 仪表板的内置面板旁边               |
+| **日历** | `calendar.event-detail.bottom` | 在开放事件下方                     |
+| **剪辑** | `clips.right-panel.tabs`       | 剪辑审阅面板中的新选项卡           |
+
+当扩展**安装到插槽中**时，主机会将相关上下文（联系人的电子邮件、仪表板 ID、事件 ID）推送到 iframe 中。该扩展程序读取 `window.slotContext` 来了解用户正在看什么。
+
+<Diagram id="doc-block-eg10rt" title={"插槽将上下文推送到小部件中"} summary={"主机模板拥有命名槽；将扩展安装到其中，可以为用户当前正在查看的任何内容提供 window.slotContext 。"}>
+
+```html
+<div class="slot">
+  <div class="diagram-card">
+    <span class="diagram-pill">邮件线程</span
+    ><small class="diagram-muted"
+      >slot <code>mail.contact-sidebar.bottom</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box accent">
+    <code>window.slotContext</code><br /><small class="diagram-muted"
+      >{ contactEmail }</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">联系人备注</span
+    ><small class="diagram-muted"
+      >loads notes for that contact &mdash; same widget, different
+      context</small
+    >
+  </div>
+</div>
+```
+
+```css
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.slot .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.slot .diagram-arrow {
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+### 具体示例
+
+想象一下图库中的联系人备注扩展。就其本身而言，它是一个独立的小部件。要使其显示在邮件联系人侧边栏中：
+
+1. 构建一次扩展。使用 `window.slotContext.contactEmail` 以便它知道用户所在的联系人。
+2. 告诉它它可以填充的槽位：`add-extension-slot-target { extensionId, slotId: "mail.contact-sidebar.bottom" }`。
+3. 安装它：`install-extension { extensionId, slotId: "mail.contact-sidebar.bottom" }`。
+
+下次您打开电子邮件线程时，便签本就位于联系信息下方 — 填充了您要向其发送电子邮件的人员的注释。切换到不同的线程，为*that*接触加载注释。相同的扩展，不同的上下文，没有重写。
+
+实际上，您不会手动运行这三个命令。只需说“将此小部件固定到我的联系人侧边栏”，代理就会为您处理目标 + 安装。
+
+> **插槽是一种*附加*功能，而不是先决条件。** 许多有用的扩展永远不会安装到插槽中 - 它们快乐地生活在自己的页面上。当小部件需要位于用户在主机模板中查看的内容的“旁边”时，请使用插槽。
+
+有关插槽的更深入详细信息 - 如何在模板中声明它们、上下文合约如何工作、如何确定安装范围 - 请参阅 `extension-points` 技能。 Skills 装在 `.agents/skills/` 下的每个脚手架模板内；请参阅 [Skills Guide](/docs/skills-guide) 了解它们的工作原理。
+
+## 本地文件扩展名 {#local-file-extensions}
+
+本地文件模式允许工作区将扩展保留在存储库中：
+
+```text
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+将文件夹添加到`agent-native.json`中的相关应用程序中：
+
+```json
+{
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "roots": [{ "name": "Docs", "path": "docs", "extensions": [".mdx"] }],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+该应用程序列出了文件支持的扩展以及数据库支持的扩展并呈现
+它们通过普通的沙箱 iframe 进行。 `extension.json` 中的槽声明
+自动将扩展安装到匹配的 `ExtensionSlot` 中；没有每个用户
+SQL 本地扩展安装行。
+
+本地扩展具有更严格的 v1 权限模型：
+
+- 除非禁用，否则 `extensionData` 可用于小型运行时状态。
+- `appAction` 调用必须在 `permissions.appActions` 中显式列出。
+- `dbQuery`、`dbExec` 和 `extensionFetch` 暂时被屏蔽。
+- SQL 支持的更新、删除、共享和历史记录 actions 返回一条消息
+  指向本地入口文件。
+
+当用户应在以下位置创建/共享/编辑小部件时，请使用数据库支持的扩展
+运行时。当扩展名是 repo-first 的一部分时使用本地文件扩展名
+工作区，并且应该是可审查的、可修补的，并且与其余部分一起进行版本控制
+文件。
+
+## 分享 {#sharing}
+
+默认情况下，扩展对于创建它们的用户来说是私有的。分享：
+
+- **组织可见** — 组织中的每个人都可以查看和使用它。
+- **每用户授权** — 邀请特定人员作为查看者/编辑者/管理员。
+
+共享扩展有自己的 URL，并插入与文档、平台和仪表板相同的共享对话框中。插槽安装始终是个人的 - 共享扩展意味着其他人*可以*安装它；它不会自动将其固定到他们的 UI 上。
+
+## 扩展与编辑应用代码 {#vs-app-code}
+
+该框架允许代理直接编辑应用程序的源代码——组件、路由、样式。那么您什么时候应该寻求延期呢？
+
+|              | 扩展                                       | 应用代码编辑             |
+| ------------ | ------------------------------------------ | ------------------------ |
+| **创建者**   | 运行时的代理（或用户）                     | 代理编辑源文件           |
+| **存储在**   | 数据库                                     | git 存储库               |
+| **需要构建** | 否                                         | 是的                     |
+| **需要部署** | 没有                                       | 是                       |
+| **范围**     | 一个用户（或与组织共享）                   | 整个产品，每个用户       |
+| **最适合**   | 个人小部件、自定义 KPI、每个团队的实用程序 | 向所有用户提供的核心功能 |
+
+经验法则：**如果它适用于一个用户或一个团队，那么它就是一个扩展。**如果模板的每个用户都应该获得它，请将其作为一项真正的功能提供。
+
+## 安全 {#security}
+
+<Callout id="doc-block-frp4nq" tone="success">
+
+**The raw secret never reaches the browser.** `extensionFetch` substitutes `${keys.NAME}` server-side and each key is locked to a URL allowlist, so even a leaked extension can't exfiltrate it elsewhere.
+
+</Callout>
+
+扩展在沙盒 iframe 中运行：
+
+- **与父应用程序的 cookie、会话和 DOM 隔离**。
+- **服务器端秘密注入**通过 `${keys.NAME}` 模板 - 实际的密钥值永远不会到达浏览器。
+- **域锁定的秘密** — 每个密钥都绑定到 URL 白名单；代理拒绝对其他主机的请求。
+- **专用网络保护** - 扩展程序无法到达内部地址。
+- **需要身份验证** - 扩展程序仅针对登录用户运行，并且 `dbQuery` / `dbExec` 调用是自动范围的。
+
+## 有关命名的一些知识 {#naming-back-compat}
+
+如果您浏览 SQL 或源代码，您会看到“扩展”和“工具”名称的混合。快速解码器：
+
+- 面向用户的原语过去被称为“工具”。现在是**扩展**。
+- 物理 SQL 表（`tools`、`tool_data`、`tool_shares`、`tool_slots`、`tool_slot_installs`）保留其原始名称 - 重命名表是破坏性迁移，框架不会提供破坏性迁移。
+- Drizzle / TypeScript 导出使用新名称：`extensions`、`extensionData`、`extensionShares`、`extensionSlots`、`extensionSlotInstalls`。
+- 在扩展的 iframe 内，规范助手是 `extensionFetch` 和 `extensionData`。旧名称 `toolFetch` 和 `toolData` 仍然可以解析，因此较旧的扩展 HTML 可以继续工作。
+
+在正常使用中您也不会看到这一点，但代理有第三个相关概念，称为“LLM 工具”——模型转弯上的函数调用表面积（通过 `defineAction`、MCP 等定义）。这些是函数调用原语，而不是面向用户的小部件。当此页面显示“扩展”时，它指的是面向用户的小部件；当其他文档在 `defineAction` 旁边提到“工具”时，这就是 LLM 的概念。
+
+## 下一步是什么
+
+- [**Templates**](/docs/cloneable-saas) - 主机应用扩展扩展
+- [**Actions**](/docs/actions) — 扩展通过 `appAction` 调用的操作
+- [**Sharing & Privacy**](/docs/sharing) — 扩展可见性、组织共享和每用户授权如何工作
+- [**Onboarding & API Keys**](/docs/onboarding) — 秘密如何在设置 UI 中显现
+- [**Security**](/docs/security) — 框架的数据范围和访问模型

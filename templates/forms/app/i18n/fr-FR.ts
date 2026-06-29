@@ -17,6 +17,7 @@ const messages = {
     settings: "Paramètres",
     brand: "Formulaires",
     askForms: "Demander a Forms",
+    allForms: "Tous les formulaires",
     team: "Equipe",
   },
   settings: {
@@ -43,6 +44,8 @@ const messages = {
     suggestionExport: "Exporter les reponses en CSV",
   },
   sidebar: {
+    collapseSidebar: "Réduire la barre latérale",
+    expandSidebar: "Développer la barre latérale",
     formGenerationStale:
       "La generation du formulaire prend plus de temps que prevu. Vous pouvez reessayer.",
     untitledForm: "Formulaire sans titre",

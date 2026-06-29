@@ -145,18 +145,18 @@ Returns CSS custom properties, colors, fonts, Google Fonts links, theme-color, O
 ### Source: GitHub Repository
 
 ```bash
-pnpm action import-github --repoUrl "https://github.com/acme/ui"
+pnpm action index-design-system-with-builder --githubRepoUrl "https://github.com/acme/ui"
 ```
 
-Fetches Tailwind configs, CSS files, theme files, package.json. Returns extracted colors, fonts, spacing, border-radius, and styling framework detection.
+Starts Builder design-system indexing for the repository. Builder is the source of truth for the indexed brand kit, generated docs, and usage guidance. If Builder is not connected, stop and ask the user to connect Builder.
 
 ### Source: Local Code Files
 
 ```bash
-pnpm action import-code --files '[{"filename":"globals.css","content":"..."}]'
+pnpm action index-design-system-with-builder --codeFiles '[{"filename":"globals.css","content":"..."}]'
 ```
 
-Analyzes CSS, Tailwind configs, JSON theme files, TS/JS theme files. Returns structured tokens.
+Uploads code/design files to Builder and starts design-system indexing. Do not create a local design system from uploaded code files unless the user explicitly asks for a manual local fallback.
 
 ### Source: Documents (DOCX, PPTX, PDF)
 
@@ -192,20 +192,10 @@ effects to CSS box-shadow, and text styles to font tokens; snap spacing to a
 4/8px scale. If no Figma MCP is connected, ask the user to paste the token
 values or describe the file.
 
-**When the user uploads a raw `.fig` file**, parse it in-process with
-`import-figma-file` (no Figma account needed):
-
-```bash
-pnpm action import-figma-file --fileBase64 "<base64 of the .fig>"   # or --fileDataUrl
-```
-
-It decodes the binary `.fig`, returns `frames` (each Figma frame rendered to
-HTML), an extracted `designSystem` (colors with assigned roles, typography,
-spacing, radius, shadows — ready for `DesignSystemData`), and image metadata.
-It's read-only/preview: review the result, then call `create-design-system`
-with the `designSystem` and/or `create-design` + `generate-design` with the
-`frames`. The full `palette` is returned too, so re-assign a color role if a
-heuristic looks off.
+**When the user uploads a raw `.fig` file**, send it to Builder design-system
+indexing through the setup page upload route. Do not parse `.fig` files locally
+and do not call `create-design-system` from raw `.fig` output; Builder owns the
+indexed brand kit, generated docs, and usage guidance.
 
 ### Source: Brand Analysis (combines website + notes)
 

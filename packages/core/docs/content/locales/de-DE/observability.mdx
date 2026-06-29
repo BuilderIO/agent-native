@@ -1,0 +1,387 @@
+---
+title: "Beobachtbarkeit"
+description: "Agentenverfolgungen, Auswertungen, Feedback, A/B-Experimente und das integrierte Dashboard – alles ohne Konfiguration."
+---
+
+# Beobachtbarkeit des Agenten
+
+Jede agentennative App ist sofort beobachtbar. Traces, automatisierte Auswertungen, Benutzerfeedback und A/B-Experimente funktionieren ohne Konfiguration – alle Daten werden in der SQL-Datenbank der App gespeichert.
+
+Diese Seite behandelt Metriken zur Agentenqualität: Spuren, Kosten, Auswertungen und Feedback, die in Ihrer Datenbank gespeichert sind. Informationen zu \_Produktanalysen (die Ereignisse Ihrer App, die an PostHog/Mixpanel/Amplitude fließen) finden Sie unter [Tracking](/docs/tracking).
+
+## Drei Dinge namens „Bewertungen“/„Beobachtbarkeit“ – was will ich? {#which}
+
+Diese drei Seiten sind leicht zu verwechseln. Wählen Sie die Frage aus, die Sie stellen:
+
+| Seite                                                                            | Die Frage, die es beantwortet                           | Wenn es läuft                                 | Bedenken       |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- | -------------- |
+| **Beobachtbarkeitsbewertungen** (diese Seite, die Registerkarte „_Bewertungen_“) | „Wie liefen meine tatsächlichen Produktionsläufe?“      | Passiv, nach jedem Lauf (LLM-Richter geprüft) | Qualität       |
+| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                                    | „Tut der Agent bei dieser festen Eingabe das Richtige?“ | Aktiv, deterministisch, ein CI/Deploy-Gate    | Qualität       |
+| **[Observational Memory](/docs/observational-memory)**                           | „Bleibt dieser lange Faden billig und im Fenster?“      | Hintergrundkomprimierung bei langen Threads   | Kosten/Kontext |
+
+Observability und das CI Eval Gate bewerten beide _Qualität_, allerdings von entgegengesetzten Enden – passive Post-hoc-Bewertung des realen Datenverkehrs im Vergleich zu aktiven Pass/Fail-Prüfungen an festen Eingaben. Das Beobachtungsgedächtnis hat nichts mit der Qualität zu tun; Es geht um Tokenkosten und Kontextfensterdruck.
+
+## Was automatisch erfasst wird {#captured}
+
+Wenn ein Benutzer eine Nachricht sendet, zeichnet das Framework automatisch Folgendes auf:
+
+- **Token-Nutzung** – Eingabe, Ausgabe, Cache-Lesen, Cache-Schreiben
+- **Kosten** – berechnet aus Tokenanzahl und Modellpreisen
+- **Latenz** – Gesamtdauer und Zeit pro Tool-Aufruf
+- **Tool-Aufrufe** – welche actions aufgerufen wurden, Erfolgs-/Fehlerstatus, Dauer
+- **Automatisierte Auswertungen** – 5 Qualitätsbewertungen werden nach jedem Lauf berechnet
+
+Keine Codeänderungen erforderlich. Die Instrumentierung wird transparent in `production-agent.ts` eingebunden.
+
+<Diagram id="doc-block-120riqf" title="Jeder Lauf speist die Schleife" summary={"Ein Agentenlauf erzeugt eine Ablaufverfolgung, automatisierte Bewertungen und einen Feedback-Hook – alles wird im eigenen SQL der App gespeichert und im Dashboard angezeigt. Experimente teilen den Datenverkehr auf verschiedene Konfigurationsvarianten auf."}>
+
+```html
+<div class="obs-loop">
+  <div class="diagram-node">
+    Agentenlauf<br /><small class="diagram-muted">production-agent.ts</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Automatisch erfasst</span
+    ><small class="diagram-muted"
+      >tokens &middot; cost &middot; latency &middot; tool calls</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">Traces &amp; spans</div>
+    <div class="diagram-box">Evals (5 scorers + LLM judge)</div>
+    <div class="diagram-box">Feedback &amp; frustration index</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    Dashboard<br /><small class="diagram-muted"
+      >scoped to the signed-in user</small
+    >
+  </div>
+</div>
+```
+
+```css
+.obs-loop {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.obs-loop .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.obs-loop .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.obs-loop .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Das Dashboard {#dashboard}
+
+Fügen Sie das Dashboard mit einer einzigen Route zu jeder Vorlage hinzu:
+
+```tsx
+// app/routes/observability.tsx
+import { ObservabilityDashboard } from "@agent-native/core/client";
+
+export default function ObservabilityPage() {
+  return (
+    <div className="min-h-screen bg-background p-6">
+      <ObservabilityDashboard />
+    </div>
+  );
+}
+```
+
+Alle Daten beziehen sich auf den angemeldeten Benutzer. Es gibt heute keine benutzerübergreifende Admin-Ansicht.
+
+Das Dashboard verfügt über 5 Registerkarten:
+
+| Tab             | Was es zeigt                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------- |
+| **Übersicht**   | Wichtige Kennzahlen – Ausführungen, Kosten, Latenz, Tool-Erfolgsquote, Zufriedenheit, Bewertungsergebnis |
+| **Gespräche**   | Trace-Liste mit Drilldown auf einzelne Spans (agent_run, llm_call, tool_call)                            |
+| **Bewertungen** | Automatisierte Bewertungsergebnisse nach Kriterien und Trends im Zeitverlauf                             |
+| **Experimente** | A/B-Testliste mit Statusabzeichen, Variantenergebnisse mit Konfidenzintervallen                          |
+| **Feedback**    | Daumen hoch/abwärts Stream, Aufschlüsselung nach Kategorien, Frustrationswerte                           |
+
+## Benutzerfeedback {#feedback}
+
+### Explizites Feedback
+
+Daumen-hoch/runter-Schaltflächen werden in jeder Agentennachricht im Chat angezeigt UI. Mit dem Daumen nach unten wird ein Kategorie-Popover geöffnet (Ungenau, Nicht hilfreich, Falsches Tool, Zu langsam). Dies wird automatisch mit `AssistantChat.tsx` verkabelt.
+
+### Implizites Feedback (Frustrationsindex)
+
+Das Framework berechnet einen Frustrationsindex (0-100) aus Gesprächssignalen:
+
+| Signal              | Gewicht | Was es erkennt                                         |
+| ------------------- | ------- | ------------------------------------------------------ |
+| Umformulierung      | 30%     | Benutzer wiederholt ähnliche Nachrichten               |
+| Wiederholungsmuster | 20%     | „Versuchen Sie es noch einmal“, „Nein, das ist falsch“ |
+| Abbruch             | 20%     | Sitzung endet kurz nach der Antwort                    |
+| Stimmung            | 15%     | Negative Sprachmuster                                  |
+| Längentrend         | 15%     | Abnehmende Nachrichtenlängen                           |
+
+Bewertungsinterpretation: 0–20 = gesund, 20–40 = Reibung, 40–60 = unzufrieden, 60+ = abgebrochene Sitzung.
+
+## Automatisierte Auswertungen {#evals}
+
+Fünf deterministische Scorer werden nach jedem Agentenlauf ausgeführt:
+
+| Kriterien           | Was es misst                                                   | Bewertungsbereich |
+| ------------------- | -------------------------------------------------------------- | ----------------- |
+| `tool_success_rate` | % der Toolaufrufe ohne Fehler                                  | 0-1               |
+| `step_efficiency`   | Straft übermäßige LLM-Iterationen für Tool-verwendende Läufe   | 0-1               |
+| `latency_score`     | Normalisiert gegenüber der Basislinie von 10 Sekunden/Werkzeug | 0-1               |
+| `cost_efficiency`   | Normalisiert gegenüber der Kostenbasis                         | 0-1               |
+| `error_recovery`    | Hat sich der Agent nach Toolfehlern erholt?                    | 0 oder 1          |
+
+### LLM-als-Richter (optional)
+
+Aktivieren Sie die auf Stichproben basierende LLM-Auswertung, indem Sie `evalSampleRate` festlegen:
+
+```ts
+import { putSetting } from "@agent-native/core/settings";
+
+await putSetting("observability-config", {
+  enabled: true,
+  evalSampleRate: 0.05, // 5% of runs
+});
+```
+
+Benutzerdefinierte Kriterien verwenden Rubriken in natürlicher Sprache:
+
+```ts
+const criteria = {
+  name: "helpfulness",
+  description: "Was the response helpful and complete?",
+  rubric: "0.0 = unhelpful, 0.5 = partially helpful, 1.0 = fully resolved",
+};
+```
+
+## A/B-Experimente {#experiments}
+
+Testen Sie verschiedene Modelle, Temperaturen oder Agentenkonfigurationen:
+
+```ts
+// Create via API
+POST /_agent-native/observability/experiments
+{
+  "name": "model-a-vs-b",
+  "variants": [
+    { "id": "control", "weight": 50, "config": { "model": "<your-model-id>" } },
+    { "id": "treatment", "weight": 50, "config": { "model": "<other-model-id>" } }
+  ],
+  "metrics": ["cost", "latency", "satisfaction"]
+}
+
+// Start the experiment
+PUT /_agent-native/observability/experiments/:id
+{ "status": "running" }
+```
+
+Verwenden Sie anstelle von `<your-model-id>` / `<other-model-id>` die tatsächlichen Modellkennungen, die Ihre Engine akzeptiert (Modellnamen ändern sich häufig – überprüfen Sie Ihren Anbieter/Ihre Engine auf die aktuellen IDs). Die Agentenschleife löst automatisch die Variante des Benutzers auf und wendet die Konfigurationsüberschreibung an. Die Zuweisung verwendet konsistentes Hashing – derselbe Benutzer erhält immer die gleiche Variante.
+
+<Diagram id="doc-block-5k287n" title="Zuweisung konsistenter Hash-Varianten" summary={"Jeder Benutzer hasht eine stabile Variante, die Schleife wendet die Konfigurationsüberschreibung dieser Variante an und die Ergebnisse werden pro Variante mit Konfidenzintervallen zusammengefasst."}>
+
+```html
+<div class="exp">
+  <div class="diagram-node">
+    Benutzer-ID<br /><small class="diagram-muted">consistent hash</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill">control &middot; 50%</span
+      ><small class="diagram-muted">Konfigurations-Override A</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill accent">treatment &middot; 50%</span
+      ><small class="diagram-muted">Konfigurations-Override B</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Ergebnisse per variant<br /><small class="diagram-muted"
+      >cost &middot; latency &middot; satisfaction</small
+    >
+  </div>
+</div>
+```
+
+```css
+.exp {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.exp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.exp .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Konfiguration {#config}
+
+Alle Einstellungen werden im `observability-config`-Schlüssel gespeichert:
+
+```ts
+{
+  enabled: true,           // Master switch
+  capturePrompts: false,   // Store prompt content in traces
+  captureToolArgs: false,  // Store action input arguments
+  captureToolResults: false, // Store action results
+  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
+  exporters: []            // OTLP export targets
+}
+```
+
+<Callout id="doc-block-1xvsimn" tone="info">
+
+Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+
+</Callout>
+
+## API Endpunkte {#api}
+
+Alle automatisch montiert bei `/_agent-native/observability/`:
+
+| Methode | Pfad                       | Zweck                                     |
+| ------- | -------------------------- | ----------------------------------------- |
+| GET     | `/`                        | Übersichtsstatistiken                     |
+| GET     | `/traces`                  | Trace-Zusammenfassungen auflisten         |
+| GET     | `/traces/:runId`           | Trace-Details (Zusammenfassung + Spannen) |
+| GET     | `/traces/:runId/evals`     | Bewertungen für einen Lauf                |
+| POST    | `/feedback`                | Feedback abgeben                          |
+| GET     | `/feedback`                | Feedback auflisten                        |
+| GET     | `/feedback/stats`          | Feedback-Aggregation                      |
+| GET     | `/satisfaction`            | Zufriedenheitswerte                       |
+| GET     | `/evals/stats`             | Bewertungsstatistiken                     |
+| POST    | `/experiments`             | Experiment erstellen                      |
+| GET     | `/experiments`             | Experimente auflisten                     |
+| GET     | `/experiments/:id`         | Testdetails abrufen                       |
+| PUT     | `/experiments/:id`         | Experiment aktualisieren                  |
+| POST    | `/experiments/:id/results` | Ergebnisse berechnen                      |
+| GET     | `/experiments/:id/results` | Ergebnisse erhalten                       |
+
+Alle Endpunkte unterstützen die Abfrageparameter `?since=N` (ms-Zeitstempel) und `?limit=N`.
+
+## Auf externe Plattformen exportieren {#export}
+
+Senden Sie Traces an Langfuse, Datadog, Grafana oder ein beliebiges OTel-kompatibles Backend:
+
+```ts
+await putSetting("observability-config", {
+  enabled: true,
+  exporters: [
+    {
+      type: "otlp",
+      endpoint: "https://cloud.langfuse.com/api/public/otel",
+      headers: { Authorization: "Bearer sk-..." },
+    },
+  ],
+});
+```
+
+Das Framework gibt `gen_ai.*`-Semantikkonventionsbereiche aus, die mit der OpenTelemetry GenAI-Spezifikation kompatibel sind.
+
+## OpenTelemetry-Bereiche {#otel}
+
+Getrennt von der oben genannten `exporters`-Konfiguration (die die internen Traces an einen OTLP-Endpunkt sendet) kann die Agentenschleife auch **Live-OpenTelemetry-Spans** für jede Ausführung, jeden Modellaufruf und jeden Tool-Aufruf ausgeben – so sieht ein Host, der bereits einen OTel-Collector ausführt, die Agentenaktivität neben dem Rest seiner verteilten Traces.
+
+Diese Ebene ist **optional und standardmäßig nicht aktiv**:
+
+- `@opentelemetry/api` ist eine **optionale Abhängigkeit**. Wenn es nicht installiert ist, degradieren die Helfer zu stillen No-Ops – hier wird nichts jemals in die Agentenschleife geworfen.
+- Selbst wenn das API-Paket vorhanden ist, wird ein standardmäßiger No-Op-Tracer mitgeliefert. Spans werden erst dann real, wenn der **Host einen `TracerProvider`** registriert (über `@opentelemetry/sdk-node` oder ähnliches). Das Framework ist bewusst **nicht** auf die umfangreichen SDK/Exporter-Pakete angewiesen und registriert auch keinen Anbieter selbst – die Instrumentierung erfolgt durch die Einbettungs-App.
+
+Wenn Sie OTel nicht verkabelt haben, betragen die Kosten also ein paar zwischengespeicherte Eigenschaftsablesungen pro Anruf. Um es zu aktivieren, installieren Sie das API-Paket und Ihr SDK und registrieren Sie beim Serverstart einen Anbieter, genau wie Sie es für jeden anderen Knotendienst tun würden.
+
+Die Agentenschleife gibt drei Span-Typen aus:
+
+| Spanne      | Wann                     | Attribute                                                         |
+| ----------- | ------------------------ | ----------------------------------------------------------------- |
+| `agent.run` | einmal pro Agentenlauf   | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
+| `tool.call` | einmal pro Aktionsaufruf | `tool.name`, plus Erfolgs-/Fehlerstatus                           |
+| `llm.call`  | pro Modellaufruf         | Timing + OK/Fehlerstatus                                          |
+
+Spans werden mit dem Status „OK/ERROR“ abgeschlossen und bei einem Fehler wird eine Fehlermeldung aufgezeichnet. Null-/Sentinel-Attributwerte werden bereinigt, damit Spannen nicht mit Rauschen überfrachtet werden. Diese OTel-Schicht ist eine reine Ergänzung zu den hauseigenen `agent_trace_spans`-/`agent_trace_summaries`-Tabellen, die das obige Dashboard unterstützen – beide werden aus den gleichen Laufereignissen erstellt.
+
+## Fehlerberichterstattung (Sentry) {#sentry}
+
+Serverseitige Fehler, die Nitro-Routenhandlern entgehen, werden an Sentry gemeldet, wenn ein DSN konfiguriert wird. Ohne sie funktioniert der SDK stillschweigend nicht, daher ist es sicher, die Env-Variablen in Dev nicht gesetzt zu lassen. Browser- und Serverereignisse können zum selben Sentry-Projekt gehen; Teilen Sie sie nur dann in separate Projekte auf, wenn Sie eine betriebliche Trennung für Eigentum, Volumen, Kontingente oder Alarmweiterleitung wünschen.
+
+| Oberfläche         | SDK               | Umgebungsvariable                                               | Notizen                                                                                     |
+| ------------------ | ----------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Browser / SPA      | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`, `SENTRY_CLIENT_DSN` oder `SENTRY_DSN` | Erfasst nicht behandelte Fehler und Routenänderungs-Breadcrumbs im Client.                  |
+| Nitro-Server       | `@sentry/node`    | `SENTRY_SERVER_DSN` oder `SENTRY_DSN`                           | Erfasst 5xx-Antworten und Nitro-Lebenszyklusfehler. Benutzer pro Anfrage.                   |
+| `agent-native` CLI | `@sentry/node`    | _hardcoded_                                                     | Absturzberichte aus der veröffentlichten CLI-Binärdatei; nicht vom Benutzer konfigurierbar. |
+
+### Serverseitige Konfiguration {#sentry-config}
+
+Legen Sie `SENTRY_SERVER_DSN` oder das freigegebene `SENTRY_DSN` in der Bereitstellungsumgebung fest (Netlify-Dashboard, Cloudflare-Geheimnisse usw.). Das Framework mountet automatisch ein Nitro-Plugin, das:
+
+1. Ruft `Sentry.init` einmal beim Start auf (idempotent – sicherer Aufruf von mehreren Plugins).
+2. Löst den Benutzer über `getSession(event)` bei jeder API/Framework-Anfrage auf und fügt `id` / `email` / `username` plus ein `orgId`-Tag an den anforderungsspezifischen Isolationsbereich von Sentry an. Statische Asset-Pfade werden übersprungen, um zusätzliche DB-Treffer zu vermeiden.
+3. Erfasst jede Framework-Route 5xx mit durchsuchbaren `route`-, `method`- und `userAgent`-Tags.
+
+Optionale Knöpfe:
+
+- `SENTRY_SERVER_TRACES_SAMPLE_RATE` (float `0`–`1`) – Aktivieren Sie die Leistungsverfolgung. Standardmäßig ist `0` (nur Fehler). Ungültige Werte gelten für `0`.
+- `AGENT_NATIVE_RELEASE` – überschreibt das `release`-Tag. Standardmäßig ist `agent-native-server@<core-version>`.
+
+### Vorlagen
+
+Jede Vorlage erbt dies automatisch – es gibt nichts zu importieren. Bei SSR-Apps fügt der Server ein kleines Browser-Konfigurationsskript ein, wenn `SENTRY_CLIENT_DSN`, `VITE_SENTRY_CLIENT_DSN` oder freigegebenes `SENTRY_DSN` zur Laufzeit verfügbar ist, sodass die Browsererfassung nicht auf die Vite-Build-Time-Umgebung beschränkt ist. Vorlagen, die ein benutzerdefiniertes Verhalten wünschen (zusätzliche Tags, unterschiedliche DSN pro Vorlage, feste Deaktivierung von Sentry), können überschreiben, indem sie ihr eigenes Plugin aus `server/plugins/sentry.ts` exportieren:
+
+```ts
+// server/plugins/sentry.ts
+import { createSentryPlugin } from "@agent-native/core/server";
+export default createSentryPlugin();
+```
+
+Der fest codierte DSN des CLI ist beabsichtigt – die veröffentlichte Binärdatei muss Abstürze beheben, unabhängig davon, in welcher Umgebung sie ausgeführt wird. Das Servermodul codiert niemals einen DSN fest, da es in Kundenumgebungen ausgeführt wird, in denen Bediener entscheiden, ob Fehler überhaupt Sentry erreichen sollen.
+
+### Datenschutz & PII {#privacy}
+
+Sowohl Server als auch CLI werden mit `sendDefaultPii: false` und einem `beforeSend`-Hook initialisiert, der Folgendes entfernt:
+
+- `request.headers.authorization`, `cookie`, `set-cookie`, `proxy-authorization`
+- `request.cookies`
+- `user.ip_address` (automatisch ohne Zustimmung erfasst)
+- `contexts.runtime_env` (Prozessumgebungs-Snapshot)
+- Jedes Ereignis, dessen Ausnahmetyp der obersten Ebene `ValidationError` ist (wird als erwartete Ablehnung von Benutzereingaben behandelt, nicht als Fehler).
+
+Identitätsfelder, die explizit über `setUser({ id, email, username })` festgelegt wurden, bleiben erhalten.
+
+## Was kommt als nächstes?
+
+- [**Tracking**](/docs/tracking) – Produktanalysen (PostHog, Mixpanel, Amplitude) für die eigenen Ereignisse Ihrer App
+- [**Actions**](/docs/actions) – die Vorgänge, die als Werkzeugaufrufe in Traces erscheinen
+- [**Security**](/docs/security) – Datenumfang und Umgang mit Anmeldeinformationen

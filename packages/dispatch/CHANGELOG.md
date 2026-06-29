@@ -1,5 +1,29 @@
 # @agent-native/dispatch
 
+## 0.13.4
+
+### Patch Changes
+
+- 1d77419: Keep Dispatch cron schedule validation compatible with the shared lint and release gates.
+
+## 0.13.3
+
+### Patch Changes
+
+- aa345cc: App shells use an outline-style raised surface ring and Dispatch left navigation can collapse to an animated icon rail.
+
+## 0.13.2
+
+### Patch Changes
+
+- a6492db: Read Dispatch integration credentials from scoped secrets and move team management into Settings tabs.
+
+## 0.13.1
+
+### Patch Changes
+
+- 4a73032: Make shared agent and default navigation drawers feel recessed behind rounded app content.
+
 ## 0.13.0
 
 ### Minor Changes

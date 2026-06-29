@@ -5116,6 +5116,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       sendToAgentChat({
         type: "content",
         submit: true,
+        chatTarget: "local",
+        openSidebar: true,
         context,
         images: capture.images,
         message: buildApplyFeedbackMessage(openCommentCount),
@@ -5125,6 +5127,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           ? t("plansPage.reader.sentCommentsWithScreenshots")
           : t("plansPage.reader.sentComments"),
       );
+    } catch (error) {
+      console.error(
+        "[PlansPage] Failed to send plan feedback to inline agent:",
+        error,
+      );
+      toast.error(t("plansPage.comments.sendFailed"));
     } finally {
       setSendingFeedback(false);
     }
@@ -7113,7 +7121,7 @@ function PlanCanvasSkeleton() {
       aria-hidden="true"
     >
       <div
-        className="plan-canvas-viewport absolute inset-0"
+        className="plan-canvas-grid absolute inset-0"
         style={{
           backgroundPosition: "96px 64px",
           backgroundSize: "20px 20px",

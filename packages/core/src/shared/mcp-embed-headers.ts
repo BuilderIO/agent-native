@@ -87,6 +87,27 @@ export function isAgentNativeFirstPartyAppOrigin(
   }
 }
 
+export function isBuilderIoEmbedOrigin(
+  origin: string | null | undefined,
+): boolean {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      (hostname === "builder.io" ||
+        hostname.endsWith(".builder.io") ||
+        hostname === "builder.my" ||
+        hostname.endsWith(".builder.my"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isMcpEmbedCorsOrigin(
   origin: string | null | undefined,
 ): boolean {
@@ -96,7 +117,8 @@ export function isMcpEmbedCorsOrigin(
     isClaudeMcpContentOrigin(origin) ||
     isChatGptMcpSandboxOrigin(origin) ||
     isMcpProductHostOrigin(origin) ||
-    isAgentNativeFirstPartyAppOrigin(origin)
+    isAgentNativeFirstPartyAppOrigin(origin) ||
+    isBuilderIoEmbedOrigin(origin)
   );
 }
 

@@ -52,7 +52,7 @@ function imageAltCandidates({
   const candidates: ImageAltCandidate[] = [];
 
   const markdownImagePattern = new RegExp(
-    `!\\[[^\\]]*\\]\\((${escapedUrl})(\\s+\"[^\"]*\")?\\)`,
+    `!\\[[^\\]]*\\]\\((${escapedUrl})(\\s+"[^"]*")?\\)`,
     "g",
   );
   for (const match of content.matchAll(markdownImagePattern)) {

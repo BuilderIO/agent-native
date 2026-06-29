@@ -1,0 +1,303 @@
+---
+title: "Agent-Native란 무엇인가요?"
+description: "대부분의 AI 앱이 절반만 구축된 것처럼 느껴지는 이유, 앱을 진정한 에이전트 기반으로 만드는 요소, 그리고 결과적으로 일상적인 경험이 어떤 모습인지."
+---
+
+# Agent-Native란 무엇인가요?
+
+에이전트 네이티브는 AI 에이전트와 그 주변의 제품 표면이 **동등한 파트너**인 소프트웨어를 구축하는 방법입니다. 해당 표면은 하나의 사용자 지정 작업, 풍부한 채팅 또는 전체 UI를 갖춘 헤드리스 에이전트일 수 있습니다. 중요한 부분은 에이전트와 인간이 동일한 actions, 데이터베이스 및 상태를 공유한다는 것입니다.
+
+이 페이지에서 한 가지만 기억한다면 다음을 기억하세요. 오늘날 대부분의 AI 앱은 유용성에 한 발짝도 미치지 못하며, 그 격차가 현재 이 분야의 가장 큰 실수입니다.
+
+## 사용자의 모습 {#what-it-looks-like}
+
+백그라운드 작업자, 받은 편지함, 달력, 양식 작성기 또는 분석 대시보드를 상상해 보세요. 아직 사용자 정의 화면이 없는 경우도 있습니다. 즉, 하나의 작업 또는 하나의 헤드리스 앱 에이전트 프롬프트를 실행합니다. 때로는 첫 번째 화면이 채팅입니다. 원하는 것을 물어보면 상담원이 설정을 안내하고 표나 차트를 표시하고 올바른 앱 보기를 엽니다. 때로는 채팅이 전체 애플리케이션의 오른쪽에 고정되어 있는 경우도 있습니다. 이러한 도형 전체에서 다음을 수행할 수 있습니다.
+
+- **실제 작업부터 시작하세요.** CLI, HTTP, MCP, A2A, 앱 에이전트 루프 및 나중에 UI에서 하나의 지속 가능한 작업을 실행할 수 있습니다.
+- **UI가 있을 때 일반적으로 클릭하는 모든 항목을 클릭하세요.** 모든 버튼, 목록, 대시보드, 키보드 단축키 — 모두 상담원이 호출할 수 있는 것과 동일한 작업을 호출합니다.
+- **또는 그냥 물어보세요.** "Sara가 보낸 이메일에 3시까지 도착하겠다고 답장"을 상담원에게 입력하세요. 올바른 스레드를 열고 답글 초안을 작성한 후 승인을 위해 표시합니다. 마치 직접 작업한 것처럼 말입니다.
+- **무엇이 보이는지 확인하세요.** 이메일을 열면 상담원이 어떤 이메일인지 알 수 있습니다. 차트를 선택하면 상담원이 어떤 차트인지 알 수 있습니다. 단락을 강조표시하고 Cmd+I를 누르면 상담원이 해당 단락에 대해서만 작업을 수행합니다.
+- **작동하는 모습을 지켜보세요.** 상담원이 보기 열기, 초안 편집, 보고서 실행 등의 작업을 수행할 때 UI가 실시간으로 업데이트됩니다. 언제든지 마우스로 중지하거나 방향을 바꾸거나 인계받을 수 있습니다.
+- **팀원처럼 조종하세요.** 피드백을 주고, 다른 작업을 대기열에 추가하고, 지침을 편집하고, 어제 수행한 작업을 감사하세요. 기억하고 시간이 지나면서 워크플로가 더 좋아집니다.
+
+이것이 바로 Agent-Native 경험을 위해 설계된 것입니다. 대부분의 제품이 거기에 도달하지 못하는 이유는 다음과 같습니다.
+
+## 대부분의 "AI 앱"이 부족한 이유(사다리 원리) {#the-ladder}
+
+대부분의 팀은 사다리처럼 올라가는 진행 과정이 있으며 대부분은 한 단계를 너무 일찍 멈춥니다.
+
+### 단계 1 — 단일 LLM 호출(안티패턴) {#rung-one}
+
+텍스트 상자가 프롬프트를 보내고 AI가 문자열을 반환하면 이를 표시합니다. 아마도 스피너를 사용했을 수도 있습니다. 사용자가 경로를 수정할 방법도 없고, AI가 조치를 취할 방법도 없으며, 무슨 일이 일어났는지, 왜 발생했는지 확인할 방법도 없습니다.
+
+SaaS 제품에 기본적으로 부착된 "요약" 버튼인 "AI 기능"은 어디에서나 볼 수 있습니다. 데모에서는 인상적으로 보이지만 현실이 지저분해지는 순간 깨집니다. 그것은 제품이 아닙니다. 그거 장난감이에요.
+
+### 단계 2 — 도구와의 채팅 {#rung-two}
+
+이제 AI는 _일을 할 수 있습니다_. 여기에는 "이메일 초안", "연락처 검색", "쿼리 실행" 등의 도구와 도구 호출 및 결과를 실시간으로 보여주는 채팅 인터페이스가 있습니다. Claude, ChatGPT 및 커서의 내부 모습은 다음과 같습니다.
+
+이것은 진정한 발전입니다. 하지만 그 자체로는 여전히 채팅 창입니다. 적절한 UI가 없습니다. 대시보드도, 목록도, 양식도, 키보드 단축키도, 팀 협업도 없습니다. AI가 혼란스러워하면 오른쪽 버튼을 클릭하는 것이 아니라 다시 입력해야 합니다. 개발자가 아닌 사람들은 이 형식으로 실제 작업을 완료하는 데 어려움을 겪습니다.
+
+### Rung 3 — 에이전트 + UI를 동등한 파트너로 {#rung-three}
+
+이것은 에이전트 기반입니다. 에이전트 주변에 모든 기능을 갖춘 실제 앱을 추가합니다. 그리고 결정적으로 에이전트가 수행할 수 있는 모든 작업은 UI의 버튼이기도 하며 사용자가 클릭하는 모든 버튼은 에이전트가 사용하는 것과 동일한 논리를 실행합니다. 하나의 구현, 두 가지 방법.
+
+3단계에 도달하면 세 가지가 변경됩니다:
+
+- **챗봇에 버튼 추가를 중단했습니다. 앱에 에이전트를 추가했습니다.** 이는 양쪽 모두에서 훨씬 더 높은 품질의 제품입니다.
+- **에이전트는 실제 상황을 가지고 있습니다.** 귀하가 보고 있는 것, 선택한 것, 방금 한 일을 봅니다. UI가 읽는 것과 동일한 데이터베이스에 쓰기 때문에 작업 내용이 즉시 표시됩니다.
+- **외부 에이전트도 사용할 수 있습니다.** 다른 에이전트 기반 앱은 [A2A protocol](/docs/a2a-protocol)를 통해 이 앱의 actions를 호출할 수 있습니다. Claude 코드, Codex, ChatGPT 맞춤형 MCP 앱, 커서 및 기타 MCP 호스트는 [MCP server](/docs/mcp-protocol)로 구동할 수 있습니다. 하나의 앱, 많은 진입점.
+
+3번 단계입니다. 에이전트 기본입니다.
+
+<Diagram id="doc-block-6q3x33" title={"사다리 원리"} summary={"대부분의 팀은 렁 1 또는 2에서 멈춥니다. 에이전트 네이티브는 렁 3입니다. 즉, 하나의 공유 작업 표면에 대한 실제 앱이자 실제 에이전트입니다."}>
+
+```html
+<div class="diagram-ladder">
+  <div class="diagram-card rung rung-3">
+    <span class="diagram-pill accent">단계 3 · agent-native</span
+    ><strong>에이전트 + UI가 동등한 파트너</strong
+    ><small class="diagram-muted"
+      >One action surface. Every agent tool is also a button; every button runs
+      the same logic the agent uses.</small
+    >
+  </div>
+  <div class="diagram-card rung rung-2">
+    <span class="diagram-pill">단계 2</span><strong>도구가 있는 채팅</strong
+    ><small class="diagram-muted"
+      >에이전트는 동작할 수 있지만 여전히 채팅 창일 뿐입니다. 대시보드, 목록,
+      단축키는 없습니다.</small
+    >
+  </div>
+  <div class="diagram-card rung rung-1">
+    <span class="diagram-pill warn">단계 1</span><strong>단일 LLM 호출</strong
+    ><small class="diagram-muted"
+      >Prompt in, string out. Impressive in a demo; breaks the moment reality
+      gets messy.</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-ladder .rung {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+}
+.diagram-ladder .rung-2 {
+  margin-inline-end: 48px;
+}
+.diagram-ladder .rung-1 {
+  margin-inline-end: 96px;
+}
+```
+
+</Diagram>
+
+이 모든 것이 동일한 작업 정의에서 어떻게 중단되는지는 [Key Concepts — Protocols](/docs/key-concepts#protocols)를 참조하세요.
+
+## 모든 상담원에게 UI가 필요한 이유 {#why-every-agent-needs-a-ui}
+
+에이전트가 모든 힘든 작업을 수행하더라도 인간은 여전히 다음을 수행해야 합니다.
+
+- **무엇을 하는지 확인** — 진행 상황, 중간 출력, 영향을 받은 내용
+- **조정** — 피드백 제공, 중단, 다음 작업 대기열
+- **관리** — 지침, skills, 메모리, 예약된 작업, 연결된 계정을 편집하세요
+- **작업 검사** — 초안 검토, 감사 기록, 실수 롤백
+- **결과 공유** — 대시보드, 보고서, 양식, 팀원에게 보낼 링크
+
+최소한 "에이전트용 UI"는 관찰 가능성 및 관리 대시보드입니다. 최대로는 에이전트가 부조종사로 포함된 전체 SaaS 앱입니다. 양쪽 끝 모두 에이전트 네이티브로 간주되며 다시 작성하지 않고도 표면이 하나에서 커질 수 있습니다.
+
+앞에서 모양을 선택할 필요는 없습니다. 에이전트는 헤드리스로 실행되거나, 풍부한 채팅 뒤에 앉아 있거나, 동일한 작업 표면 주위의 전체 애플리케이션 내부에 존재할 수 있습니다. 구체적인 모양과 API에 대해서는 [Agent Surfaces](/docs/agent-surfaces)를 참조하세요.
+
+## 모든 앱이 에이전트의 이점을 누리는 이유 {#why-every-app-benefits-from-an-agent}
+
+뒷면도 마찬가지로 중요합니다. 기존 SaaS 제품은 계속 같은 벽에 부딪힙니다. 필요한 것의 80%는 훌륭하게 작동하고 20%는 변경할 수 없습니다. 채팅 사이드바를 추가해도 이 문제가 해결되는 경우는 거의 없습니다. 일반적으로 채팅은 실제로 UI가 할 수 있는 일을 _할_ 수 없습니다.
+
+에이전트 네이티브가 이를 뒤집습니다. 앱의 모든 작업은 한 번 정의되고 버튼과 에이전트 도구로 모두 노출되므로 에이전트는 유지 관리할 별도의 "AI 세계" 없이 버튼이 할 수 있는 모든 작업과 그 이상을 수행할 수 있습니다. 자연어는 클릭과 함께 최고의 입력이 됩니다.
+
+논쟁은 "에이전트가 UI를 대체한다"는 것이 아닙니다. "**에이전트는 동등한 파트너로서 맨 위에 UI가 있는 애플리케이션 내부에 속합니다**." 에이전트가 제품을 *is*하는 앱이라도 인간이 제품을 감독, 구성 및 조종하려면 여전히 UI가 필요합니다. [Agent Surfaces — Headless](/docs/agent-surfaces#headless)를 참조하세요.
+
+## 에이전트 + UI 패리티 {#agent-ui-parity}
+
+이것이 정의 원칙입니다.
+
+> **UI에서** — 버튼을 클릭하고, 양식을 채우고, 보기를 탐색합니다. UI는 데이터베이스에 씁니다. 상담원은 결과를 봅니다.
+>
+> **에이전트에서** — 자연어, A2A, Slack, Telegram을 통한 기타 에이전트. 에이전트는 데이터베이스에 씁니다. UI는 자동으로 업데이트됩니다.
+
+<Diagram id="doc-block-jh2i6u" title={"하나의 시스템, 두 가지 방식"} summary={"에이전트와 UI는 동일한 작업과 동일한 데이터베이스에 기록합니다. 한 사람이 무엇을 하든 다른 사람이 본다."}>
+
+```html
+<div class="diagram-parity">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Human<br /><small class="diagram-muted">클릭, 폼, 단축키</small>
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">자연어 · A2A · Slack</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted">defined once</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">SQL 데이터베이스</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">UI가 실시간 업데이트</div>
+</div>
+```
+
+```css
+.diagram-parity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-parity .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-parity .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-parity .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+상담원이 이메일 초안을 작성하면 UI에 표시됩니다. "보내기"를 클릭하면 에이전트는 해당 내용이 전송되었음을 알 수 있습니다. 별도의 "에이전트 세계"와 "UI 세계"는 없으며 하나의 시스템입니다. 이 작업을 수행하는 아키텍처는 [Key Concepts](/docs/key-concepts)를 참조하세요.
+
+## 일반적으로 전동 공구를 위한 맞춤화 {#workspace-customization}
+
+Claude 코드와 같은 도구가 강력하다고 느끼는 이유는 모델이 아니라 **사용자 정의 레이어**입니다: 프로젝트별 지침, skills, 메모리, 하위 에이전트, 연결된 서비스. 귀하의 코드베이스, 선호도, 팀에 맞게 에이전트를 구성할 수 있습니다.
+
+에이전트 네이티브는 앱을 종료하지 않고도 모든 사용자에게 동일한 사용자 정의 레이어를 제공합니다. 각 앱에는 사용자(또는 팀 구성원 누구나)가 다음을 수행할 수 있는 개인 **작업 공간**이 제공됩니다.
+
+- 모든 사람의 에이전트가 읽는 팀 전체 규칙 편집
+- 수정할 때 상담원이 자동으로 기본 설정을 기억하도록 합니다.
+- 재사용 가능한 방법 가이드를 `/slash` 명령으로 작성
+- 특정 작업을 위한 사용자 정의 하위 에이전트 유지(`@mentions`로 호출)
+- 크론에서 실행되도록 작업 예약(예: "매주 월요일 아침, 지난주 요약")
+- 사용자별 MCP 서버를 통해 외부 서비스(Gmail, Stripe, Slack, 내부 API) 연결
+
+트위스트: 파일 시스템이 아닌 데이터베이스에 모두 저장됩니다. 가동할 개발 환경도 없고 사용자당 컨테이너도 없습니다. 모든 사용자는 개인 메모리, 개인 연결, 개인 skills 등 자신만의 전체 작업 공간을 본질적으로 무료로 얻습니다. 왜냐하면 모든 것이 테이블의 행이기 때문입니다. 이것이 바로 실제 멀티 테넌트 SaaS 제품 내에서 Claude 코드 수준의 유연성을 실현할 수 있는 이유입니다.
+
+전체 개념은 [Workspace](/docs/workspace)를 참조하세요.
+
+## 다른 점 {#what-makes-it-different}
+
+| 접근                              | 설명                                                                                                                                                |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **AI가 탑재된 기존 앱**           | AI는 나중에 생각하는 것입니다. 앱에서 실제로 아무것도 할 수 없는 자동 완성, 요약 또는 채팅 사이드바로 제한됩니다.                                   |
+| **순수한 채팅/상담원 인터페이스** | 강력하지만 접근이 불가능합니다. 대시보드도 없고, 워크플로도 없고, 지속성도 없습니다. 개발자가 아닌 사람은 효과적으로 사용할 수 없습니다.            |
+| **SaaS용 Claude 코드 / Codex**    | 자신의 컴퓨터를 사용하는 개발자에게 적합합니다. 다중 테넌트 SaaS로 변환되지 않습니다. 개발 상자에서 사용자당 하나의 코드베이스는 확장되지 않습니다. |
+| **에이전트 기반 앱**              | 요원은 일류 시민입니다. 동일한 데이터베이스, 동일한 상태를 공유하며 UI가 할 수 있는 모든 작업을 수행할 수 있으며 그 반대의 경우도 마찬가지입니다.   |
+
+## 팀 전체 개발 {#whole-team-development}
+
+에이전트 네이티브는 개발자만을 위한 것이 아닙니다. 에이전트는 앱 자체 코드를 편집할 수 있으므로 앱 개발은 더 이상 개발자만의 활동이 아닙니다.
+
+- **디자이너**는 에이전트를 통해 실행 중인 앱에서 직접 디자인을 업데이트합니다.
+- **제품 관리자**는 설명을 통해 기능 및 업데이트 흐름을 추가합니다.
+- **QA**는 앱을 테스트하고 에이전트에게 손상된 부분을 수정하도록 요청합니다.
+- **팀원 누구나** 자연어를 통해 기여
+
+비전: 핸드오프 횟수를 줄이고 한 사람이 소규모 팀의 작업을 수행합니다.
+
+## 포크 및 맞춤설정 {#fork-and-customize}
+
+에이전트 기본 앱은 포크 및 사용자 정의 모델을 따릅니다. 달력, 콘텐츠, 슬라이드, 분석, 메일, 클립, 디자인, 양식, 발송 등 **템플릿**에서 시작하여 나만의 것으로 만들 수 있습니다. 각각은 빈 발판이 아니라 도매로 포크하는 완전하고 작동하는 SaaS 제품입니다.
+
+1. [agent-native.com/templates](/templates)에서 템플릿을 선택하세요
+2. 호스팅 앱으로 즉시 사용하세요(예: mail.agent-native.com)
+3. 맞춤 설정을 원할 때 포크하세요 — "Stripe 계정 연결", "코호트 차트 추가"
+4. 에이전트는 귀하의 요구에 맞게 코드를 수정합니다.
+5. 포크를 자신의 도메인에 배포하거나 Agent-native.com을 유지하세요
+
+공유 인프라가 아닌 _귀하의_ 앱이기 때문에 에이전트는 안전하게 코드를 발전시킬 수 있습니다. 앱을 사용할수록 앱이 계속 개선됩니다. 전체 내용을 보려면 [Templates](/docs/cloneable-saas)를 참조하세요.
+
+전체 템플릿을 포크할 준비가 되지 않았습니까? 이미 사용하고 있는 코딩 에이전트에 **스킬**을 추가하여 에이전트 네이티브를 사용해 볼 수도 있습니다. `npx @agent-native/core@latest skills add visual-plan`로 Plans 스킬을 설치하세요. [Skills Guide](/docs/skills-guide#app-backed-skills)를 참조하세요.
+
+## 구성 가능한 에이전트 {#composable-agents}
+
+에이전트 기반 앱은 서로 통신할 수 있습니다. 메일 앱 내부에서 분석 에이전트에 태그를 지정하여 데이터를 쿼리하고 결과를 초안 이메일에 포함할 수 있습니다. 상담원은 사용 가능한 다른 상담원이 무엇인지 확인하고, 서로 작업을 전달하며, 이미 참여 중인 UI에 결과를 표시합니다.
+
+이 기능은 내부적으로 [A2A](/docs/a2a-protocol) 및 [MCP](/docs/mcp-protocol)로 구동됩니다(동일한 정의, 다양한 표면). 하지만 사용자로서 알아야 할 것은 "내 앱에서 할 수 있는 모든 작업에 대해 도움을 요청할 수 있습니다."
+
+## 이것은 코드에서 어떻게 보일까요? {#what-does-it-look-like-in-code}
+
+에이전트 기반 앱을 구축하거나 확장하는 경우 중심 패턴은 다음과 같습니다. 앱의 모든 작업은 한 번 정의되어 에이전트와 UI 모두에서 사용할 수 있는 **작업**입니다.
+
+<AnnotatedCode
+  id="doc-block-1t9ytb6"
+  title={"한 번 정의된 하나의 작업"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app\'s server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "5",
+      label: "도구 표면",
+      note: "`description`는 이를 도구로 호출할 시기를 결정하기 위해 에이전트가 읽는 것입니다.",
+    },
+    {
+      lines: "6",
+      label: "타입 계약",
+      note: "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A 등 **모든** 표면의 입력을 검증합니다.",
+    },
+    {
+      lines: "7-10",
+      label: "하나의 구현",
+      note: "`run` 본문은 단일 정보 소스입니다. UI 버튼과 에이전트 도구 모두 이를 정확하게 실행합니다.",
+    },
+  ]}
+/>
+
+```tsx
+// In any React component — same action, called from a button
+const { mutate } = useActionMutation("reply-to-email");
+
+<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
+  Send Reply
+</Button>;
+```
+
+```tsx
+// And the agent panel mounted anywhere in your app
+import { AgentSidebar } from "@agent-native/core/client";
+
+<AgentSidebar />;
+```
+
+하나의 작업, 다양한 표면: 에이전트는 이를 도구로 호출하고, UI는 이를 유형 안전 변형으로 호출하고, [native chat](/docs/native-chat-ui)는 명시적인 위젯 결과를 렌더링할 수 있고, 외부 에이전트는 [A2A](/docs/a2a-protocol)를 통해 도달하고, MCP 호스트는 선택적으로 MCP 앱 UI 리소스 및 표준 원격 MCP를 사용하여 앱의 [MCP server](/docs/mcp-protocol)를 통해 호출합니다. OAuth는 프레임워크에서 처리됩니다. 전체 참조는 [Actions](/docs/actions)를 참조하세요.
+
+## 다음 단계 {#whats-next}
+
+- [**Getting Started**](/docs/getting-started) — 하나의 작업으로 시작하거나, 템플릿을 선택하거나, 스킬을 설치하세요.
+- [**Agent Surfaces**](/docs/agent-surfaces) — 헤드리스, 풍부한 채팅, 내장형 사이드카 또는 전체 앱 선택
+- [**Key Concepts**](/docs/key-concepts) — 아키텍처: SQL, actions, 폴링 동기화, 상황 인식, 이식성
+- [**Templates**](/docs/cloneable-saas) — 귀하가 소유한 완전한 제품으로서의 템플릿
+- [**Workspace**](/docs/workspace) — 파일이 아닌 SQL가 지원하는 사용자별 사용자 정의 레이어(skills, 메모리, 지침, MCP)
+- [**Dispatch**](/docs/dispatch) — 작업 공간 제어 플레인: 비밀 저장소, Slack/이메일 받은 편지함, 앱 간 위임
+- [**Extensions**](/docs/extensions) — 코드 변경 없이 에이전트가 즉시 생성하는 샌드박스 미니 앱
+- [**Drop-in Agent**](/docs/drop-in-agent) — `<AgentPanel>`를 React 앱에 마운트

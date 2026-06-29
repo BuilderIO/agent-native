@@ -1,0 +1,179 @@
+---
+title: "文件上传"
+description: "配置文件上传存储 - 用于开发的 SQL 后备、Builder.io 或用于生产的自定义提供程序。"
+---
+
+# 文件上传
+
+该框架提供了一个文件上传抽象，可通过可配置的提供程序路由上传。模板调用 `uploadFile()` 并返回 URL — 存储后端可交换，无需更改应用程序代码。
+
+## 它是如何工作的 {#how-it-works}
+
+上传请求发送至 `POST /_agent-native/file-upload`，后者分派至活动提供者。您可以在`GET /_agent-native/file-upload/status`处查看配置了哪个提供商。
+
+提供者解析顺序是：
+
+1. **用户注册的提供程序** — 通过 `registerFileUploadProvider()` 注册的自定义提供程序
+2. **Builder.io 提供程序** — 内置，连接 Builder.io 时自动激活
+3. **SQL 后备** - 将文件作为 base64 存储在数据库中（适合开发，不适用于生产）
+
+<Diagram id="doc-block-4gomr8" title={"提供商决议顺序"} summary={"uploadFile() 按顺序选择第一个配置的提供程序。 SQL 后备始终存在，因此上传可以零设置进行。"}>
+
+```html
+<div class="diagram-upload">
+  <div class="diagram-box" data-rough>
+    uploadFile()<br /><small class="diagram-muted"
+      >POST /_agent-native/file-upload</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-step">
+      <span class="diagram-pill accent">1</span>
+      <div class="diagram-node">
+        用户注册<br /><small class="diagram-muted"
+          >registerFileUploadProvider() — S3, R2, GCS…</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span>
+      <div class="diagram-node">
+        Builder.io<br /><small class="diagram-muted"
+          >连接后自动启用——由 CDN 提供</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill warn">3</span>
+      <div class="diagram-node">
+        SQL 兜底<br /><small class="diagram-muted"
+          >数据库中的 base64——仅开发使用</small
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-upload .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-upload .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-upload .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1p7mnrm" title={"上传端点"} method="POST" path="/_agent-native/file-upload" summary={"通过活动提供者上传文件并返回公共URL。"} request={{
+  "contentType": "multipart/form-data"
+}} responses={[
+  {
+    "status": "200",
+    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+  }
+]}>
+
+Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.
+
+</Endpoint>
+
+## 默认：SQL 后备 {#sql-fallback}
+
+当没有配置提供者时，文件通过资源系统以base64数据存储在SQL数据库中。这对于本地开发来说是开箱即用的，但不建议用于生产——大文件会使数据库膨胀，而且没有 CDN。
+
+使用后备时会记录一次性警告。
+
+## Builder.io 托管 {#builder-hosting}
+
+当您的应用连接到 Builder.io 时，文件上传会自动路由到 Builder 的资产托管。文件由 CDN 提供，无需配置。这是推荐的生产设置。
+
+## 自定义提供商 {#custom-providers}
+
+在服务器插件中注册自定义提供程序以使用任何存储后端（S3、Cloudflare R2、GCS 等）：
+
+```ts
+// server/plugins/file-upload.ts
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+
+export default defineNitroPlugin(() => {
+  registerFileUploadProvider({
+    id: "s3",
+    name: "Amazon S3",
+    isConfigured: () => !!process.env.S3_BUCKET,
+    upload: async ({ data, filename, mimeType }) => {
+      const key = `uploads/${Date.now()}-${filename}`;
+      await s3Client.putObject({
+        Bucket: process.env.S3_BUCKET!,
+        Key: key,
+        Body: data,
+        ContentType: mimeType,
+      });
+      return {
+        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
+        provider: "s3",
+      };
+    },
+  });
+});
+```
+
+## 上传API {#upload-api}
+
+`FileUploadProvider`接口：
+
+```ts
+interface FileUploadProvider {
+  id: string; // Unique id, e.g. "s3"
+  name: string; // Human-readable name
+  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+}
+
+interface FileUploadInput {
+  data: Uint8Array | Buffer; // File contents
+  filename?: string; // Original filename
+  mimeType?: string; // MIME type, e.g. "image/png"
+  ownerEmail?: string; // For per-user scoping in fallback
+}
+
+interface FileUploadResult {
+  url: string; // Public URL for the uploaded file
+  id?: string; // Provider-specific id
+  provider: string; // Which provider handled it
+}
+```
+
+在 actions 或服务器代码中使用 `@agent-native/core/file-upload` 中的 `uploadFile()`：
+
+```ts
+import { uploadFile } from "@agent-native/core/file-upload";
+
+const result = await uploadFile({
+  data: fileBuffer,
+  filename: "photo.jpg",
+  mimeType: "image/jpeg",
+});
+
+if (result) {
+  // Provider handled it — result.url is the public URL
+} else {
+  // No provider configured — handle SQL 兜底 yourself, or skip
+}
+```

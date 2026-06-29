@@ -1,0 +1,482 @@
+---
+title: "Consciência do Contexto"
+description: "Como o agente sabe o que o usuário está vendo: estado de navegação, contexto de seleção, tela de visualização, transferências sendToAgentChat, comandos de navegação e prevenção de jitter."
+---
+
+# Consciência do Contexto
+
+> **Página do desenvolvedor.** Esta página é para desenvolvedores que conectam a camada de contexto do aplicativo. Para a experiência do usuário final (como o agente usa esse contexto na conversa), consulte [Using Your Agent](/docs/using-your-agent).
+
+Como o agente sabe o que o usuário está vendo e como o agente pode controlar o que o usuário vê.
+
+## Visão geral {#overview}
+
+Sem consciência do contexto, o agente fica cego. Ele pergunta "qual e-mail?" quando o usuário está olhando para um. Ele não pode agir na seleção atual, não pode fornecer sugestões relevantes e não pode modificar o que o usuário vê. Com reconhecimento de contexto, o usuário pode clicar em uma linha, destacar um parágrafo, selecionar um elemento do slide ou pressionar Cmd+I e dizer "resuma isto" e o agente já saberá o que "isto" significa.
+
+Para entender o que colocar em qual superfície (AGENTS.md vs. skills vs. application_state), consulte [Writing Agent Instructions — The four surfaces the agent sees](/docs/writing-agent-instructions#four-surfaces).
+
+Seis padrões resolvem isso:
+
+1. **Estado de navegação** -- o UI grava uma chave `navigation` no estado da aplicação em cada mudança de rota
+2. **URL atual** – a estrutura grava `__url__` para que os parâmetros de consulta sejam visíveis e editáveis pelo agente
+3. **Estado de seleção** -- o UI grava uma chave `selection` quando o usuário foca, seleciona ou seleciona multiplamente algo significativo
+4. **`view-screen`** – uma ação que lê o estado do aplicativo, busca dados contextuais e retorna um instantâneo do que o usuário vê
+5. **Transferência imediata** -- UI controla a chamada `sendToAgentChat()` quando um clique deve se tornar uma vez do agente
+6. **`navigate`** – um comando único do agente que informa ao UI para onde ir
+
+<Diagram id="doc-block-104616q" title={"Como o agente vê o que você vê"} summary={"A UI grava chaves de estado leves; view-screen os hidrata em registros reais; o agente pode escrever e navegar de volta para mover a IU."}>
+
+```html
+<div class="diagram-ctx">
+  <div class="diagram-card col">
+    <span class="diagram-pill">UI escreve</span>
+    <div class="diagram-node">
+      navigation<br /><small class="diagram-muted"
+        >visualização, IDs abertos</small
+      >
+    </div>
+    <div class="diagram-node">
+      __url__<br /><small class="diagram-muted">shareable filters</small>
+    </div>
+    <div class="diagram-node">
+      selection<br /><small class="diagram-muted">linhas, blocos, formas</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">view-screen</span
+    ><small class="diagram-muted">reads state &middot; fetches records</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Agente age<br /><small class="diagram-muted">on the real object</small>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box diagram-accent">
+    navigate<br /><small class="diagram-muted">agente move a UI</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-ctx {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-ctx .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-ctx .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-ctx .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Camadas de contexto {#context-layers}
+
+Use canais de contexto diferentes para trabalhos diferentes:
+
+| Camada                                                    | Proprietário      | Use-o para                                                                                      |
+| --------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
+| Chave de estado do aplicativo `navigation`                | UI                | Estado da rota semântica: visualização atual, registro aberto, guia ativa, IDs estáveis         |
+| Chave de estado do aplicativo `__url__`                   | Estrutura UI      | Nome do caminho atual, string de pesquisa, hash e parâmetros de consulta URL analisados         |
+| Chave de estado do aplicativo `__set_url__`               | Agente/estrutura  | Edições URL únicas de `set-search-params` e `set-url-path`                                      |
+| Chave de estado do aplicativo `selection`                 | UI                | Seleção semântica durável: linhas, blocos, formas, ativos, mensagens                            |
+| Chave de estado do aplicativo `pending-selection-context` | UI / `AgentPanel` | Texto selecionado de uma só vez anexado ao próximo turno de bate-papo, geralmente de Cmd+I      |
+| Ação `view-screen`                                        | Agente            | Transformando as chaves de estado do aplicativo em registros reais e resumos de tela            |
+| `sendToAgentChat()`                                       | UI                | Transformar um clique, comando, pin de comentário ou item selecionado em um prompt de bate-papo |
+| Chave de estado do aplicativo `navigate`                  | Agente            | Pedindo ao UI para mover para outra rota ou focar outro objeto                                  |
+
+A versão resumida: os parâmetros de consulta URL são a fonte da verdade para filtros compartilháveis, `navigation` armazena IDs semânticos e nomes de visualização, `view-screen` transforma essas camadas de estado em dados úteis e `sendToAgentChat()` transforma a intenção UI em uma mensagem de bate-papo quando o usuário clica em um comando.
+
+## Estado de navegação {#navigation-state}
+
+O UI grava uma chave `navigation` no estado do aplicativo em cada mudança de rota. Isso informa ao agente em qual visualização o usuário está, qual item está aberto e qual estado semântico do UI é importante.
+
+```json
+{
+  "view": "inbox",
+  "threadId": "thread-123",
+  "focusedEmailId": "msg-456",
+  "label": "important"
+}
+```
+
+O que incluir no estado de navegação:
+
+- `view` – a página/seção atual, como "caixa de entrada", "construtor de formulário" ou "painel"
+- IDs de item – o item selecionado/aberto, como `threadId` ou `formId`
+- Alias semânticos: guia ativa, nome do rótulo ou outros conceitos de aplicativo estáveis que ajudam o agente a raciocinar
+- Estado de foco claro – linha em foco, guia ativa, painel atual
+
+Mantenha `navigation` pequeno e semântico. Deve identificar a tela atual, não duplicar registros inteiros ou espelhar todos os parâmetros de consulta. Busque registros em `view-screen` para que o agente sempre obtenha dados atualizados.
+
+O agente lê isto antes de agir:
+
+```ts
+import { readAppState } from "@agent-native/core/application-state";
+
+const navigation = await readAppState("navigation");
+// { view: "inbox", threadId: "thread-123", label: "important" }
+```
+
+## URL atual e filtros {#current-url}
+
+`AgentPanel` sincroniza automaticamente o roteador React atual URL com a chave de estado do aplicativo `__url__`. O agente integrado o inclui sempre como um bloco `<current-url>`:
+
+```text
+<current-url>
+pathname: /adhoc/revenue
+search: ?f_region=west&q=renewal
+searchParams:
+  f_region: west
+  q: renewal
+</current-url>
+```
+
+Esta é a camada canônica para estado de filtro compartilhável. Se o usuário puder copiar um URL e voltar para a mesma lista filtrada, o filtro pertencerá à string de consulta. O agente pode alterar esses filtros com a ferramenta integrada `set-search-params`:
+
+```text
+set-search-params({ "params": { "f_region": "east", "q": null } })
+```
+
+Use `navigation` apenas para aliases semânticos que ajudam `view-screen` a buscar ou resumir os dados corretos. Um painel pode manter `navigation.dashboardId` enquanto `__url__.searchParams` possui `f_region`, `f_dateStart` e `q`.
+
+Quando `view-screen` retorna um instantâneo mais rico, ele pode copiar filtros URL importantes em um objeto `activeFilters` amigável:
+
+```ts
+const url = (await readAppState("__url__")) as {
+  searchParams?: Record<string, string>;
+} | null;
+
+if (url?.searchParams) {
+  screen.activeFilters = Object.fromEntries(
+    Object.entries(url.searchParams).filter(
+      ([key, value]) => key.startsWith("f_") && value,
+    ),
+  );
+}
+```
+
+## Estado de seleção {#selection-state}
+
+A seleção é o estado semântico UI. É como "o gráfico em que cliquei", "estas três linhas", "o título deste slide" ou "o intervalo atual de rascunhos de e-mail" se tornam um contexto visível para o modelo.
+
+Use a chave de estado do aplicativo `selection` para uma seleção durável que deve sobreviver a um momento de navegação, sugestões de bate-papo vazio ou uma chamada `view-screen` posterior:
+
+```json
+{
+  "kind": "slide.elements",
+  "deckId": "deck-123",
+  "slideId": "slide-4",
+  "items": [
+    {
+      "id": "hero-title",
+      "selector": "[data-block-id='hero-title']",
+      "label": "Hero title",
+      "text": "Lançamento do T3 plan"
+    }
+  ],
+  "capturedAt": 1780332977027
+}
+```
+
+Escreva no UI quando o usuário seleciona, foca ou faz seleção múltipla de objetos significativos:
+
+```tsx
+import { setClientAppState } from "@agent-native/core/client";
+
+async function syncSelection(selection: unknown | null) {
+  await setClientAppState("selection", selection, { keepalive: true });
+}
+```
+
+Um bom estado de seleção inclui:
+
+- IDs estáveis que o agente pode usar em actions, como `threadId`, `slideId` ou `assetId`
+- Um pequeno rótulo humano para que os avisos e sugestões sejam legíveis
+- Texto ou metadados suficientes para desambiguar o objeto
+- Localizadores UI opcionais, como seletores ou coordenadas quando o agente precisa consultar um elemento visual
+- `capturedAt` quando a seleção obsoleta seria prejudicial
+
+Evite armazenar segredos, documentos completos, grandes cargas binárias ou respostas API inteiras em `selection`. Armazene IDs e trechos curtos e deixe `view-screen` buscar a fonte atual da verdade.
+
+### Texto selecionado de uma só vez {#pending-selection-context}
+
+`AgentPanel` já lida com o fluxo comum de seleção de texto. Quando o usuário pressiona Cmd+I (ou Ctrl+I) com o texto selecionado na página, ele:
+
+1. Lê `window.getSelection()`
+2. Grava `{ text, capturedAt }` em `pending-selection-context`
+3. Focaliza o bate-papo do agente
+
+O agente de produção injeta essa chave no próximo turno como contexto de seleção imediata e a ignora quando fica obsoleta. Este é o caminho que faz com que "selecione o texto, pressione Cmd + I, pergunte 'torne isso mais forte'" funcione sem que o usuário copie a seleção no prompt.
+
+Editores personalizados podem escrever a mesma chave quando sua seleção não é representada pela seleção nativa do navegador:
+
+```tsx
+import { setClientAppState } from "@agent-native/core/client";
+
+await setClientAppState(
+  "pending-selection-context",
+  {
+    text: selectedMarkdown,
+    capturedAt: Date.now(),
+  },
+  { keepalive: true },
+);
+```
+
+Use `pending-selection-context` para fluxos únicos de "atuar exatamente neste texto realçado". Use `selection` para seleção durável de objetos que `view-screen` e sugestões dinâmicas devem continuar vendo.
+
+## A ação da tela de visualização {#view-screen-action}
+
+Cada modelo deve ter uma ação `view-screen`. Ele lê o estado de navegação e seleção, busca os dados relevantes e retorna um instantâneo do que o usuário vê. Estes são os olhos do agente.
+
+<AnnotatedCode
+  id="doc-block-9e0r3k"
+  title={"view-screen — os olhos do agente"}
+  filename="actions/view-screen.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { readAppState } from "@agent-native/core/application-state";\nimport { eq, inArray } from "drizzle-orm";\nimport { z } from "zod";\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description:\n    "See what the user is currently looking at on screen.",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState("navigation")) as any;\n    const selection = (await readAppState("selection")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === "inbox") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === "email.messages") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return "No application state found. Is the app running?";\n    }\n    return screen;\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10-11",
+      label: "Superfície da ferramenta",
+      note: "O agente lê esta descrição para saber que pode chamar `view-screen` para ver o UI atual.",
+    },
+    {
+      lines: "13",
+      label: "http: false",
+      note: "Ação interna — não exposta em HTTP. O agente e `pnpm action` chamam isso, não o navegador.",
+    },
+    {
+      lines: "15-16",
+      label: "Estado de leitura",
+      note: "Extrai as chaves leves `navigation` e `selection` que UI escreveu.",
+    },
+    {
+      lines: "23-37",
+      label: "Hidratar",
+      note: "Transforma esses IDs em registros **frescos** direto de SQL, para que o agente verifique o objeto ativo antes de agir.",
+    },
+  ]}
+/>
+
+O agente deve chamar `pnpm action view-screen` antes de agir no UI atual. Esta é uma convenção difícil em todos os modelos. Ao adicionar novos recursos, atualize `view-screen` para retornar dados para a nova visualização e qualquer nova forma de seleção.
+
+<Callout id="doc-block-1d0fh4i" tone="info">
+
+**Mantenha `navigation` e `selection` pequenos.** Armazene IDs mais rótulos curtos, não registros inteiros. `view-screen` busca a fonte da verdade sob demanda, para que o estado obsoleto ou volumoso nunca chegue ao agente.
+
+</Callout>
+
+## Transferência imediata com `sendToAgentChat()` {#send-to-agent-chat}
+
+Às vezes, o contexto não deve ficar apenas no estado do aplicativo. Um usuário clica em um botão, coloca um alfinete de comentário, seleciona um item e escolhe “Perguntar ao agente” ou pressiona um comando de IA em uma barra de ferramentas. Esse clique é uma instrução. No navegador UI, entregue-o ao agente com `sendToAgentChat()`.
+
+```tsx
+import { sendToAgentChat } from "@agent-native/core/client";
+
+function askAgentAboutSelection(selection: {
+  documentId: string;
+  blockId: string;
+  label: string;
+  text: string;
+}) {
+  sendToAgentChat({
+    message: `Improve the selected block: ${selection.label}`,
+    context: [
+      `Document id: ${selection.documentId}`,
+      `Block id: ${selection.blockId}`,
+      "Current selected text:",
+      selection.text,
+    ].join("\n"),
+    submit: false,
+    openSidebar: true,
+  });
+}
+```
+
+Use os campos deliberadamente:
+
+| Campo               | Significado                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| `message`           | Texto de prompt visível mostrado no bate-papo                                                             |
+| `context`           | Contexto oculto visível do modelo, não mostrado como texto de bate-papo voltado para o usuário            |
+| `submit: true`      | Enviar imediatamente; bom para botões de comando explícitos, como "Corrigir layout"                       |
+| `submit: false`     | Pré-preenchimento para revisão do usuário; bom para "Pergunte ao agente sobre isso" ou seleções ambíguas  |
+| `openSidebar: true` | Tornar a resposta do agente visível mesmo se o painel estiver recolhido                                   |
+| `newTab: true`      | Inicie um tópico de bate-papo separado para uma tarefa de criação maior                                   |
+| `type: "code"`      | Rotear para o quadro de edição de código quando a solicitação for sobre alteração da origem do aplicativo |
+
+`sendToAgentChat()` é o wrapper de navegador compatível para o caminho do bate-papo enviado, às vezes visto internamente como `agentNative.submitChat`. O aplicativo UI deve chamar o wrapper em vez de postar `agentNative.submitChat` diretamente porque o wrapper lida com barras laterais locais, roteamento Builder/Frame, roteamento de host do aplicativo MCP, IDs de guias e roteamento de solicitação de código.
+
+Use `agentChat.submit()` ou `agentChat.prefill()` para contextos de nó/script onde não há barra lateral do navegador. O servidor actions geralmente não deve chamar `sendToAgentChat()` somente no navegador; se uma ação precisar do UI aberto para perguntar algo ao agente, escreva uma pequena solicitação em `application_state` e deixe uma ponte UI enviá-la do navegador.
+
+### Itens clicados no prompt {#clicked-items-in-prompt}
+
+Para a experiência "clique nos itens no UI e eles se tornarão parte do prompt", combine o estado de seleção com a transferência do prompt:
+
+1. Ao clicar ou selecionar várias vezes, escreva o estado semântico `selection` para que `view-screen`, sugestões dinâmicas e curvas futuras possam vê-lo.
+2. Se o clique também for um comando, chame `sendToAgentChat()` com um `message` visível conciso e um `context` oculto mais rico.
+3. Em `view-screen`, hidrate os IDs selecionados nos registros atuais para que o agente possa verificar o objeto antes de transformá-lo.
+4. Limpe `selection` quando o objeto não estiver mais selecionado, excluído ou não for mais relevante.
+
+Isso dá ao usuário o comportamento mágico "é isso que eu quis dizer", sem encher cada prompt com um contexto visível volumoso.
+
+## A ação de navegação {#navigate-action}
+
+`navigate` é a imagem espelhada de `navigation`. Onde `navigation` é o UI informando ao agente onde o usuário está, `navigate` é o agente informando ao UI para onde ir. O agente grava um comando `navigate` único no estado do aplicativo; o UI lê, realiza a navegação e depois exclui a entrada.
+
+```ts
+// Agent side -- write a navigate command
+import { writeAppState } from "@agent-native/core/application-state";
+
+await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
+```
+
+No lado UI você nunca pesquisa ou exclui essa chave manualmente. Ambas as direções – escrever `navigation` em cada mudança de rota e consumir o comando `navigate` do agente – são tratadas por um único gancho, [`useNavigationState`](#use-navigation-state), abordado na próxima seção.
+
+A chave `navigation` pertence ao UI; o agente nunca deve escrever diretamente para ele. O agente escreve `navigate`, o UI executa a movimentação, e essa movimentação é o que atualiza `navigation`.
+
+Quando o destino tiver um URL real, inclua um `path` de mesma origem no
+comando `navigate` e faça com que UI prefira esse caminho antes de voltar para
+campos semânticos. Mantenha a navegação do aplicativo em canal único: não escreva ambos
+`navigate` e `__set_url__` para o mesmo movimento. `__set_url__` é para o
+ferramentas da estrutura URL (`set-url-path`, `set-search-params`) e filtro somente URL
+mudanças. Para comandos que podem chegar durante o streaming do chat, confirme a rota
+com `navigate(path, { replace: true, flushSync: true })` em vez de envolvê-lo
+em uma transição de visualização para que a barra de endereço e a página visível permaneçam juntas.
+
+## O gancho useNavigationState {#use-navigation-state}
+
+`useNavigationState` é **o gancho do seu aplicativo, não uma importação de estrutura.** Cada modelo envia um em `app/hooks/use-navigation-state.ts` e o chama uma vez no shell do aplicativo (`root.tsx`). É o único lugar que conecta a navegação em ambas as direções:
+
+- **Saída (UI → agente):** grava a chave `navigation` sempre que a rota muda, para que o agente sempre saiba a visualização atual.
+- **Entrada (agente → UI):** pesquisa o comando `navigate`, executa a navegação e exclui o comando.
+
+Ele permanece curto porque é um invólucro fino em torno da primitiva da estrutura real, `useAgentRouteState` (exportado de `@agent-native/core/client`). Você fornece duas funções específicas do aplicativo e a estrutura faz o resto:
+
+```tsx
+// app/hooks/use-navigation-state.ts -- this file lives in YOUR app
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
+
+interface NavigationState {
+  view: "inbox" | "thread";
+  threadId?: string;
+  path?: string;
+}
+
+export function useNavigationState() {
+  useAgentRouteState<NavigationState>({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+
+    // UI → agent: derive semantic state from the current URL.
+    getNavigationState: ({ pathname }) => {
+      const match = pathname.match(/^\/thread\/([^/]+)/);
+      return match ? { view: "thread", threadId: match[1] } : { view: "inbox" };
+    },
+
+    // agent → UI: turn a `navigate` command into a route to push.
+    getCommandPath: (command) =>
+      command.path ??
+      (command.view === "thread" && command.threadId
+        ? `/thread/${command.threadId}`
+        : "/"),
+    navigateOptions: { replace: true, flushSync: true },
+  });
+}
+```
+
+| Você escreve                                                  | A estrutura lida com                                                                                             |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `getNavigationState` — mapeie o URL para o estado semântico   | Gravações `navigation`, com escopo de guia e uma chave substituta global                                         |
+| `getCommandPath` — mapeia um comando `navigate` para uma rota | sondagem de comando, exclusão após leitura, proteção contra comando duplicado, marcação de origem de solicitação |
+
+`useAgentRouteState` assume o roteador React. Quando a navegação não reside no URL - uma etapa do assistente, uma seleção de tela, um shell que não é do roteador - vá para o `useSemanticNavigationState` de nível inferior: você entrega a ele um valor `state` pronto mais `navigationKeys`/`commandKeys` e um retorno de chamada `onCommand`, e ele permanece completamente agnóstico em relação ao roteador React.
+
+## Prevenção de instabilidade {#jitter-prevention}
+
+Quando o agente grava no estado do aplicativo, o sistema de sincronização pode fazer com que o UI recupere os dados que acabou de gravar. Isso cria instabilidade. A solução é a marcação na origem:
+
+Use `setClientAppState`, `writeClientAppState`, `readClientAppState` e `deleteClientAppState` de `@agent-native/core/client` para acesso ao estado do aplicativo no navegador. Passe `{ requestSource: TAB_ID }` em gravações UI ao emparelhar com `useDbSync({ ignoreSource: TAB_ID })`; passe `{ keepalive: true }` para gravações de curta duração, como limpeza de seleção durante o descarregamento.
+
+```ts
+// app/root.tsx
+import { TAB_ID } from "@/lib/tab-id";
+
+useDbSync({
+  queryClient,
+  ignoreSource: TAB_ID, // ignore events from this tab's own writes
+});
+```
+
+Como funciona:
+
+- As gravações do agente são marcadas com `requestSource: "agent"` (os auxiliares de ação fazem isso automaticamente)
+- As gravações UI incluem o ID exclusivo da guia por meio do cabeçalho `X-Request-Source`
+- O servidor armazena a origem de cada evento
+- Ao processar eventos de sincronização, o UI filtra os eventos que correspondem ao seu próprio valor `ignoreSource` - para que ele não recupere os dados que acabou de gravar
+- Eventos de agentes, outras guias e actions ainda ocorrem normalmente
+
+<Diagram id="doc-block-kn5blq" title={"A marcação de origem interrompe o jitter de auto-rebusca"} summary={"Uma guia ignora eventos de sincronização marcados com seu próprio TAB_ID, mas ainda reage às gravações do agente e de outras guias."}>
+
+```html
+<div class="diagram-jitter">
+  <div class="diagram-node">
+    Esta aba escreve<br /><small class="diagram-muted"
+      >X-Request-Source: TAB_ID</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Servidor armazena origem<br />on the event
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card col">
+    <div class="diagram-pill warn">source == TAB_ID &rarr; ignored</div>
+    <small class="diagram-muted">sem refetch, sem piscar</small>
+    <div class="diagram-pill ok">agent / other tab &rarr; applied</div>
+    <small class="diagram-muted">A UI atualiza ao vivo</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-jitter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jitter .col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-jitter .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>

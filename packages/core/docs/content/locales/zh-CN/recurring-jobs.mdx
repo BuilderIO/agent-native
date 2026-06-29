@@ -1,0 +1,217 @@
+---
+title: "重复性工作"
+description: "Cron 调度提示代理自行运行 - 每日摘要、每周报告、每小时轮询。"
+---
+
+# 重复性工作
+
+**重复作业**是按 cron 计划运行的提示。这就是代理自己做事的方式：“每天早上 7 点总结我隔夜收到的电子邮件”，“每周一将上周的注册号码发布到 Slack”，“每小时清理陈旧的草稿并将其删除。”
+
+重复性工作按时进行。要对*事件*（创建的预订、收到的电子邮件）做出反应 - 相同的 `jobs/` 文件格式加上条件 - 请参阅 [Automations](/docs/automations)。
+
+作业位于 `jobs/<name>.md` 的 [workspace](/docs/workspace) 中 — 只是一个带有 YAML frontmatter 的 Markdown 文件。无需注册，无需接线。将文件放入，框架就会拾取它。
+
+## 作业文件 {#job-file}
+
+<AnnotatedCode
+  id="doc-block-lugzn6"
+  title="jobs/morning-digest.md"
+  filename="jobs/morning-digest.md"
+  language="markdown"
+  code={
+    '---\nschedule: "0 7 * * *"\nenabled: true\nrunAs: creator\n---\n\n# 早间摘要\n\n总结隔夜收到的电子邮件。按发件人域分组。\n将今天看起来需要回复的前 3 个线程固定到\n"Needs reply" 标签。对任何显而易见的问题草拟答复。'
+  }
+  annotations={[
+    {
+      lines: "2",
+      label: "当",
+      note: "标准 5 字段 cron — `0 7 * * *` 是每天 07:00。",
+    },
+    {
+      lines: "3",
+      label: "暂停开关",
+      note: "Flip to `false` to stop the job without deleting it.",
+    },
+    {
+      lines: "4",
+      label: "身份",
+      note: "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key.",
+    },
+    {
+      lines: "7-12",
+      label: "提示",
+      note: "主体只是一个提示 - 代理在每次触发时使用其所有常规工具和工作区上下文运行它。",
+    },
+  ]}
+/>
+
+就是这样。正文是代理在每次计划触发时运行的提示。代理可以访问其在交互式聊天中拥有的所有相同工具和工作区上下文 - actions、skills、内存、连接的 MCP 服务器、子代理。
+
+## 前线 {#frontmatter}
+
+| 字段         | 类型                          | 默认        | 描述                                                                                    |
+| ------------ | ----------------------------- | ----------- | --------------------------------------------------------------------------------------- |
+| `schedule`   | cron 表达式                   | _（必填）_  | 标准 5 字段 cron。 `"0 7 * * *"` = 每天 07:00； `"0 */4 * * *"` = 每 4 小时一次。       |
+| `enabled`    | 布尔值                        | `true`      | 翻转到 `false` 以暂停而不删除作业。                                                     |
+| `runAs`      | `"creator"` \| `"shared"`     | `"creator"` | `"creator"` 以作业所有者的身份和 `ANTHROPIC_API_KEY` 运行。 `"shared"` 使用组织的密钥。 |
+| `createdBy`  | 电子邮件                      | _（自动）_  | 当通过工作区 UI 或代理创建作业时填充。                                                  |
+| `orgId`      | 字符串                        | _（自动）_  | 组织范围；从创建者的活动组织继承。                                                      |
+| `lastRun`    | ISO时间戳                     | _（托管）_  | 由调度程序在每次运行后写入。                                                            |
+| `lastStatus` | `"success"` \| `"error"` \| … | _（托管）_  | 最新结果。                                                                              |
+| `lastError`  | 字符串                        | _（托管）_  | 如果上次运行失败，则会出现错误消息。                                                    |
+| `nextRun`    | ISO时间戳                     | _（托管）_  | 由`schedule`计算得出；由调度程序用来决定下次何时触发。                                  |
+
+`last*` 和 `nextRun` 字段由调度程序写入。您可以阅读它们以查看历史记录，但不要手动编辑它们 - 下次运行将覆盖它们。
+
+## cron 语法 {#cron}
+
+标准 5 字段 cron（分钟、小时、月份、月份、星期几）：
+
+| 定时任务       | 含义           |
+| -------------- | -------------- |
+| `*/5 * * * *`  | 每 5 分钟      |
+| `0 * * * *`    | 每小时整点     |
+| `0 */4 * * *`  | 每 4 小时一次  |
+| `0 7 * * *`    | 每天 07:00     |
+| `0 9 * * 1`    | 每周一 09:00   |
+| `0 17 * * 1-5` | 工作日 17:00   |
+| `0 0 1 * *`    | 每个月的第一天 |
+
+该框架包括用于验证和呈现 cron 字符串的 cron 实用程序（`isValidCron()` 和 `describeCron()`），由资源层和调度程序层在内部使用。
+
+## 创建作业 {#creating}
+
+### 从“工作区”选项卡
+
+`+` → **工作区面板中的计划任务**。填写提示和时间表。另存为 `jobs/<slug>.md` 并在下一个匹配的刻度处开始运行。
+
+### 通过询问代理
+
+> “创建一个计划任务，每天早上 7 点总结我未读的电子邮件。”
+
+代理会为您写入文件。
+
+### 手动
+
+通过框架的资源APIs将Markdown文件拖放到`jobs/`中：
+
+```ts
+import { resourcePut } from "@agent-native/core/resources";
+
+await resourcePut(
+  ownerEmail,
+  "jobs/morning-digest.md",
+  `---
+schedule: "0 7 * * *"
+enabled: true
+---
+Summarize overnight emails.`,
+);
+```
+
+## 调度程序如何运行 {#how-scheduler-runs}
+
+调度程序是一个在进程中运行的框架插件（内部 `processRecurringJobs()` 例程）：无论服务器在何处运行，代理聊天插件内的 `setInterval` 每 60 秒触发一次（有 10 秒的启动延迟）。
+
+<Diagram id="doc-block-1u2v87h" title={"一个调度程序勾选"} summary={"每 60 秒，调度程序就会找到到期的作业，将每个作业作为新的代理线程运行，并将结果写回作业文件。"}>
+
+```html
+<div class="sched">
+  <div class="diagram-box accent">
+    <code>setInterval</code> &bull; 60s &#8635;
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">1 &middot; scan</span
+    ><small class="diagram-muted"
+      >list every enabled <code>jobs/*.md</code> across all owners</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2 &middot; due?</span
+    ><small class="diagram-muted">compare <code>nextRun</code> to now</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">3 &middot; run</span
+    ><small class="diagram-muted"
+      >fresh agent thread, job body as the user message &mdash; actions, SQL,
+      A2A, email</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">4 &middot; record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code>, recompute <code>nextRun</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.sched {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 520px;
+}
+.sched .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.sched .diagram-box {
+  align-self: flex-start;
+}
+.sched .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
+}
+```
+
+</Diagram>
+
+<Callout id="doc-block-j6yn07" tone="risk">
+
+**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+
+</Callout>
+
+## 调试作业 {#debugging}
+
+- 在工作区中打开 `jobs/<name>.md` — frontmatter 显示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
+- **无需等待即可测试：**没有强制发射工具。要按需执行相同的工作，可以将作业的提示粘贴到代理聊天中并让它在那里运行，或者暂时将计划设置为下一分钟，以便调度程序在下一个时间点上选择它（然后恢复真正的 cron）。
+- **暂停：**翻转`enabled: false`。文件保持不变，只是停止运行。
+
+## 代理工具 {#agent-tool}
+
+每个模板中都会注册一个 `manage-jobs` 工具。 `action`参数选择操作：
+
+| 行动     | 参数                                                            | 目的                                              |
+| -------- | --------------------------------------------------------------- | ------------------------------------------------- |
+| `create` | `name`、`schedule`、`instructions`（必填）； `scope`、`runAs`   | 创建新的定期作业                                  |
+| `list`   | `scope`（`personal`、`shared` 或全部）                          | 列出所有作业的状态（计划、已启用、上次/下次运行） |
+| `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs` | 编辑现有作业                                      |
+| `delete` | `name`（必填）                                                  | 删除作业 - 始终先与用户确认                       |
+
+**个人与共享范围。**每个作业都位于个人范围（作为创建者运行且仅对创建者可见）或共享/组织范围（代表创建者运行但对组织成员可见）。 `scope` 和 `runAs` 参数在创建时对此进行控制。组织管理员可以更新或删除任何共享作业；非管理员成员只能管理自己的成员。
+
+## 与调度包不同 {#vs-scheduling-package}
+
+不要将重复性作业与 `@agent-native/scheduling` 混淆：
+
+- **重复作业（本页）** — cron 计划*提示*代理在后台运行。框架级别。住在工作区。在任何代理本机应用程序上运行。
+- **`@agent-native/scheduling`** — 用于构建日历/预订功能（事件类型、可用窗口、预订）的可重用域包。为 `calendar` 模板和自定义调度界面提供支持。
+
+重复性工作是“如何让代理自行行动？”日程安排包是“如何构建日历应用程序？”不同的关注点。
+
+## 下一步是什么
+
+- [**Automations**](/docs/automations) — 将事件触发器和条件添加到相同的 `jobs/` 格式
+- [**Workspace**](/docs/workspace) — 作业与 skills、内存和自定义代理一起存在
+- [**Actions**](/docs/actions) — 工作调用的工具
+- [**Agent Teams**](/docs/agent-teams) - 作业通常会产生子代理来执行并行工作

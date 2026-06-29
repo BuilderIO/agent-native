@@ -1,0 +1,121 @@
+---
+title: "Instalador do Blueprint"
+description: "agent-native add imprime uma receita de integração Markdown selecionada para stdout — canalize-a para seu agente de codificação, que aplica as alterações em seu repositório ativo."
+---
+
+# Instalador do Blueprint
+
+> **A quem se destina:** autores de hospedagem e integradores adicionando um provedor, canal,
+> back-end de sandbox ou ação para um repositório canalizando uma receita para seu agente de codificação.
+
+`agent-native add` **não** é um andaime burro que grava arquivos para você. Ele emite um _plano de integração_ Markdown com curadoria para stdout. Você canaliza esse projeto para seu próprio agente de codificação (código Claude, Codex,…), que aplica as alterações ao repositório ativo com contexto completo.
+
+Isso se ajusta ao estilo doméstico do agente-aplica-mudanças, sistema de arquivos primeiro: a estrutura fornece a receita (os arquivos canônicos a serem alterados, as regras a serem respeitadas, a etapa de verificação) e o agente de codificação faz a edição.
+
+```bash
+agent-native add provider stripe | claude
+agent-native add channel discord  | codex
+```
+
+<Diagram id="doc-block-1u2ta6a" title={"adicione imprime uma receita; seu agente de codificação aplica"} summary={"agent-native emite um blueprint Markdown para stdout (diagnóstico para stderr); você canaliza para Claude Code ou Codex, que edita seu repositório ativo com contexto completo."}>
+
+```html
+<div class="diagram-bp">
+  <div class="diagram-node" data-rough>
+    agent-native add<br /><small class="diagram-muted"
+      >&lt;kind&gt; &lt;name|URL&gt;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Blueprint Markdown<br /><small class="diagram-muted"
+      >stdout · arquivos a tocar · regras · verificar</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    Agente de código<br /><small class="diagram-muted">claude · codex</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill ok">edits your live repo</div>
+</div>
+```
+
+```css
+.diagram-bp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-bp .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-bp .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Uso {#usage}
+
+```bash
+agent-native add <kind> <name>            # print a curated blueprint
+agent-native add <kind> <https://docs…>   # pesquisar e integrar a partir de um URL
+agent-native add --list                   # list available kinds and blueprints
+```
+
+- Um **nome** simples resolve um blueprint selecionado de `blueprints/<kind>/<name>.md`.
+- Um **URL** em vez de um nome emite um projeto genérico de _pesquisa e integração_ para esse tipo, com o URL incorporado como o ponto de partida da pesquisa (um URL é uma semente de pesquisa, não uma receita conhecida).
+- O blueprint vai para **stdout**; os diagnósticos vão para stderr, então `… | claude` só recebe o projeto.
+
+## Projetos propagados {#seeded}
+
+`agent-native add --list` mostra o que vem na caixa:
+
+| Gentil     | Nome      | O que configura                                                                            |
+| ---------- | --------- | ------------------------------------------------------------------------------------------ |
+| `provider` | `stripe`  | Conecte um provedor ao substrato `provider-api` (catálogo/documentos/trio de solicitação). |
+| `channel`  | `discord` | Implemente um canal webhook de entrada `PlatformAdapter` e registre-o.                     |
+| `sandbox`  | `docker`  | Implemente a junção `SandboxAdapter` para executar `run-code` em um contêiner Docker.      |
+| `action`   | `crud`    | Adicione um único `defineAction` multisuperfície com um esquema Zod (um `update` sobre N). |
+
+Cada blueprint é independente: o agente de codificação que o lê faz com que os arquivos sejam tocados, as regras da estrutura sejam respeitadas (actions são a única fonte da verdade, nunca codificam segredos, definem o escopo dos dados que podem ser adquiridos, adicionam um conjunto de alterações para a fonte `packages/*`) e uma seção concreta **Verificar**.
+
+## URL → plano de pesquisa {#url}
+
+Quando você passa por um URL do tipo que não tem uma receita selecionada (ou deseja uma nova integração), o `add` emite um modelo genérico de "pesquisar e integrar" com o URL como semente:
+
+```bash
+agent-native add provider https://docs.example.com/api | claude
+```
+
+O blueprint gerado diz ao agente de codificação para buscar o URL (e as páginas às quais ele está vinculado) para os endpoints reais, modelo de autenticação, formas de carga útil e requisitos de assinatura/verificação - _não_ para adivinhar a partir dos dados de treinamento - e então implementar e verificar. Ele também traz orientações específicas do tipo (por exemplo, um `provider` URL é direcionado para o substrato `provider-api`; um `channel` URL para um `PlatformAdapter`).
+
+## Adicionando seu próprio projeto {#authoring}
+
+Solte um arquivo Markdown em `packages/core/blueprints/<kind>/<name>.md`. O tipo é o subdiretório; o nome é o nome do arquivo sem `.md`. Ele é obtido automaticamente - `--list`, resolução de nomes e o catálogo leem o diretório em tempo de execução. Nenhuma alteração de código é necessária para registrá-lo.
+
+Os arquivos Blueprint `.md` são enviados no pacote publicado por meio da entrada `blueprints` em `package.json` `files`, portanto, eles são resolvidos em `node_modules/@agent-native/core/blueprints/**` para usuários finais.
+
+Escreva cada blueprint como um conjunto de instruções para um agente de codificação sem outro contexto. Um bom plano tem:
+
+1. **Uma meta de uma linha** e um enquadramento "você é um agente de codificação em um aplicativo nativo do agente, aplique-os como alterações de origem reais".
+2. **Leia primeiro** — os arquivos exatos que _são_ o contrato.
+3. **Arquivos para tocar** — caminhos concretos e o que cada alteração faz.
+4. **Regras de estrutura a serem respeitadas** — actions-first, sem segredos codificados, escopo de dados proprietários, adição de um conjunto de alterações para fonte de pacote publicável.
+5. **Verificar** — verificação de tipo, um `*.spec.ts` focado e uma verificação de ponta a ponta.
+
+> [!TIP]
+> Um novo blueprint selecionado em um tipo existente não precisa de código, mas se você criar um diretório de tipo totalmente novo, esse tipo também aparecerá automaticamente em `--list`.
+
+## O que vem a seguir
+
+- [**Sandbox Adapters**](/docs/sandbox-adapters) — a costura que o projeto `add sandbox docker` tem como alvo
+- [**Actions**](/docs/actions) — a única fonte de verdade na qual todo projeto se baseia
+- [**External Agents**](/docs/external-agents) — conectando o agente de codificação ao qual você canaliza os projetos

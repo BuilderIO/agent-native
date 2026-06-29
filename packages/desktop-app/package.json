@@ -29,6 +29,7 @@
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
     "@radix-ui/react-select": "2.2.6",
+    "@sentry/electron": "^7.14.0",
     "@tabler/icons-react": "^3.40.0",
     "electron-updater": "^6.8.3",
     "sonner": "^2.0.7"

@@ -62,6 +62,7 @@ import {
   listGmailMessages,
   gmailToEmailMessage,
   getAccountDisplayName,
+  getOAuth2Credentials,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
@@ -177,8 +178,8 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     tokens.expiry_date < Date.now() + 5 * 60 * 1000
   ) {
     try {
-      const clientId = process.env.GOOGLE_CLIENT_ID!;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+      const { clientId, clientSecret } =
+        await getOAuth2Credentials(accountEmail);
       const oauth = createOAuth2Client(
         clientId,
         clientSecret,

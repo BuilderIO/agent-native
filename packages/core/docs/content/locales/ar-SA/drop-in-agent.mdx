@@ -1,0 +1,340 @@
+---
+title: "وكيل الدخول"
+description: "قم بتثبيت دردشة الوكيل + مساحة العمل في أي تطبيق React باستخدام <AgentPanel>، و<AgentSidebar>، وsendToAgentChat()."
+---
+
+# وكيل الدخول
+
+> **صفحة المطور.** هذه الصفحة مخصصة للمطورين الذين يقومون بدمج الوكيل في تطبيق React. للتعرف على تجربة المستخدم النهائي في العمل مع الوكيل، راجع [Using Your Agent](/docs/using-your-agent).
+
+لست بحاجة إلى إنشاء وكيل أصلي من البداية. يتم شحن دردشة الوكيل وعلامة تبويب مساحة العمل ومحطة CLI والإدخال الصوتي وجميع البنية التحتية ذات الصلة كمجموعة من مكونات React التي تضعها في أي تطبيق.
+
+> **المتطلبات الأساسية:** يجب أن يقوم الخادم بتشغيل `agent-chat-plugin` (يتم تركيبه تلقائيًا في كل قالب). إذا كنت تبدأ من الصفر، فراجع [Server](/docs/server).
+>
+> هل تحتاج إلى خريطة API العامة بدلاً من البرنامج التعليمي؟ انظر [Component API](/docs/components).
+
+## نظرة سريعة على المكونات {#components}
+
+| المكون                | ما هو                                                                            | استخدمه عندما                                            |
+| --------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `<AgentSidebar>`      | يغلف تخطيط التطبيق الجذر ويضيف لوحة جانبية قابلة للتبديل تحتوي على الوكيل الكامل | تريد أن يكون الوكيل متاحًا بجانب تطبيقك على كل شاشة      |
+| `<AgentToggleButton>` | فتح/إغلاق `<AgentSidebar>` (ضعه في رأسك)                                         | إقران مع `<AgentSidebar>`                                |
+| `<AgentPanel>`        | اللوحة الأولية نفسها — الدردشة + CLI + علامات تبويب مساحة العمل                  | تريد التحكم الكامل في التخطيط، أو صفحة وكيل مخصصة        |
+| `<AgentChatSurface>`  | سطح دردشة/صفحة مزود بأسلاك مسبقة                                                 | تريد الدردشة بدون غلاف الشريط الجانبي                    |
+| `<AssistantChat>`     | عارض الدردشة ذو المستوى الأدنى مع ربطات الملحن/السجل                             | تحتاج إلى كروم مخصص للمحادثة القياسية UI                 |
+| `sendToAgentChat()`   | إرسال رسالة إلى الدردشة برمجيًا                                                  | زر يقوم بتسليم العمل إلى الوكيل بدلاً من التشغيل المضمّن |
+| `useActionMutation()` | مجمّع الواجهة الأمامية الآمنة حول الإجراء                                        | يحتاج UI إلى تشغيل نفس العملية التي ستجريها أداة الوكيل  |
+
+يتم تصدير كل هذه العناصر من `@agent-native/core/client`.
+
+<Diagram id="doc-block-aqmizx" title={"نموذج جبل"} summary={"<AgentSidebar> يغلف تخطيطك الحالي. يتم عرض مساراتك في المنطقة الرئيسية؛ يتم تركيب لوحة الوكيل بجانبهم. <AgentPanel> هي نفس اللوحة بدون الغلاف."}>
+
+```html
+<div class="diagram-mount">
+  <div class="diagram-box sidebar" data-rough>
+    <span class="diagram-pill accent">&lt;AgentSidebar&gt;</span>
+    <div class="inner">
+      <div class="diagram-node main">
+        تطبيقك<br /><small class="diagram-muted"
+          >children: header + &lt;Outlet/&gt;</small
+        >
+      </div>
+      <div class="diagram-node panel">
+        لوحة الوكيل<br /><small class="diagram-muted"
+          >chat &middot; CLI &middot; workspace</small
+        >
+      </div>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-card alt">
+    <span class="diagram-pill">&lt;AgentPanel&gt;</span
+    ><small class="diagram-muted"
+      >same panel, no wrapper &mdash; you own the layout</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-mount {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mount .sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-mount .inner {
+  display: flex;
+  gap: 10px;
+}
+.diagram-mount .main {
+  flex: 2;
+}
+.diagram-mount .panel {
+  flex: 1;
+}
+.diagram-mount .alt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-mount .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## حالة 80%: `<AgentSidebar>` {#sidebar}
+
+الإعداد الأكثر شيوعًا هو الشريط الجانبي الذي يفتح من اليمين على أي شاشة.
+قم بلف تخطيط الجذر الموجود لديك باستخدام `<AgentSidebar>`؛ مهما تم تمريره كـ
+يبقى الأطفال في منطقة التطبيق الرئيسية. دردشة الوكيل هي اللوحة الجانبية.
+
+<AnnotatedCode
+  id="doc-block-1nt1prb"
+  title={"تغليف تخطيط الجذر بـ <AgentSidebar>"}
+  filename="app/root.tsx"
+  language="tsx"
+  code={
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="كيف يمكنني المساعدة؟"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "المجمع",
+      note: "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area.",
+    },
+    {
+      lines: "8-12",
+      label: "يبدأ تشغيل المطالبات",
+      note: "يتم عرض `suggestions` كشرائح قابلة للنقر في الدردشة الفارغة.",
+    },
+    {
+      lines: "13",
+      label: "شرائح تدرك السياق",
+      note: '`dynamicSuggestions` merges screen-aware prompts (e.g. "Summarize this selection") with your static ones. On by default.',
+    },
+    {
+      lines: "18-20",
+      label: "زر التبديل",
+      note: "Put `<AgentToggleButton />` anywhere in your header to open and close the panel.",
+    },
+    {
+      lines: "22-24",
+      label: "تطبيقك",
+      note: "`<Outlet/>` (your routes) renders in the main area, untouched.",
+    },
+  ]}
+/>
+
+هذا كل شيء. أصبح لدى المستخدم الآن وكيل قابل للتبديل في كل صفحة - مع سجل الدردشة، وعلامة تبويب مساحة العمل، ومحطة CLI، والإدخال الصوتي، ووضع ملء الشاشة. تستمر الحالة عبر عمليات إعادة التحميل عبر `localStorage`.
+
+### الدعائم
+
+- **`children`** — التخطيط والمسارات العادية لتطبيقك. المقدمة في المنطقة الرئيسية. يتم تثبيت لوحة الوكيل بجانبها على سطح المكتب وفوقها على الهاتف المحمول/ملء الشاشة.
+- **`emptyStateText`** — تظهر الترحيب عندما لا تحتوي الدردشة على رسائل. الافتراضي: `"How can I help you?"`.
+- **`suggestions`** — يتم عرض مطالبات البدء كشرائح قابلة للنقر عندما تكون فارغة.
+- **`dynamicSuggestions`** — تم دمج شرائح المطالبة المدركة للسياق مع `suggestions`. ممكّن افتراضيًا؛ قم بتمرير `false` لعرض الاقتراحات الثابتة فقط، أو `{ max, includeStatic, getSuggestions }` للتخصيص.
+- **`defaultSidebarWidth`** — عرض البكسل الأولي (للتثبيت فقط؛ تغيير حجم المستخدم وتجاوز القيمة المحفوظة). الافتراضي: `380`.
+- **`position`** — `"left"` أو `"right"`. الافتراضي: `"right"`.
+- **`defaultOpen`** — ما إذا كان الشريط الجانبي يبدأ مفتوحًا (سطح المكتب فقط). الافتراضي: `false`.
+
+## الـ 20% الأخرى: `<AgentPanel>` {#panel}
+
+عندما تحتاج إلى التحكم الكامل في التخطيط - مسار `/chat` مخصص، أو لوحة مضمنة في عمود جانبي تديره، أو نافذة منبثقة - قم بعرض `<AgentPanel>` مباشرةً:
+
+```tsx
+// app/routes/agent.tsx
+import { AgentPanel } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return (
+    <div className="h-screen">
+      <AgentPanel defaultMode="chat" className="h-full" />
+    </div>
+  );
+}
+```
+
+يمنحك `<AgentPanel>` علامات التبويب الأولية (الدردشة / CLI / مساحة العمل) بدون غلاف الشريط الجانبي، أو زر الطي، أو أي ثبات للحالة. ضعها أينما تريد؛ يمكنك التعامل مع التخطيط.
+
+### الدعائم المحددة
+
+- **`defaultMode`** — `"chat"` أو `"cli"`. الافتراضي: `"chat"`.
+- **`className`** — فئة CSS للحاوية الخارجية.
+- **`onCollapse`** — إذا تم توفيره، فسيظهر زر طي في الرأس.
+- **`isFullscreen`** / **`onToggleFullscreen`** — قم بتوصيل حالة ملء الشاشة الخارجية إذا كنت تريد عمودًا مركزيًا بنمط Claude.
+- **`storageKey`** — مساحة الاسم لمفاتيح `localStorage`. يكون ذلك مفيدًا عند عرض لوحات متعددة (مثيلات تطبيق أو مساحات عمل مختلفة) في نفس الصفحة.
+
+الدعائم الكاملة: `AgentPanelProps` في `@agent-native/core/client`.
+
+## الرسائل البرمجية: `sendToAgentChat()` {#send}
+
+زر يقوم بتسليم العمل إلى الوكيل (بدلاً من تشغيل استدعاء `llm()` المضمن - النمط المضاد من [ladder](/docs/what-is-agent-native#the-ladder)):
+
+```tsx
+import { sendToAgentChat } from "@agent-native/core/client";
+
+<Button
+  onClick={() =>
+    sendToAgentChat({
+      message: "Generate a chart showing signups by source",
+      context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
+      submit: true,
+    })
+  }
+>
+  Generate chart
+</Button>;
+```
+
+### الخيارات
+
+- **`message`** — المطالبة المرئية التي تظهر في الدردشة.
+- **`context`** — سياق مخفي مُلحق بالموجه (النص المحدد، موضع المؤشر، معرف الكيان الحالي — أي شيء يجب أن يعرفه الوكيل ولكن لا ينبغي للمستخدم رؤيته مرتين).
+- **`submit`** — `true` للتشغيل التلقائي، و`false` للتعبئة المسبقة ولكن انتظر. تجاهل استخدام المشروع الافتراضي.
+- **`newTab`** — أنشئ سلسلة محادثات منفصلة لهذه المطالبة.
+- **`background`** — مع `newTab`، قم بالتشغيل دون تركيز الخيط الجديد. يتم تتبع المسار المخفي في `RunsTray`.
+- **`openSidebar`** — تم ضبطه على `false` للإرسال في الخلفية/الصامت. يفتح الإعداد الافتراضي الشريط الجانبي حتى يرى المستخدم الاستجابة.
+- **`type`** — يحتفظ `"content"` (افتراضي) بالعمل في وكيل التطبيق المضمن. يوجه `"code"` إلى إطار تحرير التعليمات البرمجية (للاطلاع على تغييرات التعليمات البرمجية المكتوبة بواسطة الوكيل، راجع [Frames](/docs/frames)).
+
+يُرجع `sendToAgentChat` `tabId` مستقرًا يمكنك استخدامه لتتبع تشغيل الدردشة.
+
+للعمل الصامت، قم بإقران `newTab` و`background` و`openSidebar: false`:
+
+```ts
+sendToAgentChat({
+  message: "Summarize the selected thread and save the summary",
+  context: `Thread id: ${threadId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+لا يزال هذا وكيلًا كاملاً يتم تشغيله باستخدام الأدوات، وactions، وحالة مؤشر الترابط، والتشغيل
+التتبع. إنه ببساطة لا يسرق التركيز من حالة الشريط الجانبي الحالية للمستخدم.
+
+عندما يتم تضمين نفس المسار كتطبيق MCP، يتم إرساله
+تتم إعادة توجيه مكالمات `sendToAgentChat()` إلى الدردشة المضيفة حيثما تكون مدعومة؛ انظر
+[Client](/docs/client#sendtoagentchat) لسلوك جسر تطبيق MCP.
+
+إذا كنت تريد حالة تحميل، فاستخدم الخطاف `useSendToAgentChat()` - فهو يُرجع كلاً من `send` و`isGenerating`:
+
+```ts
+import { useSendToAgentChat } from "@agent-native/core/client";
+
+const { send, isGenerating } = useSendToAgentChat();
+```
+
+## عندما لا يكون الشريط الجانبي للأسهم مناسبًا {#custom-chat-ui}
+
+يغطي `<AgentSidebar>` و`<AgentPanel>` معظم التطبيقات. عندما تحتاج إلى امتلاك
+التخطيط حول الوكيل، أو إذا كنت ترغب في تعزيز المحادثة مع الوكيل
+الذي أنشأته في مكان آخر، قم بإسقاط طبقة - ولكن استمر في السماح لإطار العمل بامتلاك
+وقت التشغيل، وactions، والحالة المدعومة SQL:
+
+- **امتلك Chrome خلال وقت التشغيل القياسي.** استخدم `<AgentChatSurface>` لـ
+  مسار دردشة مخصص، أو `<AssistantChat>` عندما تريد رؤوسًا مخصصة،
+  والحالات الفارغة حول المحادثة القياسية. خريطة الطبقة الكاملة —
+  يعيش كل مكون وخطاف وملحن ومحول مع مسارات الاستيراد في
+  [Component API](/docs/components#agent-chat-ui).
+- **إحضار وقت تشغيل الوكيل الخاص بك.** إذا كان ينبغي على الوكيل الذي أنشأته في مكان آخر
+  دعم المحادثة بينما يحتفظ Agent-Native بالملحن والنص والأداة
+  البطاقات والموافقات والأدوات الأصلية، قم بتمرير `AgentChatRuntime` إلى
+  `<AssistantChat runtime={...} />`. الموصلات
+  (`createHttpAgentChatRuntime()` وOpenAI / Claude / Vercel AI / AG-UI
+  المساعدون) وعقد الحدث موثق في
+  [Native واجهة الدردشة — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+
+أيًا كانت الطبقة التي تختارها، احتفظ بحالة التطبيق المدعومة بـ actions وSQL كعقد،
+وتجنب النشر مباشرة إلى `/_agent-native/agent-chat` من المنتج UI. إذا كان
+المساعد المسمى مفقود لسطح مخصص حقيقي، قم بإضافة هذا المساعد أولاً لذلك
+لا يتعلم كود العميل عملية نقل ثانية مخصصة.
+
+## Typesafe actions من UI: `useActionMutation()` {#use-action-mutation}
+
+عندما يحتاج UI إلى تشغيل نفس العملية، سيتم تشغيل أداة الوكيل - الدرجة 3 من [ladder](/docs/what-is-agent-native#rung-three) - استخدم `useActionMutation`:
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client";
+
+const { mutate, isPending } = useActionMutation("reply-to-email");
+
+<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
+  Send Reply
+</Button>;
+```
+
+تأتي وسائط النوع الآمن من مخطط zod في `defineAction()`. راجع [Actions](/docs/actions) للتعرف على نظام العمل الكامل.
+
+<Callout id="doc-block-1757zi5" tone="decision">
+
+**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+
+</Callout>
+
+## التحديد + التعرف على المؤشر {#selection}
+
+يمكن للوكيل رؤية ما حدده المستخدم - النص والخلايا والشرائح وجهات الاتصال - عبر مفتاحي `navigation` و`selection` في حالة التطبيق. تستخدم الدردشة الفارغة أيضًا هذه المفاتيح لتقديم اقتراحات ديناميكية مثل "تلخيص هذا التحديد" أو "تحسين هذه الشريحة" عندما تجعلها الشاشة الحالية ذات صلة. إذا كنت تريد من Cmd-I (أو ما شابه) إرسال نطاق محدد إلى الدردشة كسياق، راجع [Context Awareness](/docs/context-awareness).
+
+## تجميع كل ذلك معًا {#putting-it-together}
+
+الإعداد المنسدلة النموذجي:
+
+```tsx
+// app/root.tsx
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  sendToAgentChat,
+} from "@agent-native/core/client";
+
+export default function Root() {
+  return (
+    <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>
+      <Header>
+        <AgentToggleButton />
+      </Header>
+
+      <Main>
+        <YourRoutes />
+      </Main>
+    </AgentSidebar>
+  );
+}
+```
+
+```tsx
+// Anywhere else in the app
+<Button
+  onClick={() =>
+    sendToAgentChat({
+      message: "Summarize this thread",
+      context: `Thread id: ${threadId}`,
+      submit: true,
+    })
+  }
+>
+  Summarize
+</Button>
+```
+
+يرى المستخدم زر الدردشة في الرأس، ويمكنه فتحه، ويمكنه التحدث إلى الوكيل. تعمل أزرارك اليدوية مع نفس الوكيل بدلاً من إجراء مكالمات LLM لمرة واحدة.
+
+## ما هي الخطوة التالية
+
+- [**Actions**](/docs/actions) — `defineAction()` و`useActionMutation()`
+- [**Context Awareness**](/docs/context-awareness) — الاختيار، التنقل، شاشة العرض
+- [**Workspace**](/docs/workspace) — ما تحتويه علامة تبويب مساحة العمل (skills، الذاكرة، خوادم MCP، المهام المجدولة)
+- [**Voice Input**](/docs/voice-input) — الميكروفون الموجود في مؤلف الدردشة

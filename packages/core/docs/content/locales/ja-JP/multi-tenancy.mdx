@@ -1,0 +1,124 @@
+---
+title: "マルチテナント"
+description: "すべてのエージェント ネイティブ アプリは、設定不要で、組織、チーム メンバー、ロール、組織ごとのデータ分離など、すぐに使用できるマルチテナントです。"
+---
+
+# マルチテナント
+
+すべてのエージェント ネイティブ アプリは、すぐに使えるマルチテナントです。組織、チーム メンバー、役割ベースのアクセス、組織ごとのデータ分離が、構成なしでフレームワークに組み込まれています。
+
+## 無料で得られるもの {#free}
+
+新しい `npx @agent-native/core@latest create` 足場には以下のものがすでに付属しています:
+
+- **ユーザー登録とログイン** — [Authentication](/docs/authentication) を参照。
+- **組織** — ユーザーは組織を作成し、電子メールでメンバーを招待します。各組織は完全に分離されたテナントです。
+- **ロール** — すべてのメンバーは `owner`、`admin`、または `member` です。 actions はロールの承認を確認できます。
+- **組織の切り替え** — セッションはアクティブな組織 (`session.orgId`) を追跡し、それを切り替えるとユーザーとエージェントに表示されるデータが変更されます。
+- **組織ごとのデータ分離** — すべてのクエリのスコープは自動的にアクティブな組織に設定されます。
+
+CRM、プロジェクト トラッカー、サポート インボックス、またはその他のチーム ツールのエージェント ネイティブを評価している場合、マルチテナントの基盤はすでに存在しています。すべてのファーストパーティ テンプレートはマルチテナントです。リストについては、[Cloneable SaaS templates](/docs/cloneable-saas) を参照してください。
+
+<Diagram id="doc-block-1b0ytkl" title={"組織のメンバーシップと隔離"} summary={"ユーザーは owner/admin/member として組織に参加します。すべての所有可能な行には、それを所有するテナントの org_id が含まれており、境界を越えて行がリークすることはありません。"}>
+
+```html
+<div class="mt-grid">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">組織 A</span
+    ><small class="diagram-muted">members: alice (owner), bob (member)</small>
+    <div class="diagram-box">rows where org_id = A</div>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">組織 B</span
+    ><small class="diagram-muted">members: carol (owner)</small>
+    <div class="diagram-box">rows where org_id = B</div>
+  </div>
+</div>
+<div class="mt-wall" aria-hidden="true">
+  <span class="diagram-pill warn">no cross-org reads</span>
+</div>
+```
+
+```css
+.mt-grid {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.mt-grid .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  flex: 1;
+  min-width: 200px;
+}
+.mt-wall {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+```
+
+</Diagram>
+
+## 組織スイッチャー UI {#org-switcher}
+
+組織スイッチャーとメンバー UI は、追加のコードなしですべてのテンプレートでレンダリングされます。これらは、`/_agent-native/org/*` の下でコア組織 REST ルートを駆動します (組織の作成、組織の切り替え、メンバーの一覧表示/招待/削除、ロールの変更、許可される電子メール ドメインの設定)。ユーザーはスイッチャーからアクティブな組織を選択します。メンバー パネルは招待と役割の変更を処理します。
+
+これはフレームワーク独自の `org/` モジュールであり、Better Auth の組織プラグイン (意図的に登録されていない) ではありません。完全な組織管理面 (`createOrganization`、REST ルート、および `invite-member` などのテンプレート作成された `defineAction` ラッパー) は、[Authentication → Organizations](/docs/authentication#organizations) に文書化されています。
+
+## 隔離の仕組み {#isolation}
+
+テナント データは `org_id` 列 (`ownableColumns()` によって追加) によって分離され、フレームワークはすべてのクエリのスコープをアクティブな組織に自動的に設定します: `session.orgId → AGENT_ORG_ID → SQL`。ユーザーが組織を切り替えると、UI、actions、エージェントはすべてその組織のデータのみを参照します。エージェントはユーザーがメンバーではない組織のデータにはアクセスできません。
+
+<Diagram id="doc-block-k7z8tz" title={"セッションからスコープ指定された SQL まで"} summary={"セッション上のアクティブな組織は AGENT_ORG_ID となり、フレームワークはすべてのクエリの WHERE 句に組み込みます。"}>
+
+```html
+<div class="mt-pipe">
+  <div class="diagram-node">
+    session.orgId<br /><small class="diagram-muted"
+      >active org on session</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    AGENT_ORG_ID<br /><small class="diagram-muted">request context</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    SQL row scoping<br /><small class="diagram-muted"
+      >WHERE owner_email = ? AND org_id = ?</small
+    >
+  </div>
+</div>
+```
+
+```css
+.mt-pipe {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mt-pipe .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.mt-pipe .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+これは、ユーザーごとのスコープ設定に使用されるのと同じパイプラインです。 SQL レベルのメカニズム、`ownableColumns()` コントラクト、および `accessFilter` / `resolveAccess` / `assertAccess` ガードについては、スコープ パイプラインの信頼できる唯一の情報源である [Security → Data Scoping](/docs/security#data-scoping) を参照してください。
+
+## 関連ドキュメント {#related}
+
+- [Authentication](/docs/authentication#organizations) — セッション、ソーシャル プロバイダー、および組織管理画面
+- [Security → Data Scoping](/docs/security#data-scoping) — SQL レベルの分離、`ownableColumns()` コントラクト、およびアクセス ガード
+- [Multi-App Workspace](/docs/multi-app-workspace) — 共有認証と RBAC を使用して 1 つのモノリポジトリで複数のエージェント ネイティブ アプリをホストする

@@ -1,0 +1,316 @@
+---
+title: "Compartilhamento e privacidade"
+description: "Compartilhamento no estilo Google Docs, integrado à estrutura. Cada recurso criado pelo usuário (documentos, painéis, designs, apresentações, clipes, gravações, formulários) recebe o mesmo modelo privado por padrão com um compartilhamento consistente UI."
+---
+
+# Compartilhamento e privacidade
+
+Cada recurso que um usuário cria em um aplicativo nativo do agente — um documento, um painel, um design, uma apresentação, uma edição de vídeo, uma gravação de tela, uma transcrição de reunião, um formulário, um link de reserva — é **privado para o criador por padrão**. Outras pessoas só o veem quando o criador o compartilha explicitamente ou altera sua visibilidade para `org` ou `public`.
+
+Parece e funciona como o Google Docs. O mesmo botão de compartilhamento, a mesma caixa de diálogo, o mesmo modelo de visibilidade de três níveis, as mesmas concessões por usuário/por organização, em todos os modelos, sem reinvenção por aplicativo.
+
+## Por que um modelo {#why}
+
+A maioria das estruturas de aplicativos torna o compartilhamento um projeto por recurso. O resultado: cada superfície semelhante a um documento termina com sua própria caixa de diálogo de compartilhamento, seu próprio esquema de permissões, seus próprios bugs de verificação de acesso. No agente nativo, o compartilhamento é uma **estrutura primitiva**. As colunas de esquema, os auxiliares de verificação de acesso, o popover de compartilhamento e o compartilhamento que pode ser chamado pelo agente actions são fornecidos com o núcleo. Um novo modelo obtém a história completa de compartilhamento adicionando duas colunas e uma linha de registro.
+
+Isso também significa que o agente nunca precisará aprender um novo modelo de compartilhamento por aplicativo. Diga ao agente "compartilhe isso com Alice como editora" em qualquer modelo e a mesma ação `share-resource` será acionada.
+
+## Os três níveis de visibilidade {#visibility}
+
+A visibilidade grosseira reside no próprio recurso; subsídios detalhados ficam em uma tabela de ações complementares.
+
+| Visibilidade | Quem pode ver                                                                                                                            |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `private`    | Proprietário + pessoas explicitamente concedidas. **Padrão para cada novo recurso.**                                                     |
+| `org`        | Proprietário + concessões explícitas + qualquer pessoa na mesma organização (somente leitura).                                           |
+| `public`     | Proprietário + concessões explícitas + qualquer pessoa com o link (somente leitura). Não aparece nas listas/pesquisas de outras pessoas. |
+
+`public` é um nível deliberadamente silencioso: um recurso público pode ser acessado por link direto, mas **não** aparece nas barras laterais, listas ou pesquisas de outros usuários. Isso mantém “público para compartilhar o URL” separado de “público para descoberta entre usuários”. Galerias e catálogos de modelos que realmente desejam a descoberta entre usuários optam explicitamente.
+
+<Diagram id="doc-block-1aash3d" title="Visibilidade, ampliando para fora" summary={"A visibilidade aproximada do recurso define o terreno; concessões de compartilhamento explícitas na tabela complementar adicionam pessoas nomeadas no topo."}>
+
+```html
+<div class="share-tiers">
+  <div class="diagram-card">
+    <span class="diagram-pill">private</span
+    ><small class="diagram-muted"
+      >owner + explicit grants only &middot; <strong>default</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">org</span
+    ><small class="diagram-muted">+ anyone in the same org (read-only)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">public</span
+    ><small class="diagram-muted"
+      >+ anyone with the link (read-only) &middot; hidden from others'
+      lists/search</small
+    >
+  </div>
+</div>
+```
+
+```css
+.share-tiers {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.share-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.share-tiers .diagram-arrow {
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Funções em uma concessão de ações {#roles}
+
+Ao compartilhar com um usuário ou organização específica, você escolhe uma função:
+
+- **Visualizador** — somente leitura.
+- **Editor** — ler + escrever.
+- **Admin** — ler + escrever + gerenciar compartilhamentos (pode adicionar/remover outras pessoas).
+
+`admin` NOT muda de propriedade — ainda há exatamente um proprietário por recurso, diferente das concessões de compartilhamento.
+
+## O que está coberto {#covered}
+
+Todo modelo que armazena trabalhos de autoria do usuário usa esse modelo. Concretamente:
+
+- **Conteúdo** — documentos
+- **Apresentações** — apresentações
+- **Design** — designs e recursos
+- **Vídeo** — composições
+- **Clipes** — gravações de tela (estilo Loom)
+- **Formulários** — definições de formulário
+- **Calendário** — links para eventos e reservas
+- **Analytics** — painéis (lançamento — veja o modelo de análise `AGENTS.md`)
+- **Extensões** — miniaplicativos em sandbox (consulte [Extensions](/docs/extensions#sharing))
+
+Cada um deles usa o mesmo auxiliar de esquema `ownableColumns()`, a mesma ação `share-resource` e o mesmo `<ShareButton>` UI. Mude de um modelo para outro e a caixa de diálogo de compartilhamento parecerá idêntica.
+
+## O que não está coberto {#not-covered}
+
+Algumas áreas estão intencionalmente fora do sistema de compartilhamento:
+
+- **Aplicativos de dados pessoais** (Mail, Macros) — com escopo definido pelo usuário por design. Não existe o conceito de "compartilhar minha caixa de entrada".
+- **Aplicativos externos de fonte de verdade** — o controle de acesso reside no sistema upstream, não no aplicativo nativo do agente.
+- **URLs públicos anônimos** — slugs de publicação de formulário e slugs de link de reserva que expõem um URL a usuários desconectados são um eixo separado. Eles vivem ao lado do sistema de compartilhamento, e não em cima dele.
+
+## O compartilhamento UI {#share-ui}
+
+Todo recurso compartilhável recebe um botão de compartilhamento em seu cabeçalho. Clicar nele abre um popover ancorado no botão (não modal) com:
+
+- Seletor de visibilidade (`Private` / `Organization` / `Public link`).
+- Preenchimento automático "Adicionar pessoas ou equipes": pesquise usuários na organização ou cole um e-mail.
+- Uma caixa de seleção `Notificar people` no estilo do Google Docs para concessões de e-mail individuais.
+- Uma lista de concessões atuais com seletores de funções e um controle de remoção.
+- Um botão de copiar link que respeita a visibilidade atual.
+
+O botão de compartilhamento é uma importação única:
+
+```tsx
+import { ShareButton } from "@agent-native/core/client";
+
+<ShareButton
+  resourceType="deck"
+  resourceId={deck.id}
+  resourceTitle={deck.title}
+/>;
+```
+
+Para listas, coloque um `<VisibilityBadge visibility={row.visibility} />` ao lado de cada linha para que os usuários possam ver rapidamente o que é privado e o que é compartilhado.
+
+## Mesmo modelo, agente e UI {#agent-and-ui}
+
+A estrutura monta automaticamente esses actions em cada modelo — o agente os chama como ferramentas e o UI os chama por meio de `useActionQuery` / `useActionMutation`:
+
+| Ação                      | O que faz                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `share-resource`          | Conceda acesso a um usuário ou organização em uma função específica. `notify` opcional controla notificações por e-mail. |
+| `unshare-resource`        | Revogar o acesso de um usuário ou organização.                                                                           |
+| `list-resource-shares`    | Mostrar a visibilidade atual e todas as concessões explícitas.                                                           |
+| `set-resource-visibility` | Mude para `private`, `org` ou `public`.                                                                                  |
+
+Diga ao agente "compartilhe este design com a equipe de marketing como editores" e ele chamará `share-resource` no mesmo endpoint que UI usa. O resultado aparece na caixa de diálogo de compartilhamento na próxima renderização.
+
+## Construindo-o em um novo modelo {#building}
+
+Se você estiver criando um modelo (consulte [Creating Templates](/docs/creating-templates)), o compartilhamento de conexão será curto. Duas adições ao seu esquema:
+
+```ts
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  data: text("data").notNull(),
+  ...ownableColumns(), // adds owner_email, org_id, visibility
+});
+
+export const deckShares = createSharesTable("deck_shares");
+```
+
+<DataModel
+  id="doc-block-vcc7i4"
+  title="Tabela de compartilhamentos de recursos + complementares"
+  summary={
+    "Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
+  }
+  entities={[
+    {
+      id: "deck",
+      name: "decks",
+      note: "...ownableColumns()",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "A única fonte de verdade para propriedade.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "privado | organização | público",
+        },
+      ],
+    },
+    {
+      id: "deckShare",
+      name: "deck_shares",
+      note: "createSharesTable() — one row per grant",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "resource_id",
+          type: "text",
+          fk: "decks.id",
+          nullable: false,
+        },
+        {
+          name: "principal_type",
+          type: "enum",
+          note: "usuário | organização",
+        },
+        {
+          name: "principal_id",
+          type: "text",
+          note: "email (user) or org id (org)",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "visualizador | editor | administrador",
+        },
+        {
+          name: "created_by",
+          type: "text",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "deckShare",
+      to: "deck",
+      kind: "n-n",
+      label: "grants access to",
+    },
+  ]}
+/>
+
+Uma chamada de registro em `server/db/index.ts`:
+
+```ts
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+registerShareableResource({
+  type: "deck",
+  resourceTable: schema.decks,
+  sharesTable: schema.deckShares,
+  displayName: "Deck",
+  titleColumn: "title",
+  getResourcePath: (deck) => `/deck/${deck.id}`,
+  getDb,
+});
+```
+
+Depois disso, as consultas de lista/leitura passam por `accessFilter()` e escrevem actions e usam `assertAccess()` para impor funções.
+
+### Sinalizações de proteção opcionais {#hardening-flags}
+
+`registerShareableResource` aceita dois sinalizadores de segurança para recursos que executam código ou carregam confiança elevada:
+
+```ts
+registerShareableResource({
+  type: "extension",
+  resourceTable: schema.extensions,
+  sharesTable: schema.extensionShares,
+  // ...
+  allowPublic: false, // Reject set-resource-visibility → "public"
+  requireOrgMemberForUserShares: true, // Reject user grants to non-org emails
+});
+```
+
+`allowPublic: false` evita que qualquer chamador — agente ou UI — defina a visibilidade do recurso como `public`. `requireOrgMemberForUserShares: true` rejeita concessões de usuários individuais para endereços de e-mail fora da organização do proprietário do recurso. As extensões definem ambos: o HTML de uma extensão é executado dentro de um iframe que chama actions e DB como o _visualizador_, portanto, o acesso público seria um código arbitrário com as credenciais do visualizador.
+
+<Callout id="doc-block-1ehh444" tone="risk">
+
+For resources that execute code or carry elevated trust (like extensions), set `allowPublic: false` and `requireOrgMemberForUserShares: true`. Otherwise a public share becomes arbitrary code running with the _viewer's_ credentials.
+
+</Callout>
+
+`getResourcePath` fornece aos e-mails de notificação um link de fallback direto quando um compartilhamento é criado pelo agente ou outro chamador que não seja UI. O padrão completo (incluindo o carimbo de propriedade da ação de criação e a receita de migração para tabelas existentes) reside na habilidade do agente `sharing` — o agente o lê sob demanda ao criar um recurso com reconhecimento de compartilhamento.
+
+## Garantias de segurança {#security}
+
+O compartilhamento depende do modelo mais amplo de escopo de dados da estrutura: o acesso de lista/leitura/gravação a tabelas próprias passa por `accessFilter()`/`resolveAccess()`/`assertAccess()`, e os recursos marcados com `org_id` são invisíveis nas organizações. Consulte [Security → Data Scoping](/docs/security#data-scoping) para ver o pipeline completo, o protetor de CI e a superfície da ameaça.
+
+## Veja também {#see-also}
+
+- [Security & Data Scoping](/docs/security) — o filtro de acesso e o modelo de propriedade em que o compartilhamento funciona.
+- [Authentication](/docs/authentication) — sessões, organizações e como a identidade flui no contexto da solicitação.
+- [Extensions](/docs/extensions#sharing) — compartilhamento na superfície do miniaplicativo em sandbox.
+- [Creating Templates](/docs/creating-templates) — conectando `ownableColumns` ao esquema de um novo modelo.

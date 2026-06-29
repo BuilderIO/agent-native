@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
+  columnExpansionForDropSlot,
   distanceFromPointerToRect,
+  dropSlotId,
   isDropSlotAvailable,
   movePanelToDropSlot,
+  preferredDropSlotId,
   removePanelFromLayout,
   type DashboardDropSlot,
 } from "./dashboard-layout";
@@ -82,6 +86,34 @@ describe("dashboard layout rows", () => {
     expect(ids(group.rows)).toEqual([["a", "d", "b", "c"]]);
   });
 
+  it("moves a panel between two charts by expanding a full two-column row", () => {
+    const panels = ["a", "b", "c"].map((id) => panel(id));
+    const slot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    const groups = buildDashboardPanelGroups(panels, 2);
+
+    expect(isDropSlotAvailable(groups, "c", slot)).toBe(true);
+    expect(columnExpansionForDropSlot(groups, "c", slot)).toEqual({
+      columns: 3,
+      sectionPanelId: null,
+    });
+
+    const next = movePanelToDropSlot(panels, "c", slot, 2);
+    const [group] = buildDashboardPanelGroups(next, 3);
+
+    expect(ids(group.rows)).toEqual([["a", "c", "b"]]);
+    expect(next.map((item) => [item.id, item.width])).toEqual([
+      ["a", 1],
+      ["c", 1],
+      ["b", 1],
+    ]);
+  });
+
   it("moves a panel to the right edge of its current row", () => {
     const panels = ["a", "b", "c", "d"].map((id) => panel(id));
     const slot: DashboardDropSlot = {
@@ -111,9 +143,9 @@ describe("dashboard layout rows", () => {
     expect(next).toBe(panels);
   });
 
-  it("keeps invalid full-row column slots out of drag targeting", () => {
-    const panels = [panel("a"), panel("b"), panel("c"), panel("d", 3)];
-    const [group] = buildDashboardPanelGroups(panels, 3);
+  it("keeps maxed-out row column slots out of drag targeting", () => {
+    const panels = ["a", "b", "c", "d", "e", "f", "g"].map((id) => panel(id));
+    const [group] = buildDashboardPanelGroups(panels, 6);
 
     expect(
       isDropSlotAvailable([group], "d", {
@@ -122,7 +154,7 @@ describe("dashboard layout rows", () => {
         rowIndex: 0,
         columnIndex: 1,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isDropSlotAvailable([group], "b", {
         type: "column",
@@ -132,11 +164,38 @@ describe("dashboard layout rows", () => {
       }),
     ).toBe(true);
     expect(
-      isDropSlotAvailable([group], "d", {
-        type: "row",
+      isDropSlotAvailable([group], "g", {
+        type: "column",
         groupKey: "intro",
-        rowIndex: 1,
+        rowIndex: 0,
+        columnIndex: 1,
       }),
+    ).toBe(false);
+  });
+
+  it("precomputes available drop slots for a dragging panel", () => {
+    const panels = [panel("a"), panel("b"), panel("c"), panel("d", 3)];
+    const [group] = buildDashboardPanelGroups(panels, 3);
+    const ids = availableDropSlotIdsForPanel([group], "d");
+
+    expect(
+      ids.has(
+        dropSlotId({
+          type: "row",
+          groupKey: "intro",
+          rowIndex: 1,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      ids.has(
+        dropSlotId({
+          type: "column",
+          groupKey: "intro",
+          rowIndex: 0,
+          columnIndex: 1,
+        }),
+      ),
     ).toBe(true);
   });
 
@@ -152,5 +211,63 @@ describe("dashboard layout rows", () => {
     expect(distanceFromPointerToRect(pointer, middleSlot)).toBeLessThan(
       distanceFromPointerToRect(pointer, leftSlot),
     );
+  });
+
+  it("prefers a nearby column slot when the pointer is between two charts", () => {
+    const rowSlot: DashboardDropSlot = {
+      type: "row",
+      groupKey: "intro",
+      rowIndex: 1,
+    };
+    const columnSlot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    expect(
+      preferredDropSlotId({ x: 318, y: 182 }, [
+        {
+          id: dropSlotId(rowSlot),
+          slot: rowSlot,
+          rect: { left: 0, right: 960, top: 170, bottom: 194 },
+        },
+        {
+          id: dropSlotId(columnSlot),
+          slot: columnSlot,
+          rect: { left: 310, right: 326, top: 0, bottom: 160 },
+        },
+      ]),
+    ).toBe(dropSlotId(columnSlot));
+  });
+
+  it("keeps distant row drop slots reachable near column-aligned x positions", () => {
+    const rowSlot: DashboardDropSlot = {
+      type: "row",
+      groupKey: "intro",
+      rowIndex: 3,
+    };
+    const columnSlot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    expect(
+      preferredDropSlotId({ x: 318, y: 602 }, [
+        {
+          id: dropSlotId(rowSlot),
+          slot: rowSlot,
+          rect: { left: 0, right: 960, top: 590, bottom: 614 },
+        },
+        {
+          id: dropSlotId(columnSlot),
+          slot: columnSlot,
+          rect: { left: 310, right: 326, top: 0, bottom: 160 },
+        },
+      ]),
+    ).toBe(dropSlotId(rowSlot));
   });
 });

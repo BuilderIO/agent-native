@@ -1,0 +1,471 @@
+---
+title: "重要な概念"
+description: "エージェント ネイティブ アプリの仕組み: 最初に actions、SQL データベース、アプリとエージェントのループ、オプションの UI、ポーリング同期、外部エージェントのエントリ ポイント、コンテキスト認識、移植性。"
+---
+
+# 重要な概念
+
+エージェント ネイティブ アプリが内部でどのように動作するか - 原理とアーキテクチャ。このページは契約書です。この方法で構築するビジョンと事例については、[What Is Agent-Native?](/docs/what-is-agent-native) を参照してください。
+
+## アーキテクチャ {#the-architecture}
+
+すべてのエージェント ネイティブ アプリは、次の 3 つの要素が連携して機能します。
+
+> **エージェント** — データの読み取り、書き込み、actions の実行、およびコードの変更を行う自律型 AI。 skills と説明書でカスタマイズ可能。
+>
+> **アプリケーション** — エージェントの周囲の製品表面。これは、最初はアクションのみ、リッチ チャット、小さなコントロール プレーン、またはダッシュボード、フロー、ビジュアライゼーションを備えた完全な React UI画面 である可能性があります。
+>
+> **コンピュータ** — データベース、ブラウザ、コード実行。エージェントは SQL および組み込みツールと直接連携します。 MCP サーバーはオプションのアドオンであり、基盤ではありません。
+
+<Diagram id="doc-block-1ngou9i" title={"エージェント、アプリケーション、およびコンピュータ"} summary={"3 つのレイヤーが 1 つの共有 SQL ストア上で連携します。エージェントとアプリケーションは両方とも同じデータの読み取りと書き込みを行います。"}>
+
+```html
+<div class="diagram-arch">
+  <div class="diagram-row">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Agent</span
+      ><small class="diagram-muted"
+        >データを読み書きし、actionsを実行し、コードを変更</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Application</span
+      ><small class="diagram-muted"
+        >actionのみ、チャット、コントロールプレーン、または完全なReact
+        UI画面</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">
+    &darr;&nbsp;&uarr;
+  </div>
+  <div class="diagram-box" data-rough>
+    Computer<br /><small class="diagram-muted"
+      >SQLデータベース · browser · code execution</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-arch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.diagram-arch .diagram-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.diagram-arch .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 220px;
+}
+.diagram-arch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-arch .diagram-box {
+  text-align: center;
+  padding: 12px 18px;
+}
+```
+
+</Diagram>
+
+ヘッドレス アプリは、`pnpm agent` を使用してフォルダーから同じ本番アプリ エージェント ループを実行できますが、UI アプリは埋め込みエージェント パネルをマウントし、`pnpm dev` を使用してローカルで実行します。クラウドでは、Builder.io はマネージド フレーム (アプリの隣にエージェントをホストする環境) を提供し、チーム向けのコラボレーション、ビジュアル編集、マネージド インフラストラクチャを備えています。
+
+## エージェントの構成要素 {#agent-building-blocks}
+
+すべてのエージェント ネイティブ アプリには、かどうかに関係なく、同じエージェント構成要素があります
+製品サーフェスはヘッドレス、チャットファースト、または完全な UI です:
+
+<FileTree
+  id="doc-block-1kpeiur"
+  title={"ガイダンスと振る舞い"}
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "常時有効な指示: 目的、基本ルール、状態キー、actions インデックス、skills インデックス",
+    },
+    {
+      path: ".agents/skills/<name>/SKILL.md",
+      note: "再利用可能な振る舞い: workflow 手順、policy、例、参照、do/don’t リスト",
+    },
+    {
+      path: "actions/<name>.ts",
+      note: "実行可能な能力: エージェント、UI、CLI、HTTP、MCP、A2A、jobs、webhooks に公開される型付き操作",
+    },
+  ]}
+/>
+
+| ビルディングブロック | 次の用途に使用します                                                                                           | いつロードされるか                                                 |
+| -------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **手順**             | エージェントがすべてのタスクに導入すべき安定したガイダンス: アプリとは何か、不変条件、トーン、インデックス     | 毎ターン                                                           |
+| **Skills**           | 再利用可能な動作: ワークフローに従う方法、ポリシーを適用する方法、証拠を検査する方法、または出力を検証する方法 | スキルの説明がタスクと一致する場合はオンデマンド                   |
+| **Actions**          | 実際の操作: データの読み取りまたは書き込み、API の呼び出し、メッセージの送信、承認の実行、入力された結果の生成 | 毎ターンツールとしてリストされます。呼び出されたときのみ実行される |
+
+Skills と actions は連携して動作します。スキルはエージェントに次のクラスの実行方法を教えます
+仕事。アクションは、その作業の実行中に呼び出すことができるコード パスです。たとえば、
+`customer-research` スキルは、どのソースを検査するかをエージェントに指示し、
+`search-crm` および `create-brief` actions フェッチ中に証拠を要約する方法
+実際のデータを書き込みます。
+
+アーキテクチャを管理する 6 つのルール:
+
+1. **データは SQL に存在します** — すべてのアプリの状態は Drizzle ORM を介してデータベースに存在します
+2. **すべての AI はエージェントを経由します** — インライン LLM 呼び出しはありません
+3. **エージェント操作の場合は Actions** — 複雑な作業は actions として実行されます
+4. **ライブ同期により UI の同期が維持されます** — データベース変更は、ユニバーサル フォールバックとしてポーリングを使用して SSE 経由でストリームされます
+5. **エージェントはコードを変更できます** - アプリは使用するにつれて進化します
+6. **SQL のアプリケーション状態** — 一時的な UI 状態はデータベース内に存在し、エージェントと UI の両方で読み取り可能です
+
+## 4 つの領域のチェックリスト {#four-area-checklist}
+
+ユーザー向けのすべての機能は、該当するすべての領域を更新する必要があります。該当する領域をスキップすると、エージェントとネイティブの契約が破棄されます。アクションのみのプリミティブに UI を強制するのも臭いです。
+
+| 面積               | 説明                                                                |
+| ------------------ | ------------------------------------------------------------------- |
+| **1. UI**          | ユーザーが操作するページ、コンポーネント、またはダイアログ          |
+| **2.アクション**   | 同じ操作に対する actions/ のエージェント呼び出し可能なアクション    |
+| **3. Skills**      | AGENTS.md を更新するか、パターンを文書化するスキルを作成する        |
+| **4.アプリの状態** | ナビゲーション状態、ビュー画面データ、およびナビゲーション コマンド |
+
+UI のみを持つ機能はエージェントには表示されません。 actions のみを備えた完全な UI 機能は、ユーザーには表示されません。 app-state のない機能は、エージェントがユーザーの行動を認識できないことを意味します。ヘッドレス操作は、正当にアクション + 指示から開始し、後で人間が参照、承認、構成、または共有する必要があるときに UI/app-state を追加できます。
+
+## SQL のデータ {#data-in-sql}
+
+すべてのアプリケーションの状態は、Drizzle ORM を介して SQL データベースに保存されます。スキーマはプロバイダーに依存しません。サポートされているデータベース、`DATABASE_URL` 構成、移植性ルールは [Database](/docs/database) にあります。
+
+コア SQL ストアは自動作成され、すべてのテンプレートで使用できます:
+
+- `application_state` — 一時的な UI 状態 (ナビゲーション、ドラフト、選択)
+- `settings` — 永続的なキーと値の構成
+- `oauth_tokens` — OAuth 資格情報
+- `sessions` — 認証セッション
+
+<DataModel
+  id="doc-block-1c6ozmb"
+  title={"コア SQL ストア"}
+  summary={
+    "すべてのテンプレートで自動作成されます。エージェントと UI は両方ともこれらの読み取りと書き込みを行います。"
+  }
+  entities={[
+    {
+      id: "application_state",
+      name: "application_state",
+      note: "エージェントがコンテキストのために読み取る一時的な UI 状態",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+          note: "e.g。 「ナビゲーション」",
+        },
+        {
+          name: "value",
+          type: "json",
+          note: "ビュー、選択、ドラフト",
+        },
+      ],
+    },
+    {
+      id: "settings",
+      name: "settings",
+      note: "永続的なキーと値の構成",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "value",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "OAuth認証情報",
+      fields: [
+        {
+          name: "provider",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "token",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "sessions",
+      note: "認証セッション",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "userId",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+/>
+
+```ts
+// Drizzle schema for domain data
+import { table, text, integer } from "@agent-native/core/db/schema";
+
+export const forms = table("forms", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  schema: text("schema").notNull(), // JSON
+  ownerEmail: text("owner_email"),
+  createdAt: integer("created_at").notNull(),
+});
+```
+
+```bash
+# 迅速なデータベース検査と 1 回限りのメンテナンスのための主要なアクション
+pnpm action db-schema                                       # show all tables
+pnpm action db-query --sql "SELECT * FROM forms"
+pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
+# 大きなテキスト列の Surgical find/replace — 値全体ではなく差分を送信します
+pnpm action db-patch --table documents --column content \
+  --where "id='doc-1'" --find "old heading" --replace "new heading"
+```
+
+実稼働エージェントのチャット プラグインにより、デフォルトで生のデータベースへの書き込みが有効になります
+(`databaseTools: "write"`) エージェントがアプリ所有のデータを待機せずに修正できるようにする
+新しい型のアクション。これらの書き込みは、認証されたユーザー/組織に限定されます。セット
+`databaseTools: "read"` で `db-schema` / `db-query` 検査のみを維持するか、
+`databaseTools: "off"` / `false` は、すべてのデータに対して型付きアプリ actions を要求します
+アクセス
+
+## エージェント チャット ブリッジ {#agent-chat-bridge}
+
+UI が LLM を直接呼び出すことはありません。ユーザーが「チャートの生成」または「概要の書き込み」をクリックすると、UI は `postMessage` 経由でエージェントにメッセージを送信します。エージェントは、完全な会話履歴、skills、指示、反復機能を使用して作業を行います。
+
+```ts
+// In a React component — delegate AI work to the agent
+import { sendToAgentChat } from "@agent-native/core/client";
+
+sendToAgentChat({
+  message: "Generate a chart showing signups by source",
+  context: "Dashboard ID: main, date range: last 30 days",
+  submit: true,
+});
+```
+
+LLM をインラインで呼び出してみませんか?
+
+- **AI は非決定的です。** フィードバックを提供して反復するための会話フローが必要です。ワンショット ボタンではありません。
+- **コンテキストが重要です。** エージェントには、完全なコードベース、手順、skills、および履歴が含まれています。インライン呼び出しにはそのようなことはありません。
+- **エージェントはさらに多くのことを実行できます。** actions を実行し、Web を参照し、コードを変更し、複数のステップを連鎖させることができます。
+- **ヘッドレス実行。** すべてがエージェントを経由するため、あらゆるアプリを Slack、Telegram、または [A2A](/docs/a2a-protocol) 経由の別のエージェントから完全に駆動できます。
+
+## Actions システム {#actions-system}
+
+エージェントが何か複雑なこと (API の呼び出し、データの処理、データベースのクエリなど) を実行する必要がある場合、**アクション** を実行します。 Actions は、デフォルトの `defineAction()` をエクスポートする `actions/` 内の TypeScript ファイルです:
+
+```ts
+// actions/fetch-data.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Fetch data from a source API.",
+  schema: z.object({
+    source: z.string().describe("Data source key, e.g. 'signups'"),
+  }),
+  run: async ({ source }) => {
+    const res = await fetch(`https://api.example.com/${source}`);
+    return await res.json();
+  },
+});
+```
+
+1 回の `defineAction()` 呼び出しで次のことが得られます:
+
+- **エージェント ツール** — エージェントは zod 派生の JSON スキーマを使用してこれを認識し、呼び出すことができます。
+- **フロントエンド フック** — 完全な TypeScript 推論を備えた `useActionMutation("fetch-data")`。
+- **フレームワーク トランスポート** — クライアント フックの背後で自動マウントされます。
+- **CLI** — スクリプト作成およびエージェント開発ループ用の `pnpm action fetch-data --source=signups`。
+- **MCP ツール / A2A ツール** — MCP サーバーまたは A2A が有効になっている場合、同じアクションがそこでも表示されます。
+
+同じロジック、1 つの定義がすべてのコンシューマーに自動的に接続されます。完全なリファレンスについては、[Actions](/docs/actions) を参照してください。
+
+## ライブ同期 {#polling-sync}
+
+データベースの変更は、`useDbSync()` を通じて UI に同期されます。同じプロセスは `/_agent-native/events` 経由でストリームを書き込みます。 `/_agent-native/poll` は引き続きクロスプロセスおよびサーバーレス フォールバックです。エージェントがデータベース (アプリケーションの状態、設定、またはドメイン データ) に書き込むと、バージョン カウンターが増加し、クライアントは関連する React クエリ キャッシュを無効にします。
+
+```ts
+// Client: subscribe to agent/UI data changes once near the app shell
+import { useDbSync } from "@agent-native/core/client";
+
+useDbSync({ queryClient });
+```
+
+フローは次のとおりです:
+
+1. エージェントはデータベースに書き込むアクションを実行します
+2. サーバーは、`"action"` や `"settings"` などのソースを使用して変更イベントを発行します
+3. `useDbSync` は、SSE またはポーリング フォールバック経由で受信します
+4. `useActionQuery` フックとソース バージョン対応の `useQuery` フックの再フェッチ
+5. コンポーネントはページをリロードせずに新しいデータをレンダリングします
+
+<Diagram id="doc-block-49t58o" title={"ライブ同期フロー"} summary={"エージェントの書き込みは、手動更新のない UI レンダリングになります。最初に SSE が行われ、ユニバーサル フォールバックとしてポーリングされます。"}>
+
+```html
+<div class="diagram-sync">
+  <div class="diagram-node">
+    エージェントアクション<br /><small class="diagram-muted"
+      >DB に書き込み</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    変更イベント<br /><small class="diagram-muted"
+      >source: action / settings</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">useDbSync</span
+    ><small class="diagram-muted">SSE &middot; poll fallback</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    クエリ再取得<br /><small class="diagram-muted">再読み込みなしで描画</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-sync .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+}
+```
+
+</Diagram>
+
+これは、メモリ内の状態やファイル システム ウォッチャーではなくデータベースを使用するため、サーバーレスやエッジを含むすべての導入環境で機能します。
+
+## フレーム {#frames}
+
+_frame_ は、アプリの隣にエージェントをホストする環境です。ローカルでは埋め込みパネルです。クラウドでは、それは Builder.io のマネージド サーフェスです。 [Frames](/docs/frames) を参照してください。
+
+エージェント ネイティブ アプリには、アプリ UI とともに AI エージェントを提供する埋め込みエージェント パネルが含まれています。これがアーキテクチャを機能させるものです。エージェントにはコンピュータ (データベース、ブラウザ、コード実行) が必要であり、アプリには AI の作業のためにエージェントが必要です。
+
+> **埋め込みエージェント パネル** — チャットとオプションの CLI ターミナルがすべてのアプリに組み込まれています。 Claude コード、Codex、Gemini、OpenCode、および Builder.io をサポートします。ローカルで実行されます。無料のオープンソース。
+>
+> **クラウド** — リアルタイムのコラボレーション、ビジュアル編集、ロール、権限を備えた任意のクラウドに展開します。チームに最適です。
+
+## コンテキスト認識 {#context-awareness}
+
+エージェントは、ユーザーが何を見ているのかを常に知っています。 UI は、ルートが変更されるたびに、`navigation` キーをアプリケーション状態に書き込みます。エージェントは、行動する前に、`view-screen` アクションを介してそれを読み取ります。
+
+たとえば、電子メール スレッドを開くと、UI は次のような行を更新/挿入します。
+
+```json
+{ "key": "navigation", "value": { "view": "thread", "threadId": "th_abc123" } }
+```
+
+UI はルート変更時にこれを書き込みます。エージェントはアクションを実行する前にそれを (`view-screen` 経由で) 読み取るため、ユーザーがどのスレッド (グラフ、スライド) に注目しているかを常に把握します。
+
+ナビゲーション状態、ビュー画面、ナビゲーション コマンド、ジッター防止などの完全なパターンについては、[Context Awareness](/docs/context-awareness) を参照してください。
+
+## 1 つのアクションで多くの表面 {#protocols}
+
+ドメイン操作をアクションとして 1 回実装します。フレームワークはそれをすべての消費者に公開します。同じ `defineAction()` は、エージェント ツール、タイプセーフ UI フック、HTTP エンドポイント、CLI コマンド、MCP ツール、および A2A ツールになり、オプションの `link`、`mcpApp`、またはサーフェスで必要な場合にのみ明示的なネイティブ ウィジェット メタデータが追加されます。 Skills と手順には動作が含まれています。
+
+完全なプロトコル/サーフェス マトリックス (MCP サーバーと OAuth、MCP アプリ、A2A、ディープ リンク、ネイティブ チャット ウィジェット、AgentChatRuntime コネクタ、エージェント Web、および ACP と A2UI のアダプター ホライズン)、および製品の形状 (ヘッドレス、リッチ チャット、埋め込みサイドカー、フル アプリ) の選択については、を参照してください。 [Agent Surfaces](/docs/agent-surfaces).
+
+## エージェントがコードを変更する {#agent-modifies-code}
+
+これは機能であり、バグではありません。エージェントは、アプリのソース コード (コンポーネント、ルート、スタイル、actions) を安全に編集できます。
+
+壊すべき共有コードベースはありません。アプリの所有者はあなたであり、エージェントは時間の経過とともにアプリを進化させます。
+
+1. テンプレート (分析テンプレートなど) をフォークする
+2. エージェントに依頼してカスタマイズ
+3. 「コホート分析用に新しいグラフ タイプを追加」 - エージェントが作成します
+4. 「Stripe アカウントに接続します」 - エージェントが統合を作成します
+5. 手動で開発しなくてもアプリは改善され続けます
+
+## デフォルトでポータブル {#hosting-agnostic}
+
+2 つのアーキテクチャ ルールにより、データベースとホスト間でアプリの移植性が維持されます。
+
+- **Database-agnostic.** `@agent-native/core/db/schema` でスキーマを書き込み、Drizzle のポータブル クエリ DSL で読み取り/書き込みを行うため、サポートされているプロバイダーで同じコードが実行されます。生の SQL は追加的な移行または 1 回限りのメンテナンスの場合にのみ使用し、パラメータ化され方言に依存しないようにします。 [Database](/docs/database) を参照してください。
+- **ホスティングに依存しない** サーバーは Nitro 上で実行され、任意の展開ターゲットにコンパイルされます。サーバー ルートまたはプラグインではノード固有の API (`fs`、`child_process`、`path`) を決して使用しないでください。また、永続的なサーバー プロセスを想定しないでください。サーバーレスとエッジはステートレスであるため、すべての状態を SQL に保持します。 [Deployment](/docs/deployment) を参照してください。
+
+## ワークスペース {#workspace}
+
+すべてのユーザーは、個人用 **ワークスペース** (命令、skills、メモリ、カスタム サブエージェント、スケジュールされたジョブ、接続された MCP サーバー) を取得し、すべてファイルではなく SQL に保存されます。これにより、ユーザーごとにコンテナーを起動することなく、マルチテナント SaaS 内で Claude コード レベルのカスタマイズが可能になります。 [Workspace](/docs/workspace) を参照してください。
+
+## 関連する構成要素 {#building-blocks}
+
+これらは同じ契約の上にあり、独自の詳細情報があります:
+
+- **[Dispatch](/docs/dispatch)** — ワークスペース コントロール プレーン: 共有受信トレイ、シークレット ボールト、スケジュールされたジョブ、および A2A を介して専門アプリに委任するオーケストレーター。
+- **[Extensions](/docs/extensions)** — エージェントが実行時に作成するサンドボックス化された Alpine.js ミニアプリ。ソースの変更や移行はありません。
+- **[A2A Protocol](/docs/a2a-protocol)** — 同じワークスペース内のアプリが JSON ～ RPC 経由で相互に検出して呼び出しを行う方法。
+
+## 無料で得られるもの {#what-you-get-for-free}
+
+フレームワークを採用することに価値があるのは、主に何を構築する必要がなくなるからです。アプリが 6 つのルールに従うと、次のルールが継承されます。
+
+- **1 つのアクション = すべてのサーフェス。** `defineAction()` で定義されたすべてのアクションは、同時にエージェント ツール、タイプセーフ フロントエンド フック (`useActionQuery` / `useActionMutation`)、フレームワーク所有の HTTP トランスポート、CLI コマンド、外部クライアント用の MCP ツール、および他のエージェント ネイティブ アプリ用の A2A ツールでもあります。オプションの `link` および `mcpApp` メタデータは、2 番目の実装なしでディープ リンクと MCP アプリ UI を追加します。
+- **ユーザーごとの完全なワークスペース。** Skills、共有 `LEARNINGS.md`、個人 `memory/MEMORY.md`、`AGENTS.md`、カスタム サブエージェント、スケジュールされたジョブ、接続された MCP サーバー — すべて SQL でサポートされており、dev-box は必要ありません。 [Workspace](/docs/workspace) を参照してください。
+- **React コンポーネントをドロップインします。** `<AgentPanel />` および `<AgentSidebar />` は、アプリ内の任意の場所にチャットとワークスペースをレンダリングします。 [Drop-in Agent](/docs/drop-in-agent) を参照してください。
+- **BYO エージェント チャット ランタイム。** 同じチャット UI は、OpenAI エージェント、OpenAI レスポンス、Claude エージェント SDK、Vercel AI SDK、AG-UI、または独自の正規化された HTTP ストリームの上に置くことができます。 [Native チャット UI](/docs/native-chat-ui#byo-agent-runtimes) を参照してください。
+- **エージェントと UI 間のライブ同期。** 同じプロセスが `/_agent-native/events` 経由でストリームをすぐに書き込みます。軽量のポーリングにより、サーバーレス、cron、およびクロスプロセス書き込みが収束されます。 actions を変更すると、アクションに基づくクエリが自動的に無効になるため、エージェントが作成したレコードは手動で更新しなくても表示されます。以下の [Live Sync](#polling-sync) を参照してください。
+- **認証、組織、RBAC。** 組織/メンバー/ロールによる優れた認証がすべてのテンプレートに組み込まれています。 [Authentication](/docs/authentication) を参照してください。
+- **コンテキスト認識。** エージェントは、`navigation` アプリ状態キーを通じてユーザーが何を見ているのかを常に認識します。 [Context Awareness](/docs/context-awareness) を参照してください。
+- **MCP クライアント + サーバー、両方向。** アプリは MCP サーバー (ローカル、リモート、ハブ共有) を取り込み、_そして_ 独自の actions を MCP サーバーとして公開します。 [MCP Clients](/docs/mcp-clients) および [MCP Protocol](/docs/mcp-protocol) を参照してください。
+- **アプリ間の委任。** 異なるアプリのエージェントは [A2A](/docs/a2a-protocol) 経由で会話します。同一オリジンのデプロイでは JWT がスキップされます。クロスオリジンは共有 `A2A_SECRET` を使用します。
+- **サブエージェント チーム。** 独自のスレッドとツールを備えたサブエージェントを生成し、チャット内にインライン チップとして表示されます。 [Agent Teams](/docs/agent-teams) を参照してください。
+- **移植性。** Drizzle でサポートされる SQL データベース、Nitro 互換のホスト (Node、Workers、Netlify、Vercel、Deno、Lambda、Bun)。
+
+これは、自分で接着する必要がある「その他すべて」です。
+
+## ディープダイブ {#deep-dives}
+
+特定のパターンに関する詳細なガイダンスについては:
+
+- [What Is Agent-Native?](/docs/what-is-agent-native) — ビジョンと哲学
+- [Context Awareness](/docs/context-awareness) — ナビゲーション状態、ビュー画面、ナビゲーション コマンド
+- [Skills Guide](/docs/skills-guide) — フレームワーク skills、ドメイン skills、カスタム skills の作成
+- [Native チャット UI](/docs/native-chat-ui) — アクション宣言されたテーブル、チャート、および BYO 実行時の状態
+- [Agent Surfaces](/docs/agent-surfaces) — ヘッドレス、リッチ チャット、埋め込みサイドカー、フルアプリ パス
+- [A2A Protocol](/docs/a2a-protocol) — エージェント間の通信
+- [Multi-App Workspace](/docs/multi-app-workspace) — 共有認証、skills、コンポーネント、資格情報を使用して 1 つのモノリポジトリで多くのアプリをホストします

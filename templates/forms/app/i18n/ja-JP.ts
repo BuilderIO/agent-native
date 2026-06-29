@@ -17,6 +17,7 @@ const messages = {
     settings: "設定",
     brand: "フォーム",
     askForms: "フォームに質問する",
+    allForms: "すべてのフォーム",
     team: "チーム",
   },
   settings: {
@@ -43,6 +44,8 @@ const messages = {
     suggestionExport: "回答を CSV にエクスポート",
   },
   sidebar: {
+    collapseSidebar: "サイドバーを折りたたむ",
+    expandSidebar: "サイドバーを展開",
     formGenerationStale:
       "フォーム生成に予想より時間がかかっています。もう一度試せます。",
     untitledForm: "無題のフォーム",

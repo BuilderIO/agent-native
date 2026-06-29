@@ -1,0 +1,674 @@
+---
+title: "SDK を埋め込む"
+description: "ページ コンテキストとホスト コマンドを使用して、Agent-Native サイドカーを既存の SaaS アプリに埋め込みます。"
+---
+
+# SDK を埋め込む
+
+Agent-Native を既存の製品に埋め込む: SaaS アプリを維持し、耐久性を追加します
+エージェント サイドカー。そのエージェントにユーザーがいるページを表示して操作できるようにします。
+すでに使用しています。ヘッドレス エージェント、リッチ チャット、
+埋め込みサイドカー、または完全なアプリ、から始まります
+[Agent Surfaces](/docs/agent-surfaces).
+
+<Diagram id="doc-block-1eds7jy" title={"包埋膜"} summary={"ホスト アプリはサーバー側の認証とライブ ページ コンテキストを提供します。 Agent-Native は耐久性のあるサイドカーを実行し、クライアント アクションとホスト コマンドを通じて開いているタブに到達します。"}>
+
+```html
+<div class="diagram-embed">
+  <div class="diagram-box" data-rough>
+    <strong>ホスト SaaS アプリ</strong
+    ><small class="diagram-muted">あなたの UI、あなたの認証</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">getContext &rarr;</div>
+    <div class="diagram-pill">&larr; クライアントアクション</div>
+    <div class="diagram-pill">&larr; ホストコマンド</div>
+  </div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Agent-Native sidecar</strong
+    ><small class="diagram-muted">永続チャット · アプリ状態 · 拡張機能</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL<br /><small class="diagram-muted">フレームワークテーブル</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## ここから始めましょう: 電池付属のプラグイン {#batteries-included}
+
+ほとんどの SaaS ホストでは、**完全な組み込みランタイム** (サーバー プラグイン) を使用します
+`createAgentNativeEmbeddedPlugin` と `<AgentNativeEmbedded>` クライアント
+コンポーネント。これは推奨されるデフォルトです。フレームワーク全体を再利用します
+(actions、SQL-backed アプリの状態、拡張機能、ブラウザー セッション ツール) および
+エージェントは、ユーザーがすでに使用しているページを表示して操作することができます。
+
+ホストは Agent-Native サーバー ルートを既存のアプリにマウントし、その
+ユーザーが Agent-Native にログインし、製品 UI に React サイドバーを表示します。
+Agent-Native は、ホスト展開、ホスト セッション、および構成済みのを使用します
+`DATABASE_URL` は独自のフレームワーク テーブルを管理します: チャット スレッド、設定
+アプリケーションの状態、拡張機能、拡張機能データ、シークレット、ブラウザ セッション、および
+行動ルート。
+
+```bash
+pnpm add @agent-native/core
+```
+
+サーバー上:
+
+```ts
+// server/plugins/agent-native.ts
+import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
+import { builderActions } from "../agent-native/actions";
+import { getBuilderSession } from "../auth";
+
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.DATABASE_URL,
+  auth: async (event) => {
+    const session = await getBuilderSession(event);
+    if (!session) return null;
+    return {
+      userId: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      orgId: session.organization.id,
+      orgRole: session.organization.role,
+    };
+  },
+  actions: builderActions,
+  agentChat: {
+    appId: "builder",
+    systemPrompt:
+      "You are Builder's embedded agent. Use Builder actions for durable work.",
+  },
+});
+```
+
+クライアント側:
+
+```tsx
+import {
+  AgentNativeEmbedded,
+  defineClientAction,
+} from "@agent-native/core/client";
+
+export function BuilderAppShell({ children, content, editor }) {
+  return (
+    <AgentNativeEmbedded
+      defaultOpen
+      session={{
+        id: browserTabId(),
+        label: "Builder editor",
+      }}
+      getContext={() => ({
+        route: {
+          name: "builder-editor",
+          pathname: window.location.pathname,
+          params: { contentId: content.id },
+        },
+        resource: {
+          type: "content",
+          id: content.id,
+          name: content.name,
+        },
+        user: currentUser(),
+        organization: currentOrganization(),
+      })}
+      actions={[
+        defineClientAction({
+          name: "select-element",
+          description: "Select an element in the visual editor",
+          schema: {
+            type: "object",
+            properties: { elementId: { type: "string" } },
+            required: ["elementId"],
+          },
+          run: ({ elementId }) => editor.select(elementId),
+        }),
+      ]}
+      onRefresh={() => queryClient.invalidateQueries()}
+      onNavigate={(payload) =>
+        router.navigate((payload as { path: string }).path)
+      }
+      onRemount={() => setAppKey((key) => key + 1)}
+    >
+      {children}
+    </AgentNativeEmbedded>
+  );
+}
+```
+
+このモードは完全なフレームワークを再利用するため、推奨されるデフォルトです。バックエンド actions は `/_agent-native/actions` の下にマウントされ、エージェントは UI と同じ actions を呼び出すことができ、ユーザー作成の拡張機能は SQL に保存され、`extensionData` は永続的でユーザー/組織スコープであり、ブラウザ セッション ツールによりバックエンド エージェントは現在開いているタブを検査または操作できます。
+
+ホスト認証はサーバー側です。ブラウザからの ID を信頼できる情報源として渡さないでください。ホストのリクエスト/セッション オブジェクト、または有効期間が短いサーバー検証済みトークンを使用します。ホストが電子メールを公開しない場合は、安定した `userId` を返すと、Agent-Native はそれを所有者キーとして使用します。
+
+### データベースの分離
+
+埋め込みモードは、SQL の Agent-Native テーブルを管理します。成熟した SaaS 製品の場合、最も安全なデフォルトは **同じホスティングと認証、専用の Agent-Native データベース/スキーマ**です:
+
+```ts
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.AGENT_NATIVE_DATABASE_URL,
+  auth: getHostSession,
+  actions: hostActions,
+});
+```
+
+ホスト製品のメイン `DATABASE_URL` の使用はサポートされていますが、それを明示的に選択してください。 Agent-Native は、`settings`、`application_state`、`tools`、`tool_data` などのフレームワーク テーブル、ブラウザー セッション テーブル、シークレット、チャット スレッド、および関連インデックスを作成します。専用の DB/スキーマにより、テーブル名の衝突が回避され、管理対象テーブルの所有権が明確に保たれ、バックアップ/保持ポリシーの推論が容易になります。ホスト DB を意図的に共有する場合は、最初に既存のテーブル名を確認し、Agent-Native テーブルをフレームワーク所有のものとして扱います。
+
+## その他のモード {#other-modes}
+
+上記の電池付きプラグインは、幸せな道です。これらのいずれかに手を伸ばしてください
+それがあなたの状況により適している場合のみ:
+
+| モード                              | 次の場合に使用します                                                                                                             | パッケージ                               |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **埋め込みアプリ ピッカー**         | 完全な Agent-Native アプリを集中 iframe (アセット ピッカー、フォーム ビルダー、承認パネル) として起動します。                    | `@agent-native/embedding`                |
+| **`<AgentNative>` ホスト ブリッジ** | ページ コンテキストとクライアント actions を手動で接続するスタンドアロン サイドカー アプリまたはクロスオリジン iframe。          | `@agent-native/core/client`              |
+| **ポータブル拡張機能**              | SaaS がすでに拡張機能のストレージ/承認を所有している場合に、ホスト ユーザーがサンドボックス ミニアプリを構築できるようにします。 | `@agent-native/core/client` 拡張スロット |
+
+下位レベルの `@agent-native/embedding` パッケージは以下を公開します:
+
+| インポートパス                     | それが提供するもの                                                                                  |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `@agent-native/embedding`          | `EmbeddedApp` ピッカー コンポーネント、`getA2AUrl`、`getMcpUrl`、`sendMessage` (ストリーミング A2A) |
+| `@agent-native/embedding/react`    | React 固有のフックとコンポーネント                                                                  |
+| `@agent-native/embedding/bridge`   | `announceEmbeddedAppReady`、`sendEmbeddedAppMessage` — 埋め込みアプリ内で使用されます               |
+| `@agent-native/embedding/agent`    | エージェント エンドポイント ヘルパー                                                                |
+| `@agent-native/embedding/protocol` | プロトコルの種類                                                                                    |
+
+```bash
+pnpm add @agent-native/embedding
+```
+
+### 埋め込みアプリとピッカー モード
+
+ホスト製品が完全なバージョンを起動したい場合は、`@agent-native/embedding` を使用します
+フォーカスされた iframe サーフェスとしての Agent-Native アプリ: アセット ピッカー、アセット ジェネレーター
+フォーム ビルダー、カレンダー スロット ピッカー、承認パネル、またはその他のタスク固有
+ワークフロー。これは、以下のサイドカー ホスト ブリッジよりも意図的に小さくなっています:
+iframe は準備が整っていることを通知し、ホストは名前付きメッセージを送信できるようになり、埋め込まれたメッセージを送信できるようになります。
+アプリは、`chooseAsset` や `close` などのドメイン イベントを発行できます。
+
+```tsx
+import { EmbeddedApp } from "@agent-native/embedding";
+
+export function AssetPickerDialog({ close }) {
+  return (
+    <EmbeddedApp
+      url="https://assets.agent-native.com/picker"
+      className="h-full w-full"
+      onLoad={(ref) => {
+        ref.postMessage("configure", {
+          prompt: "Editorial blog hero",
+          aspectRatio: "16:9",
+        });
+      }}
+      onMessage={(name, payload) => {
+        if (name === "chooseAsset") {
+          const asset = payload as { url: string; altText?: string };
+          insertAsset(asset.url, asset.altText);
+          close();
+        }
+        if (name === "close") close();
+      }}
+    />
+  );
+}
+```
+
+埋め込みアプリ内で、ブラウザ ブリッジを使用して準備完了を通知し、送信します
+イベントがホストに返されます:
+
+```ts
+import {
+  announceEmbeddedAppReady,
+  sendEmbeddedAppMessage,
+} from "@agent-native/embedding/bridge";
+
+announceEmbeddedAppReady({ app: "assets", mode: "picker" });
+sendEmbeddedAppMessage("chooseAsset", {
+  url: asset.previewUrl,
+  assetId: asset.id,
+  altText: asset.altText,
+});
+```
+
+アセットは、古いイメージピッカーの互換性エイリアスとして `chooseImage` も生成します
+ホスト;新しい統合は、`chooseAsset` をリッスンする必要があります。
+
+ホストされたファーストパーティ アプリの場合、ID として Dispatch を使用してクロスアプリ SSO を有効にします
+ハブなので、`content.agent-native.com` と `assets.agent-native.com` がユーザーをリンクします
+確認済みメール。 iframe の起動では、引き続き有効期限の短い、ルート スコープの
+サードパーティ Cookie の回復力が必要な場合は、セッションを埋め込みます。通常のアプリ Cookie
+それ自体では完全な埋め込み認証ストーリーではありません。
+
+同じパッケージには、プロトコル検出のためのエージェント エンドポイント ヘルパーが含まれています。
+A2A 経由のストリーミング テキスト:
+
+```ts
+import { getA2AUrl, getMcpUrl, sendMessage } from "@agent-native/embedding";
+
+getMcpUrl("https://assets.agent-native.com");
+getA2AUrl("https://assets.agent-native.com");
+
+for await (const chunk of sendMessage(
+  "https://assets.agent-native.com",
+  "Generate a blog hero",
+)) {
+  append(chunk);
+}
+```
+
+### ホスト アプリ (`<AgentNative>` ホスト ブリッジ)
+
+> 上記のバッテリーを含むプラグインが推奨されます。この下位レベルのブリッジを使用してください
+> スタンドアロンのサイドカー アプリまたはページをワイヤリングするクロスオリジン iframe のみ
+> コンテキストとクライアント actions は自分で作成します。
+
+スタンドアロンのサイドカー アプリまたはクロスオリジン iframe の場合は、下位レベルの `<AgentNative />` を使用します。 iframe サイドカーをレンダリングし、ページ コンテキスト、ライブ クライアント actions、およびホストの更新/ナビゲーション コマンドを 1 か所で接続します。
+
+```tsx
+import { AgentNative, defineClientAction } from "@agent-native/core/client";
+
+export function AssistantDock({ customer, sessionToken }) {
+  return (
+    <AgentNative
+      agentUrl="https://agent.example.com/workspaces/acme/sidecar"
+      className="h-full w-full"
+      session={{ id: browserTabId(), label: "Customer detail" }}
+      auth={() => ({ token: sessionToken })}
+      screen={{ includeVisibleText: true }}
+      getContext={() => ({
+        route: {
+          name: "customer-detail",
+          pathname: window.location.pathname,
+          params: { customerId: customer.id },
+        },
+        resource: {
+          type: "customer",
+          id: customer.id,
+          name: customer.name,
+        },
+        selection: {
+          ids: getSelectedRowIds(),
+          text: window.getSelection()?.toString() || undefined,
+        },
+        user: currentUser(),
+        organization: currentOrganization(),
+      })}
+      actions={[
+        defineClientAction<{ contentId: string }, { published: true }>({
+          name: "publish-content",
+          description: "Publish a Builder content entry",
+          schema: {
+            type: "object",
+            properties: { contentId: { type: "string" } },
+            required: ["contentId"],
+          },
+          destructive: true,
+          approval: { title: "Publish this entry?", risk: "medium" },
+          run: async ({ contentId }, { refresh }) => {
+            await builderApi.publish(contentId);
+            await refresh({ queryKey: ["content", contentId] });
+            return { published: true };
+          },
+        }),
+        defineClientAction<{ elementId: string }, void>({
+          name: "select-element",
+          description: "Select an element in the live visual editor",
+          schema: {
+            type: "object",
+            properties: { elementId: { type: "string" } },
+            required: ["elementId"],
+          },
+          run: ({ elementId }) => editor.select(elementId),
+        }),
+      ]}
+      onNavigate={(payload) => {
+        const { path } = payload as { path: string };
+        router.navigate(path);
+      }}
+      onRefresh={(payload) => {
+        const { queryKey } = payload as { queryKey?: readonly unknown[] };
+        queryClient.invalidateQueries({ queryKey });
+      }}
+      onRemount={() => setAppKey((key) => key + 1)}
+      onOpenResource={(payload) => openResource(payload)}
+      onRequestApproval={(payload) => approvalDialog.confirm(payload)}
+    />
+  );
+}
+```
+
+明示的な意味コンテキストのみが必要な場合は、`screen={false}` を使用します。 `screen={{ includeDomHtml: true }}` は、UI をセマンティック ID と選択状態にまだマッピングしていないアプリのフォールバックとして使用します。ホスト ブリッジは、デフォルトでは、`agentUrl` の発信元からのメッセージのみを受け入れます。 iframe URL が、信頼できるオリジンが異なるルーティング/プロキシされた URL である場合は、`agentOrigin` を渡します。
+
+React 以外のホストの場合は、`createAgentNativeHostBridge()` を直接呼び出し、同じ `getContext`、`actions`、および `commands` オプションを渡します。
+
+### Iframe 側
+
+Agent-Native サイドカー内で、フレーム ヘルパーを使用してホスト コンテキストをリクエストし、ライブ ブラウザ セッション actions を検出して実行し、またはホストに UI 作業を依頼します。本番環境では常に期待される `hostOrigin` を渡します:
+
+```ts
+import {
+  announceAgentNativeFrameReady,
+  createAgentNativeHostTools,
+  requestAgentNativeHostActions,
+  requestAgentNativeHostContext,
+  runAgentNativeHostAction,
+  sendAgentNativeHostCommand,
+} from "@agent-native/core/client";
+
+announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
+
+const context = await requestAgentNativeHostContext({
+  hostOrigin: "https://app.example.com",
+});
+
+const liveActions = await requestAgentNativeHostActions({
+  hostOrigin: "https://app.example.com",
+});
+
+await runAgentNativeHostAction(
+  "select-element",
+  { elementId: context.selection?.ids?.[0] },
+  { hostOrigin: "https://app.example.com" },
+);
+
+await sendAgentNativeHostCommand(
+  "refreshData",
+  { queryKey: ["customer", context.resource?.id] },
+  { hostOrigin: "https://app.example.com" },
+);
+
+const hostTools = createAgentNativeHostTools({
+  hostOrigin: "https://app.example.com",
+});
+```
+
+### サーバー仲介ツールブリッジ
+
+CLAW スタイルの同僚の場合、iframe はライブ ブラウザ タブをサイドカー バックエンドに登録することもできます。次に、エージェントはリクエストをキューに入れる通常のバックエンド ツールを取得し、iframe がそれを要求し、ホスト ページがそれを実行し、バックエンドが結果をエージェントに返します。
+
+<Diagram id="doc-block-hm4vqx" title={"サーバー仲介のブラウザセッションブリッジ"} summary={"バックエンド ツールは作業をキューに入れます。登録されたタブがそれを要求し、ライブ ページ上で実行し、結果がエージェントに返されるため、backend/Slack/A2A エージェントは開いているタブを引き続きタッチできます。"}>
+
+```html
+<div class="diagram-bridge">
+  <div class="diagram-node" data-rough>
+    バックエンドエージェント<br /><small class="diagram-muted"
+      >チャット · Slack · A2A</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    enqueue request<br /><small class="diagram-muted"
+      >/_agent-native/browser-sessions</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    アクティブなタブが取得<br /><small class="diagram-muted"
+      >registered bridge</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill ok">result &rarr; agent</div>
+</div>
+```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+サイドカー アプリで、iframe がマウントされるときにブラウザー セッション ブリッジを 1 回開始します。
+
+```tsx
+import { useEffect } from "react";
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
+
+export function SidecarRuntime() {
+  useEffect(() => {
+    const bridge = startAgentNativeBrowserSessionBridge({
+      hostOrigin: "https://app.example.com",
+      label: "Builder editor",
+    });
+    return () => bridge.stop();
+  }, []);
+
+  return null;
+}
+```
+
+フレームワークは `/_agent-native/browser-sessions` を自動的にマウントします。ブリッジが実行されると、サイドカー エージェントは以下を使用できるようになります。
+
+| ツール                         | 目的                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| `list-browser-sessions`        | 現在のユーザーの接続ホストのタブを表示します。                                   |
+| `view-browser-session`         | ライブタブに現在のページのコンテキストと画面のスナップショットを要求します。     |
+| `list-browser-session-actions` | 現在のクライアント側アクション マニフェストについてライブ タブに問い合わせます。 |
+| `run-browser-session-action`   | ライブ タブから現在のクライアント アクションを 1 つ実行します。                  |
+| `send-browser-session-command` | ホストに更新、移動、再マウント、リロード、または承認を依頼します。               |
+
+これは、エージェントがバックエンド、Slack/テレグラム/電子メール、または A2A 呼び出し先で実行されているが、開いているユーザーの現在のブラウザ タブに触れる必要がある場合に使用するブリッジです。ブラウザが閉じている場合でも、バックエンド actions は継続的な作業を処理する必要があり、ブラウザ セッション ツールはアクティブなタブが接続されていないことを報告します。
+
+### Actions
+
+アクション クラスは 2 つあります:
+
+| アクションの種類         | 実行場所                                                       | ブラウザが閉じているときでも機能しますか? | こんな人に最適                                                                                                                 |
+| ------------------------ | -------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| バックエンドアクション   | サイドカー アプリ、バックエンド API、MCP、または統合アダプター | はい                                      | 作成、更新、公開、同期、送信、インポートなどの永続的な作業。                                                                   |
+| クライアントのアクション | `<AgentNative actions={...} />` までの現在のブラウザ タブ      | いいえ                                    | 一時的な UI は、要素の選択、エディターの状態の読み取り、行までのスクロール、現在のキャンバスの状態のコピーのように機能します。 |
+
+バックエンド actions は、更新、閉じたブラウザ、再試行、または統合によってトリガーされた実行後に存続する必要があるもののデフォルトである必要があります。これらはサイドカー アプリの通常の Agent-Native アクション/ツール レイヤーに属しており、エージェントはチャット、自動化、Slack/テレグラム/電子メール統合、およびバックグラウンド ジョブからそれらを呼び出すことができます。
+
+クライアント actions は、1 つのブラウザ タブへのライブ ブリッジです。ホストは `source: "client"` および `availability: "browser-session"` を使用してそれらをアドバタイズし、サイドカーはそのマニフェストを一時的なものとして扱う必要があります。ルートまたは選択が変更されると actions を再リストし、タブが消えるとバックエンド actions にフォールバックします。
+
+### ポータブル拡張機能
+
+> Agent-Native で管理したい場合は、電池付属のプラグインをお勧めします
+> 拡張機能の定義、承認、ストレージ、エージェント作成の拡張機能。使用
+> 以下のポータブル スロットは、SaaS がすでにそれらの懸念事項を所有している場合にのみ使用されます。
+
+SDK は、ユーザー定義の拡張機能もサポートしています。ホスト SaaS が名前付きスロットでレンダリングできるサンドボックス化された Alpine.js ミニアプリです。これは、顧客がエージェントが使用するのと同じアクション/コンテキスト サーフェスに対して独自の小さなパネル、電卓、ダッシュボード、またはワークフロー ヘルパーを構築したい場合に使用します。
+
+```tsx
+import {
+  AgentNativeExtensionSlot,
+  createHttpAgentNativeExtensionStorage,
+  defineClientAction,
+} from "@agent-native/core/client";
+
+const storage = createHttpAgentNativeExtensionStorage({
+  endpoint: "/api/agent-native/extensions/storage",
+  headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),
+});
+
+const actions = [
+  defineClientAction({
+    name: "list-at-risk-customers",
+    description: "List customers currently at risk",
+    schema: { type: "object", properties: {} },
+    run: () => crmApi.customers.list({ status: "at-risk" }),
+  }),
+];
+
+const customerHealthExtension = {
+  id: "customer-health",
+  name: "Customer health",
+  description: "Shows at-risk customers and quick notes.",
+  manifest: {
+    slots: ["crm.customer.sidebar"],
+    requestedActions: ["list-at-risk-customers"],
+    requestedCommands: ["openResource", "refreshData"],
+    storageScopes: ["user", "org"],
+  },
+  content: `
+    <div x-data="{
+      customers: [],
+      note: '',
+      async init() {
+        this.customers = await appAction('list-at-risk-customers', {})
+        const row = await extensionData.get('notes', slotContext.customerId, { scope: 'user' })
+        this.note = row?.data?.text || ''
+      },
+      async save() {
+        await extensionData.set('notes', slotContext.customerId, { text: this.note }, { scope: 'user' })
+        await agentNative.refresh({ customerId: slotContext.customerId })
+      }
+    }" x-init="init()" class="space-y-3">
+      <textarea class="w-full rounded-md border bg-background p-2" x-model="note"></textarea>
+      <button class="rounded-md bg-primary px-3 py-2 text-primary-foreground" @click="save()">Save</button>
+    </div>
+  `,
+};
+
+export function CustomerSidebar({ customer, userExtensions }) {
+  return (
+    <AgentNativeExtensionSlot
+      id="crm.customer.sidebar"
+      extensions={[customerHealthExtension, ...userExtensions]}
+      context={{ customerId: customer.id, plan: customer.plan }}
+      actions={actions}
+      storage={storage}
+      storageContext={{
+        userId: currentUser().id,
+        organizationId: currentOrganization().id,
+      }}
+      getContext={() => ({
+        resource: { type: "customer", id: customer.id, name: customer.name },
+      })}
+      commands={{
+        refreshData: async () => queryClient.invalidateQueries(),
+      }}
+    />
+  );
+}
+```
+
+マニフェストはインストール コントラクトです。 `requestedActions`、`requestedCommands`、または `storageScopes` が存在する場合、SDK は、iframe リクエストがアクション ブリッジまたはストレージ アダプターに到達する前に、ホスト内でそれらを強制します。 `slots` が存在する場合、`AgentNativeExtensionSlot` は一致するスロットでのみ拡張機能をレンダリングします。ホストは、`allowedActions`、`allowedCommands`、`allowedStorageScopes` を使用してスロットごとのポリシーをオーバーライドできます。
+
+拡張子はプレーン HTML です。 iframe ランタイムは、同じ安全なブリッジ プリミティブをミニアプリに提供します。
+
+```html
+<div
+  x-data="{ customers: [], async init() { this.customers = await appAction('list-at-risk-customers', {}) } }"
+  x-init="init()"
+>
+  <template x-for="customer in customers" :key="customer.id">
+    <button
+      class="block w-full rounded-md px-3 py-2 text-left hover:bg-muted"
+      x-text="customer.name"
+      @click="agentNative.command('openResource', { type: 'customer', id: customer.id })"
+    ></button>
+  </template>
+</div>
+```
+
+iframe 内で使用可能なグローバル:
+
+| ヘルパー                       | 目的                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| `appAction(name, args)`        | ホストが宣言したアクションを実行します。                                       |
+| `agentNative.context()`        | 現在のホスト ページ、リソース、スロット、およびユーザー データを読み取ります。 |
+| `agentNative.command(name, p)` | ホストに移動、更新、再マウント、または開くように依頼します。                   |
+| `agentNative.refresh(payload)` | `refreshData` のショートカット。                                               |
+| `extensionData.*`              | ホスト アダプタを通じて拡張ローカル データを保持します。                       |
+
+デフォルトでは、`extensionData` はブラウザ `localStorage` を使用します。これはプロトタイプやローカル ウィジェットに便利です。実稼働 SaaS ホストは、ユーザーおよび組織を対象とした拡張データが耐久性があり、監査可能で、アプリの権限によって管理されるように、バックエンドでサポートされる `storage` アダプターを渡す必要があります。汎用 HTTP アダプターは、`{ operation, extensionId, slotId, collection, id, data, options, context }` のような POST ボディを送信し、`{ result }` または結果の JSON を直接期待します。
+
+このポータブルな SDK レイヤーは、フレームワークの組み込み SQL をサポートする拡張機能ストアとは別のものです。 Agent-Native アプリでは、既存の `ExtensionSlot`/`EmbeddedExtension` コンポーネントと `create-extension` アクションを使用します。ホスト型 SaaS 埋め込みシナリオで、拡張機能の定義、承認、ストレージ、エージェントが作成した拡張機能をすぐに使用できるように Agent-Native で管理する場合は、`createAgentNativeEmbeddedPlugin()` と `AgentNativeEmbedded` を推奨します。 `AgentNativeExtensionSlot` は、SaaS が拡張機能の定義、承認、マーケットプレイス、ストレージ、請求をすでに所有している場合にのみ使用してください。
+
+セキュリティ モデル:
+
+- 拡張 iframe は `allow-same-origin` なしでサンドボックス化されます。ミニアプリは親 DOM、Cookie、またはアプリ ランタイムを直接読み取ることはできません。
+- 拡張機能は、actions と、ホストと拡張機能のマニフェストによって許可されたコマンドのみを呼び出すことができます。
+- リスクのある actions は、ホストが承認フローを表示できるように、`destructive` または `requiresApproval` を設定する必要があります。
+- ユーザーが作成した拡張機能 HTML を信頼できないものとして扱います。マーケットプレイスのインストールを確認し、アクションの使用状況をログに記録し、バックエンド ストレージをユーザー/組織ごとに調査します。
+
+### セッションとタブ
+
+ホスト ブリッジのスコープは 1 つの iframe/host-window ペアに限定されます。同じユーザーが複数のタブを開いた場合、各タブには独自の `session`、コンテキスト、選択、クライアント actions、および保留中のコマンド応答があります。あるタブで検出されたクライアント アクションが別のタブで実行できる、またはナビゲーション後もそのアクションがまだ存在すると想定しないでください。
+
+マルチタブ製品の場合、SQL/バックエンド actions で永続状態を維持し、行のフォーカス、表示されているエディター状態のコピー、キャンバス要素の選択、または現在の React クエリ キャッシュの更新など、タブ ローカル部分にのみクライアント actions を使用します。現在のタブがブラウザ セッション アクションを実行するのに適切な場所であるかどうかを判断するために、サイドカーに十分な `route`、`resource`、`selection` コンテキストを含めます。
+
+### コマンドモデル
+
+組み込みコマンド名は、データベース形式ではなく、意図的にアプリ形式になっています。
+
+| コマンド                               | 目的                                                                      |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| `navigate`                             | ホスト UI をパス/ビュー/リソースに移動します。                            |
+| `refreshData` / `refresh-data`         | クライアント側のデータを無効にするようホストに依頼します。                |
+| `remountView` / `remount-view`         | ホストにサブツリーを再マウントするように依頼します。 `<App key={key} />`. |
+| `hardReload` / `hard-reload`           | ブラウザを完全にリロードします。                                          |
+| `openResource` / `open-resource`       | ホスト UI で特定のドメイン オブジェクトを開きます。                       |
+| `requestApproval` / `request-approval` | ホストに確認フローを表示するよう依頼します。このハンドラーを登録します。  |
+
+ハンドラーが提供されていない場合、安全なデフォルトは `agentNative:refresh-data` や `agentNative:remount-view` などのブラウザー イベントをディスパッチします。 `requestApproval` にはデフォルトのハンドラーがありません。信頼する前に登録してください。
+
+### 承認ガイダンス
+
+マニフェストで危険なクライアント actions を `destructive: true` でマークし、削除、公開、送信、請求、招待、共有、または現在のビュー外のユーザーに影響を与える操作を実行する前にホストの承認を必要とします。バックエンド actions も独自の認可チェックと承認チェックを強制する必要があります。ホストの承認は便利な UX であり、セキュリティ境界ではありません。
+
+この形を好みます:
+
+- 永続的なミューテーションは、検証、認証、監査ログ、再試行を伴うバックエンド アクションで実行されます。
+- ホスト コマンドは承認 UI を開くか、影響を受けるリソースに焦点を当てます。
+- クライアント アクションは、バックエンドでは発生できないライブ UI ステップのみを処理します。
+
+### ランタイム統合
+
+エージェント ランタイムがプレーン ツール記述子を受け入れる場合は、サイドカー iframe 内で `createAgentNativeHostTools()` を使用します。フレームワークに依存しない 4 つのツールを返します。
+
+| ツール              | 目的                                                                            |
+| ------------------- | ------------------------------------------------------------------------------- |
+| `view-host-screen`  | セマンティック ホスト コンテキストと画面スナップショットを読み取ります。        |
+| `list-host-actions` | 現在のタブで公開されているライブ ブラウザ セッション actions を一覧表示します。 |
+| `run-host-action`   | 名前を指定して 1 つのライブ クライアント アクションを実行します。               |
+| `send-host-command` | 更新、移動、再マウント、承認などのホスト コマンドを送信します。                 |
+
+ヘルパーは意図的にプレーン `{ name, description, parameters, execute }` オブジェクトを返すため、サイドカーはこの SDK を 1 つのランタイムに結合することなく、AI SDK、Anthropic、OpenAI 関数呼び出し、または Agent-Native `ActionEntry` シェイプにオブジェクトを適応させることができます。
+
+## 推奨される製品形状
+
+iframe を最初に開始します。リリース サイクルや CSS/ランタイムの前提条件を考慮することなく、Builder.io、顧客の SaaS アプリ、内部管理ツールで機能します。
+
+サイドカー自体は依然として Agent-Native アプリ/テンプレートである必要があります。actions はバックエンド API サーフェスであり、SQL でバックアップされたアプリの状態はエージェントのメモリであり、Slack や Telegram などの統合は同じ永続的なチャットにルーティングできます。埋め込み SDK は、そのサイドカーと現在のホスト ページの間にライブ メンブレンを提供します。

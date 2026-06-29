@@ -1,0 +1,674 @@
+---
+title: "SDK einbetten"
+description: "Betten Sie einen Agent-Native-Sidecar mit Seitenkontext und Hostbefehlen in eine vorhandene SaaS-App ein."
+---
+
+# SDK einbetten
+
+Betten Sie Agent-Native in ein bestehendes Produkt ein: Behalten Sie Ihre SaaS-App, fügen Sie eine dauerhafte hinzu
+Agent-Sidecar, und lassen Sie diesen Agenten die Seite sehen und bearbeiten, auf der sich der Benutzer befindet
+wird bereits verwendet. Wenn Sie sich immer noch zwischen Headless-Agenten, Rich-Chat usw. entscheiden müssen
+Eingebetteter Sidecar oder eine vollständige App, beginnen Sie mit
+[Agent Surfaces](/docs/agent-surfaces).
+
+<Diagram id="doc-block-yc9g1s" title="Die Einbettungsmembran" summary={"Die Host-App stellt serverseitige Authentifizierung und Live-Seitenkontext bereit; Agent-Native führt den dauerhaften Sidecar aus und erreicht die geöffnete Registerkarte über Client-Aktionen und Host-Befehle."}>
+
+```html
+<div class="diagram-embed">
+  <div class="diagram-box" data-rough>
+    <strong>Host-SaaS-App</strong
+    ><small class="diagram-muted">deine UI, deine Authentifizierung</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">getContext &rarr;</div>
+    <div class="diagram-pill">&larr; Client-Aktionen</div>
+    <div class="diagram-pill">&larr; Host-Befehle</div>
+  </div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Agent-Native sidecar</strong
+    ><small class="diagram-muted"
+      >dauerhafter Chat · App-Zustand · Erweiterungen</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL<br /><small class="diagram-muted">Framework-Tabellen</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Hier beginnen: das im Lieferumfang enthaltene Plugin {#batteries-included}
+
+Für die meisten SaaS-Hosts **verwenden Sie die vollständige eingebettete Laufzeit** – das Server-Plugin
+`createAgentNativeEmbeddedPlugin` plus der `<AgentNativeEmbedded>`-Client
+Komponente. Dies ist die empfohlene Standardeinstellung: Es wird das gesamte Framework wiederverwendet
+(actions, SQL-gestützter App-Status, Erweiterungen, Browser-Sitzungstools) und gibt die
+Agent die Möglichkeit, die Seite zu sehen und zu bearbeiten, die der Benutzer bereits verwendet.
+
+Der Host mountet Agent-Native-Serverrouten in seine vorhandene App und übergibt sie
+Angemeldeter Benutzer bei Agent-Native und rendert die React-Seitenleiste im Produkt UI.
+Agent-Native verwendet die Hostbereitstellung, die Hostsitzung und die konfigurierten
+`DATABASE_URL` zur Verwaltung seiner eigenen Framework-Tabellen: Chat-Threads, Einstellungen,
+Anwendungsstatus, Erweiterungen, Erweiterungsdaten, Geheimnisse, Browsersitzungen und
+Aktionsrouten.
+
+```bash
+pnpm add @agent-native/core
+```
+
+Auf dem Server:
+
+```ts
+// server/plugins/agent-native.ts
+import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
+import { builderActions } from "../agent-native/actions";
+import { getBuilderSession } from "../auth";
+
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.DATABASE_URL,
+  auth: async (event) => {
+    const session = await getBuilderSession(event);
+    if (!session) return null;
+    return {
+      userId: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      orgId: session.organization.id,
+      orgRole: session.organization.role,
+    };
+  },
+  actions: builderActions,
+  agentChat: {
+    appId: "builder",
+    systemPrompt:
+      "You are Builder's embedded agent. Use Builder actions for durable work.",
+  },
+});
+```
+
+Auf dem Client:
+
+```tsx
+import {
+  AgentNativeEmbedded,
+  defineClientAction,
+} from "@agent-native/core/client";
+
+export function BuilderAppShell({ children, content, editor }) {
+  return (
+    <AgentNativeEmbedded
+      defaultOpen
+      session={{
+        id: browserTabId(),
+        label: "Builder editor",
+      }}
+      getContext={() => ({
+        route: {
+          name: "builder-editor",
+          pathname: window.location.pathname,
+          params: { contentId: content.id },
+        },
+        resource: {
+          type: "content",
+          id: content.id,
+          name: content.name,
+        },
+        user: currentUser(),
+        organization: currentOrganization(),
+      })}
+      actions={[
+        defineClientAction({
+          name: "select-element",
+          description: "Select an element in the visual editor",
+          schema: {
+            type: "object",
+            properties: { elementId: { type: "string" } },
+            required: ["elementId"],
+          },
+          run: ({ elementId }) => editor.select(elementId),
+        }),
+      ]}
+      onRefresh={() => queryClient.invalidateQueries()}
+      onNavigate={(payload) =>
+        router.navigate((payload as { path: string }).path)
+      }
+      onRemount={() => setAppKey((key) => key + 1)}
+    >
+      {children}
+    </AgentNativeEmbedded>
+  );
+}
+```
+
+Dieser Modus ist die empfohlene Standardeinstellung, da er das gesamte Framework wiederverwendet: Backend-actions werden unter `/_agent-native/actions` gemountet, der Agent kann denselben actions wie UI aufrufen, vom Benutzer erstellte Erweiterungen werden in SQL gespeichert, `extensionData` ist dauerhaft und auf Benutzer/Organisation beschränkt, und Browser-Sitzungstools ermöglichen es dem Backend-Agenten, die aktuell geöffnete Registerkarte zu überprüfen oder zu bedienen.
+
+Hostauthentifizierung erfolgt serverseitig. Geben Sie nicht die Identität des Browsers als Quelle der Wahrheit weiter. Verwenden Sie das Anfrage-/Sitzungsobjekt des Hosts oder ein kurzlebiges, vom Server verifiziertes Token. Wenn der Host keine E-Mails verfügbar macht, geben Sie einen stabilen `userId` zurück und Agent-Native verwendet ihn als Besitzerschlüssel.
+
+### Datenbankisolation
+
+Der eingebettete Modus verwaltet Agent-Native-Tabellen in SQL. Für ein ausgereiftes SaaS-Produkt ist die sicherste Standardeinstellung **gleiches Hosting und gleiche Authentifizierung, dedizierte Agent-Native-Datenbank/Schema**:
+
+```ts
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.AGENT_NATIVE_DATABASE_URL,
+  auth: getHostSession,
+  actions: hostActions,
+});
+```
+
+Die Verwendung des Hauptprodukts `DATABASE_URL` des Hostprodukts wird unterstützt, aber machen Sie dies zu einer expliziten Option. Agent-Native erstellt Framework-Tabellen wie `settings`, `application_state`, `tools`, `tool_data`, Browser-Sitzungstabellen, Geheimnisse, Chat-Threads und zugehörige Indizes. Eine dedizierte Datenbank/ein dediziertes Schema vermeidet Kollisionen zwischen Tabellennamen, sorgt dafür, dass der Besitz verwalteter Tabellen klar ist, und erleichtert das Nachdenken über Sicherungs-/Aufbewahrungsrichtlinien. Wenn Sie die Host-Datenbank absichtlich freigeben, überprüfen Sie zunächst die vorhandenen Tabellennamen und behandeln Sie Agent-Native-Tabellen als Framework-eigene Tabellen.
+
+## Andere Modi {#other-modes}
+
+Das oben genannte Plugin mit im Lieferumfang enthaltenen Batterien ist der glückliche Weg. Greifen Sie nach einem davon
+Nur wenn es besser zu Ihrer Situation passt:
+
+| Modus                          | Verwenden Sie es, wenn                                                                                                      | Paket                                              |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **EmbeddedApp-Auswahl**        | Starten einer vollständigen Agent-Native-App als fokussierten Iframe (Asset-Auswahl, Formularersteller, Genehmigungspanel). | `@agent-native/embedding`                          |
+| **`<AgentNative>`-Hostbrücke** | Eigenständige Sidecar-Apps oder ursprungsübergreifende Iframes, die Seitenkontext und Client actions manuell verbinden.     | `@agent-native/core/client`                        |
+| **Portable Erweiterungen**     | Host-Benutzer können Sandbox-Mini-Apps erstellen, wenn das SaaS bereits über Erweiterungsspeicher/-genehmigung verfügt.     | `@agent-native/core/client`-Erweiterungssteckplatz |
+
+Das `@agent-native/embedding`-Paket auf niedrigerer Ebene stellt Folgendes bereit:
+
+| Importpfad                         | Was es bietet                                                                                         |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `@agent-native/embedding`          | `EmbeddedApp`-Auswahlkomponente, `getA2AUrl`, `getMcpUrl`, `sendMessage` (Streaming A2A)              |
+| `@agent-native/embedding/react`    | React-spezifische Hooks und Komponenten                                                               |
+| `@agent-native/embedding/bridge`   | `announceEmbeddedAppReady`, `sendEmbeddedAppMessage` – wird innerhalb der eingebetteten App verwendet |
+| `@agent-native/embedding/agent`    | Agent-Endpunkt-Helfer                                                                                 |
+| `@agent-native/embedding/protocol` | Protokolltypen                                                                                        |
+
+```bash
+pnpm add @agent-native/embedding
+```
+
+### Eingebettete App und Auswahlmodus
+
+Verwenden Sie `@agent-native/embedding`, wenn das Hostprodukt eine vollständige Ausführung starten möchte
+Agent-Native-App als fokussierte Iframe-Oberfläche: Asset-Auswahl, Asset-Generator,
+Formular-Builder, Kalender-Slot-Auswahl, Genehmigungspanel oder andere aufgabenspezifische Elemente
+Workflow. Dies ist absichtlich kleiner als die Sidecar-Host-Brücke unten: die
+iframe kündigt die Bereitschaft an, der Host kann benannte Nachrichten senden und die eingebetteten
+App kann Domänenereignisse wie `chooseAsset` oder `close` ausgeben.
+
+```tsx
+import { EmbeddedApp } from "@agent-native/embedding";
+
+export function AssetPickerDialog({ close }) {
+  return (
+    <EmbeddedApp
+      url="https://assets.agent-native.com/picker"
+      className="h-full w-full"
+      onLoad={(ref) => {
+        ref.postMessage("configure", {
+          prompt: "Editorial blog hero",
+          aspectRatio: "16:9",
+        });
+      }}
+      onMessage={(name, payload) => {
+        if (name === "chooseAsset") {
+          const asset = payload as { url: string; altText?: string };
+          insertAsset(asset.url, asset.altText);
+          close();
+        }
+        if (name === "close") close();
+      }}
+    />
+  );
+}
+```
+
+Verwenden Sie in der eingebetteten App die Browser-Brücke, um die Bereitschaft anzukündigen und zu senden
+Ereignisse zurück an den Host:
+
+```ts
+import {
+  announceEmbeddedAppReady,
+  sendEmbeddedAppMessage,
+} from "@agent-native/embedding/bridge";
+
+announceEmbeddedAppReady({ app: "assets", mode: "picker" });
+sendEmbeddedAppMessage("chooseAsset", {
+  url: asset.previewUrl,
+  assetId: asset.id,
+  altText: asset.altText,
+});
+```
+
+Assets gibt außerdem `chooseImage` als Kompatibilitätsalias für ältere Image-Picker aus
+hosts; Neue Integrationen sollten auf `chooseAsset` achten.
+
+Aktivieren Sie für gehostete Erstanbieter-Apps Cross-App SSO mit Dispatch als Identität
+Hub, sodass `content.agent-native.com` und `assets.agent-native.com` Benutzer verknüpfen
+bestätigte E-Mail. Iframe-Starts sollten weiterhin kurzlebige, routenbezogene
+Sitzungen einbetten, wenn sie Widerstandsfähigkeit gegen Cookies von Drittanbietern benötigen; normale App-Cookies
+sind keine vollständige Einbettungs-Authentifizierungsgeschichte für sich.
+
+Dasselbe Paket enthält Agent-Endpunkt-Helfer für die Protokollerkennung und
+Text über A2A streamen:
+
+```ts
+import { getA2AUrl, getMcpUrl, sendMessage } from "@agent-native/embedding";
+
+getMcpUrl("https://assets.agent-native.com");
+getA2AUrl("https://assets.agent-native.com");
+
+for await (const chunk of sendMessage(
+  "https://assets.agent-native.com",
+  "Generate a blog hero",
+)) {
+  append(chunk);
+}
+```
+
+### Host-App (`<AgentNative>` Host-Bridge)
+
+> Das oben genannte Plugin mit im Lieferumfang enthaltenen Batterien wird bevorzugt. Verwenden Sie diese untergeordnete Brücke
+> nur für eigenständige Sidecar-Apps oder Cross-Origin-Iframes, bei denen Sie eine Seite vernetzen
+> Kontext und Client actions selbst.
+
+Verwenden Sie für eigenständige Sidecar-Apps oder ursprungsübergreifende Iframes den untergeordneten `<AgentNative />`. Es rendert den Iframe-Sidecar- und Wire-Seitenkontext, den Live-Client actions und die Aktualisierungs-/Navigationsbefehle des Hosts an einem Ort:
+
+```tsx
+import { AgentNative, defineClientAction } from "@agent-native/core/client";
+
+export function AssistantDock({ customer, sessionToken }) {
+  return (
+    <AgentNative
+      agentUrl="https://agent.example.com/workspaces/acme/sidecar"
+      className="h-full w-full"
+      session={{ id: browserTabId(), label: "Customer detail" }}
+      auth={() => ({ token: sessionToken })}
+      screen={{ includeVisibleText: true }}
+      getContext={() => ({
+        route: {
+          name: "customer-detail",
+          pathname: window.location.pathname,
+          params: { customerId: customer.id },
+        },
+        resource: {
+          type: "customer",
+          id: customer.id,
+          name: customer.name,
+        },
+        selection: {
+          ids: getSelectedRowIds(),
+          text: window.getSelection()?.toString() || undefined,
+        },
+        user: currentUser(),
+        organization: currentOrganization(),
+      })}
+      actions={[
+        defineClientAction<{ contentId: string }, { published: true }>({
+          name: "publish-content",
+          description: "Publish a Builder content entry",
+          schema: {
+            type: "object",
+            properties: { contentId: { type: "string" } },
+            required: ["contentId"],
+          },
+          destructive: true,
+          approval: { title: "Publish this entry?", risk: "medium" },
+          run: async ({ contentId }, { refresh }) => {
+            await builderApi.publish(contentId);
+            await refresh({ queryKey: ["content", contentId] });
+            return { published: true };
+          },
+        }),
+        defineClientAction<{ elementId: string }, void>({
+          name: "select-element",
+          description: "Select an element in the live visual editor",
+          schema: {
+            type: "object",
+            properties: { elementId: { type: "string" } },
+            required: ["elementId"],
+          },
+          run: ({ elementId }) => editor.select(elementId),
+        }),
+      ]}
+      onNavigate={(payload) => {
+        const { path } = payload as { path: string };
+        router.navigate(path);
+      }}
+      onRefresh={(payload) => {
+        const { queryKey } = payload as { queryKey?: readonly unknown[] };
+        queryClient.invalidateQueries({ queryKey });
+      }}
+      onRemount={() => setAppKey((key) => key + 1)}
+      onOpenResource={(payload) => openResource(payload)}
+      onRequestApproval={(payload) => approvalDialog.confirm(payload)}
+    />
+  );
+}
+```
+
+Verwenden Sie `screen={false}`, wenn Sie nur expliziten semantischen Kontext wünschen. Verwenden Sie `screen={{ includeDomHtml: true }}` als Fallback für Apps, die ihre UI noch nicht semantischen IDs und Auswahlstatus zugeordnet haben. Die Host-Bridge akzeptiert standardmäßig nur Nachrichten vom Ursprung von `agentUrl`. Übergeben Sie `agentOrigin`, wenn der Iframe URL ein gerouteter/Proxy-URL ist, dessen vertrauenswürdiger Ursprung unterschiedlich ist.
+
+Für Nicht-React-Hosts rufen Sie `createAgentNativeHostBridge()` direkt auf und übergeben Sie dieselben `getContext`-, `actions`- und `commands`-Optionen.
+
+### Iframe-Seite
+
+Verwenden Sie im Agent-Native-Sidecar die Frame-Helfer, um Hostkontext anzufordern, Live-Browsersitzungen actions zu erkennen, sie auszuführen oder den Host zu bitten, UI-Arbeiten auszuführen. Übergeben Sie in der Produktion immer das erwartete `hostOrigin`:
+
+```ts
+import {
+  announceAgentNativeFrameReady,
+  createAgentNativeHostTools,
+  requestAgentNativeHostActions,
+  requestAgentNativeHostContext,
+  runAgentNativeHostAction,
+  sendAgentNativeHostCommand,
+} from "@agent-native/core/client";
+
+announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
+
+const context = await requestAgentNativeHostContext({
+  hostOrigin: "https://app.example.com",
+});
+
+const liveActions = await requestAgentNativeHostActions({
+  hostOrigin: "https://app.example.com",
+});
+
+await runAgentNativeHostAction(
+  "select-element",
+  { elementId: context.selection?.ids?.[0] },
+  { hostOrigin: "https://app.example.com" },
+);
+
+await sendAgentNativeHostCommand(
+  "refreshData",
+  { queryKey: ["customer", context.resource?.id] },
+  { hostOrigin: "https://app.example.com" },
+);
+
+const hostTools = createAgentNativeHostTools({
+  hostOrigin: "https://app.example.com",
+});
+```
+
+### Serververmittelte Tool Bridge
+
+Für einen Kollegen im CLAW-Stil kann der Iframe auch seinen Live-Browser-Tab beim Sidecar-Backend registrieren. Der Agent erhält dann normale Backend-Tools, die eine Anfrage in die Warteschlange stellen, der Iframe beansprucht sie, die Hostseite führt sie aus und das Backend gibt das Ergebnis an den Agenten zurück.
+
+<Diagram id="doc-block-jhv307" title={"Serververmittelte Browser-Sitzungsbrücke"} summary={"Ein Backend-Tool stellt Arbeit in die Warteschlange. Der registrierte Tab beansprucht es, führt es auf der Live-Seite aus und das Ergebnis wird an den Agenten zurückgegeben – sodass ein backend/Slack/A2A-Agent weiterhin auf den geöffneten Tab zugreifen kann."}>
+
+```html
+<div class="diagram-bridge">
+  <div class="diagram-node" data-rough>
+    Backend-Agent<br /><small class="diagram-muted">Chat · Slack · A2A</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    enqueue request<br /><small class="diagram-muted"
+      >/_agent-native/browser-sessions</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    Live-Tab beansprucht es<br /><small class="diagram-muted"
+      >registered bridge</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill ok">result &rarr; agent</div>
+</div>
+```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Starten Sie in der Sidecar-App die Browser-Session-Bridge einmal, wenn der Iframe gemountet wird:
+
+```tsx
+import { useEffect } from "react";
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
+
+export function SidecarRuntime() {
+  useEffect(() => {
+    const bridge = startAgentNativeBrowserSessionBridge({
+      hostOrigin: "https://app.example.com",
+      label: "Builder editor",
+    });
+    return () => bridge.stop();
+  }, []);
+
+  return null;
+}
+```
+
+Das Framework mountet `/_agent-native/browser-sessions` automatisch. Sobald die Bridge ausgeführt wird, kann der Sidecar-Agent Folgendes verwenden:
+
+| Werkzeug                       | Zweck                                                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `list-browser-sessions`        | Siehe Registerkarten für verbundene Hosts für den aktuellen Benutzer.                                          |
+| `view-browser-session`         | Fragen Sie einen Live-Tab nach dem aktuellen Seitenkontext und einem Bildschirmfoto.                           |
+| `list-browser-session-actions` | Fragen Sie einen Live-Tab nach aktuellen clientseitigen Aktionsmanifesten.                                     |
+| `run-browser-session-action`   | Führen Sie eine aktuelle Client-Aktion über die Registerkarte „Live“ aus.                                      |
+| `send-browser-session-command` | Bitten Sie den Host, zu aktualisieren, zu navigieren, erneut bereitzustellen, neu zu laden oder zu genehmigen. |
+
+Dies ist die zu verwendende Brücke, wenn der Agent im Backend, in Slack/Telegram/E-Mail oder als A2A-Angerufener ausgeführt wird, aber dennoch die aktuelle Browser-Registerkarte des Benutzers berühren muss, wenn diese geöffnet ist. Wenn der Browser geschlossen ist, sollte das Backend actions weiterhin dauerhafte Arbeit leisten und die Browser-Sitzungstools melden, dass kein aktiver Tab verbunden ist.
+
+### Actions
+
+Es gibt zwei Aktionsklassen:
+
+| Aktionsart     | Wo es läuft                                                        | Funktioniert, wenn der Browser geschlossen ist? | Am besten für                                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend-Aktion | Sidecar-App, Backend API, MCP oder Integrationsadapter             | Ja                                              | Dauerhafte Arbeiten wie Erstellen, Aktualisieren, Veröffentlichen, Synchronisieren, Senden, Importieren.                                                          |
+| Client-Aktion  | Aktuelle Browser-Registerkarte bis `<AgentNative actions={...} />` | Nein                                            | Ephemere UI funktionieren wie das Auswählen eines Elements, das Lesen des Editorstatus, das Scrollen zu einer Zeile und das Kopieren des aktuellen Canvas-Status. |
+
+Backend actions sollte die Standardeinstellung für alles sein, was Aktualisierungen, geschlossene Browser, Wiederholungsversuche oder durch die Integration ausgelöste Ausführungen überstehen muss. Sie gehören zur normalen Agent-Native-Aktions-/Tool-Ebene der Sidecar-App, wo der Agent sie über Chat, Automatisierungen, Slack/Telegram-/E-Mail-Integrationen und Hintergrundjobs aufrufen kann.
+
+Client actions ist eine Live-Brücke zu einer Browser-Registerkarte. Der Host kündigt sie mit `source: "client"` und `availability: "browser-session"` an, und der Sidecar sollte dieses Manifest als temporär behandeln. Listen Sie actions erneut auf, wenn sich Route oder Auswahl ändern, und greifen Sie auf das Backend actions zurück, wenn die Registerkarte verschwindet.
+
+### Portable Erweiterungen
+
+> Bevorzugen Sie das Plugin mit den mitgelieferten Batterien, wenn Sie Agent-Native verwalten möchten
+> Erweiterungsdefinitionen, Genehmigung, Speicherung und vom Agenten erstellte Erweiterungen. Verwenden
+> Den tragbaren Steckplatz unten nur verwenden, wenn das SaaS diese Bedenken bereits besitzt.
+
+SDK unterstützt auch benutzerdefinierte Erweiterungen: Sandbox-Alpine.js-Mini-Apps, die ein Host-SaaS in benannten Slots rendern kann. Verwenden Sie dies, wenn der Kunde seine eigenen kleinen Panels, Rechner, Dashboards oder Workflow-Helfer auf derselben Aktions-/Kontextoberfläche erstellen möchte, die der Agent verwendet.
+
+```tsx
+import {
+  AgentNativeExtensionSlot,
+  createHttpAgentNativeExtensionStorage,
+  defineClientAction,
+} from "@agent-native/core/client";
+
+const storage = createHttpAgentNativeExtensionStorage({
+  endpoint: "/api/agent-native/extensions/storage",
+  headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),
+});
+
+const actions = [
+  defineClientAction({
+    name: "list-at-risk-customers",
+    description: "List customers currently at risk",
+    schema: { type: "object", properties: {} },
+    run: () => crmApi.customers.list({ status: "at-risk" }),
+  }),
+];
+
+const customerHealthExtension = {
+  id: "customer-health",
+  name: "Customer health",
+  description: "Shows at-risk customers and quick notes.",
+  manifest: {
+    slots: ["crm.customer.sidebar"],
+    requestedActions: ["list-at-risk-customers"],
+    requestedCommands: ["openResource", "refreshData"],
+    storageScopes: ["user", "org"],
+  },
+  content: `
+    <div x-data="{
+      customers: [],
+      note: '',
+      async init() {
+        this.customers = await appAction('list-at-risk-customers', {})
+        const row = await extensionData.get('notes', slotContext.customerId, { scope: 'user' })
+        this.note = row?.data?.text || ''
+      },
+      async save() {
+        await extensionData.set('notes', slotContext.customerId, { text: this.note }, { scope: 'user' })
+        await agentNative.refresh({ customerId: slotContext.customerId })
+      }
+    }" x-init="init()" class="space-y-3">
+      <textarea class="w-full rounded-md border bg-background p-2" x-model="note"></textarea>
+      <button class="rounded-md bg-primary px-3 py-2 text-primary-foreground" @click="save()">Save</button>
+    </div>
+  `,
+};
+
+export function CustomerSidebar({ customer, userExtensions }) {
+  return (
+    <AgentNativeExtensionSlot
+      id="crm.customer.sidebar"
+      extensions={[customerHealthExtension, ...userExtensions]}
+      context={{ customerId: customer.id, plan: customer.plan }}
+      actions={actions}
+      storage={storage}
+      storageContext={{
+        userId: currentUser().id,
+        organizationId: currentOrganization().id,
+      }}
+      getContext={() => ({
+        resource: { type: "customer", id: customer.id, name: customer.name },
+      })}
+      commands={{
+        refreshData: async () => queryClient.invalidateQueries(),
+      }}
+    />
+  );
+}
+```
+
+Das Manifest ist der Installationsvertrag. Wenn `requestedActions`, `requestedCommands` oder `storageScopes` vorhanden sind, erzwingt der SDK sie im Host, bevor eine Iframe-Anfrage die Aktionsbrücke oder den Speicheradapter erreicht. Wenn `slots` vorhanden ist, rendert `AgentNativeExtensionSlot` die Erweiterung nur in passenden Slots. Hosts können weiterhin Richtlinien pro Steckplatz mit `allowedActions`, `allowedCommands` und `allowedStorageScopes` überschreiben.
+
+Eine Erweiterung ist einfach HTML. Die Iframe-Laufzeit stellt der Mini-App dieselben sicheren Bridge-Grundelemente zur Verfügung:
+
+```html
+<div
+  x-data="{ customers: [], async init() { this.customers = await appAction('list-at-risk-customers', {}) } }"
+  x-init="init()"
+>
+  <template x-for="customer in customers" :key="customer.id">
+    <button
+      class="block w-full rounded-md px-3 py-2 text-left hover:bg-muted"
+      x-text="customer.name"
+      @click="agentNative.command('openResource', { type: 'customer', id: customer.id })"
+    ></button>
+  </template>
+</div>
+```
+
+Verfügbare Globals im Iframe:
+
+| Helfer                         | Zweck                                                                                        |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `appAction(name, args)`        | Führen Sie eine vom Host deklarierte Aktion aus.                                             |
+| `agentNative.context()`        | Aktuelle Hostseite, Ressource, Slot und Benutzerdaten lesen.                                 |
+| `agentNative.command(name, p)` | Bitten Sie den Host, zu navigieren, zu aktualisieren, erneut bereitzustellen oder zu öffnen. |
+| `agentNative.refresh(payload)` | Verknüpfung für `refreshData`.                                                               |
+| `extensionData.*`              | Erweiterungslokale Daten über den Hostadapter beibehalten.                                   |
+
+`extensionData` verwendet standardmäßig den Browser `localStorage`, der für Prototypen und lokale Widgets nützlich ist. Produktions-SaaS-Hosts sollten einen vom Backend unterstützten `storage`-Adapter übergeben, damit benutzer- und organisationsbezogene Erweiterungsdaten dauerhaft und überprüfbar sind und durch die Berechtigungen der App gesteuert werden. Der generische HTTP-Adapter sendet POST-Körper wie `{ operation, extensionId, slotId, collection, id, data, options, context }` und erwartet direkt entweder `{ result }` oder das Ergebnis JSON.
+
+Diese tragbare SDK-Schicht ist vom integrierten SQL-gestützten Erweiterungsspeicher des Frameworks getrennt. Verwenden Sie in einer Agent-Native-App die vorhandenen `ExtensionSlot`/`EmbeddedExtension`-Komponenten und die `create-extension`-Aktion. Bevorzugen Sie in einem gehosteten SaaS-Einbettungsszenario `createAgentNativeEmbeddedPlugin()` plus `AgentNativeEmbedded`, wenn Agent-Native Erweiterungsdefinitionen, Genehmigung, Speicherung und vom Agent erstellte Erweiterungen sofort verwalten soll. Verwenden Sie `AgentNativeExtensionSlot` nur, wenn das SaaS bereits Erweiterungsdefinitionen, Genehmigung, Marktplatz, Speicher und Abrechnung besitzt.
+
+Sicherheitsmodell:
+
+- Erweiterungs-Iframes werden ohne `allow-same-origin` in einer Sandbox gespeichert. Die Mini-App kann das übergeordnete DOM, Cookies oder die App-Laufzeit nicht direkt lesen.
+- Erweiterungen können nur actions und Befehle aufrufen, die vom Host und Erweiterungsmanifest zugelassen sind.
+- Riskanter actions sollte `destructive` oder `requiresApproval` festlegen, damit der Host einen Genehmigungsfluss anzeigen kann.
+- Behandeln Sie die vom Benutzer erstellte Erweiterung HTML als nicht vertrauenswürdig. Überprüfen Sie die Marketplace-Installationen, die Nutzung von Protokollaktionen und den Umfang des Backend-Speichers nach Benutzer/Organisation.
+
+### Sitzungen und Registerkarten
+
+Die Host-Bridge ist auf ein Iframe/Host-Fenster-Paar beschränkt. Wenn derselbe Benutzer mehrere Registerkarten öffnet, verfügt jede Registerkarte über eigene `session`, Kontext, Auswahl, Client-actions und ausstehende Befehlsantworten. Gehen Sie nicht davon aus, dass eine auf einer Registerkarte entdeckte Clientaktion auf einer anderen Registerkarte ausgeführt werden kann oder dass sie nach der Navigation noch vorhanden ist.
+
+Behalten Sie bei Produkten mit mehreren Registerkarten den dauerhaften Status in SQL/Backend actions bei und verwenden Sie den Client actions nur für die tab-lokalen Teile: Fokussieren einer Zeile, Kopieren des sichtbaren Editorstatus, Auswählen eines Canvas-Elements oder Aktualisieren des aktuellen React-Abfragecaches. Fügen Sie genügend `route`-, `resource`- und `selection`-Kontext ein, damit der Sidecar entscheiden kann, ob die aktuelle Registerkarte der richtige Ort zum Ausführen einer Browsersitzungsaktion ist.
+
+### Befehlsmodell
+
+Eingebaute Befehlsnamen sind bewusst App-förmig und nicht datenbankförmig:
+
+| Befehl                                 | Zweck                                                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `navigate`                             | Verschieben Sie den Host UI in einen Pfad/eine Ansicht/eine Ressource.                            |
+| `refreshData` / `refresh-data`         | Bitten Sie den Host, clientseitige Daten ungültig zu machen.                                      |
+| `remountView` / `remount-view`         | Bitten Sie den Host, einen Teilbaum erneut bereitzustellen, z. B. `<App key={key} />`.            |
+| `hardReload` / `hard-reload`           | Vollständiger Browser-Neuladen.                                                                   |
+| `openResource` / `open-resource`       | Öffnen Sie ein bestimmtes Domänenobjekt im Host UI.                                               |
+| `requestApproval` / `request-approval` | Bitten Sie den Host, einen Bestätigungsablauf anzuzeigen. Registrieren Sie hierfür einen Handler. |
+
+Wenn kein Handler bereitgestellt wird, lösen sichere Standardeinstellungen Browserereignisse wie `agentNative:refresh-data` und `agentNative:remount-view` aus. `requestApproval` hat keinen Standardhandler; Registrieren Sie eins, bevor Sie sich darauf verlassen.
+
+### Genehmigungsleitfaden
+
+Markieren Sie den riskanten Client actions mit `destructive: true` in seinem Manifest und fordern Sie die Genehmigung des Hosts an, bevor Sie Vorgänge ausführen, die Benutzer außerhalb der aktuellen Ansicht löschen, veröffentlichen, senden, in Rechnung stellen, einladen, freigeben oder auf andere Weise beeinflussen. Das Backend actions sollte auch seine eigenen Autorisierungs- und Genehmigungsprüfungen durchsetzen; Die Host-Genehmigung ist eine nützliche UX, nicht die Sicherheitsgrenze.
+
+Bevorzugen Sie diese Form:
+
+- Dauerhafte Mutation wird in einer Backend-Aktion mit Validierung, Authentifizierung, Audit-Protokollierung und Wiederholungsversuchen ausgeführt.
+- Host-Befehl öffnet eine Genehmigung UI oder fokussiert die betroffene Ressource.
+- Die Client-Aktion verarbeitet nur den Live-UI-Schritt, der nicht im Backend ausgeführt werden kann.
+
+### Laufzeitintegration
+
+Verwenden Sie `createAgentNativeHostTools()` im Sidecar-Iframe, wenn Ihre Agent-Laufzeit einfache Tool-Deskriptoren akzeptiert. Es werden vier Framework-unabhängige Tools zurückgegeben:
+
+| Werkzeug            | Zweck                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| `view-host-screen`  | Semantischen Hostkontext und Bildschirm-Snapshot lesen.                                          |
+| `list-host-actions` | List die Live-Browsersitzung actions auf, die von der aktuellen Registerkarte angezeigt wird.    |
+| `run-host-action`   | Führen Sie eine Live-Client-Aktion nach Namen aus.                                               |
+| `send-host-command` | Senden Sie Hostbefehle wie „Aktualisieren“, „Navigieren“, „Neu bereitstellen“ oder „Genehmigen“. |
+
+Der Helfer gibt absichtlich einfache `{ name, description, parameters, execute }`-Objekte zurück, damit Sidecars sie an den Funktionsaufruf AI SDK, Anthropic, OpenAI oder die Agent-Native `ActionEntry`-Form anpassen können, ohne diesen SDK an eine Laufzeit zu koppeln.
+
+## Empfohlene Produktform
+
+Starten Sie zuerst iframe. Es funktioniert für Builder.io, Kunden-SaaS-Apps und interne Verwaltungstools, ohne Release-Zyklen oder CSS/Laufzeitannahmen zu koppeln.
+
+Der Sidecar selbst sollte weiterhin eine Agent-Native-App/-Vorlage sein: actions ist die Backend-API-Oberfläche, der von SQL unterstützte App-Status ist der Speicher des Agenten und Integrationen wie Slack oder Telegram können in denselben dauerhaften Chat weitergeleitet werden. Der einbettende SDK stellt die Live-Membran zwischen diesem Sidecar und der aktuellen Hostseite bereit.

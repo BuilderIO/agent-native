@@ -1,0 +1,331 @@
+---
+title: "Équipes d'agents"
+description: "Les délégués de l'agent principal travaillent auprès des sous-agents qui s'exécutent dans leurs propres fils de discussion et apparaissent sous forme de puces d'aperçu en direct dans le chat."
+---
+
+# Équipes d'agents
+
+Le chat de l'agent est un **orchestrateur**, pas un monolithe. Lorsque l'agent principal exécute une tâche qui relève mieux d'un spécialiste – « écrire cet e-mail avec ma voix », « exécuter une analyse BigQuery », « examiner ce PR » - il génère un sous-agent dans son propre fil de discussion, ses propres outils et son propre contexte. Le sous-agent apparaît sous la forme d'une **puce** d'aperçu en direct en ligne dans le chat principal ; cliquez dessus pour ouvrir la conversation complète sous forme d'onglet.
+
+Cela permet de garder le thread principal concentré, de permettre aux sous-agents de s'exécuter en parallèle et de vous fournir une piste d'audit claire pour tout travail délégué.
+
+Agent Teams s'exécute sur le gestionnaire d'exécution principal : les événements sont diffusés et persistants, les abandons se propagent via SQL et les tâches survivent aux démarrages à froid sans serveur.
+
+## Le modèle mental {#mental-model}
+
+- **Chat principal** — l'orchestrateur. Lit votre demande, délégués. Il est rare qu'un travail pénible lui-même soit réalisé.
+- **Sous-agents** : exécutés avec leur propre thread, leur propre invite système, leur propre ensemble d'outils. Chacun correspond à un profil « agent personnalisé » dans le [workspace](/docs/workspace).
+- **Chips** — la carte d'aperçu riche qui apparaît en ligne dans le chat principal, montrant l'étape actuelle du sous-agent, la sortie en streaming et le résumé final. Réduit par défaut ; se développe en une conversation complète en un seul clic.
+- **Messagerie bidirectionnelle** — l'agent principal peut envoyer des suivis à un sous-agent en cours d'exécution ; un sous-agent peut répondre lorsqu'il atteint un point ambigu.
+
+L'état du sous-agent est conservé dans la table `application_state` SQL (sous `agent-task:<taskId>`), de sorte que les tâches survivent aux démarrages à froid sans serveur et fonctionnent sur plusieurs processus.
+
+<Diagram id="doc-block-1pvbwrf" title={"Orchestrateur et spécialistes"} summary={"Le chat principal délègue à des sous-agents qui s'exécutent dans leurs propres threads et rendent compte sous forme de puces en ligne."}>
+
+```html
+<div class="at-orc">
+  <div class="diagram-card main">
+    <span class="diagram-pill accent">Chat principal</span
+    ><small class="diagram-muted"
+      >orchestrator &mdash; reads your request, delegates</small
+    >
+  </div>
+  <div class="at-fan">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="at-subs">
+      <div class="diagram-box">
+        Revue de code<br /><small class="diagram-muted"
+          >own thread &amp; prompt</small
+        >
+      </div>
+      <div class="diagram-box">
+        Analyse BigQuery<br /><small class="diagram-muted">own tools</small>
+      </div>
+      <div class="diagram-box">
+        E-mail à la voix<br /><small class="diagram-muted">own context</small>
+      </div>
+    </div>
+  </div>
+  <div class="diagram-pill">each appears inline as a live chip &#8635;</div>
+</div>
+```
+
+```css
+.at-orc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.at-orc .diagram-card {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+.at-orc .at-fan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.at-orc .diagram-arrow {
+  font-size: 22px;
+}
+.at-orc .at-subs {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.at-orc .diagram-box {
+  text-align: center;
+}
+```
+
+</Diagram>
+
+## Quand générer un sous-agent {#when-to-spawn}
+
+Apparaître lorsque la tâche :
+
+- Nécessite une **invite système** différente (une voix ou un ton spécialisé, par exemple « révision du code »).
+- Possède une chaîne d'outils **de longue durée** qui polluerait le contexte principal.
+- Peut s'exécuter **en parallèle** avec d'autres tâches effectuées par l'agent principal.
+- appartient à une **équipe différente** qui dispose déjà d'un profil d'agent personnalisé.
+
+Ne vous lancez pas pour un travail ponctuel trivial : appelez l'action directement.
+
+## Invoquer un sous-agent {#invoking}
+
+Trois façons de lancer un sous-agent, de la moins explicite à la plus explicite :
+
+### 1. `@mention` un agent personnalisé {#mention}
+
+L'utilisateur saisit `@agent-name` dans le composeur de chat. Une liste déroulante des sous-agents de l'espace de travail apparaît. En sélectionner un insère une puce ; Lors de la soumission, l'agent principal délègue le message à ce sous-agent.
+
+Les agents personnalisés se trouvent dans l'espace de travail de `agents/<slug>.md` : un fichier Markdown avec le thème principal YAML. Voir [Custom Agents](/docs/workspace#custom-agents) pour le format.
+
+### 2. L'agent principal délègue automatiquement {#auto-delegate}
+
+Le framework donne à l'agent principal un outil `agent-teams`. Lorsque le modèle décide qu'une tâche correspond à un profil de sous-agent enregistré, il appelle l'outil avec `action: "spawn"` et un paramètre `agent` facultatif nommant un profil de `agents/*.md`. Une puce apparaît ; le sous-agent s'exécute. L'agent principal attend (ou avance en parallèle) et intègre le résultat lorsque le sous-agent a terminé.
+
+L'ensemble complet d'actions `agent-teams` est :
+
+| Action        | Objectif                                                     |
+| ------------- | ------------------------------------------------------------ |
+| `spawn`       | Démarrer une nouvelle tâche de sous-agent                    |
+| `status`      | Vérifier la progression d'un sous-agent en cours d'exécution |
+| `read-result` | Obtenir le résultat d'un sous-agent terminé                  |
+| `send`        | Envoyer un message à un sous-agent en cours d'exécution      |
+| `list`        | Voir toutes les tâches de l'utilisateur actuel               |
+
+### 3. Apparition programmatique {#programmatic-spawn}
+
+Pour les intégrations au niveau du framework, utilisez `spawnTask()` à partir de `@agent-native/core/server` :
+
+```ts
+import { spawnTask } from "@agent-native/core/server";
+
+const task = await spawnTask({
+  description: "Draft an outreach email to this lead",
+  instructions: "Match the user's voice from memory/MEMORY.md.",
+  ownerEmail: user.email,
+  systemPrompt: mailAgentSystemPrompt,
+  actions: mailActions,
+  // Pass either apiKey or engine — engine takes precedence.
+  apiKey: process.env.ANTHROPIC_API_KEY, // optional if engine is provided
+  parentSend: emit, // streaming sender for the parent chat response
+});
+```
+
+La plupart des codes d'application n'appellent pas cela directement : le framework le fait sous le capot pour `@mentions` et pour l'outil `agent-teams`. Accédez à `spawnTask()` uniquement lorsque vous connectez un nouveau point d'entrée (par exemple, un bouton qui lance une tâche en arrière-plan qui s'exécute en tant que sous-agent).
+
+## Cycle de vie des tâches {#lifecycle}
+
+<Diagram id="doc-block-xepm95" title="Que fait spawnTask()" summary={"Chaque apparition crée un thread, conserve son état dans SQL et diffuse les événements de puce jusqu'à leur achèvement."}>
+
+```html
+<div class="at-life">
+  <div class="diagram-box"><code>spawnTask()</code></div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">create thread</span
+    ><small class="diagram-muted"
+      >new row in <code>chat_threads</code>, description as first message</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">persist state</span
+    ><small class="diagram-muted"
+      ><code>agent-task:&lt;id&gt;</code> &rarr; <code>application_state</code>,
+      status=running</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">stream</span
+    ><small class="diagram-muted"
+      ><code>agent_task_started</code> &rarr; chip appears;
+      <code>agent_task_step</code> &rarr; chip updates live</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">complete</span
+    ><small class="diagram-muted"
+      >status=completed, write summary + preview, emit
+      <code>agent_task_done</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.at-life {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  max-width: 560px;
+}
+.at-life .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+}
+.at-life .diagram-box {
+  align-self: flex-start;
+}
+.at-life .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
+}
+```
+
+</Diagram>
+
+À tout moment, l'agent parent peut reprendre le sous-agent avec un suivi via `sendToTask(taskId, message)`. En cas d'erreur du sous-agent, `markTaskErrored(taskId, reason)` enregistre l'échec et le signale à l'utilisateur.
+
+La messagerie bidirectionnelle est durable. Les suivis des parents pour les sous-agents en cours d'exécution sont
+fournis tout au long du cycle de vie de la tâche ; si le sous-agent ne peut pas les consommer en
+à l'étape en cours, ils doivent rester en file d'attente et être appliqués dans un coffre-fort
+point de suite. Les sous-agents peuvent également répondre lorsqu'ils ont besoin d'éclaircissements
+au lieu de bloquer de manière invisible.
+
+## Lecture de l'état de la tâche {#reading-state}
+
+Depuis le code du serveur ou autre actions :
+
+```ts
+import { getTask, listTasks } from "@agent-native/core/server";
+
+const task = await getTask(taskId); // single task
+const tasks = await listTasks(); // all tasks for the user (sorted newest first)
+```
+
+Champs clés `AgentTask` :
+
+```ts
+interface AgentTask {
+  taskId: string;
+  threadId: string;
+  description: string;
+  status: "running" | "completed" | "errored";
+  preview: string; // short one-liner for the chip
+  summary: string; // full summary once completed
+  currentStep: string; // latest step label (updated while running)
+  createdAt: number;
+  // Additional fields: parentThreadId, name, updatedAt, startedAt,
+  // completedAt, runId, error
+}
+```
+
+## Profils d'agent personnalisés {#profiles}
+
+Les sous-agents sont mappés aux profils d'agent personnalisés : fichiers Markdown sur `agents/<slug>.md` dans l'espace de travail qui apparaissent dans la liste déroulante `@mention` et servent de cibles de délégation. [Workspace — Custom Agents](/docs/workspace#custom-agents) possède le format complet (frontmatter, `tools`, `delegate-default`, remplacements de modèle).
+
+## Garde-profondeur de délégation {#depth-guard}
+
+Les sous-agents peuvent engendrer des sous-agents, ce qui représente un risque d'emballement/de coût : une chaîne illimitée de délégations pourrait s'étendre indéfiniment. Le framework impose un **plafond strict sur la profondeur de la délégation**, côté serveur, indépendamment de toute protection au niveau de l'outil.
+
+Le chat de niveau supérieur est la profondeur `0`. Un sous-agent qu'il génère est la profondeur `1` ; ce sous-agent peut réapparaître (profondeur `2`) ; un spawn qui créerait un sous-agent de profondeur `3` est **refusé**. La limite par défaut est **2**.
+
+<Diagram id="doc-block-gbv1tz" title={"Garde de profondeur de délégation (capuchon par défaut 2)"} summary={"Chaque niveau peut en générer un plus profond jusqu'au plafond ; un spawn passé est refusé côté serveur."}>
+
+```html
+<div class="at-depth">
+  <div class="diagram-card ok">
+    <span class="diagram-pill">depth 0</span
+    ><strong>Chat de niveau supérieur</strong
+    ><small class="diagram-muted ok">may spawn &darr;</small>
+  </div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill">depth 1</span><strong>Sous-agent</strong
+    ><small class="diagram-muted ok">may spawn &darr;</small>
+  </div>
+  <div class="diagram-card warn">
+    <span class="diagram-pill warn">depth 2</span
+    ><strong>Sous-agent's sub-agent</strong
+    ><small class="diagram-muted">at the cap &mdash; may NOT spawn</small>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">depth 3</span><strong>Refused</strong
+    ><small class="diagram-muted">server-side error</small>
+  </div>
+</div>
+```
+
+```css
+.at-depth {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.at-depth .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.at-depth .rung-1,
+.at-depth .diagram-card:nth-child(2) {
+  margin-inline-start: 24px;
+}
+.at-depth .diagram-card:nth-child(3) {
+  margin-inline-start: 48px;
+}
+.at-depth .diagram-card:nth-child(4) {
+  margin-inline-start: 72px;
+}
+```
+
+</Diagram>
+
+L'application est ambiante : chaque sous-agent s'exécute à l'intérieur d'un `AsyncLocalStorage` qui enregistre sa propre profondeur, de sorte que tout `spawnTask` atteint de manière transitive à partir de cette exécution lit la profondeur de son parent et refuse une fois le plafond atteint - même si l'outil `agent-teams` a été remis à un sous-agent qui n'aurait pas dû l'avoir. La décision est exposée comme un `evaluateSubagentDepth(parentDepth)` pur et testable unitairement. Un spawn refusé renvoie une erreur claire : _"Limite de profondeur de délégation atteinte (max N) ; impossible de générer un autre sous-agent."_
+
+### Configurer le capuchon {#depth-guard-config}
+
+Remplacez la valeur par défaut au moment du déploiement avec `AGENT_NATIVE_MAX_SUBAGENT_DEPTH` :
+
+| Valeur           | Effet                                                                                                                                                                        |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(non défini)_   | Capuchon par défaut de `2`.                                                                                                                                                  |
+| `0`              | **Aucun sous-agent ne peut être généré** : l'agent de niveau supérieur fait tout le travail.                                                                                 |
+| `1`…`16`         | Autant de niveaux de délégation.                                                                                                                                             |
+| invalide / `>16` | Une valeur non entière/négative/NaN revient à `2` ; tout ce qui se trouve au-dessus de `16` est lié à `16` afin qu'une faute de frappe ne puisse jamais désactiver la garde. |
+
+```bash
+AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # les sous-agents sont autorisés, mais ils ne peuvent pas sous-déléguer
+```
+
+Lorsqu'un sous-agent est égal ou inférieur au plafond, le framework injecte une ligne dans son contexte d'exécution lui indiquant à quelle profondeur il se trouve et s'il peut déléguer davantage, afin que le modèle dépense son budget de manière appropriée.
+
+## Quelle est la prochaine étape
+
+- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — le format de profil
+- [**A2A Protocol**](/docs/a2a-protocol) — lorsque le « sous-agent » vit dans une application entièrement différente
+- [**Actions**](/docs/actions) — les outils qu'un sous-agent appelle

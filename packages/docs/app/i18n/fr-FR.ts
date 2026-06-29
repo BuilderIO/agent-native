@@ -43,6 +43,9 @@ const frFR = {
   docs: {
     navigateAria: "Parcourir les docs",
     onThisPage: "Sur cette page",
+    copyMarkdown: "Copier le doc en Markdown",
+    copiedMarkdown: "Markdown copié",
+    copyMarkdownError: "Impossible de copier le Markdown",
     previous: "Précédent",
     next: "Suivant",
   },
@@ -536,7 +539,7 @@ const frFR = {
       s004: "Dicter",
       s005: "Peut voir + entendre",
       s006: "Tous les modèles",
-      s007: "L'alternative open source à Loom et Jam",
+      s007: "L'alternative open source à Loom",
       s008: "Collez un lien Clips dans un agent et celui-ci pourra entendre la transcription, lire des résumés et voir les images horodatées même si son modèle ne peut pas ingérer de vidéo ou d'audio brut.",
       s009: "Essayer",
       s010: "Ce que tu peux faire",
@@ -1103,16 +1106,17 @@ const frFR = {
     },
   },
   skillsPage: {
-    metaTitle: "Skills agent - Visual Plan et Visual Recap pour agents de code",
+    metaTitle:
+      "Skills agent - Visual Plan, Visual Recap et Visual Edit pour agents de code",
     metaDescription:
-      "Installez des skills adossees a des apps Agent-Native pour aider votre agent de code a produire des plans visuels et des recaps de PR.",
+      "Installez des skills adossees a des apps Agent-Native pour aider votre agent de code a produire des plans visuels, des recaps de PR et de l edition visuelle locale.",
     metaOgDescription:
       "Donnez a votre agent de code des commandes slash propulsees par des apps Agent-Native que vous pouvez heberger, inspecter et personnaliser.",
     metaKeywords:
-      "skills agent, visual plan, visual recap, agent de code, Claude Code, Codex, revue PR, planification, agent-native",
+      "skills agent, visual plan, visual recap, visual edit, agent de code, Claude Code, Codex, revue PR, planification, agent-native",
     heroTitle: "Donnez de nouveaux superpouvoirs a votre agent de code",
     heroBody:
-      "Installez des skills adossees a des apps Agent-Native entierement personnalisables : planification visuelle avant implementation et recaps visuels de PR apres les changements.",
+      "Installez des skills adossees a des apps Agent-Native entierement personnalisables : planification visuelle avant implementation, recaps visuels de PR apres les changements et edition visuelle des flows UI locaux.",
     sectionTitle: "Skills adossees a des apps pour agents de code",
     sectionBody:
       "Utilisez des liens d apps hebergees et partageables, des fichiers locaux ou une app auto-hebergee/personnalisee ; votre agent recoit les instructions et la surface MCP correspondante quand elle est necessaire.",
@@ -1138,6 +1142,15 @@ const frFR = {
       feature1: "Resume les changements de schema, d API et de fichiers",
       feature2: "Peut publier un commentaire PR epingle",
       videoAriaLabel: "Video de demonstration de la skill Visual Recap",
+    },
+    visualEdit: {
+      name: "Edition visuelle",
+      tagline: "Modifier les flows UI locaux",
+      description:
+        "Ouvre une app localhost en cours d execution dans Design comme ecrans adosses a des URL pour revue et edition visuelles.",
+      feature1: "Dispose des flows multi-ecrans depuis des URL ordonnees",
+      feature2: "Inspecte, duplique et affine les etats de routes en direct",
+      videoAriaLabel: "Video de demonstration de la skill Visual Edit",
     },
   },
   downloadPage: {

@@ -1,0 +1,292 @@
+---
+title: "ट्रैकिंग और एनालिटिक्स"
+description: "प्लग करने योग्य प्रदाताओं के साथ सर्वर-साइड एनालिटिक्स - पोस्टहॉग, मिक्सपैनल, एम्प्लिट्यूड, या कस्टम वेबहुक"
+---
+
+# एनालिटिक्स ट्रैकिंग
+
+एक फ़ंक्शन, एकाधिक गंतव्य। किसी भी सर्वर-साइड कोड से `track()` पर कॉल करें - actions, प्लगइन्स, सर्वर रूट - और प्रत्येक पंजीकृत एनालिटिक्स प्रदाता के लिए ईवेंट प्रशंसक। कोई SDK निर्भरता नहीं, कोई क्लाइंट-साइड स्क्रिप्ट नहीं, कोई अवरोधन नहीं। वही `track()` [browser/app code](#client) में भी उपलब्ध है और समान प्रदाताओं के लिए रूट है।
+
+यह _उत्पाद_ एनालिटिक्स है - आपके ऐप के इवेंट पोस्टहॉग/मिक्सपैनल/एम्प्लीट्यूड पर प्रवाहित हो रहे हैं। आपके अपने डेटाबेस में संग्रहीत _एजेंट गुणवत्ता_ मेट्रिक्स (निशान, लागत, मूल्यांकन, फीडबैक) के लिए, [Observability](/docs/observability) देखें।
+
+```ts
+import { track } from "@agent-native/core/tracking";
+
+track(
+  "order.completed",
+  { total: 49.99, items: 3 },
+  { userId: "steve@builder.io" },
+);
+```
+
+<Diagram id="doc-block-a5b7o9" title={"एक ट्रैक() कॉल, प्रत्येक प्रदाता"} summary={"सर्वर और क्लाइंट कॉलर्स एक ही रजिस्ट्री को हिट करते हैं, जो समानांतर में सभी सक्रिय प्रदाताओं को हर घटना को प्रसारित करता है।"}>
+
+```html
+<div class="trk">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      सर्वर कोड<br /><small class="diagram-muted"
+        >actions &middot; plugins &middot; routes</small
+      >
+    </div>
+    <div class="diagram-node">
+      ब्राउज़र कोड<br /><small class="diagram-muted"
+        >POST /_agent-native/track</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Provider registry</span
+    ><small class="diagram-muted">fan-out, भेजकर छोड़ें</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">PostHog</div>
+    <div class="diagram-box">Mixpanel</div>
+    <div class="diagram-box">Amplitude</div>
+    <div class="diagram-box">Webhook</div>
+  </div>
+</div>
+```
+
+```css
+.trk {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.trk .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trk .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.trk .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## अंतर्निहित प्रदाता {#built-in}
+
+एक env var सेट करें और प्रदाता सर्वर स्टार्टअप पर ऑटो-रजिस्टर करें। किसी कोड परिवर्तन की आवश्यकता नहीं है.
+
+| प्रदाता   | पर्यावरण संस्करण                                                                           |
+| --------- | ------------------------------------------------------------------------------------------ |
+| पोस्टहॉग  | `POSTHOG_API_KEY` (आवश्यक), `POSTHOG_HOST` (वैकल्पिक, डिफ़ॉल्ट `https://us.i.posthog.com`) |
+| मिक्सपैनल | `MIXPANEL_TOKEN`                                                                           |
+| आयाम      | `AMPLITUDE_API_KEY`                                                                        |
+| वेबहुक    | `TRACKING_WEBHOOK_URL` (आवश्यक), `TRACKING_WEBHOOK_AUTH` (वैकल्पिक `Authorization` हेडर)   |
+
+एकाधिक प्रदाता एक साथ सक्रिय हो सकते हैं। प्रत्येक घटना उन सभी को जाती है।
+
+## API {#api}
+
+### `track(name, properties?, meta?)` {#track}
+
+एक एनालिटिक्स इवेंट सक्रिय करें। सभी पंजीकृत प्रदाताओं के प्रशंसक।
+
+```ts
+import { track } from "@agent-native/core/tracking";
+
+track(
+  "meal.logged",
+  { mealName: "Salad", calories: 350 },
+  { userId: "steve@builder.io" },
+);
+```
+
+### `identify(userId, traits?)` {#identify}
+
+किसी उपयोगकर्ता को उसके गुणों से पहचानें. उन प्रदाताओं को अग्रेषित किया जाता है जो इसका समर्थन करते हैं (पोस्टहॉग, मिक्सपैनल, एम्प्लिट्यूड, वेबहुक)।
+
+```ts
+import { identify } from "@agent-native/core/tracking";
+
+identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+```
+
+कस्टम बैकएंड, प्रदाता-रजिस्ट्री API, या बैचिंग/सिंगलटन इंटरनल्स की आवश्यकता है? अंत में [Advanced: custom providers & internals](#advanced) देखें।
+
+## टेम्प्लेट में ट्रैक() का उपयोग करना {#templates}
+
+उपयोगकर्ता या एजेंट गतिविधि को रिकॉर्ड करने के लिए एक्शन हैंडलर से `track()` पर कॉल करें:
+
+```ts
+// actions/create-project.ts
+import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Create a new project.",
+  schema: z.object({
+    name: z.string(),
+    template: z.string().optional(),
+  }),
+  run: async ({ name, template }, ctx) => {
+    const project = await db
+      .insert(projects)
+      .values({ name, template })
+      .returning();
+
+    track("project.created", { name, template }, { userId: ctx.userEmail });
+
+    return { ok: true, projectId: project[0].id };
+  },
+});
+```
+
+ट्रैक कॉल आग लगाओ और भूल जाओ - वे तुरंत वापस आते हैं और कभी भी कार्रवाई प्रतिक्रिया को अवरुद्ध नहीं करते हैं।
+
+## क्लाइंट-साइड ट्रैकिंग {#client}
+
+`track()` ब्राउज़र/ऐप कोड से भी काम करता है। क्लाइंट ट्विन को `@agent-native/core/client` से आयात करें और इसे उसी तरह से कॉल करें - यह ईवेंट को `POST /_agent-native/track` पर फ्रेमवर्क रूट पर पोस्ट करता है, जो इसे **समान** पंजीकृत सर्वर-साइड प्रदाताओं (पोस्टहॉग, मिक्सपैनल, एम्प्लिट्यूड, वेबहुक) को अग्रेषित करता है। कोई भी एनालिटिक्स SDK ब्राउज़र पर नहीं भेजा जाता है और कोई भी प्रदाता कुंजी क्लाइंट-साइड पर प्रदर्शित नहीं होती है।
+
+<Endpoint id="doc-block-10lzhr8" title={"क्लाइंट ट्रैकिंग रूट"} method="POST" path="/_agent-native/track" summary={"किसी ब्राउज़र ईवेंट को पंजीकृत सर्वर-साइड प्रदाताओं को अग्रेषित करें"} auth="Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay." params={[
+  {
+    "name": "name",
+    "in": "body",
+    "type": "string",
+    "required": true,
+    "description": "Event name. Capped at 200 characters."
+  },
+  {
+    "name": "properties",
+    "in": "body",
+    "type": "object",
+    "description": "Event properties (~16KB cap). `source: \"client\"` and the active `org_id` are added server-side."
+  }
+]}>
+
+Identity is resolved **server-side** from the session — browser code never passes a `userId`. Fire-and-forget: never blocks the UI, never throws, swallows network errors. Oversized or malformed payloads are rejected.
+
+</Endpoint>
+
+```ts
+import { track } from "@agent-native/core/client";
+
+// e.g. inside a click handler or effect
+track("checkout.completed", { total: 49.99, items: 3 });
+```
+
+[server `track()`](#track) से मुख्य अंतर:
+
+- **कोई पहचान तर्क नहीं।** ईवेंट को सर्वर-साइड पर साइन-इन उपयोगकर्ता (और सक्रिय संगठन, `properties` में `org_id` के रूप में) के लिए जिम्मेदार ठहराया गया है। ब्राउज़र कोड कभी भी `userId` पास नहीं करता.
+- **`source: "client"`** को प्रत्येक ईवेंट के गुणों में जोड़ा जाता है ताकि आप क्लाइंट-उत्पन्न ईवेंट को सर्वर से अलग बता सकें।
+- **फ़ायर-एंड-फ़ॉरगेट।** यह कभी भी UI को ब्लॉक नहीं करता, कभी फेंकता नहीं और नेटवर्क त्रुटियों को निगल जाता है।
+- **प्रमाणित, केवल प्रथम-पक्ष।** रूट के लिए एक सत्र और एक समान-मूल/CSRF मार्कर (सहायक द्वारा स्वचालित रूप से सेट) की आवश्यकता होती है, इसलिए इसे एक ओपन एनालिटिक्स रिले के रूप में उपयोग नहीं किया जा सकता है। `name` की सीमा 200 अक्षर और `properties` की अधिकतम सीमा ~16KB है; अधिक आकार वाले या विकृत पेलोड अस्वीकार कर दिए जाते हैं।
+
+यह फ्रेमवर्क के आंतरिक ब्राउज़र टेलीमेट्री (`trackEvent()` / स्वचालित पेजव्यू - नीचे [Browser defaults](#browser-defaults) देखें) से अलग है, जो Agent Native के स्वयं के उत्पाद विश्लेषण को शक्ति प्रदान करता है। अपने ऐप के स्वयं के एनालिटिक्स इवेंट के लिए `track()` का उपयोग करें जो आपके कॉन्फ़िगर किए गए प्रदाताओं तक पहुंचना चाहिए।
+
+## उन्नत: कस्टम प्रदाता और आंतरिक {#advanced}
+
+अधिकांश ऐप्स को केवल `track()` / `identify()` और एक अंतर्निहित प्रदाता की आवश्यकता होती है। शेष सतह - कस्टम प्रदाताओं का पंजीकरण, `TrackingProvider` इंटरफ़ेस, बैचिंग आंतरिक, और फ्रेमवर्क का अपना ब्राउज़र टेलीमेट्री - नीचे है।
+
+<details>
+<summary><strong>प्रदाता-रजिस्ट्री API, इंटरफ़ेस, आंतरिक और ब्राउज़र डिफ़ॉल्ट</strong></summary>
+
+### `registerTrackingProvider(provider)` {#register}
+
+किसी भी एनालिटिक्स बैकएंड के लिए एक कस्टम प्रदाता पंजीकृत करें।
+
+```ts
+import { registerTrackingProvider } from "@agent-native/core/tracking";
+
+registerTrackingProvider({
+  name: "my-analytics",
+  track(event) {
+    // Send event to your backend
+    fetch("https://analytics.example.com/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    }).catch(() => {});
+  },
+  identify(userId, traits) {
+    // Optional — link user identity to future events
+  },
+  flush() {
+    // Optional — called on graceful shutdown
+  },
+});
+```
+
+### `flushTracking()` {#flush}
+
+सभी प्रदाताओं को फ्लश करें. लंबित घटनाओं को भेजने को सुनिश्चित करने के लिए प्रक्रिया से बाहर निकलने से पहले कॉल करें।
+
+```ts
+import { flushTracking } from "@agent-native/core/tracking";
+
+await flushTracking();
+```
+
+### `unregisterTrackingProvider(name)` {#unregister}
+
+किसी प्रदाता को नाम से हटाएं। यदि प्रदाता मिल गया और हटा दिया गया तो `true` लौटाता है।
+
+### `listTrackingProviders()` {#list}
+
+सभी पंजीकृत प्रदाताओं के नाम लौटाता है।
+
+### ट्रैकिंगप्रदाता इंटरफ़ेस {#provider-interface}
+
+```ts
+interface TrackingProvider {
+  name: string;
+  track(event: TrackingEvent): void | Promise<void>;
+  identify?(
+    userId: string,
+    traits?: Record<string, unknown>,
+  ): void | Promise<void>;
+  flush?(): void | Promise<void>;
+}
+
+interface TrackingEvent {
+  name: string;
+  properties?: Record<string, unknown>;
+  timestamp?: string;
+  userId?: string;
+}
+```
+
+केवल `name` और `track` आवश्यक हैं। `identify` और `flush` वैकल्पिक हैं - यदि आपका बैकएंड उपयोगकर्ता पहचान और बैच डिलीवरी का समर्थन करता है तो उन्हें लागू करें।
+
+### यह कैसे काम करता है {#internals}
+
+- **बैच HTTP** - अंतर्निहित प्रदाता घटनाओं को सूचीबद्ध करते हैं और हर 10 सेकंड में या जब 50 घटनाएं जमा हो जाती हैं, जो भी पहले हो, फ्लश करते हैं। यह डेटा खोए बिना आउटबाउंड अनुरोधों को न्यूनतम करता है।
+- **कोई SDK निर्भरता नहीं** - सभी अंतर्निहित प्रदाता कच्चे `fetch()` का उपयोग करते हैं। कोई पोस्टहॉग SDK नहीं, कोई मिक्सपैनल SDK नहीं, कोई आयाम SDK नहीं। फ्रेमवर्क को हल्का रखता है।
+- **सर्वोत्तम प्रयास डिलीवरी** — प्रदाता की त्रुटियां पकड़ी जाती हैं और लॉग की जाती हैं। विफल एनालिटिक्स एकीकरण कभी भी कॉलर को क्रैश नहीं करता है या अनुरोध प्रबंधन को अवरुद्ध नहीं करता है।
+- **वैश्विक सिंगलटन** - रजिस्ट्री `globalThis` पर एक `Symbol.for` कुंजी का उपयोग करती है इसलिए एकाधिक ESM ग्राफ इंस्टेंसेस (डेव-मोड Vite + Nitro, सिम्लिंक) एक प्रदाता सेट साझा करते हैं।
+
+### ब्राउज़र डिफ़ॉल्ट {#browser-defaults}
+
+यह फ्रेमवर्क की अपनी आंतरिक टेलीमेट्री को कवर करता है - जो ज्यादातर फ्रेमवर्क योगदानकर्ताओं और उन्नत टेम्पलेट लेखकों के लिए प्रासंगिक है।
+
+टेम्पलेट रूट्स स्टार्टअप पर एक बार `configureTracking()` को कॉल करते हैं। `trackEvent()` के साथ भेजे गए ब्राउज़र ईवेंट में स्वचालित रूप से ऐप/टेम्पलेट संदर्भ और वर्तमान LLM कनेक्शन शामिल होता है जब ऐप इसे हल कर सकता है:
+
+- `llm_connection` - सामान्यीकृत प्रदाता लेबल जैसे `builder`, `anthropic`, `openai`, `google`, या `none`
+- `llm_engine` - इंजन आईडी, उदाहरण के लिए `builder` या `ai-sdk:openai`
+- `llm_model` - ज्ञात होने पर चयनित/डिफ़ॉल्ट मॉडल
+- `llm_connection_source` - `app_secrets`, `settings`, या `env`
+- `llm_connection_configured` - क्या LLM कनेक्शन उपलब्ध है
+
+फ्रेमवर्क कनेक्ट Builder CTAs से `builder connect clicked` को भी ट्रैक करता है, और सर्वर-साइड Builder कनेक्ट रूट प्रारंभ/सफल/असफल जीवनचक्र घटनाओं को ट्रैक करता है। `configureTracking()` को फ्रेमवर्क द्वारा स्वचालित रूप से कॉल किया जाता है; आपको इसे अपने टेम्पलेट कोड में कॉल करने की आवश्यकता नहीं है।
+
+</details>
+
+## आगे क्या है
+
+- [**Actions**](/docs/actions) - जहां अधिकांश ट्रैकिंग कॉल शुरू होती हैं
+- [**Server Plugins**](/docs/server) - `registerBuiltinProviders()` स्टार्टअप पर कोर-रूट्स प्लगइन में चलता है
+- [**Secrets**](/docs/security) - ट्रैकिंग प्रदाताओं के लिए API कुंजी प्रबंधित करें

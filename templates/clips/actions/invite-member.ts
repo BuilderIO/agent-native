@@ -167,7 +167,7 @@ export default defineAction({
       status: "pending" as const,
       token,
       inviteUrl,
-      emailConfigured: isEmailConfigured(),
+      emailConfigured: await isEmailConfigured(),
     };
   },
 });

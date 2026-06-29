@@ -1,0 +1,387 @@
+---
+title: "관측성"
+description: "에이전트 추적, 평가, 피드백, A/B 실험 및 내장 대시보드 — 모두 구성이 필요하지 않습니다."
+---
+
+# 에이전트 관찰 가능성
+
+모든 에이전트 기반 앱은 즉시 관찰이 가능합니다. 추적, 자동화된 평가, 사용자 피드백 및 A/B 실험은 구성 없이 작동합니다. 모든 데이터는 앱의 자체 SQL 데이터베이스에 있습니다.
+
+이 페이지에서는 데이터베이스에 저장된 추적, 비용, 평가 및 피드백과 같은 _에이전트 품질_ 지표를 다룹니다. _product_ 분석(PostHog/Mixpanel/Amplitude로 흐르는 앱 이벤트)에 대해서는 [Tracking](/docs/tracking)를 참조하세요.
+
+## "평가"/"관찰 가능성"이라는 세 가지 — 내가 원하는 것은 무엇인가요? {#which}
+
+이 세 페이지는 혼동하기 쉽습니다. 질문하고 있는 항목을 선택하세요.
+
+| 페이지                                                 | 답변하는 질문                                              | 실행시                            | 우려        |
+| ------------------------------------------------------ | ---------------------------------------------------------- | --------------------------------- | ----------- |
+| **관측 가능성 평가**(이 페이지, _Evals_ 탭)            | "실제 생산은 어떻게 진행되었나요?"                         | 수동, 매 실행 후(LLM-판사 샘플링) | 품질        |
+| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "에이전트가 이 고정 입력에 대해 올바른 작업을 수행합니까?" | 활성, 결정적, CI/배포 게이트      | 품질        |
+| **[Observational Memory](/docs/observational-memory)** | "이 긴 스레드가 저렴하고 창 안에 남아 있습니까?"           | 긴 스레드의 배경 압축             | 비용 / 상황 |
+
+관찰 가능성과 CI 평가 게이트는 둘 다 _품질_ 점수를 매기지만 반대쪽 끝, 즉 실제 트래픽의 수동적 사후 점수와 고정 입력에 대한 활성 통과/실패 확인의 점수를 매깁니다. 관찰 기억은 품질과 관련이 없습니다. 토큰 비용과 컨텍스트 창 압박에 관한 것입니다.
+
+## 자동으로 캡처되는 내용 {#captured}
+
+사용자가 메시지를 보내면 프레임워크는 자동으로 다음을 기록합니다.
+
+- **토큰 사용** — 입력, 출력, 캐시 읽기, 캐시 쓰기
+- **비용** — 토큰 수 및 모델 가격으로 계산
+- **대기 시간** — 도구 호출당 총 지속 시간 및 시간
+- **도구 호출** — actions가 호출된, 성공/오류 상태, 기간
+- **자동 평가** — 매 실행 후 5개의 품질 점수가 계산됩니다.
+
+코드 변경이 필요하지 않습니다. 계측기는 `production-agent.ts`에 투명하게 연결됩니다.
+
+<Diagram id="doc-block-1ua8f7i" title={"모든 실행은 루프에 공급됩니다."} summary={"한 번의 에이전트 실행으로 추적, 자동 점수 및 피드백 후크가 생성됩니다. 모두 앱 자체의 SQL에 저장되고 대시보드에 표시됩니다. 실험에서는 구성 변형 간에 트래픽을 분할합니다."}>
+
+```html
+<div class="obs-loop">
+  <div class="diagram-node">
+    에이전트 실행<br /><small class="diagram-muted">production-agent.ts</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">자동으로 캡처됨</span
+    ><small class="diagram-muted"
+      >tokens &middot; cost &middot; latency &middot; tool calls</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">Traces &amp; spans</div>
+    <div class="diagram-box">Evals (5 scorers + LLM judge)</div>
+    <div class="diagram-box">Feedback &amp; frustration index</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    Dashboard<br /><small class="diagram-muted"
+      >scoped to the signed-in user</small
+    >
+  </div>
+</div>
+```
+
+```css
+.obs-loop {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.obs-loop .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.obs-loop .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.obs-loop .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 대시보드 {#dashboard}
+
+단일 경로를 사용하여 모든 템플릿에 대시보드를 추가하세요.
+
+```tsx
+// app/routes/observability.tsx
+import { ObservabilityDashboard } from "@agent-native/core/client";
+
+export default function ObservabilityPage() {
+  return (
+    <div className="min-h-screen bg-background p-6">
+      <ObservabilityDashboard />
+    </div>
+  );
+}
+```
+
+모든 데이터의 범위는 로그인한 사용자로 제한됩니다. 현재는 교차 사용자 관리 보기가 없습니다.
+
+대시보드에는 5개의 탭이 있습니다:
+
+| 탭         | 표시 내용                                                                    |
+| ---------- | ---------------------------------------------------------------------------- |
+| **개요**   | 주요 지표 — 실행, 비용, 대기 시간, 도구 성공률, 만족도, 평가 점수            |
+| **대화**   | 개별 범위에 대한 드릴다운이 포함된 추적 목록(agent_run, llm_call, tool_call) |
+| **평가**   | 기준별 자동 평가 점수, 시간 경과에 따른 추세                                 |
+| **실험**   | 상태 배지가 포함된 A/B 테스트 목록, 신뢰 구간이 포함된 변형 결과             |
+| **피드백** | 좋아요/비추천 스트림, 카테고리 분류, 불만 점수                               |
+
+## 사용자 피드백 {#feedback}
+
+### 명시적인 피드백
+
+좋아요/아래 버튼은 채팅 UI의 모든 에이전트 메시지에서 인라인으로 렌더링됩니다. 아래로 내리면 카테고리 팝오버가 열립니다(부정확함, 도움이 되지 않음, 잘못된 도구, 너무 느림). 이는 `AssistantChat.tsx`에 자동으로 연결됩니다.
+
+### 암묵적 피드백(좌절지수)
+
+프레임워크는 대화 신호에서 좌절 지수(0-100)를 계산합니다.
+
+| 신호        | 무게 | 탐지 내용                             |
+| ----------- | ---- | ------------------------------------- |
+| 다른 표현   | 30%  | 사용자가 비슷한 메시지를 반복함       |
+| 재시도 패턴 | 20%  | "다시 시도하세요", "아니요, 틀렸어요" |
+| 포기        | 20%  | 응답 직후 세션이 종료됩니다           |
+| 감정        | 15%  | 부정적인 언어 패턴                    |
+| 길이 추세   | 15%  | 메시지 길이 감소                      |
+
+점수 해석: 0-20 = 정상, 20-40 = 마찰, 40-60 = 불만족, 60+ = 세션 중단.
+
+## 자동 평가 {#evals}
+
+매 에이전트 실행 후 5개의 결정론적 득점자가 실행됩니다.
+
+| 기준                | 측정 대상                                                | 점수 범위 |
+| ------------------- | -------------------------------------------------------- | --------- |
+| `tool_success_rate` | 오류가 없는 도구 호출 비율                               | 0-1       |
+| `step_efficiency`   | 도구 사용 실행에 대해 과도한 LLM 반복에 불이익을 줍니다. | 0-1       |
+| `latency_score`     | 10초/도구 기준선에 대해 정규화됨                         | 0-1       |
+| `cost_efficiency`   | 비용 기준에 대해 정규화됨                                | 0-1       |
+| `error_recovery`    | 에이전트가 도구 오류를 복구했습니까?                     | 0 또는 1  |
+
+### LLM-판사(선택)
+
+`evalSampleRate`를 설정하여 샘플링된 LLM 기반 평가를 활성화합니다.
+
+```ts
+import { putSetting } from "@agent-native/core/settings";
+
+await putSetting("observability-config", {
+  enabled: true,
+  evalSampleRate: 0.05, // 5% of runs
+});
+```
+
+맞춤 기준은 자연어 루브릭을 사용합니다.
+
+```ts
+const criteria = {
+  name: "helpfulness",
+  description: "Was the response helpful and complete?",
+  rubric: "0.0 = unhelpful, 0.5 = partially helpful, 1.0 = fully resolved",
+};
+```
+
+## A/B 실험 {#experiments}
+
+다양한 모델, 온도 또는 에이전트 구성을 테스트하세요.
+
+```ts
+// Create via API
+POST /_agent-native/observability/experiments
+{
+  "name": "model-a-vs-b",
+  "variants": [
+    { "id": "control", "weight": 50, "config": { "model": "<your-model-id>" } },
+    { "id": "treatment", "weight": 50, "config": { "model": "<other-model-id>" } }
+  ],
+  "metrics": ["cost", "latency", "satisfaction"]
+}
+
+// Start the experiment
+PUT /_agent-native/observability/experiments/:id
+{ "status": "running" }
+```
+
+`<your-model-id>` / `<other-model-id>` 대신 엔진에서 허용하는 실제 모델 식별자를 사용하십시오(모델 이름은 자주 변경됩니다. 현재 ID는 공급자/엔진을 확인하세요). 에이전트 루프는 자동으로 사용자의 변형을 확인하고 구성 재정의를 적용합니다. 할당에서는 일관된 해싱을 사용합니다. 동일한 사용자는 항상 동일한 변형을 얻습니다.
+
+<Diagram id="doc-block-k2p8r6" title={"일관된 해시 변형 할당"} summary={"각 사용자는 안정적인 변형으로 해시하고 루프는 해당 변형의 구성 재정의를 적용하며 결과는 신뢰 구간과 함께 변형별로 롤업됩니다."}>
+
+```html
+<div class="exp">
+  <div class="diagram-node">
+    사용자 ID<br /><small class="diagram-muted">consistent hash</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill">control &middot; 50%</span
+      ><small class="diagram-muted">구성 오버라이드 A</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill accent">treatment &middot; 50%</span
+      ><small class="diagram-muted">구성 오버라이드 B</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    결과 per variant<br /><small class="diagram-muted"
+      >cost &middot; latency &middot; satisfaction</small
+    >
+  </div>
+</div>
+```
+
+```css
+.exp {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.exp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.exp .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 구성 {#config}
+
+모든 설정은 `observability-config` 키에 저장됩니다:
+
+```ts
+{
+  enabled: true,           // Master switch
+  capturePrompts: false,   // Store prompt content in traces
+  captureToolArgs: false,  // Store action input arguments
+  captureToolResults: false, // Store action results
+  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
+  exporters: []            // OTLP export targets
+}
+```
+
+<Callout id="doc-block-1xvsimn" tone="info">
+
+Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+
+</Callout>
+
+## API 엔드포인트 {#api}
+
+`/_agent-native/observability/`에 모두 자동 마운트됨:
+
+| 방법 | 경로                       | 목적                       |
+| ---- | -------------------------- | -------------------------- |
+| GET  | `/`                        | 개요 통계                  |
+| GET  | `/traces`                  | 추적 요약 나열             |
+| GET  | `/traces/:runId`           | 추적 세부정보(요약 + 범위) |
+| GET  | `/traces/:runId/evals`     | 실행 평가                  |
+| POST | `/feedback`                | 의견 제출                  |
+| GET  | `/feedback`                | 피드백 나열                |
+| GET  | `/feedback/stats`          | 피드백 집계                |
+| GET  | `/satisfaction`            | 만족도 점수                |
+| GET  | `/evals/stats`             | 평가 통계                  |
+| POST | `/experiments`             | 실험 만들기                |
+| GET  | `/experiments`             | 실험 나열                  |
+| GET  | `/experiments/:id`         | 실험 세부정보 가져오기     |
+| PUT  | `/experiments/:id`         | 실험 업데이트              |
+| POST | `/experiments/:id/results` | 계산 결과                  |
+| GET  | `/experiments/:id/results` | 결과 얻기                  |
+
+모든 엔드포인트는 `?since=N`(ms 타임스탬프) 및 `?limit=N` 쿼리 매개변수를 지원합니다.
+
+## 외부 플랫폼으로 내보내기 {#export}
+
+Langfuse, Datadog, Grafana 또는 모든 OTel 호환 백엔드로 추적을 보냅니다.
+
+```ts
+await putSetting("observability-config", {
+  enabled: true,
+  exporters: [
+    {
+      type: "otlp",
+      endpoint: "https://cloud.langfuse.com/api/public/otel",
+      headers: { Authorization: "Bearer sk-..." },
+    },
+  ],
+});
+```
+
+프레임워크는 OpenTelemetry GenAI 사양과 호환되는 `gen_ai.*` 의미 체계 규칙 범위를 내보냅니다.
+
+## OpenTelemetry 범위 {#otel}
+
+위의 `exporters` 구성(OTLP 엔드포인트에 사내 추적을 제공)과 별도로 에이전트 루프는 모든 실행, 모델 호출 및 도구 호출에 대해 **실시간 OpenTelemetry 범위**를 내보낼 수도 있습니다. 따라서 이미 OTel 수집기를 실행하는 호스트는 나머지 분산 추적과 함께 에이전트 활동을 볼 수 있습니다.
+
+이 레이어는 **선택 사항이며 기본적으로 작동하지 않습니다**:
+
+- `@opentelemetry/api`는 **선택적 종속성**입니다. 설치되지 않은 경우 도우미는 자동 무작동 상태로 저하됩니다. 여기서는 에이전트 루프에 어떤 것도 발생하지 않습니다.
+- API 패키지가 _is_ 존재하는 경우에도 기본 무작동 추적 프로그램이 제공됩니다. 스팬은 **호스트가 `TracerProvider`**(`@opentelemetry/sdk-node` 또는 이와 유사한 방법을 통해)를 등록한 후에만 현실이 됩니다. 프레임워크는 의도적으로 무거운 SDK/exporter 패키지에 의존하거나 공급자 자체를 등록하지 **않습니다**. 계측은 임베딩 앱에 의해 선택됩니다.
+
+따라서 OTel을 연결하지 않았을 때의 비용은 호출당 몇 번의 캐시된 속성 읽기입니다. 이 기능을 켜려면 api 패키지와 SDK를 설치하고 다른 Node 서비스와 동일한 방식으로 서버 시작 시 공급자를 등록하세요.
+
+에이전트 루프는 세 가지 범위 종류를 내보냅니다.
+
+| 스팬        | 언제                  | 속성                                                              |
+| ----------- | --------------------- | ----------------------------------------------------------------- |
+| `agent.run` | 에이전트 실행당 한 번 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
+| `tool.call` | 액션 호출당 한 번     | `tool.name` 및 성공/오류 상태                                     |
+| `llm.call`  | 모델 호출당           | 타이밍 + 정상/오류 상태                                           |
+
+스팬은 OK/ERROR 상태로 완료되고 실패 시 오류 메시지를 기록합니다. 0/감시 속성 값은 정리되어 범위가 노이즈로 인해 복잡해지지 않습니다. 이 OTel 레이어는 위의 대시보드를 구동하는 내부 `agent_trace_spans`/`agent_trace_summaries` 테이블에 순전히 추가됩니다. 둘 다 동일한 실행 이벤트에서 생성됩니다.
+
+## 오류 보고(Sentry) {#sentry}
+
+DSN가 구성되면 Nitro 경로 핸들러를 이스케이프하는 서버측 오류가 Sentry에 보고됩니다. 이것이 없으면 SDK는 자동으로 작동하지 않으므로 dev에서 환경 변수를 설정하지 않은 상태로 두는 것이 안전합니다. 브라우저 및 서버 이벤트는 동일한 Sentry 프로젝트로 이동할 수 있습니다. 소유권, 볼륨, 할당량 또는 경고 라우팅에 대한 운영 분리를 원하는 경우에만 이를 별도의 프로젝트로 분할하세요.
+
+| 표면               | SDK               | 환경 변수                                                       | 참고                                                                 |
+| ------------------ | ----------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 브라우저 / SPA     | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`, `SENTRY_CLIENT_DSN` 또는 `SENTRY_DSN` | 클라이언트에서 처리되지 않은 오류와 경로 변경 탐색경로를 캡처합니다. |
+| Nitro 서버         | `@sentry/node`    | `SENTRY_SERVER_DSN` 또는 `SENTRY_DSN`                           | 5xx 응답 및 Nitro 수명 주기 오류를 캡처합니다. 요청별 사용자.        |
+| `agent-native` CLI | `@sentry/node`    | _하드코드_                                                      | 게시된 CLI 바이너리의 충돌 보고서. 사용자가 구성할 수 없습니다.      |
+
+### 서버측 구성 {#sentry-config}
+
+배포 환경(Netlify 대시보드, Cloudflare 비밀 등)에서 `SENTRY_SERVER_DSN` 또는 공유 `SENTRY_DSN`를 설정합니다. 프레임워크는 다음과 같은 Nitro 플러그인을 자동 마운트합니다:
+
+1. 시작 시 `Sentry.init`를 한 번 호출합니다(멱등성 - 여러 플러그인에서 호출해도 안전함).
+2. 모든 API/프레임워크 요청에서 `getSession(event)`를 통해 사용자를 확인하고 `id` / `email` / `username`와 `orgId` 태그를 Sentry의 요청별 격리 범위에 연결합니다. 추가 DB 적중을 방지하기 위해 정적 자산 경로를 건너뜁니다.
+3. 검색 가능한 `route`, `method` 및 `userAgent` 태그를 사용하여 모든 프레임워크 경로 5xx를 캡처합니다.
+
+선택적 손잡이:
+
+- `SENTRY_SERVER_TRACES_SAMPLE_RATE`(float `0`–`1`) — 성능 추적을 선택합니다. 기본값은 `0`입니다(오류만 해당). 잘못된 값은 `0`에 고정됩니다.
+- `AGENT_NATIVE_RELEASE` — `release` 태그를 재정의합니다. 기본값은 `agent-native-server@<core-version>`입니다.
+
+### 템플릿
+
+모든 템플릿은 이를 자동으로 상속하므로 가져올 항목이 없습니다. SSR 앱의 경우 `SENTRY_CLIENT_DSN`, `VITE_SENTRY_CLIENT_DSN` 또는 공유 `SENTRY_DSN`를 런타임에 사용할 수 있을 때 서버는 작은 브라우저 구성 스크립트를 삽입하므로 브라우저 캡처는 Vite 빌드 시간 환경으로 제한되지 않습니다. 사용자 정의 동작(추가 태그, 템플릿당 다른 DSN, 하드 비활성화 Sentry)을 원하는 템플릿은 `server/plugins/sentry.ts`에서 자체 플러그인을 내보내 재정의할 수 있습니다.
+
+```ts
+// server/plugins/sentry.ts
+import { createSentryPlugin } from "@agent-native/core/server";
+export default createSentryPlugin();
+```
+
+CLI의 하드코딩된 DSN는 의도적입니다. 게시된 바이너리는 실행되는 환경에 관계없이 전화 홈 충돌이 발생해야 합니다. 서버 모듈은 오류가 Sentry에 도달해야 하는지 여부를 운영자가 결정하는 고객 환경 내에서 실행되므로 DSN를 하드코딩하지 않습니다.
+
+### 개인정보 보호 및 PII {#privacy}
+
+서버와 CLI 모두 다음을 제거하는 `sendDefaultPii: false` 및 `beforeSend` 후크로 초기화합니다.
+
+- `request.headers.authorization`, `cookie`, `set-cookie`, `proxy-authorization`
+- `request.cookies`
+- `user.ip_address` (동의 없이 자동 수집)
+- `contexts.runtime_env`(프로세스 환경 스냅샷)
+- 최상위 예외 유형이 `ValidationError`인 모든 이벤트(버그가 아닌 예상된 사용자 입력 거부로 처리됨)
+
+`setUser({ id, email, username })`를 통해 명시적으로 설정된 ID 필드는 유지됩니다.
+
+## 다음 단계
+
+- [**Tracking**](/docs/tracking) — 앱 자체 이벤트에 대한 제품 분석(PostHog, Mixpanel, Amplitude)
+- [**Actions**](/docs/actions) — 추적에서 도구 호출로 나타나는 작업
+- [**Security**](/docs/security) — 데이터 범위 지정 및 자격 증명 처리

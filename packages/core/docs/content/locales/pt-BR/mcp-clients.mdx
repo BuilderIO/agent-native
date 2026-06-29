@@ -1,0 +1,465 @@
+---
+title: "Clientes MCP"
+description: "Conecte seu aplicativo nativo do agente aos servidores MCP locais (claude-in-chrome, sistema de arquivos, dramaturgo, etc.) para que o agente obtenha suas ferramentas."
+---
+
+# Clientes MCP
+
+**Esta página: forneça mais ferramentas ao seu agente.** Aponte um aplicativo nativo do agente para os servidores MCP — locais ou remotos — para que suas ferramentas apareçam no bate-papo do agente. Esta é a direção _cliente_, a imagem espelhada de [MCP Protocol](/docs/mcp-protocol) (que torna seu aplicativo um _servidor_ MCP).
+
+| Se você quiser…                                                                                  | Ler                                      |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Conecte um agente/host externo ao seu aplicativo                                                 | [External Agents](/docs/external-agents) |
+| Dê mais ferramentas ao seu agente (consuma outros servidores MCP)                                | **Esta página** — Clientes MCP           |
+| Crie UIs in-line que renderizam em Claude/ChatGPT                                                | [MCP Apps](/docs/mcp-apps)               |
+| Referência do servidor MCP de nível inferior (autenticação, ferramentas, montagem personalizada) | [MCP Protocol](/docs/mcp-protocol)       |
+
+Com um arquivo de configuração, cada aplicativo nativo do agente em seu espaço de trabalho obtém acesso às ferramentas fornecidas pelos servidores MCP em sua máquina: `claude-in-chrome` para automação de navegador, `@modelcontextprotocol/server-filesystem` para leitura de arquivos, `@playwright/mcp` para teste de navegador e qualquer outra coisa que fale MCP.
+
+Você também pode [connect remote (HTTP) MCP servers at runtime](#remote-via-ui) — usuários individuais ou organizações inteiras — sem editar um arquivo de configuração.
+
+Cada fonte é resolvida em um **gerenciador MCP** de tempo de execução, e cada ferramenta que ela aprende chega ao registro de ferramentas do agente sob um prefixo `mcp__<server-id>__<tool>` à prova de colisão — pesquisável por intenção por meio de `tool-search`.
+
+<Diagram id="doc-block-1pkuuh" title={"Direção do cliente: muitas fontes, um registro de ferramenta"} summary={"Arquivos de configuração, env e UI de tempo de execução são mesclados no gerenciador MCP; suas ferramentas aparecem prefixadas e pesquisáveis ​​junto com as ações do seu aplicativo. Este é o espelho da direção do servidor."}>
+
+```html
+<div class="mcp-merge">
+  <div class="diagram-col sources">
+    <div class="diagram-box" data-rough>
+      Workspace <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >compartilhado entre apps</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Raiz do app <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >substituição por app</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      <code>MCP_SERVERS</code> env<br /><small class="diagram-muted"
+        >CI / produção</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Remoto pela UI de configurações<br /><small class="diagram-muted"
+        >personal &amp; org scope</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Gerenciador MCP</span
+    ><small class="diagram-muted">merge &middot; hot-reload</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col out">
+    <div class="diagram-node">
+      Ferramenta do agente registry<br /><small class="diagram-muted"
+        ><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small
+      >
+    </div>
+    <div class="diagram-node">
+      <code>tool-search</code><br /><small class="diagram-muted"
+        >descobrir por intenção</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.mcp-merge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-merge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mcp-merge .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-merge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-merge code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+> A direção oposta - tornar _seu_ aplicativo um servidor MCP que outros hosts consomem - reside em [MCP Protocol](/docs/mcp-protocol) e [External Agents](/docs/external-agents).
+
+## Navegador integrado e recursos de uso do computador {#built-in-capabilities}
+
+Agent-native inclui alternâncias de desenvolvimento local para servidores stdio MCP comuns.
+Eles estão desativados por padrão e podem ser ativados apenas por usuário ou por organização
+quando o aplicativo está sendo executado localmente. Os tempos de execução sem servidor hospedados e de produção são ignorados
+esses recursos integrados mesmo que existam linhas de configurações antigas e os Recursos do espaço de trabalho
+a árvore não os mostra como recursos `mcp-servers/*.json` padrão.
+
+| Capacidade                                 | ID do servidor    | Comando                                                                 |
+| ------------------------------------------ | ----------------- | ----------------------------------------------------------------------- |
+| Ferramentas para desenvolvedores do Chrome | `chrome-devtools` | `npx -y chrome-devtools-mcp@latest --autoConnect --no-usage-statistics` |
+| Navegador do dramaturgo                    | `playwright`      | `npx -y @playwright/mcp@latest`                                         |
+| Uso do computador                          | `computer-use`    | `npx -y computer-use-mcp@latest`                                        |
+
+Apenas um recurso de navegador pode ser ativado em um escopo por vez. A ativação do Chrome DevTools desativa o Playwright para o mesmo usuário ou organização, e a ativação do Playwright desativa o Chrome DevTools.
+
+O uso do computador é somente para macOS. Em outras plataformas, ele é listado como indisponível e é ignorado mesmo que uma linha de configuração antiga o contenha.
+
+O Chrome DevTools usa `--autoConnect` por padrão. Isso é anexado a uma instância qualificada do Chrome em execução; ele não cria um perfil de navegador isolado nem faz login no perfil normal do usuário para você. Requer Chrome 144+ com depuração remota habilitada. Uma configuração `browser-url` manual pode ser adicionada posteriormente quando uma implantação precisar de um endpoint de depuração específico.
+
+Os integrados são mantidos na tabela `settings` da estrutura em `u:<email>:mcp-builtin-capabilities` para alternâncias pessoais e `o:<orgId>:mcp-builtin-capabilities` para alternâncias de equipe. Quando ativados, eles se fundem no gerenciador de tempo de execução MCP com o mesmo formato de visibilidade de escopo dos servidores remotos, por exemplo, `mcp__user_<emailhash>_playwright__*` ou `mcp__org_<orgId>_chrome-devtools__*`.
+
+### Notas de configuração para o usuário
+
+Use uma cópia de configuração concisa e explícita para os recursos internos confidenciais:
+
+- **Chrome DevTools** é anexado a um destino de depuração do Chrome em execução. Informe aos usuários
+  destina-se a testes de navegador e verificação de login, e que
+  pode exigir a ativação da depuração remota do Chrome antes que as ferramentas apareçam.
+- **Playwright** inicia um navegador isolado. Recomendo para fins determinísticos
+  Controle de qualidade quando o perfil ativo do Chrome do usuário não é necessário.
+- **O uso do computador** pode operar aplicativos locais. Mantenha-o desativado por padrão, explique o
+  Avisos de gravação de tela e acessibilidade do macOS e pergunte antes de executar
+  actions sensíveis, como compras, alterações financeiras ou alterações de conta.
+
+### Endpoints integrados
+
+| Método | Rota                         | Propósito                                                                       |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------- |
+| GET    | `/_agent-native/mcp/builtin` | Liste recursos integrados, escopos ativados, IDs mesclados e status ativo.      |
+| POST   | `/_agent-native/mcp/builtin` | Atualize um escopo. Corpo: `{ scope, enabledIds }` ou `{ scope, id, enabled }`. |
+
+## Adicionando um servidor MCP local {#adding-a-server}
+
+Crie `mcp.config.json` na raiz do seu espaço de trabalho (ou na raiz de um aplicativo individual — a raiz do espaço de trabalho vence quando ambas existirem):
+
+```jsonc
+{
+  "$schema": "https://agent-native.com/schema/mcp.config.json",
+  "servers": {
+    "claude-in-chrome": {
+      "command": "claude-in-chrome-mcp",
+      "args": [],
+      "env": { "LOG_LEVEL": "info" },
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@latest",
+        "/Users/me/projects",
+      ],
+    },
+  },
+}
+```
+
+A forma é pequena: um mapa `servers` codificado por ID do servidor, onde cada entrada é um iniciador stdio (`command` + `args` + `env` opcional) ou uma entrada `{ "type": "http", "url", "headers" }` remota.
+
+<AnnotatedCode
+  id="doc-block-qjye09"
+  title="mcp.config.json, anotado"
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
+  }
+  annotations={[
+    {
+      lines: "3",
+      label: "ID do servidor",
+      note: "A chave se torna o prefixo da ferramenta: as ferramentas deste servidor aparecem como `mcp__claude-in-chrome__*` no registro do agente, para que possam't collide with your template's ações.",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` gera um binário local. Os servidores Stdio são destinados ao **desenvolvimento local** — eles não funcionam em tempos de execução de borda.",
+    },
+    {
+      lines: "6",
+      label: "Ambiente do processo",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
+
+Na próxima inicialização do aplicativo, você verá:
+
+```
+[mcp-client] loaded config from /path/to/mcp.config.json (3 server(s))
+[mcp-client] connected to claude-in-chrome: 12 tools
+[mcp-client] connected to playwright: 9 tools
+[mcp-client] connected to filesystem: 4 tools
+```
+
+As ferramentas são registradas no registro de ferramentas do agente com o prefixo `mcp__<server-id>__<tool-name>` para que não possam colidir com o actions do seu modelo. Eles também estão incluídos no `tool-search`, para que os agentes possam descobrir os recursos do MCP recém-conectados por intenção, em vez de precisar do nome prefixado exato antecipadamente.
+
+## Precedência de configuração {#precedence}
+
+A configuração MCP é resolvida nesta ordem, a primeira partida vence:
+
+1. **Raiz do espaço de trabalho `mcp.config.json`** — detectada via `agent-native.workspaceCore` em `package.json`. Compartilhado em todos os aplicativos no espaço de trabalho.
+2. **Raiz do app `mcp.config.json`** — substituição por aplicativo se você não quiser um servidor MCP disponível em todos os aplicativos.
+3. **`MCP_SERVERS` env var** — string JSON com o mesmo formato, para CI/produção onde um arquivo não faz sentido.
+
+## Implantações de produção: `MCP_SERVERS` {#mcp-servers-env}
+
+Para implantações de produção, prefira servidores HTTP MCP remotos e defina a configuração completa
+forma (ou o mapa interno do servidor) como uma variável de ambiente:
+
+```bash
+MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/mcp","headers":{"Authorization":"Bearer paste-token-value-here"}}}}'
+```
+
+`MCP_SERVERS` é analisado como JSON, portanto, os espaços reservados `${...}` não são expandidos
+dentro da string. Se você armazenar o token em outro segredo, expanda-o antes
+escrever o valor final JSON.
+
+Os servidores Stdio MCP geram binários locais e são destinados ao desenvolvimento local.
+As ferramentas MCP são ativadas apenas em tempos de execução do Node — Cloudflare Workers e outras bordas
+os alvos ignoram MCP silenciosamente e continuam com o restante do aplicativo funcionando
+normalmente.
+
+## Detecção automática: `claude-in-chrome` {#autodetect}
+
+Se você **não** `mcp.config.json` e o binário `claude-in-chrome-mcp` estiver em `PATH` (ou no local de instalação conhecido `~/.claude-in-chrome/bin/claude-in-chrome-mcp`), o agente nativo o registrará automaticamente como um servidor MCP padrão. Defina `AGENT_NATIVE_DISABLE_MCP_AUTODETECT=1` para cancelar.
+
+Isso significa que os usuários que instalaram a extensão claude-in-chrome terão controle do navegador em todos os aplicativos nativos do agente que abrirem, sem alterações de configuração.
+
+## Servidores MCP remotos através das configurações UI {#remote-via-ui}
+
+Os servidores MCP (Model Context Protocol) oferecem novas habilidades ao seu agente, como conectar-se ao Zapier, Cloudflare, Composio ou às ferramentas internas da sua empresa. Uma vez conectado, o agente pode usar essas ferramentas exatamente como as integradas.
+
+### Como conectar um servidor MCP remoto
+
+1. **Nome do servidor** — um rótulo curto para sua própria referência (por exemplo, "zapier", "slack-tools").
+2. **URL** — o endpoint HTTPS que o provedor do servidor MCP lhe forneceu (por exemplo, `https://mcp.zapier.com/s/abc123/mcp`). Isso geralmente é encontrado no painel do provedor ou nos documentos de integração.
+3. **Descrição** (opcional) — uma observação sobre o que este servidor faz.
+4. **Headers** — credenciais de autenticação exigidas pelo servidor, uma por linha. A maioria dos servidores precisa de um cabeçalho `Authorization`. Exemplo: `Authorization: Bearer sk-your-key-here`. Os documentos do provedor dirão o que colocar aqui.
+
+Clique em **Testar** para verificar a conexão antes de salvar. Se tiver sucesso, você verá o número de ferramentas disponíveis. Clique em **Conectar** para adicioná-lo.
+
+### Escopo pessoal versus organizacional
+
+Dois escopos são suportados:
+
+- **Pessoal** — apenas o usuário conectado obtém as ferramentas. Armazenado como uma configuração de escopo do usuário.
+- **Equipe** — todos na organização ativa recebem as ferramentas. Proprietários e administradores podem adicionar; os membros veem a lista como somente leitura. Armazenado como uma configuração de escopo organizacional.
+
+Adiciona e remove hot-reload no gerenciador MCP em execução - sem reinicialização do processo e sem reinicialização do servidor. As novas ferramentas `mcp__<scope>-<name>__*` aparecem para o agente na próxima mensagem e podem ser pesquisadas via `tool-search`.
+
+HTTPS URLs são aceitos em todos os lugares; `http://` simples só é permitido para `localhost` durante o desenvolvimento. A autenticação opcional entra como um token de portador enviado via `Authorization: Bearer …` em cada solicitação.
+
+Nos bastidores, esses servidores são mantidos na tabela `settings` da estrutura sob a chave `u:<email>:mcp-servers-remote` (Pessoal) ou `o:<orgId>:mcp-servers-remote` (Equipe) e mesclados com `mcp.config.json` na inicialização.
+
+### Extremidades HTTP
+
+| Método | Rota                                                  | Propósito                                                                         |
+| ------ | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| GET    | `/_agent-native/mcp/servers`                          | Liste os servidores pessoais + organizacionais do usuário atual com status ativo. |
+| POST   | `/_agent-native/mcp/servers`                          | Adicione um servidor. Corpo: `{ scope, name, url, headers?, description? }`.      |
+| DELETE | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Remova um servidor e reconfigure o gerenciador.                                   |
+| POST   | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Execute as ferramentas de conexão + lista do servidor existente.                  |
+| POST   | `/_agent-native/mcp/servers/test`                     | Execute um URL arbitrário antes de persistir. Corpo: `{ url, headers? }`.         |
+
+Os servidores Stdio ainda não funcionam fora dos tempos de execução do Node, mas os servidores remotos HTTP MCP funcionam em qualquer ambiente com `fetch`, incluindo compilações de produção para desktop.
+
+## Servidores MCP compartilhados por meio de um hub {#hub}
+
+Se seu espaço de trabalho executa vários aplicativos nativos de agente (por exemplo, envio + e-mail + clipes), você pode configurar **um** aplicativo como hub e fazer com que os outros extraiam seus servidores MCP de escopo organizacional automaticamente. Não há cópia e colagem por aplicativo de URLs e tokens ao portador. Consulte [Multi-App Workspace](/docs/multi-app-workspace) para obter a abordagem canônica usando recursos MCP do espaço de trabalho do Dispatch.
+
+O Dispatch é o hub convencional: ele já coordena todos os aplicativos.
+
+<Diagram id="doc-block-u8qid6" title="Modelo de hub: um aplicativo atende servidores MCP de escopo organizacional" summary={"Dispatch mantém os servidores MCP de escopo organizacional; aplicativos de consumo os extraem e mesclam como mcp__hub_<orgId>_<name>__*. Apenas as linhas do escopo organizacional são compartilhadas – as credenciais pessoais permanecem inalteradas."}>
+
+```html
+<div class="mcp-hub">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Dispatch hub</span
+    ><small class="diagram-muted">servidores MCP no escopo da organização</small
+    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+  </div>
+  <div class="diagram-col arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  </div>
+  <div class="diagram-col consumers">
+    <div class="diagram-box" data-rough>
+      Mail<br /><small class="diagram-muted"
+        ><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Clips<br /><small class="diagram-muted">pull + merge a cada ~60 s</small>
+    </div>
+  </div>
+</div>
+<p class="diagram-muted note">
+  Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope)
+  servers are never re-exposed.
+</p>
+```
+
+```css
+.mcp-hub {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-hub .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-hub .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-hub .arrows .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-hub .note {
+  margin: 8px 0 0;
+  font-size: 0.85em;
+}
+.mcp-hub code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+Para novas configurações de espaço de trabalho, prefira **Enviar recursos MCP do espaço de trabalho** ao
+deseja o mesmo modelo de concessão para todos os aplicativos versus aplicativos selecionados usado pelo espaço de trabalho skills,
+instruções e recursos de referência. Adicione um recurso de espaço de trabalho com:
+
+```json
+{
+  "type": "http",
+  "url": "https://example.com/mcp",
+  "headers": {
+    "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"
+  },
+  "description": "Shared Ferramenta MCPs for workspace apps"
+}
+```
+
+Salve-o em `mcp-servers/<name>.json` com o tipo `mcp-server`. Todos os aplicativos
+os recursos são carregados por todos os aplicativos de espaço de trabalho; os recursos selecionados são carregados apenas em
+aplicativos com uma concessão ativa do Dispatch. Espaços reservados secretos são resolvidos no aplicativo
+armazenamento secreto, então coloque tokens de portador brutos no Dispatch Vault e referencie-os
+com `${keys.NAME}` em vez de armazená-los no corpo do recurso.
+
+Os aplicativos atualizam a configuração MCP mesclada uma vez por minuto, portanto, recurso central
+edições, alterações de concessão e remoções entram em vigor sem implantação. Definir
+`AGENT_NATIVE_MCP_CONFIG_REFRESH_MS=0` para desativar a atualização em segundo plano ou
+defina-o com um valor de pelo menos `5000` milissegundos para ajustar o intervalo.
+
+O antigo modo de hub abaixo continua útil para “compartilhar todos os escopos organizacionais MCP
+servidor do Dispatch” e para implantações que já usam o MCP
+configura UI como a fonte da verdade.
+
+### 1. Habilite o hub-serve no aplicativo hub (despacho)
+
+Defina uma variável de ambiente na implantação do despacho:
+
+```bash
+AGENT_NATIVE_MCP_HUB_TOKEN=<a-long-random-secret>
+```
+
+O Dispatch agora monta o `GET /_agent-native/mcp/hub/servers`, que retorna todos os servidores MCP do escopo organizacional armazenados em sua tabela `settings`, com cabeçalhos URL + completos, autenticados pelo token.
+
+### 2. Aponte aplicativos de consumo no hub
+
+Definido para cada consumidor (e-mail, clipes, qualquer coisa):
+
+```bash
+AGENT_NATIVE_MCP_HUB_URL=https://dispatch.acme.com
+AGENT_NATIVE_MCP_HUB_TOKEN=<the-same-secret>
+```
+
+Na inicialização, cada consumidor extrai a lista de servidores do hub e a mescla em seu próprio gerenciador MCP. As ferramentas aparecem para o agente como `mcp__hub_<orgId>_<name>__*`, distintas do `mcp__org_…` local do próprio consumidor, portanto não há colisão.
+
+### 3. O que é compartilhado
+
+Somente servidores **org-scope** são compartilhados. Os servidores de escopo de usuário (pessoais) permanecem com o usuário que os adicionou. O hub nunca expõe novamente as credenciais pessoais nos aplicativos.
+
+As respostas do hub incluem os cabeçalhos de autenticação completos (tokens de portador, etc.). O transporte é HTTPS, o endpoint requer o segredo compartilhado e retorna apenas linhas do escopo organizacional. Trate o hub URL + token como uma credencial de banco de dados.
+
+### 4. Recarga a quente vs reinicialização
+
+O UI local adiciona recarga a quente em cada aplicativo via `McpClientManager.reconfigure()` - sem reinicialização. Os servidores originados no hub são captados pela mesma atualização periódica em segundo plano (aproximadamente 60 s, ajustável ou desativada via `AGENT_NATIVE_MCP_CONFIG_REFRESH_MS`) que o caminho do recurso do espaço de trabalho usa, de modo que as alterações feitas no Dispatch se propagam para todos os aplicativos do consumidor em cerca de um minuto, sem reinicialização. Além disso, qualquer mutação local em um app de consumo aciona imediatamente uma reconfiguração desse app.
+
+### Resumo de endpoints
+
+| Método | Rota                             | Propósito                                                                                                                                                                |
+| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/_agent-native/mcp/hub/servers` | Serve todos os servidores de escopo organizacional com credenciais completas (com acesso ao portador, montado apenas quando `AGENT_NATIVE_MCP_HUB_TOKEN` está definido). |
+| GET    | `/_agent-native/mcp/hub/status`  | Retorna `{ serving, consuming, hubUrl }` para as configurações do cartão UI.                                                                                             |
+
+## Rota de status {#status-route}
+
+Cada aplicativo expõe `GET /_agent-native/mcp/status` para ferramentas e integração:
+
+<Endpoint id="doc-block-4wxhm5" method="GET" path="/_agent-native/mcp/status" summary={"MCP status do cliente para ferramentas e integração"} responses={[
+  {
+    "status": "200",
+    "description": "Configured vs connected servers, tool inventory, and per-server errors.",
+    "example": "{\n  \"configuredServers\": [\"claude-in-chrome\", \"playwright\"],\n  \"connectedServers\": [\"claude-in-chrome\", \"playwright\"],\n  \"totalTools\": 21,\n  \"tools\": [\n    {\n      \"source\": \"claude-in-chrome\",\n      \"name\": \"mcp__claude-in-chrome__navigate\",\n      \"description\": \"Navigate the browser to a URL\"\n    }\n  ],\n  \"errors\": {}\n}"
+  }
+]}>
+
+Reports which configured servers connected, the total live tool count, the merged prefixed tool list, and any per-server connection errors. Use it to build "detected — your agent can now drive X" hints or to debug connection problems.
+
+</Endpoint>
+
+```json
+{
+  "configuredServers": ["claude-in-chrome", "playwright"],
+  "connectedServers": ["claude-in-chrome", "playwright"],
+  "totalTools": 21,
+  "tools": [
+    {
+      "source": "claude-in-chrome",
+      "name": "mcp__claude-in-chrome__navigate",
+      "description": "Navigate the browser to a URL"
+    }
+  ],
+  "errors": {}
+}
+```
+
+Use isso para criar dicas de integração "claude-in-chrome detectadas — seu agente agora pode conduzir o Chrome" ou depurar problemas de conexão MCP.
+
+## Modos de falha {#failures}
+
+Falhas individuais do servidor MCP nunca desativam o agente:
+
+- Um `command` configurado incorretamente → o servidor é ignorado, seu erro aparece em `/mcp/status` em `errors.<server-id>` e todos os outros servidores continuam funcionando.
+- O MCP SDK está faltando no `node_modules` → todas as funcionalidades do MCP são ignoradas com um aviso; o bate-papo do agente continua funcionando sem nenhuma ferramenta MCP.
+- Executando em um tempo de execução de borda → O cliente MCP é autônomo.
+
+O agente nativo sempre inicializará; configuração MCP quebrada significa apenas menos ferramentas.
+
+## Segurança {#security}
+
+As ferramentas MCP são executadas em sua máquina com quaisquer permissões que o processo gerado tenha. Trate `mcp.config.json` como qualquer outra lista de executáveis ​​que você deseja deixar o agente dirigir. As ferramentas dos servidores MCP aparecem no loop de uso de ferramentas do agente, assim como o actions do próprio modelo, portanto, confie em todos os servidores configurados.

@@ -34,12 +34,7 @@ export default function DocContent({ markdown }: Props) {
           <MarkdownRenderer key={index} markdown={segment.text} />
         ) : (
           <div key={index} className="docs-block">
-            <DocBlock
-              alias={segment.alias}
-              attrs={segment.attrs}
-              body={segment.body}
-              index={index}
-            />
+            <DocBlock segment={segment} index={index} />
           </div>
         ),
       )}

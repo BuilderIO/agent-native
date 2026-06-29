@@ -1,0 +1,520 @@
+---
+title: "Crear plantillas"
+description: "Cómo crear y publicar sus propias plantillas de aplicaciones nativas del agente."
+---
+
+# Creación de plantillas
+
+Las plantillas son aplicaciones nativas del agente completas y bifurcables que resuelven un flujo de trabajo real. Las plantillas propias se crean con la misma superficie de marco que usted utiliza: rutas React para UI, Drizzle SQL para datos, actions para operaciones, recursos del espacio de trabajo para el comportamiento del agente y sincronización de sondeos para que el agente y UI permanezcan alineados.
+
+Una buena plantilla:
+
+- Resuelve un flujo de trabajo de principio a fin, con datos iniciales útiles o un flujo de estado vacío.
+- Almacena el estado duradero en archivos SQL, no en archivos JSON.
+- Define las operaciones de la aplicación como `defineAction()` actions.
+- Expone la navegación y la selección a través del estado de la aplicación.
+- Se envía un `AGENTS.md` claro y un skills enfocado para flujos de trabajo no obvios.
+- Registra los pasos de incorporación para los proveedores y secretos requeridos.
+- Funciona como una aplicación independiente y como parte de un espacio de trabajo de múltiples aplicaciones.
+
+## Empezar desde el chat {#start-from-chat}
+
+Utilice la plantilla de Chat cuando desee una aplicación mínima con el cableado del marco ya instalado:
+
+```bash
+npx @agent-native/core@latest create my-template --template chat --standalone
+```
+
+Para un espacio de trabajo con varias aplicaciones, ejecute el selector e incluya Chat con las plantillas de dominio que desee:
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+Chat le brinda autenticación, hilos de chat duraderos, recursos respaldados por SQL, herramientas, estado de la aplicación, actions y sincronización de sondeo. Agregas el modelo de dominio y el producto UI.
+
+Si aún no está creando una plantilla UI reutilizable, use la rampa de acceso sin cabeza en [Getting Started](/docs/getting-started#1-create-your-app): defina una acción, ejecútela con `pnpm agent` y agregue UI más adelante cuando el flujo de trabajo necesite una superficie duradera.
+
+## Estructura del proyecto {#project-structure}
+
+Cada plantilla sigue el mismo diseño general:
+
+<FileTree
+  id="doc-block-1qe28n0"
+  title="Estructura del proyecto de plantilla"
+  title="my-template/"
+  entries={[
+    {
+      path: "app/",
+      note: "Frontend React",
+    },
+    {
+      path: "app/root.tsx",
+      note: "Shell HTML y proveedores",
+    },
+    {
+      path: "app/routes/",
+      note: "Rutas de archivo de React Router",
+    },
+    {
+      path: "app/components/",
+      note: "UI de la plantilla",
+    },
+    {
+      path: "app/hooks/",
+      note: "Hooks de estado y datos de la UI",
+    },
+    {
+      path: "actions/",
+      note: "Operaciones defineAction: la única fuente de verdad",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Esquema Drizzle",
+    },
+    {
+      path: "server/plugins/db.ts",
+      note: "Migraciones aditivas",
+    },
+    {
+      path: "server/plugins/",
+      note: "Integraciones de arranque",
+    },
+    {
+      path: "server/routes/api/",
+      note: "Rutas personalizadas solo cuando las actions no bastan",
+    },
+    {
+      path: "shared/types.ts",
+      note: "Tipos compartidos cliente/servidor",
+    },
+    {
+      path: ".agents/skills/",
+      note: "<skill>/SKILL.md: guía del agente para flujos de trabajo complejos",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Instrucciones de agente específicas de la plantilla",
+    },
+    {
+      path: "package.json",
+    },
+    {
+      path: "react-router.config.ts",
+    },
+    {
+      path: "vite.config.ts",
+    },
+  ]}
+/>
+
+No agregue un directorio `data/` para el estado de la aplicación. Los datos duraderos de la aplicación pertenecen a SQL y el UI los lee a través de actions o controladores de servidor escritos.
+
+Las cuatro áreas de cada plantilla se conectan a través de una superficie de acción compartida y una base de datos SQL: el agente y el UI son socios iguales en las mismas operaciones:
+
+<Diagram id="doc-block-1reooa2" title={"Cómo se conectan las cuatro áreas de una plantilla"} summary={"Tanto la UI como el agente llegan a SQL mediante las mismas acciones; el estado de la aplicación y la sincronización del sondeo los mantienen alineados."}>
+
+```html
+<div class="diagram-tmpl">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      UI React<br /><small class="diagram-muted"
+        >app/routes · componentes</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">AGENTS.md · skills</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Acciones</span
+    ><small class="diagram-muted">defineAction()</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL vía Drizzle<br /><small class="diagram-muted">additive schema</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">Sondeoing sync</div>
+</div>
+```
+
+```css
+.diagram-tmpl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-tmpl .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-tmpl .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-tmpl .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Datos del modelo en SQL {#data-models}
+
+Defina tablas de dominio con los asistentes del marco Drizzle para que los esquemas sigan siendo portátiles en SQLite, Postgres, D1, Turso, Supabase, Neon y otros backends compatibles:
+
+```ts
+// server/db/schema.ts
+import {
+  table,
+  text,
+  integer,
+  now,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  status: text("status", {
+    enum: ["draft", "active", "archived"],
+  })
+    .notNull()
+    .default("draft"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  ...ownableColumns(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const projectShares = createSharesTable("project_shares");
+```
+
+Los cambios de esquema deben ser aditivos. Agregue tablas y columnas a través de `runMigrations()` en `server/plugins/db.ts`; nunca utilice SQL, `drizzle-kit push`, cambios de nombre de tablas ni eliminación de columnas destructivos.
+
+Para lecturas y escrituras de aplicaciones, utilice el generador de consultas de Drizzle y los operadores portátiles de `drizzle-orm`. No escriba código de producto con SQL sin formato cuando Drizzle pueda expresar la consulta y no importe desde `drizzle-orm/sqlite-core` o `drizzle-orm/pg-core` en plantillas.
+
+```ts
+// server/plugins/db.ts
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+Utilice los documentos [Database](/docs/database) y [Security](/docs/security) antes de agregar esquemas que contengan datos de usuarios u organizaciones.
+
+## Definir operaciones como Acciones {#actions}
+
+Acciones son la única fuente de información sobre el comportamiento de las aplicaciones. El agente los llama como herramientas, el frontend los llama a través de enlaces y otras aplicaciones pueden acceder a ellos a través de MCP/A2A.
+
+<AnnotatedCode
+  id="doc-block-ntw54o"
+  title="actions/create-project.ts"
+  filename="actions/create-project.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { getDb } from "../server/db/index.js";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\nimport * as schema from "../server/db/schema";\n\nexport default defineAction({\n  description: "Create a project.",\n  schema: z.object({\n    title: z.string().min(1).describe("Project title"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "2",
+      note: "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`.",
+    },
+    {
+      lines: "8",
+      label: "Superficie de la herramienta",
+      note: "`description` es lo que lee el agente para decidir cuándo llamar a esta acción como herramienta.",
+    },
+    {
+      lines: "9-11",
+      label: "Contrato tipado",
+      note: "Un zod `schema` valida la entrada del agente, la UI, HTTP, MCP y A2A.",
+    },
+    {
+      lines: "18-19",
+      label: "escritura con alcance",
+      note: "Sello `ownerEmail` / `orgId` de `ctx` para que la fila tenga el alcance correcto para compartir y verificar el acceso.",
+    },
+  ]}
+/>
+
+Utilice `http: { method: "GET" }` o `readOnly: true` para actions de solo lectura. Utilice `parallelSafe: true` solo para mutar actions que sea seguro ejecutar al mismo tiempo que llamadas a herramientas en el mismo turno. Utilice `toolCallable: false` para actions con un radio de explosión alto que no debe ejecutarse desde herramientas de espacio aislado.
+
+## Construye el UI {#ui}
+
+Las rutas se encuentran en `app/routes/` y utilizan el enrutamiento de archivos React Router v8. Consulta datos a través de los controladores actions o API y haz que las mutaciones sean optimistas de forma predeterminada.
+
+```tsx
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+
+export default function ProjectsPage() {
+  const { data: projects = [] } = useActionQuery("list-projects", {});
+  const create = useActionMutation("create-project");
+
+  return (
+    <button onClick={() => create.mutate({ title: "Launch plan" })}>
+      New project ({projects.length})
+    </button>
+  );
+}
+```
+
+Conecte la sincronización en vivo una vez cerca del shell de la aplicación para que los cachés de consultas React se actualicen cuando el agente, otra pestaña o una acción cambien los datos:
+
+```tsx
+import { useDbSync } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+
+export function AppSync() {
+  const queryClient = useQueryClient();
+  useDbSync({ queryClient });
+  return null;
+}
+```
+
+**La promesa nativa del agente: las escrituras del agente aparecen en el UI sin una actualización manual.** `useActionQuery` es el camino fácil: cada gancho se recupera cuando una acción mutante emite `source: "action"`. Si busca `useQuery` sin procesar con una clave personalizada (por ejemplo, un asistente de cliente de bajo nivel que lee el estado de la integración), doble el contador por fuente en queryKey para actualizaciones específicas:
+
+```tsx
+import { useChangeVersions } from "@agent-native/core/client";
+
+const v = useChangeVersions(["dashboards", "action"]);
+useQuery({
+  queryKey: ["dashboard", id, v],
+  queryFn: () => fetchDashboard(id),
+  placeholderData: (prev) => prev, // no flicker on refetch
+});
+```
+
+Fuentes comunes: `"action"` (cada acción exitosa del agente: el respaldo confiable), `"app-state"`, `"settings"`, además de cualquier fuente de recursos personalizada que su tienda emita a través de `recordChange`. Consulta la habilidad `real-time-sync` para ver el patrón completo.
+
+## Agregar estado de aplicación {#application-state}
+
+El estado de la aplicación es cómo el agente sabe lo que está viendo el usuario. Como mínimo, agregue:
+
+- Un gancho UI que escribe el estado semántico de `navigation` cuando cambian las rutas, los registros seleccionados, las pestañas activas o las selecciones del editor.
+- Una acción `view-screen` que lee ese estado y devuelve la instantánea de la pantalla actual.
+- Una acción de `navigate` que escribe un comando `navigate` de una sola vez para que lo consuma el UI.
+
+Utilice `useAgentRouteState` para el gancho UI para que las escrituras en el estado de la aplicación, las lecturas de comandos con alcance de tabulación, la eliminación después de la lectura y la protección de comandos duplicados sean consistentes:
+
+```tsx
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
+
+export function useNavigationState() {
+  useAgentRouteState({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+    getNavigationState: ({ pathname, searchParams }) => ({
+      view: pathname === "/" ? "home" : pathname.slice(1),
+      selectedId: searchParams.get("id"),
+    }),
+    getCommandPath: (command: any) => command.path ?? "/",
+    navigateOptions: { replace: true, flushSync: true },
+  });
+}
+```
+
+Mantener filtros compartibles en los parámetros de consulta URL. El marco los expone al agente como `<current-url>` y el agente integrado puede cambiarlos con `set-search-params`; `navigation` debe contener identificadores y alias semánticos, no una segunda copia de la cadena de consulta completa.
+
+Para la navegación de aplicaciones, prefiera un comando `navigate` que incluya un mismo origen
+`path` cuando se conoce el URL. No escribas también `__set_url__` para el mismo movimiento;
+Esa clave está reservada para las herramientas del marco URL y los cambios de filtro exclusivos de URL.
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the UI.",
+  schema: z.object({
+    view: z.enum(["home", "project"]),
+    projectId: z.string().optional(),
+    path: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+Consulta [Context Awareness](/docs/context-awareness) para ver el patrón completo.
+
+## Utilice las rutas API con moderación {#api-routes}
+
+Prefiere actions para las operaciones de la aplicación. Cree rutas Nitro personalizadas solo para superficies que no se pueden actions limpiamente:
+
+- Carga de archivos o transmisión binaria.
+- Páginas públicas anónimas y webhooks.
+- Devoluciones de llamada OAuth y controladores de protocolo específicos del proveedor.
+- Contenido público renderizado por el servidor.
+
+Las rutas personalizadas que tocan datos de propiedad deben llamar a `getSession(event)` y envolver el trabajo de la base de datos en `runWithRequestContext({ userEmail, orgId }, fn)` antes de usar ayudantes de acceso.
+
+## Escribir instrucciones del agente {#write-agents-md}
+
+`AGENTS.md` es el mapa del agente de su aplicación: un archivo pequeño y examinable con un
+línea de propósito, reglas básicas, claves de estado de la aplicación, una tabla de acciones y un skills
+índice:
+
+```markdown
+# Mi plantilla
+
+One workspace for projects, tasks, and notes.
+
+## Reglas básicas
+
+- Data lives in SQL vía Drizzle. Use actions for all writes; schema is additive.
+- Use `view-screen` before acting on "this project" if the screen is unclear.
+
+## Estado de la aplicación
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
+
+## Acciones
+
+| Action           | Purpose                  |
+| ---------------- | ------------------------ |
+| `list-projects`  | List accessible projects |
+| `create-project` | Create a project         |
+```
+
+Actualice `AGENTS.md` cada vez que agregue una nueva acción, ruta, clave de estado o recurrente
+flujo de trabajo. [Writing Agent Instructions](/docs/writing-agent-instructions) es el
+guía completa: cómo mantener el `AGENTS.md` skimmable, qué pertenece a cada uno de los cuatro
+superficies de orientación y cómo redactar descripciones de habilidades y herramientas para que el agente
+los activa de forma fiable.
+
+## Agregar Skills {#skills}
+
+Utilice skills para patrones detallados que inflarían a `AGENTS.md`: API específicos del proveedor, formatos de importación/exportación, flujos de edición complejos o terminología de dominio.
+
+```markdown
+---
+name: project-imports
+description: How to import projects from the legacy CSV export.
+---
+
+# Importaciones de proyectos
+
+Use this skill when the user uploads a legacy project CSV.
+
+## Reglas
+
+- Validate required columns before creating rows.
+- Use `create-project` for each project so ownership and sync are correct.
+- Save rejected rows as a note attached to the import summary.
+```
+
+Plantilla de tienda skills en `.agents/skills/<name>/SKILL.md`. Si los usuarios deberían poder editar la guía en tiempo de ejecución, muéstrela también a través de los recursos del espacio de trabajo.
+
+## Pasos de configuración del registro {#onboarding}
+
+Si una plantilla necesita una clave API, una conexión OAuth o una cuenta de proveedor, registre un paso de incorporación en lugar de enterrar el requisito en un README.
+
+```ts
+// server/plugins/onboarding.ts
+import { defineNitroPlugin } from "@agent-native/core/server";
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+export default defineNitroPlugin(() => {
+  registerOnboardingStep({
+    id: "github",
+    title: "Connect GitHub",
+    description: "Needed to import repositories and pull requests.",
+    order: 100,
+    methods: [
+      {
+        id: "token",
+        kind: "form",
+        primary: true,
+        label: "Save token",
+        payload: {
+          fields: [
+            { key: "GITHUB_TOKEN", label: "GitHub token", secret: true },
+          ],
+        },
+      },
+    ],
+    isComplete: () => !!process.env.GITHUB_TOKEN,
+  });
+});
+```
+
+Ver [Onboarding & API Keys](/docs/onboarding).
+
+## Prepárelo para el espacio de trabajo {#workspace-ready}
+
+Las plantillas deben encajar naturalmente en [Multi-App Workspaces](/docs/multi-app-workspace), generalmente coordinadas por [Dispatch](/docs/dispatch).
+
+Lista de verificación:
+
+- Monte A2A a través del complemento de chat del agente marco o `mountA2A()` para que las aplicaciones hermanas puedan llamar a su agente.
+- Mantenga las descripciones de las tarjetas de agente lo suficientemente específicas para que Dispatch pueda enrutar el trabajo con precisión.
+- Registre los secretos/incorporación requeridos para que la configuración aparezca en la barra lateral y Dispatch pueda administrar las credenciales compartidas.
+- Mantenga instrucciones transversales en el espacio de trabajo `AGENTS.md` o en los recursos del espacio de trabajo, no las copie en todas las aplicaciones.
+- Utilice ayudas para compartir/acceder a todos los recursos propios para que los espacios de trabajo dentro del ámbito de la organización permanezcan aislados.
+
+## Publicar una plantilla {#publishing}
+
+Antes de compartir:
+
+1. Ejecute `pnpm install`, `pnpm typecheck` y las pruebas de la plantilla.
+2. Verifique que funcione sin claves de proveedor opcionales configuradas.
+3. Compruebe la autenticación, el uso compartido y el aislamiento de datos de dos usuarios.
+4. Documente las variables de entorno requeridas y los pasos de incorporación.
+5. Incluya ejemplos o filas de semillas a través de migraciones aditivas, no archivos de datos de tiempo de ejecución rastreados.
+
+Se pueden crear plantillas de comunidad desde un repositorio GitHub:
+
+```bash
+npx @agent-native/core@latest create my-app --template github:user/repo
+```
+
+## Contribuyendo al marco monorepo {#contributing}
+
+### Probar cambios en el marco no publicados {#test-unpublished-framework-changes}
+
+Cuando estás trabajando dentro del framework monorepo y necesitas un generado
+espacio de trabajo para usar paquetes no publicados o cambios de plantilla, ejecute crear con
+marca del paquete local:
+
+```bash
+AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
+```
+
+El espacio de trabajo generado vincula el `@agent-native/core` local y
+Paquetes `@agent-native/dispatch`, por lo que se realizan cambios en Core API, espacio de trabajo de envío
+el comportamiento o las plantillas propias se pueden probar antes de publicarlas. El paquete
+Los scripts `prepack` crean `dist` antes de vincularlos, lo que mantiene el generado
+espacio de trabajo apuntado al resultado de la compilación actual.

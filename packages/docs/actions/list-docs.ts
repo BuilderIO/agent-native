@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
+import { docSourceSlugFromFilename } from "../lib/docs-source";
 import { listDocFiles, readDocFile } from "./docs-files";
 
 let cachedIndex: Array<{ slug: string; title: string }> | null = null;
@@ -12,11 +13,12 @@ async function loadDocsIndex() {
   const matter = (await import("gray-matter")).default;
   const entries = [];
   for (const file of files) {
-    const raw = await readDocFile(file.replace(/\.md$/, ""));
+    const slug = docSourceSlugFromFilename(file);
+    const raw = await readDocFile(slug);
     const { data } = matter(raw);
     entries.push({
-      slug: file.replace(/\.md$/, ""),
-      title: data.title || file.replace(/\.md$/, ""),
+      slug,
+      title: data.title || slug,
     });
   }
   cachedIndex = entries;

@@ -17,6 +17,7 @@ const messages = {
     settings: "सेटिंग्स",
     brand: "फॉर्म",
     askForms: "प्रपत्र पूछें",
+    allForms: "सभी फॉर्म",
     team: "टीम",
   },
   settings: {
@@ -42,6 +43,8 @@ const messages = {
     suggestionExport: "Responses को CSV में export करें",
   },
   sidebar: {
+    collapseSidebar: "साइडबार समेटें",
+    expandSidebar: "साइडबार फैलाएं",
     formGenerationStale:
       "Form generation उम्मीद से ज्यादा समय ले रहा है। आप फिर कोशिश कर सकते हैं।",
     untitledForm: "शीर्षक रहित प्रपत्र",

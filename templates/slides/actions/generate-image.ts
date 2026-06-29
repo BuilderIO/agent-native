@@ -192,10 +192,10 @@ Options:
   const modelChoice = opts["model"] || "auto";
   let provider: Awaited<ReturnType<typeof getProvider>>;
   try {
-    provider = getProvider(modelChoice);
+    provider = await getProvider(modelChoice);
   } catch {
     console.error(
-      "Error: No image generation provider configured. Set GEMINI_API_KEY or OPENAI_API_KEY.",
+      "Error: No image generation provider configured. Save GEMINI_API_KEY or OPENAI_API_KEY in settings.",
     );
     throw new Error("Script failed");
   }

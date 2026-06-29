@@ -1,0 +1,330 @@
+---
+title: "एजेंट टीमें"
+description: "मुख्य एजेंट उप-एजेंटों को काम सौंपता है जो अपने स्वयं के थ्रेड में चलते हैं और चैट में लाइव पूर्वावलोकन चिप्स इनलाइन के रूप में दिखाई देते हैं।"
+---
+
+# एजेंट टीमें
+
+एजेंट चैट एक **ऑर्केस्ट्रेटर** है, मोनोलिथ नहीं। जब मुख्य एजेंट किसी विशेषज्ञ के स्वामित्व वाले कार्य को पूरा करता है - "इस ईमेल को मेरी आवाज़ में लिखें," "बिगक्वेरी विश्लेषण चलाएं," "इस पीआर की समीक्षा करें" - यह अपने स्वयं के थ्रेड, टूल और संदर्भ में एक उप-एजेंट को जन्म देता है। उप-एजेंट मुख्य चैट में लाइव पूर्वावलोकन **चिप** इनलाइन के रूप में दिखाई देता है; पूरी बातचीत को एक टैब के रूप में खोलने के लिए इसे क्लिक करें।
+
+यह मुख्य थ्रेड को केंद्रित रखता है, उप-एजेंटों को समानांतर में चलने देता है, और आपको किसी भी सौंपे गए कार्य के लिए एक साफ़ ऑडिट ट्रेल देता है।
+
+एजेंट टीमें कोर रन-मैनेजर पर चलती हैं: इवेंट स्ट्रीम और जारी रहते हैं, निरस्त SQL के माध्यम से प्रसारित होते हैं, और कार्य सर्वर रहित कोल्ड स्टार्ट से बचे रहते हैं।
+
+## मानसिक मॉडल {#mental-model}
+
+- **मुख्य चैट** — ऑर्केस्ट्रेटर। प्रतिनिधि, आपका अनुरोध पढ़ता है। भारी काम शायद ही कभी करता है।
+- **उप-एजेंट** - अपने स्वयं के थ्रेड, अपने स्वयं के सिस्टम प्रॉम्प्ट, अपने स्वयं के टूल सेट के साथ चलते हैं। प्रत्येक [workspace](/docs/workspace) में एक "कस्टम एजेंट" प्रोफ़ाइल पर मैप होता है।
+- **चिप्स** - रिच प्रीव्यू कार्ड जो मुख्य चैट में इनलाइन दिखाई देता है, जो उप-एजेंट के वर्तमान चरण, स्ट्रीमिंग आउटपुट और अंतिम सारांश दिखाता है। डिफ़ॉल्ट रूप से संक्षिप्त किया गया; क्लिक करने पर पूरी बातचीत का विस्तार होता है।
+- **द्विदिशात्मक संदेश** - मुख्य एजेंट चल रहे उप-एजेंट को फॉलो-अप भेज सकता है; एक उप-एजेंट किसी अस्पष्ट बिंदु पर पहुंचने पर वापस संदेश भेज सकता है।
+
+उप-एजेंट स्थिति `application_state` SQL तालिका (`agent-task:<taskId>` के तहत) में बनी रहती है, इसलिए कार्य सर्वर रहित कोल्ड स्टार्ट से बचे रहते हैं और कई प्रक्रियाओं में काम करते हैं।
+
+<Diagram id="doc-block-1uldv82" title={"ऑर्केस्ट्रेटर और विशेषज्ञ"} summary={"मुख्य चैट उप-एजेंटों को सौंपती है जो अपने स्वयं के थ्रेड में चलते हैं और इनलाइन चिप्स के रूप में वापस रिपोर्ट करते हैं।"}>
+
+```html
+<div class="at-orc">
+  <div class="diagram-card main">
+    <span class="diagram-pill accent">मुख्य चैट</span
+    ><small class="diagram-muted"
+      >orchestrator &mdash; reads your request, delegates</small
+    >
+  </div>
+  <div class="at-fan">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="at-subs">
+      <div class="diagram-box">
+        कोड समीक्षा<br /><small class="diagram-muted"
+          >own thread &amp; prompt</small
+        >
+      </div>
+      <div class="diagram-box">
+        BigQuery विश्लेषण<br /><small class="diagram-muted">own tools</small>
+      </div>
+      <div class="diagram-box">
+        आवाज में ईमेल<br /><small class="diagram-muted">own context</small>
+      </div>
+    </div>
+  </div>
+  <div class="diagram-pill">each appears inline as a live chip &#8635;</div>
+</div>
+```
+
+```css
+.at-orc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.at-orc .diagram-card {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+.at-orc .at-fan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.at-orc .diagram-arrow {
+  font-size: 22px;
+}
+.at-orc .at-subs {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.at-orc .diagram-box {
+  text-align: center;
+}
+```
+
+</Diagram>
+
+## उप-एजेंट को कब तैयार किया जाए {#when-to-spawn}
+
+कार्य के समय स्पॉन करें:
+
+- एक अलग **सिस्टम प्रॉम्प्ट** की आवश्यकता है (एक विशेषज्ञ आवाज या टोन, उदाहरण के लिए, "कोड समीक्षा")।
+- इसमें **लंबे समय तक चलने वाली** टूल श्रृंखला है जो मुख्य संदर्भ को प्रदूषित करेगी।
+- मुख्य एजेंट द्वारा किए जा रहे अन्य कार्यों के साथ **समानांतर** में चल सकता है।
+- इसका स्वामित्व **अलग-अलग टीम** के पास है जिसके पास पहले से ही एक कस्टम एजेंट प्रोफ़ाइल है।
+
+महत्वपूर्ण एक-शॉट कार्य के लिए प्रेरित न हों - सीधे कार्रवाई को कॉल करें।
+
+## एक उप-एजेंट को आमंत्रित करना {#invoking}
+
+किसी उप-एजेंट को हटाने के तीन तरीके, कम से कम से लेकर सबसे स्पष्ट तक:
+
+### 1. `@mention` एक कस्टम एजेंट {#mention}
+
+उपयोगकर्ता चैट कंपोजर में `@agent-name` टाइप करता है। कार्यस्थान उप-एजेंटों का एक ड्रॉपडाउन प्रकट होता है। एक का चयन करने पर एक चिप सम्मिलित होती है; सबमिट करने पर मुख्य एजेंट उस उप-एजेंट को संदेश सौंपता है।
+
+कस्टम एजेंट `agents/<slug>.md` के कार्यस्थल में रहते हैं - YAML फ्रंटमैटर के साथ एक Markdown फ़ाइल। प्रारूप के लिए [Custom Agents](/docs/workspace#custom-agents) देखें।
+
+### 2. मुख्य एजेंट स्वचालित रूप से प्रत्यायोजित करता है {#auto-delegate}
+
+फ्रेमवर्क मुख्य एजेंट को एक `agent-teams` टूल देता है। जब मॉडल तय करता है कि कोई कार्य एक पंजीकृत उप-एजेंट प्रोफ़ाइल में फिट बैठता है, तो यह टूल को `action: "spawn"` और एक वैकल्पिक `agent` पैरामीटर के साथ कॉल करता है जो `agents/*.md` से प्रोफ़ाइल का नामकरण करता है। एक चिप प्रकट होती है; उप-एजेंट चलता है. मुख्य एजेंट प्रतीक्षा करता है (या समानांतर में आगे बढ़ता है) और उप-एजेंट के समाप्त होने पर परिणाम शामिल करता है।
+
+पूर्ण `agent-teams` क्रिया सेट है:
+
+| कार्रवाई      | उद्देश्य                                  |
+| ------------- | ----------------------------------------- |
+| `spawn`       | एक नया उप-एजेंट कार्य प्रारंभ करें        |
+| `status`      | चल रहे उप-एजेंट की प्रगति की जाँच करें    |
+| `read-result` | एक तैयार उप-एजेंट का आउटपुट प्राप्त करें  |
+| `send`        | चल रहे उप-एजेंट को संदेश भेजें            |
+| `list`        | वर्तमान उपयोगकर्ता के लिए सभी कार्य देखें |
+
+### 3. प्रोग्रामेटिक स्पॉन {#programmatic-spawn}
+
+फ्रेमवर्क-स्तरीय एकीकरण के लिए, `@agent-native/core/server` से `spawnTask()` का उपयोग करें:
+
+```ts
+import { spawnTask } from "@agent-native/core/server";
+
+const task = await spawnTask({
+  description: "Draft an outreach email to this lead",
+  instructions: "Match the user's voice from memory/MEMORY.md.",
+  ownerEmail: user.email,
+  systemPrompt: mailAgentSystemPrompt,
+  actions: mailActions,
+  // Pass either apiKey or engine — engine takes precedence.
+  apiKey: process.env.ANTHROPIC_API_KEY, // optional if engine is provided
+  parentSend: emit, // streaming sender for the parent chat response
+});
+```
+
+अधिकांश ऐप कोड इसे सीधे कॉल नहीं करेंगे - फ्रेमवर्क इसे `@mentions` और `agent-teams` टूल के हुड के तहत करता है। `spawnTask()` तक तभी पहुंचें जब आप एक नया प्रवेश बिंदु वायरिंग कर रहे हों (उदाहरण के लिए, एक बटन जो पृष्ठभूमि कार्य को शुरू करता है जो उप-एजेंट के रूप में चलता है)।
+
+## कार्य जीवनचक्र {#lifecycle}
+
+<Diagram id="doc-block-12eaqrp" title={"स्पॉनटास्क() क्या करता है"} summary={"प्रत्येक स्पॉन एक थ्रेड बनाता है, स्थिति को SQL तक बनाए रखता है, और चिप इवेंट को पूरा होने तक स्ट्रीम करता है।"}>
+
+```html
+<div class="at-life">
+  <div class="diagram-box"><code>spawnTask()</code></div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">create thread</span
+    ><small class="diagram-muted"
+      >new row in <code>chat_threads</code>, description as first message</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">persist state</span
+    ><small class="diagram-muted"
+      ><code>agent-task:&lt;id&gt;</code> &rarr; <code>application_state</code>,
+      status=running</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">stream</span
+    ><small class="diagram-muted"
+      ><code>agent_task_started</code> &rarr; chip appears;
+      <code>agent_task_step</code> &rarr; chip updates live</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">complete</span
+    ><small class="diagram-muted"
+      >status=completed, write summary + preview, emit
+      <code>agent_task_done</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.at-life {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  max-width: 560px;
+}
+.at-life .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+}
+.at-life .diagram-box {
+  align-self: flex-start;
+}
+.at-life .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
+}
+```
+
+</Diagram>
+
+किसी भी बिंदु पर मूल एजेंट `sendToTask(taskId, message)` के माध्यम से फॉलो-अप के साथ उप-एजेंट को फिर से शुरू कर सकता है। यदि उप-एजेंट त्रुटियां करता है, तो `markTaskErrored(taskId, reason)` विफलता को रिकॉर्ड करता है और इसे उपयोगकर्ता को दिखाता है।
+
+दोतरफा संदेश टिकाऊ होता है। चल रहे उप-एजेंटों के लिए अभिभावक अनुवर्ती हैं
+कार्य जीवनचक्र के माध्यम से वितरित; यदि उप-एजेंट उन्हें
+वर्तमान चरण में, उन्हें कतारबद्ध रहना चाहिए और सुरक्षित स्थान पर लागू किया जाना चाहिए
+निरंतरता बिंदु। स्पष्टीकरण की आवश्यकता होने पर उप-एजेंट भी वापस संदेश भेज सकते हैं
+अदृश्य रूप से अवरुद्ध करने के बजाय।
+
+## कार्य स्थिति पढ़ना {#reading-state}
+
+सर्वर कोड या अन्य actions से:
+
+```ts
+import { getTask, listTasks } from "@agent-native/core/server";
+
+const task = await getTask(taskId); // single task
+const tasks = await listTasks(); // all tasks for the user (sorted newest first)
+```
+
+`AgentTask` प्रमुख क्षेत्र:
+
+```ts
+interface AgentTask {
+  taskId: string;
+  threadId: string;
+  description: string;
+  status: "running" | "completed" | "errored";
+  preview: string; // short one-liner for the chip
+  summary: string; // full summary once completed
+  currentStep: string; // latest step label (updated while running)
+  createdAt: number;
+  // Additional fields: parentThreadId, name, updatedAt, startedAt,
+  // completedAt, runId, error
+}
+```
+
+## कस्टम एजेंट प्रोफ़ाइल {#profiles}
+
+उप-एजेंट कस्टम एजेंट प्रोफाइल पर मैप करते हैं - कार्यस्थल में `agents/<slug>.md` पर Markdown फ़ाइलें जो `@mention` ड्रॉपडाउन में दिखाई देती हैं और प्रतिनिधिमंडल लक्ष्य के रूप में काम करती हैं। [Workspace — Custom Agents](/docs/workspace#custom-agents) पूर्ण प्रारूप (फ्रंटमैटर, `tools`, `delegate-default`, मॉडल ओवरराइड्स) का मालिक है।
+
+## प्रतिनिधिमंडल गहराई गार्ड {#depth-guard}
+
+उप-एजेंट उप-एजेंटों को जन्म दे सकते हैं, जो एक भगोड़ा/लागत जोखिम है: प्रतिनिधिमंडलों की एक असीमित श्रृंखला अनिश्चित काल तक चल सकती है। फ्रेमवर्क **डेलीगेशन गहराई पर सख्त सीमा** लागू करता है, सर्वर-साइड, किसी भी टूल-स्तरीय गार्ड से स्वतंत्र।
+
+शीर्ष-स्तरीय चैट गहराई `0` है। इसके द्वारा उत्पन्न एक उप-एजेंट गहराई `1` है; वह उप-एजेंट एक बार फिर से पैदा हो सकता है (गहराई `2`); एक स्पॉन जो एक गहराई-`3` उप-एजेंट बनाएगा **अस्वीकार** है। डिफ़ॉल्ट सीमा **2** है।
+
+<Diagram id="doc-block-gut3mf" title={"डेलिगेशन डेप्थ गार्ड (डिफ़ॉल्ट कैप 2)"} summary={"प्रत्येक स्तर टोपी तक एक गहरा पैदा कर सकता है; इसके बाद एक स्पॉन को सर्वर-साइड द्वारा अस्वीकार कर दिया जाता है।"}>
+
+```html
+<div class="at-depth">
+  <div class="diagram-card ok">
+    <span class="diagram-pill">depth 0</span><strong>टॉप-लेवल चैट</strong
+    ><small class="diagram-muted ok">may spawn &darr;</small>
+  </div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill">depth 1</span><strong>उप-एजेंट</strong
+    ><small class="diagram-muted ok">may spawn &darr;</small>
+  </div>
+  <div class="diagram-card warn">
+    <span class="diagram-pill warn">depth 2</span
+    ><strong>उप-एजेंट's sub-agent</strong
+    ><small class="diagram-muted">at the cap &mdash; may NOT spawn</small>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">depth 3</span><strong>Refused</strong
+    ><small class="diagram-muted">server-side error</small>
+  </div>
+</div>
+```
+
+```css
+.at-depth {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.at-depth .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.at-depth .rung-1,
+.at-depth .diagram-card:nth-child(2) {
+  margin-inline-start: 24px;
+}
+.at-depth .diagram-card:nth-child(3) {
+  margin-inline-start: 48px;
+}
+.at-depth .diagram-card:nth-child(4) {
+  margin-inline-start: 72px;
+}
+```
+
+</Diagram>
+
+प्रवर्तन परिवेशीय है: प्रत्येक उप-एजेंट एक `AsyncLocalStorage` के अंदर चलता है जो अपनी गहराई को रिकॉर्ड करता है, इसलिए उस रन से सकर्मक रूप से पहुंचा कोई भी `spawnTask` अपने मूल की गहराई को पढ़ता है और कैप हिट होने के बाद मना कर देता है - भले ही `agent-teams` उपकरण एक ऐसे उप-एजेंट को सौंप दिया गया हो जिसके पास यह नहीं होना चाहिए था। निर्णय शुद्ध, इकाई-परीक्षण योग्य `evaluateSubagentDepth(parentDepth)` के रूप में सामने आया है। एक अस्वीकृत स्पॉन एक स्पष्ट त्रुटि देता है: _"प्रतिनिधिमंडल की गहराई सीमा (अधिकतम एन) तक पहुंच गई है; किसी अन्य उप-एजेंट को स्पॉन नहीं किया जा सकता है।"_
+
+### कैप को कॉन्फ़िगर करना {#depth-guard-config}
+
+`AGENT_NATIVE_MAX_SUBAGENT_DEPTH` के साथ परिनियोजन समय पर डिफ़ॉल्ट को ओवरराइड करें:
+
+| मान            | प्रभाव                                                                                                                                                           |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(अनसेट)_      | `2` की डिफ़ॉल्ट कैप।                                                                                                                                             |
+| `0`            | **कोई उप-एजेंट नहीं बनाया जा सकता** - शीर्ष-स्तरीय एजेंट सभी काम करता है।                                                                                        |
+| `1`…`16`       | प्रतिनिधिमंडल के इतने सारे स्तर।                                                                                                                                 |
+| अमान्य / `>16` | एक गैर-पूर्णांक/नकारात्मक/NaN मान वापस `2` पर आ जाता है; `16` से ऊपर की कोई भी चीज़ `16` से जुड़ी होती है, इसलिए टाइप त्रुटि कभी भी गार्ड को अक्षम नहीं कर सकती। |
+
+```bash
+AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # उप-एजेंटों को अनुमति है, लेकिन वे उप-प्रतिनिधि नहीं कर सकते
+```
+
+जब कोई उप-एजेंट सीमा पर या उससे नीचे होता है, तो फ्रेमवर्क उसके रनटाइम संदर्भ में एक लाइन इंजेक्ट करता है जो बताता है कि यह कितनी गहराई तक बैठता है और क्या यह आगे सौंप सकता है, इसलिए मॉडल अपना बजट उचित रूप से खर्च करता है।
+
+## आगे क्या
+
+- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) - प्रोफ़ाइल प्रारूप
+- [**A2A Protocol**](/docs/a2a-protocol) - जब "उप-एजेंट" पूरी तरह से एक अलग ऐप में रहता है
+- [**Actions**](/docs/actions) - वे उपकरण जिन्हें उप-एजेंट कॉल करता है

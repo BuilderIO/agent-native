@@ -47,7 +47,7 @@ export interface AgentNativeExtensionStorageOptions {
 export interface AgentNativeExtensionStorageContext {
   extensionId: string;
   slotId?: string;
-  scope?: Exclude<AgentNativeExtensionStorageScope, "all"> | string;
+  scope?: Exclude<AgentNativeExtensionStorageScope, "all">;
   userId?: string;
   organizationId?: string;
   [key: string]: unknown;

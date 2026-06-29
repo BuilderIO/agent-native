@@ -1,13 +1,13 @@
 export const SUPPORTED_LOCALES = [
   "en-US",
-  "zh-CN",
-  "zh-TW",
   "es-ES",
   "fr-FR",
   "de-DE",
+  "pt-BR",
+  "zh-CN",
+  "zh-TW",
   "ja-JP",
   "ko-KR",
-  "pt-BR",
   "hi-IN",
   "ar-SA",
 ] as const;

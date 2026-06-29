@@ -54,6 +54,7 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { normalizeLoomShareUrl } from "../shared/loom.js";
 import {
   buildCaptionSegmentsFromText,
@@ -71,15 +72,20 @@ import {
   type AudioOnlyTranscriptionMedia,
 } from "./lib/audio-only-transcription.js";
 import {
+  clearBuilderCreditsExhausted,
+  noteBuilderCreditsExhausted,
+} from "./lib/builder-credits-state.js";
+import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
 import { isLoomRecording } from "./lib/native-media.js";
-import { normalizeProviderTranscript } from "./lib/provider-transcript.js";
+import {
+  isLikelyMismatchedTranscriptLanguage,
+  normalizeProviderTranscript,
+} from "./lib/provider-transcript.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
-import regenerateTitle, {
-  queueTitleRegenerationRequest,
-} from "./regenerate-title.js";
+import regenerateTitle from "./regenerate-title.js";
 
 interface SpeechToTextSegment {
   start: number; // seconds
@@ -113,7 +119,7 @@ const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
-  "Transcribe only words spoken in the audio. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
+  "Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
 const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 
@@ -623,20 +629,6 @@ async function completeReadyTranscript({
     isAutoTitleReplaceable(recForTitle.title, recForTitle.titleSource)
   );
   if (titleQueued) {
-    await queueTitleRegenerationRequest({
-      recordingId,
-      currentTitle: recForTitle.title,
-      transcriptText: fullText,
-      transcriptStatus: "ready",
-      segmentsJson,
-      ownerEmail,
-    }).catch((err) => {
-      console.warn(
-        `[clips] native-transcript title request queue failed for ${recordingId}:`,
-        (err as Error)?.message ?? String(err),
-      );
-    });
-
     void Promise.resolve(
       regenerateTitle.run({
         recordingId,
@@ -671,10 +663,12 @@ async function preserveReadyTranscriptIfAvailable({
   db,
   recordingId,
   ownerEmail,
+  allowLikelyLanguageMismatch = true,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
   ownerEmail: string;
+  allowLikelyLanguageMismatch?: boolean;
 }): Promise<{
   recordingId: string;
   status: "ready";
@@ -689,12 +683,22 @@ async function preserveReadyTranscriptIfAvailable({
       status: schema.recordingTranscripts.status,
       fullText: schema.recordingTranscripts.fullText,
       segmentsJson: schema.recordingTranscripts.segmentsJson,
+      language: schema.recordingTranscripts.language,
     })
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
     .limit(1);
 
   if (current?.status === "ready" && current.fullText?.trim()) {
+    if (
+      !allowLikelyLanguageMismatch &&
+      isLikelyMismatchedTranscriptLanguage(current.language, current.fullText)
+    ) {
+      console.warn(
+        `[clips] Ready transcript for ${recordingId} looks language-mismatched (${current.language}); retrying cloud transcription instead of preserving it.`,
+      );
+      return null;
+    }
     console.log(
       `[clips] Keeping ready native transcript for ${recordingId}; cloud fallback result ignored`,
     );
@@ -817,6 +821,7 @@ export default defineAction({
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
         updatedAt: schema.recordingTranscripts.updatedAt,
+        language: schema.recordingTranscripts.language,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -826,13 +831,24 @@ export default defineAction({
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim()
     ) {
-      return completeReadyTranscript({
-        db,
-        recordingId: args.recordingId,
-        ownerEmail,
-        fullText: existingNativeTranscript.fullText,
-        segmentsJson: existingNativeTranscript.segmentsJson,
-      });
+      if (
+        isLikelyMismatchedTranscriptLanguage(
+          existingNativeTranscript.language,
+          existingNativeTranscript.fullText,
+        )
+      ) {
+        console.warn(
+          `[clips] Ready transcript for ${args.recordingId} looks language-mismatched (${existingNativeTranscript.language}); retrying transcription instead of preserving it.`,
+        );
+      } else {
+        return completeReadyTranscript({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+          fullText: existingNativeTranscript.fullText,
+          segmentsJson: existingNativeTranscript.segmentsJson,
+        });
+      }
     }
 
     if (
@@ -948,6 +964,7 @@ export default defineAction({
           db,
           recordingId: args.recordingId,
           ownerEmail,
+          allowLikelyLanguageMismatch: false,
         });
         if (preserved) return preserved;
 
@@ -973,6 +990,7 @@ export default defineAction({
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
         queueBrainExport(args.recordingId);
+        await clearBuilderCreditsExhausted();
 
         // Re-read title fresh — `rec.title` was fetched before the 30+ s
         // transcription and may be stale if the user renamed during that window.
@@ -1008,7 +1026,11 @@ export default defineAction({
       } catch (err) {
         const reason = (err as Error).message;
         const details = serializeError(err);
-        if (reason.includes("credits exhausted")) {
+        if (isBuilderCreditsExhaustedMessage(reason)) {
+          await noteBuilderCreditsExhausted({
+            source: "transcription",
+            message: reason,
+          });
           const preserved = await preserveReadyTranscriptIfAvailable({
             db,
             recordingId: args.recordingId,
@@ -1160,6 +1182,7 @@ export default defineAction({
     form.append("model", provider.model);
     form.append("response_format", "verbose_json");
     form.append("timestamp_granularities[]", "segment");
+    form.append("prompt", SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45_000);
@@ -1198,6 +1221,7 @@ export default defineAction({
         db,
         recordingId: args.recordingId,
         ownerEmail,
+        allowLikelyLanguageMismatch: false,
       });
       if (preserved) return preserved;
 
@@ -1226,12 +1250,11 @@ export default defineAction({
       queueBrainExport(args.recordingId);
 
       // Auto-title. The clip was just born with the default title and we now
-      // have a transcript to reason over — queue a delegation for the agent
-      // chat to pick a concise title. `regenerate-title` writes a
-      // `clips-ai-request-:id` application_state entry; the frontend bridge
-      // picks that up and fires `sendToAgentChat` once. We intentionally skip
-      // this when the user (or agent) has already renamed the clip so we never
-      // clobber a human-authored title.
+      // have a transcript to reason over. `regenerate-title` tries the fast
+      // media-pipeline path and only queues an agent fallback when appropriate,
+      // so Builder credit pauses stay paused instead of spawning another AI job.
+      // We intentionally skip this when the user (or agent) has already renamed
+      // the clip so we never clobber a human-authored title.
       if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
         try {
           await regenerateTitle.run({ recordingId: args.recordingId });

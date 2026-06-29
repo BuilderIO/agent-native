@@ -1,0 +1,232 @@
+---
+title: "FAQ"
+description: "Perguntas comuns sobre agente nativo: o que é, para quem se destina, o que você pode criar e como funciona."
+---
+
+# FAQ
+
+Perguntas comuns sobre agente nativo, organizadas de "Estou apenas olhando" até "Estou conectando a autenticação agora".
+
+## O básico {#general}
+
+### O que é agente nativo? {#what-is-agent-native}
+
+Agent-native é uma estrutura para criar aplicativos onde o agente de IA e a superfície do produto ao seu redor são parceiros iguais. Essa superfície pode começar como um agente headless com uma ação personalizada, evoluir para um bate-papo avançado ou se tornar um UI completo. A invariante é que agentes e humanos compartilham o mesmo actions, banco de dados e estado. Consulte [What Is Agent-Native?](/docs/what-is-agent-native) para obter a explicação completa.
+
+### Para quem é isso? {#who-is-this-for}
+
+Agente nativo é para pessoas que desejam que um aplicativo real e um agente de IA trabalhem a partir dos mesmos dados e actions. Os caminhos comuns são:
+
+- **Use um aplicativo hospedado** se quiser Mail, Calendário, Formulários, Plano ou outro modelo finalizado sem configuração. Comece no [template gallery](/templates).
+- **Comece com bate-papo** se quiser um aplicativo básico com o qual os usuários possam conversar imediatamente e, em seguida, estenda com actions e telas — comece com [Getting Started](/docs/getting-started) ou [Chat](/docs/template-chat).
+- **Inicie o primitivo primeiro** se quiser uma ação e um loop de agente de aplicativo sem comando antes de confirmar com UI — comece com [Getting Started](/docs/getting-started).
+- **Bifurque e personalize um modelo** se desejar seu próprio produto SaaS com autenticação, banco de dados, UI e agente actions já conectados — consulte [Templates](/docs/cloneable-saas).
+- **Compile do zero** se quiser as primitivas da estrutura para um novo produto orientado por agente — comece com [Getting Started](/docs/getting-started).
+- **Conecte outro agente ou ferramenta de código** se desejar que Claude, ChatGPT, Codex, Cursor ou GitHub Copilot / VS Code usem um aplicativo nativo do agente — consulte [External Agents](/docs/external-agents) e [Skills Guide](/docs/skills-guide).
+
+### Qual a diferença entre isso e adicionar IA a um aplicativo existente? {#how-is-this-different}
+
+A maioria dos aplicativos utiliza a IA como uma reflexão tardia que não pode realmente _fazer_ coisas no aplicativo. Em um aplicativo nativo do agente, o agente é um cidadão de primeira classe que compartilha o mesmo actions, banco de dados e estado que o UI, portanto, pode fazer qualquer coisa que os botões puderem — e modificar o próprio código do aplicativo. Consulte [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+
+<Diagram id="doc-block-gefzrm" title="IA aparafusada vs. agent-native" summary={"Uma barra lateral de bate-papo integrada vive em seu próprio mundo. Um agente agent-native compartilha as mesmas ações, banco de dados e estado que a UI."}>
+
+```html
+<div class="diagram-vs">
+  <div class="diagram-col">
+    <span class="diagram-pill warn">IA acoplada depois</span>
+    <div class="diagram-node">Barra lateral de chat</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      mundo de IA separado<br /><small class="diagram-muted"
+        >não consegue mexer no app</small
+      >
+    </div>
+    <div class="diagram-box diagram-muted">App UI &amp; data</div>
+  </div>
+  <div class="diagram-divider" aria-hidden="true"></div>
+  <div class="diagram-col">
+    <span class="diagram-pill ok">Agent-native</span>
+    <div class="diagram-row2">
+      <div class="diagram-node">UI</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>shared actions, DB &amp; state</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-vs {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.diagram-vs .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 200px;
+}
+.diagram-vs .diagram-row2 {
+  display: flex;
+  gap: 8px;
+}
+.diagram-vs .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-vs .diagram-divider {
+  width: 1px;
+  align-self: stretch;
+  background: currentColor;
+  opacity: 0.15;
+}
+```
+
+</Diagram>
+
+### É código aberto? {#is-this-open-source}
+
+Sim. A estrutura e todos os modelos são de código aberto. Você pode executar tudo localmente, hospedar-se sozinho ou usar a nuvem do Builder.io para hospedagem gerenciada, colaboração e recursos de equipe.
+
+### Quanto custa? {#how-much}
+
+A estrutura em si é gratuita. Os dois custos que você verá na prática:
+
+- **Uso de IA.** Você traz sua própria chave API (Anthropic, OpenAI, etc.) e paga diretamente ao fornecedor do modelo. Não há nenhuma marcação nossa.
+- **Hospedagem.** Quaisquer que sejam as tarifas do seu anfitrião. A maioria dos modelos funciona bem em níveis gratuitos (Netlify, Vercel, Cloudflare) para pequenas cargas de trabalho.
+
+Se você preferir não gerenciar nada disso, a versão hospedada no `agent-native.com` (operada pela Builder.io) agrupa inferência e hospedagem em um plano por usuário.
+
+### Posso hospedar isso sozinho? {#can-i-self-host}
+
+Sim. Escolha qualquer host que execute Node – Netlify, Vercel, Cloudflare, AWS, Deno Deploy, seu próprio servidor – e qualquer banco de dados SQL (Postgres, SQLite, Turso, D1). A estrutura foi construída para ser portátil. Consulte [Deployment](/docs/deployment).
+
+### Quais modelos de IA são compatíveis? {#what-models}
+
+Anthropic Claude, OpenAI (família GPT-5), Google Gemini e qualquer fornecedor que fale o formato OpenAI API (incluindo modelos locais via Ollama). Você configura o modelo nas configurações; a troca é uma mudança de configuração, não uma reescrita de código. O caminho testado mais pesado da estrutura é Claude, então essa é a recomendação padrão.
+
+### Preciso conhecer IA/ML? {#do-i-need-to-know-ai}
+
+Não. Você não treina modelos, não ajusta ou lida com incorporações. Você cria um aplicativo da web normal – e na versão hospedada, você quase não constrói nada. A estrutura lida com a integração do agente: roteamento de mensagens, execução de actions, sincronização de estado.
+
+### Posso migrar um aplicativo existente para agente nativo? {#can-i-use-existing-code}
+
+Você pode, mas o agente nativo funciona melhor quando construído do zero. A arquitetura – banco de dados compartilhado, sincronização de polling, actions, estado do aplicativo – precisa ser totalmente integrada. Começar a partir de um modelo e personalizá-lo é o caminho recomendado. Pense nisso como a mudança do desktop para o mobile: você _pode_ fazer o retrofit, mas construir nativo é melhor.
+
+## Modelos e o que você pode construir {#templates}
+
+### Quais modelos estão disponíveis? {#what-templates-are-available}
+
+A estrutura vem com modelos prontos para produção, incluindo [Chat](/docs/template-chat), [Mail](/docs/template-mail), [Calendar](/docs/template-calendar), [Forms](/docs/template-forms), [Plan](/docs/template-plan) (planos visuais e recapitulações de relações públicas), [Analytics](/docs/template-analytics), [Dispatch](/docs/template-dispatch) e muito mais. Cada um é um aplicativo completo com UI, agente actions, esquema de banco de dados e instruções de IA prontas para uso. Consulte [Templates](/docs/cloneable-saas) para o catálogo completo.
+
+### Posso personalizar modelos? {#can-i-customize-templates}
+
+Esse é o ponto principal. Bifurque um modelo e personalize-o perguntando ao agente. "Adicione um campo prioritário aos formulários." "Conecte-se à nossa instância do Salesforce." "Mude o esquema de cores para combinar com a nossa marca." O agente modifica o código e seu aplicativo evolui com o tempo.
+
+### Posso criar algo que os modelos não cobrem? {#build-from-scratch}
+
+Sim. Se você deseja um aplicativo de bate-papo básico, execute `npx @agent-native/core@latest create my-chat-app --template chat`; você obtém threads de bate-papo duráveis, actions, autenticação, estado de tempo de execução apoiado por SQL e espaço para adicionar suas próprias telas. Se você deseja o menor aplicativo de ação sem UI, execute `npx @agent-native/core@latest create my-agent --headless`. Consulte [Getting Started](/docs/getting-started), [Pure-Agent Apps](/docs/pure-agent-apps) e [Chat](/docs/template-chat).
+
+### Posso experimentar sem bifurcar um modelo? {#try-with-a-skill}
+
+Sim — instale uma habilidade em um agente de codificação que você já usa com um comando e sem necessidade de scaffold. Consulte o [Skills Guide](/docs/skills-guide#app-backed-skills) para ver o passo a passo.
+
+## Recursos do agente {#agent-capabilities}
+
+### O agente pode realmente modificar o código do próprio aplicativo? {#can-the-agent-modify-code}
+
+Sim, e é um recurso. O agente pode editar com segurança componentes, rotas, estilos e actions. Você pergunta “adicionar um gráfico de análise de coorte” e o agente o constrói. Você pergunta “conectar-se à nossa conta Stripe” e o agente escreve a integração. Tudo é código normal rastreado pelo Git, portanto, alterações incorretas são fáceis de reverter.
+
+### Os usuários podem falar com o agente de fora do aplicativo? {#external-channels}
+
+Sim. O mesmo agente é executado em seu web UI, em Slack, em Telegram, por e-mail e de outros agentes (via [A2A](/docs/a2a-protocol)). É o mesmo agente com a mesma memória e o mesmo actions, apenas alcançado através de canais diferentes. Consulte [Messaging the agent](/docs/messaging).
+
+### Os agentes podem conversar entre si? {#can-agents-talk-to-each-other}
+
+Sim, através do [A2A (Agent-to-Agent) protocol](/docs/a2a-protocol). Cada aplicativo nativo do agente obtém automaticamente um endpoint A2A. No aplicativo de e-mail, você pode marcar o agente de análise para consultar dados. Um agente descobre quais outros agentes estão disponíveis, chama-os pelo protocolo e mostra os resultados no UI. Não é necessária configuração: o cartão do agente é gerado automaticamente a partir do actions do seu modelo.
+
+### O que o agente pode ver no aplicativo? {#what-can-the-agent-see}
+
+O agente sempre sabe o que o usuário está visualizando no momento. O UI grava o estado de navegação no banco de dados em cada mudança de rota – qual visualização está aberta, qual item está selecionado. O agente lê isso antes de agir. Se um e-mail estiver aberto, o agente saberá qual e-mail. Se um slide for selecionado, o agente saberá qual slide. Consulte [Context Awareness](/docs/context-awareness).
+
+## Perguntas de desenvolvimento {#development}
+
+### Quais ferramentas de codificação de IA funcionam com agentes nativos? {#which-ai-tools-work}
+
+Qualquer ferramenta de codificação de IA que leia instruções do projeto. A estrutura usa AGENTS.md como padrão universal e cria automaticamente links simbólicos para ferramentas específicas:
+
+- **Código Claude** — lê CLAUDE.md (linkado simbolicamente de AGENTS.md pela configuração CLI)
+- **Cursor** — lê AGENTS.md diretamente ou `.cursorrules` (local legado do Cursor) se presente em seu projeto
+- **Windsurf** — lê .windsurfrules (linkado simbolicamente de AGENTS.md pela configuração CLI)
+- **Codex, Gemini e outros** — trabalhe por meio do painel de agente integrado
+- **Builder.io** — agente hospedado na nuvem com edição visual e colaboração
+
+### Posso usar meu próprio banco de dados? {#can-i-use-my-own-database}
+
+Sim. Defina `DATABASE_URL` e a estrutura o detecta automaticamente. Os bancos de dados suportados incluem SQLite, Postgres (Neon, Supabase, plain), Turso (libSQL) e Cloudflare D1. Todo SQL é independente de dialeto via Drizzle ORM — o mesmo código funciona em qualquer lugar.
+
+### Onde posso implantar? {#where-can-i-deploy}
+
+Em qualquer lugar. O servidor é executado em Nitro, que compila para qualquer destino de implantação: Node.js, Cloudflare Workers/Pages, Netlify, Vercel, Deno Deploy, AWS Lambda e Bun. Você também pode usar a hospedagem Builder.io para implantações gerenciadas. Veja o [Deployment guide](/docs/deployment).
+
+## Arquitetura {#architecture}
+
+### Por que SSE mais polling em vez de WebSockets? {#why-polling-not-websockets}
+
+SSE fornece às gravações do mesmo processo um caminho imediato para o navegador, e uma pesquisa leve de contador de versões continua sendo a alternativa porque funciona em todos os ambientes de implantação - incluindo sem servidor e de borda, onde soquetes persistentes podem não estar disponíveis. Consulte [Key Concepts — Sincronização ao vivo](/docs/key-concepts#polling-sync).
+
+<Diagram id="doc-block-1lfotqx" title="SSE primeiro, pesquisa alternativa" summary={"O mesmo processo grava fluxo instantaneamente; uma pesquisa de contador de versões mantém as gravações sem servidor, de borda e de processo cruzado convergentes."}>
+
+```html
+<div class="diagram-transport">
+  <div class="diagram-box" data-rough>Escrita no DB</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      SSE<br /><small class="diagram-muted"
+        >/_agent-native/events &middot; instant</small
+      >
+    </div>
+    <div class="diagram-node">
+      Polling<br /><small class="diagram-muted"
+        >/_agent-native/poll &middot; universal fallback</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>Recarregamento do navegador</div>
+</div>
+```
+
+```css
+.diagram-transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-transport .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-transport .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### Por que o UI não pode chamar um LLM diretamente? {#why-no-inline-llm-calls}
+
+A IA não é determinística, portanto, você precisa de fluxo de conversa para fornecer feedback e iterar (não botões únicos) e o agente já tem sua base de código, instruções, skills e histórico que faltam em uma chamada inline. Rotear tudo através do agente também é o que permite que o aplicativo seja conduzido a partir de Slack, Telegram ou outro agente. Consulte [Key Concepts — Agent chat bridge](/docs/key-concepts#agent-chat-bridge).
+
+### Por que isso é um framework e não uma biblioteca? {#why-framework-not-library}
+
+O banco de dados compartilhado, a sincronização ao vivo, o sistema actions e o estado do aplicativo só funcionam porque estão conectados desde o início: o UI reage instantaneamente às alterações do agente, os agentes se comunicam e o agente entende o que o usuário está vendo. Uma biblioteca oferece peças; isso é uma arquitetura. Consulte [Key Concepts](/docs/key-concepts).

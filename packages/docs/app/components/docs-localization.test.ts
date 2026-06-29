@@ -9,6 +9,7 @@ import {
   hasLocalizedDoc,
   loadDoc,
 } from "./docs-content";
+import { docsMarkdownPathForPath } from "./docs-seo";
 import { getDocsNavItems } from "./docsNavItems";
 
 function loaderArgs(
@@ -135,6 +136,19 @@ describe("localized docs fallback", () => {
     expect(
       index.some((entry) => entry.path === "/fr-FR/docs/internationalization"),
     ).toBe(true);
+  }, 60_000);
+
+  it("points docs markdown alternates at existing markdown twins", () => {
+    expect(docsMarkdownPathForPath("/docs/multi-app-workspace")).toBe(
+      "/docs/multi-app-workspace.md",
+    );
+    expect(docsMarkdownPathForPath("/fr-FR/docs/internationalization")).toBe(
+      "/fr-FR/docs/internationalization.md",
+    );
+    expect(docsMarkdownPathForPath("/fr-FR/docs/durable-background-runs")).toBe(
+      "/docs/durable-background-runs.md",
+    );
+    expect(docsMarkdownPathForPath("/templates")).toBeNull();
   });
 
   it("hydrates route locale messages from the server for prefixed docs paths", async () => {

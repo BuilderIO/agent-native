@@ -1,0 +1,143 @@
+---
+title: "In-Loop Processors"
+description: "Loop-internal observer/guardrail hooks that watch the model's streamed output and tool calls mid-run and can abort it — the seam for real-time guardrails and proof-of-done gates."
+---
+
+# In-Loop Processors
+
+A `Processor` is a loop-internal **observer/guardrail** for the agent run. It watches the model's streamed output and the tool calls it requests _as the run progresses_, keeps its own scratch state, and can **abort** the run before a "done" is claimed. This is the structural prerequisite for real-time guardrails (block disallowed output mid-stream) and a proof-of-done / coverage gate (inspect what the model is about to do and halt it).
+
+<Diagram id="doc-block-1nd9bkn" title="Where the three hooks fire in the run" summary={"processOutputStream watches every chunk, processOutputStep gates tool calls per response, processOutputResult records a verdict at the end. Any hook can abort with a TripWire."}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — gate tool calls</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted"
+      >processOutputResult — verdict</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
+}
+```
+
+</Diagram>
+
+> [!WARNING]
+> A processor is **configuration**, not a tool, not an action, and not an authoring DSL. Processors only observe, mutate their own stream-scoped state, and `abort()`. They never define app behavior, replace actions, or appear to the model. App operations belong in [actions](/docs/actions).
+
+## The hooks {#hooks}
+
+A processor implements any subset of three optional lifecycle hooks (the shape is borrowed from Mastra's output processors):
+
+| Hook                  | Fires…                                                                | Use it to…                                                  |
+| --------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `processOutputStream` | per streamed chunk (text / thinking deltas) while the model generates | react to output before the full turn lands                  |
+| `processOutputStep`   | once per model response, around tool execution                        | inspect the tool calls the model is about to run; gate them |
+| `processOutputResult` | once at run end, with the final assistant text                        | record a verdict / proof-of-done over the completed answer  |
+
+Each processor gets its own mutable, run-scoped `state` object that persists across every one of its hook invocations within a single run and is **isolated** from other processors' state.
+
+```ts
+import type { Processor } from "@agent-native/core";
+
+const noSecretsInOutput: Processor = {
+  name: "no-secrets",
+  processOutputStream({ part, abort }) {
+    if (part.type === "text" && /sk-live_/.test(part.text)) {
+      abort("Model attempted to emit a live secret token.", {
+        kind: "secret-leak",
+      });
+    }
+  },
+};
+
+const coverageGate: Processor = {
+  name: "proof-of-done",
+  processOutputStep({ toolCalls, state }) {
+    // Track what the model has actually done this run...
+    for (const call of toolCalls) {
+      (state.ran ??= new Set<string>()).add(call.name);
+    }
+  },
+  processOutputResult({ text, state }) {
+    // ...and record a verdict over the final answer.
+    const ran = state.ran as Set<string> | undefined;
+    state.verdict = ran?.has("run-tests") ? "verified" : "unverified";
+  },
+};
+```
+
+## Aborting with `TripWire` {#tripwire}
+
+A hook halts the run by calling `abort(reason, meta?)`, which throws a **`TripWire`**. The loop catches it, emits a single **`tripwire` event**, stops cleanly, and surfaces the reason as the final assistant message.
+
+```ts
+import { TripWire } from "@agent-native/core";
+```
+
+The `tripwire` event carries:
+
+| Field       | Type     | Notes                                                          |
+| ----------- | -------- | -------------------------------------------------------------- |
+| `reason`    | `string` | The human-readable reason passed to `abort`.                   |
+| `processor` | `string` | Name of the processor that aborted, when it declared a `name`. |
+
+`TripWire` also carries optional structured `meta` and the originating `processor` name for programmatic consumers that `instanceof`-check it. Because a halt is graceful, `processOutputResult` still fires on the (halted) final text so a proof-of-done processor can record its verdict even when the run was aborted.
+
+## Wiring processors {#wiring}
+
+Processors are configured in code via the `processors` array on `runAgentLoop`:
+
+```ts
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  messages,
+  actions,
+  send,
+  signal,
+  processors: [noSecretsInOutput, coverageGate],
+});
+```
+
+**Zero-overhead when unused.** The loop builds the processor chain only when at least one processor is supplied; when `processors` is omitted or empty, none of the seam code runs and the loop is byte-for-byte unchanged. Hooks run in registration order and may be sync or async.
+
+> [!NOTE]
+> The loop-level seam is the deliverable today and is callable directly by sub-agents, A2A, MCP, and tests. Threading `processors` through the HTTP chat handler (so a per-request resolver can configure them without calling `runAgentLoop` directly) is convenience plumbing that is not yet wired — configure processors at the `runAgentLoop` call site for now.
+
+## Related
+
+- [**Durable Resume**](/docs/durable-resume) — how the loop survives interruptions without re-running completed side effects.
+- [**Custom Agents & Teams**](/docs/agent-teams) — sub-agents run the same loop and can carry their own processors.
+- [**Observability**](/docs/observability) — record processor verdicts alongside run traces.

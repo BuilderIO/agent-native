@@ -16,6 +16,7 @@ mod native_speech;
 mod notifications;
 mod permission_status;
 mod recording_indicator;
+mod sentry_report;
 mod shortcuts;
 mod silence_detector;
 mod state;
@@ -46,6 +47,8 @@ pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    sentry_report::init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // Second launch just focuses the popover of the already-running
@@ -113,6 +116,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_cancel,
             native_screen::native_fullscreen_recording_pause,
             native_screen::native_fullscreen_recording_resume,
+            native_screen::native_fullscreen_recording_rotate_segment,
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
             native_screen::native_fullscreen_recording_discard_upload,

@@ -47,6 +47,8 @@ const messages = {
     suggestionSlow: "인트로 애니메이션 느리게 하기",
   },
   sidebar: {
+    collapseSidebar: "사이드바 접기",
+    expandSidebar: "사이드바 펼치기",
     navigation: "탐색",
     openNavigation: "탐색 열기",
   },

@@ -1,0 +1,413 @@
+---
+title: "Skills ガイド"
+description: "エージェント ネイティブでの skills の動作: フレームワーク skills、ドメイン skills、カスタム skills の作成。"
+---
+
+# Skills ガイド
+
+Skills は、エージェントに特定のパターンとワークフローに関する深い知識を提供する Markdown ファイルです。
+
+## skills とは {#what-are-skills}
+
+Skills は `.agents/skills/<name>/SKILL.md` にあり、エージェント向けの詳細なガイダンスが含まれています。各スキルは、データの保存方法、状態の同期方法、エージェント チャットへの作業の委任方法という 1 つの懸念事項に重点を置いています。
+
+すべてのスキルのフロントマター `name` および `description` は常にシステム プロンプトの skills ブロックに挿入されるため、エージェントは skills が何であるかを認識します。エージェントがスキルがタスクに関連すると判断すると、完全なスキル本体がオンデマンドでロードされます (`docs-search` 経由でも表示されます)。これが、説明を短くし、トリガー固有にすることが重要である理由です。説明は、残りをロードするかどうかを決定する前にエージェントが読み取る唯一の内容です。
+
+<Diagram id="doc-block-b44ilg" title={"段階的な開示"} summary={"すべてのスキルの名前と説明のみが常にコンテキストに含まれます。タスクが一致すると、ボディ全体がオンデマンドでロードされます。"}>
+
+```html
+<div class="sk-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">常にシステムプロンプト内</span>
+    <div class="sk-list">
+      <span class="diagram-pill"
+        >storing-data &mdash;
+        <small class="diagram-muted">add data models&hellip;</small></span
+      ><span class="diagram-pill"
+        >real-time-sync &mdash;
+        <small class="diagram-muted">wire polling&hellip;</small></span
+      ><span class="diagram-pill"
+        >create-skill &mdash;
+        <small class="diagram-muted">add a skill&hellip;</small></span
+      >
+    </div>
+    <small class="diagram-muted">just name + description (cheap)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <small class="diagram-muted">task matches a description</small
+    ><span class="diagram-pill accent">load on demand</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Full <code>SKILL.md</code> body<br /><small class="diagram-muted"
+      >ルール、コード、やること/避けること</small
+    >
+  </div>
+</div>
+```
+
+```css
+.sk-flow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sk-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 240px;
+}
+.sk-flow .sk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sk-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.sk-flow .diagram-arrow {
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+## フレームワーク skills {#framework-skills}
+
+これらは、**デフォルト テンプレート**にバンドルされている skills です。特定のアプリで使用できる正確なセットは、スキャフォールディング元のテンプレートによって異なります。実際に同梱されているものについては、そのテンプレートの `.agents/skills/` ディレクトリを確認してください。
+
+| スキル                 | いつ使用するか                                                               |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `storing-data`         | データ モデルの追加、構成または状態の読み取り/書き込み                       |
+| `real-time-sync`       | ワイヤリングポーリング同期、UI のデバッグが更新されない                      |
+| `delegate-to-agent`    | UI または actions からエージェントへの AI 作業の委任                         |
+| `actions`              | エージェント actions を作成または実行しています                              |
+| `self-modifying-code`  | アプリのソース、コンポーネント、スタイルの編集                               |
+| `create-skill`         | エージェントに新しい skills を追加します                                     |
+| `capture-learnings`    | 修正とパターンの記録                                                         |
+| `frontend-design`      | Web UI、コンポーネント、またはページの構築またはスタイル                     |
+| `adding-a-feature`     | 4 つの領域のチェックリスト: UI、actions、skills、アプリの状態                |
+| `internationalization` | ローカライズされた UI コピー、言語カタログ、および RTL セーフ スタイルの更新 |
+| `shadcn-ui`            | shadcn/ui プリミティブとコンポーネントの使用                                 |
+| `security`             | 認証、アクセス制御、およびシークレットの処理                                 |
+| `real-time-collab`     | マルチユーザーによる共同編集                                                 |
+| `agent-engines`        | 基盤となるエージェント エンジンの交換または構成                              |
+| `notifications`        | アプリ内通知とプッシュ通知のパターン                                         |
+| `progress`             | バックグラウンド タスクの進行状況の追跡と表示                                |
+| `inline-embeds`        | エージェント チャット内にアプリまたは iframe を埋め込む                      |
+
+`context-awareness` および `a2a-protocol` は、リポジトリ ルートの `.agents/skills/` ディレクトリで利用できるフレームワーク レベルの skills です。継承内容については、各テンプレートの独自の `.agents/skills/` を参照してください。
+
+## ドメイン skills {#domain-skills}
+
+テンプレートには、ドメインに固有の skills が含まれています。これらは同じ `.agents/skills/` ディレクトリに存在しますが、テンプレート固有のパターンをカバーします。完全なリストについては、各テンプレートの `.agents/skills/` ディレクトリを参照してください。代表的なサンプル:
+
+- **メール テンプレート** — `email-drafts`、`draft-queue`
+- **フォーム テンプレート** — `form-building`、`form-publishing`、`form-responses`
+- **分析テンプレート** — `adhoc-analysis`、`bigquery`、`cross-source-analysis`、`dashboard-management`、`data-querying`、`provider-api`、`gong`、`hubspot`、`prometheus`
+- **スライド テンプレート** — `create-deck`、`deck-management`、`design-systems`、`slide-editing`、`slide-images`
+
+ドメイン skills は、フレームワーク skills と同じ形式に従います。これらは、エージェントが従う必要があるテンプレートに固有のパターンをエンコードします。
+
+## アプリベースの skills {#app-backed-skills}
+
+現在の app-backed skills には、Plan の `visual-plan` と `visual-recap`、
+Design の `visual-edit`、Assets の `assets`、repo-backed docs/blog/MDX
+編集用の `content` があります。
+
+アプリベースの skills は、エージェント ネイティブ アプリをスキル マーケットプレイス アーティファクトとしてパッケージ化します。バンドルには、エージェントの指示、エクスポートされた skills、MCP コネクタ メタデータ、ホスト/ローカルの起動指示、MCP アプリなどの UI サーフェスを含めることができます。
+
+> **詳細は以下の通り:** アプリベースの skills の仕組み (マニフェスト形式、CLI コマンド、マーケットプレイス アダプター、自動更新ハッシュ) は、[App-backed skills — full details](#app-backed-skills-full) で説明されています。
+
+## カスタム skills の作成 {#creating-skills}
+
+次の場合にスキルを作成します。
+
+- エージェントが繰り返し従うべきパターンがあります
+- ワークフローには段階的なガイダンスが必要
+- テンプレートからファイルをスキャフォールディングしたい
+
+次の場合はスキルを作成しないでください。
+
+- ガイダンスは別のスキルにすでに存在します - 代わりにそれを拡張します
+- ガイダンスは 1 回限りです。代わりに `AGENTS.md` またはワークスペース メモリに置きます
+
+## スキルフォーマット {#skill-format}
+
+各スキルは、YAML フロントマターを持つ Markdown ファイルです:
+
+<AnnotatedCode
+  id="doc-block-mqbxfr"
+  title={"SKILL.md の構造"}
+  filename=".agents/skills/project-imports/SKILL.md"
+  language="markdown"
+  code={
+    "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"
+  }
+  annotations={[
+    {
+      lines: "2",
+      label: "ディスカバリーキー",
+      note: "The `name` matches the folder; it is how the skill is invoked as `/project-imports`.",
+    },
+    {
+      lines: "3-5",
+      label: "トリガー",
+      note: "この `description` は、常にコンテキスト内にある**唯一**のテキストです。スキルが「いつ」適用されるかを正確に示すようにします。",
+    },
+    {
+      lines: "9-14",
+      label: "まずはルール",
+      note: "Lead with the hard rule and the why; the agent reads the body only once the task matches.",
+    },
+    {
+      lines: "27-30",
+      label: "クロスリンク",
+      note: "関連するスキルをポイントすると、エージェントはガイダンスを再度導き出すのではなく、それらを連鎖させることができます。",
+    },
+  ]}
+/>
+
+フロントマター `name` および `description` は、スキル検出のためにエージェントのツール システムによって使用されます。説明には、スキルがいつ発動するかを記載する必要があります。状況について具体的に記載してください。
+
+ファイルを `.agents/skills/my-skill/SKILL.md` に保存します。ディレクトリ名は、frontmatter の `name` と一致する必要があります。
+
+> **こちらも参照:** スキルの説明を言葉で表現する方法、段階的な開示を適用する方法、`AGENTS.md` をスリムに保つ方法については、[Writing Agent Instructions](/docs/writing-agent-instructions) を参照してください。どちらのページでも、実行例として `project-imports` スキルを使用しています。
+
+## スキルの範囲: ランタイム vs 開発 {#skill-scope}
+
+オプションの `scope` フロントマター フィールドは、スキルがどのエージェントを対象とするかを制御します。
+
+| `scope`   | ランタイム エージェントによってロードされますか? | 用途                                                                                 |
+| --------- | ------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `both`    | はい (デフォルト)                                | Skills はアプリ内エージェントに役立ちます。 `scope` を省略した場合のデフォルトです。 |
+| `runtime` | はい                                             | Skills はアプリ内ランタイム エージェント専用です。                                   |
+| `dev`     | いいえ                                           | Skills は人間のコーディング エージェントのみを意味します (例: Claude コード)。       |
+
+```markdown
+---
+name: release-checklist
+description: >-
+  Steps for cutting a release. Use when preparing or publishing a new version.
+scope: dev
+---
+```
+
+`scope` が存在しない (または認識できない値に設定されている) 場合、デフォルトで `both` が設定されるため、既存のすべてのスキルは実行時にロードされ続けます。このフィールドは完全に下位互換性があります。 `scope: dev` スキルは、どこのランタイム エージェントからも見えません。システム プロンプトに挿入された skills ブロックおよび `docs-search` の結果から除外されます。
+
+### 開発専用スキルをコーディング エージェントに公開する {#dev-only-skills}
+
+エージェント ネイティブ ランタイムは、`.agents/skills/` から skills を読み取ります。 Claude コードは、`.claude/skills/` から skills を独立して読み取ります。スキルをコーディング エージェントが利用できるようにするが、ランタイム エージェントには非表示にするには:
+
+- ランタイム エージェントがロードしないように、`.agents/skills/<name>/SKILL.md` で `scope: dev` とマークします。
+- Claude コードがスキルを選択できるように、スキルを `.claude/skills/<name>/SKILL.md` の下に配置またはミラーリングします。
+
+これは、`.claude/skills` を読み取るだけの Claude コードに依存する古いハックを置き換えます。`scope: dev` は、開発とランタイムの分割を第一級の明示的な選択にします。
+
+<Diagram id="doc-block-amdqoz" title={"どのエージェントがどのスキルをロードするか"} summary={"スコープは、アプリ内ランタイム エージェントがスキルを認識するかどうかを決定します。dev スキルは、コーディング エージェントにのみ表示されます。"}>
+
+```html
+<div class="sc-grid">
+  <div class="diagram-card">
+    <span class="diagram-pill">.agents/skills/</span>
+    <div class="sc-row">
+      <span class="diagram-pill ok">scope: both</span
+      ><small class="diagram-muted">default</small>
+    </div>
+    <div class="sc-row">
+      <span class="diagram-pill ok">scope: runtime</span>
+    </div>
+    <div class="sc-row"><span class="diagram-pill warn">scope: dev</span></div>
+  </div>
+  <div class="sc-targets">
+    <div class="diagram-box">
+      Runtime agent<br /><small class="diagram-muted"
+        >reads <code>both</code> + <code>runtime</code></small
+      >
+    </div>
+    <div class="diagram-box">
+      コーディングエージェント<br /><small class="diagram-muted"
+        >Claude Code reads <code>.claude/skills/</code> +
+        <code>dev</code></small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.sc-grid {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.sc-grid .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.sc-grid .sc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sc-grid .sc-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+```
+
+</Diagram>
+
+> **こちらも参照:** スキルの説明を言葉で表現する方法、段階的な開示を適用する方法、`AGENTS.md` を無駄のないものに保つ方法については、[Writing Agent Instructions](/docs/writing-agent-instructions) を参照してください。
+
+## Skills 対 AGENTS.md {#skills-vs-agents-md}
+
+> **AGENTS.md** — 概要。すべてのスクリプトをリストし、データ モデルを説明し、アプリのアーキテクチャを説明します。エージェントはアプリを理解するために最初にこれを読みます。
+>
+> **Skills** — 詳細。各スキルは、詳細なルール、コード例、実行/禁止リストを備えた 1 つのパターンに焦点を当てています。エージェントは、特定のパターンに従う必要があるときにこれらを読み取ります。
+
+`AGENTS.md` は、アプリが「何をする」かをエージェントに伝えます。 Skills は、エージェントに特定のことを正しく実行する方法を指示します。両方が必要です。方向指定には `AGENTS.md`、実行には skills です。
+
+## Skills とメモリ {#skills-vs-memory}
+
+> **Skills** — 作成された再利用可能なハウツー ガイド。すべてのユーザーに適用され、タスクが一致したときにオンデマンドで呼び出されます。
+>
+> **メモリ (`LEARNINGS.md` / `memory/MEMORY.md`)** — プロジェクトの共有学習と個人の構造化メモリが毎ターン読み込まれます。
+
+その知識がアプリで作業しているすべての人に当てはまる場合 (「サブクエリよりも常に CTE を優先する」)、それはスキルまたは共有 `LEARNINGS.md` です。 _この特定のユーザー_ (「スティーブは簡潔な回答が好きです」) に関するものであれば、`memory/MEMORY.md` に属します。完全な治療法については、[Workspace Memory](/docs/workspace#memory) を参照してください。
+
+---
+
+# 上級
+
+## アプリによる skills — 詳細 {#app-backed-skills-full}
+
+App-backed skills は、エージェント ネイティブ アプリをスキル マーケットプレイス アーティファクトとしてパッケージ化します。
+バンドルには、エージェントの指示、エクスポートされた skills、MCP コネクタを含めることができます
+メタデータ、ホスト/ローカルの起動手順、MCP アプリなどの UI サーフェス。
+
+アプリでサポートされる各スキルは、アプリ ルートの `agent-native.app-skill.json` で始まります:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "assets",
+  "hosted": {
+    "url": "https://assets.agent-native.com",
+    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": { "serverName": "agent-native-assets" },
+  "skills": [
+    {
+      "path": ".agents/skills/asset-generation",
+      "visibility": "both",
+      "exportAs": "assets"
+    }
+  ]
+}
+```
+
+スキルの可視性は、出荷されるものを制御します:
+
+| 可視性     | 意味                                                                                     |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| `internal` | アプリ独自のエージェントによって使用され、マーケットプレイスにはエクスポートされません。 |
+| `exported` | マーケットプレイスにエクスポートされますが、アプリ内部では必要ありません。               |
+| `both`     | 内部的に使用され、エクスポートされます。                                                 |
+
+Hosted はデフォルトのインストール パスです。ローカル起動はカスタマイズのために明示的に行われます。
+オフラインでの作業、またはプライバシーに配慮した使用。
+
+```bash
+# ハッピー パス: エクスポートされた命令とホストされた MCP コネクタ。
+npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add assets
+
+# リポジトリ優先コンテンツ docs/blog/MDX 編集。
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+
+# Vercel/open スキル CLI: エクスポートされた手順のみ。MCP 構成はありません。
+npx skills@latest add BuilderIO/agent-native --skill assets
+
+# ローカル エージェント クライアント用にホストされた MCP コネクタを登録します。
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# 編集可能なローカル ソースを具体化して実行します。
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# マーケットプレイス アダプターの構築: Codex プラグイン、Claude マーケットプレイス、Vercel スキル、
+# plain/Claude スキルと MCP 構成。
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# Vercel/open スキル CLI を使用してローカルにエクスポートされたバンドルをインストールします。
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
+
+# 生成された Claude Code マーケットプレイスを追加し、その Assets プラグインをインストールします。
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
+```
+
+スキル ファイルに秘密を含めないでください。マニフェストには URL 専用コネクタ
+メタデータ; OAuth/デバイスのセットアップは、MCP ホストまたはアプリの通常の方法を通じて行われます
+設定フロー。
+
+Vercel Labs `skills` アダプターはポータブル `skills/<name>/SKILL.md` バンドルです
+`npx skills@latest add ...` 用ですが、生の `skills` CLI は手順のみをインストールします。
+リポジトリ定義のポストインストール スクリプトは実行されず、MCP コネクタは登録されません。
+Agent Native CLI をローカル エージェントのデフォルトのドキュメント パスとして保持します。
+は、MCP コネクタも登録します。 `BuilderIO/agent-native` は本物の GitHub
+Vercel/open Skills CLI のリポジトリ ソース。 `skills.sh` は発見であり、
+リーダーボード ディレクトリ。npm スタイルのパッケージ名前空間ではありません。
+
+Claude コード マーケットプレイス アダプターの書き込み
+`adapters/claude-marketplace/.claude-plugin/marketplace.json` とネストされた
+`skills/<name>/SKILL.md` および `.mcp.json` を含むプラグイン ディレクトリ。 Claude
+コードを作成し、マーケットプレイスを追加し、`agent-native-assets@agent-native-apps` をインストールします。
+プラグインをリロードし、`/mcp` からの URL 専用 MCP コネクタを認証します。
+
+生成されたプラグイン マニフェストは自動更新されるように設定されています: Claude コード
+マーケットプレイス エントリ セット `autoUpdate: true` (コミット SHA バージョン管理付き) と
+Codex プラグイン `version` には、バンドルされた skills および MCP のコンテンツ ハッシュが埋め込まれます
+エンドポイントなので、インストールされたプラグインは再パックせずにスキルの変更を取得します。
+プラン アプリは、この方法ですぐに追加できるマーケットプレイスとしてリポジトリ ルートに公開されます —
+エンドツーエンドのインストールについては、[Plan plugin & marketplace](/docs/plan-plugin) を参照
+および自動更新フロー。
+
+コピーされた skills を、ユニバーサル CLI の代わりにインストールするユーザー向け
+プラグイン マーケットプレイスでは、CLI 鮮度コマンドを使用します。
+
+```bash
+npx @agent-native/core@latest skills status visual-plan
+npx @agent-native/core@latest skills update visual-plan
+```
+
+`skills update` は既知の Codex/Claude プロジェクトとユーザー スキル フォルダーをスキャンし、比較します
+コピーされたフォルダーは最新のバンドル スキルにハッシュされ、古いフォルダーが書き換えられます
+場所。新しくコピーされた Agent Native skills には `agent-native-skill.json` が含まれます
+将来のステータス出力でソースとハッシュを識別できるようにするためのマーカー。
+
+生成された Agent Native アプリとワークスペースには、フレームワークが提供するものも含まれます
+skills under `.agents/skills` (or `packages/shared/.agents/skills` in a
+ワークスペース)。以下を使用して、スキャフォールドされた skills を現在/最新の CLI からリフレッシュします。
+
+```bash
+npm run skills:update
+# または、ローカル パッケージ スクリプトに依存せずに、次のようにします。
+npx @agent-native/core@latest skills update scaffold --project
+```
+
+`AGENTS.md` と `.agents/skills` は正規のままです。 update コマンドは修復も行います
+Claude コードが認識するための Claude 互換性リンク (`CLAUDE.md` および `.claude/skills`)
+2 番目のコピーを維持せずに同じ手順を実行します。

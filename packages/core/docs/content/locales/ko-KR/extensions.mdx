@@ -1,0 +1,464 @@
+---
+title: "확장"
+description: "사용자가 템플릿 내에 구축하는 미니 앱 — Analytics의 사용자 정의 KPI 타일, Calendar의 회의 준비 체크리스트, Mail의 연락처 CRM 위젯. 배포, 코드 편집, 스키마 변경이 없습니다."
+---
+
+# 확장
+
+확장 프로그램은 **사용자가 템플릿 내에 구축하는 미니 앱**입니다.
+
+QuickBooks Online을 사용해 본 적이 있다면 모델을 본 적이 있을 것입니다. QBO는 핵심 회계 제품을 제공하고 사용자는 동일한 앱 내에 있고 동일한 데이터를 사용하는 작은 사용자 정의 위젯(사용자 정의 보고서, 급여 계산기, 세금 규칙 검사기)을 계층화합니다. 확장은 사용자가 코드를 작성하지 않는다는 점을 제외하면 해당 아이디어의 에이전트 기반 버전입니다. 원하는 것이 무엇인지 설명하면 상담원이 이를 구축합니다.
+
+프레임 구성이 중요합니다. 확장 프로그램은 "원하는 대로 수행"하는 일반적인 샌드박스가 아닙니다. 메일, 분석, 캘린더, 클립, 디자인 등 특정 템플릿을 확장하고 해당 템플릿의 actions 및 데이터를 사용하는 \*\*미니 앱입니다. 메일 확장은 이메일을 읽습니다. Analytics 확장은 대시보드의 지표를 읽습니다. 캘린더 확장은 공개 이벤트에 대해 작동합니다. 호스트 제품의 일부이기 때문에 호스트 제품의 일부처럼 느껴집니다.
+
+확장 프로그램이 작동하는 세 가지 요소:
+
+- **코드도 없고 배포도 없습니다.** 에이전트가 이를 작성하면 몇 초 만에 활성화됩니다. 저장소가 아닌 데이터베이스에 저장됩니다.
+- **템플릿 데이터에 대한 전체 액세스 권한입니다.** 확장 프로그램은 에이전트가 호출하는 것과 동일한 actions(메일의 `list-emails`, 슬라이드의 `list-decks`, 클립의 `list-recordings`)를 호출할 수 있으므로 호스트 앱에 있는 모든 것을 갖게 됩니다.
+- **내장 저장소.** 각 확장 프로그램에는 사용자별/조직별 키-값 저장소가 있으므로 새 SQL 테이블을 추가하지 않고도 상태를 저장할 수 있습니다.
+
+템플릿이 사용자가 작성한 확장 프로그램을 노출하지 않아야 하는 경우 다음을 설정하세요.
+`createAgentChatPlugin()`의 `extensionTools: false`. 그러면
+상담원용 확장 actions 및 나머지 부분을 떠나는 동안 즉각적인 안내
+앱 에이전트가 그대로 유지됩니다.
+
+<Diagram id="doc-block-gtw3mr" title={"샌드박스 브리지"} summary={"확장 HTML은 격리된 iframe에서 실행되며 고정된 브리지 도우미 세트를 통해서만 호스트에 도달합니다. 모든 호출은 범위가 지정되고 액세스가 확인됩니다."}>
+
+```html
+<div class="ext-bridge">
+  <div class="diagram-card sandbox" data-rough>
+    <span class="diagram-pill warn">Sandboxed iframe</span
+    ><small class="diagram-muted"
+      >Alpine.js HTML &middot; no host cookies, session, or DOM</small
+    >
+    <div class="ext-helpers">
+      <span class="diagram-pill">appAction</span
+      ><span class="diagram-pill">appFetch</span
+      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">extensionData</span
+      ><span class="diagram-pill">extensionFetch</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      호스트 템플릿<br /><small class="diagram-muted"
+        >actions, 자동 범위 SQL</small
+      >
+    </div>
+    <div class="diagram-box">
+      Secret proxy<br /><small class="diagram-muted"
+        ><code>${keys.NAME}</code>, 도메인 잠금</small
+      >
+    </div>
+    <div class="diagram-box">
+      외부 API<br /><small class="diagram-muted">extensionFetch로만</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.ext-bridge {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ext-bridge .sandbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 240px;
+}
+.ext-bridge .ext-helpers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ext-bridge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ext-bridge .diagram-arrow {
+  font-size: 24px;
+}
+```
+
+</Diagram>
+
+확장 프로그램은 **로컬 파일 모드에서 리포지토리**될 수도 있습니다. 해당 작업 흐름에서
+`agent-native.json`는 `extensions` 폴더를 선언하며 각 확장에는
+`extension.json` 매니페스트와 HTML 항목 파일, 앱이 이를 렌더링
+동일한 샌드박스를 통해 파일을 전송합니다. 파일 지원 확장자는 다음을 변경하여 편집됩니다.
+repo 파일; 데이터베이스 지원 확장은 런타임 생성/편집/공유를 유지합니다.
+아래에 설명된 경험
+
+## 빠른 갤러리 {#gallery}
+
+사람들이 실제로 구축할 실제 확장은 자신이 살고 있는 템플릿에 따라 그룹화됩니다. 각각은 스위스 군용 칼이 아니라 하나의 초점을 맞춘 것입니다.
+
+### 메일
+
+사용자가 `priya@acme.com`에서 보낸 이메일을 읽고 있습니다. 어떤 종류의 위젯이 바로 거기에 도움이 될까요?
+
+- **연락처 메모** — 사용자가 이메일을 보내는 사람에게 고정된 스티커 메모 패드입니다. 해당 연락처에 대한 메모를 로드하여 사용자가 더 많은 내용을 기록할 수 있도록 합니다.
+- **이 사람과의 최근 스레드** — 받은편지함 보기와 별도로 열린 연락처가 있는 마지막 5개 스레드의 작은 목록입니다.
+- **CRM 보강** — CRM에서 연락처의 회사 규모, 마지막 회의 날짜 또는 미결 거래를 가져옵니다.
+- **회의 스케줄러 바로가기** — "다음 주 시간 찾기"를 원클릭 "이 슬롯 보내기" 위젯으로 바꿉니다.
+
+Sketch — 연락처 메모(이메일을 보내는 사람과 연결된 메모 저장):
+
+```html
+<div
+  class="p-4"
+  x-data="{
+    contactEmail: window.slotContext?.contactEmail,
+    note: '',
+    async init() {
+      if (!this.contactEmail) return;
+      const saved = await extensionData.get('notes', this.contactEmail);
+      if (saved) this.note = JSON.parse(saved.data).text;
+    },
+    async save() {
+      await extensionData.set('notes', this.contactEmail, { text: this.note });
+    }
+  }"
+>
+  <p class="text-xs text-muted-foreground mb-2" x-text="contactEmail"></p>
+  <textarea
+    x-model="note"
+    @blur="save()"
+    class="w-full rounded-md border bg-background p-2 text-sm"
+    rows="4"
+    placeholder="Notes about this contact..."
+  ></textarea>
+</div>
+```
+
+### 분석
+
+사용자가 대시보드를 응시하고 있습니다. 누락된 타일은 무엇입니까?
+
+- **사용자 정의 KPI 상자** — 내장 패널이 아닌 측정항목에 대한 단일 큰 숫자입니다. "이번 주에 시험이 시작되었습니다.", "MRR 델타 대 지난 달."
+- **목표 추적기** — 사용자가 선택한 측정항목을 가져와 사용자가 입력한 목표에 대한 진행 상황을 표시합니다.
+- **상위 고객 리더보드** — 고객 테이블과 측정항목을 결합하여 상위 10위 순위를 매깁니다.
+
+스케치 — 사용자 정의 KPI 상자(분석 템플릿의 `appAction` 쿼리 중 하나 호출):
+
+```html
+<div
+  class="p-4"
+  x-data="{
+  value: null,
+  async init() {
+    const result = await appAction('query-agent-native-analytics', {
+      metric: 'trials_started',
+      range: '7d'
+    });
+    this.value = result?.total ?? 0;
+  }
+}"
+>
+  <p class="text-xs uppercase tracking-wider text-muted-foreground">
+    Trials this week
+  </p>
+  <p class="text-3xl font-bold mt-1" x-text="value ?? '—'"></p>
+</div>
+```
+
+### 캘린더
+
+사용자가 이벤트를 진행 중입니다. 그 순간에는 무엇이 도움이 될까요?
+
+- **회의 준비 체크리스트** — 공개 이벤트에 대한 안건 항목, 참석자 및 이전 스레드 요약을 자동으로 로드합니다.
+- **이동 시간** — "임무 장소에서 다음 회의까지 35분 남았습니다."
+- **시간대 도우미** — 모든 참석자의 현지 시간으로 회의 시간을 한눈에 보여줍니다.
+
+### 클립
+
+사용자가 화면 녹화를 검토하고 있습니다. 그 관점을 향상시키는 것은 무엇입니까?
+
+- **작업 항목 추출기** — 클립 기록을 읽고(에이전트가 `appAction`를 통해 이를 가져옴) 할 일을 나열합니다.
+- **자동 공유** — 한 번의 클릭으로 "이 클립의 링크를 내 #recordings Slack 채널에 게시합니다."
+- **하이라이트 릴** — 에이전트가 생성한 챕터를 가져와서 빠른 탐색 메뉴로 바꿉니다.
+
+### 디자인
+
+사용자에게 Alpine/Tailwind 초안 페이지가 열려 있습니다. 프로토타이핑 루프를 원활하게 만드는 방법은 무엇입니까?
+
+- **브랜드 색상 견본** — 사용자의 브랜드 구성에서 가져온 팔레트, 색상을 편집기에 복사하려면 클릭하세요.
+- **자산 선택기** — 사용자가 업로드한 이미지를 나열하고 클릭 시 URL를 삭제합니다.
+- **간격 검사기** — 활성 페이지에서 사용하는 간격/패딩/여백 토큰을 표시하므로 사용자는 일관성을 유지할 수 있습니다.
+
+이 모든 것의 패턴: 확장은 사용자가 호스트 템플릿 내부에 있는 **순간**에 관한 것입니다. 상담원은 어떤 연락처, 어떤 대시보드, 어떤 이벤트, 어떤 클립을 이미 알고 있으며, 확장 프로그램은 해당 컨텍스트를 사용합니다.
+
+## 사용자가 구축하는 방법 {#building}
+
+간단한 경로:
+
+1. **사이드바에서 "새 확장 프로그램"**을 클릭하세요(또는 채팅으로 물어보세요).
+2. **무엇을 원하는지 한 문장으로 설명하세요.** "이메일을 보내는 연락처를 위한 스티커 메모 패드입니다." "이번 주에 시험용 KPI 상자가 시작되었습니다."
+3. **에이전트가 이를 작성하면 사용할 준비가 된 확장 프로그램 목록에 나타납니다.**
+
+편집할 파일도 없고 배포도 없습니다. 에이전트는 올바른 도우미(`appAction`, `extensionData`, `extensionFetch`)를 선택하고 Alpine.js HTML를 작성합니다.
+
+확장 프로그램에 API 키(CRM 토큰, 날씨 API)가 필요한 경우 에이전트는 무엇을 추가하고 어디에 추가할지 알려줍니다. 키는 암호화되어 특정 도메인에 잠겨 저장됩니다.
+
+나중에 변경하고 싶은 내용이 있으면 "내 연락처 메모에 검색창을 추가해 주세요."라고 말씀하시면 됩니다. 에이전트는 전체를 재생성하지 않고 HTML를 편집합니다.
+
+모든 변경 사항에는 버전이 지정됩니다. 확장 프로그램 뷰어의 기록 컨트롤을 열어서 확인하세요.
+저장된 버전, 이전 버전과의 차이점을 검사하고 복원
+소유권 변경 없이 이전 이름/설명/아이콘/콘텐츠 스냅샷
+공유.
+
+## 확장 프로그램으로 할 수 있는 작업 {#capabilities}
+
+iframe 샌드박스 내부의 모든 확장 프로그램에는 `window`에 다음 도우미가 있습니다.
+
+| 도우미                                           | 목적                                               | 예                                                        |
+| ------------------------------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
+| `appAction(name, params)`                        | 호스트 템플릿의 actions 중 하나를 호출하세요       | `appAction('list-emails', { view: 'inbox' })`             |
+| `appFetch(path, options)`                        | `/_agent-native/*`에서 허용된 프레임워크 끝점 호출 | `appFetch('/_agent-native/application-state/navigation')` |
+| `dbQuery(sql, args)`                             | SQL에서 읽기(사용자에게 자동 범위 지정)            | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | SQL에 쓰기                                         | `dbExec('INSERT INTO ...')`                               |
+| `extensionFetch(url, options)`                   | 비밀이 있는 보안 프록시를 통해 외부 API에 접근     | `extensionFetch('https://api.github.com/user')`           |
+| `extensionData.set(collection, id, data, opts?)` | 확장자별 데이터 유지(사용자/조직 범위 지정)        | `extensionData.set('notes', id, { text: '...' })`         |
+| `extensionData.list(collection, opts?)`          | 지속된 항목 나열                                   | `extensionData.list('notes', { scope: 'all' })`           |
+| `extensionData.get(collection, id, opts?)`       | 단일 항목 가져오기                                 | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | 지속된 항목 삭제                                   | `extensionData.remove('notes', 'note-1')`                 |
+
+세 가지 경험 법칙:
+
+- **`dbQuery`보다 `appAction`를 선호합니다.** Actions는 템플릿의 공식 표면입니다. 즉, 액세스 제어, 범위 지정 및 유효성 검사를 처리합니다. 적합한 조치가 없을 때만 원시 SQL에 도달하세요.
+- **템플릿 데이터에 `appAction`를 사용합니다.** 확장 `appFetch`는 프레임워크 `/_agent-native/*` 엔드포인트로 제한됩니다. 템플릿 `/api/*` 경로는 iframe 브리지에 의해 차단됩니다.
+- **새 테이블을 만드는 것보다 `extensionData`를 선호합니다.** 각 확장 프로그램은 자체적으로 격리된 키-값 저장소를 갖습니다. 스키마도 없고 마이그레이션도 없습니다. 사용자 조직과 공유하려면 `{ scope: 'org' }`를 설정하고 비공개의 경우 `'user'`(기본값)를 설정합니다.
+
+```html
+<script>
+  // Private to me
+  await extensionData.set('notes', 'note-1', { title: 'My note' });
+
+  // Shared with my org
+  await extensionData.set('notes', 'team-note', { title: 'Team note' }, { scope: 'org' });
+
+  // List everything visible to me (mine + org)
+  const all = await extensionData.list('notes', { scope: 'all' });
+</script>
+```
+
+외부 API는 `extensionFetch`를 거치며, 이는 호출 서버 측을 프록시하고 `${keys.NAME}` 템플릿을 통해 비밀을 대체합니다.
+
+```html
+<script>
+  const res = await extensionFetch('https://api.github.com/user', {
+    headers: { Authorization: 'Bearer ${keys.GITHUB_TOKEN}' },
+  });
+</script>
+```
+
+실제 키는 브라우저에 도달하지 않습니다. 각 키는 도메인 허용 목록에 잠겨 있으므로 유출된 확장 프로그램이 키를 다른 곳으로 유출할 수 없습니다.
+
+## 슬롯 — 호스트 UI 내부에 확장 배치 {#slots}
+
+위 갤러리에서는 확장 프로그램의 _무엇을_ 설명합니다. 슬롯은 그것이 나타나는 *어디*에 대해 설명합니다.
+
+기본적으로 확장 프로그램은 확장 프로그램 목록의 자체 페이지에 위치하며 작은 앱처럼 열립니다. 대시보드, 계산기, 독립형 위젯에 적합합니다.
+
+그러나 대부분의 QBO 형태의 사용 사례는 다릅니다. 사용자는 위젯이 템플릿의 UI _내부_, 즉 메일 사이드바의 연락처 정보 아래, Analytics 대시보드 모서리, 캘린더 이벤트 오른쪽에 고정되기를 원합니다. 이것이 **슬롯**의 목적입니다.
+
+슬롯은 템플릿이 제공하는 명명된 위젯 영역입니다.
+
+| 템플릿     | 예시 슬롯                      | 표시되는 위치                         |
+| ---------- | ------------------------------ | ------------------------------------- |
+| **메일**   | `mail.contact-sidebar.bottom`  | 모든 이메일 스레드의 연락처 정보 아래 |
+| **분석**   | `analytics.dashboard.tiles`    | 대시보드의 내장 패널 옆               |
+| **캘린더** | `calendar.event-detail.bottom` | 공개 이벤트 아래                      |
+| **클립**   | `clips.right-panel.tabs`       | 클립 검토 패널의 새 탭                |
+
+확장 프로그램이 **슬롯에 설치**되면 호스트는 관련 컨텍스트(연락처 이메일, 대시보드 ID, 이벤트 ID)를 iframe에 푸시합니다. 확장 프로그램은 `window.slotContext`를 읽어 사용자가 무엇을 보고 있는지 파악합니다.
+
+<Diagram id="doc-block-p2xcb4" title={"슬롯은 컨텍스트를 위젯에 푸시합니다."} summary={"호스트 템플릿은 명명된 슬롯을 소유합니다. 확장 기능을 설치하면 사용자가 현재 보고 있는 모든 항목에 대한 window.slotContext가 제공됩니다."}>
+
+```html
+<div class="slot">
+  <div class="diagram-card">
+    <span class="diagram-pill">메일 스레드</span
+    ><small class="diagram-muted"
+      >slot <code>mail.contact-sidebar.bottom</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box accent">
+    <code>window.slotContext</code><br /><small class="diagram-muted"
+      >{ contactEmail }</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">연락처 메모</span
+    ><small class="diagram-muted"
+      >loads notes for that contact &mdash; same widget, different
+      context</small
+    >
+  </div>
+</div>
+```
+
+```css
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.slot .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.slot .diagram-arrow {
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+### 구체적인 예
+
+갤러리의 연락처 메모 확장 기능을 상상해 보세요. 그 자체로는 독립형 위젯입니다. 메일 연락처 사이드바에 표시하려면:
+
+1. 확장을 한 번 빌드합니다. `window.slotContext.contactEmail`를 사용하면 사용자가 어느 연락처에 있는지 알 수 있습니다.
+2. 채울 수 있는 슬롯을 알려주세요: `add-extension-slot-target { extensionId, slotId: "mail.contact-sidebar.bottom" }`.
+3. 설치: `install-extension { extensionId, slotId: "mail.contact-sidebar.bottom" }`.
+
+다음번에 이메일 스레드를 열면 스티커 메모 패드가 연락처 정보 바로 아래에 표시되며 이메일을 보내는 사람에 대한 메모가 채워집니다. 다른 스레드로 전환하세요. _그_ 접촉 부하에 대한 참고사항입니다. 동일한 확장자, 다른 컨텍스트, 재작성이 없습니다.
+
+실제로는 이 세 가지 명령을 직접 실행하지 않습니다. "이 위젯을 내 연락처 사이드바에 고정해 줘"라고 말하면 에이전트가 대상 + 설치를 처리해 줍니다.
+
+> **슬롯은 필수 구성 요소가 아니라 _추가된_ 기능입니다.** 많은 유용한 확장 기능은 슬롯에 설치되지 않으며 자체 페이지에서 행복하게 작동합니다. 호스트 템플릿에서 사용자가 보고 있는 항목 _옆에_ 위젯이 있어야 할 때 슬롯에 접근하세요.
+
+슬롯에 대한 더 자세한 내용(템플릿에서 선언하는 방법, 컨텍스트 계약의 작동 방식, 설치 범위 지정 방법)은 `extension-points` 기술을 참조하세요. Skills는 `.agents/skills/` 아래의 모든 스캐폴드 템플릿 내부에 제공됩니다. 작동 방식은 [Skills Guide](/docs/skills-guide)를 참조하세요.
+
+## 로컬 파일 확장자 {#local-file-extensions}
+
+로컬 파일 모드를 사용하면 작업공간이 저장소에 확장자를 유지할 수 있습니다.
+
+```text
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+`agent-native.json`의 관련 앱에 폴더를 추가합니다.
+
+```json
+{
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "roots": [{ "name": "Docs", "path": "docs", "extensions": [".mdx"] }],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+앱은 데이터베이스 기반 확장 프로그램 및 렌더링과 함께 파일 기반 확장 프로그램을 나열합니다.
+일반 샌드박스 iframe을 통해 전송됩니다. `extension.json`의 슬롯 선언
+확장을 일치하는 `ExtensionSlot`에 자동 마운트합니다. 사용자별은 없습니다
+로컬 확장에 대한 SQL 설치 행.
+
+로컬 확장 프로그램에는 더 엄격한 v1 권한 모델이 있습니다:
+
+- `extensionData`는 비활성화되지 않는 한 작은 런타임 상태에 사용할 수 있습니다.
+- `appAction` 호출은 `permissions.appActions`에 명시적으로 나열되어야 합니다.
+- `dbQuery`, `dbExec`, `extensionFetch`는 현재 차단되었습니다.
+- SQL 지원 업데이트, 삭제, 공유 및 기록 actions는 다음 메시지를 반환합니다.
+  로컬 항목 파일을 다시 가리킵니다.
+
+사용자가 위젯을 생성/공유/편집해야 하는 경우 데이터베이스 기반 확장 프로그램을 사용하세요.
+런타임. 확장자가 repo-first의 일부인 경우 로컬 파일 확장자를 사용하세요.
+작업 공간이며 나머지 부분과 함께 검토, 패치 및 버전 관리가 가능해야 합니다
+파일.
+
+## 공유 {#sharing}
+
+확장 프로그램은 기본적으로 해당 확장 프로그램을 만든 사용자에게만 공개됩니다. 공유하려면:
+
+- **조직 표시** — 조직의 모든 사람이 보고 사용할 수 있습니다.
+- **사용자별 부여** — 특정 사람을 뷰어/편집자/관리자로 초대합니다.
+
+공유 확장 프로그램에는 자체 URL가 있으며 문서, 데크 및 대시보드와 동일한 공유 대화 상자에 연결됩니다. 슬롯 설치는 항상 개인적인 것입니다. 확장 프로그램을 공유하면 다른 사람들도 설치할 수 있습니다. UI에 자동으로 고정되지 않습니다.
+
+## 확장 프로그램과 앱 코드 편집 {#vs-app-code}
+
+프레임워크를 사용하면 에이전트가 구성 요소, 경로, 스타일 등 앱의 소스 코드를 직접 편집할 수 있습니다. 그렇다면 언제 연장을 받아야 할까요?
+
+|                 | 확장                                 | 앱 코드 편집                       |
+| --------------- | ------------------------------------ | ---------------------------------- |
+| **작성자**      | 런타임 시 에이전트(또는 사용자)      | 에이전트 편집 소스 파일            |
+| **저장 위치**   | 데이터베이스                         | git 저장소                         |
+| **빌드 필요**   | 아니요                               | 예                                 |
+| **배포 필요**   | 아니요                               | 예                                 |
+| **범위**        | 사용자 1명(또는 조직과 공유)         | 전체 제품, 모든 사용자             |
+| **최적의 용도** | 개인 위젯, 맞춤형 KPI, 팀별 유틸리티 | 모든 사용자에게 제공되는 핵심 기능 |
+
+경험 법칙: **한 명의 사용자 또는 한 팀을 위한 것이라면 확장입니다.** 템플릿의 모든 사용자가 이를 받아야 한다면 실제 기능으로 제공하세요.
+
+## 보안 {#security}
+
+<Callout id="doc-block-frp4nq" tone="success">
+
+**The raw secret never reaches the browser.** `extensionFetch` substitutes `${keys.NAME}` server-side and each key is locked to a URL allowlist, so even a leaked extension can't exfiltrate it elsewhere.
+
+</Callout>
+
+샌드박스 iframe에서 실행되는 확장 프로그램:
+
+- **상위 앱의 쿠키, 세션 및 DOM로부터 격리**됩니다.
+- **`${keys.NAME}` 템플릿을 통한 서버 측 비밀 주입** - 실제 키 값은 브라우저에 도달하지 않습니다.
+- **도메인 잠금 비밀** — 각 키는 URL 허용 목록에 바인딩됩니다. 프록시가 다른 호스트에 대한 요청을 거부합니다.
+- **사설망 보호** — 확장 프로그램은 내부 주소에 접근할 수 없습니다.
+- **인증 필요** — 확장 프로그램은 로그인한 사용자에 대해서만 실행되며 `dbQuery` / `dbExec` 호출은 자동으로 범위가 지정됩니다.
+
+## 이름 지정에 대해 알아야 할 몇 가지 사항 {#naming-back-compat}
+
+SQL나 소스를 살펴보면 "확장"과 "도구" 이름이 혼합되어 있는 것을 볼 수 있습니다. 퀵 디코더:
+
+- 사용자 대상 기본 요소는 "도구"라고 불렸습니다. 이제 **확장 프로그램**입니다.
+- 물리적 SQL 테이블(`tools`, `tool_data`, `tool_shares`, `tool_slots`, `tool_slot_installs`)은 원래 이름을 유지합니다. 테이블 이름을 바꾸는 것은 파괴적인 마이그레이션이며 프레임워크는 파괴적인 마이그레이션을 제공하지 않습니다.
+- Drizzle / TypeScript 내보내기는 새로운 이름인 `extensions`, `extensionData`, `extensionShares`, `extensionSlots`, `extensionSlotInstalls`를 사용합니다.
+- 확장 프로그램의 iframe 내에서 표준 도우미는 `extensionFetch` 및 `extensionData`입니다. 레거시 이름 `toolFetch` 및 `toolData`는 여전히 해결되므로 이전 확장 HTML는 계속 작동합니다.
+
+일반적인 사용에서는 이를 볼 수 없지만 에이전트에는 "LLM 도구"라는 세 번째 관련 개념이 있습니다. 즉 모델 회전의 함수 호출 표면적(`defineAction`, MCP 등을 통해 정의됨)입니다. 이는 사용자 지향 위젯이 아닌 함수 호출 기본 요소입니다. 이 페이지에 "확장 프로그램"이라고 표시된 경우 이는 사용자 대상 위젯을 의미합니다. 다른 문서에서 `defineAction`와 함께 "도구"라고 말하면 그것은 LLM 개념입니다.
+
+## 다음 단계
+
+- [**Templates**](/docs/cloneable-saas) — 호스트 앱 확장 확장
+- [**Actions**](/docs/actions) — 확장 프로그램이 `appAction`를 통해 호출하는 작업
+- [**Sharing & Privacy**](/docs/sharing) — 확장 가시성, 조직 공유 및 사용자별 부여 작동 방식
+- [**Onboarding & API Keys**](/docs/onboarding) — 설정 UI에서 비밀이 어떻게 드러나는가
+- [**Security**](/docs/security) — 프레임워크의 데이터 범위 지정 및 액세스 모델

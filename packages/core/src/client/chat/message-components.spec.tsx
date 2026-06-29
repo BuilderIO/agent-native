@@ -23,33 +23,20 @@ describe("ThinkingIndicator", () => {
     container.remove();
   });
 
-  it("renders an accessible shimmer loading lockup", () => {
+  it("renders plain accessible status text", () => {
     act(() => {
       root.render(<ThinkingIndicator />);
     });
 
     const status = container.querySelector('[role="status"]');
     expect(status?.getAttribute("aria-label")).toBe("Thinking");
-    expect(
-      container.querySelector(".agent-thinking-indicator__glyph"),
-    ).not.toBeNull();
-    expect(
-      container.querySelector(".agent-thinking-indicator__shimmer"),
-    ).not.toBeNull();
+    expect(status?.textContent).toBe("Thinking");
+    expect(container.querySelector("svg")).toBeNull();
     expect(
       container.querySelectorAll(".agent-thinking-indicator__ellipsis-dot"),
-    ).toHaveLength(3);
+    ).toHaveLength(0);
     expect(
-      container
-        .querySelector(".agent-thinking-indicator__logo")
-        ?.getAttribute("transform"),
-    ).toContain("scale(0.9)");
-    expect(
-      Number(
-        container
-          .querySelector(".agent-thinking-indicator__ellipsis-dot")
-          ?.getAttribute("x"),
-      ),
-    ).toBeLessThan(80);
+      container.querySelector(".agent-thinking-indicator__logo"),
+    ).toBeNull();
   });
 });

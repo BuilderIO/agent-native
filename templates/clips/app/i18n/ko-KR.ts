@@ -20,6 +20,24 @@ const messages = {
       "녹화를 시작하려면 Clips 확장 프로그램을 다시 여세요.",
     gotIt: "확인",
   },
+  builderCredits: {
+    pausedTitle: "Builder.io 크레딧이 일시 중지됨",
+    transcriptionDescription:
+      "백업 전사를 다시 사용하려면 Builder.io를 업그레이드하세요. 기존 네이티브 전사는 계속 표시됩니다.",
+    cleanupDescription:
+      "전사 정리, 요약, AI 제목을 다시 사용하려면 Builder.io를 업그레이드하세요. 네이티브 전사는 유지되었습니다.",
+    settingsDescription:
+      "백업 전사, 전사 정리, 요약, AI 제목을 다시 사용하려면 Builder.io를 업그레이드하세요. 기존 네이티브 전사는 계속 표시됩니다.",
+    titleDescription:
+      "AI 제목 생성이 일시 중지되었습니다. 전사는 계속 사용할 수 있습니다.",
+    upgrade: "Builder.io 업그레이드",
+    retryAfterUpgrade: "업그레이드 후 다시 시도",
+    openAiSetup: "AI 설정",
+    featureBackupTranscription: "백업 전사",
+    featureCleanup: "전사 정리",
+    featureSummaries: "요약",
+    featureTitles: "AI 제목",
+  },
   recorder: {
     cameraBlurTitle: "배경 흐리게",
     cameraBlurDescription: "나는 선명하게, 뒤쪽 배경은 흐리게 유지합니다",
@@ -331,6 +349,13 @@ const messages = {
       "이번 녹음에서 우리는 어떤 연설도 듣지 못했습니다. 의도적인 것이라면 모든 준비가 완료된 것입니다. 그렇지 않은 경우 마이크 및 음성 권한을 확인한 다음 텍스트 변환을 다시 시도하세요.",
     retry: "다시 해 보다",
     transcriptUnavailable: "스크립트를 사용할 수 없음: {{reason}}",
+    transcriptUnavailableTitle: "전사를 사용할 수 없음",
+    providerNeedsAttention: "공급자 확인 필요",
+    providerNeedsAttentionDescription:
+      "현재 공급자가 이 요청을 일시 중지했습니다. Builder.io로 전환하거나 키를 업데이트한 뒤 다시 시도하세요.",
+    enableTranscriptionTitle: "전사 사용",
+    enableTranscriptionDescription:
+      "이 Clip의 캡션, 전사 검색, 요약을 사용합니다.",
     searchPlaceholder: "성적표 검색",
     copyTranscript: "성적표 복사",
     downloadSrt: ".srt 다운로드",
@@ -826,6 +851,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     replyingTo: "답글 대상",
     commentAt: "댓글 위치",
     writeReply: "답글 쓰기...",
+    commentButton: "댓글",
+    composerPlaceholder: "댓글 추가…",
+    mentionSomeone: "멘션하기",
+    addEmoji: "이모지 추가",
   },
   shareMeeting: {
     pageTitle: "회의 노트 · Clips",

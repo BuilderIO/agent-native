@@ -20,6 +20,24 @@ const messages = {
       "Ouvrez à nouveau l’extension Clips pour commencer l’enregistrement.",
     gotIt: "Compris",
   },
+  builderCredits: {
+    pausedTitle: "Crédits Builder.io en pause",
+    transcriptionDescription:
+      "Mettez Builder.io à niveau pour reprendre la transcription de secours. Les transcriptions natives existantes restent visibles.",
+    cleanupDescription:
+      "Mettez Builder.io à niveau pour reprendre le nettoyage des transcriptions, les résumés et les titres IA. La transcription native a été conservée.",
+    settingsDescription:
+      "Mettez Builder.io à niveau pour reprendre la transcription de secours, le nettoyage des transcriptions, les résumés et les titres IA. Les transcriptions natives existantes restent visibles.",
+    titleDescription:
+      "La génération de titres IA est en pause. Votre transcription fonctionne toujours.",
+    upgrade: "Mettre Builder.io à niveau",
+    retryAfterUpgrade: "Réessayer après la mise à niveau",
+    openAiSetup: "Configuration IA",
+    featureBackupTranscription: "Transcription de secours",
+    featureCleanup: "Nettoyage de transcription",
+    featureSummaries: "Résumés",
+    featureTitles: "Titres IA",
+  },
   recorder: {
     cameraBlurTitle: "Flouter l'arrière-plan",
     cameraBlurDescription: "Restez net et floutez ce qui est derrière vous",
@@ -339,6 +357,13 @@ const messages = {
       "Nous n'avons capté aucun discours dans cet enregistrement. Si c’était intentionnel, vous êtes prêt. Sinon, vérifiez vos autorisations de microphone et de parole, puis réessayez la transcription.",
     retry: "Réessayer",
     transcriptUnavailable: "Transcription indisponible : {{reason}}",
+    transcriptUnavailableTitle: "Transcription indisponible",
+    providerNeedsAttention: "Le fournisseur demande une action",
+    providerNeedsAttentionDescription:
+      "Le fournisseur actuel a mis cette demande en pause. Passez à Builder.io ou mettez la clé à jour, puis réessayez.",
+    enableTranscriptionTitle: "Activer la transcription",
+    enableTranscriptionDescription:
+      "Activez les sous-titres, la recherche dans la transcription et les résumés pour ce Clip.",
     searchPlaceholder: "Rechercher la transcription",
     copyTranscript: "Copier la transcription",
     downloadSrt: "Télécharger .srt",
@@ -847,6 +872,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     replyingTo: "Réponse à",
     commentAt: "Commentaire à",
     writeReply: "Écrire une réponse...",
+    commentButton: "Commenter",
+    composerPlaceholder: "Ajouter un commentaire…",
+    mentionSomeone: "Mentionner quelqu'un",
+    addEmoji: "Ajouter un emoji",
   },
   shareMeeting: {
     pageTitle: "Notes de réunion · Clips",

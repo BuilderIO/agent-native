@@ -1,0 +1,278 @@
+---
+title: "Adapter"
+description: "Die beiden Adapter-Seams des Frameworks: Sandbox-Adapter tauschen das Backend aus, das das Run-Code-Tool des Agenten ausführt, und CLI-Adapter ermöglichen dem Agenten strukturierten Zugriff auf Befehlszeilentools."
+search: "Adapter, Sandbox-Adapter, CLI-Adapter, Run-Code, SandboxAdapter, CliAdapter, ShellCliAdapter, dauerhafter Läufer, Remote-Sandbox-Edge, serverloser untergeordneter_Prozess"
+---
+
+# Adapter
+
+> **Für wen ist das gedacht:** Host-Autoren, die die Laufzeit verlängern. App-Entwickler selten
+> brauche das – die Standardeinstellungen funktionieren sofort.
+
+Agent-Native verfügt über zwei Verbindungsnähte, die ein Problem hinter einer schmalen Naht verdrängen,
+austauschbare Schnittstelle:
+
+- **Sandbox-Adapter** tauschen das Backend aus, das das `run-code`-Tool des Agenten ausführt –
+  standardmäßig ein lokaler untergeordneter Prozess oder ein Docker-/Remote-/Durable-Runner.
+- **CLI-Adapter** ermöglichen dem Agenten strukturierten Zugriff auf Befehlszeilentools
+  (`gh`, `ffmpeg`, `stripe`) mit Erkennung, Verfügbarkeitsprüfungen und einem
+  konsistente Ergebnisform.
+
+Beide haben eine Laufzeitbeschränkung gemeinsam: Sie verlassen sich auf Node.js-Systembindungen und tun dies auch
+nicht auf Edge-/Worker-Laufzeiten ausführen – siehe [Edge and serverless](#edge-serverless).
+
+## Welches Codierungsdokument möchte ich? {#which-doc}
+
+| Sie möchten…                                                                       | Verwenden                                    |
+| ---------------------------------------------------------------------------------- | -------------------------------------------- |
+| Tauschen Sie das Backend aus, das das **`run-code`-Tool** des Agenten ausführt     | **Sandbox-Adapter** (diese Seite)            |
+| Verpacken Sie ein CLI-Tool (`gh`, `ffmpeg`), damit der Agent anrufen kann          | **CLI-Adapter** (diese Seite)                |
+| Rendern Sie einen **Codierungsarbeitsbereich UI** im Claude-Code/Codex-Stil        | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Führen Sie Claude Code / Codex / Pi **als Agent** mit eigener Schleife + Tools aus | [Harness Agents](/docs/harness-agents)       |
+
+# Sandbox-Adapter
+
+Das Tool `run-code` führt das vom Agenten bereitgestellte JavaScript in einer isolierten Umgebung aus. **Sandbox-Adapter** berücksichtigen das _Ausführungsproblem_ dieses Tools, sodass das Backend ausgetauscht werden kann – standardmäßig ein lokaler untergeordneter Prozess oder ein Docker-/Remote-/Durable-Runner – ohne die Agentenschleife, `run-code.ts`, die Localhost-Brücke, den Env-Scrub oder die Ausgabeformatierung zu berühren.
+
+## Warum eine Naht {#why}
+
+Das Standard-Backend erzeugt einen gesperrten lokalen untergeordneten Knotenprozess. Dies ist durch den Hosting-Prozess begrenzt: Auf der gehosteten Plattform teilt es sich die weiche Ausführungsobergrenze der Agentenschleife (~40 Sekunden vor Timeout/Fortsetzungs-Thrash). Ein Remote- oder dauerhafter Adapter ist der Hebel, um diese Obergrenze zu überschreiten – er führt große Datenaufträge unabhängig vom Anforderungslebenszyklus bis zum Abschluss aus.
+
+Wenn der Vertrag eng gefasst bleibt, erbt ein Remote-Adapter denselben Sicherheitsstatus. Der übergeordnete Prozess behält das Eigentum an allem, was Geheimnisse enthält: Er erstellt das Sandbox-Modul, führt die Localhost-Bridge aus (die den Anforderungskontext enthält und Host-Zulassungslisten + SSRF-Guards anwendet), bereinigt die Umgebung und formatiert die Ausgabe. Ein Adapter erhält nur eine bereits vorbereitete, **nicht geheime** Modulquelle plus Ressourcenlimits – er ist allein dafür verantwortlich, sie auszuführen und den stdout/stderr/exit-Status zu erfassen.
+
+<Diagram id="doc-block-kt6ebi" title={"Der Elternteil behält die Geheimnisse; Der Adapter führt nur Code aus"} summary={"run-code erstellt das Modul und führt die Loopback-Brücke aus; Der Adapter empfängt ein nicht geheimes Modul + Limits und gibt stdout/stderr/exit zurück."}>
+
+```html
+<div class="diagram-sandbox">
+  <div class="diagram-box" data-rough>
+    <strong>Elternprozess</strong
+    ><small class="diagram-muted"
+      >baut Modul · Loopback-Bridge · Env-Bereinigung · Ausgabeformat</small
+    >
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">non-secret module + limits &rarr;</div>
+    <div class="diagram-pill ok">&larr; stdout / stderr / exitCode</div>
+    <div class="diagram-pill">&harr; bridge calls (127.0.0.1)</div>
+  </div>
+  <div class="diagram-panel center" data-rough>
+    <strong>SandboxAdapter.run</strong
+    ><small class="diagram-muted"
+      >lokaler Child-Prozess · Docker · remote · dauerhaft</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-sandbox {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sandbox .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-sandbox .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Die Schnittstelle {#interface}
+
+Die Naht befindet sich im Kern bei `packages/core/src/coding-tools/sandbox/` – `adapter.ts` (der Vertrag), `index.ts` (Auswahl: `getSandboxAdapter()` / `registerSandboxAdapter()`) und `local-child-process-adapter.ts` (die Standardeinstellung). Die Verkabelung erfolgt im Gehäuse durch `run-code.ts`; Ein Host verbindet ein anderes Backend über den Registrierungshelfer `index.ts` (oder, für ein Docker-Backend, über [blueprint](/docs/blueprint-installer), der diese Dateien direkt bearbeitet).
+
+<FileTree
+  id="doc-block-vd1j1k"
+  title="Die Sandbox-Nahtstelle in core"
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "Der SandboxAdapter-Vertrag (SandboxRunRequest / SandboxRunResult)",
+    },
+    {
+      path: "index.ts",
+      note: "Auswahl: getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "Das Standard-Backend: gesperrter Node-Child-Prozess",
+    },
+    {
+      path: "../run-code.ts",
+      note: "Verdrahtet die Nahtstelle; ändert sich nie beim Backend-Wechsel",
+    },
+  ]}
+/>
+
+Jedes Backend implementiert `SandboxAdapter`:
+
+```ts
+interface SandboxAdapter {
+  /** Stable id, surfaced for diagnostics and adapter selection. */
+  readonly id: string;
+  /** Execute one prepared sandbox module and capture its output. */
+  run(request: SandboxRunRequest): Promise<SandboxRunResult>;
+}
+```
+
+Die Anfrage und das Ergebnis sind bewusst klein und undurchsichtig:
+
+```ts
+interface SandboxRunRequest {
+  /**
+   * The complete ESM module source to execute. Already wraps the user's code
+   * and embeds the loopback bridge URL/token; the adapter does NOT parse or
+   * rewrite it.
+   */
+  moduleSource: string;
+  /**
+   * Scrubbed environment — only safe POSIX vars (PATH/HOME/TMPDIR/…), never app
+   * secrets. Adapters must not augment this with the parent's own environment.
+   */
+  env: Record<string, string>;
+  /** Hard wall-clock timeout in milliseconds. The adapter must enforce it. */
+  timeoutMs: number;
+  /**
+   * Loopback port of the parent's bridge server (reachable over 127.0.0.1). A
+   * remote adapter that can't reach the parent's loopback must tunnel or proxy
+   * this to support bridge-backed globals (`appAction`, `providerFetch`, …).
+   */
+  bridgePort: number;
+}
+
+interface SandboxRunResult {
+  stdout: string;
+  stderr: string;
+  /** `0` on clean exit, non-zero on failure, `null` when killed by a signal. */
+  exitCode: number | null;
+  /** True when the run was killed for exceeding `timeoutMs`. */
+  timedOut: boolean;
+}
+```
+
+## Der Standardwert: `LocalChildProcessAdapter` {#default}
+
+Out of the box, `getSandboxAdapter()` returns `LocalChildProcessAdapter` (`id: "local-child-process"`). It preserves the historical `run-code` behavior byte-for-byte:
+
+- Die vorbereitete Modulquelle wird in ein neues temporäres Verzeichnis geschrieben.
+- Das Kind läuft mit der bereinigten Umgebung (keine Geheimnisse), wobei `TMPDIR`/`TEMP`/`TMP` auf das Sandbox-Verzeichnis zeigt.
+- Wenn das Node-Berechtigungsmodell verfügbar ist (`--permission` oder `--experimental-permission` auf Node 20), wird dem Kind der Zugriff auf das Dateisystem außerhalb seines temporären Verzeichnisses sowie auf untergeordnete Prozesse, Worker und native Add-ons verweigert. Ausgehendes Netzwerk wird _nicht_ durch das Berechtigungsmodell blockiert – aber der Env Scrub bedeutet, dass solche Anfragen keine Anmeldeinformationen enthalten und alle authentifizierten Anrufe über die Loopback-Brücke des übergeordneten Netzwerks laufen.
+- Eine Zeitüberschreitung sendet `SIGTERM`, dann `SIGKILL` nach einer Kulanzfrist von 2 Sekunden.
+- Temporäre Dateien werden nach der Ausführung bestmöglich bereinigt.
+
+> [!WARNING]
+> Der Standardadapter verwendet `node:child_process`, das auf Edge-/Worker-Laufzeiten nicht vorhanden ist. Führen Sie `run-code` in einer Standard-Node.js-Umgebung aus oder registrieren Sie einen Remote-Adapter – siehe [Edge and serverless](#edge-serverless).
+
+## Adapter auswählen {#selection}
+
+Auflösungsreihenfolge – ein explizit registrierter Adapter gewinnt; andernfalls wählt die Umgebungsvariable eine integrierte Variable aus; andernfalls wird der lokale Standard verwendet:
+
+```text
+registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
+```
+
+### `AGENT_NATIVE_SANDBOX` Umgebungsvariable {#env}
+
+Wählt einen integrierten Adapter anhand der ID aus. Derzeit ist nur `local` (Standard) verkabelt; Bei unbekannten Werten wird auf lokal zurückgegriffen, anstatt dass die Ausführung fehlschlägt.
+
+```bash
+AGENT_NATIVE_SANDBOX=local   # die Standardeinstellung – explizit
+```
+
+### `registerSandboxAdapter()` {#register}
+
+Ein Hostprozess überschreibt das Backend für alle nachfolgenden `run-code`-Aufrufe über den `index.ts` der Seam – zum Beispiel, um jeden Aufruf in einem Remote-Container auszuführen:
+
+```ts
+import {
+  registerSandboxAdapter,
+  type SandboxAdapter,
+} from "./coding-tools/sandbox/index.js";
+
+class RemoteSandboxAdapter implements SandboxAdapter {
+  readonly id = "remote";
+  async run(request) {
+    // Ship request.moduleSource to the durable runner, enforce request.timeoutMs,
+    // proxy bridge calls back to request.bridgePort, and return stdout/stderr/exitCode.
+  }
+}
+
+registerSandboxAdapter(new RemoteSandboxAdapter());
+// Pass `null` to clear the override and fall back to env-var / default resolution.
+```
+
+## Die Naht für einen langlebigen Läufer {#durable}
+
+Diese Schnittstelle ist bewusst die Nahtstelle für eine zukünftige Remote-/dauerhafte Sandbox. Ein Remote- oder dauerhafter Adapter (Docker, ein Läufer im Vercel-Sandbox-Stil oder ein Hintergrundarbeiter in der Warteschlange) würde:
+
+1. Implementieren Sie `SandboxAdapter.run` gegen eine Out-of-Process-Laufzeit.
+2. Tunnel die Loopback-Brücke (oder Proxy-Bridge-Aufrufe zurück zum übergeordneten Element).
+3. Große Datenaufträge können unabhängig vom Anforderungslebenszyklus bis zum Abschluss ausgeführt werden – wobei die gehostete Code-Exec-Obergrenze von ca. 40 Sekunden überschritten wird, die den lokalen untergeordneten Prozessadapter begrenzt.
+
+Registrieren Sie es unter einem neuen `AGENT_NATIVE_SANDBOX`-Wert (z. B. `remote`) und/oder über `registerSandboxAdapter()`. Die Agentenschleife und `run-code.ts` ändern sich nie.
+
+> [!TIP]
+> Der `agent-native add sandbox docker`-Blueprint liefert ein vollständiges, eigenständiges Rezept für die Implementierung eines Docker-Adapters gegen diese Naht. Siehe [Blueprint Installer](/docs/blueprint-installer).
+
+# CLI-Adapter
+
+Die andere Adapternaht umschließt ein einzelnes Befehlszeilentool (`gh`, `ffmpeg`, `stripe`, `aws`), sodass der Agent es erkennen, prüfen kann, ob es installiert ist, und es mit einem konsistenten stdout/stderr/exit-code-Ergebnis ausführen kann. Jeder CLI-Adapter implementiert `CliAdapter`:
+
+```ts
+import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+
+interface CliAdapter {
+  name: string; // "gh", "stripe", "ffmpeg"
+  description: string; // What the agent sees during discovery
+  isAvailable(): Promise<boolean>;
+  execute(args: string[]): Promise<CliResult>;
+}
+
+interface CliResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+```
+
+Bei den meisten CLIs umschließt `ShellCliAdapter` jede Binärdatei mit sinnvollen Standardwerten, und `CliRegistry` sammelt Adapter für die Laufzeiterkennung:
+
+```ts
+import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const cliRegistry = new CliRegistry();
+cliRegistry.register(
+  new ShellCliAdapter({
+    command: "gh",
+    description: "GitHub CLI — manage repos, PRs, issues, and releases",
+  }),
+);
+
+await cliRegistry.describe(); // [{ name, description, available }] for discovery
+const gh = cliRegistry.get("gh");
+const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
+```
+
+Umschließen Sie einen CLI-Aufruf in `defineAction`, um ihn auf der Aktionsoberfläche verfügbar zu machen. Weitere Informationen zu `ShellCliAdapter`-Optionen, benutzerdefinierten Adaptern und dem Action-Wrapping-Muster finden Sie in der [CLI Adapters](/docs/cli-adapters)-Kurzreferenz.
+
+## Edge und serverlos {#edge-serverless}
+
+> [!WARNING]
+> Beide Adapternähte basieren auf Node.js-Systembindungen. Die Sandbox-Adapter `LocalChildProcessAdapter` und CLI (`ShellCliAdapter` und benutzerdefinierte Adapter) verwenden `node:child_process` (`execFile` / `spawn`), das auf Edge-/Worker-Laufzeiten wie Cloudflare Workers oder Netlify Edge Functions **nicht vorhanden** ist. Wenn Sie Serverrouten zu diesen Edge-Voreinstellungen bereitstellen, löst die Ausführung dieser Adapter eine Laufzeitausnahme aus. Führen Sie Adapterendpunkte und -aufgaben in einer Standard-Node.js-Umgebung aus (herkömmliche Servercontainer oder serverlose Knotenfunktionen) – oder registrieren Sie für die Sandbox-Verbindung einen Remote-Adapter, der Arbeit außerhalb des Prozesses versendet.
+
+## Was kommt als nächstes?
+
+- [**CLI Adapters**](/docs/cli-adapters) – die Kurzreferenz für die CLI-Naht
+- [**Blueprint Installer**](/docs/blueprint-installer) – `agent-native add sandbox docker` druckt ein Docker-Adapter-Rezept
+- [**Agent Teams**](/docs/agent-teams) – Delegierung schwerer Arbeit an Unteragenten
+- [**Security**](/docs/security) – der Env Scrub- und Bridge-Zulassungslistenstatus

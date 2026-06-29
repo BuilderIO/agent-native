@@ -26,6 +26,9 @@ interface ImageDimensions {
   height: number;
 }
 
+const DEFAULT_CODE_MAX_LINES = 30;
+const MAX_CONFIGURED_CODE_LINES = 2000;
+
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/analytics.png": { width: 1400, height: 710 },
   "/screenshots/calendar.png": { width: 1400, height: 710 },
@@ -89,6 +92,51 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 };
 
 const GENERIC_LANGUAGES = new Set(["", "plain", "plaintext", "text", "txt"]);
+
+interface CodeFenceOptions {
+  language?: string;
+  maxLines?: number;
+}
+
+function parseCodeFenceOptions(info: string | undefined): CodeFenceOptions {
+  const tokens = info?.trim().match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  const options: CodeFenceOptions = {};
+
+  for (const token of tokens) {
+    const normalized = token.toLowerCase();
+    const maxLinesMatch = token.match(/^(?:maxlines|max-lines|lines)=(.+)$/i);
+    const disablesCollapse = [
+      "expanded",
+      "showall",
+      "show-all",
+      "nocollapse",
+      "no-collapse",
+    ].includes(normalized);
+
+    if (maxLinesMatch) {
+      const raw = maxLinesMatch[1].replace(/^['"]|['"]$/g, "");
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        options.maxLines = Math.max(
+          0,
+          Math.min(MAX_CONFIGURED_CODE_LINES, Math.floor(parsed)),
+        );
+      }
+      continue;
+    }
+
+    if (disablesCollapse) {
+      options.maxLines = 0;
+      continue;
+    }
+
+    if (!options.language && !token.includes("=")) {
+      options.language = token;
+    }
+  }
+
+  return options;
+}
 
 function normalizeLanguage(lang: string | undefined): string {
   const raw = lang?.trim().split(/\s+/, 1)[0]?.toLowerCase() ?? "";
@@ -170,9 +218,18 @@ export function resolveCodeBlockLanguage(
   lang: string | undefined,
   code: string,
 ): string {
-  const normalized = normalizeLanguage(lang);
+  const normalized = normalizeLanguage(parseCodeFenceOptions(lang).language);
   if (!GENERIC_LANGUAGES.has(normalized)) return normalized;
   return inferCodeBlockLanguage(code);
+}
+
+function codeLineCount(code: string): number {
+  const normalized = code.replace(/\r\n/g, "\n").replace(/\n$/, "");
+  return normalized ? normalized.split("\n").length : 0;
+}
+
+function codeToggleLabel(hiddenLines: number): string {
+  return `Show ${hiddenLines} more line${hiddenLines === 1 ? "" : "s"}`;
 }
 
 function isSafeUrl(rawUrl: string, kind: "link" | "image"): boolean {
@@ -246,9 +303,25 @@ function createRenderer() {
   // Wrap code blocks in `.code-block` from the start so that the post-hydration
   // shiki swap only replaces the inner <pre> — no margin / structure change.
   renderer.code = function ({ text, lang }: Tokens.Code) {
-    const resolvedLang = resolveCodeBlockLanguage(lang, text);
+    const options = parseCodeFenceOptions(lang);
+    const resolvedLang = resolveCodeBlockLanguage(options.language, text);
     const langClass = ` class="language-${escapeHtml(resolvedLang)}"`;
-    return `<div class="code-block group relative"><pre><code${langClass}>${escapeHtml(text)}</code></pre></div>\n`;
+    const lineCount = codeLineCount(text);
+    const maxLines = options.maxLines ?? DEFAULT_CODE_MAX_LINES;
+    const cap = maxLines > 0 ? maxLines : null;
+    const collapsible = cap != null && lineCount > cap;
+    const hiddenLines = cap == null ? 0 : lineCount - cap;
+    const collapsedAttrs = collapsible
+      ? ` data-collapsed="true" data-code-line-count="${lineCount}" data-code-max-lines="${cap}" style="--code-block-max-lines: ${cap}"`
+      : "";
+    const toggle = collapsible
+      ? `<button type="button" class="code-block-toggle" aria-expanded="false">${codeToggleLabel(hiddenLines)}</button>`
+      : "";
+    const fade = collapsible
+      ? `<div class="code-block-fade" aria-hidden="true"></div>`
+      : "";
+
+    return `<div class="code-block group relative"${collapsedAttrs}><div class="code-block-scroll"><pre><code${langClass}>${escapeHtml(text)}</code></pre>${fade}</div>${toggle}</div>\n`;
   };
 
   renderer.heading = function (
@@ -412,7 +485,26 @@ export default function MarkdownRenderer({ markdown }: Props) {
     const el = articleRef.current;
     if (!el) return;
 
-    function handleCopyClick(e: MouseEvent) {
+    function handleCodeBlockClick(e: MouseEvent) {
+      const toggle = (e.target as Element).closest<HTMLButtonElement>(
+        "button.code-block-toggle",
+      );
+      if (toggle) {
+        const wrapper = toggle.closest<HTMLElement>(".code-block");
+        if (!wrapper) return;
+        const collapsed = wrapper.dataset.collapsed === "true";
+        const lineCount = Number(wrapper.dataset.codeLineCount ?? 0);
+        const maxLines = Number(wrapper.dataset.codeMaxLines ?? 0);
+        const hiddenLines = Math.max(0, lineCount - maxLines);
+
+        wrapper.dataset.collapsed = collapsed ? "false" : "true";
+        toggle.setAttribute("aria-expanded", collapsed ? "true" : "false");
+        toggle.textContent = collapsed
+          ? "Show less"
+          : codeToggleLabel(hiddenLines);
+        return;
+      }
+
       const btn = (e.target as Element).closest<HTMLButtonElement>(
         "button.code-copy-btn",
       );
@@ -433,7 +525,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
       }, 2000);
     }
 
-    el.addEventListener("click", handleCopyClick);
+    el.addEventListener("click", handleCodeBlockClick);
 
     const copySvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
@@ -450,7 +542,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
     }
 
     return () => {
-      el.removeEventListener("click", handleCopyClick);
+      el.removeEventListener("click", handleCodeBlockClick);
     };
   }, [highlightedHtml, t]);
 

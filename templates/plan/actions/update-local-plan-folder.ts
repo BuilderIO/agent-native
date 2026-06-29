@@ -9,6 +9,7 @@ import {
   writePlanLocalFolder,
 } from "../server/lib/local-plan-files.js";
 import { normalizePlanContent } from "../server/plan-content.js";
+import { referencedBlockIdsForPlanComments } from "../server/plan-mdx.js";
 import {
   applyPlanContentPatches,
   planContentPatchesSchema,
@@ -76,6 +77,7 @@ export default defineAction({
       slug: args.slug,
       path: args.path,
     });
+    const currentComments = await readLocalPlanComments(current.folder);
     const kind = resolveLocalPlanKind(args.kind, current.mdx) as PlanKind;
     if (kind === "recap") {
       throw new Error("Local recap folders are read-only in the browser.");
@@ -116,6 +118,7 @@ export default defineAction({
       brief,
       content: nextContent,
       url: current.routePath,
+      referencedBlockIds: referencedBlockIdsForPlanComments(currentComments),
     });
     if (!localFiles.written) {
       throw new Error("Local plan folder could not be written.");
@@ -127,12 +130,11 @@ export default defineAction({
     });
     // Editing prose must not blank the persisted review comments, so the
     // returned bundle carries the same comments.json the reader would load.
-    const comments = await readLocalPlanComments(updated.folder);
     const result = await buildLocalPlanBundleResult({
       local: updated,
       kind,
       role: "editor",
-      comments,
+      comments: currentComments,
       currentFocus: "local-files editing",
       title,
       brief,

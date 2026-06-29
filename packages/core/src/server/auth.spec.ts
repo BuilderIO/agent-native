@@ -969,6 +969,36 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("lets public avatar reads bypass auth while keeping avatar writes protected", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/avatar/user%40example.com",
+          }),
+        ),
+      ).resolves.toBeUndefined();
+
+      const writeEvent = createMockEvent({ path: "/_agent-native/avatar" });
+      writeEvent.req.method = "PUT";
+      writeEvent.node.req.method = "PUT";
+
+      await expect(guard(writeEvent)).resolves.toEqual({
+        error: "Unauthorized",
+      });
+    });
+
     it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

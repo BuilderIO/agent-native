@@ -35,8 +35,10 @@ export {
 } from "./agent-chat.js";
 export {
   saveAgentEngineApiKey,
+  saveAgentEngineProviderSettings,
   type AgentEngineProvider,
   type SaveAgentEngineApiKeyOptions,
+  type SaveAgentEngineProviderSettingsOptions,
 } from "./agent-engine-key.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export {
@@ -610,7 +612,13 @@ export {
   type DataWidgetResultMetadata,
 } from "./chat/widgets/data-widget-types.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
-export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";
+export {
+  SettingsPanel,
+  SettingsTabsPage,
+  type SettingsPanelProps,
+  type SettingsTabItem,
+  type SettingsTabsPageProps,
+} from "./settings/index.js";
 export { useBuilderStatus } from "./settings/useBuilderStatus.js";
 export {
   openBuilderConnectPopup,
@@ -868,6 +876,8 @@ export {
   serializeSpecBlock,
   parseSpecBlock,
   createAttrReader,
+  childCodeFenceFields,
+  serializeChildCodeFenceFields,
   describeBlocksForAgent,
   renderBlockVocabularyReference,
   type BlockSpec,

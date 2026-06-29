@@ -12,8 +12,11 @@
   "type": "module",
   "scripts": {
     "dev": "agent-native dev --port 3000",
+    "codemod:docs-blocks": "tsx scripts/codemod-doc-blocks.ts --dry-run",
+    "codemod:docs-blocks:write": "tsx scripts/codemod-doc-blocks.ts --write",
     "generate-source-index": "tsx scripts/generate-source-index.ts",
-    "prebuild": "tsx scripts/generate-source-index.ts",
+    "validate-doc-blocks": "vitest run app/components/docBlocks.validate.test.tsx",
+    "prebuild": "tsx scripts/generate-source-index.ts && vitest run app/components/docBlocks.validate.test.tsx",
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
@@ -35,8 +38,12 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router": "^8.0.1",
+    "remark-mdx": "^3.1.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
     "shiki": "^4.0.2",
     "tailwindcss": "^4.1.18",
+    "unified": "^11.0.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {

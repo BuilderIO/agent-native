@@ -32,8 +32,13 @@ export interface FileUploadProvider {
   id: string;
   /** Human-readable name. */
   name: string;
-  /** Returns true if this provider is currently configured (env vars etc.). */
+  /** Returns true if this provider is configured from synchronous runtime state. */
   isConfigured: () => boolean;
+  /**
+   * Returns true if this provider is configured for the active request.
+   * Use for DB-backed user/org/workspace secrets that require request context.
+   */
+  isConfiguredForRequest?: () => Promise<boolean>;
   /** Upload a file and return a URL. Throw on failure. */
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }

@@ -1,0 +1,417 @@
+---
+title: "الأمان"
+description: "نموذج الأمان لتطبيقات الوكيل الأصلية: التحقق من صحة الإدخال، ومنع حقن SQL، وXSS، وتحديد نطاق البيانات، وإدارة الأسرار، وأنماط المصادقة."
+---
+
+# الأمان
+
+تم تصميم التطبيقات الأصلية للوكيل لتكون آمنة بشكل افتراضي. يوفر إطار العمل حماية تلقائية في طبقات متعددة - تحصل على عزل البيانات على مستوى SQL، والاستعلامات ذات المعلمات، والتحقق من صحة الإدخال، والمصادقة خارج الصندوق.
+
+## ما تحصل عليه مجانًا، وما تملكه {#what-you-own}
+
+<Diagram id="doc-block-3en0hq" title={"الدفاع في طبقات"} summary={"يمتلك الإطار معظم سطح التهديد؛ أنت تمتلك شيئين - وضع علامات على الجداول لتحديد نطاق المدخلات الخارجية والتحقق من صحتها."}>
+
+```html
+<div class="sec-layers">
+  <div class="diagram-card free">
+    <span class="diagram-pill ok">يمتلكه الإطار</span
+    ><small class="diagram-muted"
+      >SQL isolation &middot; parameterized queries &middot; XSS escaping
+      &middot; auth guard &middot; CSRF cookies &middot; secret
+      encryption</small
+    >
+  </div>
+  <div class="diagram-card you">
+    <span class="diagram-pill warn">أنت تملك التحكم</span
+    ><small class="diagram-muted"
+      >A. tag tables with ownableColumns() &amp; route through access guards<br />B.
+      give every action a Zod schema &amp; send user URLs through the SSRF
+      guard</small
+    >
+  </div>
+</div>
+```
+
+```css
+.sec-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sec-layers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+عند البناء على الأنماط القياسية، يتعامل إطار العمل بالفعل مع معظم سطح التهديد نيابةً عنك:
+
+- **عزل البيانات** — تتم إعادة كتابة الوكيل SQL بحيث يمكنه فقط رؤية صفوف المستخدم الحالي (والمؤسسة النشطة). انظر [Data Scoping](#data-scoping).
+- **حقن SQL** — يتم تحديد معلمات `db-query`/`db-exec` وDrizzle دائمًا. انظر [SQL Injection Prevention](#sql-injection).
+- **XSS** — الهروب التلقائي React، وتعقيم TipTap و`react-markdown`. انظر [XSS Prevention](#xss).
+- **Auth & CSRF** — كل `defineAction` يخضع لحراسة المصادقة؛ ملفات تعريف الارتباط هي `httpOnly` + `SameSite=lax`. انظر [Authentication](#auth).
+- **التشفير السري** — يتم تشفير بيانات الاعتماد والمخزن أثناء عدم النشاط. انظر [Secrets Management](#secrets).
+
+يترك هذا سطحًا صغيرًا عليك التفكير فيه:
+
+- **أ. ضع علامة على جداولك لتحديد النطاق.** أضف `owner_email` (و `org_id` لبيانات الفريق) عبر [`ownableColumns()`](#data-scoping), وقم بتوجيه Drizzle للقراءة/الكتابة من خلال [access guards](#access-guards).
+- **ب. التحقق من صحة المدخلات الخارجية وتوجيهها.** أعط كل إجراء Zod [`schema:`](#input-validation)، وأرسل أي جلب من جانب الخادم للمستخدم/الوكيل URL من خلال [SSRF guard](#ssrf).
+
+احصل على هذين الأمرين بشكل صحيح والباقي هو الإعدادات الافتراضية. [Production Checklist](#production-checklist) هو تأكيد من صفحة واحدة قبل الشحن.
+
+## الأمان حسب التصميم {#secure-by-design}
+
+تمنع بنية إطار العمل الثغرات الأمنية الشائعة عند استخدام الأنماط القياسية:
+
+| الثغرة الأمنية | حماية إطار العمل                                                                    |
+| -------------- | ----------------------------------------------------------------------------------- |
+| حقن SQL        | الاستعلامات ذات المعلمات في `db-query`/`db-exec` وDrizzle ORM                       |
+| XSS            | React الهروب التلقائي JSX؛ يقوم TipTap بتطهير النص المنسق                           |
+| تسرب البيانات  | تحديد النطاق على مستوى SQL عبر طرق العرض المؤقتة (`owner_email`، `org_id`)          |
+| تجاوز المصادقة | يقوم حارس المصادقة بحماية جميع نقاط نهاية `defineAction` تلقائيًا                   |
+| حقن الإدخال    | التحقق من صحة مخطط Zod في `defineAction`                                            |
+| CSRF           | ملفات تعريف الارتباط `SameSite=lax` + `httpOnly`                                    |
+| التعرض السري   | تم تجاهل `.env`؛ بيانات الاعتماد والمخزن المشفر أثناء عدم النشاط (AES-256-GCM)      |
+| SSRF           | يحظر `ssrfSafeFetch` الأهداف الداخلية/البيانات الوصفية + إعادة التوجيه وإعادة الربط |
+
+## التحقق من صحة الإدخال {#input-validation}
+
+استخدم `defineAction` مع Zod `schema:` لكل إجراء. يتحقق إطار العمل من صحة الإدخال تلقائيًا قبل تشغيل التعليمات البرمجية الخاصة بك:
+
+```ts
+import { z } from "zod";
+import { defineAction } from "@agent-native/core/action";
+
+export default defineAction({
+  description: "Create a note",
+  schema: z.object({
+    title: z.string().min(1).max(200).describe("Note title"),
+    content: z.string().optional().describe("Note body"),
+  }),
+  run: async (args) => {
+    // args is guaranteed valid — invalid input never reaches here
+  },
+});
+```
+
+يؤدي الإدخال غير الصالح إلى إرجاع رسائل خطأ واضحة (400 لـ HTTP، خطأ منظم لاستدعاءات الوكيل). لا يوفر تنسيق `parameters:` القديم أي التحقق من صحة وقت التشغيل.
+
+## منع الحقن SQL {#sql-injection}
+
+تستخدم أدوات `db-query` و`db-exec` الخاصة بإطار العمل استعلامات ذات معلمات. يتم تمرير إدخال المستخدم كوسائط، ولا يتم إدخاله مطلقًا في سلسلة SQL:
+
+```ts
+// SAFE — parameterized query (framework default)
+await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] });
+
+// SAFE — Drizzle ORM (always generates parameterized queries)
+await db.insert(notes).values({ title, ownerEmail: email });
+
+// DANGEROUS — string concatenation (never do this)
+await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
+```
+
+<Callout id="doc-block-1jrymve" tone="risk">
+
+لا تقم أبدًا بإنشاء SQL عن طريق تسلسل السلسلة أو القيم الحرفية للقالب. قم بتمرير إدخال المستخدم كـ `args` إلى `exec` / `db-query`، أو استخدم Drizzle — كلاهما يحددان المعلمات دائمًا. تقوم عمليات التحقق `pnpm guards` بالتقاط الاستعلامات غير ذات النطاق والمتسلسلة في وقت CI.
+
+</Callout>
+
+## منع XSS {#xss}
+
+يتخلص React تلقائيًا من كافة تعبيرات JSX. إرشادات إضافية:
+
+- لا تستخدم أبدًا `dangerouslySetInnerHTML` مع المحتوى الذي يتحكم فيه المستخدم
+- لا تستخدم مطلقًا `innerHTML` أو `eval()` أو `document.write()`
+- لتحرير النص المنسق، استخدم TipTap (تبعية إطار العمل) — حيث يتم التنقيح من خلال مخططه
+- لعرض Markdown، استخدم `react-markdown` - فهو يتحول إلى عناصر React بأمان
+
+## الجلب من جانب الخادم (SSRF) {#ssrf}
+
+يجب أن تمر أي `fetch` من جانب الخادم لـ URL التي يتحكم فيها المستخدم أو الوكيل عبر إطار حماية SSRF، أو يمكن الإشارة إليها في البيانات الوصفية السحابية (`169.254.169.254`)، أو `localhost`، أو الخدمات الداخلية:
+
+```ts
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+
+const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
+```
+
+يحظر `ssrfSafeFetch` الأهداف الخاصة/الداخلية، ويعيد التحقق من عنوان IP الذي تم حله في وقت الاتصال (إعادة ربط DNS)، ويعيد التحقق من صحة كل خطوة إعادة توجيه حتى لا يتمكن URL العام من إعادة التوجيه إلى الشبكة الخاصة. يتم توجيه وكيل iframe الملحق و`upload-image` ومستورد رمز التصميم من خلاله. لإجراء فحص ما قبل الرحلة فقط، استخدم `isBlockedExtensionUrlWithDns(url)` مع `redirect: "manual"`.
+
+## نطاق البيانات {#data-scoping}
+
+في الإنتاج، يقوم إطار العمل تلقائيًا بتقييد استعلامات الوكيل SQL ببيانات المستخدم الحالي. يتم فرض ذلك على مستوى SQL — ولا يمكن للوكلاء تجاوزه. هذا القسم هو المرجع الأساسي لمسار تحديد النطاق؛ رابط مستندات [Authentication](/docs/authentication) و[Multi-Tenancy](/docs/multi-tenancy) هنا للميكانيكا.
+
+### مسار تحديد النطاق {#scoping-pipeline}
+
+يتدفق تحديد النطاق من الجلسة التي تمت المصادقة عليها وصولاً إلى SQL الذي يقوم الوكيل بتشغيله:
+
+```
+session.orgId → AGENT_ORG_ID → SQL row scoping
+```
+
+<Diagram id="doc-block-u1dtvr" title={"خط أنابيب النطاق"} summary={"لا يلمس الوكيل SQL الجداول الأساسية مباشرة أبدًا - فهو يقرأ من خلال عرض مؤقت محدد للهوية الحالية، لذلك يمكن لاسم الجدول المجرد إرجاع الصفوف المملوكة فقط."}>
+
+```html
+<div class="scope-pipe">
+  <div class="diagram-node">
+    جلسة مسجلة الدخول<br /><small class="diagram-muted"
+      >email &middot; orgId</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Request context<br /><small class="diagram-muted">AGENT_ORG_ID</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Temporary VIEW<br /><small class="diagram-muted"
+      >WHERE owner_email = ? AND org_id = ?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    SQL الوكيل<br /><small class="diagram-muted">bare table names only</small>
+  </div>
+</div>
+```
+
+```css
+.scope-pipe {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.scope-pipe .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.scope-pipe .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+تحمل جلسة تسجيل الدخول `email` و(عندما تكون المؤسسة نشطة) `orgId`. ينشئ إطار العمل سياق الطلب من تلك الجلسة، ويكشف المؤسسة النشطة للوكيل SQL باسم `AGENT_ORG_ID`، ويعيد كتابة كل استعلام حتى يتمكن فقط من رؤية الصفوف التي تمتلكها الهوية الحالية. ينطبق نفس المسار سواء كان الاستعلام يأتي من UI أو إجراء أو وكيل — لا يمكن للوكيل قراءة البيانات الخاصة بمؤسسة ليس المستخدم عضوًا فيها.
+
+### تحديد النطاق لكل مستخدم (`owner_email`)
+
+كل جدول يحتوي على بيانات خاصة بالمستخدم **يجب** أن يحتوي على عمود نص `owner_email`. استخدم اسم خاصية CamelCase Drizzle — `accessFilter` يقرأ `resourceTable.ownerEmail`:
+
+```ts
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+// Minimal: just the owner column
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ownerEmail: text("owner_email").notNull(), // REQUIRED — camelCase property
+});
+
+// Or use ownableColumns() to add owner_email + org_id + visibility in one call
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ...ownableColumns(),
+});
+```
+
+ينشئ إطار العمل طرق عرض SQL مؤقتة تعمل على تصفية الاستعلامات تلقائيًا:
+
+```sql
+CREATE TEMPORARY VIEW "notes" AS
+  SELECT * FROM main."notes"
+  WHERE "owner_email" = 'alice@example.com';
+```
+
+يتم إدخال عبارات INSERT تلقائيًا `owner_email` عندما لا يكون العمود موجودًا بالفعل.
+
+ترفض أدوات `db-query` / `db-exec` مراجع الجدول المؤهلة للمخطط (`public.<table>`، `main.<table>`) - يتم تحليل الاسم المؤهل إلى الجدول الأساسي وسيتجاوز العرض المؤقت أعلاه. يستخدم الوكلاء أسماء الجداول العارية؛ يتم تطبيق النطاق تلقائيًا.
+
+### تحديد النطاق لكل مؤسسة (`org_id`)
+
+بالنسبة للتطبيقات متعددة المستخدمين حيث تقوم الفرق بمشاركة البيانات، قم بإضافة عمود `org_id`. عند وجود كلا العمودين، يتم تحديد نطاق الاستعلامات بواسطة كليهما: `WHERE owner_email = ? AND org_id = ?`.
+
+يضيف مساعد المخطط `ownableColumns()` `owner_email`، و`org_id`، و`visibility` في مكالمة واحدة، بحيث تحصل الجداول الجديدة المدركة للمستأجر على عقد النطاق الكامل بشكل افتراضي:
+
+```ts
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(), // adds owner_email + org_id + visibility
+});
+```
+
+<DataModel
+  id="doc-block-815zx9"
+  title="What ownableColumns() adds"
+  summary={"الأعمدة الثلاثة التي تجعل الجدول مدركًا للمستأجر وقابلاً للمشاركة."}
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "مؤسسة المالك النشطة عند الإنشاء. يقود عمليات التحقق من رؤية المؤسسة.",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "خاص | منظمة | عام - افتراضي خشن، افتراضي خاص.",
+        },
+      ],
+    },
+  ]}
+/>
+
+### حراس الوصول في actions {#access-guards}
+
+يتم تحديد نطاق العامل الأولي SQL من خلال طرق العرض المؤقتة أعلاه. يجب أن يمر رمز الإجراء الذي يستعلم باستخدام Drizzle مباشرةً عبر مساعدي الوصول لإطار العمل، بحيث تظل عمليات القراءة والكتابة ضمن نطاق الهوية الحالية:
+
+- **`accessFilter`** — يُرجع المسند `WHERE` الذي يحد الاستعلام من الصفوف التي قد يراها المستخدم/المؤسسة الحالية. استخدمه في استعلامات القائمة/القراءة.
+- **`resolveAccess`** — يحل نطاق الوصول الفعال (المالك، المؤسسة، المشترك) للطلب الحالي.
+- **`assertAccess`** — يحمي الكتابة أو قراءة السجل الفردي، مع التجاهل إذا كانت الهوية الحالية قد لا تعمل على الصف المستهدف.
+
+تتطلب الجداول التي تم إنشاؤها باستخدام `ownableColumns()` عمليات القراءة والكتابة هذه؛ يجب أن تقوم مسارات Nitro المخصصة بإنشاء سياق الطلب قبل الاستعلام عن البيانات القابلة للتملك. يفرض فحص `guard-no-unscoped-queries` (الذي يتم تشغيله عبر `pnpm guards`) ذلك في وقت CI. شاهد مهارة `sharing` للمساعد الكامل API.
+
+### التحقق
+
+```bash
+pnpm action db-check-scoping           # تحقق من أن كافة الجداول تحتوي على Owner_email
+pnpm action db-check-scoping --require-org  # يتطلب أيضًا org_id
+```
+
+## إدارة الأسرار {#secrets}
+
+| النوع السري                             | مكان التخزين                                                     |
+| --------------------------------------- | ---------------------------------------------------------------- |
+| مفاتيح على مستوى النشر (واحد لكل تطبيق) | ملف `.env` (تم تجاهله، من جانب الخادم فقط)                       |
+| مفاتيح API لكل مستخدم / لكل مؤسسة       | `saveCredential` / `resolveCredential` (مشفر في حالة عدم النشاط) |
+| الأسرار المسجلة (خزنة الشريط الجانبي)   | مخزن `app_secrets` (مشفر في حالة عدم النشاط)                     |
+| رموز OAuth (Google، GitHub)             | قم بتخزين `oauth_tokens` عبر `saveOAuthTokens()`                 |
+| الرموز المميزة للجلسة                   | تلقائي (تتعامل المصادقة الأفضل مع هذا)                           |
+
+يتم تشفير بيانات الاعتماد لكل مستخدم/لكل مؤسسة والمخزن في حالة عدم النشاط باستخدام AES-256-GCM، بمفتاح `SECRETS_ENCRYPTION_KEY` (العودة إلى `BETTER_AUTH_SECRET`)؛ الإنتاج يرفض البدء بدون واحد. لتشفير أي صفوف بيانات اعتماد نص عادي موجودة مسبقًا في مكانها، قم بتشغيل `pnpm action db-migrate-encrypt-credentials` (غير فعال وغير مدمر).
+
+لا تقم مطلقًا بتخزين الأسرار في `settings` أو `application_state` أو التعليمات البرمجية المصدر أو الاستجابات الإجرائية. استخدم بيانات الاعتماد / المخزن APIs أعلاه - فهي تتعامل مع كل من التشفير وتحديد النطاق لكل مستخدم.
+
+## المصادقة {#auth}
+
+المصادقة تلقائية. راجع مستندات [Authentication](/docs/authentication) للتعرف على الإعداد الكامل.
+
+**النقاط الرئيسية للأمان:**
+
+- تتم حماية نقاط نهاية `defineAction` تلقائيًا بواسطة حارس المصادقة
+- يجب على مسارات `/api/` المخصصة الاتصال بـ `getSession(event)` والتحقق من النتيجة
+- يجب أن تستخدم عمليات تغيير الحالة POST (الافتراضي لـ actions)
+- تمنع ملفات تعريف الارتباط `SameSite=lax` + `httpOnly` معظم هجمات CSRF
+
+## A2A التحقق من الهوية {#a2a-identity}
+
+عندما تتصل التطبيقات ببعضها البعض عبر بروتوكول A2A، فإنها تتحقق من الهوية باستخدام رموز JWT المميزة الموقعة بسر مشترك:
+
+```bash
+A2A_SECRET=your-shared-secret-at-least-32-chars
+```
+
+1. يوقع التطبيق "أ" على JWT الذي يحتوي على `sub: "steve@example.com"`
+2. يتحقق التطبيق "ب" من توقيع JWT بنفس السر
+3. يقرأ التطبيق ب مطالبة `sub` التي تم التحقق منها في سياق الطلب
+4. يتم تطبيق تحديد نطاق البيانات - يعرض التطبيق "ب" بيانات ستيف فقط
+
+بدون `A2A_SECRET` في الإنتاج، فإن كل نقطة نهاية A2A ونقطة نهاية إطلاق النار الذاتي `/_agent-native/integrations/process-task` تعود **503**. قم بتعيينه على كل تطبيق يتصل أو يستقبل حركة مرور A2A. (بالنسبة للتطوير المحلي، لا يزال إطار العمل يسمح بالمكالمات غير المصادق عليها.)
+
+## Webhooks الوارد {#webhooks}
+
+ترفض معالجات خطاف الويب الوارد (Resend، وSendGrid، وSlack، وTelegram، وWhatsApp، وRecall.ai، وDeepgram، وZoom، وGoogle Docs Pub/Sub) الطلبات المزيفة بشكل افتراضي في الإنتاج: عندما يكون env var السري للتوقيع مفقودًا، يقوم المعالج بإرجاع 401 بدلاً من القبول والإرسال.
+
+كان هذا في السابق موقف "التحذير والقبول" - قم بتعيين السر الذي قد تفتقده، أو قم بإعادة الاشتراك في السلوك القديم باستخدام `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` للمطورين المحليين فقط. راجع [Messaging](/docs/messaging#env-vars) للتعرف على متغيرات سرية التوقيع لكل تكامل.
+
+## قائمة التحقق من الإنتاج {#production-checklist}
+
+### المصادقة والأسرار
+
+- [ ] تم تعيين `BETTER_AUTH_SECRET` على سلسلة عشوائية تزيد عن 32 حرفًا (`openssl rand -hex 32`)، ما لم تكن هذه مساحة عمل مستضافة منشورة تشتقها من `A2A_SECRET`
+- [ ] تم تعيين `OAUTH_STATE_SECRET` على سلسلة عشوائية منفصلة تزيد عن 32 حرفًا (لا تعيد استخدام `BETTER_AUTH_SECRET`) - راجع [OAuth State Signing](#oauth-state)
+- [ ] تم تعيين `A2A_SECRET` على كل تطبيق يتصل أو يستقبل حركة مرور A2A - راجع [A2A Identity Verification](#a2a-identity)
+- [ ] قم بتعيين `SECRETS_ENCRYPTION_KEY` (أو اعتمد على البديل `BETTER_AUTH_SECRET`) - راجع [Secrets Management](#secrets)
+- [ ] لم يتم تعيين `AUTH_SKIP_EMAIL_VERIFICATION` **لم** في الإنتاج (أو تم تعيينه فقط عند نشر معاينة ضمان الجودة)
+
+### أسرار الرد التلقائي على الويب (قم بتعيين أسرار عمليات التكامل التي تستخدمها)
+
+- [ ] مجموعة أسرار التوقيع لكل تكامل وارد ممكّن - راجع [Inbound Webhooks](#webhooks) و[Messaging](/docs/messaging#env-vars) للاطلاع على قائمة كل تكامل
+- [ ] لم يتم تعيين `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` **ليس** في المنتج
+
+### المخطط
+
+- [ ] يحتوي كل جدول يواجه المستخدم على `owner_email`، والجداول متعددة المستخدمين أيضًا `org_id` - راجع [Data Scoping](#data-scoping)
+- [ ] تتم عمليات القراءة/الكتابة للجدول الخاص عبر [access guards](#access-guards)
+- [ ] جميع actions تستخدم `defineAction` مع Zod `schema:` - راجع [Input Validation](#input-validation)
+- [ ] تمر عمليات جلب المستخدم/الوكيل URL من جانب الخادم عبر `ssrfSafeFetch` - راجع [SSRF](#ssrf)
+- [ ] لا يوجد `dangerouslySetInnerHTML` مع محتوى المستخدم (أو يتم تشغيل الإخراج من خلال DOMPurify)
+- [ ] لا يوجد SQL متسلسل
+- [ ] `pnpm guards` نظيف (`guard-no-unscoped-queries`، `guard-no-env-credentials`، `guard-no-env-mutation`، `guard-no-localhost-fallback`، `guard-no-unscoped-credentials`، `guard-no-drizzle-push`)
+- [ ] تم اختباره باستخدام حسابي مستخدمين للتحقق من عزل البيانات
+
+### تصلب متنوع
+
+- [ ] لم يتم تعيين `AGENT_NATIVE_DEBUG_ERRORS` **لم** في منتج حقيقي (فقط في معاينات تصحيح الأخطاء)
+- [ ] \*\*لم يتم تعيين `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` ما لم تشارك مؤسستك مفاتيح مساحة العمل فعليًا - راجع [Cross-User Tooling Secrets](#tooling-secrets)
+- [ ] في عمليات النشر متعددة المستأجرين، **يحضر المستخدمون `ANTHROPIC_API_KEY`** — يرفض إطار العمل الرجوع إلى env على مستوى النشر var
+
+---
+
+تغطي الأقسام أدناه علامات البيئة المتخصصة التي تصل إليها فقط في عمليات نشر محددة. معظم التطبيقات لا تلمسها أبدًا.
+
+## توقيع الحالة OAuth {#oauth-state}
+
+تقوم تدفقات OAuth (Google وAtlassian وZoom) بتوقيع مغلف حالتها باستخدام مفتاح HMAC مخصص:
+
+```bash
+OAUTH_STATE_SECRET=$(openssl rand -hex 32)
+```
+
+يُستخدم هذا للرجوع إلى `GOOGLE_CLIENT_SECRET` (بيانات اعتماد مشتركة مع Google) - كان من شأن تسرب سر Google أن يسمح للمهاجمين بتزوير مظاريف حالة OAuth. المفتاح المخصص مستقل عن أي سر خاص بطرف ثالث. إذا لم يتم تعيين `OAUTH_STATE_SECRET`، فسيعود الإطار إلى `BETTER_AUTH_SECRET`؛ يمكن لعمليات نشر مساحة العمل المستضافة أيضًا اشتقاق مفتاح OAuth لكل غرض من `A2A_SECRET` المطلوب بالفعل. إذا لم يتوفر أي من أسرار الخادم هذه، فستفشل تدفقات OAuth في الإنتاج.
+
+يتم أيضًا التحقق من صحة معلمات طلب البحث `redirect_uri` مقابل القائمة المسموح بها (مسارات `/_agent-native/...` ذات الأصل نفسه + إطار العمل). يجب أن تستخدم تدفقات OAuth المخصصة في القوالب مساعد `isAllowedOAuthRedirectUri()` الخاص بإطار العمل قبل حالة التوقيع.
+
+## أسرار الأدوات عبر المستخدمين {#tooling-secrets}
+
+الأدوات وعمليات التشغيل الآلي التي تشير إلى `${keys.NAME}` تعمل على حل الأسرار لكل مستخدم بشكل افتراضي. يتم إيقاف تشغيل نطاق مساحة العمل افتراضيًا \*\* في هذا الإصدار — يمكن لعضو مؤسسة ضار زرع مساحة عمل `OPENAI_API_KEY` وجمع مكالمات API للأعضاء الآخرين.
+
+إذا كانت مؤسستك تشارك المفاتيح على مستوى مساحة العمل بشكل حقيقي (على سبيل المثال، مفتاح Stripe واحد للشركة)، فارجع إلى السلوك القديم من خلال:
+
+```bash
+AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
+```
+
+لا تزال عمليات الكتابة السرية لنطاق مساحة العمل تتطلب دور مالك/مسؤول المؤسسة بغض النظر عن هذه العلامة.

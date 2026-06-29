@@ -12,11 +12,11 @@ import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 let _initPromise: Promise<void> | undefined;
 
 // Escapes LIKE wildcards (`%`, `_`) and the escape char itself so a caller's
-// literal prefix is matched verbatim. Used with `ESCAPE '\'` in prefix queries
+// literal prefix is matched verbatim. Used with `ESCAPE '!'` in prefix queries
 // below; without this, a prefix such as `user_settings` would treat `_` as a
 // single-char wildcard and over-match (e.g. delete `userXsettings`).
 function escapeLike(s: string): string {
-  return s.replace(/([\\%_])/g, "\\$1");
+  return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
 async function ensureTable(): Promise<void> {
@@ -155,7 +155,7 @@ export async function appStateList(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '\\'`,
+    sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
     args: [sessionId, escapeLike(keyPrefix) + "%"],
   });
   return rows.map((row) => ({
@@ -174,14 +174,14 @@ export async function appStateDeleteByPrefix(
 
   // Get keys first so we can emit events
   const { rows } = await client.execute({
-    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '\\'`,
+    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
     args: [sessionId, escapeLike(keyPrefix) + "%"],
   });
 
   if (rows.length === 0) return 0;
 
   const result = await client.execute({
-    sql: `DELETE FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '\\'`,
+    sql: `DELETE FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
     args: [sessionId, escapeLike(keyPrefix) + "%"],
   });
 

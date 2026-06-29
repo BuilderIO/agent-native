@@ -1,0 +1,390 @@
+---
+title: "派遣"
+description: "Dispatch はワークスペースのコントロール プレーンであり、中央受信トレイ、クロスアプリ オーケストレーション、シークレット ボールト、Slack/Telegram 統合、およびスケジュールされたジョブです。"
+---
+
+# 派遣
+
+> **こちらも参照:** Dispatch の機能と必要な場合の概念的な概要については、[Dispatch](/docs/dispatch) を参照してください。このページはテンプレート固有のリファレンスです。
+
+Dispatch は **ワークスペース コントロール プレーン**です。他のテンプレートがドメイン アプリ (メール、カレンダー、アナリティクス、ブレイン) であるのに対し、Dispatch はそれらと並行して実行してすべてを調整するアプリです。中央の受信トレイ、秘密保管庫、スケジュールされたジョブ、Slack/テレグラム統合、ドメイン作業を [A2A](/docs/a2a-protocol) を介して適切な専門アプリに委任するオーケストレーター エージェントです。
+
+<WireframeBlock id="doc-block-r8zil6">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>次に何をしますか？</strong><div class='wf-box'>Analyticsに今週の登録数を聞き、Slack更新を下書きする。</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>アプリを作成</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>SlackのDM に返信が必要</div><div class='wf-box'>A2Aタスク完了</div><div class='wf-box'>承認が必要</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+[multi-app workspace](/docs/multi-app-workspace) を多くのアプリで実行している場合、Dispatch がその役割を果たします。
+
+<Diagram id="doc-block-1rzdgj8" title={"専門化せずにオーケストレーションする"} summary={"すべてのチャネルからのメッセージが 1 つの受信箱に届きます。オーケストレーターは、A2A を介してドメインの作業を優先順位付けし、適切な専門アプリに委任します。シークレット、リソース、承認は中心的な役割を果たします。"}>
+
+```html
+<div class="diagram-dispatch">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack · Telegram</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">A2Aリクエスト</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Orchestrator</span
+    ><small class="diagram-muted">中央受信箱 · トリアージ · ルーティング</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">Mail エージェント</div>
+    <div class="diagram-node">Analytics エージェント</div>
+    <div class="diagram-node">Brain · Slides &hellip;</div>
+  </div>
+</div>
+<div class="diagram-shared">
+  <span class="diagram-pill">シークレット保管庫</span
+  ><span class="diagram-pill">ワークスペースリソース</span
+  ><span class="diagram-pill warn">Approvals</span
+  ><span class="diagram-pill">スケジュール済みジョブ</span>
+</div>
+```
+
+```css
+.diagram-dispatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-dispatch .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-dispatch .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-dispatch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-shared {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+```
+
+</Diagram>
+
+## 機能 {#what-it-does}
+
+- **中央受信箱。** SlackのDM、電報メッセージ、電子メール通知、他のエージェントからの A2A リクエストはすべて 1 か所に届きます。 Dispatch エージェントはトリアージを行い、それ自体または代理でそれらを処理します。 Slack、電子メール、テレグラムをワークスペースに接続する方法については、[Messaging](/docs/messaging) を参照してください。
+- **オーケストレーターであり、スペシャリストではありません。** Dispatch は、メール アプリや分析アプリになることは*しません*。誰かが「先週のサインアップを要約してください」と尋ねると、Dispatch は A2A 経由で分析エージェントを呼び出し、回答を返します。誰かが「アリスへの返信の下書き」を依頼すると、Dispatch はメール エージェントに電話します。
+- **コントロール プレーン シェル。** チャット、プロジェクト、実行、ワークスペース アプリ、エージェント、オートメーションが 1 つの運用シェル内に存在し、単発のダッシュボードではなくステータス優先のリストとドリルダウンが表示されます。
+- **シークレット保管庫.** API キー、OAuth トークン、および共有資格情報の中央ストア。ワークスペース内のアプリは、すべての `.env` でシークレットを複製するのではなく、Dispatch からシークレットを解決します。機密性の高いアクセスに対するリクエストと承認。
+- **ワークスペース リソース。** グローバル skills、ガードレール命令、カスタム エージェント プロファイル、参照リソース、および HTTP MCP サーバーは、Dispatch で一度作成できます。すべてのアプリのリソースは、実行時にコピーや手動の同期手順なしですべてのアプリに継承されます。選択された許可はアプリ固有の例外用です。
+- **再利用可能な統合。** プロバイダー アカウントを 1 か所で接続し、追跡
+  認証情報の参照を取得し、アプリにアクセスを許可します。 Dispatch はプロバイダー ID を所有し、
+  アプリの許可。ドメイン アプリは依然として Brain のようなアプリ固有のソースの選択肢を所有しています
+  Slack チャネル許可リストまたは Analytics のメトリクス/ダッシュボード設定。
+- **スケジュールされたジョブのハブ。** クロスアプリの [recurring jobs](/docs/recurring-jobs) はここでライブします。「毎週平日 7 時に、分析から昨日の重要な指標を取得し、朝の概要メールの下書きを作成します。」
+- **Dreams.** Dispatch は、永続的なものが適用される前に、最近のエージェントの実行、失敗、フィードバック、成功パターンをレビューして、記憶、スキル、仕事、指示の改善を提案できます。
+- **承認フロー** 破壊的または外部の actions (送金、アウトバウンド電子メールの発送、Slack への大規模な投稿) は、起動する前に管理者の OK を必要とする場合があります。 Dispatch がキューを所有します。
+
+## いつ使用するか {#when-to-use}
+
+次の場合にディスパッチを使用します。
+
+- ワークスペース内に **2 つ以上**のエージェント ネイティブ アプリがあり、それらの間を 1 か所で調整したいと考えています。
+- アプリごとの許可と監査証跡を備えた **一元管理されたシークレット**が必要です。
+- Slack または Telegram を適切なドメイン エージェントにルーティングする **メッセージング ハブ**が必要です。
+- 複数のアプリからデータを取得する**スケジュールされたジョブ**が必要です。
+
+単一アプリのスキャフォールドの場合はスキップします。[Chat template](/docs/template-chat) または任意のドメイン テンプレートを直接使用します。
+
+ライブデモ: [dispatch.agent-native.com](https://dispatch.agent-native.com)。
+
+## それをどうするか {#what-youll-do}
+
+Dispatch は、管理者と運用担当者がワークスペースの稼働を維持するために日々開いている場所です。
+
+- **Slack、電子メール、電報を接続**すると、どこからでもエージェントにメッセージを送信できます。配線手順については、[Messaging](/docs/messaging) を参照してください。
+- **共有シークレットを一度保存します。** API キー、OAuth トークン、およびサービス資格情報はボールト内に存在し、ワークスペース内の他のアプリはそこから取得します。チーム メンバー全員が自分の `.env` を操作するのではありません。
+- **プロバイダーに一度接続します。** 再利用可能な統合により、安全なアカウント メタデータが保存されます
+  および認証情報の参照を使用して、Brain、Analytics、Mail、または
+  生のシークレットをコピーせずにアクセスをディスパッチします。アプリ固有のソース
+  設定は、プロバイダーを使用するアプリ内に残ります。
+- **1 つの MCP コネクタを公開します。** 追加
+  Claude、ChatGPT の `https://dispatch.agent-native.com/_agent-native/mcp`
+  Codex、カーソル、または別の MCP ホストから、どのワークスペース アプリを選択するかを選択します。
+  コネクタは、Dispatch の **エージェント** ページからアクセスできます。直接アプリ URL を使用する
+  そのホストを 1 つのアプリに分離する必要がある場合のみ。
+- **オートメーションを管理します。** [オートメーション] ビューには、有効な状態、最後の実行が表示されます。
+  次回の実行と、基礎となる `jobs/*.md` スケジュールからの最後のエラー、そしてLet
+  ファイルを手動で編集せずにジョブを有効または無効にできます。
+- **会社のコンテキストをグローバルに保ちます。** ペルソナ、ポジショニング、メッセージング、会社の事実、ブランド ガイドライン、ガードレールをディスパッチ リソースに一度配置してから、任意のアプリ/ユーザーの効果的なワークスペース -> アプリ/組織 -> 個人スタックをプレビューするか、アプリ カードのコンテキスト ビューからスタックを検査します。
+- **定期的なジョブを設定します。** 「毎週月曜日の午前 7 時に、分析エージェントに先週のサインアップを問い合わせて、概要をメールで送信してください。」 [Recurring Jobs](/docs/recurring-jobs) を参照してください。
+- **夢の提案を確認します。** ディスパッチ ドリームは、以前のエージェントの実行を検査し、ワークスペースが何を覚えておくべきか、どの古いメモをクリーンアップする必要があるか、どの繰り返しレッスンを skills またはジョブにすべきかについて、ソースに基づいた提案を作成します。
+- **アウトバウンド actions を起動する前に承認してください。** 送金、顧客への大量メール送信、パブリック Slack チャネルへの投稿は、管理者 OK の背後でゲートできます。
+- **誰が何にアクセスできるかを確認します。** アプリごとの許可、リクエスト キュー、誰がどのシークレットをいつ使用したかの監査ログ。
+- **メッセージを適切な専門家にルーティングします。** 分析に関する SlackのDM は分析エージェントに送信されます。電子メールに関するものはメール エージェント、つまりディスパッチ ピックに送られます。
+
+## アーキテクチャの概要 {#architecture}
+
+_内部での仕組み (開発者向け)。_
+
+- **オーケストレーター エージェント。** チャットはルーターとして設定されます。`AGENTS.md`、`LEARNINGS.md` を読み取り、専門のサブエージェントまたはリモート A2A エージェントにルーティングします。
+- **リモート エージェント レジストリ。** A2A エージェント マニフェストはワークスペース ランタイム エントリ (チェックインされたテンプレート ソース フォルダーではありません): マルチアプリ ワークスペースでは、`apps/` の下にある兄弟アプリは A2A ピアとして自動的に検出されます。手動登録は必要ありません。 Dispatch は、`call-agent` アクションを使用してそれらを呼び出します。
+- **Vault スキーマ。** シークレット、許可、リクエスト、承認、監査ログ用の Drizzle テーブル。これらは `@agent-native/dispatch` パッケージ (`packages/dispatch/src/db/schema.ts`) 内に存在し、`templates/dispatch/server/db/index.ts` 経由でテンプレートに再エクスポートされます。テンプレートローカルの `server/db/schema.ts` はありません。 Dispatch のランタイムは、テンプレート ソースではなくパッケージに同梱されています (`@agent-native/dispatch` がシェル、サイドバー、組み込みページを所有しているという以下の注記と一致します)。
+- **Slack / Telegram プラグイン。** webhooks を登録し、受信メッセージをオーケストレーター エージェントに転送するサーバー プラグイン。
+- **ワークスペース MCP リソース。** リソースの `mcp-servers/*.json` の下に HTTP MCP サーバー定義を追加し、skills とコンテキストと同様に、それらのスコープをすべてのアプリまたは選択したアプリの許可に設定します。
+
+<DataModel
+  id="doc-block-1gfu52k"
+  title={"Secrets ボールトのスキーマ"}
+  summary={
+    "Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+  }
+  entities={[
+    {
+      id: "secrets",
+      name: "vault_secrets",
+      note: "保存された資格情報の値",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "owner_email",
+          type: "text",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "value",
+          type: "text",
+          note: "secret value",
+        },
+        {
+          name: "provider",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "grants",
+      name: "vault_grants",
+      note: "アプリごとのアクセス許可",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "granted_by",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "requests",
+      name: "vault_requests",
+      note: "アクセスリクエスト+レビュー",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "reason",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "reviewed_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "audit",
+      name: "vault_audit_log",
+      note: "誰がいつどのシークレットを使用したか",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+          nullable: true,
+        },
+        {
+          name: "app_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "action",
+          type: "text",
+        },
+        {
+          name: "actor",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "secrets",
+      to: "grants",
+      kind: "1-n",
+      label: "granted via",
+    },
+    {
+      from: "secrets",
+      to: "audit",
+      kind: "1-n",
+      label: "use recorded by",
+    },
+  ]}
+/>
+
+- **MCP ハブ モード。** Dispatch は引き続きワークスペースの [MCP hub](/docs/mcp-clients#hub) として機能できるため、ワークスペース内の他のすべてのアプリは同じ組織スコープの MCP サーバー リストを取得します。これとは別に、Dispatch 独自の `/_agent-native/mcp` エンドポイントは、複数のワークスペース アプリに接続する必要がある Claude、ChatGPT、およびその他のホストに推奨される外部 MCP コネクタです。
+
+## 夢 {#dreams}
+
+夢は、エージェントの記憶のための Dispatch のレビュー ループです。ドリーム パスは、既存のエージェントの実行、スレッドのデバッグ データ、フィードバック、評価、および繰り返されるツールの失敗を調べて、提案された変更を含むレポートを作成します。この提案は、個人のメモリ、共有 `LEARNINGS.md`、ワークスペースの指示、ワークスペース skills、ワークスペースのナレッジ、ワークスペース エージェント、または定期的なジョブを対象にすることができますが、共有およびワークスペース レベルの変更はサイレントに適用されるのではなく、レビュー可能なままになります。
+
+夢の提案は、保存する前に、個人のメモリ インデックス、既存の `memory/*.md` ファイル、共有 `LEARNINGS.md` と照合してチェックされます。重複するレッスンはレポート内でスキップされますが、古い可能性のある個人的な記憶は、並行メモを作成する代わりにその場で更新されます。また、Dreams はレポート内で、スレッド、信号タイプ、正規化された引用によって繰り返された証拠を重複排除し、ユーザー修正検出から挿入されたコンテキストを取り除き、生の評価/ツール行を提案テキストに表示される前に人間が判読できる箇条書きに要約します。パスが信号を見つけても意図的に提案を作成しなかった場合、レポートにはどの証拠が隠蔽されたかを説明するガードレールのメモが含まれます。
+
+ディスパッチ承認ポリシーが有効になっている場合、共有またはチーム全体の夢の提案を適用すると、すぐに作成するのではなく、保留中の承認リクエストが作成されます。すべてのアプリのワークスペース リソースを作成、更新、または削除すると、承認リクエストもキューに入れられます。個人的な思い出の提案と選択したリソースのみの編集は、レビュー後も直接適用できます。
+
+「エージェントが今週間違え続けたのは何ですか?」、「何を覚えておくべきですか?」、または「スキルに値する反復レッスンはどれですか?」などの質問に答えたい場合は、Dreams を使用します。受信 Slack、電子メール、電報、WhatsApp、および Web 由来の証拠は信頼できない入力として扱われるため、これらのソースからの提案は、共有メモリに影響を与える前にレビューと出所を確認する必要があります。ワークスペース命令の提案には、少なくとも 2 つのスレッドまたは 2 つのソース アプリにわたる耐久性のある証拠が必要です。 eval のみのノイズ、アカウント設定の問題、クォータ制限、および単一アプリの UI の文言修正は、グローバルな指示から除外されます。
+
+### 夢の入力検証境界
+
+証拠は外部の信頼できないソース (チャット記録、webhooks、サードパーティ統合など) から収集されるため、Dream プロセッサは厳格な入力検証境界を強制して、プロンプト インジェクションやペイロード サイズ攻撃を防ぎます。
+
+- **バイト サイズ制限:** 個々のスレッド ペイロードは、メッセージあたり最大 10 KB のテキスト コンテンツに制限されており、コンテキストの枯渇を防ぐために、候補スキャンが合計 100 KB を超える場合は切り捨てられます。
+- **サニタイズ:** すべてのテキスト入力はサニタイズされ、制御文字、バイナリ ペイロード、および印刷不可能な Unicode 範囲が削除されます。
+- **スキーマ検証:** 受信デバッグ データとスレッド履歴は、LLM プロンプトにコンパイルされる前に、厳密な Zod スキーマに対して解析されます。スキーマ検証に失敗した候補構造は、処理バッチから直ちに破棄されます。
+- **エスケープ:** プロンプト インジェクション (任意の命令を書き込むために Dream ループをハイジャックしようとするなど) を防ぐために、ユーザーが指定したすべてのテキスト チャンクは、プロンプト テンプレートにフォーマットされるときに動的にエスケープされます。
+
+ディスパッチ UI で **Dreams** を開いて手動パスを実行し、候補スレッドを確認し、レポートを検査し、提案を適用または拒否する前に各提案のレビュー シートを開きます。 **設定**を使用して、定期的な cron スケジュール、ソース スコープ、タイムアウト/同時実行制限、候補制限、候補の最小しきい値を編集します。これらの設定から `jobs/dispatch-dream.md` 定期ジョブを具体化したい場合は、保存後に **スケジュールの確認** を使用してください。レビューシートには、承認行動、現在のターゲットコンテンツ、提案されたコンテンツ、およびソース証拠が表示されます。エージェントは actions を通じて同じワークフローを使用します。
+
+- `list-dream-candidates` は、明示的なユーザー修正、失敗した実行、ツール エラー、フィードバック、評価の失敗、チェックポイントが設定されたワークフローの成功など、接地されたシグナルを持つ最近のスレッドを検索します。複数のスレッド デバッグ ソースをスキャンするには、`sourceId: "all"` または `sourceIds` を渡します。 `sourceTimeoutMs`、`sourceConcurrency`、`sourceStartStaggerMs`、`threadConcurrency`、および `threadTimeoutMs` は、運用スキャンを部分的かつ限定的に保ち、応答にはソースごとの健全性が含まれます。
+- `create-dream-report` はレポートと保留中の提案を作成します。マルチソース レポートにはソースの健全性セクションが含まれているため、レビュー中に部分的なスキャンが表示されます。修正が繰り返され、失敗が繰り返されると、`workspace-instruction` などのワークスペース リソースの提案になる可能性があります。繰り返し成功したチェックポイント付きワークフローは、`workspace-skill` プロポーザルになる可能性があります。
+- `get-dream-settings` と `set-dream-settings` は、定期的なドリーム スケジュール、ソース スコープ、タイムアウト/同時実行制御、制限、候補の最小しきい値を読み取り、更新します。
+- `get-dream`、`preview-dream-proposal`、`apply-dream-proposal`、および `reject-dream-proposal` がレビューを処理します。
+- 手動レポートが役立つと、`ensure-dream-job` は安全で定期的な夢のようなジョブを作成します。
+
+Dispatch テンプレートのローカル アクション ランナーは、パッケージ化された Dispatch actions も公開するため、開発時に `apps/dispatch` から同じワークフローを実行できます。
+
+```bash
+pnpm action get-dream-settings
+pnpm action set-dream-settings --enabled true --schedule "0 9 * * 1" --allSources true --limit 8
+pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limit 8
+```
+
+## 足場 {#scaffolding}
+
+```bash
+npx @agent-native/core@latest create my-platform
+# 複数選択ピッカーで「Dispatch」と、必要なドメイン アプリを選択します
+```
+
+ピッカーを使用する代わりにテンプレートに直接名前を付けたい場合は、次のようにします。
+
+```bash
+npx @agent-native/core@latest create my-platform --template dispatch
+# add more apps in the same workspace as you go
+```
+
+Dispatch は通常、調整するアプリとともにワークスペースに組み込まれます。ワークスペースの場合、Dispatch の共有認証、データベース、およびブランドはワークスペース コアから継承されます。「[Multi-App Workspace](/docs/multi-app-workspace)」を参照してください。
+
+意味のある `--standalone` ディスパッチはありません。調整するものが何もないコントロール プレーンは、単なる空の受信箱です。少なくとも 1 つのドメイン アプリを含むワークスペースにそれをスキャフォールディングし、A2A 経由でルーティングするエージェントを持たせます。 (フラグは引き続き機能し、実行可能なアプリを生成しますが、兄弟アプリを追加するまでオーケストレーターには委任できる専門家がいません。)
+
+## 最初のローカル実行 {#first-local-run}
+
+ワークスペースのルートから:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+開発サーバーによって出力されたディスパッチ URL を開きます。ローカル開発では、運用環境と同じ Better Auth サインイン フローが使用されます。電子メールとパスワードを使用してローカル アカウントを作成します。開発では電子メール検証はスキップされ、パスワードはローカル アプリ データベースにのみ保存されます。エージェント、ワークスペース リソース、ボールト、共有モデルはすべて実際のユーザー セッションに依存しているため、デフォルトのスキャフォールドではサポートされている認証バイパスはありません。
+
+サインインした後、[ディスパッチ UI] をクリックして実行できます。チャット コンポーザーを使用するか、エージェント タスクを実行するには、まず LLM プロバイダーに接続します。
+
+1. **設定**を開きます。
+2. **LLM** で、Builder.io に接続するか、`ANTHROPIC_API_KEY` などの独自のプロバイダー キーを追加します。
+3. **概要**に戻り、コンポーザーを試してください。
+
+## カスタマイズ {#customize}
+
+Dispatch は、他のテンプレートと同様に完全なテンプレートです。[Templates](/docs/cloneable-saas) を参照してください。エージェントに「Datadog の新しい統合を追加」または「チャネル X から分析エージェントに SlackのDM をルーティング」するよう依頼すると、ルーティング構成が編集され、Webhook ハンドラーが追加され、接続されます。
+
+ワークスペース固有の管理画面の場合は、ローカルの React ルーター ページを追加し、
+`app/dispatch-extensions.tsx` に登録します。生成されたワークスペースは
+追加のタブとルートのみ。 `@agent-native/dispatch` はシェルを所有し続けます。
+サイドバー、組み込みページ、将来のパッケージの更新。
+
+## 次は何ですか
+
+- [**Messaging**](/docs/messaging) — Slack、電子メール、テレグラムを接続して、どこからでもエージェントと会話できる
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 複数のアプリと一緒に Dispatch を実行
+- [**A2A Protocol**](/docs/a2a-protocol) — Dispatch が専門エージェントに委任する方法
+- [**MCP Clients — Hub Mode**](/docs/mcp-clients#hub) — ワークスペース全体で MCP サーバーを共有する
+- [**Recurring Jobs**](/docs/recurring-jobs) — スケジュールされたタスクのディスパッチが実行される

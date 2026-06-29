@@ -54,6 +54,12 @@ describe("resolveAppForSkill", () => {
     expect(app?.serverName).toBe("agent-native-design");
   });
 
+  it("maps visual-edit to the agent-native-design server", () => {
+    const app = resolveAppForSkill("visual-edit");
+    expect(app?.appId).toBe("design");
+    expect(app?.serverName).toBe("agent-native-design");
+  });
+
   it("maps context-xray to a none-auth, local-only app", () => {
     const app = resolveAppForSkill("context-xray");
     expect(app?.appId).toBe("context-xray");
@@ -82,6 +88,7 @@ describe("appHasMcp", () => {
     expect(appHasMcp("assets")).toBe(true);
     expect(appHasMcp("content")).toBe(true);
     expect(appHasMcp("design-exploration")).toBe(true);
+    expect(appHasMcp("visual-edit")).toBe(true);
     expect(appHasMcp("context-xray")).toBe(true);
     expect(appHasMcp("nope")).toBe(false);
   });

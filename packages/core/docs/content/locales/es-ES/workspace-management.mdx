@@ -1,0 +1,235 @@
+---
+title: "Gobernanza del espacio de trabajo"
+description: "Bifurcación, CODEOWNERS, revisión de relaciones públicas y cómo Dispatch maneja la gobernanza en tiempo de ejecución junto con la gobernanza a nivel de git."
+---
+
+# Gobernanza del espacio de trabajo
+
+> **¿Qué documento de espacio de trabajo?** Esta página cubre **gobernanza**: quién revisa, aprueba y es propietario de qué en muchas aplicaciones en un repositorio. Para saber qué es un espacio de trabajo (la capa de personalización), consulte [Workspace](/docs/workspace); para conocer la forma de implementación (un monorepo, muchas aplicaciones), consulte [Multi-App Workspaces](/docs/multi-app-workspace).
+
+Esta guía cubre el aspecto operativo de la ejecución de un espacio de trabajo nativo del agente: cómo bifurcar, quién revisa qué, cómo configurar la propiedad del código y cómo el plano de control de envío encaja en su modelo de gobierno.
+
+<Diagram id="doc-block-xxqyqo" title="Dos planos de gobernanza" summary={"Git gobierna el código; Dispatch gobierna el tiempo de ejecución. Son complementarios: no replique uno dentro del otro."}>
+
+```html
+<div class="gov">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Git y GitHub</span
+    ><strong>Gobernanza de código</strong>
+    <div class="gov-list">
+      <span class="diagram-pill">CODEOWNERS</span
+      ><span class="diagram-pill">branch protection</span
+      ><span class="diagram-pill">Revisión de PR</span
+      ><span class="diagram-pill">git log / blame</span>
+    </div>
+  </div>
+  <div class="diagram-pill diagram-muted">+</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Dispatch</span
+    ><strong>Runtime governance</strong>
+    <div class="gov-list">
+      <span class="diagram-pill">vault secrets &amp; grants</span
+      ><span class="diagram-pill">workspace resources</span
+      ><span class="diagram-pill">agent profiles</span
+      ><span class="diagram-pill">approvals &amp; audit</span>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.gov {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.gov .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 240px;
+}
+.gov .gov-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+```
+
+</Diagram>
+
+## Bifurcación
+
+### Ramas de funciones
+
+Utilice ramas de funciones de corta duración para todo el trabajo:
+
+```
+main                         ← production
+├── feat/mail-filters        ← single-app change
+├── feat/core-oauth-refresh  ← framework change
+├── fix/analytics-chart      ← targeted bug fix
+└── feat/vault-encryption    ← dispatch/infra change
+```
+
+**Convenciones de nomenclatura:**
+
+- **Cambios en una sola aplicación:** `feat/<app>-<description>` o `fix/<app>-<description>`, p. `feat/mail-thread-search`, `fix/calendar-recurrence-parse`
+- **Cambios en el marco:** `feat/core-<description>` o `fix/core-<description>`, p. `feat/core-polling-v2`
+- **Cambios en el envío:** `feat/dispatch-<description>` — p.e. `feat/dispatch-vault-policies`
+- **Cambios entre aplicaciones:** si un cambio en el marco requiere actualizaciones de plantilla, haga ambas cosas en una rama para que se envíen de forma atómica
+
+Mantenga las ramas de corta duración. Las ramas de larga duración divergen de las principales y crean fusiones dolorosas, especialmente en un monorepo donde varios equipos presionan diariamente.
+
+### Bifurcación para no desarrolladores
+
+No todos los que necesitan realizar cambios se sienten cómodos con git. [Builder.io](https://www.builder.io) admite un modelo de ramificación visual que se asigna a ramas de git internas, lo que resulta útil para cambios de contenido y copia, ajustes de diseño, iteraciones de diseño y pruebas A/B sin un entorno de desarrollo.
+
+## Propiedad del código
+
+La gobernanza del código se configura mediante un puñado de archivos en la raíz del repositorio:
+
+<FileTree
+  id="doc-block-4v0r00"
+  title={"Configuración de gobernanza en el repo"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "Asigna revisores automáticamente según la ruta modificada",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "Etiqueta PRs automáticamente por app",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Nivel de workspace: revisión amplia",
+    },
+    {
+      path: "package.json",
+      note: "Nivel de workspace: propiedad del equipo de plataforma",
+    },
+  ]}
+/>
+
+El archivo CODEOWNERS de GitHub asigna automáticamente revisores a los RP según los archivos modificados. Cree `.github/CODEOWNERS` en la raíz del repositorio:
+
+```
+# Framework core — affects every app; platform team reviews all changes
+packages/core/                     @your-org/platform-team
+
+# Plano de control Dispatch: secretos, integraciones, recursos del espacio de trabajo
+templates/dispatch/                @your-org/platform-team
+
+# Propiedad por aplicación: cada equipo revisa su propia aplicación
+templates/mail/                    @your-org/mail-team
+templates/analytics/               @your-org/analytics-team
+templates/calendar/                @your-org/calendar-team
+# ... add an entry per app
+
+# Configuración a nivel de espacio de trabajo: revisión amplia ya que afecta a todos
+.github/                           @your-org/platform-team
+package.json                       @your-org/platform-team
+pnpm-workspace.yaml                @your-org/platform-team
+```
+
+Consejos clave: utilice equipos GitHub (`@org/team`), no individuos. Los cambios en el marco y el envío siempre deben requerir una revisión de la plataforma. Consulte [GitHub CODEOWNERS docs](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) para conocer la sintaxis global y los patrones de múltiples propietarios.
+
+Para habilitar las revisiones requeridas: Configuración → Sucursales → Protección de sucursales para `main` → **Requerir una solicitud de extracción antes de fusionar** → **Requerir revisión de los propietarios del código**.
+
+## Etiquetado de relaciones públicas
+
+Etiquetar relaciones públicas automáticamente por aplicación con `.github/labeler.yml` (extracto):
+
+```yaml
+app:mail:
+  - changed-files:
+      - any-glob-to-any-file: templates/mail/**
+app:analytics:
+  - changed-files:
+      - any-glob-to-any-file: templates/analytics/**
+core:
+  - changed-files:
+      - any-glob-to-any-file: packages/core/**
+```
+
+Luego agregue la acción [actions/labeler](https://github.com/actions/labeler); consulte el README de ese repositorio para conocer el flujo de trabajo completo YAML. Las etiquetas se aplican automáticamente cuando se abren o actualizan los PR.
+
+## Pautas de revisión de relaciones públicas
+
+| Tipo de cambio                           | Quién revisa                                            | A qué prestar atención                                                                   |
+| ---------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Solo aplicación** (`templates/<app>/`) | Equipo propietario de la aplicación                     | Corrección del dominio, esquemas de acción                                               |
+| **Marco** (`packages/core/`)             | Equipo de plataforma + un equipo de aplicación afectado | Cambios importantes, rendimiento, compatibilidad con versiones anteriores                |
+| **Migraciones de esquema**               | Equipo de plataforma + ingeniero senior                 | Seguridad de datos, agnosticismo dialectal (SQLite + Postgres)                           |
+| **Actions**                              | Equipo propietario                                      | Actions son herramientas de agente AND HTTP puntos finales: revisión desde ambos ángulos |
+| **A2A multiaplicación**                  | Ambos equipos de aplicaciones                           | Si cambia una interfaz A2A, las personas que llaman deben saberlo                        |
+| **Bóveda de envío/recursos**             | Equipo de plataforma                                    | Acceso secreto, alcance de la concesión, quién obtiene qué                               |
+
+### Trabajo de agente simultáneo
+
+Los espacios de trabajo nativos del agente a menudo tienen varios agentes de IA trabajando en la misma rama simultáneamente. Esto es así por diseño: los agentes comparten una sucursal y trabajan de forma independiente.
+
+<Callout id="doc-block-smcj91" tone="warning">
+
+**The later commit wins.** Two agents touching the same file won't conflict at commit time — the conflict surfaces at review. Run `pnpm run prep` (typecheck + test + format) before pushing, and don't revert changes you didn't make unless they're clearly broken.
+
+</Callout>
+
+Al revisar relaciones públicas en este entorno:
+
+- **No revierta los cambios que no realizó** a menos que estén claramente incorrectos
+- **Múltiples agentes pueden modificar los archivos** en el mismo PR; esto es normal
+- **Ejecute `pnpm run prep`** (verificación de tipo + prueba + formato) antes de presionar para detectar problemas de integración entre los cambios de los agentes
+- **Si dos agentes tocan el mismo archivo,** gana la confirmación posterior. Los conflictos surgen en el momento de la revisión, no en el momento de la confirmación
+- **Corregir errores en cualquier código del PR,** independientemente de qué agente lo escribió. El PR se revisa en su conjunto.
+
+## Envío como gobernanza
+
+La aplicación [Dispatch](/docs/dispatch) es el plano de control de tiempo de ejecución del espacio de trabajo. Complementa la gobernanza a nivel de git con la gobernanza en tiempo de ejecución:
+
+| Preocupación                                | Git/GitHub                     | Envío                                                                       |
+| ------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------- |
+| Quién puede cambiar el código               | CODEOWNERS, protección de rama | —                                                                           |
+| Quién puede acceder a los secretos          | —                              | Política de Vault, subvenciones, flujo de trabajo de solicitudes            |
+| Qué instrucciones siguen los agentes        | —                              | Recursos globales del espacio de trabajo (AGENTS.md, instrucciones, skills) |
+| Qué agentes se comparten                    | —                              | Perfiles de agentes de Workspace                                            |
+| Inventario de integración                   | —                              | Catálogo de conexiones e integraciones del espacio de trabajo               |
+| Aprobación de cambio de tiempo de ejecución | —                              | Flujo de aprobación de envío                                                |
+| Pista de auditoría                          | `git log` / `git blame`        | Auditoría de bóveda + registros de auditoría de envío                       |
+| Mensajería y enrutamiento                   | —                              | Slack / Integración de Telegram                                             |
+
+**Git maneja la gobernanza del código. Dispatch maneja la gobernanza del tiempo de ejecución.** No intente replicar flujos de trabajo de git dentro de Dispatch o viceversa.
+
+Dispatch gestiona: secretos de bóveda, conexiones de espacio de trabajo reutilizables, recursos del espacio de trabajo (skills, instrucciones, perfiles de agentes, servidores MCP), aprobaciones y registros de auditoría. Para la configuración de rutas de aplicaciones públicas (`workspaceApp.audience` / `publicPaths` / `protectedPaths`), consulte [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment).
+
+Para conocer el modelo de recursos y las rutas canónicas, consulte [Workspace — Global resources](/docs/workspace#global-resources).
+
+## Lista de verificación de configuración
+
+Para un nuevo espacio de trabajo, después de ejecutar `npx @agent-native/core@latest create`:
+
+**Git y GitHub:**
+
+- [ ] Crear `.github/CODEOWNERS` con propiedad del equipo por aplicación
+- [ ] Habilite la protección de sucursales en `main` con las revisiones requeridas del propietario del código
+- [ ] Agregue `.github/labeler.yml` para etiquetar automáticamente las relaciones públicas por aplicación
+- [ ] Cree equipos GitHub para cada aplicación y el equipo de la plataforma
+
+**Envío:**
+
+- [ ] Agregue secretos compartidos a la bóveda (claves API, credenciales OAuth, etc.)
+- [ ] Mantenga la política de almacenamiento predeterminada para todas las aplicaciones o cambie a concesiones manuales por aplicación
+- [ ] Sincronizar secretos de la bóveda para enviarlos a las aplicaciones
+- [ ] Registre conexiones de espacio de trabajo reutilizables para cuentas de proveedores compartidos y luego
+      otorgar aplicaciones como Brain, Analytics, Mail o Dispatch solo cuando lo necesiten
+      esa cuenta
+- [ ] Agregue skills para todo el espacio de trabajo, instrucciones de barandilla y recursos de referencia de marca/empresa a través de la página Recursos. Consulte [Workspace](/docs/workspace#global-resources) para ver la tabla completa de modelos de recursos y el paquete de inicio recomendado.
+- [ ] Configurar la política de aprobación y los correos electrónicos del aprobador
+- [ ] Configurar SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) para notificaciones de administrador
+- [ ] Conecte Slack o Telegram para mensajería en el espacio de trabajo
+- [ ] Configure servidores MCP compartidos: agregue recursos del espacio de trabajo `mcp-servers/<name>.json` en Dispatch para concesiones para todas las aplicaciones o para aplicaciones seleccionadas; utilice `mcp.config.json` o [MCP hub mode](/docs/mcp-clients#hub) para implementaciones de nivel inferior

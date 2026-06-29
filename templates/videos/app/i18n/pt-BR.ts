@@ -47,6 +47,8 @@ const messages = {
     suggestionSlow: "Desacelere a animação de introdução",
   },
   sidebar: {
+    collapseSidebar: "Recolher barra lateral",
+    expandSidebar: "Expandir barra lateral",
     navigation: "Navegação",
     openNavigation: "Abrir navegação",
   },

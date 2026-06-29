@@ -27,7 +27,10 @@ import {
   sanitizeStoredPlanHtml,
   serializePlanContent,
 } from "../server/plan-content.js";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+import {
+  exportPlanContentToMdxFolder,
+  referencedBlockIdsForPlanComments,
+} from "../server/plan-mdx.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -564,6 +567,9 @@ export default defineAction({
                 sourceBundleForMarkdown.plan.brief,
               planId: args.planId,
               url: planPath(args.planId, sourceBundleForMarkdown.plan.kind),
+              referencedBlockIds: referencedBlockIdsForPlanComments(
+                sourceBundleForMarkdown.comments,
+              ),
             })
           )["plan.mdx"]
         : null;
@@ -969,6 +975,9 @@ export default defineAction({
           brief: bundle.plan.brief,
           content: bundle.plan.content,
           url: planPath(bundle.plan.id, bundle.plan.kind),
+          referencedBlockIds: referencedBlockIdsForPlanComments(
+            bundle.comments,
+          ),
         })
       : null;
     return {

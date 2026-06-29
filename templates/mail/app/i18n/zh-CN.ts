@@ -1,4 +1,8 @@
 const messages = {
+  sidebar: {
+    collapseSidebar: "折叠侧边栏",
+    expandSidebar: "展开侧边栏",
+  },
   mail: {
     appName: "邮件",
     pages: {

@@ -78,6 +78,10 @@ let _trackingIdentity: TrackingIdentity | null = null;
 let _trackingIdentityResolved = false;
 let _trackingSessionRefresh: Promise<void> | null = null;
 let _trackingSessionRefreshInstalled = false;
+let _sessionReplayOptions: SessionReplayOptions | null = null;
+let _sessionReplayIdentitySnapshot: TrackingIdentity | null = null;
+let _sessionReplayStartPromise: Promise<SessionReplayStartResult | null> | null =
+  null;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: SentryUser | null | undefined = undefined;
@@ -264,17 +268,44 @@ function readTrackingString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function stopSessionReplayForAuthClear(
+  previousIdentity: TrackingIdentity | null,
+): void {
+  if (!_sessionReplayOptions?.requireSignedInUser) {
+    _sessionReplayIdentitySnapshot = null;
+    return;
+  }
+  if (!previousIdentity?.userEmail) return;
+  _sessionReplayIdentitySnapshot = previousIdentity;
+  void import("./session-replay.js")
+    .then((mod) => mod.stopSessionReplay("auth-cleared"))
+    .catch(() => {
+      // Auth clearing should never fail because replay cleanup failed.
+    })
+    .finally(() => {
+      if (_sessionReplayIdentitySnapshot === previousIdentity) {
+        _sessionReplayIdentitySnapshot = null;
+      }
+    });
+}
+
+function clearTrackingIdentity(): void {
+  const previousIdentity = _trackingIdentity;
+  stopSessionReplayForAuthClear(previousIdentity);
+  _trackingIdentity = null;
+}
+
 function setTrackingIdentityFromSession(data: unknown): void {
   const session = data as Record<string, unknown> | null;
   if (!session || typeof session !== "object" || session.error) {
-    _trackingIdentity = null;
+    clearTrackingIdentity();
     return;
   }
   const email = readTrackingString(session.email);
   const authUserId = readTrackingString(session.userId);
   const userId = email || authUserId;
   if (!userId) {
-    _trackingIdentity = null;
+    clearTrackingIdentity();
     return;
   }
   const userName = readTrackingString(session.name);
@@ -300,7 +331,7 @@ function refreshTrackingAuthSession(): Promise<void> {
       setTrackingIdentityFromSession(data);
     })
     .catch(() => {
-      _trackingIdentity = null;
+      clearTrackingIdentity();
     })
     .finally(() => {
       _trackingIdentityResolved = true;
@@ -320,8 +351,8 @@ function installTrackingAuthSessionRefresh(): void {
 
 function applyTrackingIdentity(
   properties: Record<string, unknown>,
+  identity: TrackingIdentity | null = _trackingIdentity,
 ): Record<string, unknown> {
-  const identity = _trackingIdentity;
   if (!identity) return properties;
   let next = properties;
   const assign = (key: string, value: unknown) => {
@@ -539,8 +570,48 @@ function ensureAmplitude(): boolean {
   return true;
 }
 
+function hasOnlySourcelessFrames(value: {
+  stacktrace?: {
+    frames?: Array<{
+      filename?: unknown;
+      abs_path?: unknown;
+      function?: unknown;
+    }>;
+  };
+}): boolean {
+  const frames = value.stacktrace?.frames ?? [];
+  return (
+    frames.length === 0 ||
+    frames.every((frame) => {
+      const filename = String(frame.filename ?? frame.abs_path ?? "")
+        .trim()
+        .toLowerCase();
+      const functionName = String(frame.function ?? "").trim();
+      return (
+        !functionName &&
+        (!filename || filename === "undefined" || filename === "<anonymous>")
+      );
+    })
+  );
+}
+
+function isAgentNativeDocsUrl(url: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === "www.agent-native.com" ||
+      parsed.hostname === "agent-native.com"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   const exceptionValues = event.exception?.values ?? [];
+  const requestUrl = event.request?.url?.toLowerCase() ?? "";
+  const isDocsPage = isAgentNativeDocsUrl(requestUrl);
   // AgentAutoContinueSignal is a control-flow sentinel thrown to bubble
   // out of the SSE stream parser when the agent run needs to be
   // auto-continued. It's caught by the chat adapter and is never a real
@@ -591,21 +662,35 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
       ) {
         return false;
       }
-      const frames = value.stacktrace?.frames ?? [];
+      return hasOnlySourcelessFrames(value);
+    })
+  ) {
+    return true;
+  }
+  if (
+    isDocsPage &&
+    exceptionValues.some((value) => {
+      const exceptionValue = String(value.value ?? "").toLowerCase();
+      return exceptionValue.includes(
+        "window.webkit.messagehandlers.scrolleventhandler.postmessage",
+      );
+    })
+  ) {
+    return true;
+  }
+  if (
+    isDocsPage &&
+    exceptionValues.some((value) => {
+      const exceptionType = String(value.type ?? "")
+        .trim()
+        .toLowerCase();
+      const exceptionValue = String(value.value ?? "")
+        .trim()
+        .toLowerCase();
       return (
-        frames.length === 0 ||
-        frames.every((frame) => {
-          const filename = String(frame.filename ?? frame.abs_path ?? "")
-            .trim()
-            .toLowerCase();
-          const functionName = String(frame.function ?? "").trim();
-          return (
-            !functionName &&
-            (!filename ||
-              filename === "undefined" ||
-              filename === "<anonymous>")
-          );
-        })
+        exceptionType === "rangeerror" &&
+        exceptionValue.includes("maximum call stack") &&
+        hasOnlySourcelessFrames(value)
       );
     })
   ) {
@@ -638,7 +723,6 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
     .map((value) => `${value.type ?? ""} ${value.value ?? ""}`)
     .join(" ")
     .toLowerCase();
-  const requestUrl = event.request?.url?.toLowerCase() ?? "";
   const breadcrumbText = (event.breadcrumbs ?? [])
     .map((crumb) => {
       const data = crumb.data as Record<string, unknown> | undefined;
@@ -753,20 +837,27 @@ export function setSentryUser(
   user: SentryUser | null,
   orgId?: string | null,
 ): void {
+  let shouldRetryReplay = false;
   if (user) {
     const userId = user.email || user.id;
-    _trackingIdentity = userId
-      ? {
-          userId,
-          ...(user.email ? { userEmail: user.email } : {}),
-          ...(user.username ? { userName: user.username } : {}),
-          orgId: orgId ?? null,
-        }
-      : null;
+    if (userId) {
+      _trackingIdentity = {
+        userId,
+        ...(user.email ? { userEmail: user.email } : {}),
+        ...(user.username ? { userName: user.username } : {}),
+        orgId: orgId ?? null,
+      };
+    } else {
+      clearTrackingIdentity();
+    }
+    shouldRetryReplay = Boolean(user.email);
   } else {
-    _trackingIdentity = null;
+    clearTrackingIdentity();
   }
   _trackingIdentityResolved = true;
+  if (shouldRetryReplay && _sessionReplayOptions?.requireSignedInUser) {
+    void startConfiguredSessionReplay(_sessionReplayOptions);
+  }
   if (_sentryInitialized) {
     Sentry.setUser(user);
     if (orgId !== undefined) {
@@ -894,12 +985,16 @@ function sessionReplayEnabledFromEnv(): boolean {
   return /^(1|true|yes|on)$/i.test((value ?? "").trim());
 }
 
-function sessionReplayRequiresSignedInUserFromEnv(): boolean {
+function sessionReplayRequiresSignedInUserFromEnv(): boolean | undefined {
   const env = (import.meta.env as Record<string, string | undefined>) ?? {};
   const value =
     env.VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH ||
     env.VITE_SESSION_REPLAY_REQUIRE_AUTH;
-  return /^(1|true|yes|on)$/i.test((value ?? "").trim());
+  const normalized = (value ?? "").trim();
+  if (!normalized) return undefined;
+  if (/^(1|true|yes|on)$/i.test(normalized)) return true;
+  if (/^(0|false|no|off)$/i.test(normalized)) return false;
+  return undefined;
 }
 
 function configuredSessionReplayOptions(
@@ -923,7 +1018,8 @@ function configuredSessionReplayOptions(
       ...options,
       requireSignedInUser:
         options.requireSignedInUser ??
-        sessionReplayRequiresSignedInUserFromEnv(),
+        sessionReplayRequiresSignedInUserFromEnv() ??
+        true,
       ...(extraProperties ? { extraProperties } : {}),
     };
   };
@@ -949,7 +1045,10 @@ function replayExtraPropertiesWithDefaults(
           : {};
     const props = rawProps && typeof rawProps === "object" ? rawProps : {};
     const withDefaults = _getDefaultProps?.("session_replay", props) ?? props;
-    return applyTrackingIdentity(withDefaults);
+    return applyTrackingIdentity(
+      withDefaults,
+      _trackingIdentity ?? _sessionReplayIdentitySnapshot,
+    );
   };
 }
 
@@ -986,6 +1085,7 @@ function maybeInstallSessionReplay(
   if (typeof window === "undefined") return;
   const options = configuredSessionReplayOptions(config, tracking);
   if (!options) return;
+  _sessionReplayOptions = options;
   void startConfiguredSessionReplay(options);
 }
 
@@ -993,7 +1093,7 @@ async function waitForSessionReplayAuthIfRequired(
   options: SessionReplayOptions,
 ): Promise<boolean> {
   if (!options.requireSignedInUser) return true;
-  if (_trackingIdentity?.userId) return true;
+  if (_trackingIdentity?.userEmail) return true;
   try {
     if (_trackingSessionRefresh) {
       await _trackingSessionRefresh;
@@ -1003,21 +1103,25 @@ async function waitForSessionReplayAuthIfRequired(
   } catch {
     // best-effort; missing identity below keeps replay off
   }
-  return !!_trackingIdentity?.userId;
+  return !!_trackingIdentity?.userEmail;
 }
 
 async function startConfiguredSessionReplay(
   options: SessionReplayOptions,
 ): Promise<SessionReplayStartResult | null> {
-  if (!(await waitForSessionReplayAuthIfRequired(options))) {
-    return { started: false, reason: "missing-user-id" };
-  }
-  try {
+  if (_sessionReplayStartPromise) return _sessionReplayStartPromise;
+  _sessionReplayStartPromise = (async () => {
+    if (!(await waitForSessionReplayAuthIfRequired(options))) {
+      return { started: false, reason: "missing-user-id" as const };
+    }
     const mod = await import("./session-replay.js");
     return mod.startSessionReplay(options);
-  } catch {
-    return { started: false, reason: "import-failed" };
-  }
+  })()
+    .catch(() => ({ started: false, reason: "import-failed" as const }))
+    .finally(() => {
+      _sessionReplayStartPromise = null;
+    });
+  return _sessionReplayStartPromise;
 }
 
 export async function startSessionReplay(
@@ -1044,7 +1148,7 @@ export async function maybeStartSessionReplay(
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {
   const mod = await import("./session-replay.js");
-  mod.stopSessionReplay(reason);
+  await mod.stopSessionReplay(reason);
 }
 
 function inferTemplateName(properties: Record<string, unknown>): string | null {

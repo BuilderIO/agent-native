@@ -119,24 +119,15 @@ skill's review discipline. Do not advise the user to skip `/visual-plan` because
 the default surface is hosted; choose the right Plan mode for the user's
 ownership, privacy, sharing, and branding needs.
 
-By default, create the plan via the Plan MCP connector. NEVER hand the plan over
-as inline chat content — no Markdown prose, ASCII sketch, table, or fenced
-wireframe. Some clients lazy-load connector tools through a deferred tool
-registry instead of showing the `plan` namespace upfront; before declaring the
-connector missing, search/load tools with the host's discovery surface
-(`tool_search` when available) for `create_visual_plan`, `create_ui_plan`, or
-`get_plan_blocks`, then use the Plan MCP tools it exposes. If the connector's
-tools are still missing after discovery, do NOT fall back to inline output: the
-usual cause is a connector that did not finish connecting this session (it
-registers zero tools), not auth. Stop and give the user the exact restore step
-for their current client: in Codex/Codex Desktop run
-`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
-and start a new Codex session; in Claude Code run `/mcp` and choose
-Authenticate/Reconnect (or run the same reconnect command with
-`--client claude-code` and restart Claude). Auth is stored per client
-config/session, so one client's reconnect does not make another running client
-load tools. Never reinstall from scratch just to fix auth. Publish once the tool
-is reachable. Local-files privacy mode (after Tool Guidance) is the exception.
+By default, create the plan via the Plan MCP connector and NEVER hand it over as
+inline chat content — no Markdown prose, ASCII sketch, table, or fenced
+wireframe. If the `plan` (or legacy `agent-native-plans`) tools are not visible,
+discover them through the host's `tool_search` first; if they are still missing,
+STOP and give the user the client-specific reconnect step rather than improvising
+an inline plan. Before publishing, or whenever a connector or auth error appears,
+READ `references/connection.md` in this skill directory — it is the single source
+of truth for the never-inline rule, connector discovery, and the per-client
+reconnect steps. Local-files privacy mode (after Tool Guidance) is the exception.
 
 ## Core Workflow
 
@@ -372,69 +363,19 @@ directory before authoring a plan.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-## Local-Files Privacy Mode
+## Local-Files Privacy Mode — read `references/local-files.md`
 
-Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
-planning, repo-owned/source-controlled planning artifacts, or when
-`AGENT_NATIVE_PLANS_MODE=local-files` is set. Also use it when a user or repo
-policy says a plan must stay under their own brand, domain, source control, or
-infrastructure. In this mode the plan data must never be sent to the Plan MCP
-server or Plan app action surface. Schema-only block catalog lookup is allowed
-because it sends no plan content: use the MCP `get-plan-blocks` tool if it is
-already available, or run
-`npx @agent-native/core@latest plan blocks --out plan-blocks.md` and read that
-file before authoring MDX.
-
-The local-files contract is:
-
-- Read source context from local files and shell commands only.
-- Fetch/read the block catalog before writing structured MDX. The
-  `plan blocks` command calls the public no-auth `get-plan-blocks` route and
-  writes only registry metadata to disk; use `--format schema` if exact nested
-  fields are needed. If network access is unavailable, use the bundled
-  references and rely on `plan local check` / `plan local serve` to catch
-  invalid tags. For `checklist` and `question-form`, copy the catalog examples
-  verbatim: checklist items need `id` and `label`; question-form questions need
-  `id`, `title`, and `mode`; and each option needs `id` and `label`. `plan local
-  check` validates these required fields against the renderer schema.
-- Write the plan as a local MDX folder: use `plans/<slug>/` when the user
-  wants the artifact checked into the repo, or use a repo-ignored/temporary
-  folder such as `.agent-native/plans/<slug>/` or `/tmp/agent-native-plans/<slug>/`
-  when it should not be checked in. The folder contains `plan.mdx`, optional
-  `canvas.mdx`, optional `prototype.mdx`, and optional `.plan-state.json`. Use
-  that exact chosen folder as `<plan-dir>` in every local CLI command below.
-- Run `npx @agent-native/core@latest plan local check --dir <plan-dir>` before
-  serving, then run
-  `npx @agent-native/core@latest plan local serve --dir <plan-dir> --kind plan --open`.
-  Report the returned local bridge URL from stdout or `<plan-dir>/.plan-url`.
-  Treat `.plan-url` as a local token file and do not commit it. The URL opens
-  the hosted Plan UI but reads from the localhost bridge on this machine, so it
-  is not shareable across machines. On macOS, `--open` prefers Chromium browsers;
-  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
-  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
-  running locally with the same `PLAN_LOCAL_DIR`, the `/local-plans/<slug>` route
-  is also valid.
-- For headless verification, run
-  `npx @agent-native/core@latest plan local verify --dir <plan-dir> --kind plan`.
-  It starts the bridge, checks the private-network preflight and JSON payload,
-  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
-  the `bridgeUrl` from the verify/serve JSON to read the concrete validation
-  error.
-- Do **not** call `create-visual-plan`, `create-ui-plan`,
-  `create-prototype-plan`, `create-plan-design`, `import-visual-plan-source`,
-  `update-visual-plan`, `patch-visual-plan-source`, `get-plan-feedback`,
-  `export-visual-plan`, or any hosted Plan tool for that plan except the
-  schema-only block catalog lookup above.
-- Treat feedback as file or chat feedback: update the MDX files directly, rerun
-  the local bridge command, and summarize the new local bridge URL. Hosted
-  comments, sharing, history, and publish/export receipts are unavailable until
-  the user explicitly opts into publishing.
-
-Local-files mode prevents plan content from going to the Agent-Native Plan
-database. It does not by itself make the coding agent's language model local;
-for that stronger privacy boundary, the host agent/model must also be local or
-otherwise approved by the user.
+When the user wants no hosted Plan database writes — no DB writes, no Plan MCP
+publish, fully local/offline/private planning, repo-owned source-controlled
+artifacts, or `AGENT_NATIVE_PLANS_MODE=local-files` — do not call any hosted Plan
+tool except the schema-only `get-plan-blocks` catalog lookup. Author a local MDX
+folder and
+preview it with `plan local check` / `plan local serve` / `plan local verify`.
+Before using local-files mode, READ `references/local-files.md` in this skill
+directory — it is the single source of truth for the full contract (catalog
+lookup, MDX folder layout, the local bridge commands, and the hosted tools you
+must not call). Carry forward only the code-research and plan-composition
+guidance from Core Workflow; everything hosted is replaced by the local bridge.
 
 ## Interpreting comment anchors
 
@@ -514,17 +455,9 @@ For fully offline, no-account use, run the Plans app locally and sync plans to
 your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
 
-If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`,
-do not keep retrying the tool. Stop and give the user the reconnect step for the
-client they are using: Codex/Codex Desktop should run
-`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
-and start a new Codex session; Claude Code should run `/mcp` and choose
-Authenticate/Reconnect for the plan connector, or run the reconnect command with
-`--client claude-code` and restart Claude. To refresh every local client config
-that already has the Plan entry, use `--client all`, then restart/reload each
-client. Reconnect re-authenticates WITHOUT reinstalling and finds the entry by
-URL regardless of connector name. Never reinstall from scratch just to fix auth.
-Continue once the connector is available.
+If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`, do
+not keep retrying it — stop and give the user the per-client reconnect step from
+`references/connection.md`, then continue once the connector is available.
 
 Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`. Do
 not put shared secrets in skill files.

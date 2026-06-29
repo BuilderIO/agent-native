@@ -6,6 +6,7 @@ describe("AgentEngine registry", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.doUnmock("../../settings/store.js");
+    vi.doUnmock("../../server/credential-provider.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
@@ -15,6 +16,7 @@ describe("AgentEngine registry", () => {
     delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
     delete process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.OPENAI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.OPENAI_BASE_URL; // guard:allow-env-credential — test setup clears env to assert endpoint precedence
     delete process.env.GOOGLE_GENERATIVE_AI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.BUILDER_PRIVATE_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.BUILDER_PUBLIC_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
@@ -199,6 +201,46 @@ describe("AgentEngine registry", () => {
     const resolved = await resolveEngine({});
     expect(createFn).toHaveBeenCalled();
     expect(resolved).toBe(fakeAnthropicEngine);
+  });
+
+  it("checks a resolved provider engine against request credentials before a run", async () => {
+    vi.doMock("../../server/credential-provider.js", () => ({
+      canUseDeployCredentialFallbackForRequest: () => false,
+      readDeployCredentialEnv: () => undefined,
+      resolveBuilderCredentials: vi.fn(async () => ({
+        privateKey: null,
+        publicKey: null,
+      })),
+      resolveSecret: vi.fn(async () => null),
+    }));
+
+    const { registerAgentEngine, isResolvedEngineUsableForRequest } =
+      await import("./registry.js");
+
+    const engine = {
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      defaultModel: "gpt-5.5",
+      supportedModels: [],
+      capabilities: {} as any,
+      stream: vi.fn(),
+    };
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.5",
+      supportedModels: ["gpt-5.5"],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: vi.fn() as any,
+    });
+
+    await expect(isResolvedEngineUsableForRequest(engine)).resolves.toBe(false);
+    await expect(
+      isResolvedEngineUsableForRequest(engine, { apiKey: "sk-request" }),
+    ).resolves.toBe(true);
   });
 
   describe("getStoredModelForEngine", () => {
@@ -1081,6 +1123,87 @@ describe("AgentEngine registry", () => {
         allowEnvFallback: true,
       });
       expect(openAiCreate).not.toHaveBeenCalled();
+      expect(resolved).toBe(googleEngine);
+    });
+
+    it("passes a scoped OpenAI-compatible endpoint into the OpenAI engine", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
+          if (key === "OPENAI_BASE_URL") {
+            return { key, value: "https://gateway.example/v1///" };
+          }
+          return null;
+        }),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({ engineOption: "ai-sdk:openai" });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+        baseUrl: "https://gateway.example/v1",
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("does not pass the scoped OpenAI endpoint into non-OpenAI engines", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
+          if (key === "OPENAI_BASE_URL") {
+            return { key, value: "https://gateway.example/v1" };
+          }
+          return null;
+        }),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const googleEngine = { name: "ai-sdk:google", stream: vi.fn() } as any;
+      const googleCreate = vi.fn().mockReturnValue(googleEngine);
+
+      registerAgentEngine({
+        name: "ai-sdk:google",
+        label: "Gemini",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gemini-3.1-pro-preview",
+        supportedModels: [],
+        requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+        create: googleCreate,
+      });
+
+      const resolved = await resolveEngine({ engineOption: "ai-sdk:google" });
+
+      expect(googleCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+      });
       expect(resolved).toBe(googleEngine);
     });
 

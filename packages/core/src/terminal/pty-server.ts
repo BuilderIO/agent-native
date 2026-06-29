@@ -30,14 +30,6 @@ async function getChildProcess(): Promise<typeof import("child_process")> {
   return _cp;
 }
 
-let _fs: typeof import("fs") | undefined;
-async function getFs(): Promise<typeof import("fs")> {
-  if (!_fs) {
-    _fs = await import("node:fs");
-  }
-  return _fs;
-}
-
 /**
  * Kill a process and all its descendants.
  * node-pty's kill() only sends a signal to the shell, but child processes
@@ -314,10 +306,10 @@ export async function createPtyWebSocketServer(
           msg.type === "agentNative.setEnvVars" &&
           Array.isArray(msg.data?.vars)
         ) {
-          const envPath = path.join(resolvedAppDir, ".env");
           const vars: Array<{ key: string; value: string }> = msg.data.vars;
 
-          // Validate env var names and sanitize values
+          // Legacy bridge message. Keep validating the keys, but do not persist
+          // them to .env or process.env; key storage is DB-scoped.
           const validKeyPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
           const sanitizedVars = vars.filter(({ key }) => {
             if (!validKeyPattern.test(key)) {
@@ -327,39 +319,12 @@ export async function createPtyWebSocketServer(
             return true;
           });
 
-          const fs = await getFs();
-          let lines: string[] = [];
-          try {
-            lines = fs.readFileSync(envPath, "utf-8").split("\n");
-          } catch {}
-
-          for (const { key, value } of sanitizedVars) {
-            // Strip newlines/null bytes to prevent line injection
-            const safeValue = value.replace(/[\r\n\0]/g, "");
-            // Quote values containing #, spaces, or quotes so dotenv parses correctly
-            const needsQuoting = /[# "']/.test(safeValue);
-            const quotedValue = needsQuoting
-              ? `"${safeValue.replace(/"/g, '\\"')}"`
-              : safeValue;
-            const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
-            const entry = `${key}=${quotedValue}`;
-            if (idx !== -1) {
-              lines[idx] = entry;
-            } else {
-              lines.push(entry);
-            }
-          }
-
-          while (lines.length > 0 && lines[lines.length - 1] === "") {
-            lines.pop();
-          }
-          fs.writeFileSync(envPath, lines.join("\n") + "\n", "utf-8");
-
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(
               JSON.stringify({
                 type: "env-vars-saved",
                 keys: sanitizedVars.map((v) => v.key),
+                storage: "scoped-secrets",
               }),
             );
           }

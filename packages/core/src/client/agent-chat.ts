@@ -74,6 +74,12 @@ export interface AgentChatMessage {
   /** Scoped system prompt additions for this sub-agent */
   instructions?: string;
   /**
+   * Message delivery target. Auto-submitted MCP App messages normally relay to
+   * the host chat; use "local" when a control explicitly targets this app's
+   * own AgentSidebar.
+   */
+  chatTarget?: "auto" | "local";
+  /**
    * Whether to open the agent sidebar if it's currently hidden.
    * Defaults to true — submitting a chat should make the response visible.
    * Pass `false` for background/silent sends that shouldn't pop the UI open.
@@ -527,7 +533,19 @@ function postAgentChatContextMessage(
 ): void {
   if (typeof window === "undefined") return;
 
-  const payload = { type, data };
+  const shouldForwardOpenSidebar =
+    (type === AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE &&
+      options.openSidebar === false) ||
+    (type !== AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE &&
+      options.openSidebar === true);
+  const payloadData =
+    shouldForwardOpenSidebar && typeof data === "object" && data !== null
+      ? {
+          ...(data as Record<string, unknown>),
+          openSidebar: options.openSidebar,
+        }
+      : data;
+  const payload = { type, data: payloadData };
   const targetSelf = isInBuilderFrame() || isDirectMcpAppEmbedSession();
   const target = targetSelf
     ? window
@@ -728,6 +746,7 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
 export function sendToAgentChat(opts: AgentChatMessage): string {
   const tabId = opts.tabId ?? generateTabId();
   const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
+  const localChatTarget = opts.chatTarget === "local";
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -752,7 +771,11 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     },
   };
 
-  if (opts.submit !== false && isMcpAppChatBridgeEnabled()) {
+  if (
+    opts.submit !== false &&
+    !localChatTarget &&
+    isMcpAppChatBridgeEnabled()
+  ) {
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,
@@ -783,7 +806,8 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   const shouldOpenSidebar = opts.openSidebar !== false && !opts.background;
 
   const targetSelf =
-    !isCodeRequest && (isInBuilderFrame() || isDirectMcpAppEmbedSession());
+    !isCodeRequest &&
+    (localChatTarget || isInBuilderFrame() || isDirectMcpAppEmbedSession());
   const target = targetSelf
     ? window
     : window.parent !== window

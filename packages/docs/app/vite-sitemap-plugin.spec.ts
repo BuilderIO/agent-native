@@ -1,24 +1,28 @@
 import path from "path";
 import { fileURLToPath } from "url";
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   SITE_URL,
   buildAgentWebPages,
-  buildSitemapPaths,
   buildSitemapXml,
 } from "./vite-sitemap-plugin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
-const AGENT_WEB_GENERATION_TIMEOUT_MS = 15_000;
+const AGENT_WEB_GENERATION_TIMEOUT_MS = 60_000;
 
 describe("docs agent web generation", () => {
+  let pages: ReturnType<typeof buildAgentWebPages>;
+
+  beforeAll(() => {
+    pages = buildAgentWebPages(rootDir);
+  }, AGENT_WEB_GENERATION_TIMEOUT_MS);
+
   it(
     "includes docs markdown mirrors with getting-started at /docs",
     () => {
-      const pages = buildAgentWebPages(rootDir);
       const gettingStarted = pages.find((page) => page.path === "/docs");
 
       expect(gettingStarted).toMatchObject({
@@ -33,7 +37,7 @@ describe("docs agent web generation", () => {
   it(
     "generates public paths for docs and templates",
     () => {
-      const paths = buildSitemapPaths(rootDir);
+      const paths = pages.map((page) => page.path);
 
       expect(paths).toContain("/");
       expect(paths).toContain("/docs");
@@ -55,7 +59,6 @@ describe("docs agent web generation", () => {
   it(
     "derives lastmod from a Date (from git or mtime fallback)",
     () => {
-      const pages = buildAgentWebPages(rootDir);
       const gettingStarted = pages.find((page) => page.path === "/docs");
 
       // lastmod must be a valid Date regardless of whether git log returns a

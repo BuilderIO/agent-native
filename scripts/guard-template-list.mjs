@@ -9,7 +9,7 @@
  *
  *   - packages/docs/app/components/TemplateCard.tsx       (homepage catalog)
  *   - packages/docs/app/components/docsNavItems.ts        (docs sidebar)
- *   - packages/core/docs/content/template-*.md            (docs pages)
+ *   - packages/core/docs/content/template-*.(mdx|md)      (docs pages)
  *
  * Why this guard exists: agents kept re-adding hidden or deleted templates to
  * public surfaces during overnight sweeps, forcing a constant whack-a-mole.
@@ -149,12 +149,12 @@ const DOCS_NAV_PATH = "packages/docs/app/components/docsNavItems.ts";
   }
 }
 
-// ── 4. Docs pages (template-*.md) must only exist for allowed slugs.
+// ── 4. Docs pages (template-*.(mdx|md)) must only exist for allowed slugs.
 const DOCS_CONTENT_DIR = "packages/core/docs/content";
 {
   const dir = path.join(repoRoot, DOCS_CONTENT_DIR);
   for (const file of fs.readdirSync(dir)) {
-    const m = file.match(/^template-([a-z0-9-]+)\.md$/);
+    const m = file.match(/^template-([a-z0-9-]+)\.(?:mdx|md)$/);
     if (!m) continue;
     const slug = m[1];
     if (!allowed.has(slug)) {

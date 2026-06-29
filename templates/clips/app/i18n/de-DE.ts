@@ -20,6 +20,24 @@ const messages = {
       "Öffne die Clips-Erweiterung erneut, um mit der Aufnahme zu beginnen.",
     gotIt: "Verstanden",
   },
+  builderCredits: {
+    pausedTitle: "Builder.io-Guthaben pausiert",
+    transcriptionDescription:
+      "Aktualisiere Builder.io, um die Sicherungstranskription fortzusetzen. Vorhandene native Transkripte bleiben sichtbar.",
+    cleanupDescription:
+      "Aktualisiere Builder.io, um Transkriptbereinigung, Zusammenfassungen und KI-Titel fortzusetzen. Das native Transkript wurde beibehalten.",
+    settingsDescription:
+      "Aktualisiere Builder.io, um Sicherungstranskription, Transkriptbereinigung, Zusammenfassungen und KI-Titel fortzusetzen. Vorhandene native Transkripte bleiben sichtbar.",
+    titleDescription:
+      "Die KI-Titelgenerierung ist pausiert. Dein Transkript funktioniert weiterhin.",
+    upgrade: "Builder.io upgraden",
+    retryAfterUpgrade: "Nach Upgrade erneut versuchen",
+    openAiSetup: "KI-Einrichtung",
+    featureBackupTranscription: "Sicherungstranskription",
+    featureCleanup: "Transkriptbereinigung",
+    featureSummaries: "Zusammenfassungen",
+    featureTitles: "KI-Titel",
+  },
   recorder: {
     cameraBlurTitle: "Hintergrund weichzeichnen",
     cameraBlurDescription: "Bleib scharf, während der Hintergrund verschwimmt",
@@ -343,6 +361,13 @@ const messages = {
       "Wir haben in dieser Aufnahme keine Rede mitbekommen. Wenn das beabsichtigt war, sind Sie bereit. Wenn nicht, überprüfen Sie Ihre Mikrofon- und Sprachberechtigungen und versuchen Sie es dann erneut mit der Transkription.",
     retry: "Wiederholen",
     transcriptUnavailable: "Transkript nicht verfügbar: {{reason}}",
+    transcriptUnavailableTitle: "Transkript nicht verfügbar",
+    providerNeedsAttention: "Anbieter benötigt Aufmerksamkeit",
+    providerNeedsAttentionDescription:
+      "Der aktuelle Anbieter hat diese Anfrage pausiert. Wechsle zu Builder.io oder aktualisiere den Schlüssel und versuche es erneut.",
+    enableTranscriptionTitle: "Transkription aktivieren",
+    enableTranscriptionDescription:
+      "Schalte Untertitel, Transkriptsuche und Zusammenfassungen für diesen Clip frei.",
     searchPlaceholder: "Transkript durchsuchen",
     copyTranscript: "Transkript kopieren",
     downloadSrt: "Laden Sie .srt herunter",
@@ -853,6 +878,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     replyingTo: "Antwort an",
     commentAt: "Kommentar bei",
     writeReply: "Antwort schreiben...",
+    commentButton: "Kommentar",
+    composerPlaceholder: "Kommentar hinzufügen…",
+    mentionSomeone: "Jemanden erwähnen",
+    addEmoji: "Emoji hinzufügen",
   },
   shareMeeting: {
     pageTitle: "Meeting-Notizen · Clips",

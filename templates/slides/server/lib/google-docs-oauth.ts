@@ -4,6 +4,10 @@ import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
+import {
+  resolveSecret,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -35,42 +39,58 @@ interface GoogleOAuthCredentials {
   clientSecret: string;
 }
 
-function readCredentialPair(
+async function readCredentialPair(
   clientIdKey: string,
   clientSecretKey: string,
-): GoogleOAuthCredentials | null {
-  const clientId = process.env[clientIdKey];
-  const clientSecret = process.env[clientSecretKey];
+): Promise<GoogleOAuthCredentials | null> {
+  const [clientId, clientSecret] = await Promise.all([
+    resolveSecret(clientIdKey),
+    resolveSecret(clientSecretKey),
+  ]);
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
 }
 
-function resolveGoogleProviderCredentialCandidates(): GoogleOAuthCredentials[] {
-  const primary = readCredentialPair(
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-  );
-  const legacy = readCredentialPair(
-    "GOOGLE_LEGACY_CLIENT_ID",
-    "GOOGLE_LEGACY_CLIENT_SECRET",
-  );
-  if (!primary) return legacy ? [legacy] : [];
-  if (!legacy || legacy.clientId === primary.clientId) return [primary];
-  return [primary, legacy];
+async function resolveGoogleProviderCredentialCandidates(
+  owner?: string,
+): Promise<GoogleOAuthCredentials[]> {
+  const resolve = async () => {
+    const primary = await readCredentialPair(
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+    );
+    const legacy = await readCredentialPair(
+      "GOOGLE_LEGACY_CLIENT_ID",
+      "GOOGLE_LEGACY_CLIENT_SECRET",
+    );
+    if (!primary) return legacy ? [legacy] : [];
+    if (!legacy || legacy.clientId === primary.clientId) return [primary];
+    return [primary, legacy];
+  };
+  return owner
+    ? runWithRequestContext({ userEmail: owner }, resolve)
+    : await resolve();
 }
 
-function getOAuthCredentials(): { clientId: string; clientSecret: string } {
-  const credentials = resolveGoogleProviderCredentialCandidates()[0];
+async function getOAuthCredentials(owner?: string): Promise<{
+  clientId: string;
+  clientSecret: string;
+}> {
+  const credentials = (
+    await resolveGoogleProviderCredentialCandidates(owner)
+  )[0];
   if (!credentials) {
     throw new Error(
-      "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+      "Google OAuth is not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
     );
   }
   return credentials;
 }
 
-export function isGoogleDocsOAuthConfigured(): boolean {
-  return resolveGoogleProviderCredentialCandidates().length > 0;
+export async function isGoogleDocsOAuthConfigured(
+  owner?: string,
+): Promise<boolean> {
+  return (await resolveGoogleProviderCredentialCandidates(owner)).length > 0;
 }
 
 function isPermanentGoogleRefreshError(error: string | undefined): boolean {
@@ -81,29 +101,33 @@ function isPermanentGoogleRefreshError(error: string | undefined): boolean {
   );
 }
 
-export function getGooglePickerConfig(): {
+export async function getGooglePickerConfig(owner?: string): Promise<{
   apiKey: string | null;
   appId: string | null;
-} {
-  return {
+}> {
+  const resolve = async () => ({
     apiKey:
-      process.env.GOOGLE_PICKER_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
+      (await resolveSecret("GOOGLE_PICKER_API_KEY")) ||
+      (await resolveSecret("GOOGLE_API_KEY")) ||
       process.env.VITE_GOOGLE_PICKER_API_KEY ||
       null,
     appId:
-      process.env.GOOGLE_PICKER_APP_ID ||
-      process.env.GOOGLE_PROJECT_NUMBER ||
+      (await resolveSecret("GOOGLE_PICKER_APP_ID")) ||
+      (await resolveSecret("GOOGLE_PROJECT_NUMBER")) ||
       process.env.VITE_GOOGLE_PICKER_APP_ID ||
       null,
-  };
+  });
+  return owner
+    ? runWithRequestContext({ userEmail: owner }, resolve)
+    : await resolve();
 }
 
-export function getGoogleDocsAuthUrl(
+export async function getGoogleDocsAuthUrl(
   redirectUri: string,
   state: string,
-): string {
-  const { clientId } = getOAuthCredentials();
+  owner?: string,
+): Promise<string> {
+  const { clientId } = await getOAuthCredentials(owner);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -134,7 +158,8 @@ async function refreshGoogleDocsToken(
     throw new Error("Google Docs connection expired. Please reconnect.");
   }
 
-  const credentialCandidates = resolveGoogleProviderCredentialCandidates();
+  const credentialCandidates =
+    await resolveGoogleProviderCredentialCandidates(owner);
   let data: {
     access_token?: string;
     expires_in?: number;
@@ -217,7 +242,7 @@ export async function exchangeGoogleDocsCode(opts: {
   redirectUri: string;
   owner: string;
 }): Promise<{ email: string; name?: string }> {
-  const { clientId, clientSecret } = getOAuthCredentials();
+  const { clientId, clientSecret } = await getOAuthCredentials(opts.owner);
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },

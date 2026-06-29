@@ -1,0 +1,366 @@
+---
+title: "الإشعارات"
+description: "إشعارات داخل التطبيق مع قنوات قابلة للتوصيل — البريد الوارد، أو الرد التلقائي على الويب، أو القنوات المخصصة"
+---
+
+# الإشعارات
+
+وظيفة واحدة، وجهات متعددة. اتصل بـ `notify()` من أي رمز من جانب الخادم - إجراء، أو أتمتة، أو مكون إضافي - وسيصل الحدث إلى صندوق الوارد داخل التطبيق الخاص بالمستخدم وينتشر في كل قناة مسجلة. يأتي مزودًا بمكون الجرس والقائمة المنسدلة UI الذي يسقطه القالب المضيف في رأسه.
+
+الإشعارات عبارة عن تنبيهات أحادية الاتجاه تصل إلى صندوق بريد الجرس الخاص بالتطبيق (بالإضافة إلى نشر خطاف الويب). للتحدث مع وكيلك من Slack/email/Telegram/WhatsApp، راجع [Messaging](/docs/messaging).
+
+```ts
+import { notify } from "@agent-native/core/notifications";
+
+await notify(
+  { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
+  { owner: "steve@builder.io" },
+);
+```
+
+<Diagram id="doc-block-5nzjwo" title={"مكالمة واحدة، وجهات عديدة"} summary={"يقوم notify() دائمًا بكتابة صف البريد الوارد الخاص بنطاق المالك, وتوجيهه إلى كل قناة مسجلة بالتوازي (أفضل جهد)، ثم إرسال الإشعارات المرسلة في ناقل الأحداث."}>
+
+```html
+<div class="diagram-notify">
+  <div class="diagram-node">
+    notify(input, { owner })<br /><small class="diagram-muted"
+      >any server code &middot; action, automation, plugin</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel fan" data-rough>
+    <div class="fan-row">
+      <span class="diagram-pill accent">inbox</span>
+      <div class="diagram-box" data-rough>
+        notifications table &rarr; bell UI<br /><small class="diagram-muted"
+          >always on &middot; owner-scoped</small
+        >
+      </div>
+    </div>
+    <div class="fan-row">
+      <span class="diagram-pill">webhook</span>
+      <div class="diagram-box" data-rough>
+        POST JSON to NOTIFICATIONS_WEBHOOK_URL<br /><small class="diagram-muted"
+          >best-effort</small
+        >
+      </div>
+    </div>
+    <div class="fan-row">
+      <span class="diagram-pill">custom</span>
+      <div class="diagram-box" data-rough>
+        registerNotificationChannel(...)<br /><small class="diagram-muted"
+          >best-effort &middot; runs in parallel</small
+        >
+      </div>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">notification.sent</span
+    ><small class="diagram-muted"
+      >event bus &middot; automations can chain</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-notify {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-notify .fan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+.diagram-notify .fan-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.diagram-notify .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-notify .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## الشدة {#severities}
+
+| الخطورة    | يستخدم لـ                                |
+| ---------- | ---------------------------------------- |
+| `info`     | التأكيدات، معالم التقدم، FYI             |
+| `warning`  | شيء يجب على المستخدم الاطلاع عليه قريبًا |
+| `critical` | يحتاج إلى اهتمام فوري                    |
+
+تؤدي درجة الخطورة إلى تحديد نمط الشارة في القائمة المنسدلة ويتم تمريرها عبر القنوات حتى تتمكن من التفرع عند الحاجة الملحة.
+
+## القنوات المدمجة {#channels}
+
+| القناة    | التسليم                                            | يتطلب                                                         |
+| --------- | -------------------------------------------------- | ------------------------------------------------------------- |
+| `inbox`   | الاستمرار في الجدول `notifications`؛ يحرك الجرس UI | تشغيل دائمًا — جزء من البدائي.                                |
+| `webhook` | POST JSON إلى URL التي تم تكوينها                  | تم تعيين `NOTIFICATIONS_WEBHOOK_URL` env var عند بدء التشغيل. |
+
+تعمل قناة webhook على حل مراجع `${keys.NAME}` في كل من URL و`NOTIFICATIONS_WEBHOOK_AUTH` مقابل [secrets](/docs/security) المخصص للمالك، لذلك لا تدخل القيمة الأولية مطلقًا في سياق الوكيل. يتم فرض قوائم URL المسموح بها لكل مفتاح - نفس القاعدة التي تستخدمها أداة `web-request` للتشغيل الآلي.
+
+<Diagram id="doc-block-knshu4" title={"القنوات وخطورتها"} summary={"البريد الوارد قيد التشغيل دائمًا؛ يحتاج خطاف الويب إلى env var؛ يتم تسجيل القنوات المخصصة عند بدء التشغيل. تؤدي درجة الخطورة إلى تصميم الشارة ويتم تمريرها إلى كل قناة."}>
+
+```html
+<div class="diagram-channels">
+  <div class="diagram-panel col" data-rough>
+    <strong>Channels</strong>
+    <div class="diagram-box" data-rough>
+      inbox<br /><small class="diagram-muted"
+        >always on &mdash; part of the primitive</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      webhook<br /><small class="diagram-muted"
+        >needs NOTIFICATIONS_WEBHOOK_URL</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      custom<br /><small class="diagram-muted"
+        >registerNotificationChannel()</small
+      >
+    </div>
+  </div>
+  <div class="diagram-panel col" data-rough>
+    <strong>تحدد الخطورة الشارة</strong>
+    <div class="sev-row">
+      <span class="diagram-pill">info</span
+      ><span class="diagram-muted">تأكيدات، FYI</span>
+    </div>
+    <div class="sev-row">
+      <span class="diagram-pill warn">warning</span
+      ><span class="diagram-muted">look at soon</span>
+    </div>
+    <div class="sev-row">
+      <span class="diagram-pill accent">critical</span
+      ><span class="diagram-muted">needs immediate attention</span>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-channels {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.diagram-channels .col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  min-width: 240px;
+}
+.diagram-channels .sev-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+```
+
+</Diagram>
+
+## API {#api}
+
+### `notify(input, meta)` {#notify}
+
+تسليم إشعار. يستمر دائمًا في البريد الوارد ما لم يتم استبعاده بشكل صريح؛ يتم تشغيل القنوات المسجلة الإضافية بالتوازي وبأفضل جهد.
+
+```ts
+await notify(
+  {
+    severity: "critical",
+    title: "Database offline",
+    body: "Primary dropped connections",
+    metadata: { runbookUrl: "https://runbooks/db-offline" },
+    channels: ["inbox", "webhook"], // optional allowlist; omit to run all
+  },
+  { owner: "ops@company.com" },
+);
+```
+
+مطلوب `meta.owner` — لتحديد نطاق الإشعار بحيث يراه المستخدم فقط في الجرس.
+
+### `registerNotificationChannel(channel)` {#register}
+
+قم بتسجيل قناة مخصصة من أي مكون إضافي للخادم.
+
+```ts
+import { registerNotificationChannel } from "@agent-native/core/notifications";
+
+registerNotificationChannel({
+  name: "slack-ops",
+  async deliver(input, meta) {
+    await fetch(process.env.OPS_SLACK_WEBHOOK!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `*${input.severity.toUpperCase()}* — ${input.title}\n${input.body ?? ""}`,
+        owner: meta.owner,
+      }),
+    });
+  },
+});
+```
+
+أسماء القنوات فريدة من نوعها — حيث تؤدي إعادة التسجيل إلى استبدال القناة السابقة. `deliver()` هو أفضل جهد؛ يؤدي الرمي إلى تسجيل الخطأ ولكنه لا يحظر القنوات الأخرى أو صف البريد الوارد.
+
+### الإدراج والقراءة {#read}
+
+```ts
+import {
+  listNotifications,
+  countUnread,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+} from "@agent-native/core/notifications";
+
+const rows = await listNotifications("steve@builder.io", {
+  unreadOnly: true,
+  limit: 50,
+});
+const unread = await countUnread("steve@builder.io");
+await markNotificationRead(rows[0].id, "steve@builder.io");
+await markAllNotificationsRead("steve@builder.io");
+await deleteNotification(rows[0].id, "steve@builder.io");
+```
+
+تقع كل وظيفة على نطاق المالك - لا توجد عمليات قراءة بين المستخدمين، ولا توجد عمليات كتابة بين المستخدمين.
+
+## واجهة NotificationChannel {#channel-interface}
+
+```ts
+interface NotificationChannel {
+  name: string;
+  deliver(
+    input: NotificationInput,
+    meta: NotificationMeta,
+  ): void | Promise<void>;
+}
+
+interface NotificationInput {
+  severity: "info" | "warning" | "critical";
+  title: string;
+  body?: string;
+  metadata?: Record<string, unknown>;
+  channels?: string[];
+}
+
+interface NotificationMeta {
+  owner: string;
+}
+```
+
+## HTTP API {#http}
+
+تم تركيبه على `/_agent-native/notifications/*` بواسطة البرنامج الإضافي للمسارات الأساسية. يتم تحديد نطاق كافة المسارات إلى البريد الإلكتروني للجلسة التي تمت مصادقتها.
+
+| الطريقة  | المسار                                              |
+| -------- | --------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
+| `GET`    | `/_agent-native/notifications/count`                |
+| `POST`   | `/_agent-native/notifications/:id/read`             |
+| `POST`   | `/_agent-native/notifications/read-all`             |
+| `DELETE` | `/_agent-native/notifications/:id`                  |
+
+<Endpoint id="doc-block-1beurdp" title={"قائمة الإشعارات"} summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary={"قم بإدراج الإشعارات الأخيرة للمستخدم الحالي"} auth={"Authenticated session; results are scoped to the session's email."} params={[
+  {
+    "name": "unread",
+    "in": "query",
+    "type": "boolean",
+    "required": false,
+    "description": "When true, returns only unread notifications."
+  },
+  {
+    "name": "limit",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Max rows to return."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Owner-scoped notification rows, newest first."
+  }
+]}>
+
+</Endpoint>
+
+## مكون UI {#ui}
+
+```tsx
+import { NotificationsBell } from "@agent-native/core/client/notifications";
+
+export function HeaderBar() {
+  return (
+    <header className="flex items-center gap-2">
+      {/* … */}
+      <NotificationsBell browserNotifications />
+    </header>
+  );
+}
+```
+
+رمز الجرس مع شارة غير مقروءة. يؤدي النقر إلى فتح قائمة منسدلة للإشعارات الحديثة. يستخدم الرموز الدلالية shadcn، ويتكيف مع المظهر الفاتح/الغامق للقالب المضيف.
+
+قم بتمرير `browserNotifications` لإطلاق النوافذ المنبثقة `new Notification(...)` للنظام أيضًا لكل عنصر جديد غير مقروء - وهو أمر مفيد عندما تكون علامة تبويب المستخدم في الخلفية. تعرض القائمة المنسدلة رسالة "تمكين" حتى يمنح المستخدم الإذن؛ يتم منع التكرارات لكل معرف عبر حقل الإشعار `tag`.
+
+## أدوات الوكيل {#agent-tools}
+
+يتم تسجيل أداة `manage-notifications` واحدة في كل قالب. تحدد المعلمة `action` العملية:
+
+| الإجراء | المعلمات                                                                | الغرض                                                   |
+| ------- | ----------------------------------------------------------------------- | ------------------------------------------------------- |
+| `send`  | `severity` (مطلوب)، `title` (مطلوب)، `body`، `metadataJson`، `channels` | إرسال إشعار إلى البريد الوارد للمستخدم والقنوات المسجلة |
+| `list`  | `unreadOnly`، `limit` (الحد الأقصى 200، الافتراضي 20)                   | أدرج الإشعارات الأخيرة للسياق                           |
+
+يمكن للأتمتة (راجع [Automations](/docs/automations)) استدعاء `manage-notifications` مع وجود `action=send` في نصها — وهذا هو النمط المتعارف عليه لتحويل حدث خارجي إلى تنبيه مرئي للمستخدم.
+
+## حافلة الأحداث {#event-bus}
+
+كل تسليم ناجح يصدر `notification.sent` على [event bus](/docs/automations#event-bus):
+
+```json
+{
+  "notificationId": "n-123",
+  "severity": "critical",
+  "title": "DB offline",
+  "body": "Primary dropped connections",
+  "deliveredChannels": ["inbox", "webhook"]
+}
+```
+
+يمكن للأتمتة أن تقوم بتسلسل هذا — على سبيل المثال. _"إذا تم إطلاق إشعار مهم، قم أيضًا بالصفحة عند الطلب."_
+
+## كيفية العمل {#internals}
+
+- **نطاق المالك** — يحتوي كل صف على عمود `owner`؛ يتم تصفية كل استعلام عليه؛ يستخدم كل مسار البريد الإلكتروني للجلسة المصادق عليها. لا يرى المستخدمون أبدًا إشعارات بعضهم البعض.
+- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`, لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client) تلقائيًا دون أي أسلاك إضافية.
+- **توزيع أفضل جهد** — يتم اكتشاف أخطاء القناة وتسجيلها؛ لا تؤدي إحدى القنوات الفاشلة إلى منع القنوات الأخرى أو الكتابة في البريد الوارد.
+- **أطلق النار وانسى** — يعود `notify()` بعد اكتمال الكتابة في البريد الوارد؛ تعمل القنوات المخصصة في الخلفية.
+
+## ما هي الخطوة التالية
+
+- [**Automations**](/docs/automations) — المتصل الأكثر شيوعًا في `notify()`
+- [**Security**](/docs/security) — استبدال `${keys.NAME}` الذي يعمل على تشغيل قناة الويب هوك
+- [**Server plugins**](/docs/server) — حيث يتم تسجيل القنوات المخصصة عند بدء التشغيل

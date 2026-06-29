@@ -17,6 +17,9 @@ const credentialState = vi.hoisted(() => ({
   recordBuilderCredentialAuthFailure: vi.fn(async () => {}),
 }));
 
+const AGENT_NATIVE_UPGRADE_URL =
+  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
+
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
 vi.mock("../../server/credential-provider.js", async (importOriginal) => {
   const original =
@@ -430,7 +433,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("monthly AI credits");
   });
 
-  it("routes upgradeUrl to the org-agnostic billing page (BUILDER_ORG_NAME is a display name, not a URL slug)", async () => {
+  it("routes upgradeUrl to the org-agnostic subscription page with Agent Native attribution", async () => {
     credentialState.builderOrgName = "Acme Corp";
     vi.stubEnv("BUILDER_ORG_NAME", "Acme Corp");
     vi.stubGlobal(
@@ -447,7 +450,7 @@ describe("createBuilderEngine", () => {
     const events = await collectEvents(engine.stream(BASE_OPTS));
 
     const stop = events.find((e) => e.type === "stop");
-    expect(stop?.upgradeUrl).toBe("https://builder.io/account/billing");
+    expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
   });
 
   it("maps 401 unauthorized to Builder auth stop-error", async () => {
@@ -602,7 +605,7 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
-    expect(stop?.upgradeUrl).toBe("https://builder.io/account/billing");
+    expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
   });
 
   it("maps 429 concurrency to a retryable error message", async () => {

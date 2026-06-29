@@ -1,0 +1,340 @@
+---
+title: "Drop-in-Agent"
+description: "Mounten Sie den Agenten-Chat + Arbeitsbereich mit <AgentPanel>, <AgentSidebar> und sendToAgentChat() in jede React-App."
+---
+
+# Drop-in-Agent
+
+> **Entwicklerseite.** Diese Seite richtet sich an Entwickler, die den Agent in eine React-App einbetten. Informationen zur Endbenutzererfahrung bei der Arbeit mit dem Agenten finden Sie unter [Using Your Agent](/docs/using-your-agent).
+
+Sie müssen den Agent-nativen Ansatz nicht von Grund auf neu erstellen. Der Agenten-Chat, die Registerkarte „Arbeitsbereich“, das CLI-Terminal, die Spracheingabe und die gesamte zugehörige Infrastruktur werden als eine Handvoll React-Komponenten geliefert, die Sie in jede App einfügen können.
+
+> **Voraussetzung:** Auf dem Server muss `agent-chat-plugin` ausgeführt werden (es wird in jeder Vorlage automatisch gemountet). Wenn Sie bei Null anfangen, lesen Sie [Server](/docs/server).
+>
+> Benötigen Sie die öffentliche API-Karte anstelle eines Tutorials? Siehe [Component API](/docs/components).
+
+## Die Komponenten im Überblick {#components}
+
+| Komponente            | Was es ist                                                                                                              | Verwenden Sie es, wenn                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`      | Umschließt Ihr Root-App-Layout und fügt einen umschaltbaren Seitenbereich hinzu, der den vollständigen Agenten enthält. | Sie möchten, dass der Agent neben Ihrer App auf jedem Bildschirm verfügbar ist         |
+| `<AgentToggleButton>` | Öffnet/schließt `<AgentSidebar>` (fügen Sie es in Ihren Header ein)                                                     | Mit `<AgentSidebar>` koppeln                                                           |
+| `<AgentPanel>`        | Das Rohpanel selbst – Chat + CLI + Arbeitsbereichsregisterkarten                                                        | Sie möchten die volle Kontrolle über das Layout oder eine dedizierte Agentenseite      |
+| `<AgentChatSurface>`  | Eine vorverkabelte Panel-/Seiten-Chat-Oberfläche                                                                        | Sie möchten ohne den Seitenleisten-Verpackung chatten                                  |
+| `<AssistantChat>`     | Chat-Renderer auf niedrigerer Ebene mit Komponisten-/Verlaufs-Hooks                                                     | Sie benötigen benutzerdefiniertes Chrom rund um die Standardkonversation UI            |
+| `sendToAgentChat()`   | Programmgesteuert eine Nachricht an den Chat senden                                                                     | Eine Schaltfläche, die die Arbeit dem Agenten übergibt, anstatt sie inline auszuführen |
+| `useActionMutation()` | Typsicherer Frontend-Verpackung um eine Aktion                                                                          | UI muss den gleichen Vorgang ausführen, den ein Agent-Tool ausführen würde             |
+
+Alle diese werden aus `@agent-native/core/client` exportiert.
+
+<Diagram id="doc-block-rnajys" title="Das Montierungsmodell" summary={"<AgentSidebar> umschließt Ihr vorhandenes Layout. Ihre Routen werden im Hauptbereich gerendert; Das Agentenpanel wird daneben montiert. <AgentPanel> ist das gleiche Panel ohne den Verpackung."}>
+
+```html
+<div class="diagram-mount">
+  <div class="diagram-box sidebar" data-rough>
+    <span class="diagram-pill accent">&lt;AgentSidebar&gt;</span>
+    <div class="inner">
+      <div class="diagram-node main">
+        Ihre App<br /><small class="diagram-muted"
+          >children: header + &lt;Outlet/&gt;</small
+        >
+      </div>
+      <div class="diagram-node panel">
+        Agentenbereich<br /><small class="diagram-muted"
+          >chat &middot; CLI &middot; workspace</small
+        >
+      </div>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-card alt">
+    <span class="diagram-pill">&lt;AgentPanel&gt;</span
+    ><small class="diagram-muted"
+      >same panel, no wrapper &mdash; you own the layout</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-mount {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mount .sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-mount .inner {
+  display: flex;
+  gap: 10px;
+}
+.diagram-mount .main {
+  flex: 2;
+}
+.diagram-mount .panel {
+  flex: 1;
+}
+.diagram-mount .alt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-mount .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Der 80 %-Fall: `<AgentSidebar>` {#sidebar}
+
+Das häufigste Setup ist eine Seitenleiste, die auf jedem Bildschirm von rechts geöffnet wird.
+Umschließen Sie Ihr vorhandenes Root-Layout mit `<AgentSidebar>`; als was auch immer Sie übergeben
+Kinder bleiben im Haupt-App-Bereich. Der Agenten-Chat ist der Seitenbereich.
+
+<AnnotatedCode
+  id="doc-block-109nn9r"
+  title={"Umschließen des Root-Layouts mit <AgentSidebar>"}
+  filename="app/root.tsx"
+  language="tsx"
+  code={
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="Wie kann ich helfen?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "Verpackung",
+      note: "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area.",
+    },
+    {
+      lines: "8-12",
+      label: "Starter-Eingabeaufforderungen",
+      note: "`suggestions` werden als anklickbare Chips im leeren Chat gerendert.",
+    },
+    {
+      lines: "13",
+      label: "Kontextsensitive Chips",
+      note: '`dynamicSuggestions` merges screen-aware prompts (e.g. "Summarize this selection") with your static ones. On by default.',
+    },
+    {
+      lines: "18-20",
+      label: "Umschalttaste",
+      note: "Put `<AgentToggleButton />` anywhere in your header to open and close the panel.",
+    },
+    {
+      lines: "22-24",
+      label: "Ihre App",
+      note: "`<Outlet/>` (your routes) renders in the main area, untouched.",
+    },
+  ]}
+/>
+
+Das ist es. Der Benutzer hat jetzt auf jeder Seite einen umschaltbaren Agenten – mit Chat-Verlauf, Arbeitsbereich-Tab, CLI-Terminal, Spracheingabe und einem Vollbildmodus. Der Status bleibt über Neuladevorgänge über `localStorage` hinweg bestehen.
+
+### Requisiten
+
+- **`children`** – das normale Layout und die Routen Ihrer App. Im Hauptbereich gerendert; Das Agentenfeld wird auf dem Desktop daneben und auf Mobilgeräten/im Vollbildmodus darüber angezeigt.
+- **`emptyStateText`** – Begrüßung, die angezeigt wird, wenn der Chat keine Nachrichten enthält. Standard: `"How can I help you?"`.
+- **`suggestions`** – Starter-Eingabeaufforderungen werden als anklickbare Chips gerendert, wenn sie leer sind.
+- **`dynamicSuggestions`** – kontextsensitive Eingabeaufforderungs-Chips, zusammengeführt mit `suggestions`. Standardmäßig aktiviert; Übergeben Sie `false`, um nur statische Vorschläge anzuzeigen, oder `{ max, includeStatic, getSuggestions }`, um es anzupassen.
+- **`defaultSidebarWidth`** – anfängliche Pixelbreite (nur Mount; Größenänderung durch Benutzer und Überschreiben gespeicherter Werte). Standard: `380`.
+- **`position`** – `"left"` oder `"right"`. Standard: `"right"`.
+- **`defaultOpen`** – ob die Seitenleiste geöffnet startet (nur Desktop). Standard: `false`.
+
+## Die anderen 20 %: `<AgentPanel>` {#panel}
+
+Wenn Sie die volle Kontrolle über das Layout benötigen – eine dedizierte `/chat`-Route, ein eingebettetes Panel in einer von Ihnen verwalteten Seitenspalte oder ein Popup – rendern Sie `<AgentPanel>` direkt:
+
+```tsx
+// app/routes/agent.tsx
+import { AgentPanel } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return (
+    <div className="h-screen">
+      <AgentPanel defaultMode="chat" className="h-full" />
+    </div>
+  );
+}
+```
+
+`<AgentPanel>` bietet Ihnen die Rohregisterkarten (Chat / CLI / Arbeitsbereich) ohne den Seitenleisten-Verpackung, die Schaltfläche zum Reduzieren oder jegliche Statuspersistenz. Platzieren Sie es, wo immer Sie wollen; Sie kümmern sich um das Layout.
+
+### Ausgewählte Requisiten
+
+- **`defaultMode`** – `"chat"` oder `"cli"`. Standard: `"chat"`.
+- **`className`** – CSS-Klasse für den äußeren Container.
+- **`onCollapse`** – sofern vorhanden, erscheint in der Kopfzeile eine Schaltfläche zum Ausblenden.
+- **`isFullscreen`** / **`onToggleFullscreen`** – verknüpfen Sie den externen Vollbildstatus, wenn Sie eine zentrierte Spalte im Claude-Stil wünschen.
+- **`storageKey`** – Namespace für `localStorage`-Schlüssel. Nützlich, wenn Sie mehrere Panels (verschiedene App-Instanzen oder Arbeitsbereiche) auf derselben Seite rendern.
+
+Vollständige Requisiten: `AgentPanelProps` in `@agent-native/core/client`.
+
+## Programmatische Nachrichten: `sendToAgentChat()` {#send}
+
+Eine Schaltfläche, die die Arbeit an den Agenten übergibt (anstatt einen Inline-`llm()`-Aufruf auszuführen – das Anti-Pattern von [ladder](/docs/what-is-agent-native#the-ladder)):
+
+```tsx
+import { sendToAgentChat } from "@agent-native/core/client";
+
+<Button
+  onClick={() =>
+    sendToAgentChat({
+      message: "Generate a chart showing signups by source",
+      context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
+      submit: true,
+    })
+  }
+>
+  Generate chart
+</Button>;
+```
+
+### Optionen
+
+- **`message`** – die sichtbare Eingabeaufforderung, die im Chat angezeigt wird.
+- **`context`** – versteckter Kontext, der an die Eingabeaufforderung angehängt wird (ausgewählter Text, Cursorposition, aktuelle Entitäts-ID – alles, was der Agent wissen sollte, der Benutzer aber nicht zweimal sehen sollte).
+- **`submit`** – `true` für automatische Ausführung, `false` für Vorabfüllung, aber warten. Lassen Sie es weg, um den Projektstandard zu verwenden.
+- **`newTab`** – Erstellen Sie einen separaten Chat-Thread für diese Eingabeaufforderung.
+- **`background`** – mit `newTab` ausführen, ohne den neuen Thread zu fokussieren. Der versteckte Lauf wird in `RunsTray` verfolgt.
+- **`openSidebar`** – für Hintergrund-/stille Sendungen auf `false` eingestellt. Standardmäßig wird die Seitenleiste geöffnet, sodass der Benutzer die Antwort sieht.
+- **`type`** – `"content"` (Standard) behält die Arbeit im eingebetteten App-Agent. `"code"` leitet zum Codebearbeitungsrahmen weiter (für vom Agenten geschriebene Codeänderungen siehe [Frames](/docs/frames)).
+
+`sendToAgentChat` gibt ein stabiles `tabId` zurück, mit dem Sie den Chat-Lauf verfolgen können.
+
+Für geräuschloses Arbeiten koppeln Sie `newTab`, `background` und `openSidebar: false`:
+
+```ts
+sendToAgentChat({
+  message: "Summarize the selected thread and save the summary",
+  context: `Thread id: ${threadId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+Dies ist immer noch eine vollständige Agentenausführung mit Tools, actions, Thread-Status und Ausführung
+Verfolgung. Es stiehlt einfach nicht den Fokus vom aktuellen Seitenleistenstatus des Benutzers.
+
+Wenn dieselbe Route als MCP-App eingebettet ist, wird sie übermittelt
+`sendToAgentChat()`-Anrufe werden an den Host-Chat weitergeleitet, sofern dies unterstützt wird; siehe
+[Client](/docs/client#sendtoagentchat) für das MCP-App-Bridge-Verhalten.
+
+Wenn Sie einen Ladezustand wünschen, verwenden Sie den Hook `useSendToAgentChat()` – er gibt sowohl `send` als auch `isGenerating` zurück:
+
+```ts
+import { useSendToAgentChat } from "@agent-native/core/client";
+
+const { send, isGenerating } = useSendToAgentChat();
+```
+
+## Wenn die Standard-Seitenleiste nicht passt {#custom-chat-ui}
+
+`<AgentSidebar>` und `<AgentPanel>` decken die meisten Apps ab. Wenn Sie das
+Layout rund um den Agenten, oder Sie möchten die Konversation mit einem Agenten vorantreiben
+Sie haben an anderer Stelle erstellt, lassen Sie eine Ebene fallen – aber lassen Sie das Framework weiterhin besitzen
+Laufzeit, actions und SQL-gestützter Status:
+
+- **Besitzen Sie Chrome rund um die Standardlaufzeit.** Verwenden Sie `<AgentChatSurface>` für
+  eine dedizierte Chat-Route oder `<AssistantChat>`, wenn Sie benutzerdefinierte Header wünschen
+  Tabs und leere Zustände rund um die Standardkonversation. Die vollständige Ebenenkarte –
+  jede Komponente, jeder Hook, jeder Verfassenr und jeder Adapter mit Importpfaden – lebt in
+  [Component API](/docs/components#agent-chat-ui).
+- **Bringen Sie Ihre eigene Agent-Laufzeit mit.** Wenn ein Agent, den Sie anderswo erstellt haben, dies tun sollte
+  treiben Sie die Konversation voran, während Agent-Native den Komponisten, das Transkript und das Tool behält
+  Karten, Genehmigungen und native Widgets übergeben ein `AgentChatRuntime` an
+  `<AssistantChat runtime={...} />`. Die Anschlüsse
+  (`createHttpAgentChatRuntime()` und OpenAI / Claude / Vercel AI / AG-UI
+  Helfer) und der Veranstaltungsvertrag sind in
+  [Native Chat-Oberfläche — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+
+Welche Ebene Sie auch wählen, behalten Sie den von actions und SQL unterstützten App-Status als Vertrag bei.
+und vermeiden Sie es, vom Produkt UI aus direkt auf `/_agent-native/agent-chat` zu posten. Wenn ein
+Der benannte Helfer fehlt für eine echte benutzerdefinierte Oberfläche. Fügen Sie daher zuerst diesen Helfer hinzu.
+Client-Code lernt keinen zweiten Ad-hoc-Transport.
+
+## Typsicheres actions vom UI: `useActionMutation()` {#use-action-mutation}
+
+Wenn der UI den gleichen Vorgang ausführen muss, den ein Agent-Tool ausführen würde – Strompfad 3 des [ladder](/docs/what-is-agent-native#rung-three) – verwenden Sie `useActionMutation`:
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client";
+
+const { mutate, isPending } = useActionMutation("reply-to-email");
+
+<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
+  Send Reply
+</Button>;
+```
+
+Typsichere Argumente stammen aus dem Zod-Schema in Ihrem `defineAction()`. Das vollständige Aktionssystem finden Sie unter [Actions](/docs/actions).
+
+<Callout id="doc-block-1757zi5" tone="decision">
+
+**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+
+</Callout>
+
+## Auswahl + Cursorerkennung {#selection}
+
+Der Agent kann über die Tasten `navigation` und `selection` im Anwendungsstatus sehen, was der Benutzer ausgewählt hat – Text, Zellen, Folien, Kontakte. Der leere Chat verwendet diese Tasten auch, um dynamische Vorschläge wie „Diese Auswahl zusammenfassen“ oder „Diese Folie verbessern“ anzubieten, wenn der aktuelle Bildschirm sie relevant macht. Wenn Sie möchten, dass Cmd-I (oder ähnlich) einen ausgewählten Bereich als Kontext in den Chat sendet, siehe [Context Awareness](/docs/context-awareness).
+
+## Alles zusammenfügen {#putting-it-together}
+
+Ein typisches Drop-in-Setup:
+
+```tsx
+// app/root.tsx
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  sendToAgentChat,
+} from "@agent-native/core/client";
+
+export default function Root() {
+  return (
+    <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>
+      <Header>
+        <AgentToggleButton />
+      </Header>
+
+      <Main>
+        <YourRoutes />
+      </Main>
+    </AgentSidebar>
+  );
+}
+```
+
+```tsx
+// Anywhere else in the app
+<Button
+  onClick={() =>
+    sendToAgentChat({
+      message: "Summarize this thread",
+      context: `Thread id: ${threadId}`,
+      submit: true,
+    })
+  }
+>
+  Summarize
+</Button>
+```
+
+Der Benutzer sieht in der Kopfzeile eine Chat-Schaltfläche, kann diese öffnen und mit dem Agenten sprechen. Ihre Tasten übergeben die Arbeit an denselben Agenten, anstatt einmalige LLM-Anrufe auszuführen.
+
+## Was kommt als nächstes?
+
+- [**Actions**](/docs/actions) – `defineAction()` und `useActionMutation()`
+- [**Context Awareness**](/docs/context-awareness) – Auswahl, Navigation, Ansichtsbildschirm
+- [**Workspace**](/docs/workspace) – was die Registerkarte „Arbeitsbereich“ enthält (skills, Speicher, MCP-Server, geplante Jobs)
+- [**Voice Input**](/docs/voice-input) – das Mikrofon im Chat Verfassenr

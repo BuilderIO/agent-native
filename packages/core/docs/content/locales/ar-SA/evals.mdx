@@ -1,0 +1,249 @@
+---
+title: "بوابة تقييم CI"
+description: "اكتب حالات اختبار *.eval.ts التي تقوم بتشغيل الوكيل الحقيقي مقابل المدخلات الثابتة، وسجل المخرجات باستخدام أدوات تسجيل قابلة للتركيب، وبوابة CI/النشر على عتبة."
+---
+
+# بوابة تقييم CI
+
+تعد عمليات التقييم اختبارًا بدائيًا من الدرجة الأولى: فأنت تعلن عن الموجه بالإضافة إلى السلوك الذي تتوقعه، ويقوم العداء **في الواقع بتشغيل حلقة الوكيل** مقابل هذا الإدخال، ويسجل المخرجات باستخدام أدوات تسجيل قابلة للتركيب، ويخرج من الصفر إذا سجلت أي حالة أقل من العتبة. هذا الخروج غير الصفري يجعل `agent-native eval` بوابة نشر CI منسدلة.
+
+هذا مكمل للتسجيل اللاحق في [Observability](/docs/observability):
+
+- **تقييمات إمكانية الملاحظة** (`observability/evals.ts`) — _"كيف كان أداء هذا التشغيل الحقيقي؟"_ السلبي، الذي يتم أخذ العينات منه، ويعيش بجوار الآثار.
+- **`*.eval.ts` (هذا البدائي)** — _"هل يفعل الوكيل الشيء الصحيح على هذا الإدخال الثابت؟"_ بوابة CI نشطة وحتمية يتم تشغيلها عبر CLI.
+
+يقوم المشغل بحل محرك/نموذج غير موفر الخدمة من السجل الحالي - لا يوجد نموذج مضمن - لذلك تعمل المجموعة نفسها على أي محرك تم تكوين التطبيق من أجله.
+
+<Diagram id="doc-block-1xedr0l" title={"من المدخلات الثابتة لنشر البوابة"} summary={"يقوم العداء فعليًا بتشغيل حلقة الوكيل في كل حالة، ويسجل المخرجات، ويخرج من الصفر إذا انخفض أي مسجل عن العتبة - مما يجعله بوابة CI قابلة للإسقاط."}>
+
+```html
+<div class="eval-flow">
+  <div class="diagram-node">
+    *.eval.ts<br /><small class="diagram-muted"
+      >prompt + expected behavior</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    تشغيل حلقة الوكيل<br /><small class="diagram-muted"
+      >real engine/model</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Scorers<br /><small class="diagram-muted"
+      >every one must pass threshold</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box ok">exit 0 &rarr; deploy</div>
+    <div class="diagram-box warn">exit 1 &rarr; block</div>
+  </div>
+</div>
+```
+
+```css
+.eval-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.eval-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.eval-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eval-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## كتابة التقييم {#writing}
+
+أسقط ملف `*.eval.ts` في أي مكان في التطبيق (أو ملف `evals/*.ts`). كل ملف `export default defineEval(...)` (أو يصدر مجموعة منهم):
+
+```ts
+// evals/greeting.eval.ts
+import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
+
+export default defineEval({
+  name: "greets the user by name",
+  input: { prompt: "Say hi to Ada." },
+  threshold: 0.7, // per-scorer pass bar; default 0.5
+  scorers: [
+    contains("Ada"),
+    llmJudge({ criteria: "friendliness", rubric: "1.0 = warm greeting" }),
+  ],
+});
+```
+
+يتم تمرير التقييم فقط عندما يصل **كل** المسجل إلى الحد الأدنى. حقول `defineEval` الرئيسية:
+
+| الحقل       | اكتب                  | ملاحظات                                                           |
+| ----------- | --------------------- | ----------------------------------------------------------------- |
+| `name`      | سلسلة                 | مطلوب. موضح في التقرير.                                           |
+| `input`     | `{ prompt, history }` | مطلوب `prompt`؛ المنعطفات الاختيارية السابقة لـ `{ role, text }`. |
+| `scorers`   | `Scorer[]`            | مطلوب، واحد على الأقل.                                            |
+| `threshold` | رقم `0..1`            | شريط التمرير لكل هداف. الافتراضي `0.5`؛ يمكن تجاوزه من CLI.       |
+| `run`       | الوظيفة               | تجاوز اختياري للإعداد المخصص (بيانات أولية، متعددة المنعطفات).    |
+
+إن عملية تشغيل الوكيل التي يتم تسليمها إلى الهدافين صغيرة الحجم وغير ملائمة للنقل:
+
+```ts
+interface AgentRunOutput {
+  text: string; // concatenated assistant text
+  toolCalls: readonly string[]; // tool/action names, in call order
+  ok: boolean; // completed without a terminal error
+  error?: string;
+  runId: string;
+  durationMs: number;
+}
+```
+
+## الهدافين المدمجين {#built-in}
+
+مستورد من `@agent-native/core/eval`:
+
+| هداف                     | النتيجة                                                              | النموذج؟ |
+| ------------------------ | -------------------------------------------------------------------- | -------- |
+| `exactMatch(expected)`   | `1.0` إذا كان النص يساوي `expected` (مقتطع, غير حساس لحالة الأحرف)   | لا       |
+| `contains(needles)`      | جزء من السلاسل الفرعية المطلوبة موجودة (لذلك تظهر النتائج الجزئية)   | لا       |
+| `usesTool(toolName)`     | `1.0` إذا قام الوكيل باستدعاء تلك الأداة/الإجراء مرة واحدة على الأقل | لا       |
+| `llmJudge({ criteria })` | سجل LLM كحكم مقابل قواعد تقييم اللغة الطبيعية، → `0..1`              | نعم      |
+
+يأخذ `exactMatch` و`contains` `{ caseSensitive }` اختياريًا. يأخذ `llmJudge` `{ criteria, rubric?, name?, scoreRange? }` - تتم تسوية مخرجاته إلى `[0, 1]`، ونموذج القاضي هو ما يحله العداء (ليس مزودًا مضمنًا على الإطلاق).
+
+## الهدافون المخصصون: المسار المكون من 4 خطوات {#custom}
+
+يبني `createScorer` هدافًا من أسلوب Mastra ذو 4 خطوات. مطلوب `generateScore` فقط:
+
+<Diagram id="doc-block-aa66rm" title={"خط أنابيب الهداف ذو الأربع خطوات"} summary={"المعالجة المسبقة والتحليل الافتراضي للهوية؛ مطلوب فقط generatorScore. يمكن للتحليل تشغيل JS عادي أو استدعاء القاضي LLM عبر ctx."}>
+
+```html
+<div class="scorer">
+  <div class="diagram-card">
+    <span class="diagram-pill">preprocess(run)</span
+    ><small class="diagram-muted"
+      >transform the run/output &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">analyze(x, ctx)</span
+    ><small class="diagram-muted"
+      >plain JS or LLM judge &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">generateScore(a)</span
+    ><small class="diagram-muted"
+      >&rarr; 0..1 normalized &middot; <strong>required</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">generateReason</span
+    ><small class="diagram-muted">human-readable why &middot; optional</small>
+  </div>
+</div>
+```
+
+```css
+.scorer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.scorer .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.scorer .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+```text
+preprocess(run)     → x          transform the run/output (optional)
+analyze(x, ctx)     → analysis   plain JS OR an LLM judge (optional)
+generateScore(a)    → 0..1       REQUIRED, normalized
+generateReason(...) → string     human-readable why (optional)
+```
+
+`preprocess` و`analyze` الافتراضيان للهوية (يرى الهداف `AgentRunOutput` الخام). تتلقى خطوة `analyze` `ctx` مع مساعد `judge()` غير الموفر للتسجيل المدعوم من LLM:
+
+```ts
+import { createScorer, clamp01 } from "@agent-native/core/eval";
+
+// A scorer that rewards short, tool-using answers.
+const concise = createScorer({
+  name: "concise_with_tool",
+  analyze(run) {
+    return {
+      words: run.text.trim().split(/\s+/).length,
+      usedTool: run.toolCalls.length > 0,
+    };
+  },
+  generateScore({ words, usedTool }) {
+    if (!usedTool) return 0;
+    return clamp01(1 - Math.max(0, words - 40) / 200);
+  },
+  generateReason({ analysis }) {
+    return `${analysis.words} words, tool used: ${analysis.usedTool}`;
+  },
+});
+```
+
+## تشغيل البوابة {#cli}
+
+```bash
+agent-native eval                    # run every *.eval.ts; non-zero exit on failure
+agent-native eval billing            # فقط الملفات التي يحتوي مسارها على "billing"
+agent-native eval --json             # machine-readable report (for CI)
+agent-native eval --threshold 0.8    # override every eval's pass threshold (0..1)
+```
+
+يكتشف الأمر `**/*.eval.ts` و`evals/*.ts` ضمن التطبيق الحالي، ويقوم بتشغيل الوكيل لكل إدخال، ويسجله، ويطبع جدولًا قابلاً للقراءة (أو JSON)، و**يخرج من الصفر في حالة وجود أي درجات تقييم أقل من الحد الخاص به**.
+
+رموز الخروج:
+
+| الرمز | المعنى                                                                              |
+| ----- | ----------------------------------------------------------------------------------- |
+| `0`   | تم اجتياز جميع عمليات التقييم — _or_ لم يتم العثور على ملفات تقييم (متوافقة مع CI). |
+| `1`   | تم تسجيل تقييم واحد على الأقل أقل من الحد الأدنى، أو حدث خطأ في المجموعة.           |
+| `2`   | وسيطات غير صالحة (على سبيل المثال، `--threshold` خارج `[0, 1]`).                    |
+
+### كبوابة نشر CI {#ci}
+
+قم بإضافته إلى المسار الذي يتم تشغيله قبل النشر:
+
+```yaml
+# .github/workflows/deploy.yml (excerpt)
+- run: npx agent-native eval --json
+```
+
+الانحدار الذي يسقط أي مسجل أقل من الحد يفشل في الخطوة ويمنع النشر. يخرج التطبيق الذي لا يحتوي على ملفات تقييم من `0`، لذا فإن اعتماد التقييمات يعد اختيارًا لكل تطبيق.
+
+## ما هي الخطوة التالية
+
+- [**Observability**](/docs/observability) — التسجيل اللاحق لعمليات الإنتاج الحقيقية (الطبقة التكميلية)
+- [**Actions**](/docs/actions) — الأدوات/actions التي تظهر في `toolCalls`
+- [**Agent Teams**](/docs/agent-teams) — الوكلاء الفرعيون الذين قد يمارسهم التقييم

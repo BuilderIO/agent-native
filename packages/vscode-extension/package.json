@@ -57,6 +57,11 @@
         "command": "agentNative.connectWorkspace",
         "title": "Connect Workspace to Agent Native MCP",
         "category": "Agent Native"
+      },
+      {
+        "command": "agentNative.openDesignCanvas",
+        "title": "Open Design Canvas",
+        "category": "Agent Native"
       }
     ],
     "configuration": {
@@ -73,6 +78,7 @@
   "activationEvents": [
     "onCommand:agentNative.connectWorkspace",
     "onCommand:agentNative.openDefaultApp",
+    "onCommand:agentNative.openDesignCanvas",
     "onCommand:agentNative.openUrl",
     "onUri"
   ],

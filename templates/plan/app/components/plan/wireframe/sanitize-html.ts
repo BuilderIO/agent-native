@@ -91,8 +91,48 @@ function cssSafetyText(value: string): string {
     .replace(/[\u0000-\u0020]+/g, "");
 }
 
+type SanitizeElementOptions = {
+  stripRuntimeDirectives?: boolean;
+  stripWireframeThemeClasses?: boolean;
+};
+
+const TAILWIND_THEME_COLORS =
+  /^(?:bg|text|border|ring|outline|divide|placeholder|from|via|to|accent|caret|decoration|fill|stroke)-(?:inherit|current|transparent|black|white|slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(?:-\d{2,3})?(?:\/[\d.]+)?$/;
+const TAILWIND_ARBITRARY_THEME_COLOR =
+  /^(?:bg|text|border|ring|outline|divide|placeholder|from|via|to|accent|caret|decoration|fill|stroke)-\[/;
+const TAILWIND_SHADOW = /^shadow(?:$|-)/;
+
+function baseClassName(className: string): string {
+  let bracketDepth = 0;
+  let lastVariantSeparator = -1;
+  for (let index = 0; index < className.length; index += 1) {
+    const char = className[index];
+    if (char === "[") bracketDepth += 1;
+    if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+    if (char === ":" && bracketDepth === 0) lastVariantSeparator = index;
+  }
+  return className.slice(lastVariantSeparator + 1);
+}
+
+function isWireframeThemeClass(className: string): boolean {
+  const base = baseClassName(className);
+  return (
+    TAILWIND_THEME_COLORS.test(base) ||
+    TAILWIND_ARBITRARY_THEME_COLOR.test(base) ||
+    TAILWIND_SHADOW.test(base)
+  );
+}
+
+function stripWireframeThemeClasses(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((className) => !isWireframeThemeClass(className))
+    .join(" ");
+}
+
 /** Conservative no-DOM fallback for any non-browser code path (SSR). */
-function fallbackStrip(html: string): string {
+function fallbackStrip(html: string, options?: SanitizeElementOptions): string {
   // Drop the whole url attribute if its value (whitespace/control-stripped)
   // carries a dangerous scheme. Mirrors the DOM path for the rare no-DOMParser
   // case; entity-obfuscation isn't decoded here (the live DOM path handles it).
@@ -100,7 +140,7 @@ function fallbackStrip(html: string): string {
     const v = (dq ?? sq ?? uq ?? "").replace(/[\s\u0000-\u001f]+/g, "");
     return /^(?:javascript|vbscript):|^data:text\/html/i.test(v) ? "" : m;
   };
-  return html
+  let out = html
     .replace(
       /<\/?(?:script|style|iframe|object|embed|link|meta|base|form|noscript|frame|frameset|applet|marquee|portal)\b[^>]*>/gi,
       "",
@@ -113,16 +153,32 @@ function fallbackStrip(html: string): string {
     .replace(/\sstyle\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, (m) =>
       DANGEROUS_STYLE.test(m) ? "" : m,
     );
+  if (options?.stripWireframeThemeClasses) {
+    out = out.replace(
+      /\sclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      (_match, doubleQuoted, singleQuoted, bare) => {
+        const next = stripWireframeThemeClasses(
+          doubleQuoted ?? singleQuoted ?? bare ?? "",
+        );
+        return next ? ` class="${next}"` : "";
+      },
+    );
+  }
+  return out;
 }
 
-export function sanitizeWireframeHtml(html: string | undefined): string {
+export function sanitizeWireframeHtml(
+  html: string | undefined,
+  options?: { preserveThemeClasses?: boolean },
+): string {
   if (!html) return "";
+  const stripWireframeThemeClasses = !options?.preserveThemeClasses;
   if (typeof DOMParser === "undefined" || typeof document === "undefined") {
-    return fallbackStrip(html);
+    return fallbackStrip(html, { stripWireframeThemeClasses });
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll(BLOCKED_TAGS).forEach((el) => el.remove());
-  sanitizeElementAttributes(doc.body);
+  sanitizeElementAttributes(doc.body, { stripWireframeThemeClasses });
   return doc.body.innerHTML;
 }
 
@@ -242,7 +298,7 @@ function splitSelectorList(selectors: string): string[] {
 
 function sanitizeElementAttributes(
   root: ParentNode,
-  options?: { stripRuntimeDirectives?: boolean },
+  options?: SanitizeElementOptions,
 ) {
   root.querySelectorAll<HTMLElement>("*").forEach((el) => {
     for (const attr of Array.from(el.attributes)) {
@@ -269,6 +325,15 @@ function sanitizeElementAttributes(
       }
       if (name === "style" && DANGEROUS_STYLE.test(attr.value)) {
         el.removeAttribute(attr.name);
+        continue;
+      }
+      if (name === "class" && options?.stripWireframeThemeClasses) {
+        const next = stripWireframeThemeClasses(attr.value);
+        if (next) {
+          el.setAttribute(attr.name, next);
+        } else {
+          el.removeAttribute(attr.name);
+        }
       }
     }
     if (el instanceof HTMLTemplateElement) {

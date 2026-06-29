@@ -4,6 +4,12 @@
  * Provides parsed frontmatter, raw markdown, and heading extraction for TOC + search.
  */
 
+import { docsBodyToMarkdownMirror } from "../../lib/docs-markdown-export";
+import {
+  docSourceFilenamesForSlug,
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../../lib/docs-source";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -11,23 +17,34 @@ import {
   type DocsLocale,
 } from "./docs-locale";
 
-// Import all .md files from core's docs as raw strings
-const mdModules = import.meta.glob("../../../core/docs/content/*.md", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
+// Import all default-locale docs from core as raw strings. During the migration
+// `.mdx` wins when both source files exist for a slug; `.md` remains a fallback.
+const docSourceModules = {
+  ...import.meta.glob("../../../core/docs/content/*.md", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
+  ...import.meta.glob("../../../core/docs/content/*.mdx", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
+} as Record<string, string>;
 
 // Optional locale-specific docs live under packages/core/docs/content/locales/.
 // Keep these lazy. Translated Markdown should load per locale + route, not all
 // at startup, so non-English docs do not bloat the initial docs bundle.
-const localizedMdLoaders = import.meta.glob(
-  "../../../core/docs/content/locales/*/*.md",
-  {
+const localizedDocLoaders = {
+  ...import.meta.glob("../../../core/docs/content/locales/*/*.md", {
     query: "?raw",
     import: "default",
-  },
-) as Record<string, () => Promise<string>>;
+  }),
+  ...import.meta.glob("../../../core/docs/content/locales/*/*.mdx", {
+    query: "?raw",
+    import: "default",
+  }),
+} as Record<string, () => Promise<string>>;
 
 export interface DocEntry {
   slug: string;
@@ -35,6 +52,7 @@ export interface DocEntry {
   description: string;
   search: string;
   body: string; // markdown body (without frontmatter)
+  searchBody: string; // portable markdown body used for search snippets/indexing
   headings: { id: string; label: string; level: number }[];
 }
 
@@ -113,7 +131,7 @@ const localizedDocPromises = new Map<string, Promise<DocEntry | undefined>>();
 
 function docEntryFromPath(path: string, raw: string): DocEntry {
   const filename = path.split("/").pop()!;
-  const slug = filename.replace(/\.md$/, "");
+  const slug = docSourceSlugFromFilename(filename);
   const { data, body } = parseFrontmatter(raw);
   const headings = extractHeadings(body);
   return {
@@ -122,12 +140,14 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
     description: data.description || "",
     search: data.search || "",
     body,
+    searchBody: docsBodyToMarkdownMirror(body),
     headings,
   };
 }
 
 // Build the docs maps once.
-for (const [path, raw] of Object.entries(mdModules)) {
+for (const path of preferMdxDocSourceFiles(Object.keys(docSourceModules))) {
+  const raw = docSourceModules[path];
   const entry = docEntryFromPath(path, raw);
   docs.set(entry.slug, entry);
 }
@@ -136,8 +156,12 @@ function normalizeDocsLocale(locale: unknown): DocsLocale {
   return isDocsLocale(locale) ? locale : DEFAULT_DOCS_LOCALE;
 }
 
-function localizedDocKey(locale: DocsLocale, slug: string) {
-  return `../../../core/docs/content/locales/${locale}/${slug}.md`;
+function localizedDocKey(locale: DocsLocale, slug: string): string | undefined {
+  for (const filename of docSourceFilenamesForSlug(slug)) {
+    const key = `../../../core/docs/content/locales/${locale}/${filename}`;
+    if (localizedDocLoaders[key]) return key;
+  }
+  return undefined;
 }
 
 function cacheLocalizedDoc(locale: DocsLocale, entry: DocEntry) {
@@ -169,8 +193,8 @@ export async function loadDoc(
   if (cached) return cached;
 
   const key = localizedDocKey(docsLocale, slug);
-  const loader = localizedMdLoaders[key];
-  if (!loader) return docs.get(slug);
+  if (!key) return docs.get(slug);
+  const loader = localizedDocLoaders[key];
 
   const existingPromise = localizedDocPromises.get(key);
   if (existingPromise) return existingPromise;
@@ -194,7 +218,7 @@ export function hasLocalizedDoc(locale: unknown, slug: string): boolean {
   if (docsLocale === DEFAULT_DOCS_LOCALE) return docs.has(slug);
   return Boolean(
     localizedDocs.get(docsLocale)?.has(slug) ||
-    localizedMdLoaders[localizedDocKey(docsLocale, slug)],
+    localizedDocKey(docsLocale, slug),
   );
 }
 
@@ -216,12 +240,12 @@ export async function loadAllDocs(
 
   const prefix = `../../../core/docs/content/locales/${docsLocale}/`;
   await Promise.all(
-    Object.keys(localizedMdLoaders)
-      .filter((key) => key.startsWith(prefix))
-      .map((key) => {
-        const slug = key.split("/").pop()!.replace(/\.md$/, "");
-        return loadDoc(slug, docsLocale);
-      }),
+    preferMdxDocSourceFiles(
+      Object.keys(localizedDocLoaders).filter((key) => key.startsWith(prefix)),
+    ).map((key) => {
+      const slug = docSourceSlugFromFilename(key);
+      return loadDoc(slug, docsLocale);
+    }),
   );
   return getAllDocs(docsLocale);
 }
@@ -236,7 +260,7 @@ function buildSearchIndexFromDocs(
 
   for (const doc of docsList) {
     const path = docsPathForSlug(doc.slug, docsLocale);
-    const lines = nonFencedMarkdownLines(doc.body);
+    const lines = nonFencedMarkdownLines(doc.searchBody);
     const lastLineNumber = lines.at(-1)?.lineNumber ?? 0;
     const sections: { id: string; label: string; startLine: number }[] = [];
 
@@ -265,7 +289,7 @@ function buildSearchIndexFromDocs(
       .map((line) => line.text)
       .filter((l) => !l.startsWith("#"))
       .join(" ")
-      .replace(/[`*_\[\](){}]/g, "")
+      .replace(/[`*_[\](){}]/g, "")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -298,7 +322,7 @@ function buildSearchIndexFromDocs(
         .map((line) => line.text)
         .filter((l) => !l.startsWith("#"))
         .join(" ")
-        .replace(/[`*_\[\](){}]/g, "")
+        .replace(/[`*_[\](){}]/g, "")
         .replace(/\s+/g, " ")
         .trim();
 

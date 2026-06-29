@@ -3,13 +3,13 @@ import path from "path";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { parseSlidesFigDesignSystem } from "../server/lib/fig-design-system.js";
 import { resolveUserUploadedFile } from "./_uploaded-files.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
@@ -20,8 +20,8 @@ export default defineAction({
     "For PPTX files, returns parsed slides with text and layout info ready for conversion. " +
     "For DOCX files, returns structured sections extracted from the document. " +
     "For PDF files, returns extracted text organized by page. " +
-    "For Figma .fig files, returns extracted brand/design-system tokens and a preview; call create-design-system with the returned data. " +
-    "The agent can then use the extracted content to create a deck via create-deck or add-slide, or create a design system from .fig tokens.",
+    "For Figma .fig files, requires Builder.io and starts Builder design-system indexing; the returned Builder job/design-system ids are the source of truth. " +
+    "The agent can then use the extracted content to create a deck via create-deck or add-slide, or tell the user where Builder is indexing the design system.",
   schema: z.object({
     filePath: z
       .string()
@@ -78,27 +78,36 @@ export default defineAction({
     if (detectedFormat === "fig") {
       if (importIntoDeck) {
         throw new Error(
-          "Figma .fig imports create design systems, not slide replacements. Re-run without importIntoDeck, then call create-design-system with the returned data.",
+          "Figma .fig imports start Builder design-system indexing, not slide replacements. Re-run without importIntoDeck.",
         );
       }
-      const result = parseSlidesFigDesignSystem({
-        data: fileBuffer,
-        filename: path.basename(absPath),
+      const title = titleFromPath(absPath);
+      const result = await startBuilderDesignSystemIndex({
+        projectName: title,
+        files: [
+          {
+            name: path.basename(absPath),
+            data: fileBuffer,
+            mimeType: "application/octet-stream",
+          },
+        ],
       });
       return {
         format: "fig",
-        title: result.suggestedTitle,
-        designSystem: result.data,
-        customInstructions: result.customInstructions,
-        preview: result.preview,
+        title,
+        source: "builder",
+        projectId: result.projectId,
+        jobId: result.jobId,
+        designSystemId: result.designSystemId,
+        builderUrl: result.builderUrl,
+        status: result.status,
         deckId,
         instructions: [
-          "Parsed the .fig file and extracted a slide-ready design system.",
-          "Call create-design-system with:",
-          `- title: ${JSON.stringify(result.suggestedTitle)}`,
-          "- data: JSON.stringify(designSystem)",
-          "- customInstructions: the returned customInstructions string",
-          "Then set it as default or apply it to a deck if the user asked.",
+          "Sent the .fig file to Builder design-system indexing.",
+          `Builder design system: ${result.designSystemId}`,
+          `Builder job: ${result.jobId}`,
+          `Open: ${result.builderUrl}`,
+          "Do not call create-design-system locally for this .fig file; Builder owns the indexed design-system docs and generated usage guidance.",
         ].join("\n"),
       };
     }

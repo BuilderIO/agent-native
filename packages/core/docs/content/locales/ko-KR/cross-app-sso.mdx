@@ -1,0 +1,304 @@
+---
+title: "크로스앱 SSO"
+description: "Dispatch를 ID 기관으로 사용하여 ID 페더레이션을 통해 호스팅된 모든 에이전트 기반 앱에서 한 번 로그인합니다. 앱별로 옵트인하고 단일 환경 변수로 되돌릴 수 있습니다."
+---
+
+# 크로스앱 SSO
+
+`*.agent-native.com`에서 호스팅되는 각 앱은 **자체 별도의 사용자 스토어**를 통해 자체 배포를 실행합니다. `mail.agent-native.com` 및 `calendar.agent-native.com`는 데이터베이스, 세션 테이블 또는 쿠키 도메인을 공유하지 않습니다. 따라서 "한 번 로그인하면 모든 앱을 사용하세요"는 공유 쿠키가 될 수 없습니다. 이는 작업 공간에 대한 ID 권한 역할을 하는 [Dispatch](/docs/dispatch)를 사용하여 **ID 페더레이션**이어야 합니다.
+
+이것은 이미 사용하고 있는 동일한 신뢰 기본 요소 [A2A](/docs/a2a-protocol) 및 [External Agents](/docs/external-agents)(요청 경계에서 확인된 `A2A_SECRET` 서명 JWT)로 에이전트 간 호출 대신 인간 로그인 경로에 적용됩니다.
+
+> **통합 배포와 도메인별 배포.** 하나의 원본(`your-agents.com/mail`, `your-agents.com/calendar`)에서 모든 앱을 호스팅하는 경우 이미 단일 쿠키 도메인을 통해 공유 로그인을 받고 있으므로 페더레이션이 필요하지 않습니다. Cross-App SSO는 앱이 별도의 도메인에서 실행되는 경우에만 필요합니다. [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment)를 참조하세요.
+
+## 무엇과 이유 {#what-why}
+
+앱별 사용자 저장소는 모든 앱이 신뢰하는 브라우저 쿠키가 존재할 수 있는 단일 장소가 없다는 것을 의미합니다. 대신 페더레이션 모델은 하나의 앱(**Dispatch**)을 ID 기관으로 지정합니다. 다른 앱에서는 '이 사람이 누구인가요?'를 위임할 수 있습니다. Dispatch에 사용자의 확인된 이메일에 대한 단기 서명 어설션을 가져온 다음 **이메일을 통해 이를 자체 로컬 계정에 연결**합니다.
+
+연결 규칙은 의도적으로 범위를 좁히고 추가합니다.
+
+- **기존 동일 이메일 사용자 → 연결됨.** 로컬 계정은 확인된 이메일과 매칭되어 그대로 재사용됩니다. **수정되거나 이름이 바뀌거나 삭제되지 않습니다**. 페더레이션 레이어는 이를 읽고 세션을 생성하기만 합니다.
+- **새 이메일 → 생성됨.** 확인된 이메일에 대해 새로운 로컬 계정이 생성된 후 일반 로컬 세션이 생성됩니다.
+
+이렇게 하면 사람들이 로그아웃하더라도 출시가 안전해집니다. **로그아웃이 필요합니다.** 앱에서 이 기능을 켜면 기존 세션이 종료되고 Dispatch를 통해 사용자가 재인증을 받습니다. 하지만 항상 **모든 데이터가 그대로 유지된 상태로** 이메일과 일치하는 동일한 계정에 다시 로그인합니다. 왜냐하면 ID 행은 *추가*되기만 하고 파기되거나 이름이 변경되거나 다시 지정되지 않기 때문입니다.
+
+## 작동 방식 {#how-it-works}
+
+흐름은 표준 승인 → 서명된 토큰 → 콜백 리디렉션이며, 신뢰 경계를 넘는 유일한 것은 이메일입니다.
+
+<Diagram id="doc-block-1axbtj8" title={"ID 페더레이션 흐름"} summary={"Dispatch은 사람을 인증하고 확인된 이메일이라는 단기간 서명된 주장을 반환합니다. 앱은 이메일로 연결되며 자체 로컬 세션을 시작합니다."}>
+
+```html
+<div class="diagram-sso">
+  <div class="diagram-card" data-rough>
+    <strong>클라이언트 앱</strong
+    ><small class="diagram-muted">own user store</small>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill">authorize</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>Dispatch</strong
+    ><small class="diagram-muted">identity authority</small
+    ><span class="diagram-pill accent">authenticates human</span>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill accent">302 + signed JWT</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>앱 콜백</strong
+    ><small class="diagram-muted"
+      >verify signature · scope:identity · exp &le; 2 min</small
+    ><span class="diagram-pill ok">이메일 기반 JIT 연결</span
+    ><span class="diagram-pill ok">mint local session</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-sso {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-sso .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+}
+.diagram-sso .diagram-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.diagram-sso .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+1. **앱 → 디스패치(승인).** 앱이 사용자를 신원 인증 기관으로 보냅니다:
+
+   ```
+   GET https://dispatch.agent-native.com/_agent-native/identity/authorize
+       ?app=<requesting-app>
+       &redirect_uri=<app-callback-url>
+       &state=<csrf-state>
+   ```
+
+<Endpoint id="cross-app-sso-identity-authorize-ko-kr" title={"ID 인증 엔드포인트"} method="GET" path="/_agent-native/identity/authorize" summary={"디스패치(ID 기관)는 사람을 인증하고 서명된 ID 토큰으로 다시 리디렉션합니다."} auth={"디스패치 세션(없는 경우 대화형 로그인)"} params={[
+  {
+    "name": "app",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "요청하는 앱 식별자입니다."
+  },
+  {
+    "name": "redirect_uri",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "앱 콜백 URL. 엄격한 허용 목록(기본적으로 `*.agent-native.com` 또는 localhost)에 대해 검증되었습니다."
+  },
+  {
+    "name": "state",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "CSRF 상태가 리디렉션 시 다시 에코되었습니다."
+  }
+]} responses={[
+  {
+    "status": "302",
+    "description": "단기 `A2A_SECRET` 서명 ID JWT(`scope: \"identity\"`, `exp` ≤ 2분)와 원본 `state`를 전달하는 `redirect_uri`로 리디렉션합니다."
+  },
+  {
+    "status": "400",
+    "description": "`redirect_uri`가 허용 목록 유효성 검사에 실패했습니다(교차 출처, 스키마 기준 `//host` 또는 목록에 없는 접미사)."
+  }
+]}>
+
+</Endpoint>
+
+2. **Dispatch는 사람을 인증합니다.** 사용자가 이미 Dispatch 세션을 가지고 있는 경우 이는 투명합니다. 그렇지 않은 경우 Dispatch는 자체 일반 로그인(이메일/비밀번호, Google 등 - [Authentication](/docs/authentication) 참조)을 표시합니다. Dispatch는 여기에서 일반적인 에이전트 기반 앱입니다. 특별한 인증 모드를 실행하고 있지 않습니다.
+
+3. **디스패치 → 앱(서명된 ID 토큰).** 디스패치는 엄격한 허용 목록에 대해 `redirect_uri`를 검증하고 단기 **`A2A_SECRET` 서명 ID JWT**를 전달하는 앱의 `redirect_uri`로 다시 302 리디렉션합니다. 토큰의 클레임은 의도적으로 최소화됩니다.
+
+   | 청구         | 의미                                              |
+   | ------------ | ------------------------------------------------- |
+   | `sub`        | 신원 기관의 안정적인 사용자 ID                    |
+   | `email`      | 사용자의 **확인된** 이메일 — 유일한 가입 키       |
+   | `name`       | 표시 이름(신뢰할 수 없음, UI에만 해당)            |
+   | `org_domain` | Workspace/org 도메인(있는 경우)                   |
+   | `scope`      | 항상 `"identity"` — 이 토큰은 로그인만 승인합니다 |
+   | `exp`        | **≤ 2분** 문제 발생 후                            |
+
+4. **앱은 이메일로 확인하고 JIT 연결합니다.** 앱은 자체 `A2A_SECRET`로 토큰 서명을 확인하고 `scope: "identity"` 및 `exp`를 확인한 다음 **확인된 이메일을 통해 엄격하게 적시 연결**을 수행합니다.
+   - 해당 이메일을 가진 로컬 사용자가 존재하는 경우 → 변경하지 않고 다시 사용하세요.
+   - 그렇지 않은 경우 → 해당 이메일에 대한 로컬 사용자를 생성하세요.
+
+5. **앱은 일반 로컬 세션을 생성합니다.** 여기에서 사용자는 해당 앱 자체 스토어에서 일반 로컬 세션을 갖게 됩니다. 기존의 모든 액세스 확인, 조직 범위 지정 및 작업 가드는 이전과 동일하게 작동합니다. 연맹은 정문에서만 이루어졌습니다.
+
+### 선택 {#opt-in}
+
+배포에 이 환경 변수가 설정된 경우 **만** 앱이 참여합니다.
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
+```
+
+- **설정** → 앱에 위의 흐름을 실행하는 **"Agent-Native로 로그인"** 옵션이 표시됩니다. 직접 로컬 로그인(이메일/비밀번호, Google)은 여전히 함께 작동합니다.
+- **설정 해제(기본값)** → **동작 변경 없음.** 앱은 이전과 동일하게 인증합니다. 페더레이션 코드 경로가 휴면 상태입니다. 스키마 변경이나 마이그레이션할 사항이 없으므로 변수를 켜거나 끄는 것은 언제든지 완전히 되돌릴 수 있습니다.
+
+## 보안 {#security}
+
+전체 모델은 의도적으로 몇 가지 작은 보장을 기반으로 합니다:
+
+- **단기 서명된 토큰.** ID 어설션은 **≤ 2분** 만료 및 `scope: "identity"`가 있는 `A2A_SECRET` 서명 JWT입니다. 단일 로그인을 승인하며 장기간 재생하거나 API/A2A 액세스를 위해 용도를 변경할 수 없습니다.
+- **엄격한 `redirect_uri` 허용 목록.** 디스패치는 기본적으로 `*.agent-native.com` 또는 localhost로만 리디렉션됩니다. 임의, 스키마 상대(`//host`) 및 교차 출처 리디렉션 대상은 거부되므로 해당 권한은 공개 리디렉션 또는 토큰 추출 오라클로 전환될 수 없습니다.
+- **확인된 토큰의 이메일 전용 가입.** 신뢰 경계를 넘는 _유일한_ 것은 서명된 토큰의 확인된 이메일입니다. 앱은 유선에서 사용자 ID, 역할, 조직 멤버십 또는 권한 있는 상태를 허용하지 않습니다. 일치하는 계정에서 로컬로 모든 것을 가져옵니다.
+- **추가 전용 ID 쓰기.** 연결하면 기존의 동일한 이메일 계정을 그대로 재사용하거나 새 계정을 삽입합니다. 이 경로에서는 ID 행의 업데이트, 이름 변경, 위치 변경 또는 삭제가 발생하지 않습니다.
+- **기본적으로 꺼져 있습니다.** `AGENT_NATIVE_IDENTITY_HUB_URL`를 설정하지 않으면 전체 기능이 비활성화됩니다.
+
+<Callout id="doc-block-1ccuipn" tone="success">
+
+**활성화해도 안전하고 되돌려도 안전합니다.**신원 쓰기는**추가만 가능합니다**— 기존의 동일한 이메일 계정은 그대로 재사용되며 새 이메일은 새로운 행을 삽입합니다. 스키마 변경이나 마이그레이션할 사항이 없으므로 `AGENT_NATIVE_IDENTITY_HUB_URL` 켜기 또는 끄기를 앱별로 언제든지 완전히 되돌릴 수 있습니다.
+
+</Callout>
+
+적시 링크는 확인된 이메일에 전적으로 기반한 단일 결정입니다.
+
+<Diagram id="doc-block-9m3ozw" title={"JIT-link 결정"} summary={"연결은 확인된 이메일에 입력되며 추가로만 이루어집니다. 기존 계정은 변경 없이 재사용되고, 새 이메일은 새로운 로컬 사용자를 생성합니다."}>
+
+```html
+<div class="diagram-jit">
+  <div class="diagram-node" data-rough>
+    확인된 이메일<br /><small class="diagram-muted"
+      >서명된 identity JWT에서</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-branch">
+    <div class="diagram-box" data-rough>
+      Local user exists?<span class="diagram-pill ok"
+        >yes &rarr; reuse unchanged</span
+      ><span class="diagram-pill accent">no &rarr; create local user</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>일반 로컬 세션 발급</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-jit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-branch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 자체 호스팅 {#self-hosting}
+
+모든 Dispatch 배포는 ID 허브 역할을 할 수 있습니다. `dispatch.agent-native.com`로 제한되지 않습니다. Dispatch 인스턴스를 가리키도록 각 클라이언트 앱의 `AGENT_NATIVE_IDENTITY_HUB_URL`를 설정하세요.
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
+```
+
+**리디렉션 허용 목록.** 허브(Dispatch)는 토큰을 발행하기 전에 승인 엔드포인트에서 `redirect_uri`의 유효성을 검사합니다. 허용 목록은 `templates/dispatch/server/lib/identity-sso.ts`에서 구성됩니다:
+
+- **기본값:** `*.agent-native.com` 및 localhost 전용(`DEFAULT_ALLOWED_HOST_SUFFIXES` 상수).
+- **확장:** 쉼표로 구분된 추가 호스트 접미사 목록을 사용하여 Dispatch 배포에서 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 환경 변수를 설정합니다.
+
+  ````배쉬
+  # 기본값 외에 yourcompany.com 하위 도메인 허용
+  IDENTITY_SSO_ALLOWED_HOST_SUFFIXES=".yourcompany.com,.staging.yourcompany.com"
+  ```
+
+  각 항목은 점 접두사가 붙은 접미사(`.yourcompany.com`)로 정규화되므로 접미사 확인만으로 충분하고 문제가 가장 적습니다. 동기화할 앱별 목록이 없습니다. 모든 항목(비어 있거나 `.`만)과 일치하는 항목은 필터링됩니다.
+
+  ````
+
+- **로컬 호스트**는 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`에 관계없이 클라이언트 측 앱의 로컬 개발에 항상 허용됩니다.
+
+`IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`가 없으면 자체 호스팅 디스패치는 `*.agent-native.com`의 앱에만 토큰을 발행할 수 있습니다. 다른 도메인을 잠금 해제하려면 Dispatch 배포에 환경 변수를 설정하세요.
+
+## 카나리아 출시 실행서 {#canary-rollout}
+
+컷오버 및 롤백은 **앱 배포당 단일 환경 변수**입니다. 한 번에 하나의 앱을 출시하고 확인한 후 확장하세요. 모든 앱에 변수를 한 번에 설정하지 마세요.
+
+**1. 코드 배포 — 동작 변경 없음**
+`AGENT_NATIVE_IDENTITY_HUB_URL` **모든 곳에서 설정되지 않음**을 사용하여 모든 앱에 릴리스를 제공합니다. 몇 가지 앱에서 일반 로그인이 여전히 작동하는지 확인하세요.
+
+**2. 한 번에 ONE 앱에서 카나리아를 활성화하세요.**
+설정, 하나의 배포에만 해당:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
+```
+
+다른 모든 앱의 환경은 설정되지 않은 상태로 둡니다. 변수를 선택하도록 재배포/다시 시작하세요.
+
+**3. 카나리아(체크리스트)를 확인하세요.**
+
+- 앱에서 로그아웃\*\*하세요.
+- 이제 로그인 화면에 **"Agent-Native로 로그인"**이 표시됩니다. 클릭하세요.
+- **Dispatch**로 이동하여 로그인을 완료합니다(또는 이미 로그인한 경우 바로 통과).
+- **다시 앱으로 리디렉션되어 로그인**됩니다. 이 계정은 새 계정이 아니라 이전에 사용했던 **동일한 기존 계정**(동일한 이메일)입니다.
+- **앱 데이터는 그대로 유지됩니다**. 기존 기록, 설정, 조직 범위 지정은 그대로 유지됩니다.
+- **기존 직접 로그인은 계속 작동합니다** — 이메일/비밀번호 및 Google 로그인은 SSO와 함께 계속 작동합니다.
+
+검사에 실패할 경우 바로 4단계(롤백)로 이동하세요. 즉각적이고 데이터가 안전합니다.
+
+**4. 앱별로 확장하세요.**
+하나의 앱이 확인되면 다음 앱에 대해 2~3단계를 반복합니다. 즉, 한 번에 하나의 배포에 `AGENT_NATIVE_IDENTITY_HUB_URL`를 설정합니다. 일괄 활성화하지 마세요.
+
+**5. 롤백 = 해당 앱 배포 시 환경 변수 설정을 해제합니다.**
+앱을 되돌리려면 **해당 앱 환경에서 `AGENT_NATIVE_IDENTITY_HUB_URL`를 제거하고 다시 배포/다시 시작하세요.** 앱은 즉시 이전 인증 동작으로 돌아갑니다. **실행 취소할 데이터 변경은 없습니다**. ID 행은 추가만 되었으며 변수를 설정 해제하면 페더레이션 경로가 다시 휴면 상태가 됩니다. 각 앱의 컷오버 및 롤백은 독립적이며 되돌릴 수 있습니다.
+
+> 롤아웃은 각 앱이 활성화될 때 사용자를 로그아웃하지만(Dispatch를 통해 다시 인증) 항상 **데이터가 그대로 유지된 동일한 이메일 일치 계정**에 다시 로그인합니다. 왜냐하면 ID 행은 절대 삭제되거나 이름이 바뀌지 않고 추가만 되기 때문입니다.
+
+## 관련 {#related}
+
+- [Authentication](/docs/authentication) — 로컬 인증 모드, 세션, 조직, `A2A_SECRET` 환경 변수
+- [A2A Protocol](/docs/a2a-protocol) — 서명된 JWT, 경계에서 검증 신뢰 모델을 재사용합니다.
+- [External Agents](/docs/external-agents) — 에이전트 연결 및 딥 링크에 적용되는 동일한 `A2A_SECRET` 서명 ID 패턴입니다.
+- [Dispatch](/docs/dispatch) — 작업 공간 ID 기관 및 라우팅 허브.
+- [Security & Data Scoping](/docs/security) — 추가 전용 데이터 쓰기 및 계정별 범위 지정.
+- [Multi-App Workspaces](/docs/multi-app-workspace) — 교차 도메인 SSO를 완전히 방지하는 통합 단일 원본 배포입니다.

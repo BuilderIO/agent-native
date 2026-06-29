@@ -219,7 +219,7 @@ function resolveView(
   if (pathname.startsWith("/audit")) return "audit";
   if (pathname.startsWith("/dreams")) return "dreams";
   if (pathname.startsWith("/thread-debug")) return "thread-debug";
-  if (pathname.startsWith("/team")) return "team";
+  if (pathname.startsWith("/team")) return "settings";
   return "overview";
 }
 
@@ -271,7 +271,7 @@ function resolvePath(
     case "threads":
       return "/thread-debug";
     case "team":
-      return "/team";
+      return "/settings#team";
     case "extensions":
       return command?.extensionId
         ? `/extensions/${encodeURIComponent(command.extensionId)}`

@@ -5,7 +5,7 @@ import {
 
 const MAX_AGENTS_MD_CONTEXT_CHARS = 60_000;
 
-type AgentsContextPurpose = "title" | "cleanup";
+type AgentsContextPurpose = "title" | "cleanup" | "summary";
 
 function trimAgentsMdContext(content: string): string {
   const trimmed = content.trim();
@@ -30,6 +30,9 @@ async function readAgentsMdBlock(
 function purposeInstruction(purpose: AgentsContextPurpose): string {
   if (purpose === "cleanup") {
     return "Use these AGENTS.md resources only for relevant transcript cleanup preferences: vocabulary, casing, punctuation style, formatting style, terminology, speaker voice, and team/personal conventions. If the personal and organization instructions conflict, prefer the personal instructions.";
+  }
+  if (purpose === "summary") {
+    return "Use these AGENTS.md resources only for relevant meeting-summary preferences: vocabulary, casing, terminology, action-item style, formatting style, and team/personal conventions. If the personal and organization instructions conflict, prefer the personal instructions.";
   }
 
   return "Use these AGENTS.md resources only for relevant Clip naming, terminology, style, and personal/team preferences. If the personal and organization instructions conflict, prefer the personal instructions.";

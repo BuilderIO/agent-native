@@ -1,6 +1,7 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
 import {
   IconChevronDown,
+  IconChevronRight,
   IconCheck,
   IconExternalLink,
   IconBrain,
@@ -33,7 +34,7 @@ import React, {
 } from "react";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
-import { saveAgentEngineApiKey } from "../agent-engine-key.js";
+import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
 import {
@@ -619,6 +620,10 @@ function LLMSectionInner({
   const [currentModel, setCurrentModel] = useState("");
   const [selectedEngine, setSelectedEngine] = useState("anthropic");
   const [selectedModel, setSelectedModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
+  const [clearBaseUrl, setClearBaseUrl] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -651,6 +656,7 @@ function LLMSectionInner({
     fetch(agentNativePath("/_agent-native/agent-engine/status"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
+        setBaseUrlConfigured(Boolean(data?.openAiBaseUrlConfigured));
         if (
           data?.configured &&
           typeof data.engine === "string" &&
@@ -715,6 +721,9 @@ function LLMSectionInner({
 
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
+  const isOpenAiEngine = selectedEngine === "ai-sdk:openai";
+  const endpointChanged = isOpenAiEngine && (!!baseUrl.trim() || clearBaseUrl);
+  const providerSettingsChanged = !!apiKey.trim() || endpointChanged;
 
   // Hide the Anthropic-via-AI-SDK alias (redundant with the native entry)
   // and Ollama (no API key to set here). The currently-selected engine is
@@ -732,12 +741,22 @@ function LLMSectionInner({
   ).map((m) => ({ value: m, label: friendlyModelName(m) }));
 
   const handleSave = async () => {
-    if (!apiKey.trim() || !envVar) return;
+    if (!providerSettingsChanged || !envVar) return;
     setSaving(true);
     try {
-      await saveAgentEngineApiKey({ key: envVar, apiKey });
+      const nextBaseUrl = isOpenAiEngine ? baseUrl.trim() : "";
+      await saveAgentEngineProviderSettings({
+        key: envVar,
+        ...(apiKey.trim() ? { apiKey } : {}),
+        ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
+        ...(isOpenAiEngine && clearBaseUrl ? { clearBaseUrl: true } : {}),
+      });
       setSaved(true);
       setApiKey("");
+      setBaseUrl("");
+      setClearBaseUrl(false);
+      if (nextBaseUrl) setBaseUrlConfigured(true);
+      if (clearBaseUrl) setBaseUrlConfigured(false);
       refreshSettingsStatus();
       notifyConfigChanged();
       setTimeout(() => setSaved(false), 2000);
@@ -885,6 +904,9 @@ function LLMSectionInner({
                     const info = engines.find((e) => e.name === val);
                     setSelectedModel(info?.defaultModel ?? "");
                     setApiKey("");
+                    setBaseUrl("");
+                    setClearBaseUrl(false);
+                    setAdvancedOpen(false);
                   }}
                 />
 
@@ -920,6 +942,99 @@ function LLMSectionInner({
                   )}
                 </div>
 
+                {isOpenAiEngine && (
+                  <div className="border-t border-border/70 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setAdvancedOpen((v) => !v)}
+                      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
+                        {advancedOpen ? (
+                          <IconChevronDown size={12} />
+                        ) : (
+                          <IconChevronRight
+                            size={12}
+                            className="rtl:-scale-x-100"
+                          />
+                        )}
+                        Advanced
+                      </span>
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        OpenAI-compatible endpoint
+                      </span>
+                    </button>
+
+                    {advancedOpen && (
+                      <div className="mt-1.5 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[12px] font-medium text-foreground">
+                            Endpoint URL
+                          </p>
+                          <span className="text-[10px] text-muted-foreground">
+                            {baseUrlConfigured ? "Configured" : "Optional"}
+                          </span>
+                        </div>
+                        <input
+                          type="url"
+                          value={baseUrl}
+                          onChange={(e) => {
+                            setBaseUrl(e.target.value);
+                            if (e.target.value.trim()) setClearBaseUrl(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSave();
+                          }}
+                          placeholder={
+                            baseUrlConfigured
+                              ? "Leave blank to keep current endpoint"
+                              : "https://gateway.example/v1"
+                          }
+                          disabled={clearBaseUrl}
+                          spellCheck={false}
+                          autoComplete="off"
+                          className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
+                          style={CONTROL_STYLE}
+                        />
+                        <p className="text-[10px] leading-relaxed text-muted-foreground">
+                          Use for LiteLLM or another OpenAI-compatible chat
+                          gateway. Leave blank for OpenAI.
+                        </p>
+                        {baseUrlConfigured && (
+                          <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={clearBaseUrl}
+                              onChange={(e) => {
+                                setClearBaseUrl(e.target.checked);
+                                if (e.target.checked) setBaseUrl("");
+                              }}
+                              className="h-3 w-3 accent-current"
+                            />
+                            Clear saved endpoint override
+                          </label>
+                        )}
+                        {envVar && envConfigured && endpointChanged && (
+                          <button
+                            type="button"
+                            onClick={handleSave}
+                            disabled={saving}
+                            className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                          >
+                            {saving ? (
+                              <IconLoader2 size={10} className="animate-spin" />
+                            ) : saved ? (
+                              <IconCheck size={10} />
+                            ) : (
+                              "Save endpoint"
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {envVar && envConfigured ? (
                   <div className="flex items-center gap-1.5 text-[10px] text-green-500">
                     <IconCheck size={10} />
@@ -939,7 +1054,7 @@ function LLMSectionInner({
                     />
                     <button
                       onClick={handleSave}
-                      disabled={!apiKey.trim() || saving}
+                      disabled={!providerSettingsChanged || saving}
                       className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
                     >
                       {saving ? (
@@ -1419,7 +1534,7 @@ function EmailSectionInner({
     <SettingsSection
       icon={<IconMail size={14} />}
       title="Email"
-      subtitle="Needed before deploy for password resets, team invitations, and share notifications. Local development can run without it."
+      subtitle="Needed before deploy for password resets, team invitations, share notifications, and dashboard email reports. Local development can run without it."
       connected={!envLoaded ? undefined : anyConfigured}
       open={open}
       onToggle={onToggle}

@@ -1,0 +1,7 @@
+{
+  "name": "recruiting",
+  "private": true,
+  "scripts": {
+    "build": "node ../../../scripts/build-retired-netlify-site.ts recruiting"
+  }
+}

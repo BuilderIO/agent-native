@@ -3,6 +3,9 @@ import type { LocaleCode } from "@agent-native/core/client";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
+  root: {
+    whatsNew: "What's new",
+  },
   navigation: {
     brand: "Analytics",
     ask: "Ask",
@@ -32,6 +35,8 @@ const enUS = {
     recentSalesDescription: "You made 265 sales this month.",
   },
   sidebar: {
+    collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
     collapseDashboards: "Collapse dashboards",
     expandDashboards: "Expand dashboards",
     collapseAnalyses: "Collapse analyses",
@@ -135,6 +140,10 @@ const enUS = {
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
+    dashboardTemplates: "Dashboard templates",
+    dashboardTemplatesDescription:
+      "Install a source-controlled dashboard when you need a starting point.",
+    openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
     about: "About",
@@ -142,6 +151,38 @@ const enUS = {
       "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
     aboutUsage:
       "Use the Data Sources page to manage connections. Use the Query Explorer for ad-hoc BigQuery SQL.",
+    replayStorage: "Session replay storage",
+    replayStorageDescription:
+      "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
+    connected: "Connected",
+    connectBuilder: "Connect Builder.io",
+    checkingBuilder: "Checking Builder.io...",
+    builderConnected: "Builder.io connected",
+    builderConnectedToast: "Builder.io connected",
+    builderConnectedFor: "Connected to {{orgName}}.",
+    builderConnectedGeneric: "Replay chunks are stored with Builder.io.",
+    builderIncludes:
+      "Builder.io's free tier includes object storage for replay chunks.",
+    s3Title: "S3-compatible storage",
+    secondary: "Secondary",
+    active: "Active",
+    s3BuilderConnectedDescription:
+      "Optional. Use your own bucket instead of Builder.io storage.",
+    s3CurrentProvider: "Current provider: {{providerName}}.",
+    s3OwnBucketDescription:
+      "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, or any S3-compatible service.",
+    configureS3: "Configure S3",
+    hideS3: "Hide",
+    s3EndpointLabel: "Endpoint URL",
+    s3BucketLabel: "Bucket name",
+    s3AccessKeyLabel: "Access key ID",
+    s3SecretAccessKeyLabel: "Secret access key",
+    s3RegionLabel: "Region (optional)",
+    s3PublicBaseUrlLabel: "Public base URL (optional)",
+    saveStorage: "Save storage",
+    storageRequired: "Enter the required storage fields.",
+    storageSaved: "Storage settings saved.",
+    storageSaveFailed: "Couldn't save storage settings.",
   },
   chat: {
     emptyState:
@@ -172,6 +213,7 @@ const enUS = {
     newAnalysisPlaceholder: "Describe the question you want to investigate...",
   },
   common: {
+    docs: "Docs",
     noData: "No data",
     noDataAvailable: "No data available",
     rowsPerPage: "Rows per page:",
@@ -830,10 +872,15 @@ const enUS = {
     path: "Path",
     eventName: "Event",
     time: "Time",
+    storageSetupTitle: "Connect replay storage",
+    storageSetupDescription:
+      "Session replay recordings need storage before chunks can be saved. Connect Builder.io for free-tier storage, or configure your own S3-compatible bucket.",
+    storageConnected: "Storage connected",
+    connectBuilder: "Use Builder.io (free)",
+    configureS3: "Configure S3 storage",
   },
   catalog: {
-    description:
-      "Source-controlled dashboards ready to install into your workspace.",
+    description: "Install a dashboard template when you need a starting point.",
     noTemplatesFound: "No templates found",
     tryDifferentCategory: "Try a different catalog category.",
     templatesCount: "{{count}} templates",
@@ -3327,6 +3374,7 @@ function mergeMessages(overrides: {
   [K in Section]?: Partial<Messages[K]>;
 }): Messages {
   return {
+    root: { ...enUS.root, ...overrides.root },
     navigation: { ...enUS.navigation, ...overrides.navigation },
     dashboardHeader: { ...enUS.dashboardHeader, ...overrides.dashboardHeader },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
@@ -3368,6 +3416,9 @@ export const messagesByLocale = {
   "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     ...analyticsSliceTranslations["zh-CN"],
+    root: {
+      whatsNew: "新增内容",
+    },
     navigation: {
       brand: "Analytics",
       ask: "提问",
@@ -3395,6 +3446,8 @@ export const messagesByLocale = {
       created: "创建于 {{date}}",
     },
     sidebar: {
+      collapseSidebar: "折叠侧边栏",
+      expandSidebar: "展开侧边栏",
       collapseDashboards: "收起仪表板",
       expandDashboards: "展开仪表板",
       collapseAnalyses: "收起分析",
@@ -3494,6 +3547,9 @@ export const messagesByLocale = {
       credentials: "数据源凭据",
       credentialsDescription: "API 密钥和凭据在数据源页面管理。",
       manageDataSources: "管理数据源",
+      dashboardTemplates: "仪表板模板",
+      dashboardTemplatesDescription: "需要起点时，安装受源码管理的仪表板。",
+      openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
       about: "关于",
@@ -3537,6 +3593,9 @@ export const messagesByLocale = {
   }),
   "es-ES": mergeMessages({
     ...analyticsSliceTranslations["es-ES"],
+    root: {
+      whatsNew: "Novedades",
+    },
     navigation: {
       ask: "Preguntar",
       overview: "Resumen",
@@ -3563,6 +3622,8 @@ export const messagesByLocale = {
       created: "Creado el {{date}}",
     },
     sidebar: {
+      collapseSidebar: "Contraer barra lateral",
+      expandSidebar: "Expandir barra lateral",
       collapseDashboards: "Contraer paneles",
       expandDashboards: "Expandir paneles",
       collapseAnalyses: "Contraer análisis",
@@ -3667,6 +3728,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "Las claves API y credenciales se gestionan en la página Fuentes de datos.",
       manageDataSources: "Gestionar fuentes de datos",
+      dashboardTemplates: "Plantillas de paneles",
+      dashboardTemplatesDescription:
+        "Instala un panel controlado por código fuente cuando necesites un punto de partida.",
+      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
       about: "Acerca de",
@@ -3712,6 +3777,9 @@ export const messagesByLocale = {
   }),
   "fr-FR": mergeMessages({
     ...analyticsSliceTranslations["fr-FR"],
+    root: {
+      whatsNew: "Nouveautés",
+    },
     navigation: {
       ask: "Demander",
       overview: "Vue d'ensemble",
@@ -3738,6 +3806,8 @@ export const messagesByLocale = {
       created: "Créé le {{date}}",
     },
     sidebar: {
+      collapseSidebar: "Réduire la barre latérale",
+      expandSidebar: "Développer la barre latérale",
       collapseDashboards: "Réduire les tableaux de bord",
       expandDashboards: "Développer les tableaux de bord",
       collapseAnalyses: "Réduire les analyses",
@@ -3843,6 +3913,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "Les clés API et identifiants sont gérés sur la page Sources de données.",
       manageDataSources: "Gérer les sources de données",
+      dashboardTemplates: "Modèles de tableaux de bord",
+      dashboardTemplatesDescription:
+        "Installez un tableau de bord suivi dans le code source lorsque vous avez besoin d'un point de départ.",
+      openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
       about: "À propos",
@@ -3893,6 +3967,9 @@ export const messagesByLocale = {
   }),
   "de-DE": mergeMessages({
     ...analyticsSliceTranslations["de-DE"],
+    root: {
+      whatsNew: "Neuigkeiten",
+    },
     navigation: {
       ask: "Fragen",
       overview: "Übersicht",
@@ -3919,6 +3996,8 @@ export const messagesByLocale = {
       created: "Erstellt am {{date}}",
     },
     sidebar: {
+      collapseSidebar: "Seitenleiste einklappen",
+      expandSidebar: "Seitenleiste erweitern",
       collapseDashboards: "Dashboards einklappen",
       expandDashboards: "Dashboards ausklappen",
       collapseAnalyses: "Analysen einklappen",
@@ -4028,6 +4107,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "API-Schlüssel und Anmeldedaten werden auf der Seite Datenquellen verwaltet.",
       manageDataSources: "Datenquellen verwalten",
+      dashboardTemplates: "Dashboard-Vorlagen",
+      dashboardTemplatesDescription:
+        "Installiere ein quellkontrolliertes Dashboard, wenn du einen Ausgangspunkt brauchst.",
+      openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
       about: "Info",
@@ -4074,6 +4157,9 @@ export const messagesByLocale = {
   }),
   "ja-JP": mergeMessages({
     ...analyticsSliceTranslations["ja-JP"],
+    root: {
+      whatsNew: "新着情報",
+    },
     navigation: {
       ask: "質問",
       overview: "概要",
@@ -4100,6 +4186,8 @@ export const messagesByLocale = {
       created: "{{date}} 作成",
     },
     sidebar: {
+      collapseSidebar: "サイドバーを折りたたむ",
+      expandSidebar: "サイドバーを展開",
       collapseDashboards: "ダッシュボードを折りたたむ",
       expandDashboards: "ダッシュボードを展開",
       collapseAnalyses: "分析を折りたたむ",
@@ -4205,6 +4293,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "API キーと認証情報はデータソースページで管理します。",
       manageDataSources: "データソースを管理",
+      dashboardTemplates: "ダッシュボードテンプレート",
+      dashboardTemplatesDescription:
+        "出発点が必要なときは、ソース管理されたダッシュボードをインストールします。",
+      openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
       about: "概要",
@@ -4251,6 +4343,9 @@ export const messagesByLocale = {
   }),
   "ko-KR": mergeMessages({
     ...analyticsSliceTranslations["ko-KR"],
+    root: {
+      whatsNew: "새로운 기능",
+    },
     navigation: {
       ask: "질문",
       overview: "개요",
@@ -4277,6 +4372,8 @@ export const messagesByLocale = {
       created: "{{date}} 생성됨",
     },
     sidebar: {
+      collapseSidebar: "사이드바 접기",
+      expandSidebar: "사이드바 펼치기",
       collapseDashboards: "대시보드 접기",
       expandDashboards: "대시보드 펼치기",
       collapseAnalyses: "분석 접기",
@@ -4382,6 +4479,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "API 키와 자격 증명은 데이터 소스 페이지에서 관리합니다.",
       manageDataSources: "데이터 소스 관리",
+      dashboardTemplates: "대시보드 템플릿",
+      dashboardTemplatesDescription:
+        "시작점이 필요할 때 소스 제어된 대시보드를 설치하세요.",
+      openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
       about: "정보",
@@ -4427,6 +4528,9 @@ export const messagesByLocale = {
   }),
   "pt-BR": mergeMessages({
     ...analyticsSliceTranslations["pt-BR"],
+    root: {
+      whatsNew: "Novidades",
+    },
     navigation: {
       ask: "Perguntar",
       overview: "Visão geral",
@@ -4453,6 +4557,8 @@ export const messagesByLocale = {
       created: "Criado em {{date}}",
     },
     sidebar: {
+      collapseSidebar: "Recolher barra lateral",
+      expandSidebar: "Expandir barra lateral",
       collapseDashboards: "Recolher dashboards",
       expandDashboards: "Expandir dashboards",
       collapseAnalyses: "Recolher análises",
@@ -4560,6 +4666,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "Chaves de API e credenciais são gerenciadas na página Fontes de dados.",
       manageDataSources: "Gerenciar fontes de dados",
+      dashboardTemplates: "Modelos de dashboard",
+      dashboardTemplatesDescription:
+        "Instale um dashboard controlado por código-fonte quando precisar de um ponto de partida.",
+      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
       about: "Sobre",
@@ -4608,6 +4718,9 @@ export const messagesByLocale = {
   }),
   "hi-IN": mergeMessages({
     ...analyticsSliceTranslations["hi-IN"],
+    root: {
+      whatsNew: "नया क्या है",
+    },
     navigation: {
       ask: "पूछें",
       overview: "अवलोकन",
@@ -4634,6 +4747,8 @@ export const messagesByLocale = {
       created: "{{date}} को बनाया गया",
     },
     sidebar: {
+      collapseSidebar: "साइडबार समेटें",
+      expandSidebar: "साइडबार फैलाएं",
       collapseDashboards: "डैशबोर्ड समेटें",
       expandDashboards: "डैशबोर्ड फैलाएं",
       collapseAnalyses: "विश्लेषण समेटें",
@@ -4736,6 +4851,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "API कुंजियां और क्रेडेंशियल डेटा स्रोत पेज पर प्रबंधित होते हैं।",
       manageDataSources: "डेटा स्रोत प्रबंधित करें",
+      dashboardTemplates: "डैशबोर्ड टेम्पलेट",
+      dashboardTemplatesDescription:
+        "जब आपको शुरुआत का आधार चाहिए, तो स्रोत-नियंत्रित डैशबोर्ड इंस्टॉल करें।",
+      openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
       about: "परिचय",
@@ -4782,6 +4901,9 @@ export const messagesByLocale = {
   }),
   "ar-SA": mergeMessages({
     ...analyticsSliceTranslations["ar-SA"],
+    root: {
+      whatsNew: "ما الجديد",
+    },
     navigation: {
       ask: "اسأل",
       overview: "نظرة عامة",
@@ -4808,6 +4930,8 @@ export const messagesByLocale = {
       created: "تم الإنشاء في {{date}}",
     },
     sidebar: {
+      collapseSidebar: "طي الشريط الجانبي",
+      expandSidebar: "توسيع الشريط الجانبي",
       collapseDashboards: "طي لوحات المعلومات",
       expandDashboards: "توسيع لوحات المعلومات",
       collapseAnalyses: "طي التحليلات",
@@ -4910,6 +5034,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "تتم إدارة مفاتيح API وبيانات الاعتماد من صفحة مصادر البيانات.",
       manageDataSources: "إدارة مصادر البيانات",
+      dashboardTemplates: "قوالب لوحات المعلومات",
+      dashboardTemplatesDescription:
+        "ثبّت لوحة معلومات مضبوطة في المصدر عندما تحتاج إلى نقطة بداية.",
+      openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
       about: "حول",
@@ -7060,7 +7188,46 @@ const translatedSessionReplayTranslations = {
       sessions: "会话 - Analytics",
       session: "会话回放 - Analytics",
     },
+    settings: {
+      replayStorage: "会话回放存储",
+      replayStorageDescription:
+        "会话回放录制需要配置文件上传服务商。可连接 Builder.io 使用免费层对象存储，或使用您自己的 S3 兼容存储桶。",
+      connected: "已连接",
+      connectBuilder: "连接 Builder.io",
+      checkingBuilder: "正在检查 Builder.io...",
+      builderConnected: "Builder.io 已连接",
+      builderConnectedToast: "Builder.io 已连接",
+      builderConnectedFor: "已连接到 {{orgName}}。",
+      builderConnectedGeneric: "回放片段已存储在 Builder.io。",
+      builderIncludes: "Builder.io 的免费层包含用于存储回放片段的对象存储。",
+      s3Title: "S3 兼容存储",
+      secondary: "备用",
+      active: "已启用",
+      s3BuilderConnectedDescription:
+        "可选。使用您自己的存储桶替代 Builder.io 存储。",
+      s3CurrentProvider: "当前服务商：{{providerName}}。",
+      s3OwnBucketDescription:
+        "AWS S3、Cloudflare R2、DigitalOcean Spaces、MinIO 或任何 S3 兼容服务。",
+      configureS3: "配置 S3",
+      hideS3: "隐藏",
+      s3EndpointLabel: "端点 URL",
+      s3BucketLabel: "存储桶名称",
+      s3AccessKeyLabel: "访问密钥 ID",
+      s3SecretAccessKeyLabel: "私有访问密钥",
+      s3RegionLabel: "区域（可选）",
+      s3PublicBaseUrlLabel: "公共基础 URL（可选）",
+      saveStorage: "保存存储设置",
+      storageRequired: "请填写必填的存储字段。",
+      storageSaved: "存储设置已保存。",
+      storageSaveFailed: "无法保存存储设置。",
+    },
     sessions: {
+      storageSetupTitle: "连接回放存储",
+      storageSetupDescription:
+        "保存会话回放录制片段前需要先配置存储。可连接 Builder.io 使用免费层存储，或配置您自己的 S3 兼容存储桶。",
+      storageConnected: "存储已连接",
+      connectBuilder: "使用 Builder.io（免费）",
+      configureS3: "配置 S3 存储",
       title: "会话",
       description:
         "查看 Agent Native Analytics 捕获的第一方浏览器会话和回放记录。",
@@ -7135,7 +7302,49 @@ const translatedSessionReplayTranslations = {
       sessions: "Sesiones - Analytics",
       session: "Reproducción de sesión - Analytics",
     },
+    settings: {
+      replayStorage: "Almacenamiento de repeticiones de sesión",
+      replayStorageDescription:
+        "Las grabaciones de repetición de sesión necesitan un proveedor de subida de archivos configurado. Conecta Builder.io para usar almacenamiento de objetos de nivel gratuito o usa tu propio bucket compatible con S3.",
+      connected: "Conectado",
+      connectBuilder: "Conectar Builder.io",
+      checkingBuilder: "Comprobando Builder.io...",
+      builderConnected: "Builder.io conectado",
+      builderConnectedToast: "Builder.io conectado",
+      builderConnectedFor: "Conectado a {{orgName}}.",
+      builderConnectedGeneric:
+        "Los fragmentos de repetición se almacenan con Builder.io.",
+      builderIncludes:
+        "El nivel gratuito de Builder.io incluye almacenamiento de objetos para los fragmentos de repetición.",
+      s3Title: "Almacenamiento compatible con S3",
+      secondary: "Secundario",
+      active: "Activo",
+      s3BuilderConnectedDescription:
+        "Opcional. Usa tu propio bucket en lugar del almacenamiento de Builder.io.",
+      s3CurrentProvider: "Proveedor actual: {{providerName}}.",
+      s3OwnBucketDescription:
+        "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO o cualquier servicio compatible con S3.",
+      configureS3: "Configurar S3",
+      hideS3: "Ocultar",
+      s3EndpointLabel: "URL del endpoint",
+      s3BucketLabel: "Nombre del bucket",
+      s3AccessKeyLabel: "ID de clave de acceso",
+      s3SecretAccessKeyLabel: "Clave de acceso secreta",
+      s3RegionLabel: "Región (opcional)",
+      s3PublicBaseUrlLabel: "URL base pública (opcional)",
+      saveStorage: "Guardar almacenamiento",
+      storageRequired: "Introduce los campos de almacenamiento obligatorios.",
+      storageSaved: "Configuración de almacenamiento guardada.",
+      storageSaveFailed:
+        "No se pudo guardar la configuración de almacenamiento.",
+    },
     sessions: {
+      storageSetupTitle: "Conectar almacenamiento de repeticiones",
+      storageSetupDescription:
+        "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Conecta Builder.io para usar almacenamiento de nivel gratuito o configura tu propio bucket compatible con S3.",
+      storageConnected: "Almacenamiento conectado",
+      connectBuilder: "Usar Builder.io (gratis)",
+      configureS3: "Configurar almacenamiento S3",
       title: "Sesiones",
       description:
         "Revisa sesiones de navegador propias y grabaciones de reproducción capturadas por Agent Native Analytics.",
@@ -7212,7 +7421,48 @@ const translatedSessionReplayTranslations = {
       sessions: "Liste des sessions - Analytics",
       session: "Relecture de session - Analytics",
     },
+    settings: {
+      replayStorage: "Stockage des relectures de session",
+      replayStorageDescription:
+        "Les enregistrements de relecture de session nécessitent un fournisseur d'envoi de fichiers configuré. Connectez Builder.io pour un stockage d'objets en formule gratuite, ou utilisez votre propre bucket compatible S3.",
+      connected: "Connecté",
+      connectBuilder: "Connecter Builder.io",
+      checkingBuilder: "Vérification de Builder.io...",
+      builderConnected: "Builder.io connecté",
+      builderConnectedToast: "Builder.io connecté",
+      builderConnectedFor: "Connecté à {{orgName}}.",
+      builderConnectedGeneric:
+        "Les fragments de relecture sont stockés avec Builder.io.",
+      builderIncludes:
+        "La formule gratuite de Builder.io inclut un stockage d'objets pour les fragments de relecture.",
+      s3Title: "Stockage compatible S3",
+      secondary: "Secondaire",
+      active: "Actif",
+      s3BuilderConnectedDescription:
+        "Facultatif. Utilisez votre propre bucket au lieu du stockage Builder.io.",
+      s3CurrentProvider: "Fournisseur actuel : {{providerName}}.",
+      s3OwnBucketDescription:
+        "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO ou tout autre service compatible S3.",
+      configureS3: "Configurer S3",
+      hideS3: "Masquer",
+      s3EndpointLabel: "URL du point de terminaison",
+      s3BucketLabel: "Nom du bucket",
+      s3AccessKeyLabel: "ID de clé d'accès",
+      s3SecretAccessKeyLabel: "Clé d'accès secrète",
+      s3RegionLabel: "Région (facultatif)",
+      s3PublicBaseUrlLabel: "URL de base publique (facultatif)",
+      saveStorage: "Enregistrer le stockage",
+      storageRequired: "Renseignez les champs de stockage obligatoires.",
+      storageSaved: "Paramètres de stockage enregistrés.",
+      storageSaveFailed: "Impossible d'enregistrer les paramètres de stockage.",
+    },
     sessions: {
+      storageSetupTitle: "Connecter le stockage des relectures",
+      storageSetupDescription:
+        "Les enregistrements de relecture de session nécessitent un espace de stockage avant de pouvoir sauvegarder les fragments. Connectez Builder.io pour un stockage en formule gratuite, ou configurez votre propre bucket compatible S3.",
+      storageConnected: "Stockage connecté",
+      connectBuilder: "Utiliser Builder.io (gratuit)",
+      configureS3: "Configurer le stockage S3",
       title: "Sessions",
       description:
         "Consultez les sessions de navigateur first-party et les enregistrements de relecture capturés par Agent Native Analytics.",
@@ -7290,7 +7540,49 @@ const translatedSessionReplayTranslations = {
       sessions: "Sitzungen - Analytics",
       session: "Sitzungswiedergabe - Analytics",
     },
+    settings: {
+      replayStorage: "Speicher für Sitzungswiedergabe",
+      replayStorageDescription:
+        "Aufzeichnungen der Sitzungswiedergabe benötigen einen konfigurierten Datei-Upload-Anbieter. Verbinden Sie Builder.io für Objektspeicher im kostenlosen Kontingent oder verwenden Sie Ihren eigenen S3-kompatiblen Bucket.",
+      connected: "Verbunden",
+      connectBuilder: "Builder.io verbinden",
+      checkingBuilder: "Builder.io wird geprüft …",
+      builderConnected: "Builder.io verbunden",
+      builderConnectedToast: "Builder.io verbunden",
+      builderConnectedFor: "Verbunden mit {{orgName}}.",
+      builderConnectedGeneric:
+        "Wiedergabe-Chunks werden bei Builder.io gespeichert.",
+      builderIncludes:
+        "Das kostenlose Kontingent von Builder.io umfasst Objektspeicher für Wiedergabe-Chunks.",
+      s3Title: "S3-kompatibler Speicher",
+      secondary: "Sekundär",
+      active: "Aktiv",
+      s3BuilderConnectedDescription:
+        "Optional. Verwenden Sie Ihren eigenen Bucket anstelle des Builder.io-Speichers.",
+      s3CurrentProvider: "Aktueller Anbieter: {{providerName}}.",
+      s3OwnBucketDescription:
+        "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO oder ein beliebiger S3-kompatibler Dienst.",
+      configureS3: "S3 konfigurieren",
+      hideS3: "Ausblenden",
+      s3EndpointLabel: "Endpunkt-URL",
+      s3BucketLabel: "Bucket-Name",
+      s3AccessKeyLabel: "Access Key ID",
+      s3SecretAccessKeyLabel: "Secret Access Key",
+      s3RegionLabel: "Region (optional)",
+      s3PublicBaseUrlLabel: "Öffentliche Basis-URL (optional)",
+      saveStorage: "Speicher sichern",
+      storageRequired: "Geben Sie die erforderlichen Speicherfelder ein.",
+      storageSaved: "Speichereinstellungen gesichert.",
+      storageSaveFailed:
+        "Speichereinstellungen konnten nicht gesichert werden.",
+    },
     sessions: {
+      storageSetupTitle: "Wiedergabe-Speicher verbinden",
+      storageSetupDescription:
+        "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Verbinden Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
+      storageConnected: "Speicher verbunden",
+      connectBuilder: "Builder.io verwenden (kostenlos)",
+      configureS3: "S3-Speicher konfigurieren",
       title: "Sitzungen",
       description:
         "Prüfe First-Party-Browsersitzungen und Wiedergabeaufzeichnungen aus Agent Native Analytics.",
@@ -7367,7 +7659,47 @@ const translatedSessionReplayTranslations = {
       sessions: "セッション - Analytics",
       session: "セッションリプレイ - Analytics",
     },
+    settings: {
+      replayStorage: "セッションリプレイのストレージ",
+      replayStorageDescription:
+        "セッションリプレイの録画には、ファイルアップロードプロバイダーの設定が必要です。Builder.io の無料枠オブジェクトストレージを接続するか、独自の S3 互換バケットをご利用ください。",
+      connected: "接続済み",
+      connectBuilder: "Builder.io を接続",
+      checkingBuilder: "Builder.io を確認中...",
+      builderConnected: "Builder.io 接続済み",
+      builderConnectedToast: "Builder.io を接続しました",
+      builderConnectedFor: "{{orgName}} に接続しました。",
+      builderConnectedGeneric: "リプレイチャンクは Builder.io に保存されます。",
+      builderIncludes:
+        "Builder.io の無料枠には、リプレイチャンク用のオブジェクトストレージが含まれます。",
+      s3Title: "S3 互換ストレージ",
+      secondary: "セカンダリ",
+      active: "有効",
+      s3BuilderConnectedDescription:
+        "任意。Builder.io ストレージの代わりに独自のバケットを使用します。",
+      s3CurrentProvider: "現在のプロバイダー: {{providerName}}。",
+      s3OwnBucketDescription:
+        "AWS S3、Cloudflare R2、DigitalOcean Spaces、MinIO など、任意の S3 互換サービス。",
+      configureS3: "S3 を設定",
+      hideS3: "非表示",
+      s3EndpointLabel: "エンドポイント URL",
+      s3BucketLabel: "バケット名",
+      s3AccessKeyLabel: "アクセスキー ID",
+      s3SecretAccessKeyLabel: "シークレットアクセスキー",
+      s3RegionLabel: "リージョン（任意）",
+      s3PublicBaseUrlLabel: "公開ベース URL（任意）",
+      saveStorage: "ストレージを保存",
+      storageRequired: "必須のストレージ項目を入力してください。",
+      storageSaved: "ストレージ設定を保存しました。",
+      storageSaveFailed: "ストレージ設定を保存できませんでした。",
+    },
     sessions: {
+      storageSetupTitle: "リプレイストレージを接続",
+      storageSetupDescription:
+        "セッションリプレイの録画を保存するには、まずストレージが必要です。Builder.io の無料枠ストレージを接続するか、独自の S3 互換バケットを設定してください。",
+      storageConnected: "ストレージ接続済み",
+      connectBuilder: "Builder.io を使う（無料）",
+      configureS3: "S3 ストレージを設定",
       title: "セッション",
       description:
         "Agent Native Analytics が取得したファーストパーティのブラウザーセッションとリプレイ記録を確認します。",
@@ -7444,7 +7776,47 @@ const translatedSessionReplayTranslations = {
       sessions: "세션 - Analytics",
       session: "세션 리플레이 - Analytics",
     },
+    settings: {
+      replayStorage: "세션 재생 저장소",
+      replayStorageDescription:
+        "세션 재생 녹화에는 파일 업로드 제공자 구성이 필요합니다. 무료 등급 객체 저장소를 사용하려면 Builder.io를 연결하거나, 직접 S3 호환 버킷을 사용하세요.",
+      connected: "연결됨",
+      connectBuilder: "Builder.io 연결",
+      checkingBuilder: "Builder.io 확인 중...",
+      builderConnected: "Builder.io 연결됨",
+      builderConnectedToast: "Builder.io 연결됨",
+      builderConnectedFor: "{{orgName}}에 연결되었습니다.",
+      builderConnectedGeneric: "재생 청크가 Builder.io에 저장됩니다.",
+      builderIncludes:
+        "Builder.io 무료 등급에는 재생 청크를 위한 객체 저장소가 포함되어 있습니다.",
+      s3Title: "S3 호환 저장소",
+      secondary: "보조",
+      active: "활성",
+      s3BuilderConnectedDescription:
+        "선택 사항입니다. Builder.io 저장소 대신 직접 버킷을 사용할 수 있습니다.",
+      s3CurrentProvider: "현재 제공자: {{providerName}}.",
+      s3OwnBucketDescription:
+        "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO 또는 모든 S3 호환 서비스.",
+      configureS3: "S3 구성",
+      hideS3: "숨기기",
+      s3EndpointLabel: "엔드포인트 URL",
+      s3BucketLabel: "버킷 이름",
+      s3AccessKeyLabel: "액세스 키 ID",
+      s3SecretAccessKeyLabel: "비밀 액세스 키",
+      s3RegionLabel: "리전 (선택 사항)",
+      s3PublicBaseUrlLabel: "공개 기본 URL (선택 사항)",
+      saveStorage: "저장소 저장",
+      storageRequired: "필수 저장소 항목을 입력하세요.",
+      storageSaved: "저장소 설정이 저장되었습니다.",
+      storageSaveFailed: "저장소 설정을 저장하지 못했습니다.",
+    },
     sessions: {
+      storageSetupTitle: "재생 저장소 연결",
+      storageSetupDescription:
+        "세션 재생 녹화를 저장하려면 먼저 저장소가 필요합니다. 무료 등급 저장소를 사용하려면 Builder.io를 연결하거나, 직접 S3 호환 버킷을 구성하세요.",
+      storageConnected: "저장소 연결됨",
+      connectBuilder: "Builder.io 사용 (무료)",
+      configureS3: "S3 저장소 구성",
       title: "세션",
       description:
         "Agent Native Analytics가 캡처한 퍼스트파티 브라우저 세션과 리플레이 기록을 검토합니다.",
@@ -7519,7 +7891,49 @@ const translatedSessionReplayTranslations = {
       sessions: "Sessões - Analytics",
       session: "Replay de sessão - Analytics",
     },
+    settings: {
+      replayStorage: "Armazenamento de replay de sessão",
+      replayStorageDescription:
+        "As gravações de replay de sessão precisam de um provedor de upload de arquivos configurado. Conecte o Builder.io para armazenamento de objetos no plano gratuito ou use seu próprio bucket compatível com S3.",
+      connected: "Conectado",
+      connectBuilder: "Conectar Builder.io",
+      checkingBuilder: "Verificando Builder.io...",
+      builderConnected: "Builder.io conectado",
+      builderConnectedToast: "Builder.io conectado",
+      builderConnectedFor: "Conectado a {{orgName}}.",
+      builderConnectedGeneric:
+        "Os fragmentos de replay são armazenados no Builder.io.",
+      builderIncludes:
+        "O plano gratuito do Builder.io inclui armazenamento de objetos para fragmentos de replay.",
+      s3Title: "Armazenamento compatível com S3",
+      secondary: "Secundário",
+      active: "Ativo",
+      s3BuilderConnectedDescription:
+        "Opcional. Use seu próprio bucket em vez do armazenamento do Builder.io.",
+      s3CurrentProvider: "Provedor atual: {{providerName}}.",
+      s3OwnBucketDescription:
+        "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO ou qualquer serviço compatível com S3.",
+      configureS3: "Configurar S3",
+      hideS3: "Ocultar",
+      s3EndpointLabel: "URL do endpoint",
+      s3BucketLabel: "Nome do bucket",
+      s3AccessKeyLabel: "ID da chave de acesso",
+      s3SecretAccessKeyLabel: "Chave de acesso secreta",
+      s3RegionLabel: "Região (opcional)",
+      s3PublicBaseUrlLabel: "URL base pública (opcional)",
+      saveStorage: "Salvar armazenamento",
+      storageRequired: "Preencha os campos obrigatórios de armazenamento.",
+      storageSaved: "Configurações de armazenamento salvas.",
+      storageSaveFailed:
+        "Não foi possível salvar as configurações de armazenamento.",
+    },
     sessions: {
+      storageSetupTitle: "Conectar armazenamento de replay",
+      storageSetupDescription:
+        "As gravações de replay de sessão precisam de armazenamento antes que os fragmentos possam ser salvos. Conecte o Builder.io para armazenamento no plano gratuito ou configure seu próprio bucket compatível com S3.",
+      storageConnected: "Armazenamento conectado",
+      connectBuilder: "Usar Builder.io (gratuito)",
+      configureS3: "Configurar armazenamento S3",
       title: "Sessões",
       description:
         "Revise sessões de navegador first-party e gravações de replay capturadas pelo Agent Native Analytics.",
@@ -7596,7 +8010,47 @@ const translatedSessionReplayTranslations = {
       sessions: "सत्र - Analytics",
       session: "सत्र रीप्ले - Analytics",
     },
+    settings: {
+      replayStorage: "सेशन रीप्ले स्टोरेज",
+      replayStorageDescription:
+        "सेशन रीप्ले रिकॉर्डिंग के लिए एक कॉन्फ़िगर किया गया फ़ाइल-अपलोड प्रोवाइडर ज़रूरी है। फ्री-टियर ऑब्जेक्ट स्टोरेज के लिए Builder.io कनेक्ट करें, या अपना खुद का S3-संगत बकेट इस्तेमाल करें।",
+      connected: "कनेक्ट हो गया",
+      connectBuilder: "Builder.io कनेक्ट करें",
+      checkingBuilder: "Builder.io जाँच रहे हैं...",
+      builderConnected: "Builder.io कनेक्ट हो गया",
+      builderConnectedToast: "Builder.io कनेक्ट हो गया",
+      builderConnectedFor: "{{orgName}} से कनेक्ट हो गया।",
+      builderConnectedGeneric: "रीप्ले चंक्स Builder.io के साथ स्टोर किए जाते हैं।",
+      builderIncludes:
+        "Builder.io के फ्री टियर में रीप्ले चंक्स के लिए ऑब्जेक्ट स्टोरेज शामिल है।",
+      s3Title: "S3-संगत स्टोरेज",
+      secondary: "सेकेंडरी",
+      active: "सक्रिय",
+      s3BuilderConnectedDescription:
+        "वैकल्पिक। Builder.io स्टोरेज के बजाय अपना खुद का बकेट इस्तेमाल करें।",
+      s3CurrentProvider: "मौजूदा प्रोवाइडर: {{providerName}}।",
+      s3OwnBucketDescription:
+        "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, या कोई भी S3-संगत सेवा।",
+      configureS3: "S3 कॉन्फ़िगर करें",
+      hideS3: "छिपाएँ",
+      s3EndpointLabel: "एंडपॉइंट URL",
+      s3BucketLabel: "बकेट का नाम",
+      s3AccessKeyLabel: "एक्सेस की ID",
+      s3SecretAccessKeyLabel: "सीक्रेट एक्सेस की",
+      s3RegionLabel: "रीजन (वैकल्पिक)",
+      s3PublicBaseUrlLabel: "पब्लिक बेस URL (वैकल्पिक)",
+      saveStorage: "स्टोरेज सेव करें",
+      storageRequired: "ज़रूरी स्टोरेज फ़ील्ड भरें।",
+      storageSaved: "स्टोरेज सेटिंग्स सेव हो गईं।",
+      storageSaveFailed: "स्टोरेज सेटिंग्स सेव नहीं हो सकीं।",
+    },
     sessions: {
+      storageSetupTitle: "रीप्ले स्टोरेज कनेक्ट करें",
+      storageSetupDescription:
+        "चंक्स सेव करने से पहले सेशन रीप्ले रिकॉर्डिंग के लिए स्टोरेज ज़रूरी है। फ्री-टियर स्टोरेज के लिए Builder.io कनेक्ट करें, या अपना खुद का S3-संगत बकेट कॉन्फ़िगर करें।",
+      storageConnected: "स्टोरेज कनेक्ट हो गया",
+      connectBuilder: "Builder.io इस्तेमाल करें (मुफ़्त)",
+      configureS3: "S3 स्टोरेज कॉन्फ़िगर करें",
       title: "सत्र",
       description:
         "Agent Native Analytics द्वारा कैप्चर किए गए प्रथम-पक्ष ब्राउज़र सत्र और रीप्ले रिकॉर्डिंग देखें।",
@@ -7671,7 +8125,47 @@ const translatedSessionReplayTranslations = {
       sessions: "الجلسات - Analytics",
       session: "إعادة تشغيل الجلسة - Analytics",
     },
+    settings: {
+      replayStorage: "تخزين إعادة عرض الجلسات",
+      replayStorageDescription:
+        "تحتاج تسجيلات إعادة عرض الجلسات إلى مزوّد مُهيّأ لرفع الملفات. اربط Builder.io للحصول على تخزين كائنات بالباقة المجانية، أو استخدم حاوية متوافقة مع S3 خاصة بك.",
+      connected: "متصل",
+      connectBuilder: "ربط Builder.io",
+      checkingBuilder: "جارٍ التحقق من Builder.io...",
+      builderConnected: "تم ربط Builder.io",
+      builderConnectedToast: "تم ربط Builder.io",
+      builderConnectedFor: "متصل بـ {{orgName}}.",
+      builderConnectedGeneric: "تُخزَّن أجزاء التسجيلات لدى Builder.io.",
+      builderIncludes:
+        "تتضمن الباقة المجانية من Builder.io تخزين كائنات لأجزاء التسجيلات.",
+      s3Title: "تخزين متوافق مع S3",
+      secondary: "ثانوي",
+      active: "نشط",
+      s3BuilderConnectedDescription:
+        "اختياري. استخدم حاويتك الخاصة بدلاً من تخزين Builder.io.",
+      s3CurrentProvider: "المزوّد الحالي: {{providerName}}.",
+      s3OwnBucketDescription:
+        "AWS S3 أو Cloudflare R2 أو DigitalOcean Spaces أو MinIO أو أي خدمة متوافقة مع S3.",
+      configureS3: "تهيئة S3",
+      hideS3: "إخفاء",
+      s3EndpointLabel: "عنوان URL لنقطة النهاية",
+      s3BucketLabel: "اسم الحاوية",
+      s3AccessKeyLabel: "معرّف مفتاح الوصول",
+      s3SecretAccessKeyLabel: "مفتاح الوصول السري",
+      s3RegionLabel: "المنطقة (اختياري)",
+      s3PublicBaseUrlLabel: "عنوان URL الأساسي العام (اختياري)",
+      saveStorage: "حفظ مساحة التخزين",
+      storageRequired: "أدخل حقول التخزين المطلوبة.",
+      storageSaved: "تم حفظ إعدادات التخزين.",
+      storageSaveFailed: "تعذّر حفظ إعدادات التخزين.",
+    },
     sessions: {
+      storageSetupTitle: "ربط مساحة تخزين التسجيلات",
+      storageSetupDescription:
+        "تحتاج تسجيلات إعادة عرض الجلسات إلى مساحة تخزين قبل أن يتسنى حفظ الأجزاء. اربط Builder.io للحصول على تخزين بالباقة المجانية، أو هيّئ حاوية متوافقة مع S3 خاصة بك.",
+      storageConnected: "تم ربط مساحة التخزين",
+      connectBuilder: "استخدام Builder.io (مجاناً)",
+      configureS3: "تهيئة تخزين S3",
       title: "الجلسات",
       description:
         "راجع جلسات المتصفح من الطرف الأول وتسجيلات إعادة التشغيل التي يلتقطها Agent Native Analytics.",

@@ -291,6 +291,81 @@ describe("buildPublicAgentContext", () => {
     expect(context.recommendedFrames.length).toBeGreaterThan(0);
   });
 
+  it("tells agents to wait and retry while a transcript is pending", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: {
+        status: "pending",
+        failureReason: null,
+        language: null,
+        fullText: "",
+      } as any,
+      agentSegments: [],
+      chapters: [],
+      ctas: [],
+    });
+
+    expect(context.transcript.status).toBe("pending");
+    expect(context.transcript.failureReason).toBe(null);
+    expect(context.transcript.retryAfterSeconds).toBe(15);
+    expect(context.instructions.join(" ")).toMatch(/wait 15-30 seconds/i);
+    expect(context.instructions.join(" ")).toMatch(
+      /fetch apis\.context\.url or apis\.transcript\.url again/i,
+    );
+  });
+
+  it("tells agents how to explain exhausted Builder transcription credits", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: {
+        status: "failed",
+        failureReason:
+          "Builder transcription credits exhausted. Upgrade your Builder.io plan or configure another supported fallback.",
+        language: null,
+        fullText: "",
+      } as any,
+      agentSegments: [],
+      chapters: [],
+      ctas: [],
+    });
+
+    expect(context.transcript.status).toBe("failed");
+    expect(context.transcript.failureReason).toMatch(/credits exhausted/i);
+    expect(context.instructions.join(" ")).toMatch(
+      /Builder transcription credits are exhausted/i,
+    );
+    expect(context.instructions.join(" ")).toMatch(
+      /Groq key for backup speech-to-text/i,
+    );
+    expect(context.instructions.join(" ")).toMatch(
+      /OpenAI or Anthropic chat keys do not transcribe/i,
+    );
+  });
+
   it("exposes compact redacted browser diagnostics in public agent context", () => {
     const context = buildPublicAgentContext({
       event: {

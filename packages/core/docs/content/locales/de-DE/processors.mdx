@@ -1,0 +1,143 @@
+---
+title: "In-Loop-Prozessoren"
+description: "Schleifeninterne Beobachter-/Leitplanken-Hooks, die die gestreamte Ausgabe und die Werkzeugaufrufe des Modells während der Ausführung überwachen und abbrechen können – die Nahtstelle für Echtzeit-Leitplanken und Proof-of-Done-Gates."
+---
+
+# In-Loop-Prozessoren
+
+Ein `Processor` ist ein schleifeninterner **Beobachter/Leitplanke** für den Agentenlauf. Es überwacht die gestreamte Ausgabe des Modells und die von ihm aufgerufenen Tool-Anfragen _während der Ausführung fortschreitet_, behält seinen eigenen Scratch-Status bei und kann die Ausführung **abbrechen**, bevor ein „Fertig“-Status beansprucht wird. Dies ist die strukturelle Voraussetzung für Echtzeit-Leitlinien (Blockieren unzulässiger Ausgaben mitten im Stream) und ein Proof-of-Done/Coverage-Gate (überprüfen, was das Modell tun wird, und anhalten).
+
+<Diagram id="doc-block-fvp37q" title="Wo die drei Haken im Lauf feuern" summary={"processOutputStream überwacht jeden Block, processOutputStep steuert Tool-Aufrufe pro Antwort, processOutputResult zeichnet am Ende ein Urteil auf. Jeder Hook kann mit einem TripWire abgebrochen werden."}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — Tool-Aufrufe prüfen</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted"
+      >processOutputResult — Urteil</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
+}
+```
+
+</Diagram>
+
+> [!WARNING]
+> Ein Prozessor ist eine **Konfiguration**, kein Werkzeug, keine Aktion und kein Authoring DSL. Prozessoren beobachten nur, verändern ihren eigenen Stream-Scope-Status und `abort()`. Sie definieren niemals das App-Verhalten, ersetzen actions oder erscheinen im Modell. App-Vorgänge gehören zu [actions](/docs/actions).
+
+## Die Haken {#hooks}
+
+Ein Prozessor implementiert eine beliebige Teilmenge von drei optionalen Lebenszyklus-Hooks (die Form ist von den Ausgabeprozessoren von Mastra übernommen):
+
+| Haken                 | Brände…                                                                | Verwenden Sie es, um…                                                      |
+| --------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `processOutputStream` | pro gestreamtem Block (Text-/Denkdeltas), während das Modell generiert | reagieren Sie auf die Ausgabe, bevor die volle Runde erreicht ist          |
+| `processOutputStep`   | einmal pro Modellantwort, rund um die Toolausführung                   | Überprüfen Sie die Toolaufrufe, die das Modell ausführen soll. Tor sie ein |
+| `processOutputResult` | einmal am Ende des Laufs, mit dem endgültigen Assistententext          | Zeichnen Sie ein Urteil/einen Nachweis über die vollständige Antwort auf   |
+
+Jeder Prozessor erhält sein eigenes veränderbares, laufbereichsbezogenes `state`-Objekt, das bei jedem seiner Hook-Aufrufe innerhalb eines einzelnen Laufs bestehen bleibt und vom Status anderer Prozessoren **isoliert** ist.
+
+```ts
+import type { Processor } from "@agent-native/core";
+
+const noSecretsInOutput: Processor = {
+  name: "no-secrets",
+  processOutputStream({ part, abort }) {
+    if (part.type === "text" && /sk-live_/.test(part.text)) {
+      abort("Model attempted to emit a live secret token.", {
+        kind: "secret-leak",
+      });
+    }
+  },
+};
+
+const coverageGate: Processor = {
+  name: "proof-of-done",
+  processOutputStep({ toolCalls, state }) {
+    // Track what the model has actually done this run...
+    for (const call of toolCalls) {
+      (state.ran ??= new Set<string>()).add(call.name);
+    }
+  },
+  processOutputResult({ text, state }) {
+    // ...and record a verdict over the final answer.
+    const ran = state.ran as Set<string> | undefined;
+    state.verdict = ran?.has("run-tests") ? "verified" : "unverified";
+  },
+};
+```
+
+## Abbruch mit `TripWire` {#tripwire}
+
+Ein Hook stoppt die Ausführung durch den Aufruf von `abort(reason, meta?)`, der ein **`TripWire`** auslöst. Die Schleife fängt es ab, gibt ein einzelnes **`tripwire`-Ereignis** aus, stoppt sauber und zeigt den Grund als letzte Assistentenmeldung an.
+
+```ts
+import { TripWire } from "@agent-native/core";
+```
+
+Das `tripwire`-Ereignis trägt:
+
+| Feld        | Typ      | Notizen                                                                    |
+| ----------- | -------- | -------------------------------------------------------------------------- |
+| `reason`    | `string` | Der für Menschen lesbare Grund, der an `abort` übergeben wird.             |
+| `processor` | `string` | Name des Prozessors, der abgebrochen hat, als er einen `name` deklarierte. |
+
+`TripWire` trägt auch optional strukturiertes `meta` und den ursprünglichen `processor`-Namen für programmatische Verbraucher, die ihn `instanceof`-prüfen. Da ein Stopp ordnungsgemäß erfolgt, feuert `processOutputResult` weiterhin auf den (angehaltenen) endgültigen Text, sodass ein Proof-of-Done-Prozessor sein Urteil auch dann aufzeichnen kann, wenn der Lauf abgebrochen wurde.
+
+## Verkabelung von Prozessoren {#wiring}
+
+Prozessoren werden im Code über das `processors`-Array auf `runAgentLoop` konfiguriert:
+
+```ts
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  messages,
+  actions,
+  send,
+  signal,
+  processors: [noSecretsInOutput, coverageGate],
+});
+```
+
+**Kein Overhead, wenn nicht verwendet.** Die Schleife baut die Prozessorkette nur auf, wenn mindestens ein Prozessor bereitgestellt wird; Wenn `processors` weggelassen oder leer ist, wird keiner der Nahtcodes ausgeführt und die Schleife bleibt Byte für Byte unverändert. Hooks werden in der Reihenfolge der Registrierung ausgeführt und können synchron oder asynchron sein.
+
+> [!NOTE]
+> Der Loop-Level-Seam ist heute lieferbar und kann direkt von Subagenten, A2A, MCP und Tests aufgerufen werden. Das Einfädeln von `processors` durch den HTTP-Chat-Handler (damit ein Pro-Request-Resolver sie konfigurieren kann, ohne `runAgentLoop` direkt aufzurufen) ist eine praktische Installation, die noch nicht verkabelt ist – konfigurieren Sie Prozessoren vorerst an der `runAgentLoop`-Aufrufseite.
+
+## Verwandt
+
+- [**Durable Resume**](/docs/durable-resume) – wie die Schleife Unterbrechungen übersteht, ohne abgeschlossene Nebenwirkungen erneut auszuführen.
+- [**Custom Agents & Teams**](/docs/agent-teams) – Subagenten führen dieselbe Schleife aus und können ihre eigenen Prozessoren tragen.
+- [**Observability**](/docs/observability) – Prozessorurteile neben Ausführungsspuren aufzeichnen.

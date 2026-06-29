@@ -27,6 +27,7 @@ type ReportSnapshot = {
   description?: string;
   filters: Record<string, string>;
   dashboardUrl: string;
+  reportSettingsUrl: string;
   generatedAt: string;
 };
 
@@ -38,7 +39,18 @@ const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
 const DEFAULT_SERVERLESS_CHROMIUM_PACK_URL =
   "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
 const DASHBOARD_REPORT_SCREENSHOT_PARAM = "reportScreenshot";
+const DASHBOARD_REPORT_SETTINGS_PARAM = "reportSettings";
 const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
+const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
+const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 25_000;
+const SERVERLESS_SECOND_READY_TIMEOUT_MS = 10_000;
+const MAX_SCREENSHOT_VIEWPORT_HEIGHT = 30_000;
+const SCREENSHOT_VIEWPORT_PADDING = 64;
+
+type DashboardScreenshotAttempt = {
+  label: "full" | "full-lightweight";
+  viewport: { width: number; height: number };
+};
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -104,7 +116,10 @@ function dashboardBaseUrl(): string {
 function buildDashboardPath(
   dashboardId: string,
   filters: Record<string, string>,
-  options?: { reportScreenshot?: boolean },
+  options?: {
+    reportScreenshot?: boolean;
+    reportSettings?: boolean;
+  },
 ): string {
   const url = new URL(
     `/dashboards/${encodeURIComponent(dashboardId)}`,
@@ -116,13 +131,19 @@ function buildDashboardPath(
   if (options?.reportScreenshot) {
     url.searchParams.set(DASHBOARD_REPORT_SCREENSHOT_PARAM, "1");
   }
+  if (options?.reportSettings) {
+    url.searchParams.set(DASHBOARD_REPORT_SETTINGS_PARAM, "1");
+  }
   return `${url.pathname}${url.search}`;
 }
 
 function buildDashboardUrl(
   dashboardId: string,
   filters: Record<string, string>,
-  options?: { reportScreenshot?: boolean },
+  options?: {
+    reportScreenshot?: boolean;
+    reportSettings?: boolean;
+  },
 ): string {
   const path = buildDashboardPath(dashboardId, filters, options);
   const url = new URL(path, `${dashboardBaseUrl()}/`);
@@ -162,6 +183,9 @@ async function collectReportSnapshot(
     description: config.description,
     filters,
     dashboardUrl: buildDashboardUrl(sub.dashboardId, filters),
+    reportSettingsUrl: buildDashboardUrl(sub.dashboardId, filters, {
+      reportSettings: true,
+    }),
     generatedAt: new Date().toISOString(),
   };
 }
@@ -224,7 +248,16 @@ async function launchScreenshotBrowser() {
   return playwright.launch({ headless: true });
 }
 
-async function waitForDashboardReportReady(page: any): Promise<void> {
+function screenshotTimeoutMs(): number {
+  return isServerlessBrowserRuntime()
+    ? SERVERLESS_SCREENSHOT_TIMEOUT_MS
+    : LOCAL_SCREENSHOT_TIMEOUT_MS;
+}
+
+async function waitForDashboardReportReady(
+  page: any,
+  timeout: number,
+): Promise<void> {
   try {
     await page.waitForFunction(
       `(() => {
@@ -236,7 +269,7 @@ async function waitForDashboardReportReady(page: any): Promise<void> {
         return !root.querySelector("[data-dashboard-report-loading='true']");
       })()`,
       undefined,
-      { timeout: 90_000 },
+      { timeout },
     );
     await page.evaluate(`(async () => {
       await document.fonts?.ready;
@@ -278,9 +311,48 @@ async function scrollDashboardForLazyRendering(page: any): Promise<void> {
   })()`);
 }
 
+async function fitViewportToDashboardCapture(
+  page: any,
+  capture: any,
+  minViewport: { width: number; height: number },
+): Promise<void> {
+  const box = await capture.boundingBox();
+  if (!box) return;
+
+  const size = {
+    width: Math.max(
+      minViewport.width,
+      Math.min(1800, Math.ceil(box.width + SCREENSHOT_VIEWPORT_PADDING)),
+    ),
+    height: Math.max(
+      minViewport.height,
+      Math.min(
+        MAX_SCREENSHOT_VIEWPORT_HEIGHT,
+        Math.ceil(box.height + SCREENSHOT_VIEWPORT_PADDING),
+      ),
+    ),
+  };
+  await page.setViewportSize(size);
+  await page.waitForTimeout(250);
+
+  const resizedBox = await capture.boundingBox();
+  if (!resizedBox) return;
+  const resizedHeight = Math.ceil(
+    resizedBox.height + SCREENSHOT_VIEWPORT_PADDING,
+  );
+  if (resizedHeight > size.height) {
+    await page.setViewportSize({
+      width: size.width,
+      height: Math.min(MAX_SCREENSHOT_VIEWPORT_HEIGHT, resizedHeight),
+    });
+    await page.waitForTimeout(250);
+  }
+}
+
 async function captureDashboardPng(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
+  attempt: DashboardScreenshotAttempt,
 ): Promise<Buffer> {
   const targetPath = buildDashboardPath(
     snapshot.dashboardId,
@@ -302,30 +374,33 @@ async function captureDashboardPng(
 
   const browser = await launchScreenshotBrowser();
   try {
+    const timeout = screenshotTimeoutMs();
     const page = await browser.newPage({
-      viewport: { width: 1440, height: 1800 },
+      viewport: attempt.viewport,
       deviceScaleFactor: 1,
     });
-    page.setDefaultTimeout(90_000);
-    await page.emulateMedia({ media: "screen" });
+    page.setDefaultTimeout(timeout);
+    await page.emulateMedia({ media: "screen", colorScheme: "light" });
+    await page.addInitScript(() => {
+      window.localStorage.setItem("theme", "light");
+    });
     await page.goto(screenshotUrl.toString(), {
       waitUntil: "domcontentloaded",
-      timeout: 90_000,
+      timeout,
     });
 
     const capture = page.locator("[data-dashboard-report-capture]");
-    await capture.waitFor({ state: "visible", timeout: 90_000 });
-    await waitForDashboardReportReady(page);
+    await capture.waitFor({ state: "visible", timeout });
+    await waitForDashboardReportReady(page, timeout);
     await scrollDashboardForLazyRendering(page);
-    await waitForDashboardReportReady(page);
+    await waitForDashboardReportReady(
+      page,
+      isServerlessBrowserRuntime()
+        ? SERVERLESS_SECOND_READY_TIMEOUT_MS
+        : timeout,
+    );
 
-    const box = await capture.boundingBox();
-    if (box) {
-      await page.setViewportSize({
-        width: Math.max(1200, Math.min(1800, Math.ceil(box.width + 64))),
-        height: Math.max(1000, Math.min(7000, Math.ceil(box.height + 64))),
-      });
-    }
+    await fitViewportToDashboardCapture(page, capture, attempt.viewport);
     await capture.scrollIntoViewIfNeeded();
     const image = await capture.screenshot({
       type: "png",
@@ -340,6 +415,42 @@ async function captureDashboardPng(
   }
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function captureDashboardPngWithFallback(
+  sub: DashboardReportSubscription,
+  snapshot: ReportSnapshot,
+): Promise<{
+  png: Buffer | null;
+  mode: "full" | "full-lightweight" | "none";
+  error?: string;
+}> {
+  const attempts: DashboardScreenshotAttempt[] = [
+    { label: "full", viewport: { width: 1440, height: 1800 } },
+    { label: "full-lightweight", viewport: { width: 1200, height: 1400 } },
+  ];
+  let lastError: string | undefined;
+
+  for (const attempt of attempts) {
+    try {
+      return {
+        png: await captureDashboardPng(sub, snapshot, attempt),
+        mode: attempt.label,
+      };
+    } catch (err) {
+      lastError = errorMessage(err);
+      console.error(
+        `[dashboard-report] ${attempt.label} screenshot failed for subscription ${sub.id}:`,
+        lastError,
+      );
+    }
+  }
+
+  return { png: null, mode: "none", error: lastError };
+}
+
 function reportDate(snapshot: ReportSnapshot): string {
   return new Date(snapshot.generatedAt).toLocaleDateString("en-US", {
     year: "numeric",
@@ -348,13 +459,21 @@ function reportDate(snapshot: ReportSnapshot): string {
   });
 }
 
-function renderReportEmailHtml(snapshot: ReportSnapshot): string {
+function renderReportEmailHtml(
+  snapshot: ReportSnapshot,
+  options: { screenshotAttached: boolean },
+): string {
   const title = escapeHtml(snapshot.title);
   const dashboardUrl = escapeHtml(snapshot.dashboardUrl);
+  const reportSettingsUrl = escapeHtml(snapshot.reportSettingsUrl);
   const date = escapeHtml(reportDate(snapshot));
-  const description = snapshot.description
-    ? `<p style="margin:8px 0 18px;color:#525866;font-size:14px;line-height:1.5;">${escapeHtml(snapshot.description)}</p>`
-    : "";
+  const screenshotBlock = options.screenshotAttached
+    ? `<a href="${dashboardUrl}" style="display:block;text-decoration:none;">
+      <img src="cid:${DASHBOARD_REPORT_CID}" alt="${title}" width="100%" style="display:block;width:100%;max-width:1280px;height:auto;border:0;outline:0;border-radius:0;" />
+    </a>`
+    : `<div style="margin:18px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#374151;font-size:14px;line-height:1.5;">
+      The dashboard image was unavailable for this run. Open the live dashboard to view the latest report.
+    </div>`;
 
   return `<!doctype html>
 <html>
@@ -362,23 +481,33 @@ function renderReportEmailHtml(snapshot: ReportSnapshot): string {
     <h3 style="margin:0 0 8px;font-size:18px;line-height:1.35;font-weight:600;">
       Here's the report of <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">${title}</a> for ${date}.
     </h3>
-    ${description}
-    <a href="${dashboardUrl}" style="display:block;text-decoration:none;">
-      <img src="cid:${DASHBOARD_REPORT_CID}" alt="${title}" width="100%" style="display:block;width:100%;max-width:1280px;height:auto;border:1px solid #e5e7eb;border-radius:8px;" />
-    </a>
+    ${screenshotBlock}
     <p style="margin:18px 0 0;color:#525866;font-size:13px;line-height:1.45;">
       <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">Open dashboard</a>
+      <span style="color:#9ca3af;"> · </span>
+      <a href="${reportSettingsUrl}" style="color:#2563eb;text-decoration:none;">Edit subscription settings</a>
+    </p>
+    <p style="margin:6px 0 0;color:#6b7280;font-size:12px;line-height:1.45;">
+      Change recipients, delivery time, filters, or turn this report on/off.
     </p>
   </body>
 </html>`;
 }
 
-function renderReportText(snapshot: ReportSnapshot): string {
-  return [
+function renderReportText(
+  snapshot: ReportSnapshot,
+  options: { screenshotAttached: boolean },
+): string {
+  const lines = [
     `Daily dashboard report: ${snapshot.title}`,
     `Date: ${reportDate(snapshot)}`,
     `Open dashboard: ${snapshot.dashboardUrl}`,
-  ].join("\n");
+    `Edit subscription settings: ${snapshot.reportSettingsUrl}`,
+  ];
+  if (!options.screenshotAttached) {
+    lines.push("Dashboard image unavailable for this run.");
+  }
+  return lines.join("\n");
 }
 
 function reportFilename(title: string): string {
@@ -396,11 +525,14 @@ export async function sendDashboardReportSubscription(
   dashboardUrl: string;
   recipientCount: number;
   screenshotAttached: boolean;
+  screenshotMode: "full" | "full-lightweight" | "none";
+  screenshotError?: string;
 }> {
   const snapshot = await collectReportSnapshot(sub);
-  const png = await captureDashboardPng(sub, snapshot);
-  const html = renderReportEmailHtml(snapshot);
-  const text = renderReportText(snapshot);
+  const capture = await captureDashboardPngWithFallback(sub, snapshot);
+  const screenshotAttached = Boolean(capture.png);
+  const html = renderReportEmailHtml(snapshot, { screenshotAttached });
+  const text = renderReportText(snapshot, { screenshotAttached });
   const subject = `Daily dashboard: ${snapshot.title}`;
 
   for (const to of sub.recipients) {
@@ -409,21 +541,25 @@ export async function sendDashboardReportSubscription(
       subject,
       html,
       text,
-      attachments: [
-        {
-          filename: reportFilename(snapshot.title),
-          content: png,
-          contentType: "image/png",
-          contentId: DASHBOARD_REPORT_CID,
-          disposition: "inline",
-        },
-      ],
+      attachments: capture.png
+        ? [
+            {
+              filename: reportFilename(snapshot.title),
+              content: capture.png,
+              contentType: "image/png",
+              contentId: DASHBOARD_REPORT_CID,
+              disposition: "inline",
+            },
+          ]
+        : undefined,
     });
   }
 
   return {
     dashboardUrl: snapshot.dashboardUrl,
     recipientCount: sub.recipients.length,
-    screenshotAttached: true,
+    screenshotAttached,
+    screenshotMode: capture.mode,
+    ...(capture.error ? { screenshotError: capture.error } : {}),
   };
 }

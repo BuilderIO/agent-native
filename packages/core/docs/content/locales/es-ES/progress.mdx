@@ -1,0 +1,244 @@
+---
+title: "Progreso"
+description: "Señal de progreso en vivo para tareas del agente de larga duración: inicio, actualización y finalización"
+---
+
+# Progreso
+
+Las tareas largas de los agentes no deberían esconderse detrás de una rueda giratoria. `progress_runs` le brinda al agente una manera de anunciar _"Estoy trabajando en esto, he terminado en un 45%, aquí está el paso actual"_, que el UI representa como una bandeja de ejecuciones flotante con una barra de porcentaje.
+
+```ts
+import {
+  startRun,
+  updateRunProgress,
+  completeRun,
+} from "@agent-native/core/progress";
+
+const run = await startRun({
+  owner: "steve@builder.io",
+  title: "Triage 128 unread emails",
+  step: "Fetching inbox",
+});
+
+for (let i = 1; i <= total; i++) {
+  await updateRunProgress(run.id, run.owner, {
+    percent: Math.round((i / total) * 100),
+    step: `Classifying ${i}/${total}`,
+  });
+}
+
+await completeRun(run.id, run.owner, "succeeded");
+```
+
+Preocupación separada de [notifications](/docs/notifications): las notificaciones se activan una vez (_"X sucedió"_), el progreso es un estado continuo (_"X está completado en un 45 %"_). Los dos componen: `completeRun` seguido de `notify(..., severity: "info")` le indica al usuario cuándo termina el trabajo incluso si no estaba mirando la bandeja.
+
+## El ciclo de vida {#lifecycle}
+
+| Estado      | Transición                          |
+| ----------- | ----------------------------------- |
+| `running`   | Inicial: establecido por `startRun` |
+| `succeeded` | Terminal de camino feliz            |
+| `failed`    | Terminal de error                   |
+| `cancelled` | Usuario interrumpido                |
+
+<Diagram id="doc-block-1ngamcb" title="Ejecutar ciclo de vida" summary={"startRun abre una fila en ejecución; updateRunProgress lo parchea; completeRun lo mueve a un estado de terminal y sella completed_at."}>
+
+```html
+<div class="diagram-run">
+  <div class="diagram-box" data-rough>startRun()</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel running" data-rough>
+    <span class="diagram-pill accent">running</span
+    ><small class="diagram-muted"
+      >updateRunProgress() &#8635; percent + step</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col terminal">
+    <span class="diagram-pill ok">succeeded</span
+    ><span class="diagram-pill warn">failed</span
+    ><span class="diagram-pill">cancelled</span
+    ><small class="diagram-muted">completeRun() &rarr; sets completed_at</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-run {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-run .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+}
+.diagram-run .terminal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.diagram-run .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Estados del terminal establecidos en `completed_at`. La bandeja UI muestra solo filas `running`; las filas completadas permanecen en la base de datos para consultas `action=list`.
+
+## API {#api}
+
+### `startRun(input)` {#start}
+
+Crear una ejecución. Devuelve el `AgentRun` completo con una identificación generada.
+
+```ts
+const run = await startRun({
+  owner: "steve@builder.io",
+  title: "Ingest 1M rows",
+  step: "Opening CSV",
+  metadata: { jobId: "abc123", artifactPath: "s3://..." },
+});
+```
+
+Emite `run.progress.started` en el bus de eventos.
+
+### `updateRunProgress(id, owner, input)` {#update}
+
+Parchear cualquier campo de una ejecución en ejecución. Cualquier campo omitido permanece sin cambios.
+
+```ts
+await updateRunProgress(run.id, run.owner, {
+  percent: 75,
+  step: "Writing to target DB",
+});
+```
+
+Emite `run.progress.updated` en el bus de eventos. Devuelve el `AgentRun` actualizado o el `null` si la ejecución no existe o no es propiedad de la persona que llama.
+
+### `completeRun(id, owner, status, extras?)` {#complete}
+
+Transición a un estado terminal. `succeeded` establece implícitamente `percent=100`.
+
+```ts
+await completeRun(run.id, run.owner, "succeeded", {
+  step: "All 1M rows ingested",
+  metadata: { totalDurationMs: 98_123 },
+});
+```
+
+También emite `run.progress.updated` con el estado del terminal.
+
+### Listado {#list}
+
+```ts
+import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
+
+const active = await listRuns("steve@builder.io", { activeOnly: true });
+const run = await getRun("run-id", "steve@builder.io");
+await deleteRun("run-id", "steve@builder.io");
+```
+
+## HTTP API {#http}
+
+Montado en `/_agent-native/runs/*` por el complemento core-routes. **Solo lectura sobre HTTP**: las escrituras pasan por las herramientas del agente, ya que el agente es el escritor canónico. Todas las rutas están limitadas al propietario.
+
+| Método   | Ruta                              |
+| -------- | --------------------------------- |
+| `GET`    | `/_agent-native/runs?active=true` |
+| `GET`    | `/_agent-native/runs/:id`         |
+| `DELETE` | `/_agent-native/runs/:id`         |
+
+<Endpoint id="doc-block-icydg3" title="Listar ejecuciones activas" method="GET" path="/_agent-native/runs" summary={"List the caller's runs. The RunsTray polls this with active=true."} auth="Session cookie (owner-scoped)" params={[
+  {
+    "name": "active",
+    "in": "query",
+    "type": "boolean",
+    "required": false,
+    "description": "When true, returns only `running` rows."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Array of AgentRun rows owned by the caller."
+  }
+]}>
+
+Read-only and owner-scoped — every row has an `owner` column and every query filters on it, so callers only ever see their own runs. Writes (start/update/complete) go through the agent's `manage-progress` tool, not HTTP.
+
+</Endpoint>
+
+## Componente UI {#ui}
+
+```tsx
+import { RunsTray } from "@agent-native/core/client/progress";
+
+export function HeaderBar() {
+  return (
+    <header className="flex items-center gap-2">
+      {/* … */}
+      <RunsTray />
+    </header>
+  );
+}
+```
+
+Widget de encabezado en línea: móntelo junto a la campana de notificaciones. Muestra un ícono giratorio + una insignia de conteo cuando las carreras están activas; Al hacer clic, se abre un menú desplegable con una barra de porcentaje activa por ejecución. Oculta el disparador por completo cuando no hay ejecuciones activas. Sondea `/_agent-native/runs?active=true` cada `pollMs` (predeterminado 3 s). Utiliza tokens semánticos shadcn, se adapta a temas claros y oscuros.
+
+## Herramienta de agente {#agent-tool}
+
+En cada plantilla se registra una única herramienta `manage-progress`. El parámetro `action` selecciona la operación:
+
+| Acción     | Propósito                                                        |
+| ---------- | ---------------------------------------------------------------- |
+| `start`    | Llamada al final de una tarea larga. Devuelve un runId.          |
+| `update`   | Llamar periódicamente durante la tarea con `percent` y/o `step`. |
+| `complete` | Terminal: uno de `succeeded`, `failed`, `cancelled`.             |
+| `list`     | Inspeccionar ejecuciones recientes (filtrar por `active=true`).  |
+
+### Cuándo iniciar una carrera {#when-to-start}
+
+- Úselo para cualquier cosa > ~5 segundos. Una ruleta sin contexto se siente congelada.
+- Actualización en puntos de control naturales, no en todas las iteraciones. Cada 5-10 % es suficiente.
+- **Siempre** llame a `manage-progress` con `action=complete`, incluso en las rutas de error. Una fila `running` huérfana es peor que ninguna fila.
+- Empareje con `notify` al finalizar para que el usuario vea el resultado cuando no esté mirando activamente la bandeja.
+
+## Autobús de eventos {#event-bus}
+
+Se emiten dos eventos en el [event bus](/docs/automations#event-bus):
+
+| Evento                 | Carga útil                         |
+| ---------------------- | ---------------------------------- |
+| `run.progress.started` | `{ runId, title, step? }`          |
+| `run.progress.updated` | `{ runId, percent, step, status }` |
+
+[Automations](/docs/automations) puede suscribirse a estos, por ejemplo, _"si una ejecución dura más de 5 minutos, avíseme"_:
+
+```yaml
+---
+triggerType: event
+event: run.progress.updated
+condition: "status is failed"
+mode: agentic
+---
+Notificar me that run {{runId}} has failed.
+```
+
+## Cómo funciona {#internals}
+
+- **Alcance del propietario**: cada fila tiene una columna `owner`; cada consulta se filtra en él. Los usuarios solo ven sus propias ejecuciones.
+- **Integración de encuesta**: cada mutación llama a `recordChange()`, por lo que las plantillas que utilizan [`useDbSync`](/docs/client) se invalidan automáticamente sin ningún cableado adicional.
+- **Nombre de la tabla**: el marco también tiene una tabla `agent_runs` para el seguimiento interno del ciclo de vida del turno del chat del agente. La primitiva de progreso usa `progress_runs` para mantener las dos preocupaciones separadas.
+- **Porcentaje de fijación**: los valores se fijan en `[0, 100]` y se redondean a un número entero al escribir.
+
+## ¿Qué sigue?
+
+- [**Notifications**](/docs/notifications): empareja con `manage-progress` (`action=complete`) para informar al usuario cuando finaliza el trabajo
+- [**Automations**](/docs/automations): el mecanismo de vigilancia se ejecuta lentamente a través de `run.progress.updated`
+- [**Client**](/docs/client) — `useDbSync` para invalidación de caché en tiempo real

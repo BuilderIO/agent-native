@@ -2,6 +2,12 @@ export type ProviderTranscriptSegment = {
   text: string;
 };
 
+const CJK_SCRIPT_PATTERN =
+  /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/u;
+const LATIN_SCRIPT_PATTERN = /[A-Za-z]/;
+const MIN_STRONG_SCRIPT_CHARS = 8;
+const STRONG_SCRIPT_RATIO = 2;
+
 const NO_SPEECH_PATTERNS = [
   /^no speech(?: was)? detected$/,
   /^no spoken words?(?: were)? detected$/,
@@ -33,6 +39,51 @@ export function isNoSpeechProviderText(
 function normalizeSpeechText(text: string | null | undefined): string {
   const trimmed = text?.trim() ?? "";
   return trimmed && !isNoSpeechProviderText(trimmed) ? trimmed : "";
+}
+
+function primaryLanguage(language: string | null | undefined): string {
+  return (language ?? "").trim().toLowerCase().split(/[-_]/)[0]?.trim() ?? "";
+}
+
+function countScriptCharacters(text: string): {
+  cjk: number;
+  latin: number;
+} {
+  let cjk = 0;
+  let latin = 0;
+  for (const char of text) {
+    if (CJK_SCRIPT_PATTERN.test(char)) {
+      cjk += 1;
+    } else if (LATIN_SCRIPT_PATTERN.test(char)) {
+      latin += 1;
+    }
+  }
+  return { cjk, latin };
+}
+
+export function isLikelyMismatchedTranscriptLanguage(
+  language: string | null | undefined,
+  text: string | null | undefined,
+): boolean {
+  const primary = primaryLanguage(language);
+  const trimmed = text?.trim() ?? "";
+  if (!primary || !trimmed) return false;
+
+  const { cjk, latin } = countScriptCharacters(trimmed);
+  if (primary === "en") {
+    return (
+      cjk >= MIN_STRONG_SCRIPT_CHARS &&
+      cjk >= Math.max(1, latin) * STRONG_SCRIPT_RATIO
+    );
+  }
+  if (primary === "zh" || primary === "ja" || primary === "ko") {
+    return (
+      latin >= MIN_STRONG_SCRIPT_CHARS &&
+      cjk === 0 &&
+      latin >= Math.max(1, cjk) * STRONG_SCRIPT_RATIO
+    );
+  }
+  return false;
 }
 
 export function filterProviderTranscriptSegments<

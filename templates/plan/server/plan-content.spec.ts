@@ -648,6 +648,51 @@ describe("custom-html safety", () => {
     ).toBe("");
   });
 
+  it("strips theme-breaking Tailwind classes from stored wireframes except design mode", () => {
+    const serialized = serializePlanContent({
+      version: 2,
+      title: "Theme-safe wireframes",
+      blocks: [
+        {
+          id: "normal",
+          type: "wireframe",
+          data: {
+            surface: "browser",
+            html: '<section class="bg-white text-zinc-950 shadow-xl flex gap-3 wf-card hover:bg-slate-800"><p class="text-sm text-slate-400">copy</p></section>',
+          },
+        },
+        {
+          id: "design",
+          type: "wireframe",
+          data: {
+            surface: "browser",
+            renderMode: "design",
+            html: '<section class="bg-white text-zinc-950 shadow-xl">Design</section>',
+          },
+        },
+      ],
+    });
+    const stored = JSON.parse(serialized) as PlanContent;
+    const normal = stored.blocks[0];
+    const design = stored.blocks[1];
+    if (normal.type !== "wireframe" || design.type !== "wireframe") {
+      throw new Error("expected wireframe blocks");
+    }
+
+    expect(normal.data.html).not.toContain("bg-white");
+    expect(normal.data.html).not.toContain("text-zinc-950");
+    expect(normal.data.html).not.toContain("shadow-xl");
+    expect(normal.data.html).not.toContain("hover:bg-slate-800");
+    expect(normal.data.html).not.toContain("text-slate-400");
+    expect(normal.data.html).toContain("flex");
+    expect(normal.data.html).toContain("gap-3");
+    expect(normal.data.html).toContain("wf-card");
+    expect(normal.data.html).toContain("text-sm");
+    expect(design.data.html).toContain("bg-white");
+    expect(design.data.html).toContain("text-zinc-950");
+    expect(design.data.html).toContain("shadow-xl");
+  });
+
   it("coerces a full HTML document down to a bounded fragment", () => {
     // Wireframe / custom-html / diagram blocks must be bounded fragments; the
     // renderer owns the surrounding document and styling. When an agent authors

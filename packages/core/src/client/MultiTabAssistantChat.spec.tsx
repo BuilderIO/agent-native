@@ -298,6 +298,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it("adds keyed context to the active composer without prefill or submit", () => {
+    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -314,6 +315,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       );
     });
 
+    expect(
+      dispatchEventSpy.mock.calls.some(
+        ([event]) => event.type === "agent-panel:open",
+      ),
+    ).toBe(true);
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
       key: "selected-element",
       title: "Selected Element",
@@ -321,6 +327,41 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    dispatchEventSpy.mockRestore();
+  });
+
+  it("stages keyed context quietly when openSidebar is false", () => {
+    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.setChatContext",
+            data: {
+              key: "selected-element",
+              title: "Selected Element",
+              context: "<button>Buy</button>",
+              openSidebar: false,
+            },
+          },
+          origin: window.location.origin,
+        }),
+      );
+    });
+
+    expect(
+      dispatchEventSpy.mock.calls.some(
+        ([event]) => event.type === "agent-panel:open",
+      ),
+    ).toBe(false);
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
+      key: "selected-element",
+      title: "Selected Element",
+      context: "<button>Buy</button>",
+    });
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    dispatchEventSpy.mockRestore();
   });
 
   it("removes keyed context from the active composer", () => {

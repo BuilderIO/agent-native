@@ -31,7 +31,18 @@ import {
   resolveSecret,
   FeatureNotConfiguredError,
 } from "@agent-native/core/server";
+import {
+  applyVoiceContextReplacements,
+  formatVoiceContextPackForPrompt,
+  type VoiceContextPack,
+} from "@agent-native/core/voice";
 import { z } from "zod";
+
+import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
+import {
+  clearBuilderCreditsExhausted,
+  noteBuilderCreditsExhausted,
+} from "./lib/builder-credits-state.js";
 
 // Builder gateway maps this to Gemini 3.1 Flash-Lite (see transcribe-voice.ts:52).
 const BUILDER_MODEL = "gemini-3-1-flash-lite";
@@ -84,6 +95,12 @@ export default defineAction({
       .describe(
         "Optional surrounding context (e.g. meeting title, attendees, previous notes) to ground the cleanup pass.",
       ),
+    contextPack: z
+      .unknown()
+      .optional()
+      .describe(
+        "Optional structured voice context: snippets, vocabulary replacements, and metadata.",
+      ),
     language: z
       .string()
       .optional()
@@ -91,10 +108,12 @@ export default defineAction({
   }),
   run: async (args): Promise<CleanupResult> => {
     const transcript = args.transcript.slice(0, MAX_INPUT_CHARS);
+    const contextPack = args.contextPack as VoiceContextPack | undefined;
     const prompt = buildPrompt({
       task: args.task,
       transcript,
       context: args.context,
+      contextPack,
       language: args.language,
     });
     const wantJson = args.task === "summary";
@@ -117,7 +136,8 @@ export default defineAction({
           wantJson,
         });
         if (text.trim()) {
-          return shapeResult(args.task, text, "builder");
+          await clearBuilderCreditsExhausted();
+          return shapeResult(args.task, text, "builder", contextPack);
         }
         builderReturnedEmpty = true;
         console.warn("[cleanup-transcript] Builder path returned empty text");
@@ -126,7 +146,18 @@ export default defineAction({
         // Hard errors (e.g. credits exhausted) still surface to the caller.
         const message = (err as Error)?.message ?? String(err);
         builderFailureMessage = message;
-        if (message.includes("credits exhausted")) throw err;
+        if (isBuilderCreditsExhaustedMessage(message)) {
+          await noteBuilderCreditsExhausted({
+            source:
+              args.task === "title"
+                ? "title"
+                : args.task === "summary"
+                  ? "summary"
+                  : "cleanup",
+            message,
+          });
+          throw err;
+        }
         console.warn("[cleanup-transcript] Builder path failed:", message);
       }
     }
@@ -139,7 +170,7 @@ export default defineAction({
         prompt,
         wantJson,
       });
-      return shapeResult(args.task, text, "gemini-byok");
+      return shapeResult(args.task, text, "gemini-byok", contextPack);
     }
 
     throw buildCleanupConfigurationError({
@@ -299,13 +330,16 @@ function shapeResult(
   task: "cleanup" | "title" | "summary",
   raw: string,
   provider: "builder" | "gemini-byok",
+  contextPack?: VoiceContextPack,
 ): CleanupResult {
   const stripped = stripEnvelope(raw);
+  const applyContext = (value: string) =>
+    applyVoiceContextReplacements(value, contextPack).trim();
   if (task === "title") {
-    return { task, title: stripped.slice(0, 120), provider };
+    return { task, title: applyContext(stripped).slice(0, 120), provider };
   }
   if (task === "cleanup") {
-    return { task, cleanedText: stripped, provider };
+    return { task, cleanedText: applyContext(stripped), provider };
   }
   // task === 'summary' — expect JSON.
   try {
@@ -320,11 +354,16 @@ function shapeResult(
     };
     return {
       task,
-      summaryMd: typeof parsed.summaryMd === "string" ? parsed.summaryMd : "",
+      summaryMd:
+        typeof parsed.summaryMd === "string"
+          ? applyContext(parsed.summaryMd)
+          : "",
       bullets: Array.isArray(parsed.bullets)
         ? parsed.bullets
             .map((b) =>
-              typeof b === "string" ? { text: b } : { text: b.text ?? "" },
+              typeof b === "string"
+                ? { text: applyContext(b) }
+                : { text: applyContext(b.text ?? "") },
             )
             .filter((b) => b.text)
         : [],
@@ -341,7 +380,7 @@ function shapeResult(
                   : "";
               const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail);
               return {
-                text: (a.text ?? "").trim(),
+                text: applyContext(a.text ?? ""),
                 ...(isEmail ? { assigneeEmail: rawEmail } : {}),
                 ...(a.dueDate ? { dueDate: a.dueDate } : {}),
               };
@@ -353,7 +392,7 @@ function shapeResult(
     // Provider didn't return JSON — fall back to raw markdown summary.
     return {
       task,
-      summaryMd: stripped,
+      summaryMd: applyContext(stripped),
       bullets: [],
       actionItems: [],
       provider,
@@ -373,15 +412,24 @@ function buildPrompt({
   task,
   transcript,
   context,
+  contextPack,
   language,
 }: {
   task: "cleanup" | "title" | "summary";
   transcript: string;
   context?: string;
+  contextPack?: VoiceContextPack;
   language?: string;
 }): { system: string; user: string } {
   const langHint = language ? ` The transcript language is ${language}.` : "";
-  const ctxBlock = context ? `\n\n<context>\n${context}\n</context>` : "";
+  const voiceContext = formatVoiceContextPackForPrompt(contextPack);
+  const contextParts = [
+    context?.trim(),
+    voiceContext ? `Voice context:\n${voiceContext}` : "",
+  ].filter(Boolean);
+  const ctxBlock = contextParts.length
+    ? `\n\n<context>\n${contextParts.join("\n\n")}\n</context>`
+    : "";
 
   if (task === "title") {
     return {

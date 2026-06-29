@@ -1,3 +1,14 @@
+import {
+  buildDashboardPanelGroups,
+  columnExpansionForDropSlot,
+  movePanelToDropSlot,
+  type DashboardDropSlot,
+} from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
+import {
+  clampDashboardColumns,
+  MAX_DASHBOARD_COLUMNS,
+  type SqlPanel,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import { movePanelsById, type PanelOrderTarget } from "./dashboard-panel-order";
 
 export const DASHBOARD_MUTATION_API_TYPES = `type DashboardScript = {
@@ -59,6 +70,14 @@ type PanelSelection = {
   moveBefore(panelId: string): void;
   moveAfter(panelId: string): void;
   moveToIndex(index: number): void;
+  moveNextTo(panelId: string): void; // same visible row, after panelId; expands row columns when needed
+  nextTo(panelId: string): void; // alias for moveNextTo
+  moveToRow(rowNumber: number): void; // 1-based visible row number, end of row
+  moveToRowStart(rowNumber: number): void;
+  moveToRowEnd(rowNumber: number): void;
+  atRow(rowNumber: number): void; // alias for moveToRow
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
   remove(): void;
   set(patch: PanelPatch): void;
   setTitle(title: string): void;
@@ -79,6 +98,10 @@ type InsertedPanel = {
   before(panelId: string): void;
   after(panelId: string): void;
   atIndex(index: number): void;
+  nextTo(panelId: string): void; // same visible row, after panelId; expands row columns when needed
+  atRow(rowNumber: number): void; // 1-based visible row number, end of row
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
 };`;
 
 export const DASHBOARD_MUTATION_EXAMPLES = [
@@ -90,6 +113,8 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panel("retention").setConfigPath("yAxis.format","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
   'dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atTop();',
+  'dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"sql":"SELECT date, COUNT(*) AS value FROM analytics_events GROUP BY date ORDER BY date"}).nextTo("retention-over-time");',
+  'dashboard.insertPanel({"id":"row-chart","title":"Row Chart","source":"first-party","chartType":"bar","width":1,"sql":"SELECT name, COUNT(*) AS value FROM analytics_events GROUP BY name"}).atRow(2);',
 ] as const;
 
 export type DashboardMutationOperation =
@@ -100,6 +125,9 @@ export type DashboardMutationOperation =
       index?: number;
       beforePanelId?: string;
       afterPanelId?: string;
+      nextToPanelId?: string;
+      rowNumber?: number;
+      rowPosition?: "start" | "end";
     }
   | {
       op: "removePanels";
@@ -123,6 +151,9 @@ export type DashboardMutationOperation =
       index?: number;
       beforePanelId?: string;
       afterPanelId?: string;
+      nextToPanelId?: string;
+      rowNumber?: number;
+      rowPosition?: "start" | "end";
     }
   | {
       op: "duplicatePanel";
@@ -133,6 +164,9 @@ export type DashboardMutationOperation =
       index?: number;
       beforePanelId?: string;
       afterPanelId?: string;
+      nextToPanelId?: string;
+      rowNumber?: number;
+      rowPosition?: "start" | "end";
     }
   | {
       op: "setDashboard";
@@ -158,7 +192,16 @@ type MutationTarget = {
   index?: number;
   beforePanelId?: string;
   afterPanelId?: string;
+  nextToPanelId?: string;
+  rowNumber?: number;
+  rowPosition?: "start" | "end";
 };
+
+type VisualPlacementTarget =
+  | { nextToPanelId: string }
+  | { rowNumber: number; rowPosition?: "start" | "end" };
+
+type DashboardPlacementTarget = PanelOrderTarget | VisualPlacementTarget;
 
 const DASHBOARD_SUBJECTS = [
   "set",
@@ -175,6 +218,14 @@ const PANEL_METHODS = [
   "moveBefore",
   "moveAfter",
   "moveToIndex",
+  "moveNextTo",
+  "nextTo",
+  "moveToRow",
+  "moveToRowStart",
+  "moveToRowEnd",
+  "atRow",
+  "atRowStart",
+  "atRowEnd",
   "remove",
   "set",
   "setTitle",
@@ -191,11 +242,19 @@ const PLACEMENT_METHODS = [
   "moveBefore",
   "moveAfter",
   "moveToIndex",
+  "moveNextTo",
+  "moveToRow",
+  "moveToRowStart",
+  "moveToRowEnd",
   "atTop",
   "atBottom",
   "before",
   "after",
   "atIndex",
+  "nextTo",
+  "atRow",
+  "atRowStart",
+  "atRowEnd",
 ];
 
 function panelsFromConfig(config: Record<string, unknown>) {
@@ -341,6 +400,14 @@ function assertNumber(value: unknown, label: string): number {
   return value;
 }
 
+function assertPositiveInteger(value: unknown, label: string): number {
+  const number = assertNumber(value, label);
+  if (!Number.isInteger(number) || number < 1) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return number;
+}
+
 function assertObject(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -361,21 +428,170 @@ function uniqueStrings(values: string[]): string[] {
 
 function targetFromOperation(
   op: MutationTarget & { op: string },
-): PanelOrderTarget {
-  const targets = [
-    op.index !== undefined,
-    !!op.beforePanelId,
-    !!op.afterPanelId,
-  ].filter(Boolean).length;
-  if (targets > 1) {
+): DashboardPlacementTarget {
+  const targetNames = [
+    op.position !== undefined ? "position" : null,
+    op.index !== undefined ? "index" : null,
+    op.beforePanelId ? "beforePanelId" : null,
+    op.afterPanelId ? "afterPanelId" : null,
+    op.nextToPanelId ? "nextToPanelId" : null,
+    op.rowNumber !== undefined ? "rowNumber" : null,
+  ].filter((item): item is string => item !== null);
+  if (targetNames.length > 1) {
     throw new Error(
-      `${op.op} accepts only one of index, beforePanelId, or afterPanelId`,
+      `${op.op} accepts only one placement target (${targetNames.join(", ")})`,
     );
+  }
+  if (op.rowPosition !== undefined && op.rowNumber === undefined) {
+    throw new Error(`${op.op} rowPosition requires rowNumber`);
+  }
+  if (op.nextToPanelId) return { nextToPanelId: op.nextToPanelId };
+  if (op.rowNumber !== undefined) {
+    if (!Number.isInteger(op.rowNumber) || op.rowNumber < 1) {
+      throw new Error(`${op.op} rowNumber must be a positive integer`);
+    }
+    return {
+      rowNumber: op.rowNumber,
+      rowPosition: op.rowPosition ?? "end",
+    };
   }
   if (op.beforePanelId) return { beforePanelId: op.beforePanelId };
   if (op.afterPanelId) return { afterPanelId: op.afterPanelId };
   if (op.index !== undefined) return { index: op.index };
   return { position: op.position ?? "bottom" };
+}
+
+function isVisualPlacementTarget(
+  target: DashboardPlacementTarget,
+): target is VisualPlacementTarget {
+  return "nextToPanelId" in target || "rowNumber" in target;
+}
+
+function dashboardColumns(config: Record<string, unknown>): number {
+  return clampDashboardColumns(config.columns);
+}
+
+function panelsForLayout(config: Record<string, unknown>): SqlPanel[] {
+  return panelsFromConfig(config) as unknown as SqlPanel[];
+}
+
+function setGroupColumns(
+  config: Record<string, unknown>,
+  sectionPanelId: string | null,
+  columns: number,
+): void {
+  if (sectionPanelId === null) {
+    config.columns = columns;
+    return;
+  }
+  const section = requirePanel(panelsFromConfig(config), sectionPanelId);
+  section.columns = columns;
+}
+
+function resolveVisualDropSlot(
+  config: Record<string, unknown>,
+  target: VisualPlacementTarget,
+): DashboardDropSlot {
+  const groups = buildDashboardPanelGroups(
+    panelsForLayout(config),
+    dashboardColumns(config),
+  );
+
+  if ("nextToPanelId" in target) {
+    for (const group of groups) {
+      for (let rowIndex = 0; rowIndex < group.rows.length; rowIndex++) {
+        const row = group.rows[rowIndex];
+        const columnIndex = row.panels.findIndex(
+          (panel) => panel.id === target.nextToPanelId,
+        );
+        if (columnIndex >= 0) {
+          return {
+            type: "column",
+            groupKey: group.key,
+            rowIndex,
+            columnIndex: columnIndex + 1,
+          };
+        }
+      }
+    }
+    throw new Error(
+      `target ${missingPanelHelp(panelsFromConfig(config), target.nextToPanelId)}`,
+    );
+  }
+
+  let rowNumber = 1;
+  for (const group of groups) {
+    for (let rowIndex = 0; rowIndex < group.rows.length; rowIndex++) {
+      const row = group.rows[rowIndex];
+      if (rowNumber === target.rowNumber) {
+        return {
+          type: "column",
+          groupKey: group.key,
+          rowIndex,
+          columnIndex: target.rowPosition === "start" ? 0 : row.panels.length,
+        };
+      }
+      rowNumber++;
+    }
+  }
+
+  throw new Error(
+    `rowNumber ${target.rowNumber} was not found; dashboard has ${rowNumber - 1} visible row(s)`,
+  );
+}
+
+function ensureVisualDropSlotCapacity(
+  config: Record<string, unknown>,
+  panelId: string,
+  slot: DashboardDropSlot,
+): { columns: number; sectionPanelId: string | null } | null {
+  if (slot.type !== "column") return null;
+  const groups = buildDashboardPanelGroups(
+    panelsForLayout(config),
+    dashboardColumns(config),
+  );
+  const group = groups.find((item) => item.key === slot.groupKey);
+  const row = group?.rows[slot.rowIndex];
+  if (!group || !row) return null;
+  const rowContainsPanel = row.panels.some((panel) => panel.id === panelId);
+  const requiredColumns = rowContainsPanel
+    ? row.panels.length
+    : row.panels.length + 1;
+  if (requiredColumns > MAX_DASHBOARD_COLUMNS) {
+    throw new Error(
+      `row ${slot.rowIndex + 1} already has ${MAX_DASHBOARD_COLUMNS} panels; cannot place another panel in that row`,
+    );
+  }
+
+  return columnExpansionForDropSlot(groups, panelId, slot);
+}
+
+function moveSinglePanelToVisualTarget(
+  config: Record<string, unknown>,
+  panelId: string,
+  target: VisualPlacementTarget,
+): number {
+  if ("nextToPanelId" in target && target.nextToPanelId === panelId) {
+    throw new Error("nextTo target cannot be the moving panel itself");
+  }
+  requirePanel(panelsFromConfig(config), panelId);
+  const slot = resolveVisualDropSlot(config, target);
+  const expansion = ensureVisualDropSlotCapacity(config, panelId, slot);
+  const currentPanels = panelsForLayout(config);
+  const nextPanels = movePanelToDropSlot(
+    currentPanels,
+    panelId,
+    slot,
+    dashboardColumns(config),
+  );
+  if (nextPanels === currentPanels) {
+    throw new Error("visual placement did not change the dashboard layout");
+  }
+  config.panels = nextPanels;
+  if (expansion) {
+    setGroupColumns(config, expansion.sectionPanelId, expansion.columns);
+  }
+  return findPanelIndex(panelsFromConfig(config), panelId);
 }
 
 function findPanelIndex(
@@ -420,7 +636,7 @@ function enhancePanelError(
 function insertPanel(
   config: Record<string, unknown>,
   panel: Record<string, unknown>,
-  target: PanelOrderTarget,
+  target: DashboardPlacementTarget,
 ): number {
   const panels = panelsFromConfig(config);
   const id = assertString(panel.id, "panel.id");
@@ -428,6 +644,28 @@ function insertPanel(
     throw new Error(`panel "${id}" already exists`);
   }
   const placeholderId = `__agent_native_insert_${id}`;
+  if (isVisualPlacementTarget(target)) {
+    const slot = resolveVisualDropSlot(config, target);
+    config.panels = [...panels, { ...panel, id: placeholderId }];
+    const expansion = ensureVisualDropSlotCapacity(config, placeholderId, slot);
+    const currentPanels = panelsForLayout(config);
+    const nextPanels = movePanelToDropSlot(
+      currentPanels,
+      placeholderId,
+      slot,
+      dashboardColumns(config),
+    );
+    if (nextPanels === currentPanels) {
+      throw new Error("visual placement did not change the dashboard layout");
+    }
+    config.panels = nextPanels;
+    if (expansion) {
+      setGroupColumns(config, expansion.sectionPanelId, expansion.columns);
+    }
+    const inserted = requirePanel(panelsFromConfig(config), placeholderId);
+    inserted.id = id;
+    return findPanelIndex(panelsFromConfig(config), id);
+  }
   config.panels = [...panels, { ...panel, id: placeholderId }];
   const result = movePanelsById(config, [placeholderId], target);
   const nextPanels = panelsFromConfig(config);
@@ -522,7 +760,7 @@ function duplicatePanel(
   panelIdToCopy: string,
   newPanelId: string,
   patch: Record<string, unknown>,
-  target: PanelOrderTarget,
+  target: DashboardPlacementTarget,
 ): number {
   const panels = panelsFromConfig(config);
   const source = requirePanel(panels, panelIdToCopy);
@@ -554,13 +792,25 @@ export function applyDashboardMutationOperations(
     try {
       switch (op.op) {
         case "movePanels": {
+          const target = targetFromOperation(op);
+          if (isVisualPlacementTarget(target)) {
+            if (op.panelIds.length !== 1) {
+              throw new Error(
+                "row-aware visual placement supports one moving panel at a time",
+              );
+            }
+            const index = moveSinglePanelToVisualTarget(
+              config,
+              op.panelIds[0],
+              target,
+            );
+            changedPanelIds.add(op.panelIds[0]);
+            commandLog.push(`movePanels(${op.panelIds[0]}) -> index ${index}`);
+            break;
+          }
           let result;
           try {
-            result = movePanelsById(
-              config,
-              op.panelIds,
-              targetFromOperation(op),
-            );
+            result = movePanelsById(config, op.panelIds, target);
           } catch (err) {
             enhancePanelError(config, err);
           }
@@ -889,6 +1139,31 @@ function targetFromChainCall(call: ParsedCall): MutationTarget {
     case "moveToIndex":
     case "atIndex":
       return { index: assertNumber(call.args[0], `${call.name} index`) };
+    case "moveNextTo":
+    case "nextTo":
+      return {
+        nextToPanelId: assertString(call.args[0], `${call.name} panelId`),
+      };
+    case "moveToRow":
+    case "moveToRowEnd":
+    case "atRow":
+    case "atRowEnd":
+      return {
+        rowNumber: assertPositiveInteger(
+          call.args[0],
+          `${call.name} rowNumber`,
+        ),
+        rowPosition: "end",
+      };
+    case "moveToRowStart":
+    case "atRowStart":
+      return {
+        rowNumber: assertPositiveInteger(
+          call.args[0],
+          `${call.name} rowNumber`,
+        ),
+        rowPosition: "start",
+      };
     default:
       throw new Error(
         `unsupported placement method "${call.name}".${methodHelp(call.name, PLACEMENT_METHODS)}`,
@@ -906,6 +1181,14 @@ function operationFromPanelCommand(
     case "moveBefore":
     case "moveAfter":
     case "moveToIndex":
+    case "moveNextTo":
+    case "nextTo":
+    case "moveToRow":
+    case "moveToRowStart":
+    case "moveToRowEnd":
+    case "atRow":
+    case "atRowStart":
+    case "atRowEnd":
       return [
         {
           op: "movePanels",

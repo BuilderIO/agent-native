@@ -1120,7 +1120,7 @@ function ReadinessPanel({
       label: "Team",
       detail: `${overview?.counts?.linkedIdentities ?? 0} linked identities`,
       ok: (overview?.counts?.linkedIdentities ?? 0) > 0,
-      to: "/team",
+      to: "/settings#team",
       icon: IconUsersGroup,
     },
   ];

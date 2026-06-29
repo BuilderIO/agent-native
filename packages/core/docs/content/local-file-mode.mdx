@@ -1,0 +1,525 @@
+---
+title: "Local File Mode"
+description: "Run agent-native apps with local Markdown, MDX, and other repo files as the source of truth - including Obsidian-style MDX docs with custom components."
+---
+
+# Local File Mode
+
+Local File Mode lets an agent-native app attach its normal UI and action surface
+directly to files in a repo or workspace. The app still feels like the hosted
+product, but its list views, editor, and agent tools read and write local files
+instead of SQL-backed app records.
+
+The first implementation is in the Content template: the left sidebar is
+populated from local `.md` and `.mdx` files, selecting a page opens the standard
+Content editor, and saving writes back to the selected file. The same files can
+also be edited by Codex, Claude Code, the Agent-Native sidebar agent, or a normal
+editor.
+
+For Content, this makes the product feel like open-source Obsidian for MDX:
+your docs live as files, while the app adds a visual editor, agent actions,
+shareable copies, and rich interactive MDX components.
+
+Use Local File Mode when you want a repo-first workflow:
+
+- a docs repo with `docs/*.mdx`
+- a blog with `blog/*.mdx`
+- resources such as positioning, messaging, or team notes in `resources/*.md`
+- a personal Obsidian-style knowledge base with a richer MDX editor
+- docs that need interactive custom MDX blocks generated from local React code
+- app artifacts that should be easy for coding agents to inspect and patch
+
+Use database mode when you want the hosted collaborative app experience:
+multi-user sharing, SQL-backed permissions, comments, version history, and
+production hosting without local filesystem access.
+
+## The Mental Model
+
+There are two source-of-truth modes:
+
+| Mode            | Source of truth                            | Best for                                                                 |
+| --------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
+| Database mode   | SQL rows through Drizzle                   | Hosted apps, collaboration, sharing, comments, version history           |
+| Local File Mode | Repo files declared by `agent-native.json` | Local/dev workflows, Git review, coding-agent edits, file-native content |
+
+The UI and agent actions should stay the same shape in both modes. A Content
+editor still edits documents; the difference is whether those documents resolve
+to SQL rows or local files.
+
+<Diagram id="doc-block-1bxzygx" title="Same actions, two sources of truth" summary="The UI and agent call identical actions in both modes. The action layer decides whether each call resolves to SQL rows or repo files.">
+
+```html
+<div class="diagram-mode">
+  <div class="diagram-col entry">
+    <div class="diagram-node">Content UI</div>
+    <div class="diagram-node">
+      Agent + actions<br /><small class="diagram-muted"
+        >list/get/update-document</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-row resolve">
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Database mode</span
+      ><small class="diagram-muted">SQL rows via Drizzle</small
+      ><small class="diagram-muted"
+        >hosted · sharing · comments · history</small
+      >
+    </div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill ok">Local File Mode</span
+      ><small class="diagram-muted">repo files via agent-native.json</small
+      ><small class="diagram-muted">Git review · coding-agent edits</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mode {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mode .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mode .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-mode .resolve {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-mode .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+```
+
+</Diagram>
+
+## Example Repo
+
+A Content workspace can be as small as this:
+
+<FileTree
+  id="doc-block-1h7glo0"
+  title="A Content workspace repo"
+  entries={[
+    {
+      path: "agent-native.json",
+      note: "declares which folders are content roots and their kinds",
+    },
+    {
+      path: "docs/",
+      note: "content root — shows in the sidebar as pages",
+    },
+    {
+      path: "docs/getting-started.mdx",
+    },
+    {
+      path: "docs/guides/custom-components.mdx",
+    },
+    {
+      path: "blog/",
+      note: "content root",
+    },
+    {
+      path: "blog/launch-post.mdx",
+    },
+    {
+      path: "resources/",
+      note: "content root",
+    },
+    {
+      path: "resources/messaging/positioning.md",
+    },
+    {
+      path: "components/",
+      note: "NOT a content root — preview component library MDX can import",
+    },
+    {
+      path: "components/FrameworkTabs.tsx",
+    },
+    {
+      path: "components/Callout.tsx",
+    },
+    {
+      path: "extensions/",
+      note: "NOT a content root — local extension library (sandboxed widgets)",
+    },
+    {
+      path: "extensions/doc-status/extension.json",
+    },
+    {
+      path: "extensions/doc-status/index.html",
+    },
+  ]}
+/>
+
+In Local File Mode, the Content sidebar shows the `docs/`, `blog/`, and
+`resources/` trees as pages. Selecting `docs/getting-started.mdx` opens that
+file in the standard Content editor; editing in the UI writes back to
+`docs/getting-started.mdx`.
+
+`components/` is not a content root. It is a preview component library that MDX
+files can import or reference. The editor can render simple local MDX components
+without requiring you to clone or fork the entire Content app.
+
+`extensions/` is also not a content root. It is a local extension library:
+small sandboxed widgets that can render in app slots while their source stays in
+the repo.
+
+## Install Content Into A Repo
+
+For an existing docs, blog, or MDX workspace, install the Content local-files
+skill:
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+This copies the `content` skill into the repo's agent skill folders and writes
+or updates `agent-native.json` with Content defaults:
+
+- `mode: "local-files"` at the workspace level
+- `apps.content.mode: "local-files"`
+- content roots for `docs/`, `blog/`, `content/`, and `resources/`
+- `components/` for local MDX components
+- `extensions/` for local extension widgets
+
+The installed skill tells coding agents to use Content actions
+(`list-documents`, `get-document`, `edit-document`, `update-document`,
+`share-local-file-document`, and component-file actions) when a local Content app
+or Agent Native Desktop bridge exposes them. If no bridge is running, the skill
+falls back to safe direct repo edits while preserving frontmatter, imports, JSX,
+and unknown MDX.
+
+## Configuration
+
+Add `agent-native.json` to the repo or workspace root:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"]
+        },
+        {
+          "name": "Blog",
+          "path": "blog",
+          "kind": "blog",
+          "extensions": [".md", ".mdx"]
+        },
+        {
+          "name": "Resources",
+          "path": "resources",
+          "kind": "resources",
+          "extensions": [".md", ".mdx"]
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions",
+      "hide": ["**/_*.md", "**/_*.mdx"]
+    }
+  }
+}
+```
+
+You can also enable local files with `AGENT_NATIVE_MODE=local-files` or
+`AGENT_NATIVE_DATA_MODE=local-files`; the manifest is preferred because it
+documents the folder contract in the repo itself.
+
+## Content File Format
+
+Content reads Markdown and MDX. Frontmatter holds page metadata, and the body is
+the editable document:
+
+```mdx
+---
+title: "Getting Started"
+icon: "sparkles"
+isFavorite: true
+updatedAt: "2026-06-12T20:00:00.000Z"
+---
+
+# Getting Started
+
+Use <FrameworkTabs value="react" /> to show framework-specific code.
+```
+
+The title comes from `title` frontmatter when present, otherwise from the
+filename. The editor preserves MDX source that it cannot visually edit yet, so
+coding agents and normal text editors remain safe escape hatches.
+
+## Custom MDX Components
+
+Content can preview local components from the configured `components` folder.
+This is meant for docs-style MDX components such as tabs, callouts, package
+install snippets, or framework-specific code blocks.
+
+For example, add an interactive component next to your content:
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({
+  label = "points",
+  accent = "blue",
+  featured = false,
+}: {
+  label?: string;
+  accent?: "blue" | "green" | "purple";
+  featured?: boolean;
+}) {
+  const [count, setCount] = useState(3);
+  const accentClass =
+    accent === "green"
+      ? "border-green-300 bg-green-50"
+      : accent === "purple"
+        ? "border-purple-300 bg-purple-50"
+        : "border-blue-300 bg-blue-50";
+
+  return (
+    <div className={`rounded-md border p-4 ${accentClass}`}>
+      <div className="text-sm text-muted-foreground">Launch impact</div>
+      <div className="mt-1 text-3xl font-semibold">
+        {count} {label}
+      </div>
+      {featured ? <div className="mt-1 text-sm">Featured metric</div> : null}
+      <button
+        type="button"
+        className="mt-3 rounded border px-3 py-1 text-sm"
+        onClick={() => setCount((value) => value + 1)}
+      >
+        Add point
+      </button>
+    </div>
+  );
+}
+
+export const ImpactCounterInputs = {
+  label: {
+    type: "string",
+    label: "Metric label",
+    default: "points",
+  },
+  accent: {
+    type: "select",
+    label: "Accent",
+    options: ["blue", "green", "purple"],
+    default: "blue",
+  },
+  featured: {
+    type: "boolean",
+    label: "Featured",
+    default: false,
+  },
+};
+```
+
+Then use it from any local MDX file:
+
+```mdx
+---
+title: "Launch Notes"
+---
+
+# Launch Notes
+
+<ImpactCounter label="wins" />
+```
+
+The Content dev server discovers PascalCase named exports and PascalCase default
+exports from `.tsx`, `.jsx`, `.ts`, and `.js` files under `components/`. Those
+components render inside the editor and appear in the slash menu under
+**Local components**. Slash insertion creates a minimal tag such as
+`<ImpactCounter />`; add props in the MDX source when needed.
+
+Component execution is intentionally a local-dev/Desktop bridge capability, not
+plain hosted browser folder access. If you open `content.agent-native.com`,
+choose **Local files**, and pick a folder in Chrome, the app can read and write
+the `.md` and `.mdx` files through the browser File System Access API, but
+Chrome does not expose an absolute folder path for Vite to compile
+`components/*.tsx`. To preview and hot reload custom React components, run
+Content locally or use Agent Native Desktop so the trusted local bridge can
+register the picked workspace with the local Content dev server. In that mode,
+edits to existing component files hot reload through Vite, and adding or
+removing component files reloads the component registry and slash menu.
+
+Agents can also work with those registered component files. Use
+`list-local-component-files` to find the registered workspace id, then
+`write-local-component-file` to create or update `.tsx`, `.jsx`, `.ts`, or
+`.js` files under the workspace's `components/` folder. The MDX files remain the
+source of truth for component usage; the component files remain normal repo
+source files reviewed with Git.
+
+If a component exports input metadata, selecting the component in the editor
+shows an edit button in the component's top-right corner. Supported input types
+are `string`, `textarea`, `number`, `boolean`, and `select`. The form writes
+changes back to the MDX tag, so local files remain the source of truth. The
+metadata can be exported as `ComponentNameInputs`, `ComponentNameConfig.inputs`,
+`Component.inputs`, or `agentNative.inputs`.
+
+Simple component tags with literal props can preview inline:
+
+```mdx
+<FrameworkTabs value="react" />
+
+<Callout tone="warning">
+
+This setting affects production deploys.
+
+</Callout>
+```
+
+Complex JSX expressions are preserved in source. If the editor cannot safely
+preview a component prop yet, it shows a warning placeholder rather than
+silently dropping data.
+
+## Sharing Local Files
+
+Local files are not shared directly because other users cannot read a path on
+your machine. The Content toolbar's Share button creates or refreshes a
+database-backed copy of the selected file, navigates to that copy, and opens the
+normal share popover. The original local file remains under Local files; the
+database copy appears under Shared copies in Local File Mode and uses the
+standard document sharing model.
+
+## Local Extensions
+
+Local File Mode can also load repo-backed extensions from the configured
+`extensions` folder. Each extension is one directory with an `extension.json`
+manifest and an HTML entry file:
+
+```text
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+`index.html` is the same Alpine/Tailwind extension body format used by normal
+database-backed extensions. When the Content app sees a local extension that
+declares `content.sidebar.bottom`, it renders that extension at the bottom of
+the Content sidebar. The host passes `window.slotContext` with the selected
+document id, title, source metadata, and whether Content is in Local File Mode.
+
+Local extensions are previewed by the app but edited as files. The Extensions
+list shows them with a Local File badge, and the full-page viewer points back to
+the entry file. SQL-backed extension actions such as update, delete, share, and
+history do not apply; use your editor, Codex, Claude Code, or Git history for
+source changes.
+
+For v1, local extensions are intentionally conservative:
+
+- they can use `extensionData` for their own small runtime state
+- they can call only the `appAction`s listed in `extension.json`
+- raw SQL helpers and external `extensionFetch` are disabled
+- slot targets are declared in `extension.json`, not installed through SQL
+
+This gives local workspaces an Obsidian-like plugin surface without letting an
+arbitrary repo file inherit every capability of a database-backed extension.
+
+## How Apps Use It
+
+Local File Mode is implemented through the framework's local artifact helpers.
+An app declares roots for the artifact types it owns, then reads and writes
+through the same action surface its UI and agent already use.
+
+For Content, that means:
+
+- `list-documents` lists configured `.md` and `.mdx` files.
+- `get-document` reads a selected local file.
+- `update-document` writes the selected local file.
+- `create-document` creates a new local `.mdx` file in the selected folder.
+- `delete-document` deletes the local file.
+- search runs across the configured local files.
+
+Moving, renaming, and reordering local-file pages from the Content UI is not
+supported yet. Do those operations in the workspace or with a coding agent; the
+Content sidebar will reflect the resulting file tree.
+
+This keeps the agent contract simple: the agent can keep using Content actions,
+and those actions decide whether the target is SQL-backed or file-backed.
+
+Other apps can adopt the same pattern over time. A Slides app can map
+`slides/*.mdx` to decks, a Plans app can map `plans/*` to plan documents, and a
+Dashboards app can map `dashboards/*.mdx` to dashboards. Those app-specific
+folders are conventions layered on top of the same local artifact contract.
+
+## Local Files vs. Export/Import
+
+Content has two different file workflows:
+
+| Workflow                     | What happens                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `/local-files` export/import | Database mode remains the source of truth. Files are an explicit sync surface you export, edit, preview, and import. |
+| Local File Mode              | Files are the source of truth. The Content sidebar and editor operate directly on local files.                       |
+
+Use export/import when you want occasional file review around a hosted workspace.
+Use Local File Mode when the repo itself is the workspace.
+
+## History And Collaboration
+
+Local File Mode leans on file-native history:
+
+- commit important changes to Git
+- use pull requests for review
+- let coding agents edit the same files directly
+- use normal file diffs to understand changes
+
+Database mode remains the better fit for hosted collaboration features such as
+sharing, comments, SQL-backed version history, and live multi-user editing.
+
+Provider sync can be layered on top of either mode. For example, a docs repo can
+add actions that pull content from a CMS into local MDX files or push selected
+local files back to that CMS.
+
+## Production Safety
+
+Local File Mode gives app actions direct write access to configured workspace
+files. That is appropriate for local development and trusted single-tenant file
+bridges, but it is not the default production security model.
+
+When `NODE_ENV=production`, the framework refuses `local-files` mode unless you
+set:
+
+```bash
+AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
+```
+
+Only set that for a trusted single-tenant deployment where everyone who can use
+the app is allowed to read and write the configured files. For normal hosted,
+multi-user apps, use database mode and SQL-backed sharing.

@@ -1,0 +1,413 @@
+---
+title: "Guia Skills"
+description: "Como o skills funciona no agente nativo: estrutura skills, domínio skills e criação de skills personalizado."
+---
+
+# Guia Skills
+
+Skills são arquivos Markdown que fornecem ao agente conhecimento profundo sobre padrões e fluxos de trabalho específicos.
+
+## O que são skills {#what-are-skills}
+
+Skills fica em `.agents/skills/<name>/SKILL.md` e contém orientações detalhadas para o agente. Cada habilidade se concentra em uma preocupação: como armazenar dados, como sincronizar o estado, como delegar trabalho ao chat do agente.
+
+O frontmatter `name` e `description` de cada habilidade é sempre injetado no bloco skills do prompt do sistema para que o agente saiba quais skills existem. O corpo completo da habilidade é carregado sob demanda quando o agente decide que uma habilidade é relevante para a tarefa (também é exibida por meio de `docs-search`). É por isso que manter as descrições curtas e específicas do gatilho é importante: a descrição é a única coisa que o agente lê antes de decidir se carrega o restante.
+
+<Diagram id="doc-block-1jleybj" title={"Divulgação progressiva"} summary={"Apenas o nome + a descrição de cada habilidade estão sempre no contexto. O corpo inteiro carrega sob demanda quando a tarefa é adequada."}>
+
+```html
+<div class="sk-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Sempre no prompt do sistema</span>
+    <div class="sk-list">
+      <span class="diagram-pill"
+        >storing-data &mdash;
+        <small class="diagram-muted">add data models&hellip;</small></span
+      ><span class="diagram-pill"
+        >real-time-sync &mdash;
+        <small class="diagram-muted">wire polling&hellip;</small></span
+      ><span class="diagram-pill"
+        >create-skill &mdash;
+        <small class="diagram-muted">add a skill&hellip;</small></span
+      >
+    </div>
+    <small class="diagram-muted">just name + description (cheap)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <small class="diagram-muted">task matches a description</small
+    ><span class="diagram-pill accent">load on demand</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Full <code>SKILL.md</code> body<br /><small class="diagram-muted"
+      >regras, código, o que fazer e evitar</small
+    >
+  </div>
+</div>
+```
+
+```css
+.sk-flow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sk-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 240px;
+}
+.sk-flow .sk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sk-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.sk-flow .diagram-arrow {
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+## Estrutura skills {#framework-skills}
+
+Estes são os skills incluídos no **modelo padrão**. O conjunto exato disponível em qualquer aplicativo depende do modelo a partir do qual você criou o scaffold. Verifique no diretório `.agents/skills/` desse modelo o que ele realmente é enviado.
+
+| Habilidade             | Quando usar                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `storing-data`         | Adicionar modelos de dados, configuração ou estado de leitura/gravação              |
+| `real-time-sync`       | Fiação de sincronização de polling, depuração UI sem atualização                    |
+| `delegate-to-agent`    | Delegação do trabalho de IA de UI ou actions ao agente                              |
+| `actions`              | Criando ou executando o agente actions                                              |
+| `self-modifying-code`  | Editar origem, componentes ou estilos do aplicativo                                 |
+| `create-skill`         | Adicionando novo skills para o agente                                               |
+| `capture-learnings`    | Gravando correções e padrões                                                        |
+| `frontend-design`      | Construir ou estilizar qualquer UI da web, componentes ou páginas                   |
+| `adding-a-feature`     | A lista de verificação de quatro áreas: UI, actions, skills, estado do aplicativo   |
+| `internationalization` | Atualização de cópia UI localizada, catálogos de idiomas e estilos seguros para RTL |
+| `shadcn-ui`            | Usando primitivos e componentes shadcn/ui                                           |
+| `security`             | Autenticação, controle de acesso e tratamento de segredos                           |
+| `real-time-collab`     | Edição colaborativa multiusuário                                                    |
+| `agent-engines`        | Trocar ou configurar o mecanismo do agente subjacente                               |
+| `notifications`        | Padrões de notificação push e no aplicativo                                         |
+| `progress`             | Acompanhamento e exibição do progresso da tarefa em segundo plano                   |
+| `inline-embeds`        | Incorporação de aplicativos ou iframes no chat do agente                            |
+
+`context-awareness` e `a2a-protocol` são skills em nível de estrutura disponíveis no diretório `.agents/skills/` na raiz do repositório. Consulte o `.agents/skills/` de cada modelo para saber o que ele herda.
+
+## Domínio skills {#domain-skills}
+
+Os modelos incluem skills específicos para seu domínio. Eles residem no mesmo diretório `.agents/skills/`, mas abrangem padrões específicos do modelo. Consulte o diretório `.agents/skills/` de cada modelo para obter a lista completa; uma amostra representativa:
+
+- **Modelo de e-mail** — `email-drafts`, `draft-queue`
+- **Modelo de formulários** — `form-building`, `form-publishing`, `form-responses`
+- **Modelo de análise** — `adhoc-analysis`, `bigquery`, `cross-source-analysis`, `dashboard-management`, `data-querying`, `provider-api`, `gong`, `hubspot`, `prometheus`
+- **Modelo de slides** — `create-deck`, `deck-management`, `design-systems`, `slide-editing`, `slide-images`
+
+O domínio skills segue o mesmo formato do framework skills. Eles codificam padrões específicos do modelo que o agente precisa seguir.
+
+## skills com suporte de aplicativo {#app-backed-skills}
+
+As skills com suporte de app atuais incluem `visual-plan` e `visual-recap` do
+Plan, `visual-edit` do Design, `assets` do Assets e `content` para editar
+docs/blog/MDX a partir do repositório.
+
+O skills apoiado por aplicativo empacota um aplicativo nativo do agente como um artefato do mercado de habilidades. O pacote pode incluir instruções do agente, metadados exportados do conector skills, MCP, instruções de inicialização hospedadas/locais e superfícies UI, como aplicativos MCP.
+
+> **Detalhes completos abaixo:** a mecânica do skills baseado em aplicativo (formato de manifesto, comandos CLI, adaptadores de mercado, hash de atualização automática) é abordada em [App-backed skills — full details](#app-backed-skills-full).
+
+## Criando skills personalizado {#creating-skills}
+
+Crie uma habilidade quando:
+
+- Há um padrão que o agente deve seguir repetidamente
+- Um fluxo de trabalho precisa de orientação passo a passo
+- Você deseja criar arquivos a partir de um modelo
+
+Não crie uma habilidade quando:
+
+- A orientação já existe em outra habilidade. Em vez disso, estenda-a
+- A orientação é única: coloque-a em `AGENTS.md` ou na memória do espaço de trabalho
+
+## Formato da habilidade {#skill-format}
+
+Cada habilidade é um arquivo Markdown com frontmatter YAML:
+
+<AnnotatedCode
+  id="doc-block-1e4p4a2"
+  title="Anatomia de um SKILL.md"
+  filename=".agents/skills/project-imports/SKILL.md"
+  language="markdown"
+  code={
+    "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"
+  }
+  annotations={[
+    {
+      lines: "2",
+      label: "Chave de descoberta",
+      note: "The `name` matches the folder; it is how the skill is invoked as `/project-imports`.",
+    },
+    {
+      lines: "3-5",
+      label: "O gatilho",
+      note: "Este `description` é o **único** texto sempre em contexto. Faça com que indique precisamente *quando* a habilidade se aplica.",
+    },
+    {
+      lines: "9-14",
+      label: "Regras primeiro",
+      note: "Lead with the hard rule and the why; the agent reads the body only once the task matches.",
+    },
+    {
+      lines: "27-30",
+      label: "Link cruzado",
+      note: "Aponte as habilidades relacionadas para que o agente possa encadeá-las em vez de derivar novamente a orientação.",
+    },
+  ]}
+/>
+
+Os frontmatter `name` e `description` são usados ​​pelo sistema de ferramentas do agente para descoberta de habilidades. A descrição deve indicar quando a habilidade é acionada. Seja específico sobre as situações.
+
+Salve o arquivo em `.agents/skills/my-skill/SKILL.md`. O nome do diretório deve corresponder ao `name` no frontmatter.
+
+> **Veja também:** [Writing Agent Instructions](/docs/writing-agent-instructions) para saber como redigir descrições de habilidades, aplicar divulgação progressiva e manter `AGENTS.md` enxuto. Ambas as páginas usam a habilidade `project-imports` como exemplo de execução.
+
+## Escopo da habilidade: tempo de execução vs desenvolvimento {#skill-scope}
+
+Um campo de frontmatter `scope` opcional controla para qual agente uma habilidade se destina:
+
+| `scope`   | Carregado pelo agente de tempo de execução? | Usar para                                                                              |
+| --------- | ------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `both`    | Sim (padrão)                                | Skills útil para o agente no aplicativo. Este é o padrão quando `scope` é omitido.     |
+| `runtime` | Sim                                         | Skills destinado apenas ao agente de tempo de execução no aplicativo.                  |
+| `dev`     | Não                                         | Skills destina-se apenas ao agente de codificação humano (por exemplo, código Claude). |
+
+```markdown
+---
+name: release-checklist
+description: >-
+  Steps for cutting a release. Use when preparing or publishing a new version.
+scope: dev
+---
+```
+
+Quando `scope` está ausente (ou definido com um valor não reconhecido), o padrão é `both`, portanto, cada habilidade existente continua carregando em tempo de execução — este campo é totalmente compatível com versões anteriores. Uma habilidade `scope: dev` é invisível para o agente de tempo de execução em qualquer lugar: ela é excluída do bloco skills injetado no prompt do sistema e dos resultados `docs-search`.
+
+### Expondo uma habilidade somente de desenvolvimento ao seu agente de codificação {#dev-only-skills}
+
+O tempo de execução nativo do agente lê skills de `.agents/skills/`. O código Claude lê skills de `.claude/skills/` de forma independente. Para disponibilizar uma habilidade para seu agente de codificação, mas ocultada do agente de tempo de execução:
+
+- Marque-o como `scope: dev` em `.agents/skills/<name>/SKILL.md` para que o agente de tempo de execução nunca o carregue e/ou
+- Coloque ou espelhe a habilidade em `.claude/skills/<name>/SKILL.md` para que o Código Claude a pegue.
+
+Isso substitui o antigo hack de confiar na leitura do código Claude apenas `.claude/skills` — `scope: dev` torna a divisão dev-vs-runtime uma escolha explícita e de primeira classe.
+
+<Diagram id="doc-block-ahakjt" title="Qual agente carrega qual habilidade" summary={"scopedecide se o agente de tempo de execução no aplicativo vê uma habilidade.dev as habilidades são visíveis apenas para seu agente de codificação."}>
+
+```html
+<div class="sc-grid">
+  <div class="diagram-card">
+    <span class="diagram-pill">.agents/skills/</span>
+    <div class="sc-row">
+      <span class="diagram-pill ok">scope: both</span
+      ><small class="diagram-muted">default</small>
+    </div>
+    <div class="sc-row">
+      <span class="diagram-pill ok">scope: runtime</span>
+    </div>
+    <div class="sc-row"><span class="diagram-pill warn">scope: dev</span></div>
+  </div>
+  <div class="sc-targets">
+    <div class="diagram-box">
+      Runtime agent<br /><small class="diagram-muted"
+        >reads <code>both</code> + <code>runtime</code></small
+      >
+    </div>
+    <div class="diagram-box">
+      Agente de código<br /><small class="diagram-muted"
+        >Claude Code reads <code>.claude/skills/</code> +
+        <code>dev</code></small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.sc-grid {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.sc-grid .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.sc-grid .sc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sc-grid .sc-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+```
+
+</Diagram>
+
+> **Veja também:** [Writing Agent Instructions](/docs/writing-agent-instructions) para saber como redigir descrições de habilidades, aplicar divulgação progressiva e manter `AGENTS.md` enxuto.
+
+## Skills versus AGENTS.md {#skills-vs-agents-md}
+
+> **AGENTS.md** — A visão geral. Lista todos os scripts, descreve o modelo de dados e explica a arquitetura do aplicativo. O agente lê isso primeiro para entender o aplicativo.
+>
+> **Skills** — Mergulhos profundos. Cada habilidade se concentra em um padrão com regras detalhadas, exemplos de código e listas de fazer/não fazer. O agente os lê quando precisa seguir um padrão específico.
+
+`AGENTS.md` informa ao agente _o que_ o aplicativo faz. Skills diz ao agente _como_ fazer coisas específicas corretamente. Ambos são necessários — `AGENTS.md` para orientação, skills para execução.
+
+## Skills versus memória {#skills-vs-memory}
+
+> **Skills** — Guias de instruções reutilizáveis e de autoria. Aplica-se a todos os usuários, invocado sob demanda quando a tarefa corresponde.
+>
+> **Memória (`LEARNINGS.md`/`memory/MEMORY.md`)** — Aprendizados compartilhados do projeto e memória estruturada pessoal carregada a cada turno.
+
+Se o conhecimento se aplica a _todos_ que trabalham no aplicativo ("sempre prefira CTEs a subconsultas"), é uma habilidade ou `LEARNINGS.md` compartilhado. Se for sobre _este usuário específico_ ("Steve gosta de respostas concisas"), ele pertence a `memory/MEMORY.md`. Consulte [Workspace Memory](/docs/workspace#memory) para o tratamento completo.
+
+---
+
+# Avançado
+
+## skills com suporte de aplicativo — detalhes completos {#app-backed-skills-full}
+
+O skills apoiado por aplicativo empacota um aplicativo nativo do agente como um artefato do mercado de habilidades.
+O pacote pode incluir instruções do agente, skills exportado, conector MCP
+metadados, instruções de inicialização hospedadas/locais e superfícies UI, como aplicativos MCP.
+
+Cada habilidade apoiada pelo aplicativo começa com `agent-native.app-skill.json` na raiz do aplicativo:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "assets",
+  "hosted": {
+    "url": "https://assets.agent-native.com",
+    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": { "serverName": "agent-native-assets" },
+  "skills": [
+    {
+      "path": ".agents/skills/asset-generation",
+      "visibility": "both",
+      "exportAs": "assets"
+    }
+  ]
+}
+```
+
+A visibilidade da habilidade controla o que é enviado:
+
+| Visibilidade | Significado                                                                   |
+| ------------ | ----------------------------------------------------------------------------- |
+| `internal`   | Usado pelo próprio agente do aplicativo, não exportado para marketplaces.     |
+| `exported`   | Exportado para mercados, mas não é necessário internamente para o aplicativo. |
+| `both`       | Usado internamente e exportado.                                               |
+
+Hospedado é o caminho de instalação padrão. O lançamento local é explícito para personalização,
+trabalho off-line ou uso sensível à privacidade.
+
+```bash
+# Caminho feliz: instruções exportadas mais conector MCP hospedado.
+npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add assets
+
+# Edição de Content docs/blog/MDX com repo como fonte primária.
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+
+# CLI Vercel/open Skills: apenas instruções exportadas, sem configuração MCP.
+npx skills@latest add BuilderIO/agent-native --skill assets
+
+# Registre um conector MCP hospedado para clientes de agentes locais.
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# Materialize e execute fonte local editável.
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# Construir adaptadores de mercado: plugin Codex, mercado Claude, habilidades Vercel,
+# habilidades plain/Claude e configurações MCP.
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# Instale um pacote exportado local com a CLI Vercel/open Skills.
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
+
+# Adicione o mercado de código Claude gerado e instale seu plugin Assets.
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
+```
+
+Mantenha segredos fora dos arquivos de habilidades. O manifesto deve conter conector somente URL
+metadados; A configuração do OAuth/dispositivo acontece no host MCP ou através do aplicativo normal
+fluxo de configurações.
+
+O adaptador Vercel Labs `skills` é um pacote `skills/<name>/SKILL.md` portátil
+para `npx skills@latest add ...`, mas o `skills` bruto CLI instala apenas instruções.
+Ele não executa scripts pós-instalação definidos pelo repositório nem registra conectores MCP.
+Mantenha Agent Native CLI como caminho de documentos padrão para agentes locais porque
+também registra o conector MCP. `BuilderIO/agent-native` é um verdadeiro GitHub
+fonte de repositório para Vercel/open Skills CLI; `skills.sh` é uma descoberta e
+diretório da tabela de classificação, não um namespace de pacote no estilo npm.
+
+O adaptador de mercado Claude Code grava
+`adapters/claude-marketplace/.claude-plugin/marketplace.json` mais um aninhado
+diretório de plugin contendo `skills/<name>/SKILL.md` e `.mcp.json`. Em Claude
+Codifique, adicione o marketplace, instale `agent-native-assets@agent-native-apps`,
+recarregue os plug-ins e autentique o conector MCP somente URL do `/mcp`.
+
+Os manifestos do plug-in gerados são configurados para atualização automática: o código Claude
+conjuntos de entrada do marketplace `autoUpdate: true` (com controle de versão commit-SHA) e o
+O plugin Codex `version` incorpora um hash de conteúdo do pacote skills e MCP
+endpoint, portanto, os plug-ins instalados captam as alterações de habilidade sem reembalar. O
+O aplicativo Plan é publicado desta forma como um mercado pronto para adicionar na raiz do repositório —
+veja [Plan plugin & marketplace](/docs/plan-plugin) para a instalação completa
+e fluxo de atualização automática.
+
+Para usuários que instalam o skills copiado através do CLI universal em vez de um
+mercado de plugins, use os comandos de atualização CLI:
+
+```bash
+npx @agent-native/core@latest skills status visual-plan
+npx @agent-native/core@latest skills update visual-plan
+```
+
+`skills update` verifica projetos Codex/Claude conhecidos e pastas de habilidades do usuário, compara
+o hash da pasta copiada para a habilidade incluída mais recente e reescreve as pastas obsoletas em
+lugar. Agent Native skills recentemente copiado inclui um `agent-native-skill.json`
+marcador para que a saída de status futuro possa identificar a origem e o hash.
+
+Aplicativos e espaços de trabalho Agent Native gerados também incluem estrutura fornecida
+skills sob `.agents/skills` (ou `packages/shared/.agents/skills` em um
+espaço de trabalho). Atualize os skills com andaime do CLI atual/mais recente com:
+
+```bash
+npm run skills:update
+# ou, sem depender do script do pacote local:
+npx @agent-native/core@latest skills update scaffold --project
+```
+
+`AGENTS.md` e `.agents/skills` permanecem canônicos. O comando update também repara
+Links de compatibilidade Claude (`CLAUDE.md` e `.claude/skills`) para que o código Claude seja visto
+as mesmas instruções sem manter uma segunda cópia.

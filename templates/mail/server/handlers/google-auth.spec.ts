@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getAuthStatus: vi.fn(),
   getAuthUrl: vi.fn(),
   getClient: vi.fn(),
+  getOAuth2Credentials: vi.fn(),
   getSession: vi.fn(),
   googleFetch: vi.fn(),
   htmlSignatureToMarkdown: vi.fn(),
@@ -73,6 +74,7 @@ vi.mock("../lib/google-auth.js", () => ({
   getAuthStatus: mocks.getAuthStatus,
   getAuthUrl: mocks.getAuthUrl,
   getClient: mocks.getClient,
+  getOAuth2Credentials: mocks.getOAuth2Credentials,
   setAccountDisplayName: mocks.setAccountDisplayName,
 }));
 
@@ -97,6 +99,10 @@ describe("Mail Google auth-url handlers", () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
     mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.getOAuth2Credentials.mockResolvedValue({
+      clientId: "google-client-id",
+      clientSecret: "google-client-secret",
+    });
     mocks.getAuthUrl.mockReturnValue(
       "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
     );

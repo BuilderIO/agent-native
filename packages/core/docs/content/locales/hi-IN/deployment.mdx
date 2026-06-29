@@ -1,0 +1,455 @@
+---
+title: "तैनाती"
+description: "Nitro प्रीसेट के साथ किसी भी प्लेटफ़ॉर्म पर एजेंट-नेटिव ऐप्स तैनात करें - Node.js, Vercel, Netlify, Cloudflare, AWS, और बहुत कुछ।"
+---
+
+# तैनाती
+
+एजेंट-नेटिव ऐप्स हुड के तहत [Nitro](https://nitro.build) का उपयोग करते हैं, जिसका अर्थ है कि आप शून्य कॉन्फ़िगरेशन परिवर्तनों के साथ किसी भी प्लेटफ़ॉर्म पर तैनात कर सकते हैं - बस एक प्रीसेट सेट करें।
+
+## तैनाती करने से पहले: एक स्थायी डेटाबेस चुनें {#persistent-database}
+
+प्रत्येक तैनात ऐप को एक सतत SQL डेटाबेस की आवश्यकता होती है। स्थानीय विकास में, एजेंट-नेटिव `data/app.db` पर SQLite फ़ाइल पर वापस आ जाता है; यह आपकी मशीन पर सुविधाजनक है, लेकिन यह कंटेनर, पूर्वावलोकन, या सर्वर रहित वातावरण में टिकाऊ नहीं है जहां फ़ाइल सिस्टम को रीसेट किया जा सकता है।
+
+किसी ऐप को उत्पादन के लिए प्रचारित करने से पहले अपने परिनियोजन प्रदाता में `DATABASE_URL` सेट करें। एजेंट-नेटिव स्कीमा और प्रश्नों के लिए Drizzle का उपयोग करता है, इसलिए डेटा परत Drizzle-संगत SQL बैकएंड में पोर्टेबल है और फ्रेमवर्क URL से बोली का स्वतः पता लगाता है। एडॉप्टर सूची और बोली विवरण के लिए [Database](/docs/database#production) देखें।
+
+`DATABASE_AUTH_TOKEN` का उपयोग केवल तभी करें जब आपके डेटाबेस प्रदाता को एक अलग टोकन की आवश्यकता हो, जैसे Turso/libSQL। कार्यस्थानों के लिए, सभी ऐप्स को डिफ़ॉल्ट रूप से रूट `DATABASE_URL` प्राप्त होता है; जब एक ऐप को अलग डेटाबेस का उपयोग करना चाहिए तो `<APP_NAME>_DATABASE_URL` सेट करें।
+
+## कार्यस्थान परिनियोजन: एक उत्पत्ति, अनेक ऐप्स {#workspace-deploy}
+
+यदि आपका प्रोजेक्ट [workspace](/docs/multi-app-workspace) है, तो आप इसमें प्रत्येक ऐप को एक कमांड के साथ एक ही मूल में भेज सकते हैं:
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+प्रत्येक ऐप को `APP_BASE_PATH=/<name>` और `VITE_APP_BASE_PATH=/<name>` के साथ बनाया गया है, फिर लक्ष्य Nitro प्रीसेट के लिए पैक किया गया है। क्लाउडफ्लेयर पेज डिफ़ॉल्ट प्रीसेट है और `dist/_worker.js` पर जेनरेटेड डिस्पैचर वर्कर का उपयोग करता है; Netlify `.netlify/functions-internal/<app>-server` प्लस जेनरेटेड रीडायरेक्ट में प्रति ऐप एक फ़ंक्शन का उपयोग करता है; वर्सेल बिल्ड आउटपुट API का उपयोग करके एक कार्यक्षेत्र-स्तर `.vercel/output` लिखता है।
+
+<Diagram id="doc-block-1vczq5r" title={"एक मूल, अनेक ऐप्स"} summary={"प्रत्येक कार्यक्षेत्र ऐप अपने स्वयं के आधार पथ के साथ बनाया गया है और एक ही मूल पर पथ उपसर्ग के तहत माउंट किया गया है - इसलिए लॉगिन और क्रॉस-ऐप A2A समान-मूल और मुफ़्त हैं।"}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">shared login session</span
+    ><span class="diagram-pill ok">बिना कॉन्फिग क्रॉस-ऐप A2A</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+```
+
+</Diagram>
+
+समान-मूल परिनियोजन आपको निःशुल्क दो बड़ी जीत प्रदान करता है:
+
+- **साझा लॉगिन सत्र** - किसी भी ऐप में लॉग इन करें, हर ऐप लॉग इन है।
+- **ज़ीरो-कॉन्फिग क्रॉस-ऐप A2A** — मेल से `@calendar` को टैग करना एक समान-मूल फ़ेच है; कोई CORS नहीं, कोई JWT भाई-बहनों के बीच हस्ताक्षर नहीं।
+
+आउटपुट को इसके साथ प्रकाशित करें:
+
+```bash
+wrangler pages deploy dist
+```
+
+Netlify एकीकृत परिनियोजन के लिए, Netlify प्रीसेट का उपयोग करें:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+वर्सेल एकीकृत परिनियोजन के लिए, वर्सेल प्रीसेट का उपयोग करें:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+प्रदाता बिल्ड कमांड को कॉन्फ़िगर करते समय, `--build-only` के साथ उसी कमांड का उपयोग करें। वर्सेल को `npx @agent-native/core@latest deploy --preset vercel --build-only` चलाना चाहिए; कमांड सीधे `.vercel/output` लिखता है, इसलिए कार्यक्षेत्र रूटिंग के लिए कोई `vercel.json` आवश्यक नहीं है।
+
+होस्ट किए गए कार्यस्थान निर्माण के लिए परिनियोजन प्रदाता परिवेश में `A2A_SECRET` की आवश्यकता होती है।
+इससे Slack, इनबाउंड webhooks और क्रॉस-ऐप A2A हस्ताक्षरित होकर काम फिर से शुरू कर देते हैं
+बैकग्राउंड प्रोसेसर। स्थानीय `--build-only` आर्टिफैक्ट जांच अभी भी इसके बिना चलती है।
+
+प्रति-ऐप स्वतंत्र तैनाती अभी भी समर्थित है - बस एक स्टैंडअलोन मचान की तरह `cd apps/<name> && npx @agent-native/core@latest build`।
+
+## यह कैसे काम करता है {#how-it-works}
+
+जब आप `npx @agent-native/core@latest build` चलाते हैं, तो Nitro क्लाइंट SPA और सर्वर API दोनों को `.output/` में बनाता है:
+
+<FileTree
+  id="doc-block-j0q747"
+  title={"आउटपुट बनाएं files"}
+  entries={[
+    {
+      path: ".output/",
+      note: "self-contained: किसी भी environment में copy करके चलाएँ",
+    },
+    {
+      path: ".output/public/",
+      note: "built SPA और static assets",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "server entry point file",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "server code chunk files",
+    },
+  ]}
+/>
+
+आउटपुट स्व-निहित है - `.output/` को किसी भी वातावरण में कॉपी करें और इसे चलाएं।
+
+<Diagram id="doc-block-va4hix" title={"तैनात करने के लिए निर्माण करें"} summary={"एक स्रोत वृक्ष Nitro प्रीसेट बनाता है; वही स्व-निहित आउटपुट Node, Vercel, Netlify, Cloudflare, AWS, या Deno पर चलता है। प्रत्येक उदाहरण एक ही निरंतर DATABASE_URL पर इंगित करता है।"}>
+
+```html
+<div class="diagram-deploy">
+  <div class="diagram-box" data-rough>ऐप स्रोत</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">build</span
+    ><small class="diagram-muted">Nitro preset</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <span class="diagram-pill">Node.js</span
+    ><span class="diagram-pill">Vercel</span
+    ><span class="diagram-pill">Netlify</span
+    ><span class="diagram-pill">Cloudflare</span
+    ><span class="diagram-pill">AWS Lambda</span
+    ><span class="diagram-pill">Deno</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    स्थायी DATABASE_URL<br /><small class="diagram-muted"
+      >shared by every instance</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-deploy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-deploy .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-deploy .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-deploy .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+```
+
+</Diagram>
+
+## प्रीसेट सेट करना {#setting-the-preset}
+
+डिफ़ॉल्ट रूप से, Nitro Node.js के लिए बनता है। किसी भिन्न प्लेटफ़ॉर्म को लक्षित करने के लिए, अपने `vite.config.ts` में प्रीसेट सेट करें:
+
+```ts
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+या निर्माण समय पर `NITRO_PRESET` पर्यावरण चर का उपयोग करें:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+```
+
+## Node.js (डिफ़ॉल्ट) {#nodejs}
+
+डिफ़ॉल्ट प्रीसेट. बनाएं और चलाएं:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+श्रवण पोर्ट को कॉन्फ़िगर करने के लिए `PORT` सेट करें (डिफ़ॉल्ट: `3000`)।
+
+उत्पादन परिनियोजन के लिए वर्तमान Node.js LTS लाइन का उपयोग करें। मई 2026 तक, वह
+Node.js 24 है; Node.js 20 का जीवन 30 अप्रैल, 2026 को समाप्त हो गया और अब नहीं
+अपस्ट्रीम सुरक्षा अद्यतन प्राप्त करता है।
+
+### डॉकर {#docker}
+
+```dockerfile
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ एक रनटाइम-निर्मित SQLite निर्देशिका है - किसी डेव DB को उत्पाद में कॉपी न करें।
+# उत्पादन के लिए, DATABASE_URL को होस्ट किए गए Postgres या Turso इंस्टेंस पर सेट करें।
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+## वर्सेल {#vercel}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Vercel CLI या git पुश के माध्यम से परिनियोजन करें:
+
+```bash
+vercel deploy
+```
+
+कार्यक्षेत्र के लिए, प्रत्येक ऐप को एक वर्सेल बिल्ड आउटपुट API बंडल में बनाएं:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+वर्सेल गिट परिनियोजन के लिए, बिल्ड कमांड को यहां सेट करें:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+वर्कस्पेस बिल्ड प्रत्येक ऐप के Nitro `vercel` आउटपुट को रूट `.vercel/output` में कॉपी करता है, प्रत्येक फ़ंक्शन को अपना माउंट-पाथ वातावरण देता है, और रूट कॉन्फिगरेशन लिखता है जो `/<app-id>` पर ऐप्स को सर्व करता है।
+
+## नेटलिफाई {#netlify}
+
+Nitro `netlify` प्रीसेट अच्छी तरह से काम करता है और, व्यवहार में, हमें बाहरी Postgres (नियॉन) से बात करने वाले टेम्पलेट्स के लिए क्लाउडफ्लेयर पेज (~ 200ms TTFB बनाम ~ 9s) की तुलना में बहुत तेज शुरुआत दी है। या तो प्रीसेट को `vite.config.ts`:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…या निर्माण समय पर `NITRO_PRESET=netlify` सेट करें।
+
+कार्यस्थान के लिए, प्रत्येक ऐप को एक Netlify साइट से चलाकर तैनात करें:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+वर्कस्पेस बिल्ड `dist/_workspace_static/` के तहत स्टैटिक एसेट लिखता है और प्रत्येक ऐप को बिना किसी एसेट रीडायरेक्ट के अपने स्वयं के नेटलाइज़ फ़ंक्शन पर रूट करता है, इसलिए सर्वर फ़ंक्शन ऐप रूट को संभालने से पहले `/mail/assets/...` जैसी फ़ाइलों को स्टेटिक रूप से परोसा जाता है।
+
+## क्लाउडफ्लेयर पेज {#cloudflare-pages}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## AWS लैम्ब्डा {#aws-lambda}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## डेनो तैनाती {#deno-deploy}
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## पर्यावरण चर {#environment-variables}
+
+### बिल्ड/रनटाइम {#env-runtime}
+
+| वेरिएबल                     | विवरण                                                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PORT`                      | सर्वर पोर्ट (केवल Node.js)                                                                                                                                               |
+| `NITRO_PRESET`              | बिल्ड समय पर बिल्ड प्रीसेट को ओवरराइड करें                                                                                                                               |
+| `APP_BASE_PATH`             | एप्लिकेशन को किसी उपसर्ग के अंतर्गत माउंट करें (उदा. `/mail`)। `npx @agent-native/core@latest deploy` द्वारा स्वचालित रूप से सेट करें; स्टैंडअलोन के लिए अनसेट छोड़ दें। |
+| `AGENT_PROD_CODE_EXECUTION` | वैकल्पिक उत्पादन कोड-निष्पादन मोड: `off` (डिफ़ॉल्ट), `sandboxed`, या `trusted`। [Production Code Execution](#production-code-execution) देखें.                           |
+
+डेटाबेस कनेक्शन वेरिएबल (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, प्रति-ऐप `<APP_NAME>_DATABASE_URL`) [Database](/docs/database#production) में रहते हैं।
+
+### उत्पादन में आवश्यक {#env-required-prod}
+
+किसी ऐप को वास्तविक उत्पाद परिनियोजन के लिए प्रचारित करने से पहले इन्हें सेट किया जाना चाहिए। गुम मान या तो विफल-बंद हो जाते हैं (फ़्रेमवर्क प्रारंभ करने से इंकार कर देता है/अनुरोधों को संभालने से इंकार कर देता है) या ज़ोर से चेतावनी के साथ कमजोर व्यवहार पर वापस आ जाता है।
+
+| वेरिएबल                  | विवरण                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`     | 32+ चार यादृच्छिक स्ट्रिंग। साइन्स सत्र कुकीज़ AND, `OAUTH_STATE_SECRET` और `SECRETS_ENCRYPTION_KEY` के लिए फ़ॉलबैक HMAC है। हार्ड-आवश्यक: उत्पादन में कमी होने पर फ्रेमवर्क स्टार्टअप पर फेंकता है।                                                                                                              |
+| `BETTER_AUTH_URL`        | इस ऐप का सार्वजनिक मूल (उदा. `https://mail.example.com`)। कुकी डोमेन और OAuth रीडायरेक्ट निर्माण के लिए उपयोग किया जाता है।                                                                                                                                                                                       |
+| `ANTHROPIC_API_KEY`      | एम्बेडेड उत्पादन एजेंट के लिए API कुंजी। **बहु-किरायेदार तैनाती में**, जब उपयोगकर्ता के पास प्रति-उपयोगकर्ता कुंजी नहीं होती है तो फ्रेमवर्क इस पर वापस आने से इंकार कर देता है - अपनी खुद की कुंजी लाने की आवश्यकता होती है। एकल-किरायेदार स्व-होस्ट किए गए इंस्टॉल इसे वैश्विक कुंजी के रूप में उपयोग करते हैं। |
+| `OAUTH_STATE_SECRET`     | OAuth राज्य लिफाफे के लिए समर्पित HMAC कुंजी (Google, एटलसियन, ज़ूम)। अनसेट होने पर वापस `BETTER_AUTH_SECRET` पर आ जाता है, लेकिन एक समर्पित मान की अनुशंसा की जाती है ताकि एक को घुमाने से दूसरा अमान्य न हो। `openssl rand -hex 32` के माध्यम से उत्पन्न करें।                                                  |
+| `A2A_SECRET`             | इंटर-ऐप A2A JSON-RPC के लिए साझा HMAC। इसके बिना, प्रत्येक A2A एंडपॉइंट और `/_agent-native/integrations/process-task` सेल्फ-फायर एंडपॉइंट उत्पादन में 503 लौटाता है।                                                                                                                                              |
+| `SECRETS_ENCRYPTION_KEY` | एन्क्रिप्टेड-एट-रेस्ट सीक्रेट्स वॉल्ट के लिए AES-256-GCM कुंजी। `BETTER_AUTH_SECRET` पर वापस आ जाता है। दोनों के असंतुलित होने पर उत्पादन में कठिनाई होती है।                                                                                                                                                     |
+
+### प्रामाणिक एवं पहचान {#env-auth}
+
+OAuth प्रदाता क्रेडेंशियल (Google, GitHub), स्थिर MCP बियरर फ़ॉलबैक (`ACCESS_TOKEN` / `ACCESS_TOKENS`), और ईमेल-सत्यापन टॉगल [Authentication](/docs/authentication) में प्रलेखित हैं। उन्हें आपके द्वारा चुने गए प्रमाणीकरण मोड के अनुसार वहां सेट करें।
+
+### इनबाउंड Webhooks {#env-webhooks}
+
+प्रत्येक मैसेजिंग एकीकरण के लिए उत्पादन में अपने स्वयं के हस्ताक्षर रहस्य की आवश्यकता होती है (रहस्य गायब होने पर जाली अनुरोधों पर हैंडलर विफल हो जाते हैं)। प्रति-एकीकरण चर [Messaging](/docs/messaging) और [Security](/docs/security) में सूचीबद्ध हैं। केवल स्थानीय विकास के लिए, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` "चेतावनी दें और स्वीकार करें" का विकल्प चुनता है - इसे कभी भी उत्पाद में सेट न करें।
+
+### सुरक्षा कॉन्फ़िगरेशन (ऑप्ट-इन) {#security-config}
+
+डिफ़ॉल्ट सख्त हैं। मुट्ठी भर ऑप्ट-इन फ़्लैग व्यवहार को शिथिल करते हैं (डीबग स्टैक ट्रेस, असत्यापित webhooks, वर्कस्पेस-स्कोप्ड कुंजी फ़ॉलबैक, MCP हब मल्टी-ऑर्ग स्विच, रनटाइम एनवी-वर राइट्स)। उन्हें [Security](/docs/security) में उनके सुरक्षा ट्रेड-ऑफ़ के साथ प्रलेखित किया गया है। जब तक आप विशेष रूप से आरामदायक मार्ग नहीं चाहते, उन्हें सेट न करें।
+
+### कार्यस्थान .env वंशानुक्रम {#env-inheritance}
+
+कार्यस्थान के अंदर, रूट `.env` स्वचालित रूप से प्रत्येक ऐप में लोड हो जाता है, इसलिए `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, और `OAUTH_STATE_SECRET` जैसी साझा कुंजियों को केवल एक बार सेट करने की आवश्यकता होती है। प्रति-ऐप `apps/<name>/.env` संघर्ष पर जीतता है।
+
+### मजबूत रहस्य उत्पन्न करना {#env-generate-secrets}
+
+"32+ चार यादृच्छिक" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`) चिह्नित किसी भी रहस्य के लिए, इसके साथ नए मान उत्पन्न करें:
+
+```bash
+openssl rand -hex 32
+```
+
+प्रत्येक उदाहरण पर env var को प्रतिस्थापित करके और पुनः तैनात करके उन्हें घुमाएं - पुरानी कुंजी के तहत हस्ताक्षरित सत्र / OAuth राज्य लिफाफे अमान्य हो जाते हैं, इसलिए उपयोगकर्ताओं को फिर से साइन इन करने की आवश्यकता हो सकती है।
+
+## उत्पादन एजेंट उपकरण {#production-agent-tools}
+
+प्रोडक्शन एजेंटों को ऐप के पंजीकृत actions प्लस फ्रेमवर्क टूल मिलते हैं
+एजेंट चैट प्लगइन. कच्चे DB
+टूल्स का दायरा प्रमाणित उपयोगकर्ता/संगठन तक होता है, लेकिन ऐप मालिक इसे सीमित कर सकते हैं
+सतह जब तैनाती अधिक विचारशील होनी चाहिए:
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  // Default: "write" (also true)
+  databaseTools: "read", // "write" | "read" | "off"
+  extensionTools: false,
+});
+```
+
+- `databaseTools: "write"` - डिफ़ॉल्ट। रजिस्टर `db-schema`, `db-query`,
+  `db-exec`, और `db-patch`। लेखन का दायरा मौजूदा उपयोगकर्ता/संगठन और
+  स्कीमा परिवर्तन अवरुद्ध हैं।
+- `databaseTools: "read"` - केवल `db-schema` और `db-query` पंजीकृत करता है; एजेंट
+  SQL के साथ डेटा का निरीक्षण करें लेकिन लिखने के लिए टाइप किए गए ऐप actions का उपयोग करना होगा।
+- `databaseTools: "off"` या `false` - कच्चे डेटाबेस टूल को हटा देता है
+  एजेंट सतह इसलिए ऐप का actions ही एकमात्र डेटा एक्सेस पथ है।
+- `extensionTools: false` - फ्रेमवर्क एक्सटेंशन-प्रबंधन actions को हटा देता है और
+  ऐप्स के लिए त्वरित मार्गदर्शन (`create-extension`, `update-extension`, आदि)
+  नहीं चाहते कि एजेंट सैंडबॉक्स वाले मिनी-ऐप बनाएं।
+
+## उत्पादन कोड निष्पादन {#production-code-execution}
+
+डिफ़ॉल्ट रूप से, उत्पादन एजेंट कोड-निष्पादन उपकरण के बिना चलते हैं। वे ऐप actions, डेटाबेस टूल्स, MCP टूल्स, ब्राउज़र/सेशन टूल्स और अन्य पंजीकृत फ्रेमवर्क टूल्स को कॉल कर सकते हैं, लेकिन उन्हें शेल या फ़ाइल सिस्टम एक्सेस नहीं मिलता है।
+
+नोड-संगत परिनियोजन एजेंट चैट प्लगइन या पर्यावरण ओवरराइड के माध्यम से उत्पादन कोड निष्पादन का विकल्प चुन सकते हैं:
+
+```ts
+// server/plugins/agent-chat.ts
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+उपलब्ध मोड हैं:
+
+- `off` - डिफ़ॉल्ट। कोई भी कोड-निष्पादन उपकरण उत्पादन में पंजीकृत नहीं है।
+- `sandboxed` - `run-code` को पंजीकृत करता है, एक पृथक Node.js JavaScript धावक, एक साफ़ वातावरण के साथ, एक ताज़ा अस्थायी निर्देशिका, आउटपुट / समय सीमा, और `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, और प्रयुक्त संसाधन-समर्थित कार्यक्षेत्र फ़ाइल ब्रिज जैसे सूचीबद्ध पंजीकृत टूल के लिए एक लोकलहोस्ट ब्रिज। `workspaceRead` / `workspaceWrite` द्वारा.
+- `trusted` - `run-code` प्लस पूर्ण कोडिंग टूल रजिस्ट्री (`bash`, `read`, `edit`, `write`) को पंजीकृत करता है। इसका उपयोग केवल एकल-किरायेदार या ऑपरेटर-नियंत्रित तैनाती के लिए करें जहां होस्ट तक पूर्ण शेल पहुंच जानबूझकर है।
+
+कोड परिवर्तन के बिना किसी विशिष्ट परिनियोजन के लिए प्लगइन विकल्प को ओवरराइड करने के लिए `AGENT_PROD_CODE_EXECUTION=sandboxed` या `AGENT_PROD_CODE_EXECUTION=trusted` सेट करें। `AGENT_PROD_CODE_EXECUTION=off` प्लगइन विकल्प सक्षम होने पर भी कोड निष्पादन को बंद कर देता है।
+
+`run-code` सैंडबॉक्स प्रक्रिया-स्तरीय अलगाव है, ओएस कंटेनर नहीं। यह चाइल्ड प्रोसेस वातावरण से ऐप रहस्यों को हटा देता है और उपलब्ध होने पर नोड अनुमति मॉडल का उपयोग करता है, लेकिन आउटबाउंड नेटवर्क को नोड द्वारा अवरुद्ध नहीं किया जाता है; प्रमाणित कॉल को टूल द्वारा उजागर किए गए ब्रिज हेल्पर्स के माध्यम से जाना चाहिए।
+
+## उत्पादन में UI को अद्यतन करना {#updating-ui-in-production}
+
+एजेंट-नेटिव की मुख्य विशेषताओं में से एक यह है कि एजेंट आपके ऐप के स्रोत कोड - घटकों, मार्गों, शैलियों, actions को संशोधित कर सकता है। स्थानीय विकास के दौरान यह निर्बाध रूप से काम करता है क्योंकि एजेंट के पास पूर्ण फ़ाइल सिस्टम पहुंच होती है।
+
+[production code execution](#production-code-execution) को छोड़कर एक मानक उत्पादन परिनियोजन में, एजेंट के पास ऐप टूल्स (actions, डेटाबेस, MCP) तक पहुंच होती है, लेकिन फ़ाइल सिस्टम तक नहीं। इसका मतलब है कि एजेंट डेटा पढ़ और लिख सकता है, actions चला सकता है, और बाहरी सेवाओं के साथ बातचीत कर सकता है - लेकिन यह आपके React घटकों को संपादित नहीं कर सकता है या तैनात उदाहरण पर नए मार्ग नहीं जोड़ सकता है।
+
+### Builder.io: प्रोडक्शन में विजुअल एडिटिंग {#builderio}
+
+[Builder.io](https://www.builder.io) एक प्रबंधित क्लाउड वातावरण प्रदान करके इसे हल करता है जहां एजेंट उत्पादन में आपके ऐप के UI को संशोधित करने की क्षमता रखता है। अपने रेपो को Builder.io से कनेक्ट करें और सीधे UI परिवर्तनों के लिए संकेत दें - किसी पुनः तैनाती की आवश्यकता नहीं है।
+
+**यह कैसे काम करता है:**
+
+1. अपने एजेंट-मूल रेपो को Builder.io से कनेक्ट करें
+2. Builder.io एजेंट, विज़ुअल संपादन और वास्तविक समय सहयोग के साथ एक क्लाउड फ्रेम प्रदान करता है
+3. एजेंट को UI परिवर्तन करने के लिए कहें - यह आपके घटकों, मार्गों और शैलियों को लाइव संपादित करता है
+4. परिवर्तन आपके रेपो में वापस कर दिए जाते हैं
+
+एम्बेडेड एजेंट पैनल बनाम क्लाउड फ़्रेम विकल्पों पर अधिक जानकारी के लिए [Frames](/docs/frames) देखें।
+
+## मल्टी-इंस्टेंस परिनियोजन {#multi-instance}
+
+एजेंट-नेटिव ऐप्स सभी स्थिति को Drizzle के माध्यम से SQL में संग्रहीत करते हैं और UI को [polling](/docs/key-concepts#polling-sync) के माध्यम से डेटाबेस के विरुद्ध सिंक करते हैं - कोई फ़ाइल-सिस्टम स्थिति नहीं, कोई चिपचिपा सत्र नहीं, कोई इन-मेमोरी कैश नहीं। इसका मतलब है कि मल्टी-इंस्टेंस और सर्वर रहित परिनियोजन बॉक्स से बाहर काम करते हैं: प्रत्येक इंस्टेंस को एक ही `DATABASE_URL` पर इंगित करें और वे स्वचालित रूप से परिवर्तित हो जाते हैं। [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) और [Portability](/docs/key-concepts#hosting-agnostic) देखें।

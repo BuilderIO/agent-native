@@ -41,6 +41,9 @@ const messages = {
   docs: {
     navigateAria: "瀏覽檔案",
     onThisPage: "本頁面內容",
+    copyMarkdown: "將文件複製為 Markdown",
+    copiedMarkdown: "已複製 Markdown",
+    copyMarkdownError: "無法複製 Markdown",
     previous: "上一頁面",
     next: "下一頁面",
   },
@@ -524,7 +527,7 @@ const messages = {
       s004: "口授",
       s005: "能看到+聽到",
       s006: "所有範本",
-      s007: "Loom 和 Jam 的開放原始碼替代方案",
+      s007: "Loom 的開放原始碼替代方案",
       s008: "將 Clips 連結貼上到代理中，即使其模型無法攝取原始影片或音訊，它也可以聽到文字紀錄、讀取摘要並檢視帶時間戳的幀。",
       s009: "試用",
       s010: "你能做什麼",
@@ -1091,16 +1094,17 @@ const messages = {
     },
   },
   skillsPage: {
-    metaTitle: "代理技能 - 面向編碼代理的 Visual Plan 和 Visual Recap",
+    metaTitle:
+      "代理技能 - 面向編碼代理的 Visual Plan、Visual Recap 和 Visual Edit",
     metaDescription:
-      "安裝由 Agent-Native 應用支援的技能，讓你的編碼代理能進行視覺化規劃和 PR 回顧。",
+      "安裝由 Agent-Native 應用支援的技能，讓你的編碼代理能進行視覺化規劃、PR 回顧和本機視覺化編輯。",
     metaOgDescription:
       "為你的編碼代理新增由 Agent-Native 應用驅動的斜杠指令，可託管、檢查並自訂。",
     metaKeywords:
-      "代理技能, visual plan, visual recap, 編碼代理, Claude Code, Codex, PR 審查, 規劃, agent-native",
+      "代理技能, visual plan, visual recap, visual edit, 編碼代理, Claude Code, Codex, PR 審查, 規劃, agent-native",
     heroTitle: "給你的編碼代理新的超能力",
     heroBody:
-      "安裝由 Agent-Native 應用支援、可完全自訂的應用技能：實現前做視覺化規劃，變更落地後做視覺化 PR 回顧。",
+      "安裝由 Agent-Native 應用支援、可完全自訂的應用技能：實現前做視覺化規劃，變更落地後做視覺化 PR 回顧，並視覺化編輯本機 UI 流程。",
     sectionTitle: "面向編碼代理的應用支援技能",
     sectionBody:
       "使用託管的可分享應用連結、本機檔案，或自託管/自訂應用；代理會獲得指令，並在需要時獲得匹配的 MCP 表面。",
@@ -1125,6 +1129,15 @@ const messages = {
       feature1: "總結 schema、API 和檔案變更",
       feature2: "可選取發布一條固定的 PR 評論",
       videoAriaLabel: "Visual Recap 技能示範影片",
+    },
+    visualEdit: {
+      name: "視覺化編輯",
+      tagline: "編輯本機 UI 流程",
+      description:
+        "把正在執行的 localhost 應用作為 URL 支援的畫面開到 Design 中，用於視覺化審閱和編輯。",
+      feature1: "從有序 URL 佈局多畫面流程",
+      feature2: "檢查、複製並調整即時路由狀態",
+      videoAriaLabel: "Visual Edit 技能示範影片",
     },
   },
   downloadPage: {

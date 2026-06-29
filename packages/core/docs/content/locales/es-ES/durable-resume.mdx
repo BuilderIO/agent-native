@@ -1,0 +1,107 @@
+---
+title: "Currículum vitae duradero"
+description: "Cuando la ejecución de un agente alojado se interrumpe y se reanuda, las llamadas de herramientas de efectos secundarios completadas no se vuelven a ejecutar: un diario de llamadas de herramientas derivado del libro mayor duradero bloquea envíos, cargos y tickets duplicados."
+---
+
+# Currículum vitae duradero
+
+> **¿Para quién es?** cualquiera que quiera entender cómo se ejecuta el marco
+> evita efectos secundarios duplicados. Este es un comportamiento incorporado: existe
+> no hay nada que conectar.
+
+Las ejecuciones del agente alojado se interrumpen: una función sin servidor alcanza su tiempo de espera a mitad de camino, una puerta de enlace interrumpe la conexión a 45 segundos, un socket se cuelga y la plataforma se inicia en frío. El marco ya se recupera de estos guardando el prefijo de la conversación y volviendo a ejecutar la llamada LLM ("continuar desde donde lo dejó"). Pero la recuperación por sí sola tiene una ventaja: si el intento interrumpido **ya envió un correo electrónico o creó un ticket**, un currículum ingenuo podría hacerlo nuevamente.
+
+Un currículum duradero cierra esa brecha. Al reanudar, el marco sabe qué llamadas a herramientas de efectos secundarios ya se completaron y se niega a volver a ejecutarlas, en dos capas.
+
+<Diagram id="doc-block-1c70mmg" title={"Dos capas bloquean los efectos secundarios duplicados en el currículum"} summary={"El diario lee el libro mayor duradero y clasifica convocatorias anteriores; la capa 1 le dice al modelo, la capa 2 bloquea una escritura reenviada que coincide con una entrada completa."}>
+
+```html
+<div class="diagram-durable">
+  <div class="diagram-box" data-rough>
+    Run-event ledger<br /><small class="diagram-muted"
+      >tool_start / tool_done</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Tool-call journal</strong
+    ><small class="diagram-ok">completed = start+done</small
+    ><small class="diagram-warn">interrupted = start, no done</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill">Layer 1 · prompt note &rarr; model</div>
+    <div class="diagram-pill accent">
+      Capa 2 · escritura rebloqueada con redispatch duro
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-durable {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-durable .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-durable .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-durable .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## El diario de llamadas de herramientas {#journal}
+
+El diario es una **lectura pura del libro mayor duradero de eventos de ejecución**: no hay ningún nuevo enlace de grabación en la ruta activa. Clasifica las llamadas de herramientas ya registradas para el turno actual:
+
+- **Completado**: un `tool_start` con un `tool_done` coincidente. Se realizó la llamada, se produjo el efecto secundario y se registró el resultado. **No volver a ejecutar.**
+- **Interrumpido**: un `tool_start` con **ningún** `tool_done` coincidente. La llamada comenzó, su efecto secundario puede haber ocurrido o no, y la interrupción se comió el resultado. Resultado desconocido.
+
+La combinación refleja cómo se reconstruyen los giros duraderos en otros lugares: un `tool_done` se empareja con el `tool_start` más antiguo aún abierto para el mismo nombre de herramienta (FIFO por herramienta). Un evento `clear` (salida parcial descartada) restablece el recuento por turno para que los parciales abandonados no dejen llamadas abiertas fantasmas.
+
+## Capa 1: nota de diario a nivel de mensaje {#prompt-note}
+
+Cuando se reanuda una ejecución (tiempo de espera temporal, tiempo de espera de la puerta de enlace o cualquier error de transporte reanudable), el marco agrega una **nota de diario estructurado** al mensaje de reanudación, justo después del empujón "continuar desde donde lo dejó". La nota le dice al modelo, en texto plano:
+
+- qué herramienta llama **ya completado** (con resultados breves) para que los reutilice y **no** los vuelva a ejecutar, y
+- qué llamadas a herramientas fueron **interrumpidas con resultado desconocido** para verificar el estado antes de asumir el éxito o el fracaso.
+
+Cuando el diario está vacío (un turno sin actividad de herramienta o una continuación limpia), no se agrega nada adicional y el comportamiento del currículum es byte por byte igual que antes. La nota es de mejor esfuerzo: una lectura fallida del libro mayor nunca bloquea una recuperación que de otro modo sería exitosa.
+
+## Capa 2: bloque duro de capa de herramienta {#hard-block}
+
+La nota de aviso es de asesoramiento: un modelo con buen comportamiento la presta atención, pero un modelo no es una garantía. Entonces el bucle también lo aplica en la capa de herramientas.
+
+Antes de que el ciclo se ejecute en un fragmento reanudado, toma una instantánea del diario una vez (capturando solo fragmentos **anteriores** de este giro lógico). Cuando el modelo vuelve a enviar una herramienta de **escritura** cuyo nombre de herramienta **y entrada** coinciden con una entrada de diario completada, el bucle sufre un cortocircuito: devuelve el resultado registrado en el diario en lugar de ejecutar la acción, con una nota de que la llamada ya se completó en un intento anterior interrumpido y no se volvió a ejecutar para evitar un efecto secundario duplicado.
+
+Propiedades clave:
+
+- **Solo herramientas de escritura.** Los actions de solo lectura (`readOnly` / GET) nunca se bloquean; la relectura es segura e idempotente.
+- **Contenido dirigido.** La coincidencia se realiza en el nombre de la herramienta + firma ingresada, por lo que una llamada reanudada que se encuentra en una posición diferente en el turno aún coincide; una llamada _diferente_ (argumentos diferentes) se trata como nueva y se ejecuta normalmente.
+- **Consume una vez.** Cada entrada completada se reclama cuando coincide, por lo que dos llamadas nuevas idénticas genuinamente distintas en el mismo turno no provocan un cortocircuito en una finalización registrada.
+- **Nuevas llamadas intactas.** Una llamada de primer turno ve un diario vacío; nada cambia para ejecuciones normales.
+
+<Callout id="doc-block-fjhhyg" tone="success">
+
+Together the two layers mean an interrupted run that already had a real side effect resumes **without repeating it** — no duplicate emails, charges, or tickets — while genuinely new work still runs. Read-only actions are never blocked; re-reading is always safe.
+
+</Callout>
+
+## Relacionado
+
+- [**Real-Time Sync**](/docs/real-time-collaboration): cómo el libro de contabilidad de ejecución duradera se transmite al cliente y se reproduce al volver a conectarse.
+- [**Actions**](/docs/actions): `readOnly` marca la lectura como segura para volver a ejecutarla; todo lo demás se considera un efecto secundario.
+- [**In-Loop Processors**](/docs/processors) — otra costura de endurecimiento interna en bucle.

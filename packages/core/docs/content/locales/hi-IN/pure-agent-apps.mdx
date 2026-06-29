@@ -1,0 +1,83 @@
+---
+title: "प्योर-एजेंट ऐप्स"
+description: "ऐप्स जहां एजेंट संपूर्ण उत्पाद है: ऐप-एजेंट लूप सामने का दरवाजा है, और UI केवल तब जोड़ा जाता है जब मनुष्यों को इसकी आवश्यकता होती है।"
+---
+
+# प्योर-एजेंट ऐप्स
+
+एक प्योर-एजेंट ऐप एजेंट-नेटिव का न्यूनतम अंत है: ऐप-एजेंट लूप
+उत्पाद, डैशबोर्ड नहीं। आप टर्मिनल, Slack, ईमेल, a
+निर्धारित नौकरी, अन्य एजेंट, या चैट - "मेरे अपठित ईमेल को संक्षेप में प्रस्तुत करें," "पोस्ट करें
+दैनिक मेट्रिक्स Slack के लिए" - और एजेंट कार्य करता है और जहां कहीं भी परिणाम लौटाता है
+के अंतर्गत आता है। यह अभी भी एक वास्तविक ऐप है: actions, सत्र, ऐप स्थिति, इतिहास,
+सेटिंग्स, क्रेडेंशियल और शेयर रिकॉर्ड सभी SQL में रहते हैं।
+
+<Diagram id="doc-block-pwjkyy" title={"ऐप-एजेंट लूप सामने का दरवाजा है"} summary={"कई प्रवेश बिंदु SQL-backed क्रियाओं और स्थिति पर एक एजेंट लूप तक पहुंचते हैं; जहां से अनुरोध आया वहां परिणाम वापस आ जाते हैं। यूआई केवल तभी जोड़ा जाता है जब इंसानों को पर्यवेक्षण की आवश्यकता होती है।"}>
+
+```html
+<div class="diagram-pure">
+  <div class="diagram-col">
+    <div class="diagram-pill">Terminal</div>
+    <div class="diagram-pill">Slack · ईमेल</div>
+    <div class="diagram-pill">शेड्यूल्ड जॉब</div>
+    <div class="diagram-pill">Another agent (A2A)</div>
+    <div class="diagram-pill">Chat</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">ऐप-एजेंट लूप</span
+    ><small class="diagram-muted">actions · sessions · SQL में app state</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    परिणाम लौटता है<br /><small class="diagram-muted"
+      >to where it belongs</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-pure {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-pure .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-pure .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-pure .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+जब कार्य पृष्ठभूमि में चलता है, तो इस आकृति तक पहुंचें, आउटपुट निकल जाता है
+ऐप, डोमेन वन-शॉट है, या आप प्रोटोटाइप कर रहे हैं। एजेंट को अभी भी UI —
+एक डैशबोर्ड नहीं, बल्कि मनुष्यों के लिए इसकी देखरेख, कॉन्फ़िगर और संचालन करने के लिए एक जगह -
+यही कारण है कि प्योर-एजेंट ऐप्स भी आमतौर पर अंतर्निहित चैट शेल को माउंट करते हैं।
+
+यह **बिना सिर** उत्पाद का आकार है। संपूर्ण निर्णय मार्गदर्शिका, क्या भेजा जाता है
+बॉक्स, मचान, रेपो एक्सेस और रन शेयरिंग अब एक ही स्थान पर रहते हैं:
+
+→ [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
+
+## आगे क्या है
+
+- [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless) - पूर्ण नेतृत्वहीन निर्णय मार्गदर्शिका और APIs
+- [**Getting Started**](/docs/getting-started) - पहले एक चैट ऐप या हेडलेस एजेंट बनाएं
+- [**Dispatch**](/docs/template-dispatch) - वर्कस्पेस टेम्पलेट जो एक बेहतरीन प्योर-एजेंट शुरुआती बिंदु है
+- [**Messaging the agent**](/docs/messaging) - उपयोगकर्ता वेब, Slack, टेलीग्राम, ईमेल पर एजेंट से कैसे बात करते हैं
+- [**Recurring Jobs**](/docs/recurring-jobs) - निर्धारित संकेत एजेंट अपने आप चलता है
+- [**Actions**](/docs/actions) - वे उपकरण जिन्हें आपका प्योर-एजेंट कॉल करेगा

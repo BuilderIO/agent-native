@@ -326,6 +326,10 @@ interface DefineActionWithSchema<
    *  Defaults to true. Set to false only for metadata/read actions that safely
    *  handle `ctx.userEmail` / `getRequestUserEmail()` being undefined. */
   requiresAuth?: boolean;
+  /** Max HTTP request body in bytes. When set, the route 413s on the declared
+   *  `Content-Length` before parsing. Use for public, no-auth POST actions;
+   *  unset = no route-level cap. */
+  maxBodyBytes?: number;
   /** Whether this action is exposed to the agent — the in-app assistant and the
    *  app's MCP/A2A tool surfaces — as a callable tool. **Default-allow opt-out**:
    *  `undefined` / `true` expose it; only an explicit `false` hides it from every
@@ -334,7 +338,7 @@ interface DefineActionWithSchema<
    *  this for UI-only or purely programmatic actions you want behind the
    *  framework's auth + action surface WITHOUT spending a slot in the model's
    *  tool list. Distinct from `toolCallable`, which only governs the sandboxed
-   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.md`. */
+   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.mdx`. */
   agentTool?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
@@ -347,7 +351,7 @@ interface DefineActionWithSchema<
    *  and order-independent for same-turn execution. */
   parallelSafe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
-   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.md`
+   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.mdx`
    *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
    *  allow tool-iframe calls; only an explicit `false` returns 403. Set to
    *  `false` for high-blast-radius admin operations (account deletion, org
@@ -439,6 +443,9 @@ interface DefineActionWithParams<
   /** Whether the HTTP/frontend action route must have an authenticated owner.
    *  Defaults to true. See the schema overload above. */
   requiresAuth?: boolean;
+  /** Max HTTP request body in bytes; 413s on `Content-Length` before parsing.
+   *  See the schema overload above. */
+  maxBodyBytes?: number;
   /** Whether this action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
@@ -504,6 +511,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly tool: import("./agent/types.js").ActionTool;
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
+  readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
   readonly parallelSafe?: boolean;
@@ -723,6 +731,9 @@ export function defineAction(options: any) {
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
       ? { requiresAuth: options.requiresAuth }
+      : {}),
+    ...(typeof options.maxBodyBytes === "number"
+      ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),

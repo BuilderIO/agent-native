@@ -6,6 +6,8 @@
  *   pnpm action edit-image --input public/generated/slide5-v3.png --prompt "Remove the background and make it transparent. Remove any logos." --output public/assets/generated/slide5-edited
  */
 
+import { resolveSecret } from "@agent-native/core/server";
+
 const config = async () => {
   try {
     const m = await import("dotenv");
@@ -49,13 +51,14 @@ export default async function main(args: string[]) {
     throw new Error("Script failed");
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    console.error("Error: GEMINI_API_KEY not set");
+  const apiKey = await resolveSecret("GEMINI_API_KEY");
+  if (!apiKey) {
+    console.error("Error: GEMINI_API_KEY not configured");
     throw new Error("Script failed");
   }
 
   const { GoogleGenAI } = await import("@google/genai");
-  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const client = new GoogleGenAI({ apiKey });
 
   // Read the input image
   const imgBuffer = readFileSync(inputPath);

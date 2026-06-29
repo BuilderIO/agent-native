@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
@@ -18,12 +19,14 @@ export default defineAction({
       throw new Error("--query is required");
     }
 
-    const apiKey = process.env.GOOGLE_API_KEY;
-    const cx = process.env.GOOGLE_SEARCH_CX;
+    const [apiKey, cx] = await Promise.all([
+      resolveSecret("GOOGLE_API_KEY"),
+      resolveSecret("GOOGLE_SEARCH_CX"),
+    ]);
 
     if (!apiKey || !cx) {
       throw new Error(
-        "GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables are required.",
+        "GOOGLE_API_KEY and GOOGLE_SEARCH_CX must be saved in settings.",
       );
     }
 

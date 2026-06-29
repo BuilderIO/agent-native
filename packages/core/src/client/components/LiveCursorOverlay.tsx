@@ -7,13 +7,11 @@
  * correctly. Pass a `mapCoords` prop to handle non-identity transforms
  * (e.g. a zoomed canvas).
  *
- * The agent's cursor is styled distinctly with a sparkle variant + "AI"
- * label, consistent with AgentPresenceChip.
+ * The agent uses the same pointer shape with an "AI" label.
  *
  * Cursors fade out after 10 seconds of no movement.
  */
 
-import { IconSparkles } from "@tabler/icons-react";
 import { useState, useEffect, useRef, memo } from "react";
 
 import type { OtherPresence, NormalizedPoint } from "../../collab/presence.js";
@@ -48,50 +46,28 @@ export interface LiveCursorOverlayProps {
 
 const STALE_MS = 10_000; // Fade out cursors older than 10s
 
-const CURSOR_SVG = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="22" viewBox="0 0 16 22" fill="none">
-    <path d="M0 0L0 18L4.5 13.5L7.5 20L9.5 19.5L6.5 13L12 13L0 0Z" fill="__COLOR__" stroke="white" stroke-width="1"/>
-  </svg>
-`.trim();
-
-function CursorPointer({
-  color,
-  isAgent,
-}: {
-  color: string;
-  isAgent: boolean;
-}) {
-  if (isAgent) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 22,
-          height: 22,
-          borderRadius: "50%",
-          backgroundColor: color,
-          color: "#fff",
-          boxShadow: `0 0 0 2px #fff`,
-        }}
-      >
-        <IconSparkles size={12} stroke={2} />
-      </div>
-    );
-  }
-
-  const svgSrc =
-    "data:image/svg+xml;charset=utf-8," +
-    encodeURIComponent(CURSOR_SVG.replace("__COLOR__", color));
-
+function CursorPointer({ color }: { color: string }) {
   return (
-    <img
-      src={svgSrc}
-      alt=""
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="25"
+      height="29"
+      viewBox="0 0 25 29"
+      fill="none"
       aria-hidden
-      style={{ width: 16, height: 22, display: "block", flexShrink: 0 }}
-    />
+      style={{
+        display: "block",
+        filter: "drop-shadow(0 2px 3px rgba(15, 23, 42, 0.3))",
+      }}
+    >
+      <path
+        d="M2.5 2.5L21.5 11L12.6 14.1L8.3 24.5L2.5 2.5Z"
+        fill={color}
+        stroke="white"
+        strokeLinejoin="round"
+        strokeWidth="3"
+      />
+    </svg>
   );
 }
 
@@ -123,39 +99,30 @@ const CursorLabel = memo(function CursorLabel({
         transform: "translate(-2px, -2px)",
         zIndex: 9999,
         transition: "left 120ms linear, top 120ms linear",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-        gap: 2,
+        width: 0,
+        height: 0,
       }}
     >
-      <CursorPointer color={color} isAgent={other.isAgent} />
+      <CursorPointer color={color} />
       <div
         style={{
+          position: "absolute",
+          left: 31,
+          top: 31,
           backgroundColor: color,
           color: "#fff",
-          fontSize: 11,
-          fontWeight: 600,
-          padding: "1px 5px",
-          borderRadius: 4,
+          fontSize: 12,
+          fontWeight: 500,
+          lineHeight: "16px",
+          padding: "2px 7px",
+          borderRadius: 2,
           whiteSpace: "nowrap",
-          marginLeft: other.isAgent ? 0 : 4,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+          boxShadow: "0 5px 12px rgba(15, 23, 42, 0.16)",
           maxWidth: 120,
           overflow: "hidden",
           textOverflow: "ellipsis",
-          display: "flex",
-          alignItems: "center",
-          gap: 3,
         }}
       >
-        {other.isAgent && (
-          <IconSparkles
-            size={9}
-            stroke={2}
-            style={{ flexShrink: 0, opacity: 0.85 }}
-          />
-        )}
         {label}
       </div>
     </div>

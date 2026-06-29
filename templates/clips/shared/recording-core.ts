@@ -54,12 +54,29 @@ export type ChunkUploadParams = {
   total?: number;
   isFinal?: boolean;
   mimeType?: string;
-  durationMs?: number;
-  width?: number;
-  height?: number;
+  durationMs?: number | null;
+  width?: number | null;
+  height?: number | null;
   hasAudio?: boolean;
   hasCamera?: boolean;
 };
+
+export function normalizeChunkUploadNumber(value: unknown): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === null || raw === undefined) return undefined;
+
+  const numberValue =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" && raw.trim()
+        ? Number(raw)
+        : undefined;
+
+  if (typeof numberValue !== "number" || !Number.isFinite(numberValue)) {
+    return undefined;
+  }
+  return Math.max(0, Math.round(numberValue));
+}
 
 /** Encode {@link ChunkUploadParams} as the chunk-upload query string. Booleans
  * become `1`/`0` and `durationMs` is rounded — matching what the route parses. */
@@ -69,11 +86,12 @@ export function chunkUploadQuery(params: ChunkUploadParams): string {
   if (params.total !== undefined) q.set("total", String(params.total));
   q.set("isFinal", params.isFinal ? "1" : "0");
   if (params.mimeType) q.set("mimeType", params.mimeType);
-  if (params.durationMs !== undefined) {
-    q.set("durationMs", String(Math.round(params.durationMs)));
-  }
-  if (params.width !== undefined) q.set("width", String(params.width));
-  if (params.height !== undefined) q.set("height", String(params.height));
+  const durationMs = normalizeChunkUploadNumber(params.durationMs);
+  const width = normalizeChunkUploadNumber(params.width);
+  const height = normalizeChunkUploadNumber(params.height);
+  if (durationMs !== undefined) q.set("durationMs", String(durationMs));
+  if (width !== undefined) q.set("width", String(width));
+  if (height !== undefined) q.set("height", String(height));
   if (params.hasAudio !== undefined) {
     q.set("hasAudio", params.hasAudio ? "1" : "0");
   }

@@ -33,7 +33,7 @@ async function getSessionId(event: H3Event): Promise<string> {
 }
 
 function safeKey(key: string): string {
-  return key.replace(/[^a-zA-Z0-9_:\-]/g, "");
+  return key.replace(/[^a-zA-Z0-9_:-]/g, "");
 }
 
 // --- Generic state handlers ---

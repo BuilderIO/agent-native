@@ -5435,10 +5435,7 @@ export function createAgentChatPlugin(
               // Sub-agents must inherit the parent run's resolved key so
               // delegations spawned by agent-teams don't silently fall back
               // to the platform key while the parent uses BYO credentials.
-              apiKey:
-                runCtx?.userApiKey ??
-                options?.apiKey ??
-                process.env.ANTHROPIC_API_KEY,
+              apiKey: runCtx?.userApiKey ?? options?.apiKey,
             })
           );
         },
@@ -6949,7 +6946,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { getOwnerActiveApiKey } =
             await import("../agent/production-agent.js");
           const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-          const apiKey = userApiKey ?? process.env.ANTHROPIC_API_KEY;
+          const apiKey = userApiKey;
           if (!apiKey) {
             // Fallback: truncate the message
             return { title: cleanMessage.trim().slice(0, 60) };
@@ -7985,7 +7982,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               : await buildSchemaBlock(owner, databaseToolsMode);
             return basePrompt + resources + schemaBlock;
           },
-          apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+          apiKey: options?.apiKey,
           model: options?.model,
           appId: options?.appId,
         };
@@ -8084,7 +8081,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               : await buildSchemaBlock(owner, databaseToolsMode);
             return basePrompt + resources + schemaBlock;
           },
-          apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+          apiKey: options?.apiKey,
           model: options?.model,
           appId: options?.appId,
         });

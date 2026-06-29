@@ -31,6 +31,8 @@ const LOCAL_COMPONENTS_STUB_IMPORTS = new Set([
   "./local-components.generated.ts",
 ]);
 const COMPONENT_EXTENSIONS = new Set([".tsx", ".jsx", ".ts", ".js"]);
+const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
+  "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
 const CONTENT_LOCAL_DEFAULTS: LocalArtifactOptions["defaults"] = {
   roots: [
     { name: "Docs", path: "docs", kind: "docs", extensions: [".md", ".mdx"] },
@@ -62,6 +64,14 @@ function envManifestPath() {
     process.env.AGENT_NATIVE_MANIFEST_PATH?.trim() ||
     ""
   );
+}
+
+function localFilesAllowedForBuild() {
+  if (process.env.NODE_ENV !== "production") return true;
+  const value = process.env[ALLOW_PRODUCTION_LOCAL_FILES_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
 function localWorkspaceRootSync() {
@@ -339,6 +349,9 @@ function contentLocalComponentsPlugin(): Plugin {
     },
     async load(id) {
       if (id !== RESOLVED_LOCAL_COMPONENTS_MODULE_ID) return null;
+      if (!localFilesAllowedForBuild()) {
+        return renderLocalComponentsModule([]);
+      }
       return renderLocalComponentsModule(await loadLocalComponentFiles());
     },
   };

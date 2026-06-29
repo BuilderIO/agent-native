@@ -20,6 +20,7 @@ export interface ReferenceImage {
 export interface ImageProvider {
   name: string;
   isConfigured(): boolean;
+  isConfiguredForRequest?(): Promise<boolean>;
   generate(
     prompt: string,
     referenceImages?: ReferenceImage[],

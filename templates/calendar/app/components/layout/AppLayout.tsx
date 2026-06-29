@@ -31,6 +31,7 @@ import { prefetchPeopleContacts } from "@/hooks/use-people";
 import { Sidebar } from "./Sidebar";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
+const SIDEBAR_COLLAPSE_KEY = "calendar.sidebar.collapsed";
 
 /** Routes that render without the full AppLayout chrome (sidebar, agent panel). */
 const BARE_ROUTES = new Set(["/event"]);
@@ -45,6 +46,15 @@ function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;
+}
+
+function readSidebarCollapsed() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export type ViewMode = "month" | "week" | "day";
@@ -144,6 +154,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isSettingsPage = location.pathname === "/settings";
   const isCalendarPage = location.pathname === "/";
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] =
+    useState(readSidebarCollapsed);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
@@ -177,6 +189,17 @@ export function AppLayout({ children }: AppLayoutProps) {
     if (!hasAccounts) return;
     void prefetchPeopleContacts(queryClient);
   }, [hasAccounts, queryClient]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSE_KEY,
+        sidebarCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures; the in-memory preference still works.
+    }
+  }, [sidebarCollapsed]);
 
   // Global keyboard-shortcuts help: opens via `?` (or shift+/) or the sidebar
   // button on any page, not just the calendar view. Calendar-specific shortcuts
@@ -259,7 +282,12 @@ export function AppLayout({ children }: AppLayoutProps) {
         onClose={() => setShortcutsHelpOpen(false)}
       />
       <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
-        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          collapsed={!isMobile && sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
+        />
         <AgentSidebar
           position="right"
           defaultOpen

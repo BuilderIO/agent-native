@@ -1,20 +1,5 @@
-import { readFileSync, writeFileSync, existsSync } from "fs";
-
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-
-function upsertEnvLine(content: string, key: string, value: string): string {
-  if (/[\r\n\0]/.test(value)) {
-    throw new Error(`Invalid value for ${key}: contains newline or null byte`);
-  }
-
-  const regex = new RegExp(`^${key}=.*$`, "m");
-  const line = `${key}=${value}`;
-  if (regex.test(content)) {
-    return content.replace(regex, line);
-  }
-  return content.trimEnd() + "\n" + line + "\n";
-}
 
 export default defineAction({
   description: "Configure a remote database connection",
@@ -46,19 +31,10 @@ export default defineAction({
       throw new Error(`Connection failed to ${maskedUrl}: ${err.message}`);
     }
 
-    const envPath = ".env";
-    let envContent = "";
-    if (existsSync(envPath)) {
-      envContent = readFileSync(envPath, "utf-8");
-    }
-
-    envContent = upsertEnvLine(envContent, "DATABASE_URL", url);
-    if (token) {
-      envContent = upsertEnvLine(envContent, "DATABASE_AUTH_TOKEN", token);
-    }
-
-    writeFileSync(envPath, envContent);
-
-    return `Database connection configured: ${maskedUrl}. Restart the server to apply.`;
+    return [
+      `Database connection verified: ${maskedUrl}.`,
+      "DATABASE_URL and DATABASE_AUTH_TOKEN are deployment-level settings.",
+      "Configure them with your hosting provider and redeploy the app.",
+    ].join(" ");
   },
 });

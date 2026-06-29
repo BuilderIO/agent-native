@@ -31,6 +31,7 @@ export type CatalogDashboardConfig = SqlDashboardConfig & {
 
 export type DashboardCatalogEntry = DashboardCatalogMetadata & {
   buildConfig: () => SqlDashboardConfig;
+  visibleInCatalog?: boolean;
 };
 
 export type InstalledDashboardSummary = {
@@ -906,7 +907,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "demo-node-exporter",
     name: "Demo Node Exporter Full",
     description:
-      "The full Node Exporter dashboard, backed by the built-in demo Prometheus endpoint without consuming the Prometheus source slot.",
+      "Explore CPU, memory, disk, network, filesystem, and load metrics using built-in sample Prometheus data, with no data source setup required.",
     category: "Observability",
     defaultDashboardId: "demo-node-exporter",
     dataSources: ["demo"],
@@ -940,6 +941,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     panelCount: 34,
     version: CATALOG_VERSION,
     recommended: true,
+    visibleInCatalog: false,
     buildConfig: () => seedConfig("agent-native-templates-first-party"),
   },
   {
@@ -954,13 +956,14 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     panelCount: 12,
     version: CATALOG_VERSION,
     recommended: true,
+    visibleInCatalog: false,
     buildConfig: () => seedConfig("skills-cli-funnel"),
   },
   {
     id: "google-analytics-web",
     name: "Google Analytics Website",
     description:
-      "GA4 traffic, engagement, acquisition, top pages, and geography.",
+      "Track GA4 website traffic, engagement, acquisition channels, top pages, geography, and browser/device mix.",
     category: "Acquisition",
     defaultDashboardId: "google-analytics",
     dataSources: ["ga4"],
@@ -973,7 +976,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "node-exporter-macos",
     name: "Node Exporter macOS",
     description:
-      "A comprehensive Darwin/macOS Prometheus host dashboard for Homebrew node_exporter metrics.",
+      "Monitor macOS host CPU, memory, disk, filesystem, network, load, and Homebrew node_exporter health from Prometheus.",
     category: "Observability",
     defaultDashboardId: "node-exporter-macos",
     dataSources: ["prometheus"],
@@ -987,7 +990,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "node-exporter-full",
     name: "Node Exporter Full",
     description:
-      "Linux node_exporter host observability plus Prometheus demo-app traffic, latency, and workload panels.",
+      "Monitor Linux host CPU, memory, disk, filesystem, network, and load, plus Prometheus demo-app traffic and latency panels.",
     category: "Observability",
     defaultDashboardId: "node-exporter-full",
     dataSources: ["prometheus"],
@@ -1050,31 +1053,37 @@ export async function listDashboardCatalog(
     hidden: "all",
   });
 
-  return dashboardCatalogEntries.map((entry) => {
-    const installedDashboards = dashboards
-      .filter((row) => installedDashboardForTemplate(row, entry))
-      .map((row) => ({
-        id: row.id,
-        name:
-          typeof row.config.name === "string" && row.config.name.trim()
-            ? row.config.name
-            : row.title,
-        visibility: row.visibility,
-        updatedAt: row.updatedAt,
-        archivedAt: row.archivedAt,
-      }))
-      .sort(
-        (a, b) =>
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      );
+  return dashboardCatalogEntries
+    .filter((entry) => entry.visibleInCatalog !== false)
+    .map((entry) => {
+      const installedDashboards = dashboards
+        .filter((row) => installedDashboardForTemplate(row, entry))
+        .map((row) => ({
+          id: row.id,
+          name:
+            typeof row.config.name === "string" && row.config.name.trim()
+              ? row.config.name
+              : row.title,
+          visibility: row.visibility,
+          updatedAt: row.updatedAt,
+          archivedAt: row.archivedAt,
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        );
 
-    const { buildConfig: _buildConfig, ...metadata } = entry;
-    return {
-      ...metadata,
-      installedDashboards,
-      installed: installedDashboards.length > 0,
-    };
-  });
+      const {
+        buildConfig: _buildConfig,
+        visibleInCatalog: _visibleInCatalog,
+        ...metadata
+      } = entry;
+      return {
+        ...metadata,
+        installedDashboards,
+        installed: installedDashboards.length > 0,
+      };
+    });
 }
 
 export function applyCatalogMetadata(
