@@ -5,6 +5,7 @@ import {
   buildVoiceGuidanceBlock,
   formatVoiceContextPackForPrompt,
   sanitizeVoiceContextPack,
+  voiceContextTermsOnly,
 } from "./index.js";
 
 describe("voice context helpers", () => {
@@ -45,6 +46,24 @@ describe("voice context helpers", () => {
     expect(guidance).toContain("Never add facts");
     expect(guidance).toContain("Prefer Builder.io casing");
     expect(guidance).toContain("builder io -> Builder.io");
+  });
+
+  it("can strip voice context down to provider-safe vocabulary terms", () => {
+    expect(
+      voiceContextTermsOnly({
+        snippets: [{ label: "Active app context", value: "Private draft" }],
+        terms: [{ term: "builder io", replacement: "Builder.io" }],
+        metadata: { route: "/private" },
+      }),
+    ).toEqual({
+      terms: [{ term: "builder io", replacement: "Builder.io" }],
+    });
+
+    expect(
+      voiceContextTermsOnly({
+        snippets: [{ label: "Active app context", value: "Private draft" }],
+      }),
+    ).toBeUndefined();
   });
 
   it("applies preferred replacements at token boundaries", () => {

@@ -9,6 +9,7 @@ export {
   parseVoiceContextPack,
   sanitizeVoiceContextPack,
   voiceContextHasContent,
+  voiceContextTermsOnly,
 } from "./voice-context.js";
 export { buildVoiceGuidanceBlock } from "./voice-cleanup-prompt.js";
 export {

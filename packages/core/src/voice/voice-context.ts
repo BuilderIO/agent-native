@@ -159,6 +159,14 @@ export function voiceContextHasContent(
   );
 }
 
+export function voiceContextTermsOnly(
+  input: unknown,
+): VoiceContextPack | undefined {
+  const pack = sanitizeVoiceContextPack(input);
+  if (!pack?.terms?.length) return undefined;
+  return { terms: pack.terms };
+}
+
 export function formatVoiceContextPackForPrompt(input: unknown): string {
   const pack = sanitizeVoiceContextPack(input);
   if (!pack) return "";

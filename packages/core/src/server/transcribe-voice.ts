@@ -34,6 +34,7 @@ import {
   applyVoiceContextReplacements,
   buildVoiceGuidanceBlock,
   parseVoiceContextPack,
+  voiceContextTermsOnly,
   type VoiceContextPack,
 } from "../voice/index.js";
 import { getSession } from "./auth.js";
@@ -162,7 +163,7 @@ export function createTranscribeVoiceHandler() {
       : undefined;
     const voiceGuidance = buildVoiceGuidanceBlock({
       instructions,
-      contextPack: voiceContext,
+      contextPack: voiceContextTermsOnly(voiceContext),
     });
     const applyVoiceContext = (value: string) =>
       applyVoiceContextReplacements(value, voiceContext).trim();
