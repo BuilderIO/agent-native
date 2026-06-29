@@ -2320,10 +2320,13 @@ export function DesignCanvas({
     }
     // No body/html tags — wrap it
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${renderedContent}${bridgeToInject}</body></html>`;
+    // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
+    // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
+    // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
+    // which reloads the iframe and flashes the screen content white.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     editMode,
-    editorChromeScaleX,
-    editorChromeScaleY,
     externalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
