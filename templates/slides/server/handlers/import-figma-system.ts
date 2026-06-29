@@ -1,4 +1,8 @@
-import { getSession } from "@agent-native/core/server";
+import {
+  FeatureNotConfiguredError,
+  getSession,
+  startBuilderDesignSystemIndex,
+} from "@agent-native/core/server";
 import {
   defineEventHandler,
   getRequestHeader,
@@ -6,11 +10,7 @@ import {
   setResponseStatus,
 } from "h3";
 
-import {
-  MAX_FIG_BYTES,
-  parseSlidesFigDesignSystem,
-} from "../lib/fig-design-system.js";
-
+const MAX_FIG_BYTES = 200 * 1024 * 1024;
 const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 
 function requestContentLength(event: Parameters<typeof getRequestHeader>[0]) {
@@ -56,14 +56,40 @@ export const importFigmaSystem = defineEventHandler(async (event) => {
     };
   }
 
+  const suggestedTitle =
+    (part.filename || "Imported brand")
+      .replace(/\.fig$/i, "")
+      .replace(/[-_]+/g, " ")
+      .trim() || "Imported brand";
+
   try {
-    return parseSlidesFigDesignSystem({
-      data: part.data,
-      filename: part.filename,
+    return await startBuilderDesignSystemIndex({
+      projectName: suggestedTitle,
+      files: [
+        {
+          name: part.filename || "brand.fig",
+          data: part.data,
+          mimeType: "application/octet-stream",
+        },
+      ],
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Invalid .fig file";
-    setResponseStatus(event, message.startsWith("File too large") ? 413 : 422);
-    return { error: message };
+    if (err instanceof FeatureNotConfiguredError) {
+      setResponseStatus(event, 412);
+      return {
+        error:
+          err.message ||
+          "Connect Builder.io before indexing a design system from Figma.",
+        builderConnectUrl:
+          err.builderConnectUrl ?? "/_agent-native/builder/connect",
+      };
+    }
+    setResponseStatus(event, 502);
+    return {
+      error:
+        err instanceof Error
+          ? err.message
+          : "Builder design-system indexing failed.",
+    };
   }
 });

@@ -1889,7 +1889,7 @@ async function isConnectTokenAllowed(
  */
 export async function verifyAuth(
   authHeader: string | undefined,
-  ownerEmailHeader?: string | undefined,
+  ownerEmailHeader?: string  ,
   options: { allowDevOpen?: boolean; resourceUrl?: string | string[] } = {},
 ): Promise<{
   authed: boolean;

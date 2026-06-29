@@ -30,7 +30,6 @@ import {
 import type { TweakDefinition } from "@shared/api";
 import {
   parseCanvasFrameGeometryById,
-  type CanvasFrameGeometry,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import {
@@ -42,12 +41,14 @@ import {
   type CodeLayerNode,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
+import { shouldUseLiveFileContent } from "@shared/html-content";
 import {
   resolveTweaksToCssVars,
   type TweakSelections,
 } from "@shared/resolve-tweaks";
 import {
   IconArrowLeft,
+  IconArrowUpRight,
   IconPencil,
   IconMessage,
   IconBrush,
@@ -59,6 +60,7 @@ import {
   IconViewportWide,
   IconPlus,
   IconLayoutGrid,
+  IconFrame,
   IconX,
   IconPin,
   IconCode,
@@ -71,6 +73,11 @@ import {
   IconTypography,
   IconHandStop,
   IconSquare,
+  IconLine,
+  IconCircle,
+  IconTriangle,
+  IconStar,
+  IconPhotoVideo,
   IconVectorBezier,
   IconScale,
   IconScribble,
@@ -202,13 +209,18 @@ type DesignTool =
   | "move"
   | "frame"
   | "rect"
+  | "line"
+  | "arrow"
+  | "ellipse"
+  | "polygon"
+  | "star"
   | "text"
   | "pen"
   | "hand"
   | "comment"
   | "draw"
-  | "scale"
-  | "overview";
+  | "scale";
+type ShapeTool = "rect" | "line" | "arrow" | "ellipse" | "polygon" | "star";
 
 interface DesignFile {
   id: string;
@@ -582,6 +594,16 @@ function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
       return "Frame";
+    case "line":
+      return "Line";
+    case "arrow":
+      return "Arrow";
+    case "ellipse":
+      return "Ellipse";
+    case "polygon":
+      return "Polygon";
+    case "star":
+      return "Star";
     case "path":
       return "Vector";
     case "text":
@@ -608,9 +630,14 @@ function appendCanvasPrimitiveToHtml(
     const nodeId = uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
 
-    if (primitive.kind === "path") {
+    if (
+      primitive.kind === "path" ||
+      primitive.kind === "line" ||
+      primitive.kind === "arrow"
+    ) {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+      const markerId = `${nodeId}-arrow`;
       const points = primitive.points?.length
         ? primitive.points
         : [
@@ -621,14 +648,15 @@ function appendCanvasPrimitiveToHtml(
       const originY = Math.min(...points.map((point) => point.y));
       path.setAttribute(
         "d",
-        points
-          .map((point, index) => {
-            const command = index === 0 ? "M" : "L";
-            return `${command} ${Math.round(point.x - originX)} ${Math.round(
-              point.y - originY,
-            )}`;
-          })
-          .join(" "),
+        primitive.pathData ??
+          points
+            .map((point, index) => {
+              const command = index === 0 ? "M" : "L";
+              return `${command} ${Math.round(point.x - originX)} ${Math.round(
+                point.y - originY,
+              )}`;
+            })
+            .join(" "),
       );
       path.setAttribute("fill", "none");
       path.setAttribute(
@@ -638,6 +666,33 @@ function appendCanvasPrimitiveToHtml(
       path.setAttribute("stroke-width", String(primitive.strokeWidth ?? 3));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
+      if (primitive.kind === "arrow") {
+        const defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
+        const marker = doc.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "marker",
+        );
+        const arrowHead = doc.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "path",
+        );
+        marker.setAttribute("id", markerId);
+        marker.setAttribute("markerWidth", "10");
+        marker.setAttribute("markerHeight", "10");
+        marker.setAttribute("refX", "8");
+        marker.setAttribute("refY", "5");
+        marker.setAttribute("orient", "auto");
+        marker.setAttribute("markerUnits", "strokeWidth");
+        arrowHead.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+        arrowHead.setAttribute(
+          "fill",
+          primitive.stroke ?? "var(--primary, #2563eb)",
+        );
+        marker.appendChild(arrowHead);
+        defs.appendChild(marker);
+        svg.appendChild(defs);
+        path.setAttribute("marker-end", `url(#${markerId})`);
+      }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -660,14 +715,55 @@ function appendCanvasPrimitiveToHtml(
       return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
     }
 
+    if (primitive.kind === "polygon" || primitive.kind === "star") {
+      const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const polygon = doc.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "polygon",
+      );
+      polygon.setAttribute(
+        "points",
+        polygonPointsForHtmlShape(primitive.kind, width, height),
+      );
+      polygon.setAttribute("fill", primitive.fill ?? "rgba(37, 99, 235, 0.16)");
+      polygon.setAttribute("stroke", primitive.stroke ?? "rgb(37, 99, 235)");
+      polygon.setAttribute(
+        "stroke-width",
+        String(primitive.strokeWidth ?? 1.5),
+      );
+      polygon.setAttribute("stroke-linejoin", "round");
+      svg.setAttribute("data-agent-native-node-id", nodeId);
+      svg.setAttribute("data-agent-native-layer-name", layerName);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.setAttribute(
+        "style",
+        [
+          "position:absolute",
+          `left:${left}px`,
+          `top:${top}px`,
+          `width:${width}px`,
+          `height:${height}px`,
+          "overflow:visible",
+          geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
+        ]
+          .filter(Boolean)
+          .join(";"),
+      );
+      svg.appendChild(polygon);
+      doc.body.appendChild(svg);
+      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    }
+
     const element = doc.createElement("div");
     element.setAttribute("data-agent-native-node-id", nodeId);
     element.setAttribute("data-agent-native-layer-name", layerName);
     element.style.position = "absolute";
     element.style.left = `${left}px`;
     element.style.top = `${top}px`;
-    element.style.width = `${width}px`;
-    element.style.height = `${height}px`;
+    if (!(primitive.kind === "text" && primitive.autoSize)) {
+      element.style.width = `${width}px`;
+      element.style.height = `${height}px`;
+    }
     if (geometry.rotation) {
       element.style.transform = `rotate(${geometry.rotation}deg)`;
     }
@@ -681,12 +777,20 @@ function appendCanvasPrimitiveToHtml(
       element.style.overflow = "hidden";
     } else if (primitive.kind === "text") {
       element.textContent = primitive.text ?? "Text";
-      element.style.display = "flex";
-      element.style.alignItems = "center";
+      element.style.display = primitive.autoSize ? "inline-block" : "flex";
+      if (!primitive.autoSize) {
+        element.style.alignItems = "center";
+      }
       element.style.color = primitive.fill ?? "currentColor";
       element.style.fontSize = "16px";
       element.style.lineHeight = "1.2";
       element.style.whiteSpace = "pre-wrap";
+    } else if (primitive.kind === "ellipse") {
+      element.style.background = primitive.fill ?? "rgba(37, 99, 235, 0.16)";
+      element.style.border = `${primitive.strokeWidth ?? 1}px solid ${
+        primitive.stroke ?? "rgb(37, 99, 235)"
+      }`;
+      element.style.borderRadius = "9999px";
     } else {
       element.style.background = primitive.fill ?? "rgba(37, 99, 235, 0.16)";
       element.style.border = `${primitive.strokeWidth ?? 1}px solid ${
@@ -700,6 +804,45 @@ function appendCanvasPrimitiveToHtml(
   } catch {
     return null;
   }
+}
+
+function polygonPointsForHtmlShape(
+  kind: "polygon" | "star",
+  width: number,
+  height: number,
+): string {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const cx = safeWidth / 2;
+  const cy = safeHeight / 2;
+  const radius = Math.max(1, Math.min(safeWidth, safeHeight) / 2);
+  const points: Array<{ x: number; y: number }> = [];
+
+  if (kind === "polygon") {
+    for (let index = 0; index < 3; index += 1) {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / 3;
+      points.push({
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+      });
+    }
+  } else {
+    for (let index = 0; index < 10; index += 1) {
+      const angle = -Math.PI / 2 + (index * Math.PI) / 5;
+      const pointRadius = index % 2 === 0 ? radius : radius * 0.45;
+      points.push({
+        x: cx + Math.cos(angle) * pointRadius,
+        y: cy + Math.sin(angle) * pointRadius,
+      });
+    }
+  }
+
+  return points
+    .map(
+      (point) =>
+        `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`,
+    )
+    .join(" ");
 }
 
 function cloneHtmlLayerAtPosition(
@@ -1283,6 +1426,7 @@ function FigmaToolbarTool({
   options: FigmaToolbarOption[];
   onPrimary: () => void;
 }) {
+  const hasOptionsMenu = options.length > 1;
   return (
     <div
       className={cn(
@@ -1307,45 +1451,51 @@ function FigmaToolbarTool({
         <TooltipContent side="top">{label}</TooltipContent>
       </Tooltip>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "flex h-8 w-4 cursor-pointer items-center justify-center rounded-r-md transition-colors",
-              active ? "hover:bg-white/15" : "hover:bg-white/10",
-            )}
-            aria-label={`${label} options`}
-          >
-            <IconChevronDown className="size-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="top"
-          align="center"
-          sideOffset={12}
-          className="w-56 rounded-2xl border-white/10 bg-neutral-950 p-2 text-neutral-50 shadow-[0_24px_70px_-24px_rgba(0,0,0,0.9)]"
-        >
-          {options.map((option) => (
-            <DropdownMenuItem
-              key={option.key}
-              disabled={option.disabled}
-              onSelect={option.onSelect}
-              className="h-10 rounded-lg text-sm text-neutral-100 focus:bg-white/10 focus:text-white disabled:text-neutral-500"
-            >
-              <span className="mr-2 flex size-5 items-center justify-center text-neutral-100">
-                {option.active ? <IconCheck className="size-4" /> : option.icon}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{option.label}</span>
-              {option.shortcut && (
-                <DropdownMenuShortcut className="ml-3 text-neutral-400">
-                  {option.shortcut}
-                </DropdownMenuShortcut>
+      {hasOptionsMenu ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "flex h-8 w-4 cursor-pointer items-center justify-center rounded-r-md transition-colors",
+                active ? "hover:bg-white/15" : "hover:bg-white/10",
               )}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+              aria-label={`${label} options`}
+            >
+              <IconChevronDown className="size-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="top"
+            align="center"
+            sideOffset={12}
+            className="w-56 rounded-2xl border-white/10 bg-neutral-950 p-2 text-neutral-50 shadow-[0_24px_70px_-24px_rgba(0,0,0,0.9)]"
+          >
+            {options.map((option) => (
+              <DropdownMenuItem
+                key={option.key}
+                disabled={option.disabled}
+                onSelect={option.onSelect}
+                className="h-10 rounded-lg text-sm text-neutral-100 focus:bg-white/10 focus:text-white disabled:text-neutral-500"
+              >
+                <span className="mr-2 flex size-5 items-center justify-center text-neutral-100">
+                  {option.active ? (
+                    <IconCheck className="size-4" />
+                  ) : (
+                    option.icon
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                {option.shortcut && (
+                  <DropdownMenuShortcut className="ml-3 text-neutral-400">
+                    {option.shortcut}
+                  </DropdownMenuShortcut>
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   );
 }
@@ -1393,25 +1543,22 @@ function FigmaBottomToolbar({
   activeTool,
   onMove,
   onFrame,
-  onRect,
+  onShape,
   onText,
   onPen,
   onHand,
   onDraw,
   onScale,
   onCommentPin,
-  overviewActive,
   onModeChange,
-  onScreensToggle,
 }: {
   mode: EditorMode;
   pinMode: boolean;
   drawMode: boolean;
   activeTool: DesignTool;
-  overviewActive: boolean;
   onMove: () => void;
   onFrame: () => void;
-  onRect: () => void;
+  onShape: (tool: ShapeTool) => void;
   onText: () => void;
   onPen: () => void;
   onHand: () => void;
@@ -1419,9 +1566,95 @@ function FigmaBottomToolbar({
   onScale: () => void;
   onCommentPin: () => void;
   onModeChange: (mode: EditorMode) => void;
-  onScreensToggle: () => void;
 }) {
   const t = useT();
+  const shapeTools = new Set<DesignTool>([
+    "rect",
+    "line",
+    "arrow",
+    "ellipse",
+    "polygon",
+    "star",
+  ]);
+  const activeShape = shapeTools.has(activeTool)
+    ? (activeTool as ShapeTool)
+    : "rect";
+  const shapeIcon = (tool: ShapeTool, className: string) => {
+    switch (tool) {
+      case "line":
+        return <IconLine className={className} />;
+      case "arrow":
+        return <IconArrowUpRight className={className} />;
+      case "ellipse":
+        return <IconCircle className={className} />;
+      case "polygon":
+        return <IconTriangle className={className} />;
+      case "star":
+        return <IconStar className={className} />;
+      case "rect":
+      default:
+        return <IconSquare className={className} />;
+    }
+  };
+  const shapeOptions: FigmaToolbarOption[] = [
+    {
+      key: "rect",
+      label: t("designEditor.tools.rect"),
+      icon: shapeIcon("rect", "size-4"),
+      shortcut: "R",
+      active: activeTool === "rect",
+      onSelect: () => onShape("rect"),
+    },
+    {
+      key: "line",
+      label: t("designEditor.tools.line"),
+      icon: shapeIcon("line", "size-4"),
+      shortcut: "L",
+      active: activeTool === "line",
+      onSelect: () => onShape("line"),
+    },
+    {
+      key: "arrow",
+      label: t("designEditor.tools.arrow"),
+      icon: shapeIcon("arrow", "size-4"),
+      shortcut: "⇧L",
+      active: activeTool === "arrow",
+      onSelect: () => onShape("arrow"),
+    },
+    {
+      key: "ellipse",
+      label: t("designEditor.tools.ellipse"),
+      icon: shapeIcon("ellipse", "size-4"),
+      shortcut: "O",
+      active: activeTool === "ellipse",
+      onSelect: () => onShape("ellipse"),
+    },
+    {
+      key: "polygon",
+      label: t("designEditor.tools.polygon"),
+      icon: shapeIcon("polygon", "size-4"),
+      active: activeTool === "polygon",
+      onSelect: () => onShape("polygon"),
+    },
+    {
+      key: "star",
+      label: t("designEditor.tools.star"),
+      icon: shapeIcon("star", "size-4"),
+      active: activeTool === "star",
+      onSelect: () => onShape("star"),
+    },
+    {
+      key: "image-video",
+      label: t("designEditor.tools.imageVideo"),
+      icon: <IconPhotoVideo className="size-4" />,
+      shortcut: "⇧⌘K",
+      disabled: true,
+      onSelect: () => {},
+    },
+  ];
+  const activeShapeOption =
+    shapeOptions.find((option) => option.key === activeShape) ??
+    shapeOptions[0]!;
   const tools: Array<{
     key: string;
     active: boolean;
@@ -1467,42 +1700,26 @@ function FigmaBottomToolbar({
       key: "frame",
       active: activeTool === "frame",
       label: t("designEditor.tools.frame"),
-      icon: <IconLayoutGrid className="size-[18px]" />,
+      icon: <IconFrame className="size-[18px]" />,
       onClick: onFrame,
       options: [
         {
           key: "frame",
           label: t("designEditor.tools.frame"),
-          icon: <IconLayoutGrid className="size-4" />,
+          icon: <IconFrame className="size-4" />,
           shortcut: "F",
           active: activeTool === "frame",
           onSelect: onFrame,
         },
-        {
-          key: "screens",
-          label: t("designEditor.modes.screens"),
-          icon: <IconLayoutGrid className="size-4" />,
-          active: overviewActive,
-          onSelect: onScreensToggle,
-        },
       ],
     },
     {
-      key: "rect",
-      active: activeTool === "rect",
-      label: t("designEditor.tools.rect"),
-      icon: <IconSquare className="size-[18px]" />,
-      onClick: onRect,
-      options: [
-        {
-          key: "rect",
-          label: t("designEditor.tools.rect"),
-          icon: <IconSquare className="size-4" />,
-          shortcut: "R",
-          active: activeTool === "rect",
-          onSelect: onRect,
-        },
-      ],
+      key: "shape",
+      active: shapeTools.has(activeTool),
+      label: activeShapeOption.label,
+      icon: shapeIcon(activeShape, "size-[18px]"),
+      onClick: () => onShape(activeShape),
+      options: shapeOptions,
     },
     {
       key: "text",
@@ -1572,7 +1789,7 @@ function FigmaBottomToolbar({
   ];
 
   const modes: Array<{
-    key: EditorMode | "screens";
+    key: EditorMode;
     active: boolean;
     label: string;
     icon: ReactNode;
@@ -1580,31 +1797,24 @@ function FigmaBottomToolbar({
   }> = [
     {
       key: "annotate",
-      active: mode === "annotate" && !overviewActive,
+      active: mode === "annotate",
       label: t("designEditor.modes.annotate"),
       icon: <IconScribble className="size-[18px]" />,
       onClick: () => onModeChange("annotate"),
     },
     {
       key: "edit",
-      active: mode === "edit" && !overviewActive,
+      active: mode === "edit",
       label: t("designEditor.modes.edit"),
       icon: <IconTransformPoint className="size-[18px]" />,
       onClick: () => onModeChange("edit"),
     },
     {
       key: "interact",
-      active: mode === "interact" && !overviewActive,
+      active: mode === "interact",
       label: t("designEditor.modes.interact"),
       icon: <IconHandClick className="size-[18px]" />,
       onClick: () => onModeChange("interact"),
-    },
-    {
-      key: "screens",
-      active: overviewActive,
-      label: t("designEditor.modes.screens"),
-      icon: <IconLayoutGrid className="size-[18px]" />,
-      onClick: onScreensToggle,
     },
   ];
 
@@ -2287,14 +2497,24 @@ export default function DesignEditor() {
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
   const [, setPatchProof] = useState<PatchProofState | null>(null);
-  const pendingFileSaveRef = useRef<{ id: string; content: string } | null>(
-    null,
-  );
+  const pendingFileSaveRef = useRef<{
+    id: string;
+    content: string;
+    syncCollab: boolean;
+  } | null>(null);
   const fileSaveTimerRef = useRef<number | null>(null);
 
   const queueFileContentSave = useCallback(
-    (fileId: string, content: string) => {
-      pendingFileSaveRef.current = { id: fileId, content };
+    (
+      fileId: string,
+      content: string,
+      options: { syncCollab?: boolean } = {},
+    ) => {
+      pendingFileSaveRef.current = {
+        id: fileId,
+        content,
+        syncCollab: options.syncCollab ?? true,
+      };
       if (fileSaveTimerRef.current) {
         window.clearTimeout(fileSaveTimerRef.current);
       }
@@ -2307,6 +2527,7 @@ export default function DesignEditor() {
           {
             id: pending.id,
             content: pending.content,
+            syncCollab: pending.syncCollab,
           } as any,
           {
             onSuccess: () => {
@@ -2759,7 +2980,7 @@ export default function DesignEditor() {
         setPinMode(false);
         setMode("edit");
         setSelectedElement(null);
-        setActiveTool("overview");
+        setActiveTool("move");
         setViewMode("overview");
       } else if (editorView === "single") {
         viewModeRef.current = "single";
@@ -2840,7 +3061,7 @@ export default function DesignEditor() {
             });
             if (nextId) {
               setActiveFileId(nextId);
-              setActiveTool("overview");
+              setActiveTool("move");
               setViewMode("overview");
               if (request?.canvasPosition) {
                 queueFrameGeometrySave({
@@ -2911,6 +3132,63 @@ export default function DesignEditor() {
       },
     );
   }, [createFileMutation, files, id, queryClient, t]);
+
+  const handleCreateScreenFrame = useCallback(
+    (geometry: { x: number; y: number; width: number; height: number }) => {
+      if (!id) return;
+      const filename = nextBlankScreenFilename(files);
+      const nextGeometry = {
+        x: Math.round(geometry.x),
+        y: Math.round(geometry.y),
+        width: Math.max(64, Math.round(geometry.width)),
+        height: Math.max(64, Math.round(geometry.height)),
+      };
+      createFileMutation.mutate(
+        {
+          designId: id,
+          filename,
+          content: blankScreenHtml(prettyScreenName(filename)),
+          fileType: "html",
+        } as any,
+        {
+          onSuccess: (result: any) => {
+            const nextId = typeof result?.id === "string" ? result.id : null;
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+            if (nextId) {
+              setActiveFileId(nextId);
+              setSelectedElement(null);
+              setSelectedLayerIdsState([nextId]);
+              setActiveTool("move");
+              setMode("edit");
+              setViewMode("overview");
+              writeFrameGeometrySnapshot({
+                ...canvasFrameGeometryById,
+                [nextId]: nextGeometry,
+              });
+            }
+          },
+          onError: (error) => {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("designEditor.toasts.screenDuplicateError"),
+            );
+          },
+        },
+      );
+    },
+    [
+      canvasFrameGeometryById,
+      createFileMutation,
+      files,
+      id,
+      queryClient,
+      t,
+      writeFrameGeometrySnapshot,
+    ],
+  );
 
   // Collaborative editing for the active file
   const { ydoc, awareness, isSynced, activeUsers, agentActive } =
@@ -2988,13 +3266,30 @@ export default function DesignEditor() {
     const ytext = ydoc.getText("content");
     const text = ytext.toString();
     if (text.length > 0) {
+      const storedContent = activeFile?.content ?? "";
+      if (
+        !shouldUseLiveFileContent({
+          liveContent: text,
+          storedContent,
+          fileType: activeFile?.fileType ?? "html",
+        })
+      ) {
+        setCollabContent(storedContent);
+        lastLocalContentRef.current = storedContent;
+        setContentRenderRevision((revision) => revision + 1);
+        ydoc.transact(() => {
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, storedContent);
+        }, TAB_ID);
+        return;
+      }
       // Y.Doc snapshots are a render seed, not the SQL source of truth; the
       // reconcile effect below advances the updatedAt watermark only after it
       // confirms or applies the current DB content.
       setCollabContent(text);
       setContentRenderRevision((revision) => revision + 1);
     }
-  }, [ydoc, isSynced, activeFileId]);
+  }, [ydoc, isSynced, activeFileId, activeFile?.content, activeFile?.fileType]);
 
   // Keep the freshest DB `updatedAt` in a ref the observe handler can read.
   useEffect(() => {
@@ -3133,6 +3428,31 @@ export default function DesignEditor() {
     if (!activeFile || !isSynced) return;
     const dbContent = activeFile.content ?? "";
     const dbUpdatedAt = activeFile.updatedAt ?? null;
+    if (
+      typeof collabContent === "string" &&
+      !shouldUseLiveFileContent({
+        liveContent: collabContent,
+        storedContent: dbContent,
+        fileType: activeFile.fileType,
+      })
+    ) {
+      clearStaleAgentCollabRecovery();
+      setCollabContent(dbContent);
+      lastLocalContentRef.current = dbContent;
+      if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+      setContentRenderRevision((revision) => revision + 1);
+
+      if (isLeadClient && ydoc) {
+        const ytext = ydoc.getText("content");
+        if (ytext.toString() !== dbContent) {
+          ydoc.transact(() => {
+            ytext.delete(0, ytext.length);
+            ytext.insert(0, dbContent);
+          }, TAB_ID);
+        }
+      }
+      return;
+    }
 
     // Already reflecting this exact content (our own echo or Yjs already
     // delivered it) — just advance the watermark and stop.
@@ -3446,7 +3766,9 @@ export default function DesignEditor() {
           }, LOCAL_EDIT_ORIGIN);
         }
       }
-      queueFileContentSave(activeFile.id, nextContent);
+      queueFileContentSave(activeFile.id, nextContent, {
+        syncCollab: !(ydoc && isSynced),
+      });
     },
     [activeFile, isSynced, queueFileContentSave, replacePreviewContent, ydoc],
   );
@@ -3571,14 +3893,18 @@ export default function DesignEditor() {
     setSelectedElement(null);
   }, []);
 
-  const handleRectTool = useCallback(() => {
-    setActiveTool("rect");
+  const handleShapeTool = useCallback((tool: ShapeTool) => {
+    setActiveTool(tool);
     setViewMode("overview");
     setMode("edit");
     setDrawMode(false);
     setPinMode(false);
     setSelectedElement(null);
   }, []);
+
+  const handleRectTool = useCallback(() => {
+    handleShapeTool("rect");
+  }, [handleShapeTool]);
 
   const handlePenTool = useCallback(() => {
     setActiveTool("pen");
@@ -4083,7 +4409,9 @@ export default function DesignEditor() {
           }, LOCAL_EDIT_ORIGIN);
         }
       }
-      queueFileContentSave(activeFile.id, resolvedNextContent);
+      queueFileContentSave(activeFile.id, resolvedNextContent, {
+        syncCollab: !(ydoc && isSynced),
+      });
       if (resolvedNode) setSelectedLayerIdsState([resolvedNode.id]);
       setSelectedElement((prev) => {
         if (options.elementInfo) return options.elementInfo;
@@ -4608,7 +4936,9 @@ export default function DesignEditor() {
       if (ydoc && activeFile) {
         const next = ydoc.getText("content").toString();
         lastLocalContentRef.current = next;
-        queueFileContentSave(activeFile.id, next);
+        queueFileContentSave(activeFile.id, next, {
+          syncCollab: !(ydoc && isSynced),
+        });
         if (!replacePreviewContent(next)) {
           setContentRenderRevision((revision) => revision + 1);
         }
@@ -4647,6 +4977,7 @@ export default function DesignEditor() {
   }, [
     ydoc,
     activeFile,
+    isSynced,
     queueFileContentSave,
     replacePreviewContent,
     syncUndoRedoState,
@@ -4661,7 +4992,9 @@ export default function DesignEditor() {
       if (ydoc && activeFile) {
         const next = ydoc.getText("content").toString();
         lastLocalContentRef.current = next;
-        queueFileContentSave(activeFile.id, next);
+        queueFileContentSave(activeFile.id, next, {
+          syncCollab: !(ydoc && isSynced),
+        });
         if (!replacePreviewContent(next)) {
           setContentRenderRevision((revision) => revision + 1);
         }
@@ -4700,6 +5033,7 @@ export default function DesignEditor() {
   }, [
     ydoc,
     activeFile,
+    isSynced,
     queueFileContentSave,
     replacePreviewContent,
     syncUndoRedoState,
@@ -4750,7 +5084,7 @@ export default function DesignEditor() {
       setPinMode(false);
       setMode("edit");
       setSelectedElement(null);
-      setActiveTool("overview");
+      setActiveTool("move");
       setViewMode("overview");
     });
   }, [runEditorViewTransition]);
@@ -4942,7 +5276,7 @@ export default function DesignEditor() {
     setDrawMode(false);
     setPinMode(false);
     setMode("edit");
-    setActiveTool("overview");
+    setActiveTool("move");
     setViewMode("overview");
     setOverviewSelectAllRequest((request) => request + 1);
   }, [files.length]);
@@ -4988,7 +5322,7 @@ export default function DesignEditor() {
     onZoomReset: () => setZoom(100),
     onZoomToFit: () => {
       setViewMode("overview");
-      setActiveTool("overview");
+      setActiveTool("move");
       setZoom(100);
     },
     onZoomToSelection: () => {
@@ -6550,31 +6884,6 @@ ${serializedHtml}
             </div>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
-            {/* Overview / single-screen toggle. Clicking Overview shows every
-              file in the design as a Figma-style pannable lineup. */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={viewMode === "overview" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  onClick={handleViewModeToggle}
-                  aria-label={
-                    viewMode === "overview"
-                      ? t("designEditor.returnToCurrentScreen")
-                      : t("designEditor.openScreenOverview")
-                  }
-                >
-                  <IconLayoutGrid className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {viewMode === "overview"
-                  ? t("designEditor.currentScreen")
-                  : t("designEditor.screenOverview")}
-              </TooltipContent>
-            </Tooltip>
-
             {!embedded && (
               <>
                 {/* Device preview — collapsed into a single menu. */}
@@ -6840,10 +7149,9 @@ ${serializedHtml}
             pinMode={pinMode}
             drawMode={drawMode}
             activeTool={activeTool}
-            overviewActive={viewMode === "overview"}
             onMove={handleMoveTool}
             onFrame={handleFrameTool}
-            onRect={handleRectTool}
+            onShape={handleShapeTool}
             onText={handleTextTool}
             onPen={handlePenTool}
             onHand={handleHandTool}
@@ -6851,7 +7159,6 @@ ${serializedHtml}
             onScale={handleScaleTool}
             onCommentPin={handlePinToolToggle}
             onModeChange={handleModeChange}
-            onScreensToggle={handleViewModeToggle}
           />
         )}
 
@@ -6895,7 +7202,7 @@ ${serializedHtml}
             onSelectAll={handleSelectAllFrames}
             onZoomToFit={() => {
               setViewMode("overview");
-              setActiveTool("overview");
+              setActiveTool("move");
               setZoom(100);
             }}
             onZoomToSelection={() => setZoom(150)}
@@ -6944,12 +7251,13 @@ ${serializedHtml}
                     onGeometryChange={queueFrameGeometrySave}
                     onGeometryCommit={handleGeometryCommit}
                     onCreatePrimitive={handleCreatePrimitive}
+                    onCreateScreenFrame={handleCreateScreenFrame}
                     onDeleteSelection={handleDeleteOverviewSelection}
                     onPick={(id) => {
                       setSelectedElement(null);
                       setSelectedLayerIdsState([id]);
                       setActiveFileId(id);
-                      setActiveTool("overview");
+                      setActiveTool("move");
                       setMode("edit");
                     }}
                     onEdit={enterSingleScreen}

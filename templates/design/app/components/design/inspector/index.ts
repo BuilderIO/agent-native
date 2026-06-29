@@ -17,6 +17,8 @@ export {
   type AutoLayoutSizing,
   type AutoLayoutSizingAxis,
   type AutoLayoutWrap,
+  SizingField,
+  type SizingFieldProps,
 } from "./AutoLayoutMatrix";
 export {
   ConstraintsWidget,

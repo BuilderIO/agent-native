@@ -581,3 +581,161 @@ export function IconAlignRight({ className }: IconProps) {
     </svg>
   );
 }
+
+// ─────────────────────────────────────────────────
+// W/H sizing-menu glyphs (Figma resizing dropdown rows)
+// ─────────────────────────────────────────────────
+
+// Sizing: Fixed — a bar bounded by two end-stops (⊢ / fixed dimension)
+export function IconSizingFixed({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-3.5", className)}
+      aria-hidden="true"
+    >
+      {/* Left end-stop */}
+      <line x1="5" y1="6" x2="5" y2="18" />
+      {/* Right end-stop */}
+      <line x1="19" y1="6" x2="19" y2="18" />
+      {/* Fixed span */}
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+// Sizing: Hug contents — two arrows pointing inward toward content (>< )
+export function IconSizingHug({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-3.5", className)}
+      aria-hidden="true"
+    >
+      {/* Left inward chevron > */}
+      <polyline points="5,7 10,12 5,17" />
+      {/* Right inward chevron < */}
+      <polyline points="19,7 14,12 19,17" />
+    </svg>
+  );
+}
+
+// Sizing: Fill container — two arrows pushing outward to the walls (↔)
+export function IconSizingFill({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-3.5", className)}
+      aria-hidden="true"
+    >
+      {/* Left wall */}
+      <line x1="4" y1="6" x2="4" y2="18" />
+      {/* Right wall */}
+      <line x1="20" y1="6" x2="20" y2="18" />
+      {/* Outward double arrow */}
+      <line x1="8" y1="12" x2="16" y2="12" />
+      <polyline points="11,9 8,12 11,15" />
+      <polyline points="13,9 16,12 13,15" />
+    </svg>
+  );
+}
+
+// Sizing: Add min width — wall + arrow pushing toward a lower bound (→|←)
+export function IconSizingMin({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-3.5", className)}
+      aria-hidden="true"
+    >
+      {/* Center constraint bar */}
+      <line x1="12" y1="5" x2="12" y2="19" />
+      {/* Arrows converging on the bar */}
+      <line x1="4" y1="12" x2="11" y2="12" />
+      <polyline points="8,9 11,12 8,15" />
+      <line x1="20" y1="12" x2="13" y2="12" />
+      <polyline points="16,9 13,12 16,15" />
+    </svg>
+  );
+}
+
+// Sizing: Add max width — bar + arrows pushing outward to an upper bound (|↔)
+export function IconSizingMax({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-3.5", className)}
+      aria-hidden="true"
+    >
+      {/* Center bar */}
+      <line x1="12" y1="5" x2="12" y2="19" />
+      {/* Arrows diverging from the bar */}
+      <line x1="13" y1="12" x2="20" y2="12" />
+      <polyline points="17,9 20,12 17,15" />
+      <line x1="11" y1="12" x2="4" y2="12" />
+      <polyline points="7,9 4,12 7,15" />
+    </svg>
+  );
+}
+
+// Sizing: Apply variable — hexagon token (⬡)
+export function IconSizingVariable({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-3.5", className)}
+      aria-hidden="true"
+    >
+      <polygon points="12,3 20,7.5 20,16.5 12,21 4,16.5 4,7.5" />
+    </svg>
+  );
+}
+
+// Small remove / clear glyph for min-max sub-rows (×)
+export function IconSizingRemove({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-3", className)}
+      aria-hidden="true"
+    >
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </svg>
+  );
+}

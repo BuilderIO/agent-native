@@ -153,6 +153,8 @@ export interface LayoutContext {
   width?: string;
   height?: string;
   flexDirection?: string;
+  alignItems?: string;
+  justifyContent?: string;
   gap?: string;
   padding?: string;
   parentDisplay?: string;
@@ -245,7 +247,12 @@ export interface CodeLayerTreeNode {
   detail: string;
   layout?: Pick<
     LayoutContext,
-    "display" | "flexDirection" | "isFlexContainer" | "isGridContainer"
+    | "display"
+    | "flexDirection"
+    | "alignItems"
+    | "justifyContent"
+    | "isFlexContainer"
+    | "isGridContainer"
   >;
   badge?: string;
   renamable: boolean;
@@ -1332,6 +1339,34 @@ function layoutFor(
       : classes.has("flex-row")
         ? "row"
         : undefined);
+  const alignItems =
+    style["align-items"] ??
+    (classes.has("items-start")
+      ? "flex-start"
+      : classes.has("items-center")
+        ? "center"
+        : classes.has("items-end")
+          ? "flex-end"
+          : classes.has("items-stretch")
+            ? "stretch"
+            : classes.has("items-baseline")
+              ? "baseline"
+              : undefined);
+  const justifyContent =
+    style["justify-content"] ??
+    (classes.has("justify-start")
+      ? "flex-start"
+      : classes.has("justify-center")
+        ? "center"
+        : classes.has("justify-end")
+          ? "flex-end"
+          : classes.has("justify-between")
+            ? "space-between"
+            : classes.has("justify-around")
+              ? "space-around"
+              : classes.has("justify-evenly")
+                ? "space-evenly"
+                : undefined);
   const parentFlexDirection =
     parentStyle?.["flex-direction"] ??
     (parentClasses?.has("flex-col")
@@ -1348,6 +1383,8 @@ function layoutFor(
     width: style.width,
     height: style.height,
     flexDirection,
+    alignItems,
+    justifyContent,
     gap: style.gap,
     padding: style.padding,
     parentDisplay,
@@ -1671,6 +1708,8 @@ export function buildCodeLayerTree(
       layout: {
         display: node.layout.display,
         flexDirection: node.layout.flexDirection,
+        alignItems: node.layout.alignItems,
+        justifyContent: node.layout.justifyContent,
         isFlexContainer: node.layout.isFlexContainer,
         isGridContainer: node.layout.isGridContainer,
       },

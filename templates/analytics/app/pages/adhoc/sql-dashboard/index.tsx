@@ -17,7 +17,6 @@ import {
   useDroppable,
   DndContext,
   DragOverlay,
-  pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
@@ -106,9 +105,11 @@ import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
   availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
+  columnExpansionForDropSlot,
   distanceFromPointerToRect,
   dropSlotId,
   movePanelToDropSlot,
+  preferredDropSlotId,
   readDropSlot,
   removePanelFromLayout,
   sameDropSlot,
@@ -978,6 +979,11 @@ export default function SqlDashboardPage() {
       const slot = readDropSlot(event.over?.data.current);
       if (!slot) return;
       const panelId = String(event.active.id);
+      const columnExpansion = columnExpansionForDropSlot(
+        buildDashboardPanelGroups(dashboard.panels, dashboardColumns),
+        panelId,
+        slot,
+      );
       const nextPanels = movePanelToDropSlot(
         dashboard.panels,
         panelId,
@@ -985,9 +991,19 @@ export default function SqlDashboardPage() {
         dashboardColumns,
       );
       if (nextPanels === dashboard.panels) return;
+      const persistedPanels = columnExpansion?.sectionPanelId
+        ? nextPanels.map((panel) =>
+            panel.id === columnExpansion.sectionPanelId
+              ? { ...panel, columns: columnExpansion.columns }
+              : panel,
+          )
+        : nextPanels;
       persist({
         ...dashboard,
-        panels: nextPanels,
+        ...(columnExpansion && !columnExpansion.sectionPanelId
+          ? { columns: columnExpansion.columns }
+          : {}),
+        panels: persistedPanels,
       });
     },
     [dashboard, dashboardColumns, persist],
@@ -1154,36 +1170,43 @@ export default function SqlDashboardPage() {
 
       if (droppableContainers.length === 0) return [];
 
-      const exactCollisions = pointerWithin({
-        ...args,
-        droppableContainers,
-      });
-      if (exactCollisions.length > 0) return exactCollisions;
-
       if (!args.pointerCoordinates) return [];
 
-      let closestId: string | null = null;
-      let closestContainer: (typeof droppableContainers)[number] | null = null;
-      let closestValue = Number.MAX_VALUE;
-      for (const droppableContainer of droppableContainers) {
+      const candidates = droppableContainers.flatMap((droppableContainer) => {
         const rect = args.droppableRects.get(droppableContainer.id);
-        if (!rect) continue;
+        const slot = readDropSlot(droppableContainer.data.current);
+        if (!rect || !slot) return [];
+        return [
+          {
+            id: String(droppableContainer.id),
+            slot,
+            rect,
+          },
+        ];
+      });
+      const preferredId = preferredDropSlotId(
+        args.pointerCoordinates,
+        candidates,
+      );
+      const preferredContainer =
+        preferredId === null
+          ? null
+          : (droppableContainers.find(
+              (container) => String(container.id) === preferredId,
+            ) ?? null);
+      const preferredRect =
+        preferredContainer && args.droppableRects.get(preferredContainer.id);
 
-        const value = distanceFromPointerToRect(args.pointerCoordinates, rect);
-        if (value < closestValue) {
-          closestId = String(droppableContainer.id);
-          closestContainer = droppableContainer;
-          closestValue = value;
-        }
-      }
-
-      return closestId && closestContainer
+      return preferredId && preferredContainer && preferredRect
         ? [
             {
-              id: closestId,
+              id: preferredId,
               data: {
-                droppableContainer: closestContainer,
-                value: closestValue,
+                droppableContainer: preferredContainer,
+                value: distanceFromPointerToRect(
+                  args.pointerCoordinates,
+                  preferredRect,
+                ),
               },
             },
           ]

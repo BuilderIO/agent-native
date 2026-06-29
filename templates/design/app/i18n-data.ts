@@ -68,6 +68,11 @@ const enUS = {
       codeConfidence: "Code",
       export: "Export",
     },
+    textResize: {
+      autoWidth: "Auto width",
+      autoHeight: "Auto height",
+      fixed: "Fixed size",
+    },
     labels: {
       background: "Background",
       font: "Font",
@@ -264,6 +269,12 @@ const enUS = {
       move: "Move",
       frame: "Frame",
       rect: "Rectangle",
+      line: "Line",
+      arrow: "Arrow",
+      ellipse: "Ellipse",
+      polygon: "Polygon",
+      star: "Star",
+      imageVideo: "Image/video...",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -8560,10 +8571,207 @@ const designCanvasFeatureOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
+const designShapeToolOverrides = {
+  "zh-TW": {
+    editPanel: {
+      textResize: {
+        autoWidth: "自動寬度",
+        autoHeight: "自動高度",
+        fixed: "固定大小",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "線條",
+        arrow: "箭頭",
+        ellipse: "橢圓",
+        polygon: "多邊形",
+        star: "星形",
+        imageVideo: "圖片/影片...",
+      },
+    },
+  },
+  "zh-CN": {
+    editPanel: {
+      textResize: {
+        autoWidth: "自动宽度",
+        autoHeight: "自动高度",
+        fixed: "固定大小",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "线条",
+        arrow: "箭头",
+        ellipse: "椭圆",
+        polygon: "多边形",
+        star: "星形",
+        imageVideo: "图片/视频...",
+      },
+    },
+  },
+  "es-ES": {
+    editPanel: {
+      textResize: {
+        autoWidth: "Ancho automático",
+        autoHeight: "Alto automático",
+        fixed: "Tamaño fijo",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "Línea",
+        arrow: "Flecha",
+        ellipse: "Elipse",
+        polygon: "Polígono",
+        star: "Estrella",
+        imageVideo: "Imagen/video...",
+      },
+    },
+  },
+  "fr-FR": {
+    editPanel: {
+      textResize: {
+        autoWidth: "Largeur auto",
+        autoHeight: "Hauteur auto",
+        fixed: "Taille fixe",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "Ligne",
+        arrow: "Flèche",
+        ellipse: "Ellipse",
+        polygon: "Polygone",
+        star: "Étoile",
+        imageVideo: "Image/vidéo...",
+      },
+    },
+  },
+  "de-DE": {
+    editPanel: {
+      textResize: {
+        autoWidth: "Automatische Breite",
+        autoHeight: "Automatische Höhe",
+        fixed: "Feste Größe",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "Linie",
+        arrow: "Pfeil",
+        ellipse: "Ellipse",
+        polygon: "Polygon",
+        star: "Stern",
+        imageVideo: "Bild/Video...",
+      },
+    },
+  },
+  "ja-JP": {
+    editPanel: {
+      textResize: {
+        autoWidth: "自動幅",
+        autoHeight: "自動高さ",
+        fixed: "固定サイズ",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "線",
+        arrow: "矢印",
+        ellipse: "楕円",
+        polygon: "多角形",
+        star: "星",
+        imageVideo: "画像/動画...",
+      },
+    },
+  },
+  "ko-KR": {
+    editPanel: {
+      textResize: {
+        autoWidth: "자동 너비",
+        autoHeight: "자동 높이",
+        fixed: "고정 크기",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "선",
+        arrow: "화살표",
+        ellipse: "타원",
+        polygon: "다각형",
+        star: "별",
+        imageVideo: "이미지/동영상...",
+      },
+    },
+  },
+  "pt-BR": {
+    editPanel: {
+      textResize: {
+        autoWidth: "Largura automática",
+        autoHeight: "Altura automática",
+        fixed: "Tamanho fixo",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "Linha",
+        arrow: "Seta",
+        ellipse: "Elipse",
+        polygon: "Polígono",
+        star: "Estrela",
+        imageVideo: "Imagem/vídeo...",
+      },
+    },
+  },
+  "hi-IN": {
+    editPanel: {
+      textResize: {
+        autoWidth: "ऑटो चौड़ाई",
+        autoHeight: "ऑटो ऊंचाई",
+        fixed: "स्थिर आकार",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "रेखा",
+        arrow: "तीर",
+        ellipse: "दीर्घवृत्त",
+        polygon: "बहुभुज",
+        star: "तारा",
+        imageVideo: "छवि/वीडियो...",
+      },
+    },
+  },
+  "ar-SA": {
+    editPanel: {
+      textResize: {
+        autoWidth: "عرض تلقائي",
+        autoHeight: "ارتفاع تلقائي",
+        fixed: "حجم ثابت",
+      },
+    },
+    designEditor: {
+      tools: {
+        line: "خط",
+        arrow: "سهم",
+        ellipse: "شكل بيضاوي",
+        polygon: "مضلع",
+        star: "نجمة",
+        imageVideo: "صورة/فيديو...",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
-    mergePartialMessages(zhTW, designModeFeatureOverrides["zh-TW"]),
+    mergePartialMessages(
+      zhTW,
+      designModeFeatureOverrides["zh-TW"],
+      designShapeToolOverrides["zh-TW"],
+    ),
   ),
   "zh-CN": mergeMessages(
     mergePartialMessages(
@@ -8572,6 +8780,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["zh-CN"],
       designModeFeatureOverrides["zh-CN"],
       designCanvasFeatureOverrides["zh-CN"],
+      designShapeToolOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -8620,6 +8829,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["es-ES"],
       designModeFeatureOverrides["es-ES"],
       designCanvasFeatureOverrides["es-ES"],
+      designShapeToolOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -8668,6 +8878,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["fr-FR"],
       designModeFeatureOverrides["fr-FR"],
       designCanvasFeatureOverrides["fr-FR"],
+      designShapeToolOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -8716,6 +8927,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["de-DE"],
       designModeFeatureOverrides["de-DE"],
       designCanvasFeatureOverrides["de-DE"],
+      designShapeToolOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -8764,6 +8976,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["ja-JP"],
       designModeFeatureOverrides["ja-JP"],
       designCanvasFeatureOverrides["ja-JP"],
+      designShapeToolOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -8813,6 +9026,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["ko-KR"],
       designModeFeatureOverrides["ko-KR"],
       designCanvasFeatureOverrides["ko-KR"],
+      designShapeToolOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -8860,6 +9074,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["pt-BR"],
       designModeFeatureOverrides["pt-BR"],
       designCanvasFeatureOverrides["pt-BR"],
+      designShapeToolOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -8908,6 +9123,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["hi-IN"],
       designModeFeatureOverrides["hi-IN"],
       designCanvasFeatureOverrides["hi-IN"],
+      designShapeToolOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -8956,6 +9172,7 @@ export const messagesByLocale = {
       designExactEnglishOverrides["ar-SA"],
       designModeFeatureOverrides["ar-SA"],
       designCanvasFeatureOverrides["ar-SA"],
+      designShapeToolOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

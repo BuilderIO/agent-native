@@ -54,6 +54,8 @@ export interface LayersPanelNode {
   layout?: {
     display?: string;
     flexDirection?: string;
+    alignItems?: string;
+    justifyContent?: string;
     isFlexContainer?: boolean;
     isGridContainer?: boolean;
   };
@@ -358,6 +360,14 @@ function collectAncestorIds(
   return Array.from(ancestors);
 }
 
+function layerCanShowBadge(node: LayersPanelNode) {
+  return (
+    node.type === "file" ||
+    node.type === "screen" ||
+    (node.type === "frame" && node.id.startsWith("__"))
+  );
+}
+
 export function LayersPanel({
   screens,
   activeScreenId,
@@ -539,6 +549,33 @@ export function LayersPanel({
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, []);
   const shouldShowSearch = searchOpen || Boolean(searchQuery.trim());
+  const collapseTargetId = useMemo(() => {
+    for (let index = selectedIds.length - 1; index >= 0; index -= 1) {
+      const selectedRow = visibleRows.find(
+        (row) => row.node.id === selectedIds[index],
+      );
+      if (!selectedRow) continue;
+      if (selectedRow.hasChildren && expandedIdSet.has(selectedRow.node.id)) {
+        return selectedRow.node.id;
+      }
+      for (
+        let pathIndex = selectedRow.ancestorIds.length - 1;
+        pathIndex >= 0;
+        pathIndex -= 1
+      ) {
+        const ancestorId = selectedRow.ancestorIds[pathIndex];
+        if (expandedIdSet.has(ancestorId)) return ancestorId;
+      }
+    }
+    return null;
+  }, [expandedIdSet, selectedIds, visibleRows]);
+
+  const collapseSelectedLayer = useCallback(() => {
+    if (!collapseTargetId) return;
+    onExpandedIdsChange(
+      expandedIds.filter((expandedId) => expandedId !== collapseTargetId),
+    );
+  }, [collapseTargetId, expandedIds, onExpandedIdsChange]);
 
   return (
     <aside
@@ -606,15 +643,10 @@ export function LayersPanel({
               );
             })}
           </div>
-          <div className="mt-3 border-t border-[var(--design-editor-panel-divider-color)] px-3 pt-4">
-            <div className="h-16 text-[12px] font-medium text-foreground/85">
-              {labels.thumbnail}
-            </div>
-          </div>
         </div>
       ) : null}
 
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--design-editor-panel-divider-color)] px-3">
+      <div className="flex h-10 shrink-0 items-center justify-between px-3">
         <div className="min-w-0">
           <h2 className="truncate text-[12px] font-semibold text-foreground">
             {labels.title}
@@ -628,8 +660,10 @@ export function LayersPanel({
         <div className="flex items-center gap-0.5 text-muted-foreground">
           <button
             type="button"
-            className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
-            aria-label={labels.title}
+            className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+            aria-label={labels.collapse}
+            disabled={!collapseTargetId}
+            onClick={collapseSelectedLayer}
           >
             <LayerOptionsGlyph className="size-4" />
           </button>
@@ -1004,7 +1038,10 @@ function LayerRow({
               {node.name}
             </span>
           )}
-          {!isRenaming && node.badge !== null && node.badge !== undefined ? (
+          {!isRenaming &&
+          layerCanShowBadge(node) &&
+          node.badge !== null &&
+          node.badge !== undefined ? (
             <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
               {node.badge}
             </span>
@@ -1132,7 +1169,7 @@ function LayerGlyph({
       return <LayoutLayerGlyph node={node} className={common} />;
     case "group":
     case "section":
-      return <GroupLayerGlyph className={common} />;
+      return <LayoutLayerGlyph node={node} className={common} />;
     case "component":
     case "instance":
       return <ComponentLayerGlyph className={cn(common, componentColor)} />;
@@ -1238,48 +1275,70 @@ function LayoutLayerGlyph({
       </svg>
     );
   }
-  if (node.layout?.flexDirection?.startsWith("row")) {
-    return (
-      <svg
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.45"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className={className}
-        aria-hidden="true"
-      >
-        <path d="M5 3.5v9" />
-        <path d="M11 3.5v9" />
-        <path d="M3.3 5.5h3.4" />
-        <path d="M9.3 5.5h3.4" />
-        <path d="M3.3 10.5h3.4" />
-        <path d="M9.3 10.5h3.4" />
-      </svg>
+  if (node.layout?.isFlexContainer) {
+    const isRow = node.layout.flexDirection?.startsWith("row");
+    const align = node.layout.alignItems ?? "stretch";
+    return isRow ? (
+      <HorizontalAutoLayoutGlyph align={align} className={className} />
+    ) : (
+      <VerticalAutoLayoutGlyph align={align} className={className} />
     );
   }
   return <FrameLayerGlyph className={className} />;
 }
 
-function GroupLayerGlyph({ className }: { className?: string }) {
+function alignmentOffset(align: string | undefined, axis: "x" | "y") {
+  if (align === "center") return axis === "x" ? 5 : 5;
+  if (align === "flex-end" || align === "end") return axis === "x" ? 7 : 8;
+  return axis === "x" ? 3 : 3;
+}
+
+function VerticalAutoLayoutGlyph({
+  align,
+  className,
+}: {
+  align?: string;
+  className?: string;
+}) {
+  const x = alignmentOffset(align, "x");
   return (
     <svg
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.35"
-      strokeLinecap="round"
+      strokeWidth="1.45"
       strokeLinejoin="round"
       className={className}
       aria-hidden="true"
     >
-      <circle cx="8" cy="3" r="1.25" />
-      <circle cx="4" cy="12" r="1.25" />
-      <circle cx="12" cy="12" r="1.25" />
-      <path d="M7.4 4.1 4.8 10.8" />
-      <path d="m8.6 4.1 2.6 6.7" />
-      <path d="M5.4 12h5.2" />
+      <rect x={x} y="3" width="6" height="1.8" rx=".55" />
+      <rect x={x} y="7.1" width="6" height="1.8" rx=".55" />
+      <rect x={x} y="11.2" width="6" height="1.8" rx=".55" />
+    </svg>
+  );
+}
+
+function HorizontalAutoLayoutGlyph({
+  align,
+  className,
+}: {
+  align?: string;
+  className?: string;
+}) {
+  const y = alignmentOffset(align, "y");
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y={y} width="1.8" height="5" rx=".55" />
+      <rect x="7.1" y={y} width="1.8" height="5" rx=".55" />
+      <rect x="11.2" y={y} width="1.8" height="5" rx=".55" />
     </svg>
   );
 }

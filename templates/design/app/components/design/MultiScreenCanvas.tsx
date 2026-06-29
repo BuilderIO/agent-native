@@ -13,12 +13,29 @@ import {
   screenToCanvasPoint,
   type ArrowNudgeKey,
 } from "@shared/canvas-math";
+import {
+  appendPenNode,
+  clonePenPath,
+  closePenPath,
+  constrainPointTo45Degrees,
+  createCornerNode,
+  createSmoothNode,
+  getPenPathGeometry,
+  isPenCloseTarget,
+  offsetPenPath,
+  scalePenPathToGeometry,
+  serializePenPath,
+  translatePenPath,
+  type PenNode,
+  type PenPath,
+} from "@shared/pen-path";
 import { IconCopy, IconMaximize } from "@tabler/icons-react";
 import {
   useRef,
   useState,
   useCallback,
   useEffect,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 
@@ -48,13 +65,17 @@ type MultiScreenCanvasTool =
   | "frame"
   | "rect"
   | "rectangle"
+  | "line"
+  | "arrow"
+  | "ellipse"
+  | "polygon"
+  | "star"
   | "text"
   | "pen"
   | "hand"
   | "comment"
   | "draw"
-  | "scale"
-  | "overview";
+  | "scale";
 
 interface CanvasToolProps {
   fill?: string;
@@ -67,10 +88,12 @@ export interface CanvasPrimitiveInsert {
   kind: DraftPrimitiveKind;
   geometry: FrameGeometry;
   points?: Point[];
+  pathData?: string;
   text?: string;
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  autoSize?: boolean;
 }
 
 interface ScreenMetadata {
@@ -115,6 +138,7 @@ interface MultiScreenCanvasProps {
     screenId: string,
     primitive: CanvasPrimitiveInsert,
   ) => boolean;
+  onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
   onZoomToEdit?: (id: string) => void;
@@ -147,13 +171,15 @@ const MAX_WHEEL_ZOOM_DELTA = 80;
 const MAX_WHEEL_PAN_DELTA = 140;
 const PIXEL_GRID_ZOOM = 800;
 const DRAFT_FRAME_WIDTH = 320;
-const DRAFT_FRAME_HEIGHT = 240;
+const DRAFT_FRAME_HEIGHT = 640;
 const DRAFT_RECT_WIDTH = 160;
 const DRAFT_RECT_HEIGHT = 120;
 const DRAFT_TEXT_WIDTH = 180;
 const DRAFT_TEXT_HEIGHT = 48;
+const DRAFT_LINE_WIDTH = 160;
 const DRAFT_PATH_MIN_SIZE = 12;
 const PEN_SAMPLE_DISTANCE_SCREEN_PX = 5;
+const PEN_CLOSE_HIT_RADIUS_SCREEN_PX = 10;
 
 interface ResolvedScreenMetadata {
   source: ScreenSourceType;
@@ -194,18 +220,39 @@ export interface Point {
   y: number;
 }
 
-export type DraftPrimitiveKind = "frame" | "rectangle" | "text" | "path";
-type DraftCreationTool = "frame" | "rect" | "text" | "pen";
+export type DraftPrimitiveKind =
+  | "frame"
+  | "rectangle"
+  | "ellipse"
+  | "polygon"
+  | "star"
+  | "line"
+  | "arrow"
+  | "text"
+  | "path";
+type DraftCreationTool =
+  | "frame"
+  | "rect"
+  | "line"
+  | "arrow"
+  | "ellipse"
+  | "polygon"
+  | "star"
+  | "text"
+  | "pen";
 
 interface DraftPrimitive {
   id: string;
   kind: DraftPrimitiveKind;
   geometry: FrameGeometry;
   points?: Point[];
+  penPath?: PenPath;
+  pathData?: string;
   text?: string;
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  autoSize?: boolean;
 }
 
 type DraftPrimitiveById = Record<string, DraftPrimitive>;
@@ -309,6 +356,14 @@ interface DraftCreateDragState {
   hasMoved: boolean;
 }
 
+interface PenNodeDragState {
+  type: "pen-node";
+  originClient: Point;
+  anchor: Point;
+  pathBefore: PenPath | null;
+  hasMoved: boolean;
+}
+
 interface DraftCreationPreview {
   tool: DraftCreationTool;
   geometry: FrameGeometry;
@@ -323,7 +378,8 @@ type DragState =
   | PanDragState
   | DraftMoveDragState
   | DraftResizeDragState
-  | DraftCreateDragState;
+  | DraftCreateDragState
+  | PenNodeDragState;
 
 export function MultiScreenCanvas({
   screens,
@@ -341,6 +397,7 @@ export function MultiScreenCanvas({
   onGeometryChange,
   onGeometryCommit,
   onCreatePrimitive,
+  onCreateScreenFrame,
   onDeleteSelection,
   onZoomChange,
   onZoomToEdit,
@@ -365,6 +422,13 @@ export function MultiScreenCanvas({
   const selectedDraftIdsRef = useRef(selectedDraftIds);
   const [creationPreview, setCreationPreview] =
     useState<DraftCreationPreview | null>(null);
+  const [activePenPath, setActivePenPath] = useState<PenPath | null>(null);
+  const activePenPathRef = useRef<PenPath | null>(activePenPath);
+  const [penGesturePreview, setPenGesturePreview] = useState<PenPath | null>(
+    null,
+  );
+  const [penPointer, setPenPointer] = useState<Point | null>(null);
+  const [penCloseHover, setPenCloseHover] = useState(false);
   const [localActiveTool, setLocalActiveTool] =
     useState<MultiScreenCanvasTool>("move");
   const [selectedIds, setSelectedIds] = useState<string[]>(
@@ -396,6 +460,10 @@ export function MultiScreenCanvas({
   useEffect(() => {
     onGeometryCommitRef.current = onGeometryCommit;
   }, [onGeometryCommit]);
+
+  useEffect(() => {
+    activePenPathRef.current = activePenPath;
+  }, [activePenPath]);
 
   const updateFrameGeometry = useCallback(
     (updater: (current: FrameGeometryById) => FrameGeometryById) => {
@@ -860,6 +928,236 @@ export function MultiScreenCanvas({
     ],
   );
 
+  const getTargetFrameForDraft = useCallback(
+    (draft: DraftPrimitive) =>
+      getCurrentFrameEntries()
+        .filter(({ geometry }) =>
+          rectContainsPoint(
+            {
+              left: geometry.x,
+              top: geometry.y,
+              right: geometry.x + geometry.width,
+              bottom: geometry.y + geometry.height,
+            },
+            getFrameCenter(draft.geometry),
+          ),
+        )
+        .sort((a, b) => (b.geometry.z ?? 0) - (a.geometry.z ?? 0))[0],
+    [getCurrentFrameEntries],
+  );
+
+  const persistDraftPrimitive = useCallback(
+    (draft: DraftPrimitive) => {
+      const targetFrame = getTargetFrameForDraft(draft);
+      if (!targetFrame || !onCreatePrimitive) return null;
+
+      const localPrimitive = draftPrimitiveToInsert(
+        draft,
+        targetFrame.geometry,
+      );
+      const persisted = onCreatePrimitive(targetFrame.id, localPrimitive);
+      return persisted ? targetFrame.id : null;
+    },
+    [getTargetFrameForDraft, onCreatePrimitive],
+  );
+
+  const commitDraftPrimitive = useCallback(
+    (nextDraft: DraftPrimitive) => {
+      const persistedFrameId = persistDraftPrimitive(nextDraft);
+      if (persistedFrameId) {
+        updateDraftPrimitives((current) =>
+          current.filter((draft) => draft.id !== nextDraft.id),
+        );
+        updateSelectedDraftIds(() => []);
+        updateSelectedIds(() => [persistedFrameId]);
+        return;
+      }
+
+      updateDraftPrimitives((current) => [...current, nextDraft]);
+      updateSelectedIds(() => []);
+      updateSelectedDraftIds(() => [nextDraft.id]);
+    },
+    [
+      persistDraftPrimitive,
+      updateDraftPrimitives,
+      updateSelectedDraftIds,
+      updateSelectedIds,
+    ],
+  );
+
+  const clearActivePenPath = useCallback(() => {
+    setActivePenPath(null);
+    setPenGesturePreview(null);
+    setPenPointer(null);
+    setPenCloseHover(false);
+  }, []);
+
+  const finishPenPath = useCallback(
+    (path = activePenPathRef.current) => {
+      if (!path || path.nodes.length < 2) {
+        clearActivePenPath();
+        return;
+      }
+
+      commitDraftPrimitive(
+        createPenDraftPrimitive(path, {
+          stroke: toolProps?.stroke,
+          strokeWidth: toolProps?.strokeWidth,
+        }),
+      );
+      clearActivePenPath();
+      onActiveToolChange?.("pen");
+    },
+    [clearActivePenPath, commitDraftPrimitive, onActiveToolChange, toolProps],
+  );
+
+  const getPenAnchorPoint = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      shiftKey: boolean,
+      path: PenPath | null,
+    ) => {
+      const rawPoint = getCanvasPoint(clientX, clientY);
+      const lastAnchor = path?.nodes[path.nodes.length - 1]?.point;
+      return shiftKey && lastAnchor
+        ? constrainPointTo45Degrees(lastAnchor, rawPoint)
+        : rawPoint;
+    },
+    [getCanvasPoint],
+  );
+
+  const updatePenPointer = useCallback(
+    (clientX: number, clientY: number, shiftKey: boolean) => {
+      const path = activePenPathRef.current;
+      if (!path || path.closed) {
+        setPenPointer(null);
+        setPenCloseHover(false);
+        return;
+      }
+
+      const rawPoint = getCanvasPoint(clientX, clientY);
+      const closeHover = isPenCloseTarget(
+        path,
+        rawPoint,
+        PEN_CLOSE_HIT_RADIUS_SCREEN_PX / (zoomRef.current / 100),
+      );
+      setPenCloseHover(closeHover);
+      setPenPointer(
+        closeHover
+          ? path.nodes[0].point
+          : getPenAnchorPoint(clientX, clientY, shiftKey, path),
+      );
+    },
+    [getCanvasPoint, getPenAnchorPoint],
+  );
+
+  const beginPenNodeCreation = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      suppressNextPick.current = true;
+
+      const pathBefore = activePenPathRef.current?.closed
+        ? null
+        : activePenPathRef.current;
+      const rawPoint = getCanvasPoint(e.clientX, e.clientY);
+      if (
+        pathBefore &&
+        isPenCloseTarget(
+          pathBefore,
+          rawPoint,
+          PEN_CLOSE_HIT_RADIUS_SCREEN_PX / (zoomRef.current / 100),
+        )
+      ) {
+        finishPenPath(closePenPath(pathBefore));
+        return;
+      }
+
+      const anchor = getPenAnchorPoint(
+        e.clientX,
+        e.clientY,
+        e.shiftKey,
+        pathBefore,
+      );
+      const pathSnapshot = pathBefore ? clonePenPath(pathBefore) : null;
+      dragState.current = {
+        type: "pen-node",
+        originClient: { x: e.clientX, y: e.clientY },
+        anchor,
+        pathBefore: pathSnapshot,
+        hasMoved: false,
+      };
+      setPenGesturePreview(
+        appendPenNode(pathSnapshot, createCornerNode(anchor)),
+      );
+      setPenPointer(null);
+      setPenCloseHover(false);
+      setIsDragging(true);
+      setDragCursor("crosshair");
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        const state = dragState.current;
+        if (!state || state.type !== "pen-node") return;
+        if (
+          !state.hasMoved &&
+          Math.hypot(
+            ev.clientX - state.originClient.x,
+            ev.clientY - state.originClient.y,
+          ) >= DRAG_THRESHOLD
+        ) {
+          state.hasMoved = true;
+        }
+
+        const handlePoint = getCanvasPoint(ev.clientX, ev.clientY);
+        const node = state.hasMoved
+          ? createSmoothNode(
+              state.anchor,
+              ev.shiftKey
+                ? constrainPointTo45Degrees(state.anchor, handlePoint)
+                : handlePoint,
+            )
+          : createCornerNode(state.anchor);
+        setPenGesturePreview(appendPenNode(state.pathBefore, node));
+      };
+
+      const handleMouseUp = (ev: MouseEvent) => {
+        const state = dragState.current;
+        if (!state || state.type !== "pen-node") {
+          finishDrag();
+          return;
+        }
+
+        const handlePoint = getCanvasPoint(ev.clientX, ev.clientY);
+        const node: PenNode = state.hasMoved
+          ? createSmoothNode(
+              state.anchor,
+              ev.shiftKey
+                ? constrainPointTo45Degrees(state.anchor, handlePoint)
+                : handlePoint,
+            )
+          : createCornerNode(state.anchor);
+        setActivePenPath(appendPenNode(state.pathBefore, node));
+        setPenGesturePreview(null);
+        setPenPointer(null);
+        setPenCloseHover(false);
+        onActiveToolChange?.("pen");
+        finishDrag();
+      };
+
+      installDragListeners(handleMouseMove, handleMouseUp);
+    },
+    [
+      finishDrag,
+      finishPenPath,
+      getCanvasPoint,
+      getPenAnchorPoint,
+      installDragListeners,
+      onActiveToolChange,
+    ],
+  );
+
   const beginDraftCreation = useCallback(
     (tool: DraftCreationTool, e: React.MouseEvent) => {
       if (e.button !== 0) return;
@@ -872,7 +1170,15 @@ export function MultiScreenCanvas({
         originCanvas,
         originCanvas,
       );
-      const initialPoints = tool === "pen" ? [originCanvas] : undefined;
+      const initialPoints =
+        tool === "pen"
+          ? [originCanvas]
+          : tool === "line" || tool === "arrow"
+            ? [
+                originCanvas,
+                { x: originCanvas.x + DRAFT_LINE_WIDTH, y: originCanvas.y },
+              ]
+            : undefined;
       dragState.current = {
         type: "draft-create",
         tool,
@@ -926,6 +1232,10 @@ export function MultiScreenCanvas({
             state.originCanvas,
             nextCanvas,
           ),
+          points:
+            state.tool === "line" || state.tool === "arrow"
+              ? [state.originCanvas, nextCanvas]
+              : undefined,
         });
       };
 
@@ -946,6 +1256,17 @@ export function MultiScreenCanvas({
           }
           endCanvas = points[points.length - 1] ?? endCanvas;
         }
+        if (state.tool === "frame" && onCreateScreenFrame) {
+          onCreateScreenFrame(
+            getDraftGeometryForTool(state.tool, state.originCanvas, endCanvas),
+          );
+          if (activeTool === undefined) {
+            setLocalActiveTool("move");
+          }
+          onActiveToolChange?.("move");
+          finishDrag();
+          return;
+        }
         const nextDraft = createDraftPrimitive({
           tool: state.tool,
           start: state.originCanvas,
@@ -955,42 +1276,7 @@ export function MultiScreenCanvas({
           toolProps,
           fallbackText: t("designEditor.tools.text"),
         });
-        const targetFrame = getCurrentFrameEntries()
-          .filter(({ geometry }) =>
-            rectContainsPoint(
-              {
-                left: geometry.x,
-                top: geometry.y,
-                right: geometry.x + geometry.width,
-                bottom: geometry.y + geometry.height,
-              },
-              getFrameCenter(nextDraft.geometry),
-            ),
-          )
-          .sort((a, b) => (b.geometry.z ?? 0) - (a.geometry.z ?? 0))[0];
-
-        if (targetFrame && onCreatePrimitive) {
-          const localPrimitive = draftPrimitiveToInsert(
-            nextDraft,
-            targetFrame.geometry,
-          );
-          const persisted = onCreatePrimitive(targetFrame.id, localPrimitive);
-          if (persisted) {
-            updateDraftPrimitives((current) =>
-              current.filter((draft) => draft.id !== nextDraft.id),
-            );
-            updateSelectedDraftIds(() => []);
-            updateSelectedIds(() => [targetFrame.id]);
-          } else {
-            updateDraftPrimitives((current) => [...current, nextDraft]);
-            updateSelectedIds(() => []);
-            updateSelectedDraftIds(() => [nextDraft.id]);
-          }
-        } else {
-          updateDraftPrimitives((current) => [...current, nextDraft]);
-          updateSelectedIds(() => []);
-          updateSelectedDraftIds(() => [nextDraft.id]);
-        }
+        commitDraftPrimitive(nextDraft);
         if (activeTool === undefined) {
           setLocalActiveTool("move");
         }
@@ -1009,17 +1295,14 @@ export function MultiScreenCanvas({
     },
     [
       activeTool,
+      commitDraftPrimitive,
       finishDrag,
       getCanvasPoint,
-      getCurrentFrameEntries,
       installDragListeners,
       onActiveToolChange,
-      onCreatePrimitive,
+      onCreateScreenFrame,
       t,
       toolProps,
-      updateDraftPrimitives,
-      updateSelectedDraftIds,
-      updateSelectedIds,
     ],
   );
 
@@ -1110,6 +1393,29 @@ export function MultiScreenCanvas({
       };
 
       const handleMouseUp = () => {
+        const state = dragState.current;
+        if (state?.type === "draft-move" && state.hasMoved) {
+          const persisted: Array<{ draftId: string; frameId: string }> = [];
+          draftPrimitivesRef.current.forEach((draft) => {
+            if (!state.targetIds.includes(draft.id)) return;
+            const frameId = persistDraftPrimitive(draft);
+            if (frameId) persisted.push({ draftId: draft.id, frameId });
+          });
+
+          if (persisted.length > 0) {
+            const persistedDraftIds = new Set(
+              persisted.map((entry) => entry.draftId),
+            );
+            const lastFrameId = persisted[persisted.length - 1]?.frameId;
+            updateDraftPrimitives((current) =>
+              current.filter((draft) => !persistedDraftIds.has(draft.id)),
+            );
+            updateSelectedDraftIds((current) =>
+              current.filter((draftId) => !persistedDraftIds.has(draftId)),
+            );
+            if (lastFrameId) updateSelectedIds(() => [lastFrameId]);
+          }
+        }
         finishDrag();
       };
 
@@ -1119,6 +1425,7 @@ export function MultiScreenCanvas({
       finishDrag,
       getCurrentCanvasEntries,
       installDragListeners,
+      persistDraftPrimitive,
       showTransformFeedback,
       updateDraftPrimitives,
       updateSelectedDraftIds,
@@ -1752,16 +2059,36 @@ export function MultiScreenCanvas({
         beginPan(e);
         return;
       }
+      if (e.button === 0 && tool === "pen") {
+        beginPenNodeCreation(e);
+        return;
+      }
+      const creationTool = getDraftCreationTool(tool);
+      if (e.button === 0 && creationTool) {
+        beginDraftCreation(creationTool, e);
+        return;
+      }
       if (e.button === 0 && !onFrame) {
-        const creationTool = getDraftCreationTool(tool);
-        if (creationTool) {
-          beginDraftCreation(creationTool, e);
-          return;
-        }
         beginMarquee(e);
       }
     },
-    [activeTool, beginDraftCreation, beginMarquee, beginPan, localActiveTool],
+    [
+      activeTool,
+      beginDraftCreation,
+      beginMarquee,
+      beginPan,
+      beginPenNodeCreation,
+      localActiveTool,
+    ],
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
+      if (tool !== "pen" || dragState.current?.type === "pen-node") return;
+      updatePenPointer(e.clientX, e.clientY, e.shiftKey);
+    },
+    [activeTool, localActiveTool, updatePenPointer],
   );
 
   const handleWheelEvent = useCallback(
@@ -1846,6 +2173,7 @@ export function MultiScreenCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (activePenPathRef.current) return;
       if (!isArrowNudgeKey(event.key) || isEditableHotkeyTarget(event.target)) {
         return;
       }
@@ -1946,6 +2274,7 @@ export function MultiScreenCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (activePenPathRef.current) return;
       if (
         (event.key !== "Delete" && event.key !== "Backspace") ||
         event.metaKey ||
@@ -1966,9 +2295,65 @@ export function MultiScreenCanvas({
     };
   }, [deleteSelectedItems]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const path = activePenPathRef.current;
+      if (
+        !path ||
+        event.metaKey ||
+        event.ctrlKey ||
+        isEditableHotkeyTarget(event.target)
+      ) {
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        finishPenPath(path);
+        return;
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        const remainingNodes = path.nodes.slice(0, -1);
+        if (remainingNodes.length === 0) {
+          clearActivePenPath();
+          return;
+        }
+        setActivePenPath({ nodes: remainingNodes, closed: false });
+        setPenPointer(null);
+        setPenCloseHover(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [clearActivePenPath, finishPenPath]);
+
+  useEffect(() => {
+    const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
+    if (tool !== "pen") clearActivePenPath();
+  }, [activeTool, clearActivePenPath, localActiveTool]);
+
   const scale = canvasZoom / 100;
+  const chromeScale = scale > 0 ? 1 / scale : 1;
   const showPixelGrid = canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
+  const penActive = effectiveTool === "pen";
+  const creationToolActive = Boolean(getDraftCreationTool(effectiveTool));
+  const displayedPenPath = penGesturePreview
+    ? penGesturePreview
+    : activePenPath && penPointer && activePenPath.nodes.length > 0
+      ? penCloseHover
+        ? closePenPath(activePenPath)
+        : appendPenNode(activePenPath, createCornerNode(penPointer))
+      : activePenPath;
   const selectedIdSet = new Set(selectedIds);
   const selectedDraftIdSet = new Set(selectedDraftIds);
   const surfaceCursor = isPanning
@@ -1977,7 +2362,7 @@ export function MultiScreenCanvas({
       ? dragCursor
       : isDragging && marquee
         ? "crosshair"
-        : getDraftCreationTool(effectiveTool)
+        : penActive || getDraftCreationTool(effectiveTool)
           ? "crosshair"
           : effectiveTool === "hand"
             ? "grab"
@@ -2006,6 +2391,7 @@ export function MultiScreenCanvas({
       ref={surfaceRef}
       className="relative h-full w-full select-none overflow-hidden bg-background"
       onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
       style={{ cursor: surfaceCursor, touchAction: "none" }}
     >
       {showPixelGrid ? (
@@ -2046,6 +2432,9 @@ export function MultiScreenCanvas({
               isSelected={selectedIdSet.has(screen.id)}
               groupSelected={hasGroupSelection}
               handlesEnabled={!hasGroupSelection}
+              penActive={penActive}
+              creationToolActive={creationToolActive}
+              chromeScale={chromeScale}
               onPick={handleFrameClick}
               onEdit={handleFrameDoubleClick}
               onStartFrameDrag={beginFrameDrag}
@@ -2062,6 +2451,8 @@ export function MultiScreenCanvas({
             draft={draft}
             isSelected={selectedDraftIdSet.has(draft.id)}
             groupSelected={Boolean(selectedDraftGroupBounds)}
+            penActive={penActive}
+            chromeScale={chromeScale}
             onClick={handleDraftClick}
             onStartDrag={beginDraftDrag}
             onStartResize={beginDraftResize}
@@ -2074,15 +2465,22 @@ export function MultiScreenCanvas({
             isSelected
             preview
             groupSelected={false}
+            penActive={penActive}
+            chromeScale={chromeScale}
             onClick={() => {}}
             onStartDrag={() => {}}
             onStartResize={() => {}}
           />
         ) : null}
 
+        {displayedPenPath ? (
+          <PenPathOverlay path={displayedPenPath} closeHover={penCloseHover} />
+        ) : null}
+
         {selectedGroupBounds ? (
           <GroupSelectionBox
             bounds={selectedGroupBounds}
+            chromeScale={chromeScale}
             onStartResize={beginGroupResize}
           />
         ) : null}
@@ -2090,6 +2488,7 @@ export function MultiScreenCanvas({
         {selectedDraftGroupBounds ? (
           <GroupSelectionBox
             bounds={selectedDraftGroupBounds}
+            chromeScale={chromeScale}
             onStartResize={beginDraftGroupResize}
           />
         ) : null}
@@ -2178,6 +2577,8 @@ function DraftPrimitiveLayer({
   draft,
   isSelected,
   groupSelected,
+  penActive,
+  chromeScale,
   preview = false,
   onClick,
   onStartDrag,
@@ -2186,6 +2587,8 @@ function DraftPrimitiveLayer({
   draft: DraftPrimitive;
   isSelected: boolean;
   groupSelected: boolean;
+  penActive: boolean;
+  chromeScale: number;
   preview?: boolean;
   onClick: (id: string, e: React.MouseEvent) => void;
   onStartDrag: (id: string, e: React.MouseEvent) => void;
@@ -2203,7 +2606,7 @@ function DraftPrimitiveLayer({
       type="button"
       className={cn(
         "group/artboard pointer-events-auto absolute block overflow-visible text-left outline-none",
-        preview ? "cursor-crosshair" : "cursor-move",
+        preview || penActive ? "cursor-crosshair" : "cursor-move",
       )}
       style={{
         left: SURFACE_PADDING + geometry.x,
@@ -2216,25 +2619,32 @@ function DraftPrimitiveLayer({
           : undefined,
       }}
       onClick={(event) => {
+        if (penActive) return;
         if (!preview) onClick(draft.id, event);
       }}
       onMouseDown={(event) => {
+        if (penActive) return;
         if (!preview) onStartDrag(draft.id, event);
       }}
     >
       <DraftPrimitiveContent draft={draft} preview={preview} />
       <span
         className={cn(
-          "pointer-events-none absolute -inset-[5px] rounded-sm border transition-opacity",
+          "pointer-events-none absolute rounded-sm border transition-opacity",
           selected
             ? "border-[var(--design-editor-accent-color)] opacity-100"
             : "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100",
         )}
+        style={{
+          inset: -5 * chromeScale,
+          borderWidth: 1.5 * chromeScale,
+        }}
       />
       <ResizeHandles
         active={selected || preview}
-        enabled={(isSelected && !groupSelected) || preview}
+        enabled={!penActive && ((isSelected && !groupSelected) || preview)}
         showRotate={false}
+        chromeScale={chromeScale}
         onStartResize={(handle, event) =>
           onStartResize(draft.id, handle, event)
         }
@@ -2252,19 +2662,45 @@ function DraftPrimitiveContent({
   preview: boolean;
 }) {
   const muted = preview ? "opacity-70" : "";
-  if (draft.kind === "path") {
+  if (
+    draft.kind === "path" ||
+    draft.kind === "line" ||
+    draft.kind === "arrow"
+  ) {
+    const markerId = `arrow-${draft.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+    const pathData =
+      draft.pathData ??
+      (draft.penPath
+        ? serializePenPath(draft.penPath)
+        : pointsToPath(draft.points ?? []));
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
         viewBox={`${draft.geometry.x} ${draft.geometry.y} ${draft.geometry.width} ${draft.geometry.height}`}
       >
+        {draft.kind === "arrow" ? (
+          <defs>
+            <marker
+              id={markerId}
+              markerWidth="10"
+              markerHeight="10"
+              refX="8"
+              refY="5"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+            </marker>
+          </defs>
+        ) : null}
         <path
-          d={pointsToPath(draft.points ?? [])}
+          d={pathData}
           fill="none"
           stroke={draft.stroke ?? "hsl(var(--primary))"}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={draft.strokeWidth ?? 3}
+          markerEnd={draft.kind === "arrow" ? `url(#${markerId})` : undefined}
         />
       </svg>
     );
@@ -2294,6 +2730,43 @@ function DraftPrimitiveContent({
     );
   }
 
+  if (draft.kind === "ellipse") {
+    return (
+      <div
+        className={cn("size-full rounded-full border", muted)}
+        style={{
+          background: draft.fill ?? "hsl(var(--primary) / 0.12)",
+          borderColor: draft.stroke ?? "hsl(var(--primary) / 0.7)",
+          borderWidth: draft.strokeWidth ?? 1,
+        }}
+      />
+    );
+  }
+
+  if (draft.kind === "polygon" || draft.kind === "star") {
+    return (
+      <svg
+        className={cn("block size-full overflow-visible", muted)}
+        viewBox={`0 0 ${Math.max(1, draft.geometry.width)} ${Math.max(
+          1,
+          draft.geometry.height,
+        )}`}
+      >
+        <polygon
+          points={polygonPointsForBox(
+            draft.kind,
+            draft.geometry.width,
+            draft.geometry.height,
+          )}
+          fill={draft.fill ?? "hsl(var(--primary) / 0.12)"}
+          stroke={draft.stroke ?? "hsl(var(--primary))"}
+          strokeLinejoin="round"
+          strokeWidth={draft.strokeWidth ?? 1.5}
+        />
+      </svg>
+    );
+  }
+
   return (
     <div
       className={cn("size-full rounded-sm border", muted)}
@@ -2306,6 +2779,112 @@ function DraftPrimitiveContent({
   );
 }
 
+function PenPathOverlay({
+  path,
+  closeHover,
+}: {
+  path: PenPath;
+  closeHover: boolean;
+}) {
+  const geometry = getPenPathGeometry(path);
+  const pathData = serializePenPath(path);
+  return (
+    <div
+      data-pen-path-overlay
+      className="pointer-events-none absolute z-[90]"
+      style={{
+        left: SURFACE_PADDING + geometry.x,
+        top: SURFACE_PADDING + geometry.y,
+        width: geometry.width,
+        height: geometry.height,
+      }}
+    >
+      <svg
+        className="absolute inset-0 size-full overflow-visible"
+        viewBox={`${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`}
+      >
+        {path.nodes.map((node, index) => (
+          <g key={`handles-${index}`}>
+            {node.handleIn ? (
+              <line
+                x1={node.point.x}
+                y1={node.point.y}
+                x2={node.handleIn.x}
+                y2={node.handleIn.y}
+                stroke="var(--design-editor-accent-color)"
+                strokeDasharray="3 3"
+                strokeWidth={1}
+              />
+            ) : null}
+            {node.handleOut ? (
+              <line
+                x1={node.point.x}
+                y1={node.point.y}
+                x2={node.handleOut.x}
+                y2={node.handleOut.y}
+                stroke="var(--design-editor-accent-color)"
+                strokeDasharray="3 3"
+                strokeWidth={1}
+              />
+            ) : null}
+          </g>
+        ))}
+        <path
+          d={pathData}
+          fill="none"
+          stroke="rgba(255,255,255,0.95)"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={5}
+        />
+        <path
+          d={pathData}
+          fill="none"
+          stroke="var(--design-editor-accent-color)"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+        />
+      </svg>
+      {path.nodes.map((node, index) => (
+        <span
+          key={`anchor-${index}`}
+          data-pen-anchor
+          className={cn(
+            "absolute size-2 rounded-[2px] border shadow-sm",
+            index === 0 && closeHover
+              ? "scale-125 border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)] ring-4 ring-[var(--design-editor-selection-color)]"
+              : "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)]",
+          )}
+          style={{
+            left: node.point.x - geometry.x - 4,
+            top: node.point.y - geometry.y - 4,
+          }}
+        />
+      ))}
+      {path.nodes.flatMap((node, index) =>
+        [node.handleIn, node.handleOut]
+          .filter(isPoint)
+          .map((handle, handleIndex) => (
+            <span
+              key={`handle-${index}-${handleIndex}`}
+              data-pen-handle
+              className="absolute size-1.5 rounded-full border border-[var(--design-editor-accent-color)] bg-background shadow-sm"
+              style={{
+                left: handle.x - geometry.x - 3,
+                top: handle.y - geometry.y - 3,
+              }}
+            />
+          )),
+      )}
+    </div>
+  );
+}
+
+function isPoint(point: Point | undefined): point is Point {
+  return !!point;
+}
+
 function Screen({
   screen,
   metadata,
@@ -2314,6 +2893,9 @@ function Screen({
   isSelected,
   groupSelected,
   handlesEnabled,
+  penActive,
+  creationToolActive,
+  chromeScale,
   onPick,
   onEdit,
   onStartFrameDrag,
@@ -2329,6 +2911,9 @@ function Screen({
   isSelected: boolean;
   groupSelected: boolean;
   handlesEnabled: boolean;
+  penActive: boolean;
+  creationToolActive: boolean;
+  chromeScale: number;
   screenContent?: ReactNode;
   onPick: (id: string, e: React.MouseEvent<HTMLElement>) => void;
   onEdit: (id: string, e: React.MouseEvent<HTMLElement>) => void;
@@ -2351,7 +2936,8 @@ function Screen({
   const suppressNextClick = useRef(false);
   const emphasized = isActive || isSelected;
   const selectionOutlined = isSelected && !groupSelected;
-  const showHoverOutline = !isSelected || !groupSelected;
+  const showHoverOutline =
+    !creationToolActive && (!isSelected || !groupSelected);
 
   return (
     <div
@@ -2372,6 +2958,7 @@ function Screen({
         className="flex h-7 w-full cursor-default items-center justify-between gap-2 px-1"
         onMouseDown={(e) => {
           if (e.button !== 0) return;
+          if (penActive || creationToolActive) return;
           if (e.shiftKey) {
             e.stopPropagation();
             return;
@@ -2424,6 +3011,7 @@ function Screen({
         role="button"
         tabIndex={0}
         onClick={(e) => {
+          if (isInteractiveScreenContentTarget(e.target)) return;
           e.stopPropagation();
           if (suppressNextClick.current) {
             suppressNextClick.current = false;
@@ -2433,14 +3021,18 @@ function Screen({
           onPick(screen.id, e);
         }}
         onDoubleClick={(e) => {
+          if (isInteractiveScreenContentTarget(e.target)) return;
           e.preventDefault();
           e.stopPropagation();
         }}
         onMouseDown={(e) => {
+          if (creationToolActive) return;
+          if (isInteractiveScreenContentTarget(e.target)) return;
           if (e.detail > 1) {
             e.stopPropagation();
             return;
           }
+          if (penActive) return;
           if (e.altKey && e.button === 0) {
             suppressNextClick.current = true;
             onStartDuplicateGesture(screen, display, e);
@@ -2464,25 +3056,36 @@ function Screen({
         style={{
           width: geometry.width,
           height: geometry.height,
-          cursor: isSelected ? "move" : "pointer",
+          cursor:
+            penActive || creationToolActive
+              ? "crosshair"
+              : isSelected
+                ? "move"
+                : "pointer",
           touchAction: "none",
         }}
       >
         <span
           className={cn(
-            "pointer-events-none absolute -inset-[5px] rounded-[13px] border transition-opacity",
+            "pointer-events-none absolute border transition-opacity",
             selectionOutlined
               ? "border-[var(--design-editor-accent-color)] opacity-100"
               : showHoverOutline
                 ? "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100"
                 : "border-transparent opacity-0",
           )}
+          style={{
+            inset: -5 * chromeScale,
+            borderRadius: 13 * chromeScale,
+            borderWidth: 1.5 * chromeScale,
+          }}
         />
         <span
           className={cn(
             "relative block h-full w-full overflow-hidden rounded-lg border bg-white shadow-2xl transition-colors",
             "border-border group-hover/artboard:border-muted-foreground/60",
           )}
+          style={{ pointerEvents: penActive ? "none" : undefined }}
         >
           {screenContent ?? (
             <iframe
@@ -2502,12 +3105,19 @@ function Screen({
               title={screen.filename}
             />
           )}
+          {creationToolActive ? (
+            <span
+              className="absolute inset-0 z-20 cursor-crosshair"
+              aria-hidden="true"
+            />
+          ) : null}
           <span className="pointer-events-none absolute inset-0 rounded-[7px] border border-black/5" />
         </span>
         <ResizeHandles
           active={selectionOutlined}
-          enabled={handlesEnabled}
+          enabled={!penActive && !creationToolActive && handlesEnabled}
           showRotate={false}
+          chromeScale={chromeScale}
           onStartResize={(handle, e) => onStartResize(screen.id, handle, e)}
           onStartRotate={(e) => onStartRotate(screen.id, e)}
         />
@@ -2518,26 +3128,31 @@ function Screen({
 
 function GroupSelectionBox({
   bounds,
+  chromeScale,
   onStartResize,
 }: {
   bounds: NonNullable<ReturnType<typeof getFrameGroupBounds>>;
+  chromeScale: number;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
 }) {
   return (
     <div
       data-frame-shell
-      className="pointer-events-none absolute z-30 rounded-[13px] border border-[var(--design-editor-accent-color)]"
+      className="pointer-events-none absolute z-30 border border-[var(--design-editor-accent-color)]"
       style={{
         left: SURFACE_PADDING + bounds.left,
         top: SURFACE_PADDING + bounds.top,
         width: bounds.width,
         height: bounds.height,
+        borderRadius: 13 * chromeScale,
+        borderWidth: 1.5 * chromeScale,
       }}
     >
       <ResizeHandles
         active
         enabled
         showRotate={false}
+        chromeScale={chromeScale}
         onStartResize={onStartResize}
         onStartRotate={() => {}}
       />
@@ -2549,19 +3164,21 @@ function ResizeHandles({
   active,
   enabled,
   showRotate = true,
+  chromeScale = 1,
   onStartResize,
   onStartRotate,
 }: {
   active: boolean;
   enabled: boolean;
   showRotate?: boolean;
+  chromeScale?: number;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
 }) {
   if (!enabled) return null;
 
   const visibleHandleClass = cn(
-    "pointer-events-auto absolute z-20 size-2 rounded-[2px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow-sm transition-opacity",
+    "pointer-events-auto absolute z-20 rounded-[2px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow transition-opacity",
     active
       ? "opacity-100"
       : "opacity-0 group-hover/artboard:opacity-100 group-focus-visible/artboard:opacity-100",
@@ -2575,8 +3192,8 @@ function ResizeHandles({
         <span
           key={config.handle}
           data-resize-handle
-          className={cn(edgeHandleClass, config.className)}
-          style={{ cursor: config.cursor }}
+          className={edgeHandleClass}
+          style={edgeHandleStyle(config.handle, config.cursor, chromeScale)}
           onMouseDown={(e) => onStartResize(config.handle, e)}
         />
       ))}
@@ -2584,8 +3201,8 @@ function ResizeHandles({
         <span
           key={config.handle}
           data-resize-handle
-          className={cn(visibleHandleClass, config.className)}
-          style={{ cursor: config.cursor }}
+          className={visibleHandleClass}
+          style={cornerHandleStyle(config.handle, config.cursor, chromeScale)}
           onMouseDown={(e) => onStartResize(config.handle, e)}
         />
       ))}
@@ -2599,9 +3216,8 @@ function ResizeHandles({
                 active
                   ? "opacity-100"
                   : "opacity-0 group-hover/artboard:opacity-100 group-focus-visible/artboard:opacity-100",
-                config.className,
               )}
-              style={{ cursor: "grab" }}
+              style={rotateHandleStyle(config.corner, chromeScale)}
               onMouseDown={onStartRotate}
             />
           ))
@@ -2612,40 +3228,22 @@ function ResizeHandles({
 
 const CORNER_RESIZE_HANDLE_CONFIGS: Array<{
   handle: ResizeHandle;
-  className: string;
   cursor: string;
 }> = [
-  { handle: "nw", className: "-left-1 -top-1", cursor: "nwse-resize" },
-  { handle: "ne", className: "-right-1 -top-1", cursor: "nesw-resize" },
-  { handle: "se", className: "-bottom-1 -right-1", cursor: "nwse-resize" },
-  { handle: "sw", className: "-bottom-1 -left-1", cursor: "nesw-resize" },
+  { handle: "nw", cursor: "nwse-resize" },
+  { handle: "ne", cursor: "nesw-resize" },
+  { handle: "se", cursor: "nwse-resize" },
+  { handle: "sw", cursor: "nesw-resize" },
 ];
 
 const EDGE_RESIZE_HANDLE_CONFIGS: Array<{
   handle: ResizeHandle;
-  className: string;
   cursor: string;
 }> = [
-  {
-    handle: "n",
-    className: "-top-1 left-0 right-0 h-2",
-    cursor: "ns-resize",
-  },
-  {
-    handle: "e",
-    className: "-right-1 bottom-0 top-0 w-2",
-    cursor: "ew-resize",
-  },
-  {
-    handle: "s",
-    className: "-bottom-1 left-0 right-0 h-2",
-    cursor: "ns-resize",
-  },
-  {
-    handle: "w",
-    className: "-left-1 bottom-0 top-0 w-2",
-    cursor: "ew-resize",
-  },
+  { handle: "n", cursor: "ns-resize" },
+  { handle: "e", cursor: "ew-resize" },
+  { handle: "s", cursor: "ns-resize" },
+  { handle: "w", cursor: "ew-resize" },
 ];
 
 const ALL_RESIZE_HANDLE_CONFIGS = [
@@ -2655,13 +3253,61 @@ const ALL_RESIZE_HANDLE_CONFIGS = [
 
 const ROTATE_HANDLE_CONFIGS: Array<{
   corner: string;
-  className: string;
-}> = [
-  { corner: "nw", className: "-left-7 -top-7" },
-  { corner: "ne", className: "-right-7 -top-7" },
-  { corner: "se", className: "-bottom-7 -right-7" },
-  { corner: "sw", className: "-bottom-7 -left-7" },
-];
+}> = [{ corner: "nw" }, { corner: "ne" }, { corner: "se" }, { corner: "sw" }];
+
+function edgeHandleStyle(
+  handle: ResizeHandle,
+  cursor: string,
+  chromeScale: number,
+): CSSProperties {
+  const size = 14 * chromeScale;
+  const offset = -size / 2;
+  if (handle === "n" || handle === "s") {
+    return {
+      cursor,
+      left: 0,
+      right: 0,
+      height: size,
+      [handle === "n" ? "top" : "bottom"]: offset,
+    };
+  }
+  return {
+    cursor,
+    top: 0,
+    bottom: 0,
+    width: size,
+    [handle === "w" ? "left" : "right"]: offset,
+  };
+}
+
+function cornerHandleStyle(
+  handle: ResizeHandle,
+  cursor: string,
+  chromeScale: number,
+): CSSProperties {
+  const size = 10 * chromeScale;
+  const offset = -size / 2;
+  return {
+    cursor,
+    width: size,
+    height: size,
+    borderWidth: Math.max(1, 1.25 * chromeScale),
+    ...(handle.includes("n") ? { top: offset } : { bottom: offset }),
+    ...(handle.includes("w") ? { left: offset } : { right: offset }),
+  };
+}
+
+function rotateHandleStyle(corner: string, chromeScale: number): CSSProperties {
+  const size = 28 * chromeScale;
+  const offset = -34 * chromeScale;
+  return {
+    cursor: "grab",
+    width: size,
+    height: size,
+    ...(corner.includes("n") ? { top: offset } : { bottom: offset }),
+    ...(corner.includes("w") ? { left: offset } : { right: offset }),
+  };
+}
 
 interface FrameEntry {
   id: string;
@@ -2732,6 +3378,17 @@ function isEditableHotkeyTarget(target: EventTarget | null) {
   }
   const tagName = editable.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+function isInteractiveScreenContentTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        ".design-canvas-iframe-wrapper,[data-design-preview-iframe]",
+      ),
+    )
+  );
 }
 
 function frameBoundsToGeometry(bounds: {
@@ -2827,7 +3484,9 @@ function getDraftGeometryForTool(
   start: Point,
   end: Point,
 ): FrameGeometry {
-  if (tool === "pen") return getPathGeometry([start, end]);
+  if (tool === "pen" || tool === "line" || tool === "arrow") {
+    return getPathGeometry([start, end]);
+  }
   const options =
     tool === "frame"
       ? {
@@ -2884,9 +3543,7 @@ function createDraftPrimitive({
   toolProps,
   fallbackText,
 }: DraftPrimitiveInput): DraftPrimitive {
-  const id = `draft-${tool}-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  const id = createDraftId(tool);
   const geometry = moved
     ? getDraftGeometryForTool(tool, start, end)
     : getDraftGeometryForTool(tool, start, start);
@@ -2899,14 +3556,17 @@ function createDraftPrimitive({
             { x: start.x + 64, y: start.y + 24 },
             { x: start.x + 128, y: start.y },
           ];
-    return {
-      id,
-      kind: "path",
-      geometry: getPathGeometry(pathPoints),
-      points: pathPoints,
-      stroke: toolProps?.stroke,
-      strokeWidth: toolProps?.strokeWidth ?? 3,
-    };
+    return createPenDraftPrimitive(
+      {
+        nodes: pathPoints.map(createCornerNode),
+        closed: false,
+      },
+      {
+        id,
+        stroke: toolProps?.stroke,
+        strokeWidth: toolProps?.strokeWidth,
+      },
+    );
   }
   if (tool === "text") {
     return {
@@ -2916,11 +3576,30 @@ function createDraftPrimitive({
       text: toolProps?.text ?? fallbackText,
       fill: toolProps?.fill,
       stroke: toolProps?.stroke,
+      autoSize: !moved,
+    };
+  }
+  if (tool === "line" || tool === "arrow") {
+    const pathPoints = moved
+      ? [start, end]
+      : [start, { x: start.x + DRAFT_LINE_WIDTH, y: start.y }];
+    return {
+      id,
+      kind: tool,
+      geometry: getPathGeometry(pathPoints),
+      points: pathPoints,
+      stroke: toolProps?.stroke,
+      strokeWidth: toolProps?.strokeWidth ?? 3,
     };
   }
   return {
     id,
-    kind: tool === "frame" ? "frame" : "rectangle",
+    kind:
+      tool === "frame"
+        ? "frame"
+        : tool === "ellipse" || tool === "polygon" || tool === "star"
+          ? tool
+          : "rectangle",
     geometry,
     fill: toolProps?.fill,
     stroke: toolProps?.stroke,
@@ -2928,11 +3607,38 @@ function createDraftPrimitive({
   };
 }
 
+function createPenDraftPrimitive(
+  path: PenPath,
+  {
+    id = createDraftId("pen"),
+    stroke,
+    strokeWidth,
+  }: { id?: string; stroke?: string; strokeWidth?: number } = {},
+): DraftPrimitive {
+  const penPath = clonePenPath(path);
+  return {
+    id,
+    kind: "path",
+    geometry: getPenPathGeometry(penPath),
+    penPath,
+    pathData: serializePenPath(penPath),
+    stroke,
+    strokeWidth: strokeWidth ?? 3,
+  };
+}
+
+function createDraftId(tool: DraftCreationTool) {
+  return `draft-${tool}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
 function cloneDraftPrimitive(draft: DraftPrimitive): DraftPrimitive {
   return {
     ...draft,
     geometry: { ...draft.geometry },
     points: draft.points?.map((point) => ({ ...point })),
+    penPath: draft.penPath ? clonePenPath(draft.penPath) : undefined,
   };
 }
 
@@ -2940,21 +3646,30 @@ function draftPrimitiveToInsert(
   draft: DraftPrimitive,
   frameGeometry: FrameGeometry,
 ): CanvasPrimitiveInsert {
+  const localGeometry = {
+    ...draft.geometry,
+    x: Math.round(draft.geometry.x - frameGeometry.x),
+    y: Math.round(draft.geometry.y - frameGeometry.y),
+  };
+  const pathOrigin = {
+    x: frameGeometry.x + localGeometry.x,
+    y: frameGeometry.y + localGeometry.y,
+  };
   return {
     kind: draft.kind,
-    geometry: {
-      ...draft.geometry,
-      x: Math.round(draft.geometry.x - frameGeometry.x),
-      y: Math.round(draft.geometry.y - frameGeometry.y),
-    },
+    geometry: localGeometry,
     points: draft.points?.map((point) => ({
       x: Math.round(point.x - frameGeometry.x),
       y: Math.round(point.y - frameGeometry.y),
     })),
+    pathData: draft.penPath
+      ? serializePenPath(offsetPenPath(draft.penPath, pathOrigin))
+      : undefined,
     text: draft.text,
     fill: draft.fill,
     stroke: draft.stroke,
     strokeWidth: draft.strokeWidth,
+    autoSize: draft.autoSize,
   };
 }
 
@@ -2963,6 +3678,9 @@ function moveDraftPrimitive(
   dx: number,
   dy: number,
 ): DraftPrimitive {
+  const movedPenPath = draft.penPath
+    ? translatePenPath(draft.penPath, dx, dy)
+    : undefined;
   return {
     ...draft,
     geometry: {
@@ -2974,6 +3692,8 @@ function moveDraftPrimitive(
       x: point.x + dx,
       y: point.y + dy,
     })),
+    penPath: movedPenPath,
+    pathData: movedPenPath ? serializePenPath(movedPenPath) : draft.pathData,
   };
 }
 
@@ -2981,17 +3701,21 @@ function applyDraftGeometry(
   draft: DraftPrimitive,
   geometry: FrameGeometry,
 ): DraftPrimitive {
-  if (!draft.points?.length) return { ...draft, geometry };
   const origin = draft.geometry;
   const scaleX = geometry.width / Math.max(1, origin.width);
   const scaleY = geometry.height / Math.max(1, origin.height);
+  const scaledPenPath = draft.penPath
+    ? scalePenPathToGeometry(draft.penPath, origin, geometry)
+    : undefined;
   return {
     ...draft,
     geometry,
-    points: draft.points.map((point) => ({
+    points: draft.points?.map((point) => ({
       x: geometry.x + (point.x - origin.x) * scaleX,
       y: geometry.y + (point.y - origin.y) * scaleY,
     })),
+    penPath: scaledPenPath,
+    pathData: scaledPenPath ? serializePenPath(scaledPenPath) : draft.pathData,
   };
 }
 
@@ -3007,12 +3731,53 @@ function getDraftCreationTool(
   if (
     tool === "frame" ||
     tool === "rect" ||
+    tool === "line" ||
+    tool === "arrow" ||
+    tool === "ellipse" ||
+    tool === "polygon" ||
+    tool === "star" ||
     tool === "text" ||
     tool === "pen"
   ) {
     return tool;
   }
   return null;
+}
+
+function polygonPointsForBox(
+  kind: "polygon" | "star",
+  width: number,
+  height: number,
+) {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const cx = safeWidth / 2;
+  const cy = safeHeight / 2;
+  const radius = Math.max(1, Math.min(safeWidth, safeHeight) / 2);
+  const points: Point[] = [];
+
+  if (kind === "polygon") {
+    for (let index = 0; index < 3; index += 1) {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / 3;
+      points.push({
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+      });
+    }
+  } else {
+    for (let index = 0; index < 10; index += 1) {
+      const angle = -Math.PI / 2 + (index * Math.PI) / 5;
+      const r = index % 2 === 0 ? radius : radius * 0.45;
+      points.push({
+        x: cx + Math.cos(angle) * r,
+        y: cy + Math.sin(angle) * r,
+      });
+    }
+  }
+
+  return points
+    .map((point) => `${roundCoord(point.x)},${roundCoord(point.y)}`)
+    .join(" ");
 }
 
 function pointsToPath(points: readonly Point[]) {
@@ -3038,9 +3803,28 @@ function previewDraftPrimitive(preview: DraftCreationPreview): DraftPrimitive {
           ? "frame"
           : preview.tool === "text"
             ? "text"
-            : "rectangle",
+            : preview.tool === "line" ||
+                preview.tool === "arrow" ||
+                preview.tool === "ellipse" ||
+                preview.tool === "polygon" ||
+                preview.tool === "star"
+              ? preview.tool
+              : "rectangle",
     geometry: preview.geometry,
-    points: preview.points,
+    points:
+      preview.points ??
+      (preview.tool === "line" || preview.tool === "arrow"
+        ? [
+            {
+              x: preview.geometry.x,
+              y: preview.geometry.y + preview.geometry.height / 2,
+            },
+            {
+              x: preview.geometry.x + preview.geometry.width,
+              y: preview.geometry.y + preview.geometry.height / 2,
+            },
+          ]
+        : undefined),
     text: "Text", // i18n-ignore preview-only canvas placeholder
   };
 }

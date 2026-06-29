@@ -21,7 +21,7 @@ export function extensionNameToSlug(
 
 export function extensionPath(
   id: string,
-  name?: string | null | undefined,
+  name?: string | null  ,
 ): string {
   const encodedId = encodeURIComponent(id);
   if (name === undefined) return `/extensions/${encodedId}`;

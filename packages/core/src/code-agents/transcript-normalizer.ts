@@ -576,7 +576,7 @@ function joinAssistantChunks(previous: string, next: string): string {
   if (!next) return previous;
   if (/\s$/.test(previous) || /^\s/.test(next)) return `${previous}${next}`;
   if (/^[.,!?;:)\]}'"`]/.test(next)) return `${previous}${next}`;
-  if (/[(\[{'"`]$/.test(previous)) return `${previous}${next}`;
+  if (/[([{'"`]$/.test(previous)) return `${previous}${next}`;
   return `${previous} ${next}`;
 }
 

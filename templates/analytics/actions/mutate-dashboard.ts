@@ -27,6 +27,20 @@ const mutationTargetSchema = {
   index: z.number().int().nonnegative().optional(),
   beforePanelId: z.string().optional(),
   afterPanelId: z.string().optional(),
+  nextToPanelId: z
+    .string()
+    .optional()
+    .describe("Place the panel in the same visible row, after this panel id."),
+  rowNumber: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("1-based visible row number for row-aware placement."),
+  rowPosition: z
+    .enum(["start", "end"])
+    .optional()
+    .describe("Where in rowNumber to place the panel. Defaults to end."),
 };
 
 const mutationOperationSchema = z.discriminatedUnion("op", [
@@ -101,8 +115,9 @@ const apiHelp =
   "Constrained TypeScript-like dashboard mutation script. The server parses only calls on `dashboard`; it does not execute arbitrary JavaScript. " +
   "No variables, imports, loops, functions, templates, network, filesystem, or DB access. Arguments must be JSON-compatible literals, so quote object keys. " +
   "Subjects: dashboard.set, dashboard.panel, dashboard.panels, dashboard.panelsMatching, dashboard.section, dashboard.insertPanel. " +
-  "Selection methods: moveToTop, moveToBottom, moveBefore, moveAfter, moveToIndex, remove, set, setTitle, setSql, setWidth, setConfig, setConfigPath, duplicate. " +
-  `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 3).join(" ")}`;
+  "Selection methods: moveToTop, moveToBottom, moveBefore, moveAfter, moveToIndex, moveNextTo, moveToRow, remove, set, setTitle, setSql, setWidth, setConfig, setConfigPath, duplicate. " +
+  "Inserted panels support atTop, atBottom, before, after, atIndex, nextTo, atRow, atRowStart, and atRowEnd. Use nextTo(panelId) or atRow(rowNumber) for visible row placement. " +
+  `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 5).join(" ")}`;
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -177,6 +192,7 @@ export default defineAction({
   description:
     "Apply general SQL dashboard edits through a small typed mutation API in ONE atomic save. " +
     "Prefer this for dashboard layout and panel edits: move panels by id, edit titles/SQL/width/config, remove panels, duplicate panels, insert panels, or patch dashboard fields. " +
+    "For user placement requests like 'second row' or 'next to return rates', use row-aware placement such as `dashboard.insertPanel(...).nextTo(\"retention-over-time\")` or `.atRow(2)`, then verify rendered rows from `get-sql-dashboard.layout.groups`. " +
     "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. " +
     "The main code argument is a string, so it avoids brittle JSON-pointer indexes and native-array serialization issues. " +
     `Common example: ${DASHBOARD_MUTATION_EXAMPLES[0]}`,
