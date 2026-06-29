@@ -404,6 +404,10 @@ iframe-backed screens on the infinite canvas.
   iframe frame and URL metadata; change the copy's path/query for a new state.
 - Flow visualization is multiple URL states: \`/checkout?step=shipping\`,
   \`/checkout?step=payment\`, \`/checkout?step=done\`, etc.
+- When the user gives a named flow or numbered screen list, preserve that order
+  and create one screen per URL/path. Shorthand like
+  \`localhost:1234/onboarding/1\` means
+  \`http://localhost:1234/onboarding/1\`.
 
 ## Required Local Bridge
 
@@ -436,6 +440,20 @@ pnpm action add-localhost-screens '{
   "designId": "<design-id>",
   "connectionId": "<connection-id>",
   "paths": ["/", "/pricing", "/checkout?step=payment"]
+}'
+\`\`\`
+
+For a numbered flow the user describes in chat, keep the labels and order:
+
+\`\`\`bash
+pnpm action add-localhost-screens '{
+  "designId": "<design-id>",
+  "connectionId": "<connection-id>",
+  "routes": [
+    { "url": "localhost:1234/onboarding/1", "title": "Screen 1" },
+    { "url": "localhost:1234/onboarding/2", "title": "Screen 2" },
+    { "url": "localhost:1234/onboarding/3", "title": "Screen 3" }
+  ]
 }'
 \`\`\`
 

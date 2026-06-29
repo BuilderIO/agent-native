@@ -1139,6 +1139,15 @@ const hiIN = {
       feature2: "Optional sticky PR comment post कर सकता है",
       videoAriaLabel: "Visual Recap skill का demo video",
     },
+    visualEdit: {
+      name: "Visual edit",
+      tagline: "Local UI flows edit करें",
+      description:
+        "Running localhost app को Design में URL-backed screens की तरह खोलता है ताकि visual review और editing हो सके।",
+      feature1: "Ordered URLs से multi-screen flows layout करें",
+      feature2: "Live route states inspect, duplicate, और refine करें",
+      videoAriaLabel: "Visual Edit skill का demo video",
+    },
   },
   downloadPage: {
     title: "Agent Native डाउनलोड करें",

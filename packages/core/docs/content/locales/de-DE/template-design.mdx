@@ -362,6 +362,20 @@ und Bearbeitung der DOM-/Code-Ebenen in einer gerenderten Datei gedacht. Das
 Ebenenfenster spiegelt diese Trennung wider: Bildschirme sind Rahmen der
 obersten Ebene, darunter liegen die DOM-/Code-Ebenen des aktiven Bildschirms.
 
+Installiere `/visual-edit`, wenn ein Coding Agent eine laufende lokale App in
+Design öffnen soll, statt eigenständiges Prototype-HTML zu generieren:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Sobald der Dev-Server der Ziel-App läuft, nutzt `/visual-edit`
+`npx @agent-native/core@latest design connect` plus `add-localhost-screens`, um
+jeden angeforderten Pfad oder jede URL als eigenen URL-gestützten iframe-Screen
+zu platzieren. Nummerierte Flows wie `localhost:1234/onboarding/1`,
+`/onboarding/2` und `/onboarding/3` bleiben als getrennte, geordnete Screens im
+Overview-Modus erhalten.
+
 Für stabile Ebenennamen fügen Sie wichtigen Elementen
 `data-agent-native-layer-name` hinzu. Design verwendet dies vor
 semantischen/textbasierten Fallbacks und kann Umbenennungen durch Bearbeiten

@@ -1142,6 +1142,15 @@ const frFR = {
       feature2: "Peut publier un commentaire PR epingle",
       videoAriaLabel: "Video de demonstration de la skill Visual Recap",
     },
+    visualEdit: {
+      name: "Edition visuelle",
+      tagline: "Modifier les flows UI locaux",
+      description:
+        "Ouvre une app localhost en cours d execution dans Design comme ecrans adosses a des URL pour revue et edition visuelles.",
+      feature1: "Dispose des flows multi-ecrans depuis des URL ordonnees",
+      feature2: "Inspecte, duplique et affine les etats de routes en direct",
+      videoAriaLabel: "Video de demonstration de la skill Visual Edit",
+    },
   },
   downloadPage: {
     title: "Télécharger Agent Native",

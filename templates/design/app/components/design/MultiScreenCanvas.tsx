@@ -2399,7 +2399,25 @@ function Screen({
             {metadata.width} x {metadata.height}
           </span>
         </div>
-        <div className="h-5 shrink-0" />
+        <button
+          type="button"
+          className={cn(
+            "flex h-5 max-w-[46%] shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "group-hover/frame:opacity-100 group-focus-within/frame:opacity-100",
+            emphasized && "opacity-100",
+          )}
+          aria-label={t("multiScreenCanvas.fullView")}
+          title={t("multiScreenCanvas.fullView")}
+          onClick={(event) => onEdit(screen.id, event)}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          <IconMaximize className="size-3 shrink-0" />
+          <span className="truncate">{t("multiScreenCanvas.fullView")}</span>
+        </button>
       </div>
       <div
         data-screen-card
@@ -2485,25 +2503,6 @@ function Screen({
             />
           )}
           <span className="pointer-events-none absolute inset-0 rounded-[7px] border border-black/5" />
-          <button
-            type="button"
-            className={cn(
-              "absolute right-2 top-2 z-20 flex h-7 max-w-[calc(100%-1rem)] translate-y-1 items-center gap-1 rounded-md border border-border bg-background/95 px-2 text-[10px] font-medium text-foreground opacity-0 shadow-sm backdrop-blur transition-all",
-              "hover:bg-accent hover:text-accent-foreground focus-visible:translate-y-0 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "group-hover/artboard:translate-y-0 group-hover/artboard:opacity-100 group-focus-visible/artboard:translate-y-0 group-focus-visible/artboard:opacity-100",
-              emphasized && "translate-y-0 opacity-100",
-            )}
-            aria-label={t("multiScreenCanvas.fullView")}
-            title={t("multiScreenCanvas.fullView")}
-            onClick={(event) => onEdit(screen.id, event)}
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-          >
-            <IconMaximize className="size-3" />
-            <span>{t("multiScreenCanvas.fullView")}</span>
-          </button>
         </span>
         <ResizeHandles
           active={selectionOutlined}

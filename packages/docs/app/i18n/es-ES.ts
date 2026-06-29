@@ -1143,6 +1143,15 @@ const esES = {
       feature2: "Opcionalmente publica un comentario fijo en el PR",
       videoAriaLabel: "Video de demostracion de la skill Visual Recap",
     },
+    visualEdit: {
+      name: "Edicion visual",
+      tagline: "Edita flujos UI locales",
+      description:
+        "Abre una app localhost en ejecucion dentro de Design como pantallas respaldadas por URL para revision y edicion visual.",
+      feature1: "Coloca flujos multipantalla desde URLs ordenadas",
+      feature2: "Inspecciona, duplica y refina estados de rutas en vivo",
+      videoAriaLabel: "Video de demostracion de la skill Visual Edit",
+    },
   },
   downloadPage: {
     title: "Descargar Agent Native",

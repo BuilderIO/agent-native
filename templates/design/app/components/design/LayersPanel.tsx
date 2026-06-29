@@ -2,27 +2,13 @@ import { useT } from "@agent-native/core/client";
 import {
   IconChevronDown,
   IconChevronRight,
-  IconCode,
-  IconComponents,
   IconEye,
   IconEyeOff,
-  IconFile,
-  IconFileCode,
-  IconFolder,
-  IconFrame,
-  IconHierarchy,
-  IconLayersIntersect,
   IconLock,
   IconLockOpen,
   IconLayoutGrid,
   IconPlus,
-  IconPhoto,
-  IconRectangle,
   IconSearch,
-  IconSquare,
-  IconStack2,
-  IconTypography,
-  type Icon,
 } from "@tabler/icons-react";
 import {
   useCallback,
@@ -65,6 +51,12 @@ export interface LayersPanelNode {
   id: string;
   name: string;
   type?: LayersPanelNodeType;
+  layout?: {
+    display?: string;
+    flexDirection?: string;
+    isFlexContainer?: boolean;
+    isGridContainer?: boolean;
+  };
   children?: LayersPanelNode[];
   detail?: string;
   badge?: string | number;
@@ -113,6 +105,7 @@ export interface LayersPanelMoveIntent {
 export interface LayersPanelLabels {
   title: string;
   screens: string;
+  thumbnail: string;
   screenOverview: string;
   addScreen: string;
   searchPlaceholder: string;
@@ -164,6 +157,7 @@ interface FlatLayerRow {
   node: LayersPanelNode;
   rowKey: string;
   depth: number;
+  ancestorIds: string[];
   hasChildren: boolean;
 }
 
@@ -174,6 +168,7 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
     screens: t("layersPanel.screens"),
+    thumbnail: t("layersPanel.thumbnail"),
     screenOverview: t("designEditor.screenOverview"),
     addScreen: t("layersPanel.addScreen"),
     searchPlaceholder: t("layersPanel.searchPlaceholder"),
@@ -301,13 +296,14 @@ function flattenRows(
   forceExpanded: boolean,
   depth = 0,
   parentKey = "root",
+  ancestorIds: string[] = [],
   rows: FlatLayerRow[] = [],
 ) {
   nodes.forEach((node, index) => {
     const children = node.children ?? [];
     const hasChildren = children.length > 0;
     const rowKey = `${parentKey}/${node.id}:${index}`;
-    rows.push({ node, rowKey, depth, hasChildren });
+    rows.push({ node, rowKey, depth, ancestorIds, hasChildren });
     if (hasChildren && (forceExpanded || expandedIds.has(node.id))) {
       flattenRows(
         children,
@@ -315,6 +311,7 @@ function flattenRows(
         forceExpanded,
         depth + 1,
         rowKey,
+        [...ancestorIds, node.id],
         rows,
       );
     }
@@ -361,38 +358,6 @@ function collectAncestorIds(
   return Array.from(ancestors);
 }
 
-function layerTypeIcon(type: LayersPanelNodeType | undefined): Icon {
-  switch (type) {
-    case "file":
-      return IconFile;
-    case "screen":
-      return IconFrame;
-    case "frame":
-      return IconFrame;
-    case "group":
-      return IconHierarchy;
-    case "component":
-    case "instance":
-      return IconComponents;
-    case "section":
-      return IconFolder;
-    case "shape":
-      return IconSquare;
-    case "rectangle":
-      return IconRectangle;
-    case "text":
-      return IconTypography;
-    case "image":
-      return IconPhoto;
-    case "code":
-      return IconFileCode;
-    case "element":
-      return IconCode;
-    default:
-      return IconLayersIntersect;
-  }
-}
-
 export function LayersPanel({
   screens,
   activeScreenId,
@@ -429,6 +394,7 @@ export function LayersPanel({
   const [renameDraft, setRenameDraft] = useState("");
   const [dropIndicator, setDropIndicator] =
     useState<LayersPanelMoveIntent | null>(null);
+  const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
 
   const roots = useMemo(
     () =>
@@ -568,19 +534,24 @@ export function LayersPanel({
   const hasAnyRows = roots.length > 0;
   const selectedCount = selectedIds.length;
   const screenRows = screens ?? files ?? [];
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, []);
+  const shouldShowSearch = searchOpen || Boolean(searchQuery.trim());
 
   return (
     <aside
       className={cn(
-        "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] text-foreground",
+        "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[12px] text-foreground",
         className,
       )}
       aria-label={labels.title}
     >
       {screenRows.length > 0 ? (
-        <div className="shrink-0 border-b border-border pb-2">
-          <div className="flex h-9 items-center justify-between px-2.5">
-            <h2 className="truncate text-[11px] font-semibold text-foreground">
+        <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] pb-2">
+          <div className="flex h-10 items-center justify-between px-3">
+            <h2 className="truncate text-[12px] font-semibold text-foreground">
               {labels.screens}
             </h2>
             <div className="flex items-center gap-0.5 text-muted-foreground">
@@ -592,20 +563,20 @@ export function LayersPanel({
               </IconTooltipButton>
               <IconTooltipButton
                 label={labels.searchPlaceholder}
-                onClick={() => searchInputRef.current?.focus()}
+                onClick={openSearch}
               >
-                <IconSearch className="size-3.5" />
+                <IconSearch className="size-4" />
               </IconTooltipButton>
               <IconTooltipButton
                 label={labels.addScreen}
                 disabled={!onAddScreen}
                 onClick={onAddScreen}
               >
-                <IconPlus className="size-3.5" />
+                <IconPlus className="size-4" />
               </IconTooltipButton>
             </div>
           </div>
-          <div className="space-y-0.5 px-1">
+          <div className="space-y-0.5 px-2">
             {screenRows.map((screen) => {
               const isActive = screen.id === activeScreenId;
               return (
@@ -613,7 +584,7 @@ export function LayersPanel({
                   key={screen.id}
                   type="button"
                   className={cn(
-                    "flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-[12px] font-medium outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                     isActive
                       ? "bg-[var(--design-editor-active-row-color)] text-foreground"
                       : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
@@ -621,7 +592,10 @@ export function LayersPanel({
                   onClick={() => onScreenSelect?.(screen.id)}
                   title={screen.filename ?? screen.name}
                 >
-                  <IconFile className="size-3.5 shrink-0 text-muted-foreground" />
+                  <LayerGlyph
+                    node={{ ...screen, type: "file" }}
+                    selected={false}
+                  />
                   <span className="min-w-0 flex-1 truncate">{screen.name}</span>
                   {screen.badge ? (
                     <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
@@ -632,12 +606,17 @@ export function LayersPanel({
               );
             })}
           </div>
+          <div className="mt-3 border-t border-[var(--design-editor-panel-divider-color)] px-3 pt-4">
+            <div className="h-16 text-[12px] font-medium text-foreground/85">
+              {labels.thumbnail}
+            </div>
+          </div>
         </div>
       ) : null}
 
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-2.5">
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--design-editor-panel-divider-color)] px-3">
         <div className="min-w-0">
-          <h2 className="truncate text-[11px] font-semibold text-foreground">
+          <h2 className="truncate text-[12px] font-semibold text-foreground">
             {labels.title}
           </h2>
           {selectedCount > 1 ? (
@@ -646,25 +625,40 @@ export function LayersPanel({
             </p>
           ) : null}
         </div>
-        <IconStack2 className="size-3.5 shrink-0 text-muted-foreground" />
-      </div>
-
-      <div className="shrink-0 border-b border-border p-1.5">
-        <div className="relative">
-          <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            ref={searchInputRef}
-            value={searchQuery}
-            onChange={(event) => onSearchQueryChange(event.target.value)}
-            placeholder={labels.searchPlaceholder}
-            className="h-7 rounded-sm border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-6 text-[11px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-          />
+        <div className="flex items-center gap-0.5 text-muted-foreground">
+          <button
+            type="button"
+            className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
+            aria-label={labels.title}
+          >
+            <LayerOptionsGlyph className="size-4" />
+          </button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-1">
+      {shouldShowSearch ? (
+        <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] p-2">
+          <div className="relative">
+            <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(event) => onSearchQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && !searchQuery.trim()) {
+                  setSearchOpen(false);
+                }
+              }}
+              placeholder={labels.searchPlaceholder}
+              className="h-7 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-7 text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="min-h-0 flex-1 overflow-y-auto py-2">
         {visibleRows.length ? (
-          <div className="px-1" role="tree" aria-label={labels.title}>
+          <div className="px-2" role="tree" aria-label={labels.title}>
             {visibleRows.map((row) => (
               <LayerRow
                 key={row.rowKey}
@@ -672,6 +666,9 @@ export function LayersPanel({
                 labels={labels}
                 isExpanded={expandedIdSet.has(row.node.id)}
                 isSelected={selectedIdSet.has(row.node.id)}
+                isInSelectedSubtree={row.ancestorIds.some((id) =>
+                  selectedIdSet.has(id),
+                )}
                 isActiveScreen={
                   row.node.id === activeScreenId &&
                   (row.node.type === "file" ||
@@ -717,6 +714,7 @@ function LayerRow({
   labels,
   isExpanded,
   isSelected,
+  isInSelectedSubtree,
   isActiveScreen,
   isRenaming,
   rowRef,
@@ -740,6 +738,7 @@ function LayerRow({
   labels: LayersPanelLabels;
   isExpanded: boolean;
   isSelected: boolean;
+  isInSelectedSubtree: boolean;
   isActiveScreen: boolean;
   isRenaming: boolean;
   rowRef: (element: HTMLDivElement | null) => void;
@@ -767,7 +766,6 @@ function LayerRow({
   selectedIds: readonly string[];
 }) {
   const { node, depth, hasChildren } = row;
-  const Icon = layerTypeIcon(node.type);
   const selectable = node.selectable !== false;
   const lockable = node.lockable !== false && Boolean(onToggleLocked);
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
@@ -908,29 +906,26 @@ function LayerRow({
       {activeDrop === "after" ? (
         <span className="pointer-events-none absolute bottom-0 left-2 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]" />
       ) : null}
-      {Array.from({ length: depth }).map((_, index) => (
-        <span
-          key={index}
-          className="pointer-events-none absolute bottom-0 top-0 w-px bg-border/70"
-          style={{ left: 15 + index * 12 }}
-        />
-      ))}
       <div
         className={cn(
-          "group flex h-6 items-center gap-0.5 rounded-sm pr-0.5 text-[11px]",
+          "group flex h-8 items-center gap-1 rounded-[5px] pr-1 text-[12px]",
           activeDrop === "inside" &&
             "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
           isSelected &&
-            !isActiveScreen &&
             "bg-[var(--design-editor-selection-color)] text-foreground",
-          isActiveScreen &&
+          !isSelected &&
+            isInSelectedSubtree &&
+            "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95",
+          !isSelected &&
+            isActiveScreen &&
             "bg-[var(--design-editor-active-row-color)] text-foreground hover:bg-[var(--design-editor-active-row-color)]",
           !isSelected &&
+            !isInSelectedSubtree &&
             !isActiveScreen &&
-            "text-foreground/90 hover:bg-accent/70 hover:text-foreground",
+            "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
           node.hidden && "text-muted-foreground",
         )}
-        style={{ paddingLeft: 2 + depth * 12 }}
+        style={{ paddingLeft: 4 + depth * 28 }}
       >
         {hasChildren ? (
           <Button
@@ -945,9 +940,9 @@ function LayerRow({
             }}
           >
             {isExpanded ? (
-              <IconChevronDown className="size-3" />
+              <IconChevronDown className="size-4" />
             ) : (
-              <IconChevronRight className="size-3 rtl:-scale-x-100" />
+              <IconChevronRight className="size-4 rtl:-scale-x-100" />
             )}
           </Button>
         ) : (
@@ -958,7 +953,7 @@ function LayerRow({
           type="button"
           disabled={!selectable}
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-sm px-1 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+            "flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-sm px-0.5 py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
             selectable ? "cursor-default" : "cursor-default opacity-80",
           )}
           onClick={handlePointerSelect}
@@ -969,10 +964,16 @@ function LayerRow({
           <span
             className={cn(
               "shrink-0 text-muted-foreground",
-              isSelected && "text-[var(--design-editor-accent-strong-color)]",
+              (isSelected || isInSelectedSubtree) && "text-foreground",
             )}
           >
-            {node.icon ?? <Icon className="size-3.5" />}
+            {node.icon ?? (
+              <LayerGlyph
+                node={node}
+                selected={isSelected}
+                inSelectedSubtree={isInSelectedSubtree}
+              />
+            )}
           </span>
           {isRenaming ? (
             <input
@@ -990,24 +991,19 @@ function LayerRow({
                   onCancelRename();
                 }
               }}
-              className="h-5 min-w-0 flex-1 rounded-sm border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
+              className="h-6 min-w-0 flex-1 rounded-[4px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1.5 text-[12px] text-foreground outline-none"
               aria-label={labels.rename}
             />
           ) : (
             <span
               className={cn(
-                "min-w-0 flex-1 truncate",
+                "min-w-0 flex-1 truncate font-medium leading-none",
                 node.hidden && "line-through",
               )}
             >
               {node.name}
             </span>
           )}
-          {!isRenaming && node.detail ? (
-            <span className="hidden max-w-[72px] shrink truncate text-[10px] text-muted-foreground group-hover:inline">
-              {node.detail}
-            </span>
-          ) : null}
           {!isRenaming && node.badge !== null && node.badge !== undefined ? (
             <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
               {node.badge}
@@ -1023,8 +1019,9 @@ function LayerRow({
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  "size-4 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                  "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
                   node.locked && "opacity-100",
+                  isSelected && "text-foreground",
                 )}
                 aria-label={node.locked ? labels.unlock : labels.lock}
                 onClick={(event) => {
@@ -1053,8 +1050,9 @@ function LayerRow({
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  "size-4 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                  "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
                   node.hidden && "opacity-100",
+                  isSelected && "text-foreground",
                 )}
                 aria-label={node.hidden ? labels.show : labels.hide}
                 onClick={(event) => {
@@ -1098,7 +1096,7 @@ function IconTooltipButton({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-6 rounded-sm p-0 hover:bg-accent hover:text-foreground"
+            className="size-6 rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
             aria-label={label}
             disabled={disabled}
             onClick={onClick}
@@ -1109,6 +1107,266 @@ function IconTooltipButton({
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function LayerGlyph({
+  node,
+  selected,
+  inSelectedSubtree,
+}: {
+  node: Pick<LayersPanelNode, "type" | "layout">;
+  selected?: boolean;
+  inSelectedSubtree?: boolean;
+}) {
+  const common = "size-4";
+  const componentColor =
+    selected || inSelectedSubtree
+      ? "text-foreground"
+      : "text-[var(--design-editor-accent-color)]";
+  switch (node.type) {
+    case "file":
+    case "screen":
+      return <PageLayerGlyph className={common} />;
+    case "frame":
+      return <LayoutLayerGlyph node={node} className={common} />;
+    case "group":
+    case "section":
+      return <GroupLayerGlyph className={common} />;
+    case "component":
+    case "instance":
+      return <ComponentLayerGlyph className={cn(common, componentColor)} />;
+    case "shape":
+    case "rectangle":
+      return <RectangleLayerGlyph className={common} />;
+    case "text":
+      return <TextLayerGlyph className={common} />;
+    case "image":
+      return <ImageLayerGlyph className={common} />;
+    case "code":
+    case "element":
+      return node.layout?.isFlexContainer || node.layout?.isGridContainer ? (
+        <LayoutLayerGlyph node={node} className={common} />
+      ) : (
+        <ElementLayerGlyph className={common} />
+      );
+    default:
+      return <FrameLayerGlyph className={common} />;
+  }
+}
+
+function LayerOptionsGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3 4h6" />
+      <path d="M3 8h8" />
+      <path d="M3 12h5" />
+      <path d="M12.5 4.5l1 1 1-1" />
+      <path d="M12.5 11.5l1-1 1 1" />
+    </svg>
+  );
+}
+
+function PageLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4.5 2.5h5.1l2 2V13a.8.8 0 0 1-.8.8H4.5a.8.8 0 0 1-.8-.8V3.3a.8.8 0 0 1 .8-.8Z" />
+      <path d="M9.6 2.6v2.1h2.1" />
+    </svg>
+  );
+}
+
+function FrameLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3.5 4.5h9" />
+      <path d="M3.5 11.5h9" />
+      <path d="M5.5 6.5h5" />
+      <path d="M5.5 9.5h5" />
+    </svg>
+  );
+}
+
+function LayoutLayerGlyph({
+  node,
+  className,
+}: {
+  node: Pick<LayersPanelNode, "layout">;
+  className?: string;
+}) {
+  if (node.layout?.isGridContainer) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        className={className}
+        aria-hidden="true"
+      >
+        <rect x="3" y="3" width="3.2" height="3.2" rx=".5" />
+        <rect x="9.8" y="3" width="3.2" height="3.2" rx=".5" />
+        <rect x="3" y="9.8" width="3.2" height="3.2" rx=".5" />
+        <rect x="9.8" y="9.8" width="3.2" height="3.2" rx=".5" />
+      </svg>
+    );
+  }
+  if (node.layout?.flexDirection?.startsWith("row")) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        aria-hidden="true"
+      >
+        <path d="M5 3.5v9" />
+        <path d="M11 3.5v9" />
+        <path d="M3.3 5.5h3.4" />
+        <path d="M9.3 5.5h3.4" />
+        <path d="M3.3 10.5h3.4" />
+        <path d="M9.3 10.5h3.4" />
+      </svg>
+    );
+  }
+  return <FrameLayerGlyph className={className} />;
+}
+
+function GroupLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="3" r="1.25" />
+      <circle cx="4" cy="12" r="1.25" />
+      <circle cx="12" cy="12" r="1.25" />
+      <path d="M7.4 4.1 4.8 10.8" />
+      <path d="m8.6 4.1 2.6 6.7" />
+      <path d="M5.4 12h5.2" />
+    </svg>
+  );
+}
+
+function ComponentLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="m8 2.6 5.4 5.4L8 13.4 2.6 8 8 2.6Z" />
+    </svg>
+  );
+}
+
+function RectangleLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3.2" y="4" width="9.6" height="8" rx="1" />
+    </svg>
+  );
+}
+
+function TextLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M2.8 13 7.7 2.8 12.6 13" />
+      <path d="M5 8.8h5.4" />
+    </svg>
+  );
+}
+
+function ImageLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="10" height="10" rx="1.2" />
+      <circle cx="6" cy="6" r="1" />
+      <path d="m4.2 12 3.2-3.3 1.8 1.8 1.3-1.4 1.3 1.4" />
+    </svg>
+  );
+}
+
+function ElementLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="m6.4 4.2-3.2 3.8 3.2 3.8" />
+      <path d="m9.6 4.2 3.2 3.8-3.2 3.8" />
+    </svg>
   );
 }
 

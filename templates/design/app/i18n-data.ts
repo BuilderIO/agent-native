@@ -250,6 +250,7 @@ const enUS = {
     notFound: "Design not found",
     backToDesigns: "Back to designs",
     clickToRename: "Click to rename",
+    collaborators: "Collaborators",
     modes: {
       annotate: "Annotate",
       comment: "Comment",
@@ -405,6 +406,7 @@ const enUS = {
   layersPanel: {
     title: "Layers",
     screens: "Screens",
+    thumbnail: "Thumbnail",
     addScreen: "Add screen",
     searchPlaceholder: "Search layers...",
     empty: "No layers",
@@ -5554,6 +5556,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "返回设计",
       clickToRename: "点击重命名",
+      collaborators: "协作者",
       copyCodingHandoff: "复制编码交接",
       currentScreen: "当前屏幕",
       designExport: "Design 导出",
@@ -5626,6 +5629,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "Volver a diseños",
       clickToRename: "Haz clic para cambiar el nombre",
+      collaborators: "Colaboradores",
       copyCodingHandoff: "Copiar entrega para código",
       currentScreen: "Pantalla actual",
       designExport: "Exportación de Design",
@@ -5700,6 +5704,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "Retour aux designs",
       clickToRename: "Cliquer pour renommer",
+      collaborators: "Collaborateurs",
       copyCodingHandoff: "Copier le transfert de code",
       currentScreen: "Écran actuel",
       designExport: "Export Design",
@@ -5775,6 +5780,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "Zurück zu Designs",
       clickToRename: "Zum Umbenennen klicken",
+      collaborators: "Mitwirkende",
       copyCodingHandoff: "Code-Übergabe kopieren",
       currentScreen: "Aktueller Bildschirm",
       designExport: "Design-Export",
@@ -5850,6 +5856,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "デザインに戻る",
       clickToRename: "クリックして名前を変更",
+      collaborators: "共同編集者",
       copyCodingHandoff: "コーディング引き継ぎをコピー",
       currentScreen: "現在の画面",
       designExport: "Design エクスポート",
@@ -5925,6 +5932,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "디자인으로 돌아가기",
       clickToRename: "클릭하여 이름 바꾸기",
+      collaborators: "공동 작업자",
       copyCodingHandoff: "코딩 인계 복사",
       currentScreen: "현재 화면",
       designExport: "Design 내보내기",
@@ -5999,6 +6007,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "Voltar aos designs",
       clickToRename: "Clique para renomear",
+      collaborators: "Colaboradores",
       copyCodingHandoff: "Copiar handoff de código",
       currentScreen: "Tela atual",
       designExport: "Exportação de Design",
@@ -6073,6 +6082,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "डिज़ाइन पर वापस जाएँ",
       clickToRename: "नाम बदलने के लिए क्लिक करें",
+      collaborators: "सहयोगी",
       copyCodingHandoff: "कोडिंग हैंडऑफ़ कॉपी करें",
       currentScreen: "वर्तमान स्क्रीन",
       designExport: "Design निर्यात",
@@ -6146,6 +6156,7 @@ const designExactEnglishOverrides = {
     designEditor: {
       backToDesigns: "العودة إلى التصاميم",
       clickToRename: "انقر لإعادة التسمية",
+      collaborators: "المتعاونون",
       copyCodingHandoff: "نسخ تسليم الترميز",
       currentScreen: "الشاشة الحالية",
       designExport: "تصدير Design",
@@ -8006,6 +8017,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "圖層",
       screens: "畫面",
+      thumbnail: "縮圖",
       addScreen: "新增畫面",
       searchPlaceholder: "搜尋圖層...",
       empty: "沒有圖層",
@@ -8063,6 +8075,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "图层",
       screens: "屏幕",
+      thumbnail: "缩略图",
       addScreen: "添加屏幕",
       searchPlaceholder: "搜索图层...",
       empty: "没有图层",
@@ -8120,6 +8133,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Capas",
       screens: "Pantallas",
+      thumbnail: "Miniatura",
       addScreen: "Añadir pantalla",
       searchPlaceholder: "Buscar capas...",
       empty: "Sin capas",
@@ -8177,6 +8191,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Calques",
       screens: "Écrans",
+      thumbnail: "Miniature",
       addScreen: "Ajouter un écran",
       searchPlaceholder: "Rechercher des calques...",
       empty: "Aucun calque",
@@ -8235,6 +8250,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Ebenen",
       screens: "Screens",
+      thumbnail: "Miniaturansicht",
       addScreen: "Screen hinzufügen",
       searchPlaceholder: "Ebenen suchen...",
       empty: "Keine Ebenen",
@@ -8292,6 +8308,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "レイヤー",
       screens: "画面",
+      thumbnail: "サムネイル",
       addScreen: "画面を追加",
       searchPlaceholder: "レイヤーを検索...",
       empty: "レイヤーがありません",
@@ -8349,6 +8366,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "레이어",
       screens: "화면",
+      thumbnail: "썸네일",
       addScreen: "화면 추가",
       searchPlaceholder: "레이어 검색...",
       empty: "레이어 없음",
@@ -8406,6 +8424,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Camadas",
       screens: "Telas",
+      thumbnail: "Miniatura",
       addScreen: "Adicionar tela",
       searchPlaceholder: "Buscar camadas...",
       empty: "Nenhuma camada",
@@ -8463,6 +8482,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "परतें",
       screens: "स्क्रीन",
+      thumbnail: "थंबनेल",
       addScreen: "स्क्रीन जोड़ें",
       searchPlaceholder: "परतें खोजें...",
       empty: "कोई परत नहीं",
@@ -8520,6 +8540,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "الطبقات",
       screens: "الشاشات",
+      thumbnail: "الصورة المصغرة",
       addScreen: "إضافة شاشة",
       searchPlaceholder: "البحث في الطبقات...",
       empty: "لا توجد طبقات",

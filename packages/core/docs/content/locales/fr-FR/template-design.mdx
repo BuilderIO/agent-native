@@ -361,6 +361,20 @@ prototype et modifier les couches DOM/code dans un fichier rendu. Le panneau des
 couches reflète cette séparation : les écrans sont des cadres de niveau
 supérieur, avec les couches DOM/code imbriquées pour l'écran actif.
 
+Installez `/visual-edit` lorsqu'un agent de code doit ouvrir une app locale en
+cours d'exécution dans Design au lieu de générer du HTML de prototype autonome :
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Une fois le serveur dev de l'app cible lancé, `/visual-edit` utilise
+`npx @agent-native/core@latest design connect` avec `add-localhost-screens` pour
+placer chaque chemin ou URL demandé comme son propre écran iframe adossé à une
+URL. Les flows numérotés comme `localhost:1234/onboarding/1`,
+`/onboarding/2` et `/onboarding/3` restent des écrans séparés et ordonnés en
+mode overview.
+
 Pour des noms de couche stables, ajoutez `data-agent-native-layer-name` aux
 éléments importants. Design l'utilise avant les replis sémantiques/textuels et
 peut persister les renommages en modifiant cet attribut. Le HTML inline prend en

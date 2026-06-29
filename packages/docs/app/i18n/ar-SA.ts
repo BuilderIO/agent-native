@@ -1137,6 +1137,15 @@ const arSA = {
       feature2: "يمكنه اختياريا نشر تعليق PR مثبت",
       videoAriaLabel: "فيديو توضيحي لمهارة Visual Recap",
     },
+    visualEdit: {
+      name: "تحرير مرئي",
+      tagline: "حرر تدفقات UI المحلية",
+      description:
+        "يفتح تطبيق localhost يعمل داخل Design كشاشات مرتبطة بعناوين URL للمراجعة والتحرير المرئي.",
+      feature1: "رتب تدفقات متعددة الشاشات من عناوين URL مرتبة",
+      feature2: "افحص حالات المسارات الحية وكررها وحسنها",
+      videoAriaLabel: "فيديو توضيحي لمهارة Visual Edit",
+    },
   },
   downloadPage: {
     title: "تنزيل Agent Native",

@@ -550,7 +550,11 @@ const PAINT_TYPES: Array<{
   { type: "none", label: "None", Icon: IconNoneFill }, // i18n-ignore paint type label
 ];
 
-const GRADIENT_TYPES: ReadonlySet<FigmaPaintType> = new Set([
+// Alias used internally before the exported constant is defined below.
+// Both point at the same member set — keep reads using this name so the
+// component body compiles even though the exported constant is declared
+// at the bottom of the file (hoisting doesn't apply to const).
+const GRADIENT_TYPES = new Set<FigmaPaintType>([
   "linear",
   "radial",
   "angular",
@@ -1721,7 +1725,7 @@ function ScrubbyNumberInput({
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
-function inferPaintType(value: string, opacity: number): FigmaPaintType {
+export function inferPaintType(value: string, opacity: number): FigmaPaintType {
   const lower = value.trim().toLowerCase();
   if (lower.includes("gradient(")) {
     if (lower.startsWith("radial-gradient")) return "radial";
@@ -1734,6 +1738,51 @@ function inferPaintType(value: string, opacity: number): FigmaPaintType {
     return "none";
   }
   return "solid";
+}
+
+/** The set of paint types that render a gradient editor. */
+export const GRADIENT_PAINT_TYPES: ReadonlySet<FigmaPaintType> = new Set([
+  "linear",
+  "radial",
+  "angular",
+  "diamond",
+]);
+
+/**
+ * Pure helper: resolves the effective paint type and which editor panel should
+ * be visible given the three-level precedence:
+ *
+ *   localPaintType (user's explicit click this session)
+ *   ?? paintType prop (EditPanel-driven structural type)
+ *   ?? inferred from the CSS value string
+ *
+ * The shader panel is a view-level switch (not just a paint-type), so
+ * `showShaderPanel` is derived directly from the effective type.
+ *
+ * @param paintType       The `paintType` prop from the parent (or undefined).
+ * @param localPaintType  The user's explicit in-session selection (or null).
+ * @param value           The current CSS fill value string.
+ * @param opacity         The current opacity (0–100).
+ */
+export function resolveActivePaint(
+  paintType: FigmaPaintType | undefined,
+  localPaintType: FigmaPaintType | null,
+  value: string,
+  opacity: number,
+): {
+  effectivePaintType: FigmaPaintType;
+  showGradientEditor: boolean;
+  showImageControls: boolean;
+  showShaderPanel: boolean;
+} {
+  const effectivePaintType: FigmaPaintType =
+    localPaintType ?? paintType ?? inferPaintType(value, opacity);
+  return {
+    effectivePaintType,
+    showGradientEditor: GRADIENT_PAINT_TYPES.has(effectivePaintType),
+    showImageControls: effectivePaintType === "image",
+    showShaderPanel: effectivePaintType === "shader",
+  };
 }
 
 function toCssColor(color: RgbaColor): string {

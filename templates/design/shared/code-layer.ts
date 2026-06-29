@@ -243,6 +243,10 @@ export interface CodeLayerTreeNode {
   tag: string;
   selector: string;
   detail: string;
+  layout?: Pick<
+    LayoutContext,
+    "display" | "flexDirection" | "isFlexContainer" | "isGridContainer"
+  >;
   badge?: string;
   renamable: boolean;
   children: CodeLayerTreeNode[];
@@ -543,6 +547,8 @@ const NON_VISUAL_TAGS = new Set([
   "template",
   "noscript",
 ]);
+
+const RAW_TEXT_VISUAL_TAGS = new Set(["textarea"]);
 
 const DATA_SELECTOR_PRIORITY = [
   "data-agent-native-node-id",
@@ -967,6 +973,21 @@ function findHtmlTagEnd(html: string, start: number): number {
   return html.length;
 }
 
+function findClosingTag(
+  html: string,
+  tag: string,
+  from: number,
+): { closeStart: number; closeEnd: number } | null {
+  const closeRe = new RegExp(`<\\/\\s*${tag}\\s*>`, "gi");
+  closeRe.lastIndex = from;
+  const match = closeRe.exec(html);
+  if (!match) return null;
+  return {
+    closeStart: match.index,
+    closeEnd: match.index + match[0].length,
+  };
+}
+
 function parseHtmlElements(html: string): ParsedElement[] {
   const elements: ParsedElement[] = [];
   const stack: number[] = [];
@@ -1003,15 +1024,36 @@ function parseHtmlElements(html: string): ParsedElement[] {
     const nthOfType = (sameTypeCounts.get(parentKey) ?? 0) + 1;
     sameTypeCounts.set(parentKey, nthOfType);
     const selfClosing = raw.endsWith("/>") || VOID_TAGS.has(tag);
+
+    if (NON_VISUAL_TAGS.has(tag)) {
+      if (!selfClosing) {
+        const close = findClosingTag(html, tag, match.index + raw.length);
+        tagRe.lastIndex = close ? close.closeEnd : html.length;
+      }
+      continue;
+    }
+
     const index = elements.length;
+    const rawTextClose =
+      !selfClosing && RAW_TEXT_VISUAL_TAGS.has(tag)
+        ? findClosingTag(html, tag, match.index + raw.length)
+        : null;
     const element: ParsedElement = {
       index,
       tag,
       start: match.index,
       openEnd: match.index + raw.length,
-      end: selfClosing ? match.index + raw.length : html.length,
+      end: rawTextClose
+        ? rawTextClose.closeEnd
+        : selfClosing
+          ? match.index + raw.length
+          : html.length,
       contentStart: match.index + raw.length,
-      contentEnd: selfClosing ? match.index + raw.length : html.length,
+      contentEnd: rawTextClose
+        ? rawTextClose.closeStart
+        : selfClosing
+          ? match.index + raw.length
+          : html.length,
       selfClosing,
       attributes: parseAttributes(raw, match.index),
       parentIndex,
@@ -1025,6 +1067,12 @@ function parseHtmlElements(html: string): ParsedElement[] {
     elements.push(element);
     if (parentIndex !== undefined) {
       elements[parentIndex]?.childIndexes.push(index);
+    }
+    if (rawTextClose) {
+      element.closeStart = rawTextClose.closeStart;
+      element.closeEnd = rawTextClose.closeEnd;
+      tagRe.lastIndex = rawTextClose.closeEnd;
+      continue;
     }
     if (!selfClosing) stack.push(index);
   }
@@ -1620,6 +1668,12 @@ export function buildCodeLayerTree(
       tag: node.tag,
       selector: node.selector,
       detail: `<${node.tag}>`,
+      layout: {
+        display: node.layout.display,
+        flexDirection: node.layout.flexDirection,
+        isFlexContainer: node.layout.isFlexContainer,
+        isGridContainer: node.layout.isGridContainer,
+      },
       badge:
         node.layerNameSource === "attribute" && node.layerNameAttribute
           ? node.layerNameAttribute

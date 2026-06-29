@@ -1131,6 +1131,15 @@ const zhCN = {
       feature2: "可选择发布一条固定的 PR 评论",
       videoAriaLabel: "Visual Recap 技能演示视频",
     },
+    visualEdit: {
+      name: "可视化编辑",
+      tagline: "编辑本地 UI 流程",
+      description:
+        "把正在运行的 localhost 应用作为 URL 支撑的屏幕打开到 Design 中，用于可视化审阅和编辑。",
+      feature1: "从有序 URL 布局多屏流程",
+      feature2: "检查、复制并优化实时路由状态",
+      videoAriaLabel: "Visual Edit 技能演示视频",
+    },
   },
   downloadPage: {
     title: "下载 Agent Native",

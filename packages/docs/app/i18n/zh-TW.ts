@@ -1129,6 +1129,15 @@ const messages = {
       feature2: "可選取發布一條固定的 PR 評論",
       videoAriaLabel: "Visual Recap 技能示範影片",
     },
+    visualEdit: {
+      name: "視覺化編輯",
+      tagline: "編輯本機 UI 流程",
+      description:
+        "把正在執行的 localhost 應用作為 URL 支援的畫面開到 Design 中，用於視覺化審閱和編輯。",
+      feature1: "從有序 URL 佈局多畫面流程",
+      feature2: "檢查、複製並調整即時路由狀態",
+      videoAriaLabel: "Visual Edit 技能示範影片",
+    },
   },
   downloadPage: {
     title: "下載 Agent Native",

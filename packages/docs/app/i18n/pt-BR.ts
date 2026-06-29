@@ -1141,6 +1141,15 @@ const ptBR = {
       feature2: "Opcionalmente publica um comentario fixo no PR",
       videoAriaLabel: "Video de demonstracao da skill Visual Recap",
     },
+    visualEdit: {
+      name: "Edicao visual",
+      tagline: "Edite fluxos UI locais",
+      description:
+        "Abre um app localhost em execucao no Design como telas baseadas em URL para revisao e edicao visual.",
+      feature1: "Organize fluxos de varias telas a partir de URLs ordenadas",
+      feature2: "Inspecione, duplique e refine estados de rotas ao vivo",
+      videoAriaLabel: "Video de demonstracao da skill Visual Edit",
+    },
   },
   downloadPage: {
     title: "Baixar Agent Native",

@@ -5,6 +5,7 @@ import {
   useCollaborativeDoc,
   isReconcileLeadClient,
   generateTabId,
+  dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
   PresenceBar,
@@ -22,6 +23,7 @@ import {
   useT,
   useChangeVersion,
   useAgentChatContext,
+  useAvatarUrl,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
@@ -72,9 +74,11 @@ import {
   IconVectorBezier,
   IconScale,
   IconScribble,
-  IconDiamonds,
+  IconHandClick,
+  IconTransformPoint,
   IconDownload,
   IconFileExport,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -121,11 +125,13 @@ import { VariantGrid } from "@/components/design/VariantGrid";
 import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -985,6 +991,7 @@ function codeLayerTreeToPanelNodes(
       id: node.id,
       name: node.name,
       type: layerTypeForCodeLayer(node),
+      layout: node.layout,
       detail: node.detail,
       badge: node.badge,
       selectable: !locked && !hidden,
@@ -1110,6 +1117,147 @@ function AgentNativeMenuMark({ className }: { className?: string }) {
       />
     </svg>
   );
+}
+
+interface DesignCollaborator {
+  user: CollabUser;
+  image?: string;
+  isCurrent?: boolean;
+}
+
+function userInitial(nameOrEmail: string): string {
+  const trimmed = nameOrEmail.trim();
+  if (!trimmed) return "?";
+  return trimmed.charAt(0).toUpperCase();
+}
+
+function userColor(user: CollabUser): string {
+  return user.color || emailToColor(user.email);
+}
+
+function DesignCollaboratorAvatar({
+  collaborator,
+  className,
+}: {
+  collaborator: DesignCollaborator;
+  className?: string;
+}) {
+  const label = collaborator.user.name || emailToName(collaborator.user.email);
+  const storedAvatarUrl = useAvatarUrl(collaborator.user.email);
+  const avatarUrl = storedAvatarUrl ?? collaborator.image;
+
+  return (
+    <Avatar
+      className={cn(
+        "size-7 border-2 border-[var(--design-editor-panel-bg)] shadow-sm",
+        className,
+      )}
+    >
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={label} /> : null}
+      <AvatarFallback
+        className="text-[10px] font-semibold text-white"
+        style={{ backgroundColor: userColor(collaborator.user) }}
+      >
+        {userInitial(label || collaborator.user.email)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+function DesignCollaboratorsMenu({
+  collaborators,
+  followingEmail,
+  label,
+  onAvatarClick,
+}: {
+  collaborators: DesignCollaborator[];
+  followingEmail?: string | null;
+  label: string;
+  onAvatarClick?: (user: CollabUser | null) => void;
+}) {
+  if (collaborators.length === 0) return null;
+
+  const visibleCollaborators = collaborators.slice(0, 3);
+  const hasMultipleCollaborators = collaborators.length > 1;
+  const followingLower = followingEmail?.trim().toLowerCase() ?? null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex h-8 min-w-0 cursor-pointer items-center rounded-md pr-1 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          aria-label={label}
+        >
+          <span className="flex items-center">
+            {visibleCollaborators.map((collaborator, index) => (
+              <DesignCollaboratorAvatar
+                key={`${collaborator.user.email}:${index}`}
+                collaborator={collaborator}
+                className={index === 0 ? undefined : "-ml-2"}
+              />
+            ))}
+          </span>
+          {hasMultipleCollaborators ? (
+            <IconChevronDown className="ml-0.5 size-3 opacity-70" />
+          ) : null}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {label}
+        </DropdownMenuLabel>
+        {collaborators.map((collaborator) => {
+          const user = collaborator.user;
+          const email = user.email.trim().toLowerCase();
+          const isFollowing =
+            followingLower != null && email === followingLower;
+          const name = user.name || emailToName(user.email);
+
+          return (
+            <DropdownMenuItem
+              key={user.email}
+              onSelect={() => {
+                if (!collaborator.isCurrent) onAvatarClick?.(user);
+              }}
+              className="gap-2"
+            >
+              <DesignCollaboratorAvatar collaborator={collaborator} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {name}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {user.email}
+                </span>
+              </span>
+              {isFollowing ? (
+                <IconCheck className="size-3.5 text-[var(--design-editor-accent-color)]" />
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function externalPreviewUrlForContent(content: string): string | null {
+  const trimmed = content.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function fullPreviewHtml(content: string): string {
+  const trimmed = content.trim();
+  if (/<!doctype html|<html[\s>]/i.test(trimmed)) return content;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${content}</body></html>`;
 }
 
 type FigmaToolbarOption = {
@@ -1441,14 +1589,14 @@ function FigmaBottomToolbar({
       key: "edit",
       active: mode === "edit" && !overviewActive,
       label: t("designEditor.modes.edit"),
-      icon: <IconPointer className="size-[18px]" />,
+      icon: <IconTransformPoint className="size-[18px]" />,
       onClick: () => onModeChange("edit"),
     },
     {
       key: "interact",
       active: mode === "interact" && !overviewActive,
       label: t("designEditor.modes.interact"),
-      icon: <IconDiamonds className="size-[18px]" />,
+      icon: <IconHandClick className="size-[18px]" />,
       onClick: () => onModeChange("interact"),
     },
     {
@@ -2049,13 +2197,17 @@ export default function DesignEditor() {
   ]);
 
   // Current user info for collaborative presence
-  const currentUser: CollabUser | undefined = session?.email
-    ? {
-        name: emailToName(session.email),
-        email: session.email,
-        color: emailToColor(session.email),
-      }
-    : undefined;
+  const currentUser: CollabUser | undefined = useMemo(
+    () =>
+      session?.email
+        ? {
+            name: session.name?.trim() || emailToName(session.email),
+            email: session.email,
+            color: emailToColor(session.email),
+          }
+        : undefined,
+    [session?.email, session?.name],
+  );
 
   // Data fetching
   useEffect(() => {
@@ -3173,6 +3325,29 @@ export default function DesignEditor() {
     },
     [followingEmail, stopFollowing],
   );
+
+  const designCollaborators = useMemo<DesignCollaborator[]>(() => {
+    const currentEmail = currentUser?.email.trim().toLowerCase() ?? null;
+    const humans = dedupeCollabUsersByEmail([
+      ...(currentUser ? [currentUser] : []),
+      ...activeUsers,
+    ]).filter((user) => user.email.trim().toLowerCase() !== "agent@system");
+    const otherHumans = humans.filter(
+      (user) => user.email.trim().toLowerCase() !== currentEmail,
+    );
+    const collaborators = otherHumans.map((user) => ({ user }));
+
+    if (!currentUser) return collaborators;
+
+    return [
+      {
+        user: currentUser,
+        image: session?.image,
+        isCurrent: true,
+      },
+      ...collaborators,
+    ];
+  }, [activeUsers, currentUser, session?.image]);
 
   // Resolve the content to render: prefer collab content, fall back to DB
   const activeContent = collabContent ?? activeFile?.content ?? "";
@@ -5514,6 +5689,32 @@ ${serializedHtml}
     });
   }, [designDataJson, files]);
 
+  const activeScreenPreviewUrl = useMemo(() => {
+    if (builderPreviewUrl) return builderPreviewUrl;
+    const screen = overviewScreens.find((item) => item.id === activeFile?.id);
+    return (
+      screen?.url ||
+      screen?.previewUrl ||
+      externalPreviewUrlForContent(activeContent)
+    );
+  }, [activeContent, activeFile?.id, builderPreviewUrl, overviewScreens]);
+
+  const handleOpenDesignPreview = useCallback(() => {
+    if (activeScreenPreviewUrl) {
+      window.open(activeScreenPreviewUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const content = activeContent.trim();
+    if (!content) return;
+
+    const blobUrl = URL.createObjectURL(
+      new Blob([fullPreviewHtml(activeContent)], { type: "text/html" }),
+    );
+    window.open(blobUrl, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  }, [activeContent, activeScreenPreviewUrl]);
+
   const activeLayerId =
     selectedLayerIds[selectedLayerIds.length - 1] ??
     selectedElementLayerId ??
@@ -5808,15 +6009,59 @@ ${serializedHtml}
 
   const deviceFrameIcon =
     deviceFrame === "desktop" ? (
-      <IconDeviceDesktop className="w-3.5 h-3.5" />
+      <IconDeviceDesktop className="size-3" />
     ) : deviceFrame === "tablet" ? (
-      <IconDeviceTablet className="w-3.5 h-3.5" />
+      <IconDeviceTablet className="size-3" />
     ) : deviceFrame === "mobile" ? (
-      <IconDeviceMobile className="w-3.5 h-3.5" />
+      <IconDeviceMobile className="size-3" />
     ) : (
-      <IconViewportWide className="w-3.5 h-3.5" />
+      <IconViewportWide className="size-3" />
     );
   const questionFlowActive = pendingQuestionsVisible;
+
+  const deviceFrameControl = (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 gap-0.5 px-1.5 cursor-pointer text-muted-foreground hover:text-foreground"
+              disabled={viewMode === "overview"}
+            >
+              {deviceFrameIcon}
+              <IconChevronDown className="size-2.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("designEditor.devicePreview")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuRadioGroup
+          value={deviceFrame}
+          onValueChange={(v) => setDeviceFrame(v as DeviceFrameType)}
+        >
+          <DropdownMenuRadioItem value="none">
+            <IconViewportWide className="mr-2 h-4 w-4" />
+            {t("designEditor.devices.responsive")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="desktop">
+            <IconDeviceDesktop className="mr-2 h-4 w-4" />
+            {t("designEditor.devices.desktop")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="tablet">
+            <IconDeviceTablet className="mr-2 h-4 w-4" />
+            {t("designEditor.devices.tablet")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="mobile">
+            <IconDeviceMobile className="mr-2 h-4 w-4" />
+            {t("designEditor.devices.mobile")}
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   const projectMenu = (
     <DropdownMenu>
@@ -5966,7 +6211,7 @@ ${serializedHtml}
           setTitleEditing(false);
         }
       }}
-      className="h-7 min-w-0 flex-1 text-sm"
+      className="-mx-1 h-7 min-w-0 flex-1 border-transparent bg-[var(--design-editor-panel-raised-bg)] px-1 py-0 text-[13px] font-medium text-foreground shadow-none ring-offset-0 focus-visible:border-[var(--design-editor-control-border)] focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
     />
   ) : (
     <Tooltip>
@@ -5977,7 +6222,7 @@ ${serializedHtml}
             setTitleDraft(design.title);
             setTitleEditing(true);
           }}
-          className="-mx-1 min-w-0 flex-1 cursor-text truncate rounded px-1 text-left text-sm font-medium text-foreground/90 hover:bg-accent/50"
+          className="-mx-1 min-w-0 flex-1 cursor-text truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
         >
           {design.title}
         </button>
@@ -5986,111 +6231,84 @@ ${serializedHtml}
     </Tooltip>
   );
 
-  const rightSidebarActions = (
-    <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] p-2">
-      <div className="flex flex-wrap items-center justify-end gap-1">
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 px-2 cursor-pointer"
-                  disabled={viewMode === "overview"}
-                >
-                  {deviceFrameIcon}
-                  <IconChevronDown className="w-3 h-3 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t("designEditor.devicePreview")}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuRadioGroup
-              value={deviceFrame}
-              onValueChange={(v) => setDeviceFrame(v as DeviceFrameType)}
+  const zoomControl = (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-0.5 px-1 text-[10px] tabular-nums text-muted-foreground cursor-pointer hover:text-foreground"
             >
-              <DropdownMenuRadioItem value="none">
-                <IconViewportWide className="mr-2 h-4 w-4" />
-                {t("designEditor.devices.responsive")}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="desktop">
-                <IconDeviceDesktop className="mr-2 h-4 w-4" />
-                {t("designEditor.devices.desktop")}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="tablet">
-                <IconDeviceTablet className="mr-2 h-4 w-4" />
-                {t("designEditor.devices.tablet")}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="mobile">
-                <IconDeviceMobile className="mr-2 h-4 w-4" />
-                {t("designEditor.devices.mobile")}
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              {zoomLabel}
+              <IconChevronDown className="size-2.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("designEditor.zoom")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuItem onClick={handleZoomOut}>
+          <IconZoomOut className="mr-2 h-4 w-4" />
+          {t("designEditor.zoomOut")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleZoomIn}>
+          <IconZoomIn className="mr-2 h-4 w-4" />
+          {t("designEditor.zoomIn")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {ZOOM_PRESETS.map((preset) => (
+          <DropdownMenuItem
+            key={preset}
+            onClick={() => setZoom(preset)}
+            className="justify-between"
+          >
+            <span>{preset}%</span>
+            {Math.round(zoom) === preset && <IconCheck className="h-4 w-4" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
-        <DropdownMenu>
+  const rightSidebarActions = (
+    <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <DesignCollaboratorsMenu
+          collaborators={designCollaborators}
+          followingEmail={followingEmail}
+          label={t("designEditor.collaborators")}
+          onAvatarClick={handleAvatarClick}
+        />
+
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 px-2 text-xs tabular-nums text-muted-foreground cursor-pointer"
-                >
-                  {zoomLabel}
-                  <IconChevronDown className="w-3 h-3 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t("designEditor.zoom")}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem onClick={handleZoomOut}>
-              <IconZoomOut className="mr-2 h-4 w-4" />
-              {t("designEditor.zoomOut")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleZoomIn}>
-              <IconZoomIn className="mr-2 h-4 w-4" />
-              {t("designEditor.zoomIn")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {ZOOM_PRESETS.map((preset) => (
-              <DropdownMenuItem
-                key={preset}
-                onClick={() => setZoom(preset)}
-                className="justify-between"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 cursor-pointer rounded-md text-foreground hover:bg-accent hover:text-foreground"
+                onClick={handleOpenDesignPreview}
+                disabled={!activeScreenPreviewUrl && !activeContent.trim()}
+                aria-label={t("designEditor.designPreview")}
               >
-                <span>{preset}%</span>
-                {Math.round(zoom) === preset && (
-                  <IconCheck className="h-4 w-4" />
-                )}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                <IconPlayerPlay className="size-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("designEditor.designPreview")}</TooltipContent>
+          </Tooltip>
 
-        <div className="mx-1 h-5 w-px bg-border" />
+          <ShareButton
+            resourceType="design"
+            resourceId={id}
+            resourceTitle={design.title}
+            hideTriggerIcon
+            triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
+          />
 
-        <PresenceBar
-          activeUsers={activeUsers}
-          agentActive={agentActive}
-          currentUserEmail={session?.email}
-          onAvatarClick={handleAvatarClick}
-          followingEmail={followingEmail}
-        />
-
-        <ShareButton
-          resourceType="design"
-          resourceId={id}
-          resourceTitle={design.title}
-          hideTriggerIcon
-          triggerClassName="h-7 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-2 text-xs !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
-        />
-
-        <AgentToggleButton />
+          <AgentToggleButton />
+        </div>
       </div>
     </div>
   );
@@ -6304,7 +6522,9 @@ ${serializedHtml}
               >
                 <TabsList className="pointer-events-auto h-8">
                   <TabsTrigger value="edit" className="h-6 gap-1 px-2 text-xs">
-                    {mode === "edit" && <IconPencil className="h-3 w-3" />}
+                    {mode === "edit" && (
+                      <IconTransformPoint className="h-3 w-3" />
+                    )}
                     {t("designEditor.modes.edit")}
                   </TabsTrigger>
                   <TabsTrigger
@@ -6312,7 +6532,9 @@ ${serializedHtml}
                     className="h-6 gap-1 px-2 text-xs"
                     disabled={!activeFile || viewMode === "overview"}
                   >
-                    {mode === "interact" && <IconPointer className="h-3 w-3" />}
+                    {mode === "interact" && (
+                      <IconHandClick className="h-3 w-3" />
+                    )}
                     {t("designEditor.modes.interact")}
                   </TabsTrigger>
                   <TabsTrigger
@@ -6488,9 +6710,10 @@ ${serializedHtml}
             className="relative flex min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)]"
             style={{ width: leftSidebarWidth }}
           >
-            <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2">
+            <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-2">
               {projectMenu}
               {projectTitleControl}
+              {deviceFrameControl}
             </div>
             <div className="min-h-0 flex-1">
               <LayersPanel
@@ -6935,6 +7158,7 @@ ${serializedHtml}
                   selectedElement={selectedElement}
                   pageStyles={pageStyles}
                   zoom={zoom}
+                  headerTrailing={zoomControl}
                   width={rightSidebarWidth}
                   activeTab={activeInspectorTab}
                   onActiveTabChange={setActiveInspectorTab}

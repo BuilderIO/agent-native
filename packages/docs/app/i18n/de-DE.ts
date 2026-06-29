@@ -1141,6 +1141,15 @@ const deDE = {
       feature2: "Kann optional einen fixierten PR-Kommentar posten",
       videoAriaLabel: "Demo-Video zum Visual Recap Skill",
     },
+    visualEdit: {
+      name: "Visuelle Bearbeitung",
+      tagline: "Lokale UI-Flows bearbeiten",
+      description:
+        "Oeffnet eine laufende localhost-App in Design als URL-gestuetzte Screens fuer visuelle Pruefung und Bearbeitung.",
+      feature1: "Mehrere Flow-Screens aus geordneten URLs anlegen",
+      feature2: "Live-Routenzustaende pruefen, duplizieren und verfeinern",
+      videoAriaLabel: "Demo-Video zum Visual Edit Skill",
+    },
   },
   downloadPage: {
     title: "Agent Native herunterladen",

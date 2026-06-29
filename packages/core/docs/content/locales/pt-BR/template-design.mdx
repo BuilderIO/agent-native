@@ -361,6 +361,19 @@ protótipo e editar as camadas DOM/código dentro de um arquivo renderizado. O
 painel de camadas reflete essa divisão: telas são frames de nível superior, com
 camadas DOM/código aninhadas para a tela ativa.
 
+Instale `/visual-edit` quando um agente de código precisar abrir um app local em
+execução no Design em vez de gerar HTML de protótipo independente:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Depois que o dev server do app alvo estiver rodando, `/visual-edit` usa
+`npx @agent-native/core@latest design connect` junto com `add-localhost-screens`
+para posicionar cada path ou URL solicitado como sua própria tela iframe baseada
+em URL. Fluxos numerados como `localhost:1234/onboarding/1`, `/onboarding/2` e
+`/onboarding/3` permanecem como telas separadas e ordenadas no modo overview.
+
 Para nomes de camada estáveis, adicione `data-agent-native-layer-name` a
 elementos importantes. O Design usa isso antes de fallbacks semânticos/de texto
 e pode persistir renomeações editando esse atributo. HTML inline aceita edições

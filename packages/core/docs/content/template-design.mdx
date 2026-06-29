@@ -361,6 +361,19 @@ editing the DOM/code layers inside one rendered file. The layers panel reflects
 that split: screens are top-level frames, with nested DOM/code layers for the
 active screen.
 
+Install `/visual-edit` when a coding agent should open a running local app in
+Design instead of generating standalone prototype HTML:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+After the target app dev server is running, `/visual-edit` uses
+`npx @agent-native/core@latest design connect` plus `add-localhost-screens` to
+place each requested path or URL as its own URL-backed iframe screen. Numbered
+flows such as `localhost:1234/onboarding/1`, `/onboarding/2`, and
+`/onboarding/3` stay as separate ordered screens in overview mode.
+
 For stable layer names, add `data-agent-native-layer-name` to meaningful
 elements. Design uses it before semantic/text fallbacks and can persist layer
 renames by editing that attribute. Inline HTML supports local code-layer edits

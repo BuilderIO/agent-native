@@ -248,6 +248,57 @@ describe("applyVisualEdit", () => {
     expect(removed).toContain("<section");
   });
 
+  it("does not stamp HTML-looking strings inside script content", () => {
+    const script = "const tpl = `<div><span>ghost</span></div>`;";
+    const html = `<!doctype html><html><head><script>${script}</script></head><body><main><section>real</section></main></body></html>`;
+
+    const projection = buildCodeLayerProjection(html);
+    expect(projection.nodes.some((node) => node.textSnippet === "ghost")).toBe(
+      false,
+    );
+
+    const stamped = ensureCodeLayerNodeIdsInHtml(html);
+    const scriptMatch = stamped.content.match(/<script>([\s\S]*?)<\/script>/);
+    expect(scriptMatch?.[1]).toBe(script);
+    expect(stamped.content).toContain(`<section data-agent-native-node-id=`);
+  });
+
+  it("does not stamp HTML-looking text inside style content", () => {
+    const style = `.icon { background-image: url("data:image/svg+xml,<svg viewBox='0 0 1 1'><path d='M0 0h1v1H0z'/></svg>"); }`;
+    const html = `<!doctype html><html><head><style>${style}</style></head><body><main><section>real</section></main></body></html>`;
+
+    const projection = buildCodeLayerProjection(html);
+    expect(projection.nodes.some((node) => node.tag === "svg")).toBe(false);
+    expect(projection.nodes.some((node) => node.tag === "path")).toBe(false);
+
+    const stamped = ensureCodeLayerNodeIdsInHtml(html);
+    const styleMatch = stamped.content.match(/<style>([\s\S]*?)<\/style>/);
+    expect(styleMatch?.[1]).toBe(style);
+    expect(stamped.content).toContain(`<section data-agent-native-node-id=`);
+  });
+
+  it("preserves authored markup except injected node ids", () => {
+    const html = `<html><head><style>.x::after{content:"<button>"}</style></head><body class="page"><main data-label="1 > 0"><section x-data="{ open: true }"><button aria-label="Buy > now">Buy</button></section></main><script>const tpl = \`<div class="card">Hi</div>\`;</script><template><div class="ghost">Ghost</div></template></body></html>`;
+    const stamped = ensureCodeLayerNodeIdsInHtml(html);
+
+    const stripped = stamped.content.replace(
+      /\sdata-agent-native-node-id="[^"]*"/g,
+      "",
+    );
+
+    expect(stamped.changed).toBe(true);
+    expect(stripped).toBe(html);
+    expect(
+      stamped.content.match(/<style>[\s\S]*?<\/style>/)?.[0],
+    ).not.toContain("data-agent-native-node-id");
+    expect(
+      stamped.content.match(/<script>[\s\S]*?<\/script>/)?.[0],
+    ).not.toContain("data-agent-native-node-id");
+    expect(
+      stamped.content.match(/<template>[\s\S]*?<\/template>/)?.[0],
+    ).not.toContain("data-agent-native-node-id");
+  });
+
   it("repairs duplicate stable node ids and uses them before duplicate HTML ids", () => {
     const html = `<main><section id="card" data-agent-native-node-id="dup"><button id="cta" data-agent-native-node-id="dup">A</button></section><section id="card" data-agent-native-node-id="dup"><button id="cta" data-agent-native-node-id="dup">B</button></section></main>`;
     const stamped = ensureCodeLayerNodeIdsInHtml(html, {

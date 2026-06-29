@@ -67,14 +67,34 @@ function normalizeBaseUrl(value: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
-function routeUrl(baseUrl: string, route: { path?: string; url?: string }) {
+function withLocalhostProtocol(value: string): string {
+  const raw = value.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+  if (
+    /^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\]|::1)(?::\d+)?(?:[/?#]|$)/i.test(
+      raw,
+    ) ||
+    /^[a-z0-9.-]+:\d+(?:[/?#]|$)/i.test(raw)
+  ) {
+    return `http://${raw}`;
+  }
+  return raw;
+}
+
+export function routeUrl(
+  baseUrl: string,
+  route: { path?: string; url?: string },
+) {
   const raw = route.url ?? route.path ?? "/";
-  const parsed = new URL(raw, `${baseUrl}/`);
+  const parsed = new URL(withLocalhostProtocol(raw), `${baseUrl}/`);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Localhost screen URL must be an http(s) URL: ${raw}`);
+  }
   parsed.hash = "";
   return parsed.toString();
 }
 
-function pathFromUrl(baseUrl: string, url: string, fallback?: string) {
+export function pathFromUrl(baseUrl: string, url: string, fallback?: string) {
   try {
     const parsed = new URL(url);
     const base = new URL(baseUrl);
@@ -87,10 +107,11 @@ function pathFromUrl(baseUrl: string, url: string, fallback?: string) {
   return fallback ?? "/";
 }
 
-function slugForPath(pathOrUrl: string) {
+export function slugForPath(pathOrUrl: string) {
   const parsed = (() => {
     try {
-      return new URL(pathOrUrl).pathname + new URL(pathOrUrl).search;
+      const url = new URL(withLocalhostProtocol(pathOrUrl));
+      return url.pathname + url.search;
     } catch {
       return pathOrUrl;
     }

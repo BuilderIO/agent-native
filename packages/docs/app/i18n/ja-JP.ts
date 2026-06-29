@@ -1142,6 +1142,15 @@ const jaJP = {
       feature2: "必要に応じて固定 PR コメントを投稿",
       videoAriaLabel: "Visual Recap スキルのデモ動画",
     },
+    visualEdit: {
+      name: "ビジュアル編集",
+      tagline: "ローカル UI フローを編集",
+      description:
+        "実行中の localhost アプリを Design 内で URL ベースの画面として開き、視覚的にレビューおよび編集します。",
+      feature1: "順序付き URL から複数画面フローを配置",
+      feature2: "ライブのルート状態を確認、複製、調整",
+      videoAriaLabel: "Visual Edit スキルのデモ動画",
+    },
   },
   downloadPage: {
     title: "Agent Native をダウンロード",

@@ -361,6 +361,20 @@ comportamiento del prototipo y editar las capas DOM/código dentro de un archivo
 renderizado. El panel de capas refleja esa división: las pantallas son marcos de
 nivel superior, con capas DOM/código anidadas para la pantalla activa.
 
+Instala `/visual-edit` cuando un agente de código deba abrir una app local en
+ejecución dentro de Design en lugar de generar HTML de prototipo independiente:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Después de que el servidor dev de la app objetivo esté corriendo, `/visual-edit`
+usa `npx @agent-native/core@latest design connect` más `add-localhost-screens`
+para colocar cada ruta o URL solicitada como su propia pantalla iframe respaldada
+por URL. Los flujos numerados como `localhost:1234/onboarding/1`,
+`/onboarding/2` y `/onboarding/3` se mantienen como pantallas separadas y
+ordenadas en modo de vista general.
+
 Para nombres de capa estables, agrega `data-agent-native-layer-name` a los
 elementos importantes. Design lo usa antes de los respaldos semánticos/de texto
 y puede persistir cambios de nombre editando ese atributo. HTML inline admite

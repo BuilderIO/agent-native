@@ -360,6 +360,20 @@ rendered file के अंदर DOM/code layers edit करने के ल�
 model दिखाता है: screens top-level frames हैं, और active screen के नीचे nested
 DOM/code layers होते हैं।
 
+जब coding agent को standalone prototype HTML बनाने के बजाय running local app को
+Design में खोलना हो, तब `/visual-edit` install करें:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Target app dev server चलने के बाद, `/visual-edit`
+`npx @agent-native/core@latest design connect` और `add-localhost-screens` का
+उपयोग करके हर requested path या URL को अपने URL-backed iframe screen के रूप में
+place करता है। `localhost:1234/onboarding/1`, `/onboarding/2`, और
+`/onboarding/3` जैसे numbered flows overview mode में separate ordered screens
+रहते हैं।
+
 Stable layer names के लिए meaningful elements पर
 `data-agent-native-layer-name` जोड़ें। Design semantic/text fallbacks से पहले
 इसे उपयोग करता है और इसी attribute को edit करके layer renames persist कर सकता

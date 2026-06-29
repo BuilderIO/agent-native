@@ -99,6 +99,7 @@ interface EditPanelProps {
   selectedElement: ElementInfo | null;
   pageStyles?: Record<string, string>;
   zoom?: number;
+  headerTrailing?: ReactNode;
   width?: number;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
@@ -1445,39 +1446,42 @@ function SelectionHeader({ element }: { element: ElementInfo | null }) {
 function InspectorTabsHeader({
   activeTab,
   onActiveTabChange,
+  trailing,
 }: {
   activeTab: InspectorTab;
   onActiveTabChange: (tab: InspectorTab) => void;
+  trailing?: ReactNode;
 }) {
   const t = useT();
 
   return (
-    <div className="flex min-h-8 shrink-0 items-center justify-between border-b border-border/90 px-3">
+    <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2">
       <Tabs
         value={activeTab}
         onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
       >
-        <TabsList className="h-7 justify-start gap-1 rounded-none bg-transparent p-0">
+        <TabsList className="h-7 justify-start gap-0.5 rounded-none bg-transparent p-0">
           <TabsTrigger
             value="design"
-            className="h-6 rounded-md px-2.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {"Design" /* i18n-ignore Figma inspector tab */}
           </TabsTrigger>
           <TabsTrigger
             value="tweaks"
-            className="h-6 rounded-md px-2.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {t("designEditor.tweaks")}
           </TabsTrigger>
           <TabsTrigger
             value="extensions"
-            className="h-6 rounded-md px-2.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {t("designEditor.extensions")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
+      {trailing ? <div className="shrink-0">{trailing}</div> : null}
     </div>
   );
 }
@@ -3702,6 +3706,7 @@ const TEXT_TAGS = new Set([
 export function EditPanel({
   selectedElement,
   pageStyles = {},
+  headerTrailing,
   width = 256,
   activeTab = "design",
   onActiveTabChange,
@@ -3747,6 +3752,7 @@ export function EditPanel({
       <InspectorTabsHeader
         activeTab={activeTab}
         onActiveTabChange={handleActiveTabChange}
+        trailing={headerTrailing}
       />
 
       {activeTab === "design" ? (

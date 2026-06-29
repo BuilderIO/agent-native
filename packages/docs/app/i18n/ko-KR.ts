@@ -1141,6 +1141,15 @@ const koKR = {
       feature2: "선택적으로 고정 PR 댓글 게시",
       videoAriaLabel: "Visual Recap 스킬 데모 비디오",
     },
+    visualEdit: {
+      name: "시각적 편집",
+      tagline: "로컬 UI 흐름 편집",
+      description:
+        "실행 중인 localhost 앱을 Design에서 URL 기반 화면으로 열어 시각적으로 검토하고 편집합니다.",
+      feature1: "정렬된 URL로 다중 화면 흐름 배치",
+      feature2: "라이브 라우트 상태를 검사, 복제, 개선",
+      videoAriaLabel: "Visual Edit 스킬 데모 비디오",
+    },
   },
   downloadPage: {
     title: "Agent Native 다운로드",
