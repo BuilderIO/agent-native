@@ -243,13 +243,23 @@ const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
-function dbText(key: DatabaseMessageKey): string {
+function dbText(
+  key: DatabaseMessageKey,
+  values?: Record<string, string | number>,
+): string {
   const locale =
     typeof document === "undefined" ? "en-US" : document.documentElement.lang;
   const messages =
     messagesByLocale[locale as keyof typeof messagesByLocale] ??
     messagesByLocale["en-US"];
-  return messages.database[key] ?? messagesByLocale["en-US"].database[key];
+  const text =
+    messages.database[key] ?? messagesByLocale["en-US"].database[key];
+  if (!values) return text;
+  return Object.entries(values).reduce(
+    (current, [name, value]) =>
+      current.split(`{{${name}}}`).join(String(value)),
+    text,
+  );
 }
 
 type CreateDatabaseRowHandler = (
@@ -3452,13 +3462,13 @@ type SourceNavStep =
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
   const top = stack[stack.length - 1];
-  if (!top) return "Sources";
+  if (!top) return dbText("sources");
   if (top.kind === "provider") return "Builder";
   if (top.kind === "space") return top.spaceName;
-  if (top.kind === "addSource") return "Add a source";
+  if (top.kind === "addSource") return dbText("addASource");
   if (top.kind === "secondarySource") return top.sourceName;
-  if (top.kind === "keyConfirm") return "Match existing items to details";
-  if (top.kind === "fieldPicker") return "Choose fields";
+  if (top.kind === "keyConfirm") return dbText("matchExistingItemsToDetails");
+  if (top.kind === "fieldPicker") return dbText("chooseFields");
   return top.model.displayName;
 }
 
@@ -4697,7 +4707,7 @@ function CanonicalKeyConfirmView({
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
-        Checking how these records match...
+        {dbText("checkingHowTheseRecordsMatch")}
       </div>
     );
   }
@@ -4976,14 +4986,19 @@ function sourceRoleLabel(
   source: ContentDatabaseSource | null | undefined,
   _index: number,
 ) {
-  return sourceAddsDetails(source) ? "Adding details" : "Adding items";
+  return sourceAddsDetails(source)
+    ? dbText("addingDetails")
+    : dbText("addingItems");
 }
 
 function detailsReasonText(suggestion: SourceJoinSuggestion | null) {
   if (!suggestion)
-    return "Recommended when this collection describes existing rows.";
+    return dbText("recommendedWhenCollectionDescribesExistingRows");
   const percent = Math.round(suggestion.confidence * 100);
-  return `Recommended because ${percent}% of sampled rows match on ${suggestion.canonicalKey.label}.`;
+  return dbText("recommendedBecauseSampledRowsMatchOn", {
+    field: suggestion.canonicalKey.label,
+    percent,
+  });
 }
 
 function findDetailsSource(
@@ -5042,17 +5057,17 @@ function SourceRelationshipChoice({
       >
         <span className="grid min-w-0 gap-1">
           <span className="break-words text-sm font-medium leading-snug">
-            Add details to the existing items
+            {dbText("addDetailsToExistingItems")}
           </span>
           {detailsRecommended ? (
             <span className="w-fit rounded-full bg-foreground px-2 py-0.5 text-[10px] font-medium text-background">
-              Recommended
+              {dbText("recommended")}
             </span>
           ) : null}
         </span>
         <span className="break-words text-xs text-muted-foreground">
           {suggestionQuery.isLoading
-            ? "Checking for matching fields..."
+            ? dbText("checkingForMatchingFields")
             : detailsReasonText(suggestion)}
         </span>
       </button>
@@ -5063,11 +5078,10 @@ function SourceRelationshipChoice({
         onClick={onAddItems}
       >
         <span className="truncate text-sm font-medium">
-          Add more items to this list
+          {dbText("addMoreItemsToThisList")}
         </span>
         <span className="break-words text-xs text-muted-foreground">
-          Best when this collection has the same kind of records and should
-          appear as additional rows.
+          {dbText("bestWhenSameKindAdditionalRows")}
         </span>
       </button>
     </div>
@@ -5095,13 +5109,15 @@ function SourceRoleCard({
   return (
     <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3">
       <div className="grid min-w-0 gap-0.5">
-        <div className="text-xs font-medium">Source role</div>
+        <div className="text-xs font-medium">{dbText("sourceRole")}</div>
         <div className="break-words text-xs text-muted-foreground">
           {addingDetails
-            ? `Adding details matched on ${
-                source.metadata.federation?.canonicalKey?.label ?? "a field"
-              }.`
-            : "Adding items as their own rows in this database."}
+            ? dbText("addingDetailsMatchedOn", {
+                field:
+                  source.metadata.federation?.canonicalKey?.label ??
+                  dbText("aField"),
+              })
+            : dbText("addingItemsAsRows")}
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap gap-2">
@@ -5115,7 +5131,7 @@ function SourceRoleCard({
               disabled={!canEdit || pending}
               onClick={onChooseFields}
             >
-              Choose fields
+              {dbText("chooseFields")}
             </Button>
             <Button
               type="button"
@@ -5125,7 +5141,7 @@ function SourceRoleCard({
               disabled={!canEdit || pending}
               onClick={onAddItems}
             >
-              Add as items
+              {dbText("addAsItems")}
             </Button>
           </>
         ) : canAddDetails ? (
@@ -5137,11 +5153,11 @@ function SourceRoleCard({
             disabled={!canEdit || pending}
             onClick={onAddDetails}
           >
-            Add details instead
+            {dbText("addDetailsInstead")}
           </Button>
         ) : (
           <div className="break-words text-xs text-muted-foreground">
-            Add another item source before changing this source to details.
+            {dbText("addAnotherItemSourceBeforeChangingToDetails")}
           </div>
         )}
       </div>
@@ -5220,7 +5236,7 @@ function SourceDetailsFieldPicker({
   if (!source) {
     return (
       <div className="min-w-0 break-words text-xs text-muted-foreground">
-        This source is no longer connected.
+        {dbText("thisSourceIsNoLongerConnected")}
       </div>
     );
   }
@@ -5245,16 +5261,17 @@ function SourceDetailsFieldPicker({
       for (const sourceFieldId of sourceFieldIds) {
         await addField.mutateAsync({ documentId, sourceFieldId });
       }
-      toast.success("Detail fields added", {
+      toast.success(dbText("detailFieldsAdded"), {
         description:
           sourceFieldIds.length === 1
-            ? "Added 1 field from this source."
-            : `Added ${sourceFieldIds.length} fields from this source.`,
+            ? dbText("addedOneFieldFromSource")
+            : dbText("addedFieldsFromSource", { count: sourceFieldIds.length }),
       });
       onDone();
     } catch (error) {
-      toast.error("Fields were not added", {
-        description: error instanceof Error ? error.message : "Try again.",
+      toast.error(dbText("fieldsWereNotAdded"), {
+        description:
+          error instanceof Error ? error.message : dbText("tryAgain"),
       });
     }
   };
@@ -5266,12 +5283,12 @@ function SourceDetailsFieldPicker({
           {source.sourceName}
         </div>
         <div className="break-words text-xs text-muted-foreground">
-          Pick which details should become database columns.
+          {dbText("pickDetailsBecomeColumns")}
         </div>
       </div>
       {fields.length === 0 ? (
         <div className="break-words text-xs text-muted-foreground">
-          All available detail fields are already visible.
+          {dbText("allAvailableDetailFieldsAlreadyVisible")}
         </div>
       ) : (
         <div className="grid min-w-0 gap-1">

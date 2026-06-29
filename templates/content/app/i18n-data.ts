@@ -3,14 +3,34 @@ import type { LocaleCode } from "@agent-native/core/client";
 import zhTW from "./i18n/zh-TW";
 
 const databaseMessages = {
+  aField: "a field",
+  addAnotherItemSourceBeforeChangingToDetails:
+    "Add another item source before changing this source to details.",
   addAnotherSource: "Add another source",
+  addAsItems: "Add as items",
   agentNativeApps: "Agent-Native apps",
   addDatabaseView: "Add database view",
+  addDetailsInstead: "Add details instead",
+  addDetailsToExistingItems: "Add details to the existing items",
+  addedFieldsFromSource: "Added {{count}} fields from this source.",
+  addedOneFieldFromSource: "Added 1 field from this source.",
+  addingDetails: "Adding details",
+  addingDetailsMatchedOn: "Adding details matched on {{field}}.",
+  addingItems: "Adding items",
+  addingItemsAsRows: "Adding items as their own rows in this database.",
+  addMoreItemsToThisList: "Add more items to this list",
   addProperty: "Add property",
+  allAvailableDetailFieldsAlreadyVisible:
+    "All available detail fields are already visible.",
   back: "Back",
+  bestWhenSameKindAdditionalRows:
+    "Best when this collection has the same kind of records and should appear as additional rows.",
   builderSpace: "Builder space",
   builderUpdateFailed: "Builder update failed",
   builderWriteModeWasNotChanged: "Builder write mode was not changed",
+  checkingForMatchingFields: "Checking for matching fields...",
+  checkingHowTheseRecordsMatch: "Checking how these records match...",
+  chooseFields: "Choose fields",
   closeDatabaseSettings: "Close database settings",
   closeSearch: "Close search",
   databaseRowsAndLocalPropertiesWereKeptIntact:
@@ -42,6 +62,7 @@ const databaseMessages = {
   insertLeft: "Insert left",
   insertRight: "Insert right",
   layout: "Layout",
+  matchExistingItemsToDetails: "Match existing items to details",
   name: "Name",
   nameColumnMenu: "Name column menu",
   newBoardGroupName: "New board group name",
@@ -58,6 +79,8 @@ const databaseMessages = {
   noRowsMatchThisView: "No rows match this view",
   oneFileOrMediaLinkPerLine: "One file or media link per line",
   previewPageTitle: "Preview page title",
+  pickDetailsBecomeColumns:
+    "Pick which details should become database columns.",
   previousDatabasePage: "Previous database page",
   previousMonth: "Previous month",
   previousTimelineRange: "Previous timeline range",
@@ -130,6 +153,7 @@ const databaseMessages = {
   deleteRow2: "Delete row?",
   deleteSelectedRows: "Delete selected rows?",
   deleteView: "Delete view",
+  detailFieldsAdded: "Detail fields added",
   disconnectSource: "Disconnect source",
   duplicate: "Duplicate",
   duplicateRow: "Duplicate row",
@@ -141,6 +165,7 @@ const databaseMessages = {
   existingSourceNormalize: "Existing source · normalize",
   expandAll: "Expand all",
   expandAllGroups: "Expand all groups",
+  fieldsWereNotAdded: "Fields were not added",
   filterRowsWhere: "Filter rows where",
   gallery: "Gallery",
   groupBy: "Group by",
@@ -181,6 +206,11 @@ const databaseMessages = {
     "Preview this database page without leaving the database.",
   properties: "Properties",
   readOnly: "Read-only",
+  recommended: "Recommended",
+  recommendedBecauseSampledRowsMatchOn:
+    "Recommended because {{percent}}% of sampled rows match on {{field}}.",
+  recommendedWhenCollectionDescribesExistingRows:
+    "Recommended when this collection describes existing rows.",
   removeThisSource: "Remove this source",
   renameView: "Rename view",
   retry: "Retry",
@@ -192,6 +222,7 @@ const databaseMessages = {
   sortDescending: "Sort descending",
   sortRowsBy: "Sort rows by",
   source: "Source",
+  sourceRole: "Source role",
   startDate: "Start date",
   thisPropertyHasNoOptionsYet: "This property has no options yet.",
   thisSourceIsNoLongerConnected: "This source is no longer connected.",
@@ -325,6 +356,34 @@ const databaseMessagesByLocale = {
   "zh-CN": {
     addARowTo: "添加行到…",
     addASource: "添加来源",
+    aField: "一个字段",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "先添加另一个项目来源，然后再将此来源改为详情。",
+    addAsItems: "作为项目添加",
+    addDetailsInstead: "改为添加详情",
+    addDetailsToExistingItems: "为现有项目添加详情",
+    addedFieldsFromSource: "已从此来源添加 {{count}} 个字段。",
+    addedOneFieldFromSource: "已从此来源添加 1 个字段。",
+    addingDetails: "正在添加详情",
+    addingDetailsMatchedOn: "正在添加按 {{field}} 匹配的详情。",
+    addingItems: "正在添加项目",
+    addingItemsAsRows: "将项目作为此数据库中的独立行添加。",
+    addMoreItemsToThisList: "向此列表添加更多项目",
+    allAvailableDetailFieldsAlreadyVisible: "所有可用详情字段都已显示。",
+    bestWhenSameKindAdditionalRows:
+      "适用于此集合包含同类记录，并应显示为更多行的情况。",
+    checkingForMatchingFields: "正在检查匹配字段...",
+    checkingHowTheseRecordsMatch: "正在检查这些记录如何匹配...",
+    chooseFields: "选择字段",
+    pickDetailsBecomeColumns: "选择哪些详情应成为数据库列。",
+    detailFieldsAdded: "详情字段已添加",
+    fieldsWereNotAdded: "字段未添加",
+    recommended: "推荐",
+    recommendedBecauseSampledRowsMatchOn:
+      "推荐，因为 {{percent}}% 的抽样行在 {{field}} 上匹配。",
+    recommendedWhenCollectionDescribesExistingRows:
+      "当此集合描述现有行时推荐。",
+    sourceRole: "来源角色",
     localNoCollection: "本地（无集合）",
     liveWritesTestCollectionOnly: "仅 Agent Native 测试集合支持实时写入。",
     builderWriteMode: "Builder 写入模式",
@@ -395,6 +454,7 @@ const databaseMessagesByLocale = {
     empty: "空",
     hideEmptyGroups: "隐藏空分组",
     layout: "布局",
+    matchExistingItemsToDetails: "将现有项目匹配到详情",
     name: "名称",
     nameColumnMenu: "名称列菜单",
     newBoardGroupName: "新看板分组名称",
@@ -437,6 +497,38 @@ const databaseMessagesByLocale = {
   "es-ES": {
     addARowTo: "Añadir una fila a…",
     addASource: "Añadir una fuente",
+    aField: "un campo",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "Añade otra fuente de elementos antes de cambiar esta fuente a detalles.",
+    addAsItems: "Añadir como elementos",
+    addDetailsInstead: "Añadir detalles en su lugar",
+    addDetailsToExistingItems: "Añadir detalles a los elementos existentes",
+    addedFieldsFromSource: "Se añadieron {{count}} campos de esta fuente.",
+    addedOneFieldFromSource: "Se añadió 1 campo de esta fuente.",
+    addingDetails: "Añadiendo detalles",
+    addingDetailsMatchedOn: "Añadiendo detalles coincidentes por {{field}}.",
+    addingItems: "Añadiendo elementos",
+    addingItemsAsRows:
+      "Añadiendo elementos como filas propias en esta base de datos.",
+    addMoreItemsToThisList: "Añadir más elementos a esta lista",
+    allAvailableDetailFieldsAlreadyVisible:
+      "Todos los campos de detalle disponibles ya están visibles.",
+    bestWhenSameKindAdditionalRows:
+      "Ideal cuando esta colección tiene el mismo tipo de registros y debe aparecer como filas adicionales.",
+    checkingForMatchingFields: "Comprobando campos coincidentes...",
+    checkingHowTheseRecordsMatch:
+      "Comprobando cómo coinciden estos registros...",
+    chooseFields: "Elegir campos",
+    pickDetailsBecomeColumns:
+      "Elige qué detalles deben convertirse en columnas de la base de datos.",
+    detailFieldsAdded: "Campos de detalle añadidos",
+    fieldsWereNotAdded: "No se añadieron los campos",
+    recommended: "Recomendado",
+    recommendedBecauseSampledRowsMatchOn:
+      "Recomendado porque el {{percent}}% de las filas de muestra coincide en {{field}}.",
+    recommendedWhenCollectionDescribesExistingRows:
+      "Recomendado cuando esta colección describe filas existentes.",
+    sourceRole: "Rol de la fuente",
     localNoCollection: "Local (sin colección)",
     liveWritesTestCollectionOnly:
       "La escritura en vivo solo está disponible para la colección de prueba de Agent Native.",
@@ -518,6 +610,7 @@ const databaseMessagesByLocale = {
     empty: "Vacío",
     hideEmptyGroups: "Ocultar grupos vacíos",
     layout: "Diseño",
+    matchExistingItemsToDetails: "Relacionar elementos existentes con detalles",
     name: "Nombre",
     nameColumnMenu: "Menú de columna Nombre",
     newBoardGroupName: "Nombre del nuevo grupo de tablero",
@@ -560,6 +653,38 @@ const databaseMessagesByLocale = {
   "fr-FR": {
     addARowTo: "Ajouter une ligne à…",
     addASource: "Ajouter une source",
+    aField: "un champ",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "Ajoutez une autre source d’éléments avant de transformer cette source en détails.",
+    addAsItems: "Ajouter comme éléments",
+    addDetailsInstead: "Ajouter plutôt des détails",
+    addDetailsToExistingItems: "Ajouter des détails aux éléments existants",
+    addedFieldsFromSource: "{{count}} champs ajoutés depuis cette source.",
+    addedOneFieldFromSource: "1 champ ajouté depuis cette source.",
+    addingDetails: "Ajout de détails",
+    addingDetailsMatchedOn: "Ajout de détails correspondant à {{field}}.",
+    addingItems: "Ajout d’éléments",
+    addingItemsAsRows:
+      "Ajout des éléments comme lignes propres dans cette base de données.",
+    addMoreItemsToThisList: "Ajouter plus d’éléments à cette liste",
+    allAvailableDetailFieldsAlreadyVisible:
+      "Tous les champs de détail disponibles sont déjà visibles.",
+    bestWhenSameKindAdditionalRows:
+      "Idéal lorsque cette collection contient le même type d’enregistrements et doit apparaître comme lignes supplémentaires.",
+    checkingForMatchingFields: "Recherche de champs correspondants...",
+    checkingHowTheseRecordsMatch:
+      "Vérification de la correspondance de ces enregistrements...",
+    chooseFields: "Choisir les champs",
+    pickDetailsBecomeColumns:
+      "Choisissez les détails qui doivent devenir des colonnes de base de données.",
+    detailFieldsAdded: "Champs de détail ajoutés",
+    fieldsWereNotAdded: "Les champs n’ont pas été ajoutés",
+    recommended: "Recommandé",
+    recommendedBecauseSampledRowsMatchOn:
+      "Recommandé car {{percent}} % des lignes échantillonnées correspondent sur {{field}}.",
+    recommendedWhenCollectionDescribesExistingRows:
+      "Recommandé lorsque cette collection décrit des lignes existantes.",
+    sourceRole: "Rôle de la source",
     localNoCollection: "Local (aucune collection)",
     liveWritesTestCollectionOnly:
       "Les écritures en direct ne sont disponibles que pour la collection de test Agent Native.",
@@ -642,6 +767,7 @@ const databaseMessagesByLocale = {
     empty: "Vide",
     hideEmptyGroups: "Masquer les groupes vides",
     layout: "Disposition",
+    matchExistingItemsToDetails: "Associer les éléments existants aux détails",
     name: "Nom",
     nameColumnMenu: "Menu de la colonne Nom",
     newBoardGroupName: "Nom du nouveau groupe de tableau",
@@ -684,6 +810,38 @@ const databaseMessagesByLocale = {
   "de-DE": {
     addARowTo: "Zeile hinzufügen zu…",
     addASource: "Quelle hinzufügen",
+    aField: "ein Feld",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "Fügen Sie eine weitere Elementquelle hinzu, bevor Sie diese Quelle in Details ändern.",
+    addAsItems: "Als Elemente hinzufügen",
+    addDetailsInstead: "Stattdessen Details hinzufügen",
+    addDetailsToExistingItems: "Details zu vorhandenen Elementen hinzufügen",
+    addedFieldsFromSource: "{{count}} Felder aus dieser Quelle hinzugefügt.",
+    addedOneFieldFromSource: "1 Feld aus dieser Quelle hinzugefügt.",
+    addingDetails: "Details werden hinzugefügt",
+    addingDetailsMatchedOn: "Details werden anhand von {{field}} hinzugefügt.",
+    addingItems: "Elemente werden hinzugefügt",
+    addingItemsAsRows:
+      "Elemente werden als eigene Zeilen in dieser Datenbank hinzugefügt.",
+    addMoreItemsToThisList: "Weitere Elemente zu dieser Liste hinzufügen",
+    allAvailableDetailFieldsAlreadyVisible:
+      "Alle verfügbaren Detailfelder sind bereits sichtbar.",
+    bestWhenSameKindAdditionalRows:
+      "Am besten, wenn diese Sammlung dieselbe Art von Datensätzen enthält und als zusätzliche Zeilen erscheinen soll.",
+    checkingForMatchingFields: "Passende Felder werden geprüft...",
+    checkingHowTheseRecordsMatch:
+      "Übereinstimmung dieser Datensätze wird geprüft...",
+    chooseFields: "Felder auswählen",
+    pickDetailsBecomeColumns:
+      "Wählen Sie aus, welche Details zu Datenbankspalten werden sollen.",
+    detailFieldsAdded: "Detailfelder hinzugefügt",
+    fieldsWereNotAdded: "Felder wurden nicht hinzugefügt",
+    recommended: "Empfohlen",
+    recommendedBecauseSampledRowsMatchOn:
+      "Empfohlen, weil {{percent}} % der Stichprobenzeilen bei {{field}} übereinstimmen.",
+    recommendedWhenCollectionDescribesExistingRows:
+      "Empfohlen, wenn diese Sammlung vorhandene Zeilen beschreibt.",
+    sourceRole: "Quellenrolle",
     localNoCollection: "Lokal (keine Sammlung)",
     liveWritesTestCollectionOnly:
       "Live-Schreibvorgänge sind nur für die Agent-Native-Testsammlung verfügbar.",
@@ -766,6 +924,7 @@ const databaseMessagesByLocale = {
     empty: "Leer",
     hideEmptyGroups: "Leere Gruppen ausblenden",
     layout: "Layout",
+    matchExistingItemsToDetails: "Vorhandene Elemente mit Details abgleichen",
     name: "Name",
     nameColumnMenu: "Menü der Namensspalte",
     newBoardGroupName: "Name der neuen Board-Gruppe",
@@ -808,6 +967,37 @@ const databaseMessagesByLocale = {
   "ja-JP": {
     addARowTo: "行の追加先…",
     addASource: "ソースを追加",
+    aField: "フィールド",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "このソースを詳細に変更する前に、別のアイテムソースを追加してください。",
+    addAsItems: "アイテムとして追加",
+    addDetailsInstead: "代わりに詳細を追加",
+    addDetailsToExistingItems: "既存のアイテムに詳細を追加",
+    addedFieldsFromSource:
+      "このソースから {{count}} 個のフィールドを追加しました。",
+    addedOneFieldFromSource: "このソースから 1 個のフィールドを追加しました。",
+    addingDetails: "詳細を追加中",
+    addingDetailsMatchedOn: "{{field}} で一致した詳細を追加中。",
+    addingItems: "アイテムを追加中",
+    addingItemsAsRows:
+      "アイテムをこのデータベースの独立した行として追加しています。",
+    addMoreItemsToThisList: "このリストにさらにアイテムを追加",
+    allAvailableDetailFieldsAlreadyVisible:
+      "利用可能な詳細フィールドはすべて表示済みです。",
+    bestWhenSameKindAdditionalRows:
+      "このコレクションが同じ種類のレコードで、追加行として表示する場合に最適です。",
+    checkingForMatchingFields: "一致するフィールドを確認中...",
+    checkingHowTheseRecordsMatch: "これらのレコードの一致方法を確認中...",
+    chooseFields: "フィールドを選択",
+    pickDetailsBecomeColumns: "データベース列にする詳細を選択してください。",
+    detailFieldsAdded: "詳細フィールドを追加しました",
+    fieldsWereNotAdded: "フィールドは追加されませんでした",
+    recommended: "推奨",
+    recommendedBecauseSampledRowsMatchOn:
+      "サンプル行の {{percent}}% が {{field}} で一致するため推奨されます。",
+    recommendedWhenCollectionDescribesExistingRows:
+      "このコレクションが既存の行を説明する場合に推奨されます。",
+    sourceRole: "ソースの役割",
     localNoCollection: "ローカル（コレクションなし）",
     liveWritesTestCollectionOnly:
       "ライブ書き込みは Agent Native テストコレクションでのみ利用できます。",
@@ -887,6 +1077,7 @@ const databaseMessagesByLocale = {
     empty: "空",
     hideEmptyGroups: "空のグループを非表示",
     layout: "レイアウト",
+    matchExistingItemsToDetails: "既存のアイテムを詳細に一致させる",
     name: "名前",
     nameColumnMenu: "名前列メニュー",
     newBoardGroupName: "新しいボードグループ名",
@@ -929,6 +1120,37 @@ const databaseMessagesByLocale = {
   "ko-KR": {
     addARowTo: "행 추가 대상…",
     addASource: "소스 추가",
+    aField: "필드",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "이 소스를 세부 정보로 바꾸기 전에 다른 항목 소스를 추가하세요.",
+    addAsItems: "항목으로 추가",
+    addDetailsInstead: "대신 세부 정보 추가",
+    addDetailsToExistingItems: "기존 항목에 세부 정보 추가",
+    addedFieldsFromSource: "이 소스에서 필드 {{count}}개를 추가했습니다.",
+    addedOneFieldFromSource: "이 소스에서 필드 1개를 추가했습니다.",
+    addingDetails: "세부 정보 추가 중",
+    addingDetailsMatchedOn:
+      "{{field}} 기준으로 일치한 세부 정보를 추가 중입니다.",
+    addingItems: "항목 추가 중",
+    addingItemsAsRows: "항목을 이 데이터베이스의 개별 행으로 추가합니다.",
+    addMoreItemsToThisList: "이 목록에 항목 더 추가",
+    allAvailableDetailFieldsAlreadyVisible:
+      "사용 가능한 모든 세부 정보 필드가 이미 표시됩니다.",
+    bestWhenSameKindAdditionalRows:
+      "이 컬렉션이 같은 종류의 레코드이고 추가 행으로 표시되어야 할 때 가장 적합합니다.",
+    checkingForMatchingFields: "일치하는 필드를 확인하는 중...",
+    checkingHowTheseRecordsMatch:
+      "이 레코드들이 어떻게 일치하는지 확인하는 중...",
+    chooseFields: "필드 선택",
+    pickDetailsBecomeColumns: "데이터베이스 열이 될 세부 정보를 선택하세요.",
+    detailFieldsAdded: "세부 정보 필드가 추가되었습니다",
+    fieldsWereNotAdded: "필드가 추가되지 않았습니다",
+    recommended: "추천",
+    recommendedBecauseSampledRowsMatchOn:
+      "샘플 행의 {{percent}}%가 {{field}}에서 일치하므로 추천합니다.",
+    recommendedWhenCollectionDescribesExistingRows:
+      "이 컬렉션이 기존 행을 설명할 때 추천합니다.",
+    sourceRole: "소스 역할",
     localNoCollection: "로컬(컬렉션 없음)",
     liveWritesTestCollectionOnly:
       "라이브 쓰기는 Agent Native 테스트 컬렉션에서만 사용할 수 있습니다.",
@@ -1006,6 +1228,7 @@ const databaseMessagesByLocale = {
     empty: "비어 있음",
     hideEmptyGroups: "빈 그룹 숨기기",
     layout: "레이아웃",
+    matchExistingItemsToDetails: "기존 항목을 세부 정보와 일치시키기",
     name: "이름",
     nameColumnMenu: "이름 열 메뉴",
     newBoardGroupName: "새 보드 그룹 이름",
@@ -1048,6 +1271,39 @@ const databaseMessagesByLocale = {
   "pt-BR": {
     addARowTo: "Adicionar uma linha a…",
     addASource: "Adicionar uma fonte",
+    aField: "um campo",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "Adicione outra fonte de itens antes de mudar esta fonte para detalhes.",
+    addAsItems: "Adicionar como itens",
+    addDetailsInstead: "Adicionar detalhes em vez disso",
+    addDetailsToExistingItems: "Adicionar detalhes aos itens existentes",
+    addedFieldsFromSource: "{{count}} campos adicionados desta fonte.",
+    addedOneFieldFromSource: "1 campo adicionado desta fonte.",
+    addingDetails: "Adicionando detalhes",
+    addingDetailsMatchedOn:
+      "Adicionando detalhes correspondentes em {{field}}.",
+    addingItems: "Adicionando itens",
+    addingItemsAsRows:
+      "Adicionando itens como suas próprias linhas neste banco de dados.",
+    addMoreItemsToThisList: "Adicionar mais itens a esta lista",
+    allAvailableDetailFieldsAlreadyVisible:
+      "Todos os campos de detalhe disponíveis já estão visíveis.",
+    bestWhenSameKindAdditionalRows:
+      "Melhor quando esta coleção tem o mesmo tipo de registros e deve aparecer como linhas adicionais.",
+    checkingForMatchingFields: "Verificando campos correspondentes...",
+    checkingHowTheseRecordsMatch:
+      "Verificando como estes registros correspondem...",
+    chooseFields: "Escolher campos",
+    pickDetailsBecomeColumns:
+      "Escolha quais detalhes devem virar colunas do banco de dados.",
+    detailFieldsAdded: "Campos de detalhe adicionados",
+    fieldsWereNotAdded: "Os campos não foram adicionados",
+    recommended: "Recomendado",
+    recommendedBecauseSampledRowsMatchOn:
+      "Recomendado porque {{percent}}% das linhas amostradas correspondem em {{field}}.",
+    recommendedWhenCollectionDescribesExistingRows:
+      "Recomendado quando esta coleção descreve linhas existentes.",
+    sourceRole: "Função da fonte",
     localNoCollection: "Local (sem coleção)",
     liveWritesTestCollectionOnly:
       "As gravações ao vivo estão disponíveis apenas para a coleção de teste do Agent Native.",
@@ -1127,6 +1383,8 @@ const databaseMessagesByLocale = {
     empty: "Vazio",
     hideEmptyGroups: "Ocultar grupos vazios",
     layout: "Layout",
+    matchExistingItemsToDetails:
+      "Correspondência de itens existentes com detalhes",
     name: "Nome",
     nameColumnMenu: "Menu da coluna Nome",
     newBoardGroupName: "Nome do novo grupo do quadro",
@@ -1169,6 +1427,35 @@ const databaseMessagesByLocale = {
   "hi-IN": {
     addARowTo: "पंक्ति यहाँ जोड़ें…",
     addASource: "स्रोत जोड़ें",
+    aField: "एक फ़ील्ड",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "इस स्रोत को विवरण में बदलने से पहले एक और आइटम स्रोत जोड़ें।",
+    addAsItems: "आइटम के रूप में जोड़ें",
+    addDetailsInstead: "इसके बजाय विवरण जोड़ें",
+    addDetailsToExistingItems: "मौजूदा आइटम में विवरण जोड़ें",
+    addedFieldsFromSource: "इस स्रोत से {{count}} फ़ील्ड जोड़े गए।",
+    addedOneFieldFromSource: "इस स्रोत से 1 फ़ील्ड जोड़ा गया।",
+    addingDetails: "विवरण जोड़े जा रहे हैं",
+    addingDetailsMatchedOn: "{{field}} पर मिले विवरण जोड़े जा रहे हैं।",
+    addingItems: "आइटम जोड़े जा रहे हैं",
+    addingItemsAsRows: "आइटम को इस डेटाबेस में अपनी पंक्तियों के रूप में जोड़ा जा रहा है।",
+    addMoreItemsToThisList: "इस सूची में और आइटम जोड़ें",
+    allAvailableDetailFieldsAlreadyVisible:
+      "सभी उपलब्ध विवरण फ़ील्ड पहले से दिखाई दे रहे हैं।",
+    bestWhenSameKindAdditionalRows:
+      "जब इस संग्रह में उसी तरह के रिकॉर्ड हों और उन्हें अतिरिक्त पंक्तियों के रूप में दिखना चाहिए, तब सबसे अच्छा।",
+    checkingForMatchingFields: "मेल खाने वाले फ़ील्ड जाँचे जा रहे हैं...",
+    checkingHowTheseRecordsMatch: "ये रिकॉर्ड कैसे मेल खाते हैं, यह जाँचा जा रहा है...",
+    chooseFields: "फ़ील्ड चुनें",
+    pickDetailsBecomeColumns: "चुनें कि कौन से विवरण डेटाबेस कॉलम बनें।",
+    detailFieldsAdded: "विवरण फ़ील्ड जोड़े गए",
+    fieldsWereNotAdded: "फ़ील्ड नहीं जोड़े गए",
+    recommended: "अनुशंसित",
+    recommendedBecauseSampledRowsMatchOn:
+      "अनुशंसित क्योंकि नमूना पंक्तियों में {{percent}}% {{field}} पर मेल खाती हैं।",
+    recommendedWhenCollectionDescribesExistingRows:
+      "जब यह संग्रह मौजूदा पंक्तियों का वर्णन करता है, तब अनुशंसित।",
+    sourceRole: "स्रोत भूमिका",
     localNoCollection: "लोकल (कोई संग्रह नहीं)",
     liveWritesTestCollectionOnly:
       "लाइव राइट केवल Agent Native टेस्ट संग्रह के लिए उपलब्ध हैं।",
@@ -1245,6 +1532,7 @@ const databaseMessagesByLocale = {
     empty: "ख़ाली",
     hideEmptyGroups: "खाली समूह छिपाएं",
     layout: "लेआउट",
+    matchExistingItemsToDetails: "मौजूदा आइटम को विवरण से मिलाएँ",
     name: "नाम",
     nameColumnMenu: "नाम कॉलम मेनू",
     newBoardGroupName: "नए बोर्ड समूह का नाम",
@@ -1287,6 +1575,36 @@ const databaseMessagesByLocale = {
   "ar-SA": {
     addARowTo: "إضافة صف إلى…",
     addASource: "إضافة مصدر",
+    aField: "حقل",
+    addAnotherItemSourceBeforeChangingToDetails:
+      "أضف مصدر عناصر آخر قبل تغيير هذا المصدر إلى تفاصيل.",
+    addAsItems: "إضافة كعناصر",
+    addDetailsInstead: "إضافة تفاصيل بدلًا من ذلك",
+    addDetailsToExistingItems: "إضافة تفاصيل إلى العناصر الحالية",
+    addedFieldsFromSource: "تمت إضافة {{count}} حقول من هذا المصدر.",
+    addedOneFieldFromSource: "تمت إضافة حقل واحد من هذا المصدر.",
+    addingDetails: "إضافة تفاصيل",
+    addingDetailsMatchedOn: "إضافة تفاصيل متطابقة على {{field}}.",
+    addingItems: "إضافة عناصر",
+    addingItemsAsRows: "إضافة العناصر كصفوف مستقلة في قاعدة البيانات هذه.",
+    addMoreItemsToThisList: "إضافة المزيد من العناصر إلى هذه القائمة",
+    allAvailableDetailFieldsAlreadyVisible:
+      "كل حقول التفاصيل المتاحة ظاهرة بالفعل.",
+    bestWhenSameKindAdditionalRows:
+      "أفضل عندما تحتوي هذه المجموعة على نفس نوع السجلات ويجب أن تظهر كصفوف إضافية.",
+    checkingForMatchingFields: "جارٍ التحقق من الحقول المتطابقة...",
+    checkingHowTheseRecordsMatch: "جارٍ التحقق من كيفية تطابق هذه السجلات...",
+    chooseFields: "اختيار الحقول",
+    pickDetailsBecomeColumns:
+      "اختر التفاصيل التي يجب أن تصبح أعمدة في قاعدة البيانات.",
+    detailFieldsAdded: "تمت إضافة حقول التفاصيل",
+    fieldsWereNotAdded: "لم تتم إضافة الحقول",
+    recommended: "موصى به",
+    recommendedBecauseSampledRowsMatchOn:
+      "موصى به لأن {{percent}}% من الصفوف المأخوذة كعينة تطابق على {{field}}.",
+    recommendedWhenCollectionDescribesExistingRows:
+      "موصى به عندما تصف هذه المجموعة الصفوف الحالية.",
+    sourceRole: "دور المصدر",
     localNoCollection: "محلي (بدون مجموعة)",
     liveWritesTestCollectionOnly:
       "الكتابة المباشرة متاحة فقط لمجموعة اختبار Agent Native.",
@@ -1361,6 +1679,7 @@ const databaseMessagesByLocale = {
     empty: "فارغ",
     hideEmptyGroups: "إخفاء المجموعات الفارغة",
     layout: "التخطيط",
+    matchExistingItemsToDetails: "مطابقة العناصر الحالية مع التفاصيل",
     name: "الاسم",
     nameColumnMenu: "قائمة عمود الاسم",
     newBoardGroupName: "اسم مجموعة اللوحة الجديدة",

@@ -3581,15 +3581,15 @@ type SourceNavStep =
   | { kind: "keyConfirm"; candidate: PendingSourceCandidate }
   | { kind: "fieldPicker"; sourceId: string; sourceName: string };
 
-function sourceNavTitle(stack: SourceNavStep[]): string {
+function sourceNavTitle(stack: SourceNavStep[], db: DatabaseT): string {
   const top = stack[stack.length - 1];
-  if (!top) return "Sources";
+  if (!top) return db("sources");
   if (top.kind === "provider") return "Builder";
   if (top.kind === "space") return top.spaceName;
-  if (top.kind === "addSource") return "Add a source";
+  if (top.kind === "addSource") return db("addASource");
   if (top.kind === "secondarySource") return top.sourceName;
-  if (top.kind === "keyConfirm") return "Match existing items to details";
-  if (top.kind === "fieldPicker") return "Choose fields";
+  if (top.kind === "keyConfirm") return db("matchExistingItemsToDetails");
+  if (top.kind === "fieldPicker") return db("chooseFields");
   return top.model.displayName;
 }
 
@@ -3726,7 +3726,7 @@ function DatabaseSettingsPanelSheet({
     panel === "main"
       ? "Database settings"
       : panel === "source"
-        ? sourceNavTitle(sourceNavStack)
+        ? sourceNavTitle(sourceNavStack, db)
         : databaseSettingsPanelTitle(panel);
 
   const handleBack = () => {
@@ -4924,7 +4924,7 @@ function SourcesListView({
             )
           }
           label={connected.sourceName}
-          value={sourceRoleLabel(connected, index)}
+          value={sourceRoleLabel(db, connected, index)}
           badgeCount={
             connected.metadata.federation?.role !== "secondary" &&
             connected.sourceType === "builder-cms"
@@ -5026,7 +5026,7 @@ function CanonicalKeyConfirmView({
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
-        Checking how these records match...
+        <DatabaseText k="checkingHowTheseRecordsMatch" />
       </div>
     );
   }
@@ -5277,7 +5277,7 @@ function SecondarySourceLeaf({
           </span>
         </div>
         <div className="min-w-0 break-words text-xs text-muted-foreground">
-          {`${sourceRoleLabel(source, 0)} · ${fieldCount} field${
+          {`${sourceRoleLabel(db, source, 0)} · ${fieldCount} field${
             fieldCount === 1 ? "" : "s"
           }`}
           {federation?.canonicalKey?.label
@@ -5336,18 +5336,24 @@ function sourceAddsDetails(source: ContentDatabaseSource | null | undefined) {
 }
 
 function sourceRoleLabel(
+  db: DatabaseT,
   source: ContentDatabaseSource | null | undefined,
   index: number,
 ) {
-  if (sourceAddsDetails(source)) return "Adding details";
-  return index === 0 ? "Adding items" : "Adding items";
+  if (sourceAddsDetails(source)) return db("addingDetails");
+  return index === 0 ? db("addingItems") : db("addingItems");
 }
 
-function detailsReasonText(suggestion: SourceJoinSuggestion | null) {
-  if (!suggestion)
-    return "Recommended when this collection describes existing rows.";
+function detailsReasonText(
+  db: DatabaseT,
+  suggestion: SourceJoinSuggestion | null,
+) {
+  if (!suggestion) return db("recommendedWhenCollectionDescribesExistingRows");
   const percent = Math.round(suggestion.confidence * 100);
-  return `Recommended because ${percent}% of sampled rows match on ${suggestion.canonicalKey.label}.`;
+  return db("recommendedBecauseSampledRowsMatchOn", {
+    field: suggestion.canonicalKey.label,
+    percent,
+  });
 }
 
 function findDetailsSource(
@@ -5382,6 +5388,7 @@ function SourceRelationshipChoice({
   onAddDetails: () => void;
   onAddItems: () => void | Promise<void>;
 }) {
+  const db = useDatabaseT();
   const suggestionQuery = useSuggestSourceJoinKey({
     documentId,
     candidateSourceType: candidate.sourceType,
@@ -5405,18 +5412,18 @@ function SourceRelationshipChoice({
       >
         <span className="grid min-w-0 gap-1">
           <span className="break-words text-sm font-medium leading-snug">
-            Add details to the existing items
+            <DatabaseText k="addDetailsToExistingItems" />
           </span>
           {detailsRecommended ? (
             <span className="w-fit rounded-full bg-foreground px-2 py-0.5 text-[10px] font-medium text-background">
-              Recommended
+              <DatabaseText k="recommended" />
             </span>
           ) : null}
         </span>
         <span className="break-words text-xs text-muted-foreground">
           {suggestionQuery.isLoading
-            ? "Checking for matching fields..."
-            : detailsReasonText(suggestion)}
+            ? db("checkingForMatchingFields")
+            : detailsReasonText(db, suggestion)}
         </span>
       </button>
       <button
@@ -5426,11 +5433,10 @@ function SourceRelationshipChoice({
         onClick={onAddItems}
       >
         <span className="truncate text-sm font-medium">
-          Add more items to this list
+          <DatabaseText k="addMoreItemsToThisList" />
         </span>
         <span className="break-words text-xs text-muted-foreground">
-          Best when this collection has the same kind of records and should
-          appear as additional rows.
+          <DatabaseText k="bestWhenSameKindAdditionalRows" />
         </span>
       </button>
     </div>
@@ -5454,17 +5460,22 @@ function SourceRoleCard({
   onAddItems: () => void | Promise<void>;
   onChooseFields: () => void;
 }) {
+  const db = useDatabaseT();
   const addingDetails = sourceAddsDetails(source);
   return (
     <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3">
       <div className="grid min-w-0 gap-0.5">
-        <div className="text-xs font-medium">Source role</div>
+        <div className="text-xs font-medium">
+          <DatabaseText k="sourceRole" />
+        </div>
         <div className="break-words text-xs text-muted-foreground">
           {addingDetails
-            ? `Adding details matched on ${
-                source.metadata.federation?.canonicalKey?.label ?? "a field"
-              }.`
-            : "Adding items as their own rows in this database."}
+            ? db("addingDetailsMatchedOn", {
+                field:
+                  source.metadata.federation?.canonicalKey?.label ??
+                  db("aField"),
+              })
+            : db("addingItemsAsRows")}
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap gap-2">
@@ -5478,7 +5489,7 @@ function SourceRoleCard({
               disabled={!canEdit || pending}
               onClick={onChooseFields}
             >
-              Choose fields
+              <DatabaseText k="chooseFields" />
             </Button>
             <Button
               type="button"
@@ -5488,7 +5499,7 @@ function SourceRoleCard({
               disabled={!canEdit || pending}
               onClick={onAddItems}
             >
-              Add as items
+              <DatabaseText k="addAsItems" />
             </Button>
           </>
         ) : canAddDetails ? (
@@ -5500,11 +5511,11 @@ function SourceRoleCard({
             disabled={!canEdit || pending}
             onClick={onAddDetails}
           >
-            Add details instead
+            <DatabaseText k="addDetailsInstead" />
           </Button>
         ) : (
           <div className="break-words text-xs text-muted-foreground">
-            Add another item source before changing this source to details.
+            <DatabaseText k="addAnotherItemSourceBeforeChangingToDetails" />
           </div>
         )}
       </div>
@@ -5555,6 +5566,7 @@ function SourceDetailsFieldPicker({
   pending: boolean;
   onDone: () => void;
 }) {
+  const db = useDatabaseT();
   const addField = useAddContentDatabaseSourceFieldProperty(documentId);
   const fields = useMemo(
     () =>
@@ -5583,7 +5595,7 @@ function SourceDetailsFieldPicker({
   if (!source) {
     return (
       <div className="min-w-0 break-words text-xs text-muted-foreground">
-        This source is no longer connected.
+        <DatabaseText k="thisSourceIsNoLongerConnected" />
       </div>
     );
   }
@@ -5608,16 +5620,16 @@ function SourceDetailsFieldPicker({
       for (const sourceFieldId of sourceFieldIds) {
         await addField.mutateAsync({ documentId, sourceFieldId });
       }
-      toast.success("Detail fields added", {
+      toast.success(db("detailFieldsAdded"), {
         description:
           sourceFieldIds.length === 1
-            ? "Added 1 field from this source."
-            : `Added ${sourceFieldIds.length} fields from this source.`,
+            ? db("addedOneFieldFromSource")
+            : db("addedFieldsFromSource", { count: sourceFieldIds.length }),
       });
       onDone();
     } catch (error) {
-      toast.error("Fields were not added", {
-        description: error instanceof Error ? error.message : "Try again.",
+      toast.error(db("fieldsWereNotAdded"), {
+        description: error instanceof Error ? error.message : db("tryAgain"),
       });
     }
   };
@@ -5629,12 +5641,12 @@ function SourceDetailsFieldPicker({
           {source.sourceName}
         </div>
         <div className="break-words text-xs text-muted-foreground">
-          Pick which details should become database columns.
+          <DatabaseText k="pickDetailsBecomeColumns" />
         </div>
       </div>
       {fields.length === 0 ? (
         <div className="break-words text-xs text-muted-foreground">
-          All available detail fields are already visible.
+          <DatabaseText k="allAvailableDetailFieldsAlreadyVisible" />
         </div>
       ) : (
         <div className="grid min-w-0 gap-1">
