@@ -41,6 +41,10 @@ export interface CapturedTranscript {
 export interface TranscriptionCapture {
   stop(): Promise<CapturedTranscript>;
   cancel(): Promise<void>;
+  /** Suspend the audio engine without discarding the captured transcript. */
+  pause(): Promise<void>;
+  /** Restart the audio engine after a `pause()`. */
+  resume(): Promise<void>;
 }
 
 interface SpeechRecognitionResultLike {
@@ -154,6 +158,7 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
   const recognition = new Ctor();
   let disposed = false;
   let stopped = false;
+  let paused = false;
   const transcriptBuffer = createWebSpeechTranscriptBuffer();
   let stopResolver: ((value: CapturedTranscript) => void) | null = null;
   let settleTimer: ReturnType<typeof window.setTimeout> | null = null;
@@ -195,11 +200,13 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
   recognition.onend = () => {
     if (disposed) return;
-    transcriptBuffer.commitSession({ preserveInterim: stopped });
+    transcriptBuffer.commitSession({ preserveInterim: stopped || paused });
     if (stopped) {
       settleStop();
       return;
     }
+    // While paused, keep the committed transcript but don't restart the engine.
+    if (paused) return;
     try {
       recognition.start();
     } catch (err) {
@@ -245,6 +252,29 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
         // ignore
       }
     },
+    async pause() {
+      if (disposed || stopped || paused) return;
+      paused = true;
+      console.log("[clips-recorder] transcription paused (web-speech)");
+      try {
+        recognition.stop();
+      } catch {
+        // ignore
+      }
+    },
+    async resume() {
+      if (disposed || stopped || !paused) return;
+      paused = false;
+      console.log("[clips-recorder] transcription resumed (web-speech)");
+      try {
+        recognition.start();
+      } catch (err) {
+        console.warn(
+          "[clips-recorder] Web Speech transcription resume failed:",
+          err,
+        );
+      }
+    },
   };
 }
 
@@ -260,6 +290,13 @@ export async function startTranscriptionCapture(
   const lines: string[] = [];
   const segments: SourcedTranscriptSegment[] = [];
   let disposed = false;
+  let paused = false;
+  let desiredPaused = false;
+  let transitioning = false;
+  // When a pause stops the engine, Whisper still flushes trailing finals
+  // asynchronously. Track when those are expected to have landed so a stop
+  // soon after a pause waits for them instead of dropping the last words.
+  let pauseFinalsSettleUntil = 0;
   const unlistens: UnlistenFn[] = [];
 
   const cleanup = () => {
@@ -299,8 +336,59 @@ export async function startTranscriptionCapture(
       : null;
   }
 
+  // Pause/resume run fire-and-forget from the recorder, so a quick
+  // pause→resume can arrive while a transition is still awaiting the engine.
+  // Track the desired state and re-apply once the in-flight transition settles
+  // so the last request always wins (instead of being dropped).
+  const applyAudioState = async () => {
+    if (transitioning || disposed || desiredPaused === paused) return;
+    transitioning = true;
+    try {
+      if (desiredPaused) {
+        await stopTranscriptionEngine(engine);
+        paused = true;
+        pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
+        console.log(`[clips-recorder] transcription paused (${engine})`);
+      } else {
+        engine = await startTranscriptionEngine({ mic, captureSystem });
+        // stop()/cancel() can run during the await above; if it did, the new
+        // engine would leak (mic/system capture stays live). Tear it down.
+        if (disposed) {
+          await stopTranscriptionEngine(engine).catch(() => {});
+          return;
+        }
+        paused = false;
+        console.log(`[clips-recorder] transcription resumed (${engine})`);
+      }
+    } catch (err) {
+      // Transition failed. Keep `desiredPaused` as the still-unmet intent (don't
+      // reset it) so the next pause/resume toggle retries and converges, and
+      // return early so we don't busy-loop re-applying a persistently failing
+      // transition. `paused` still reflects the real engine state.
+      console.warn(
+        `[clips-recorder] transcription ${desiredPaused ? "pause" : "resume"} failed; engine still ${paused ? "paused" : "live"}:`,
+        err,
+      );
+      // `finally` resets `transitioning`; returning skips the auto re-apply.
+      return;
+    } finally {
+      transitioning = false;
+    }
+    // Re-apply in case the desired state changed mid-transition.
+    void applyAudioState();
+  };
+
   return {
     async stop() {
+      // Already paused: the engine is stopped, but the pause-time flush may
+      // still be in flight. Wait out any remaining settle window so trailing
+      // finals land before we drop the listener.
+      if (paused) {
+        const remaining = pauseFinalsSettleUntil - Date.now();
+        if (remaining > 0) await wait(remaining);
+        cleanup();
+        return captured();
+      }
       try {
         await stopTranscriptionEngine(engine);
       } catch (err) {
@@ -314,12 +402,24 @@ export async function startTranscriptionCapture(
       return captured();
     },
     async cancel() {
-      try {
-        await stopTranscriptionEngine(engine);
-      } catch {
-        // ignore
+      if (!paused) {
+        try {
+          await stopTranscriptionEngine(engine);
+        } catch {
+          // ignore
+        }
       }
       cleanup();
+    },
+    async pause() {
+      if (disposed) return;
+      desiredPaused = true;
+      await applyAudioState();
+    },
+    async resume() {
+      if (disposed) return;
+      desiredPaused = false;
+      await applyAudioState();
     },
   };
 }
