@@ -15,6 +15,7 @@ import {
   IconBrush,
   IconCode,
   IconComponents,
+  IconDroplet,
   IconEye,
   IconEyeOff,
   IconFlipHorizontal,
@@ -22,6 +23,7 @@ import {
   IconFrame,
   IconLayoutDistributeHorizontal,
   IconLayoutGrid,
+  IconSlice,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -3428,23 +3430,40 @@ function AppearanceProperties({
     <PanelSection
       title={t("root.commandAppearance")}
       actions={
-        <SectionIconToggle
-          label={
-            hidden
-              ? "Show" /* i18n-ignore Figma inspector action */
-              : "Hide" /* i18n-ignore Figma inspector action */
-          }
-          active={hidden}
-          onClick={() =>
-            onStyleChange("visibility", hidden ? "visible" : "hidden")
-          }
-        >
-          {hidden ? (
-            <IconEyeOff className="size-3.5" />
-          ) : (
-            <IconEye className="size-3.5" />
-          )}
-        </SectionIconToggle>
+        <>
+          {/* Opacity / blend-mode affordance — matches Figma's pill icon */}
+          <SectionIconButton
+            label={
+              "Opacity & blend mode" /* i18n-ignore Figma inspector action */
+            }
+          >
+            <IconSlice className="size-3.5" />
+          </SectionIconButton>
+          {/* Visibility toggle */}
+          <SectionIconToggle
+            label={
+              hidden
+                ? "Show" /* i18n-ignore Figma inspector action */
+                : "Hide" /* i18n-ignore Figma inspector action */
+            }
+            active={hidden}
+            onClick={() =>
+              onStyleChange("visibility", hidden ? "visible" : "hidden")
+            }
+          >
+            {hidden ? (
+              <IconEyeOff className="size-3.5" />
+            ) : (
+              <IconEye className="size-3.5" />
+            )}
+          </SectionIconToggle>
+          {/* Styles / fill library affordance — matches Figma's droplet icon */}
+          <SectionIconButton
+            label={"Styles" /* i18n-ignore Figma inspector action */}
+          >
+            <IconDroplet className="size-3.5" />
+          </SectionIconButton>
+        </>
       }
     >
       <div className="grid grid-cols-2 gap-2">
@@ -3778,12 +3797,6 @@ export function EditPanel({
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
-                {isContainerElement(selectedElement) ? (
-                  <LayoutGuideProperties
-                    element={selectedElement}
-                    onStyleChange={onStyleChange}
-                  />
-                ) : null}
                 <AppearanceProperties
                   element={selectedElement}
                   onStyleChange={onStyleChange}
@@ -3813,6 +3826,12 @@ export function EditPanel({
                   element={selectedElement}
                   onStyleChange={onStyleChange}
                 />
+                {isContainerElement(selectedElement) ? (
+                  <LayoutGuideProperties
+                    element={selectedElement}
+                    onStyleChange={onStyleChange}
+                  />
+                ) : null}
               </>
             )}
             {onExport ? (
