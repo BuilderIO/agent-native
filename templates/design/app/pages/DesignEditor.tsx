@@ -89,6 +89,7 @@ import {
   IconDownload,
   IconFileExport,
   IconPlayerPlay,
+  IconDeviceFloppy,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -433,7 +434,21 @@ interface DesignData {
   projectType: string;
   designSystemId?: string | null;
   data?: string | null;
+  accessRole?: DesignAccessRole;
   files: DesignFile[];
+}
+
+type DesignAccessRole = "owner" | "admin" | "editor" | "viewer";
+type PostAuthDesignIntent = "save" | "share";
+
+function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
+  const base = agentNativePath("/_agent-native/sign-in");
+  if (typeof window === "undefined") return base;
+
+  const returnUrl = new URL(window.location.href);
+  returnUrl.searchParams.set("intent", intent);
+  const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
+  return `${base}?return=${encodeURIComponent(ret)}`;
 }
 
 interface GeometryHistoryEntry {
@@ -826,7 +841,7 @@ function appendCanvasPrimitiveToHtml(
     const top = Math.max(0, Math.round(geometry.y));
     const width = Math.max(1, Math.round(geometry.width));
     const height = Math.max(1, Math.round(geometry.height));
-    const nodeId = uniqueLayerId(primitive.kind);
+    const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
 
     if (
@@ -2203,6 +2218,10 @@ export default function DesignEditor() {
     () => new URLSearchParams(location.search),
     [location.search],
   );
+  const postAuthIntent = useMemo<PostAuthDesignIntent | null>(() => {
+    const value = searchParams.get("intent");
+    return value === "save" || value === "share" ? value : null;
+  }, [searchParams]);
   const queryClient = useQueryClient();
   const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
@@ -2650,6 +2669,7 @@ export default function DesignEditor() {
   );
 
   const { session } = useSession();
+  const isSignedIn = Boolean(session?.email);
   const pendingVariantKey = useMemo(
     () =>
       pendingVariants
@@ -2704,6 +2724,12 @@ export default function DesignEditor() {
         : undefined,
     [session?.email, session?.name],
   );
+  const handleSignInToSave = useCallback(() => {
+    window.location.href = buildSignInHrefForDesignIntent("save");
+  }, []);
+  const handleSignInToShare = useCallback(() => {
+    window.location.href = buildSignInHrefForDesignIntent("share");
+  }, []);
 
   // Data fetching
   useEffect(() => {
@@ -2777,6 +2803,7 @@ export default function DesignEditor() {
   const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
   const applyTweaksMutation = useActionMutation("apply-tweaks");
+  const duplicateDesignMutation = useActionMutation("duplicate-design");
   const createCodingHandoffMutation = useActionMutation(
     "export-coding-handoff",
   );
@@ -2791,6 +2818,7 @@ export default function DesignEditor() {
     Record<string, FileContentSaveRequest>
   >({});
   const fileSaveTimersRef = useRef<Record<string, number>>({});
+  const postAuthSaveRef = useRef<string | null>(null);
 
   const saveFileContent = useCallback(
     (pending: FileContentSaveRequest) => {
@@ -2950,11 +2978,54 @@ export default function DesignEditor() {
   }, []);
 
   const design = isDesignData(designResult) ? designResult : null;
+  const designAccessRole = design?.accessRole;
+  const canShareDesign =
+    designAccessRole === "owner" || designAccessRole === "admin";
+  const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
+  const editorShareUrl = useMemo(() => {
+    if (!id || typeof window === "undefined") return undefined;
+    return `${window.location.origin}/design/${encodeURIComponent(id)}`;
+  }, [id]);
   const {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems();
+
+  useEffect(() => {
+    if (!id || !design || !isSignedIn || !postAuthIntent) return;
+
+    const shouldDuplicate =
+      postAuthIntent === "share" ? !canShareDesign : !canEditDesign;
+    if (!shouldDuplicate) return;
+
+    const key = `${postAuthIntent}:${id}`;
+    if (postAuthSaveRef.current === key) return;
+    postAuthSaveRef.current = key;
+
+    duplicateDesignMutation
+      .mutateAsync({ id, title: design.title } as any)
+      .then((result: any) => {
+        if (!result?.id) throw new Error("Missing copied design id");
+        const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
+        navigate(`/design/${result.id}${nextSearch}`, { replace: true });
+      })
+      .catch(() => {
+        postAuthSaveRef.current = null;
+        toast.error(t("designEditor.toasts.saveCopyError"));
+      });
+  }, [
+    canEditDesign,
+    canShareDesign,
+    design,
+    duplicateDesignMutation,
+    id,
+    isSignedIn,
+    navigate,
+    postAuthIntent,
+    t,
+  ]);
 
   const resolvePromptDesignSystemId = useCallback(
     () =>
@@ -3547,7 +3618,7 @@ export default function DesignEditor() {
   // Collaborative editing for the active file
   const { ydoc, awareness, isSynced, activeUsers, agentActive } =
     useCollaborativeDoc({
-      docId: activeFileId,
+      docId: isSignedIn ? activeFileId : null,
       requestSource: TAB_ID,
       user: currentUser,
     });
@@ -4212,7 +4283,7 @@ export default function DesignEditor() {
         });
       }
 
-      return true;
+      return primitive.nodeId ?? true;
     },
     [
       activeContent,
@@ -7088,6 +7159,42 @@ ${serializedHtml}
     </DropdownMenu>
   );
 
+  const signedOutPersistenceActions = (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSignInToSave}
+            className="h-8 max-w-[13rem] cursor-pointer gap-1.5 truncate rounded-md bg-[var(--design-editor-panel-raised-bg)] px-2 text-xs shadow-none"
+            aria-label={t("designEditor.signUpToSaveDescription")}
+          >
+            <IconDeviceFloppy className="size-4 shrink-0" />
+            <span className="truncate">{t("designEditor.signUpToSave")}</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {t("designEditor.signUpToSaveDescription")}
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleSignInToShare}
+            className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+          >
+            <span>{t("designEditor.share")}</span>
+            <IconArrowUpRight className="size-4 shrink-0" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t("designEditor.signUpToShare")}</TooltipContent>
+      </Tooltip>
+    </>
+  );
+
   const rightSidebarActions = (
     <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
       <div className="flex min-h-8 items-center justify-between gap-2">
@@ -7115,15 +7222,23 @@ ${serializedHtml}
             <TooltipContent>{t("designEditor.designPreview")}</TooltipContent>
           </Tooltip>
 
-          <ShareButton
-            resourceType="design"
-            resourceId={id}
-            resourceTitle={design.title}
-            hideTriggerIcon
-            triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
-          />
+          {isSignedIn ? (
+            <ShareButton
+              resourceType="design"
+              resourceId={id}
+              resourceTitle={design.title}
+              hideTriggerIcon
+              defaultOpen={shouldOpenShare}
+              shareUrl={editorShareUrl}
+              shareUrlLabel={t("designEditor.shareEditorLink")}
+              shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+              triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
+            />
+          ) : (
+            signedOutPersistenceActions
+          )}
 
-          <AgentToggleButton />
+          {isSignedIn && <AgentToggleButton />}
         </div>
       </div>
     </div>
@@ -7472,7 +7587,7 @@ ${serializedHtml}
               </>
             )}
 
-            {!embedded && (
+            {!embedded && isSignedIn && (
               <PresenceBar
                 activeUsers={activeUsers}
                 agentActive={agentActive}
@@ -7482,17 +7597,25 @@ ${serializedHtml}
               />
             )}
 
-            {!embedded && (
+            {!embedded && isSignedIn ? (
               <ShareButton
                 resourceType="design"
                 resourceId={id}
                 resourceTitle={design.title}
                 hideTriggerIcon
+                defaultOpen={shouldOpenShare}
+                shareUrl={editorShareUrl}
+                shareUrlLabel={t("designEditor.shareEditorLink")}
+                shareUrlDescription={t(
+                  "designEditor.shareEditorLinkDescription",
+                )}
                 triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
               />
-            )}
+            ) : !embedded ? (
+              signedOutPersistenceActions
+            ) : null}
 
-            {!embedded && <AgentToggleButton />}
+            {!embedded && isSignedIn && <AgentToggleButton />}
           </div>
         </div>
       </header>

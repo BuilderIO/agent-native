@@ -248,6 +248,12 @@ const messages = {
     backToDesigns: "返回設計",
     clickToRename: "點選重新命名",
     collaborators: "協作者",
+    share: "分享",
+    signUpToSave: "儲存副本",
+    signUpToSaveDescription: "登入即可儲存這個設計的可編輯副本。",
+    signUpToShare: "登入以分享",
+    shareEditorLink: "編輯器連結",
+    shareEditorLinkDescription: "分享可在編輯器中開啟這個設計的連結。",
     modes: {
       annotate: "註解",
       comment: "評論",
@@ -403,6 +409,7 @@ const messages = {
       propsPasted: "屬性已貼上",
       primitiveInsertFailed: "無法將該圖層新增到畫面",
       layerMoveFailed: "無法移動該圖層",
+      saveCopyError: "無法儲存這個設計的副本",
     },
   },
   layersPanel: {
@@ -551,6 +558,17 @@ const messages = {
       blocked: "阻擋 {{count}}",
     },
   },
+  visualEdit: {
+    eyebrow: "視覺編輯",
+    title: "登入前先檢查本機應用畫面",
+    description:
+      "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
+    saveCta: "免費註冊以儲存",
+    openDesign: "開啟 Design",
+    templatesCta: "瀏覽範本",
+    previewLabel: "本機預覽",
+    layoutLabel: "畫面版面已可儲存",
+  },
   home: {
     pageTitle: "Design",
     searchPlaceholder: "搜尋設計...",
@@ -613,6 +631,7 @@ const messages = {
     designPreview: "Design 預覽",
     settingsDesign: "設定 — Design",
     teamDesign: "團隊 - Design",
+    visualEdit: "視覺編輯 - Design",
   },
   designSystemSetup: {
     importedBrand: "進口品牌",

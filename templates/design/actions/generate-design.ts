@@ -1,5 +1,10 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  deleteAppState,
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
+import {
   hasCollabState,
   applyText,
   seedFromText,
@@ -18,6 +23,10 @@ import {
   mergeCanvasFramePlacements,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import {
+  designGenerationSessionKey,
+  type DesignGenerationSession,
+} from "../shared/generation-session.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -26,6 +35,50 @@ function designDeepLink(designId: string): string {
     view: "editor",
     params: { designId },
   });
+}
+
+function isRenderableDesignFile(file: {
+  fileType?: string | null;
+  content?: string | null;
+}): boolean {
+  const fileType = file.fileType ?? "html";
+  return (
+    (fileType === "html" || fileType === "jsx") && Boolean(file.content?.trim())
+  );
+}
+
+async function updateGenerationSessionForSavedFiles(
+  designId: string,
+  savedFilenames: string[],
+) {
+  const key = designGenerationSessionKey(designId);
+  const rawSession = await readAppState(key).catch(() => null);
+  if (!rawSession || typeof rawSession !== "object") return;
+  const session = rawSession as unknown as DesignGenerationSession;
+  if (session.designId !== designId || !Array.isArray(session.frames)) return;
+
+  const saved = new Set(savedFilenames);
+  const frames = session.frames.map((frame) =>
+    frame.filename && saved.has(frame.filename)
+      ? {
+          ...frame,
+          status: "done" as const,
+          step: "Saved",
+          progress: 1,
+        }
+      : frame,
+  );
+  const allDone = frames.every((frame) => frame.status === "done");
+  if (allDone) {
+    await deleteAppState(key);
+    return;
+  }
+
+  await writeAppState(key, {
+    ...session,
+    status: "generating",
+    frames,
+  } as unknown as Record<string, unknown>);
 }
 
 export default defineAction({
@@ -181,19 +234,6 @@ export default defineAction({
       }
     }
 
-    const hasRenderableFile = files.some((file) => {
-      const fileType = file.fileType ?? "html";
-      return (
-        (fileType === "html" || fileType === "jsx") &&
-        file.content.trim().length > 0
-      );
-    });
-    if (!hasRenderableFile) {
-      throw new Error(
-        "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
-      );
-    }
-
     const savedFiles: Array<{
       id: string;
       filename: string;
@@ -205,6 +245,15 @@ export default defineAction({
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
+
+    const hasRenderableFile =
+      files.some(isRenderableDesignFile) ||
+      existingFiles.some(isRenderableDesignFile);
+    if (!hasRenderableFile) {
+      throw new Error(
+        "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
+      );
+    }
 
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
@@ -378,6 +427,11 @@ export default defineAction({
         .set(designUpdates)
         .where(eq(schema.designs.id, designId));
     });
+
+    await updateGenerationSessionForSavedFiles(
+      designId,
+      savedFiles.map((file) => file.filename),
+    );
 
     return {
       designId,

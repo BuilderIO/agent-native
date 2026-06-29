@@ -138,7 +138,7 @@ export function editorCommandFromNavigate(
   return command;
 }
 
-export function useNavigationState() {
+export function useNavigationState(enabled = true) {
   const params = useParams();
   const browserTabId = getBrowserTabId();
 
@@ -211,5 +211,6 @@ export function useNavigationState() {
         setClientAppState(key, command).catch(() => {});
       }
     },
+    enabled,
   });
 }

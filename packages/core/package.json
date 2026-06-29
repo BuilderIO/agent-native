@@ -313,7 +313,7 @@
     "express": "^5.2.1",
     "mermaid": "11.15.0",
     "node-pty": "^1.1.0",
-    "playwright": "^1.60.0",
+    "playwright": "^1.61.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router": "^8.0.1",
@@ -448,7 +448,7 @@
   },
   "optionalDependencies": {
     "@opentelemetry/api": "^1.9.1",
-    "playwright": "^1.60.0"
+    "playwright": "^1.61.1"
   },
   "engines": {
     "node": ">=22.22.0"

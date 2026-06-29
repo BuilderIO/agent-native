@@ -256,6 +256,14 @@ const enUS = {
     backToDesigns: "Back to designs",
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
+    share: "Share",
+    signUpToSave: "Sign up free to save",
+    signUpToSaveDescription:
+      "Sign up for a free account to save designs, screen layouts, and generate new ones.",
+    signUpToShare: "Sign up to save and share",
+    shareEditorLink: "Design editor link",
+    shareEditorLinkDescription:
+      "Anyone with access can open this design in the editor.",
     modes: {
       annotate: "Annotate",
       comment: "Comment",
@@ -413,6 +421,7 @@ const enUS = {
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
+      saveCopyError: "Could not save a copy of this design",
     },
   },
   layersPanel: {
@@ -624,6 +633,17 @@ const enUS = {
     other: "Other",
     designPreview: "Design preview",
   },
+  visualEdit: {
+    eyebrow: "Visual edit",
+    title: "Inspect local app screens before you sign in",
+    description:
+      "Open visual-edit without an account. Sign up only when you want to save designs, keep screen layouts, share with others, or generate new directions.",
+    saveCta: "Sign up free to save",
+    openDesign: "Open Design",
+    templatesCta: "Browse templates",
+    previewLabel: "Local preview",
+    layoutLabel: "Screen layout ready to save",
+  },
   templatesPage: {
     title: "Marketing templates",
     description:
@@ -649,6 +669,7 @@ const enUS = {
     designPreview: "Design Preview",
     settingsDesign: "Settings — Design",
     teamDesign: "Team - Design",
+    visualEdit: "Visual Edit - Design",
   },
   designSystemSetup: {
     importedBrand: "Imported brand",
@@ -8794,6 +8815,462 @@ const designShapeToolOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
+const designPublicShareOverrides = {
+  "zh-TW": {
+    designEditor: {
+      share: "分享",
+      signUpToSave: "免費註冊以儲存",
+      signUpToSaveDescription:
+        "註冊免費帳號即可儲存設計、畫面版面，並產生新的方向。",
+      signUpToShare: "註冊以儲存並分享",
+      shareEditorLink: "設計編輯器連結",
+      shareEditorLinkDescription: "有權限的任何人都能在編輯器中開啟這個設計。",
+      toasts: {
+        saveCopyError: "無法儲存這個設計的副本",
+      },
+    },
+    visualEdit: {
+      eyebrow: "視覺編輯",
+      title: "登入前先檢視本機 App 畫面",
+      description:
+        "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、分享給他人或產生新方向時才需要註冊。",
+      saveCta: "免費註冊以儲存",
+      openDesign: "開啟 Design",
+      templatesCta: "瀏覽範本",
+      previewLabel: "本機預覽",
+      layoutLabel: "畫面版面已可儲存",
+    },
+    routeTitles: {
+      visualEdit: "視覺編輯 - Design",
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      share: "分享",
+      signUpToSave: "免费注册以保存",
+      signUpToSaveDescription:
+        "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
+      signUpToShare: "注册以保存并共享",
+      shareEditorLink: "设计编辑器链接",
+      shareEditorLinkDescription:
+        "有访问权限的任何人都可以在编辑器中打开此设计。",
+      toasts: {
+        saveCopyError: "无法保存此设计的副本",
+      },
+    },
+    visualEdit: {
+      eyebrow: "可视化编辑",
+      title: "登录前先检查本地应用屏幕",
+      description:
+        "无需帐户即可打开 visual-edit。只有在需要保存设计、保留屏幕布局、与他人共享或生成新方向时才注册。",
+      saveCta: "免费注册以保存",
+      openDesign: "打开 Design",
+      templatesCta: "浏览模板",
+      previewLabel: "本地预览",
+      layoutLabel: "屏幕布局已可保存",
+    },
+    routeTitles: {
+      visualEdit: "可视化编辑 - Design",
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      share: "Compartir",
+      signUpToSave: "Registrarse gratis para guardar",
+      signUpToSaveDescription:
+        "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
+      signUpToShare: "Registrarse para guardar y compartir",
+      shareEditorLink: "Enlace del editor de diseño",
+      shareEditorLinkDescription:
+        "Cualquier persona con acceso puede abrir este diseño en el editor.",
+      toasts: {
+        saveCopyError: "No se pudo guardar una copia de este diseño",
+      },
+    },
+    visualEdit: {
+      eyebrow: "Edicion visual",
+      title: "Inspecciona pantallas locales antes de iniciar sesion",
+      description:
+        "Abre visual-edit sin una cuenta. Registrate solo cuando quieras guardar diseños, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
+      saveCta: "Registrarse gratis para guardar",
+      openDesign: "Abrir Design",
+      templatesCta: "Explorar plantillas",
+      previewLabel: "Vista previa local",
+      layoutLabel: "Layout de pantalla listo para guardar",
+    },
+    routeTitles: {
+      visualEdit: "Edicion visual - Design",
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      share: "Partager",
+      signUpToSave: "S'inscrire gratuitement pour enregistrer",
+      signUpToSaveDescription:
+        "Creez un compte gratuit pour enregistrer des designs, des mises en page et generer de nouvelles directions.",
+      signUpToShare: "S'inscrire pour enregistrer et partager",
+      shareEditorLink: "Lien de l'editeur de design",
+      shareEditorLinkDescription:
+        "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
+      toasts: {
+        saveCopyError: "Impossible d'enregistrer une copie de ce design",
+      },
+    },
+    visualEdit: {
+      eyebrow: "Edition visuelle",
+      title: "Inspectez les ecrans locaux avant de vous connecter",
+      description:
+        "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
+      saveCta: "S'inscrire gratuitement pour enregistrer",
+      openDesign: "Ouvrir Design",
+      templatesCta: "Parcourir les modeles",
+      previewLabel: "Apercu local",
+      layoutLabel: "Mise en page prete a enregistrer",
+    },
+    routeTitles: {
+      visualEdit: "Edition visuelle - Design",
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      share: "Teilen",
+      signUpToSave: "Kostenlos registrieren zum Speichern",
+      signUpToSaveDescription:
+        "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
+      signUpToShare: "Registrieren zum Speichern und Teilen",
+      shareEditorLink: "Design-Editor-Link",
+      shareEditorLinkDescription:
+        "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
+      toasts: {
+        saveCopyError:
+          "Eine Kopie dieses Designs konnte nicht gespeichert werden",
+      },
+    },
+    visualEdit: {
+      eyebrow: "Visuelle Bearbeitung",
+      title: "Lokale App-Screens vor der Anmeldung pruefen",
+      description:
+        "Oeffne visual-edit ohne Konto. Registriere dich erst, wenn du Designs speichern, Screen-Layouts behalten, teilen oder neue Richtungen generieren moechtest.",
+      saveCta: "Kostenlos registrieren zum Speichern",
+      openDesign: "Design oeffnen",
+      templatesCta: "Vorlagen durchsuchen",
+      previewLabel: "Lokale Vorschau",
+      layoutLabel: "Screen-Layout bereit zum Speichern",
+    },
+    routeTitles: {
+      visualEdit: "Visuelle Bearbeitung - Design",
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      share: "共有",
+      signUpToSave: "無料登録して保存",
+      signUpToSaveDescription:
+        "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
+      signUpToShare: "登録して保存と共有",
+      shareEditorLink: "デザインエディターリンク",
+      shareEditorLinkDescription:
+        "アクセス権のある人は、このデザインをエディターで開けます。",
+      toasts: {
+        saveCopyError: "このデザインのコピーを保存できませんでした",
+      },
+    },
+    visualEdit: {
+      eyebrow: "ビジュアル編集",
+      title: "サインイン前にローカルアプリ画面を確認",
+      description:
+        "アカウントなしで visual-edit を開けます。デザインの保存、画面レイアウトの保持、共有、新しい方向の生成が必要なときだけ登録します。",
+      saveCta: "無料登録して保存",
+      openDesign: "Design を開く",
+      templatesCta: "テンプレートを見る",
+      previewLabel: "ローカルプレビュー",
+      layoutLabel: "保存準備ができた画面レイアウト",
+    },
+    routeTitles: {
+      visualEdit: "ビジュアル編集 - Design",
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      share: "공유",
+      signUpToSave: "무료 가입하고 저장",
+      signUpToSaveDescription:
+        "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
+      signUpToShare: "가입하고 저장 및 공유",
+      shareEditorLink: "디자인 편집기 링크",
+      shareEditorLinkDescription:
+        "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
+      toasts: {
+        saveCopyError: "이 디자인의 사본을 저장할 수 없습니다",
+      },
+    },
+    visualEdit: {
+      eyebrow: "비주얼 편집",
+      title: "로그인 전에 로컬 앱 화면 확인",
+      description:
+        "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 보관, 공유 또는 새 방향 생성이 필요할 때만 가입하세요.",
+      saveCta: "무료 가입하고 저장",
+      openDesign: "Design 열기",
+      templatesCta: "템플릿 찾아보기",
+      previewLabel: "로컬 미리보기",
+      layoutLabel: "저장할 준비가 된 화면 레이아웃",
+    },
+    routeTitles: {
+      visualEdit: "비주얼 편집 - Design",
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      share: "Compartilhar",
+      signUpToSave: "Criar conta gratis para salvar",
+      signUpToSaveDescription:
+        "Crie uma conta gratis para salvar designs, layouts de tela e gerar novas direcoes.",
+      signUpToShare: "Criar conta para salvar e compartilhar",
+      shareEditorLink: "Link do editor de design",
+      shareEditorLinkDescription:
+        "Qualquer pessoa com acesso pode abrir este design no editor.",
+      toasts: {
+        saveCopyError: "Nao foi possivel salvar uma copia deste design",
+      },
+    },
+    visualEdit: {
+      eyebrow: "Edicao visual",
+      title: "Inspecione telas locais antes de entrar",
+      description:
+        "Abra o visual-edit sem uma conta. Crie uma conta apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
+      saveCta: "Criar conta gratis para salvar",
+      openDesign: "Abrir Design",
+      templatesCta: "Ver modelos",
+      previewLabel: "Previa local",
+      layoutLabel: "Layout de tela pronto para salvar",
+    },
+    routeTitles: {
+      visualEdit: "Edicao visual - Design",
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      share: "साझा करें",
+      signUpToSave: "सहेजने के लिए मुफ्त साइन अप करें",
+      signUpToSaveDescription:
+        "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
+      signUpToShare: "सहेजने और साझा करने के लिए sign up करें",
+      shareEditorLink: "design editor link",
+      shareEditorLinkDescription:
+        "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
+      toasts: {
+        saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
+      },
+    },
+    visualEdit: {
+      eyebrow: "visual edit",
+      title: "sign in से पहले local app screens देखें",
+      description:
+        "account के बिना visual-edit खोलें। designs सहेजने, screen layouts रखने, share करने या नए directions generate करने के लिए ही sign up करें।",
+      saveCta: "सहेजने के लिए मुफ्त साइन अप करें",
+      openDesign: "Design खोलें",
+      templatesCta: "templates देखें",
+      previewLabel: "स्थानीय पूर्वावलोकन",
+      layoutLabel: "screen layout सहेजने के लिए तैयार",
+    },
+    routeTitles: {
+      visualEdit: "visual edit - Design",
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      share: "مشاركة",
+      signUpToSave: "سجل مجانا للحفظ",
+      signUpToSaveDescription:
+        "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
+      signUpToShare: "سجل للحفظ والمشاركة",
+      shareEditorLink: "رابط محرر التصميم",
+      shareEditorLinkDescription:
+        "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
+      toasts: {
+        saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
+      },
+    },
+    visualEdit: {
+      eyebrow: "تحرير مرئي",
+      title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
+      description:
+        "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم وتخطيطات الشاشة او مشاركتها او انشاء اتجاهات جديدة.",
+      saveCta: "سجل مجانا للحفظ",
+      openDesign: "افتح Design",
+      templatesCta: "تصفح القوالب",
+      previewLabel: "معاينة محلية",
+      layoutLabel: "تخطيط الشاشة جاهز للحفظ",
+    },
+    routeTitles: {
+      visualEdit: "تحرير مرئي - Design",
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designVisualEditOverrides = {
+  "zh-TW": {
+    visualEdit: {
+      eyebrow: "視覺編輯",
+      title: "登入前先檢查本機應用畫面",
+      description:
+        "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
+      saveCta: "免費註冊以儲存",
+      openDesign: "開啟 Design",
+      templatesCta: "瀏覽範本",
+      previewLabel: "本機預覽",
+      layoutLabel: "畫面版面已可儲存",
+    },
+    routeTitles: {
+      visualEdit: "視覺編輯 - Design",
+    },
+  },
+  "zh-CN": {
+    visualEdit: {
+      eyebrow: "视觉编辑",
+      title: "登录前检查本地应用屏幕",
+      description:
+        "无需账号即可打开 visual-edit。只有在想保存设计、保留屏幕布局、与他人共享或生成新方向时才需要注册。",
+      saveCta: "免费注册以保存",
+      openDesign: "打开 Design",
+      templatesCta: "浏览模板",
+      previewLabel: "本地预览",
+      layoutLabel: "屏幕布局已可保存",
+    },
+    routeTitles: {
+      visualEdit: "视觉编辑 - Design",
+    },
+  },
+  "es-ES": {
+    visualEdit: {
+      eyebrow: "Edicion visual",
+      title: "Inspecciona pantallas locales de la app antes de iniciar sesion",
+      description:
+        "Abre visual-edit sin cuenta. Registrate solo cuando quieras guardar disenos, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
+      saveCta: "Registrate gratis para guardar",
+      openDesign: "Abrir Design",
+      templatesCta: "Ver plantillas",
+      previewLabel: "Vista previa local",
+      layoutLabel: "Layout de pantalla listo para guardar",
+    },
+    routeTitles: {
+      visualEdit: "Edicion visual - Design",
+    },
+  },
+  "fr-FR": {
+    visualEdit: {
+      eyebrow: "Edition visuelle",
+      title: "Inspectez les ecrans locaux de l'app avant connexion",
+      description:
+        "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
+      saveCta: "Inscription gratuite pour enregistrer",
+      openDesign: "Ouvrir Design",
+      templatesCta: "Parcourir les modeles",
+      previewLabel: "Apercu local",
+      layoutLabel: "Mise en page prete a enregistrer",
+    },
+    routeTitles: {
+      visualEdit: "Edition visuelle - Design",
+    },
+  },
+  "de-DE": {
+    visualEdit: {
+      eyebrow: "Visuelle Bearbeitung",
+      title: "Lokale App-Bildschirme vor der Anmeldung pruefen",
+      description:
+        "Oeffne visual-edit ohne Konto. Melde dich nur an, wenn du Designs speichern, Layouts behalten, teilen oder neue Richtungen generieren willst.",
+      saveCta: "Kostenlos registrieren und speichern",
+      openDesign: "Design oeffnen",
+      templatesCta: "Vorlagen durchsuchen",
+      previewLabel: "Lokale Vorschau",
+      layoutLabel: "Bildschirm-Layout bereit zum Speichern",
+    },
+    routeTitles: {
+      visualEdit: "Visuelle Bearbeitung - Design",
+    },
+  },
+  "ja-JP": {
+    visualEdit: {
+      eyebrow: "ビジュアル編集",
+      title: "サインイン前にローカルアプリ画面を確認",
+      description:
+        "アカウントなしで visual-edit を開けます。デザイン保存、画面レイアウト保持、共有、新しい方向の生成が必要なときだけ登録します。",
+      saveCta: "無料登録して保存",
+      openDesign: "Design を開く",
+      templatesCta: "テンプレートを見る",
+      previewLabel: "ローカルプレビュー",
+      layoutLabel: "保存できる画面レイアウト",
+    },
+    routeTitles: {
+      visualEdit: "ビジュアル編集 - Design",
+    },
+  },
+  "ko-KR": {
+    visualEdit: {
+      eyebrow: "시각 편집",
+      title: "로그인 전에 로컬 앱 화면 검사",
+      description:
+        "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 유지, 공유, 새 방향 생성을 원할 때만 가입하세요.",
+      saveCta: "무료 가입하고 저장",
+      openDesign: "Design 열기",
+      templatesCta: "템플릿 둘러보기",
+      previewLabel: "로컬 미리보기",
+      layoutLabel: "저장할 준비가 된 화면 레이아웃",
+    },
+    routeTitles: {
+      visualEdit: "시각 편집 - Design",
+    },
+  },
+  "pt-BR": {
+    visualEdit: {
+      eyebrow: "Edicao visual",
+      title: "Inspecione telas locais do app antes de entrar",
+      description:
+        "Abra visual-edit sem conta. Cadastre-se apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
+      saveCta: "Cadastre-se gratis para salvar",
+      openDesign: "Abrir Design",
+      templatesCta: "Ver modelos",
+      previewLabel: "Previa local",
+      layoutLabel: "Layout de tela pronto para salvar",
+    },
+    routeTitles: {
+      visualEdit: "Edicao visual - Design",
+    },
+  },
+  "hi-IN": {
+    visualEdit: {
+      eyebrow: "विजुअल एडिट",
+      title: "Sign in से पहले local app screens जांचें",
+      description:
+        "बिना account visual-edit खोलें। Designs save करने, screen layouts रखने, share करने या नई directions generate करने पर ही sign up करें।",
+      saveCta: "Save करने के लिए free sign up",
+      openDesign: "Design खोलें",
+      templatesCta: "Templates देखें",
+      previewLabel: "स्थानीय पूर्वावलोकन",
+      layoutLabel: "Screen layout save करने के लिए ready",
+    },
+    routeTitles: {
+      visualEdit: "विजुअल एडिट - Design",
+    },
+  },
+  "ar-SA": {
+    visualEdit: {
+      eyebrow: "تحرير مرئي",
+      title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
+      description:
+        "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم أو الاحتفاظ بتخطيطات الشاشة أو المشاركة أو توليد اتجاهات جديدة.",
+      saveCta: "سجل مجانا للحفظ",
+      openDesign: "فتح Design",
+      templatesCta: "تصفح القوالب",
+      previewLabel: "معاينة محلية",
+      layoutLabel: "تخطيط الشاشة جاهز للحفظ",
+    },
+    routeTitles: {
+      visualEdit: "تحرير مرئي - Design",
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
@@ -8801,6 +9278,8 @@ export const messagesByLocale = {
       zhTW,
       designModeFeatureOverrides["zh-TW"],
       designShapeToolOverrides["zh-TW"],
+      designPublicShareOverrides["zh-TW"],
+      designVisualEditOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -8811,6 +9290,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["zh-CN"],
       designCanvasFeatureOverrides["zh-CN"],
       designShapeToolOverrides["zh-CN"],
+      designPublicShareOverrides["zh-CN"],
+      designVisualEditOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -8860,6 +9341,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["es-ES"],
       designCanvasFeatureOverrides["es-ES"],
       designShapeToolOverrides["es-ES"],
+      designPublicShareOverrides["es-ES"],
+      designVisualEditOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -8909,6 +9392,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["fr-FR"],
       designCanvasFeatureOverrides["fr-FR"],
       designShapeToolOverrides["fr-FR"],
+      designPublicShareOverrides["fr-FR"],
+      designVisualEditOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -8958,6 +9443,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["de-DE"],
       designCanvasFeatureOverrides["de-DE"],
       designShapeToolOverrides["de-DE"],
+      designPublicShareOverrides["de-DE"],
+      designVisualEditOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -9007,6 +9494,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["ja-JP"],
       designCanvasFeatureOverrides["ja-JP"],
       designShapeToolOverrides["ja-JP"],
+      designPublicShareOverrides["ja-JP"],
+      designVisualEditOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -9057,6 +9546,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["ko-KR"],
       designCanvasFeatureOverrides["ko-KR"],
       designShapeToolOverrides["ko-KR"],
+      designPublicShareOverrides["ko-KR"],
+      designVisualEditOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -9105,6 +9596,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["pt-BR"],
       designCanvasFeatureOverrides["pt-BR"],
       designShapeToolOverrides["pt-BR"],
+      designPublicShareOverrides["pt-BR"],
+      designVisualEditOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -9154,6 +9647,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["hi-IN"],
       designCanvasFeatureOverrides["hi-IN"],
       designShapeToolOverrides["hi-IN"],
+      designPublicShareOverrides["hi-IN"],
+      designVisualEditOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -9203,6 +9698,8 @@ export const messagesByLocale = {
       designModeFeatureOverrides["ar-SA"],
       designCanvasFeatureOverrides["ar-SA"],
       designShapeToolOverrides["ar-SA"],
+      designPublicShareOverrides["ar-SA"],
+      designVisualEditOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

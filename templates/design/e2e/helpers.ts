@@ -32,10 +32,10 @@ export function designFrame(page: Page): FrameLocator {
 /** Open the editor for a design and wait for the toolbar + iframe to be ready. */
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await page.goto(`/design/${designId}`, { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("button", { name: "Move" })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.locator("iframe")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("iframe").first()).toBeVisible();
   // Wait for the iframe bridge to stamp at least one selectable node.
   await expect
     .poll(

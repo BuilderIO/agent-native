@@ -24,7 +24,10 @@ test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
   for (const tool of ["Move", "Frame", "Text", "Pen", "Edit", "Interact"]) {
-    await expect(page.getByRole("button", { name: tool })).toBeVisible();
+    // exact:true keeps "Move" from matching the "Move options" split button.
+    await expect(
+      page.getByRole("button", { name: tool, exact: true }),
+    ).toBeVisible();
   }
   // Frame-locator reaches inside the sandboxed iframe (contentDocument would be null).
   await expect(designFrame(page).getByText("E2E Hero Heading")).toBeVisible();

@@ -85,6 +85,7 @@ interface CanvasToolProps {
 
 export interface CanvasPrimitiveInsert {
   kind: DraftPrimitiveKind;
+  nodeId?: string;
   geometry: FrameGeometry;
   points?: Point[];
   pathData?: string;
@@ -93,6 +94,11 @@ export interface CanvasPrimitiveInsert {
   stroke?: string;
   strokeWidth?: number;
   autoSize?: boolean;
+}
+
+interface PersistedDraftPrimitive {
+  frameId: string;
+  nodeId: string;
 }
 
 interface ScreenMetadata {
@@ -136,7 +142,7 @@ interface MultiScreenCanvasProps {
   onCreatePrimitive?: (
     screenId: string,
     primitive: CanvasPrimitiveInsert,
-  ) => boolean;
+  ) => boolean | string;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
@@ -974,7 +980,10 @@ export function MultiScreenCanvas({
   );
 
   const persistDraftPrimitive = useCallback(
-    (draft: DraftPrimitive, preferredFrameId?: string) => {
+    (
+      draft: DraftPrimitive,
+      preferredFrameId?: string,
+    ): PersistedDraftPrimitive | null => {
       const targetFrame = getTargetFrameForDraft(draft, preferredFrameId);
       if (!targetFrame || !onCreatePrimitive) return null;
       const targetScreen = screens.find(
@@ -994,7 +1003,13 @@ export function MultiScreenCanvas({
         targetMetadata,
       );
       const persisted = onCreatePrimitive(targetFrame.id, localPrimitive);
-      return persisted ? targetFrame.id : null;
+      if (!persisted) return null;
+      return {
+        frameId: targetFrame.id,
+        nodeId:
+          (typeof persisted === "string" ? persisted : localPrimitive.nodeId) ??
+          draft.id,
+      };
     },
     [
       getScreenMetadata,
@@ -1007,16 +1022,13 @@ export function MultiScreenCanvas({
 
   const commitDraftPrimitive = useCallback(
     (nextDraft: DraftPrimitive, preferredFrameId?: string) => {
-      const persistedFrameId = persistDraftPrimitive(
-        nextDraft,
-        preferredFrameId,
-      );
-      if (persistedFrameId) {
+      const persisted = persistDraftPrimitive(nextDraft, preferredFrameId);
+      if (persisted) {
         updateDraftPrimitives((current) =>
           current.filter((draft) => draft.id !== nextDraft.id),
         );
         updateSelectedDraftIds(() => []);
-        updateSelectedIds(() => []);
+        updateSelectedIds(() => [persisted.nodeId]);
         return;
       }
 
@@ -1458,25 +1470,35 @@ export function MultiScreenCanvas({
       const handleMouseUp = () => {
         const state = dragState.current;
         if (state?.type === "draft-move" && state.hasMoved) {
-          const persisted: Array<{ draftId: string; frameId: string }> = [];
+          const persisted: Array<{
+            draftId: string;
+            frameId: string;
+            nodeId: string;
+          }> = [];
           draftPrimitivesRef.current.forEach((draft) => {
             if (!state.targetIds.includes(draft.id)) return;
-            const frameId = persistDraftPrimitive(draft);
-            if (frameId) persisted.push({ draftId: draft.id, frameId });
+            const result = persistDraftPrimitive(draft);
+            if (result) {
+              persisted.push({
+                draftId: draft.id,
+                frameId: result.frameId,
+                nodeId: result.nodeId,
+              });
+            }
           });
 
           if (persisted.length > 0) {
             const persistedDraftIds = new Set(
               persisted.map((entry) => entry.draftId),
             );
-            const lastFrameId = persisted[persisted.length - 1]?.frameId;
             updateDraftPrimitives((current) =>
               current.filter((draft) => !persistedDraftIds.has(draft.id)),
             );
             updateSelectedDraftIds((current) =>
               current.filter((draftId) => !persistedDraftIds.has(draftId)),
             );
-            if (lastFrameId) updateSelectedIds(() => [lastFrameId]);
+            const lastNodeId = persisted[persisted.length - 1]?.nodeId;
+            if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
           } else {
             // No draft landed in a frame — restore each moved draft to its
             // original position so the move is atomic (commit or revert).
@@ -2398,11 +2420,19 @@ export function MultiScreenCanvas({
         return;
       }
 
-      if (event.key === "Enter" || event.key === "Escape") {
+      if (event.key === "Enter") {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
         finishPenPath(path);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        clearActivePenPath();
         return;
       }
 
@@ -3774,6 +3804,7 @@ function draftPrimitiveToInsert(
     : undefined;
   return {
     kind: draft.kind,
+    nodeId: draft.id,
     geometry: localGeometry,
     points: draft.points?.map(toLocalPoint),
     pathData: scaledPenPath ? serializePenPath(scaledPenPath) : undefined,
