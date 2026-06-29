@@ -66,4 +66,26 @@ describe("voice context helpers", () => {
       "prefixkublectl",
     );
   });
+
+  it("does not rewrite terms inside structured email, URL, or identifier tokens", () => {
+    const pack = {
+      terms: [
+        { term: "example", replacement: "Example" },
+        { term: "api", replacement: "API" },
+        { term: "foo", replacement: "Foo" },
+      ],
+    };
+
+    expect(
+      applyVoiceContextReplacements(
+        "email alice@example.com and open api.example.com, then inspect foo-bar",
+        pack,
+      ),
+    ).toBe(
+      "email alice@example.com and open api.example.com, then inspect foo-bar",
+    );
+    expect(applyVoiceContextReplacements("open api, then foo.", pack)).toBe(
+      "open API, then Foo.",
+    );
+  });
 });

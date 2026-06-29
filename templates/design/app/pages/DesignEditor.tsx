@@ -4185,9 +4185,8 @@ export default function DesignEditor() {
   );
 
   const handleCopySelection = useCallback(async () => {
-    const html = selectedElement?.selector
-      ? getElementOuterHtml(activeContent, selectedElement.selector)
-      : activeContent;
+    if (!selectedElement?.selector) return;
+    const html = getElementOuterHtml(activeContent, selectedElement.selector);
     if (!html) return;
     copiedLayerHtmlRef.current = html;
     setHasCanvasClipboard(true);
@@ -4239,51 +4238,28 @@ export default function DesignEditor() {
   ]);
 
   const handleDeleteSelection = useCallback(() => {
-    if (selectedElement) {
-      const projection = buildCodeLayerProjection(activeContent);
-      const targetNode = resolveCodeLayerNodeFromBridge(
-        projection,
-        selectedElement.selector,
-        selectedElement.sourceId ?? selectedElement.id,
-      );
-      const nextContent =
-        (targetNode
-          ? removeCodeLayerNodeFromHtml(activeContent, targetNode)
-          : null) ??
-        (selectedElement.selector
-          ? removeElementFromHtml(activeContent, selectedElement.selector)
-          : null);
-      if (!nextContent) return;
-      deleteRuntimeElement(selectedElement.selector);
-      applyLocalContentUpdate(nextContent, { refreshPreview: false });
-      setSelectedElement(null);
-      setSelectedLayerIdsState([]);
-      return;
-    }
-
-    if (!activeFile || files.length <= 1) return;
-    const nextActiveFile = files.find((file) => file.id !== activeFile.id);
-    deleteFileMutation.mutate({ id: activeFile.id } as any, {
-      onSuccess: () => {
-        if (nextActiveFile) setActiveFileId(nextActiveFile.id);
-        queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
-      },
-      onError: (error) => {
-        toast.error(
-          error instanceof Error ? error.message : t("common.genericError"),
-        );
-      },
-    });
+    if (!selectedElement?.selector) return;
+    const projection = buildCodeLayerProjection(activeContent);
+    const targetNode = resolveCodeLayerNodeFromBridge(
+      projection,
+      selectedElement.selector,
+      selectedElement.sourceId ?? selectedElement.id,
+    );
+    const nextContent =
+      (targetNode
+        ? removeCodeLayerNodeFromHtml(activeContent, targetNode)
+        : null) ??
+      removeElementFromHtml(activeContent, selectedElement.selector);
+    if (!nextContent) return;
+    deleteRuntimeElement(selectedElement.selector);
+    applyLocalContentUpdate(nextContent, { refreshPreview: false });
+    setSelectedElement(null);
+    setSelectedLayerIdsState([]);
   }, [
     activeContent,
-    activeFile,
     applyLocalContentUpdate,
-    deleteFileMutation,
     deleteRuntimeElement,
-    files,
-    queryClient,
     selectedElement,
-    t,
   ]);
 
   const handleDeleteOverviewSelection = useCallback(

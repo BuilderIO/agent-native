@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  designEditorCommandKeysForTab,
   editorCommandFromNavigate,
   editorPathFromCommand,
 } from "./use-navigation-state";
@@ -26,5 +27,12 @@ describe("design navigation state", () => {
       zoom: 100,
       path,
     });
+  });
+
+  it("keeps editor commands scoped to the active browser tab", () => {
+    expect(designEditorCommandKeysForTab("tab-123")).toEqual([
+      "design-editor-command:tab-123",
+    ]);
+    expect(designEditorCommandKeysForTab()).toEqual(["design-editor-command"]);
   });
 });

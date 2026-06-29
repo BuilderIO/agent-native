@@ -20,7 +20,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { VoiceContextPack } from "../../voice/index.js";
+import {
+  applyVoiceContextReplacements,
+  type VoiceContextPack,
+} from "../../voice/index.js";
 import { agentNativePath } from "../api-path.js";
 
 export type VoiceProvider =
@@ -244,10 +247,8 @@ function appendVoiceContext(
   }
 }
 
-function providerForTextCleanup(provider: VoiceProvider): VoiceProvider {
-  return provider === "browser" || provider === "google-realtime"
-    ? "auto"
-    : provider;
+export function providerForTextCleanup(provider: VoiceProvider): VoiceProvider {
+  return provider === "google-realtime" ? "auto" : provider;
 }
 
 async function cleanupRecognizedText({
@@ -261,6 +262,10 @@ async function cleanupRecognizedText({
   instructions?: string;
   contextPack?: VoiceContextPack;
 }): Promise<string> {
+  if (provider === "browser") {
+    return applyVoiceContextReplacements(text, contextPack);
+  }
+
   const form = new FormData();
   form.append("text", text);
   form.append("provider", providerForTextCleanup(provider));

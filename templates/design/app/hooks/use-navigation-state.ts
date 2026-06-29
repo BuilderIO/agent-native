@@ -44,6 +44,10 @@ export function designEditorCommandKey(browserTabId?: string): string {
     : "design-editor-command";
 }
 
+export function designEditorCommandKeysForTab(browserTabId?: string): string[] {
+  return [designEditorCommandKey(browserTabId)];
+}
+
 function normalizeEditorView(
   value: unknown,
 ): "single" | "overview" | undefined {
@@ -168,9 +172,7 @@ export function useNavigationState() {
     onNavigate: (cmd, path) => {
       const command = editorCommandFromNavigate(cmd, path);
       if (!command) return;
-      const keys = browserTabId
-        ? [designEditorCommandKey(browserTabId), designEditorCommandKey()]
-        : [designEditorCommandKey()];
+      const keys = designEditorCommandKeysForTab(browserTabId);
       for (const key of keys) {
         setClientAppState(key, command).catch(() => {});
       }

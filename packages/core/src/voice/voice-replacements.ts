@@ -8,6 +8,28 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function isAlphaNumeric(value: string | undefined): boolean {
+  return value != null && /[\p{L}\p{N}_]/u.test(value);
+}
+
+function isSafeVoiceReplacementBoundary(
+  text: string,
+  index: number,
+  direction: "before" | "after",
+): boolean {
+  const char = text[index];
+  if (char == null) return true;
+  if (isAlphaNumeric(char)) return false;
+  if (char === "@" || char === "/" || char === "\\" || char === ":") {
+    return false;
+  }
+  if (char === "." || char === "-" || char === "+") {
+    const neighbor = direction === "before" ? text[index - 1] : text[index + 1];
+    return !isAlphaNumeric(neighbor);
+  }
+  return true;
+}
+
 export function applyVoiceTermReplacements(
   text: string,
   terms: readonly VoiceTerm[] | undefined,
@@ -27,12 +49,17 @@ export function applyVoiceTermReplacements(
   for (const term of replacements) {
     const source = escapeRegExp(term.term.trim());
     const replacement = term.replacement?.trim() ?? "";
-    const pattern = new RegExp(
-      `(^|[^\\p{L}\\p{N}_])(${source})(?=$|[^\\p{L}\\p{N}_])`,
-      "giu",
-    );
-    next = next.replace(pattern, (_match, prefix: string) => {
-      return `${prefix}${replacement}`;
+    const pattern = new RegExp(source, "giu");
+    next = next.replace(pattern, (match, offset: number) => {
+      const start = offset;
+      const end = offset + match.length;
+      if (
+        !isSafeVoiceReplacementBoundary(next, start - 1, "before") ||
+        !isSafeVoiceReplacementBoundary(next, end, "after")
+      ) {
+        return match;
+      }
+      return replacement;
     });
   }
 
