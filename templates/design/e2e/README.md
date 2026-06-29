@@ -10,6 +10,7 @@ resizing, moving/reparenting, the layers panel, and the iframe bridge.
 pnpm e2e          # headless
 pnpm e2e:headed   # watch it drive a real browser
 pnpm e2e:ui       # Playwright UI mode
+E2E_BROWSER_CHANNEL=chrome pnpm e2e  # run the suite in installed Google Chrome
 ```
 
 - `playwright.config.ts` starts its own dev server on **:9333** backed by a
