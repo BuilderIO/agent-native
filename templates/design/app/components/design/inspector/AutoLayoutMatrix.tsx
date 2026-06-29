@@ -266,7 +266,7 @@ export function AutoLayoutMatrix({
           <span className="text-[11px] font-medium text-muted-foreground">
             {"Resizing" /* i18n-ignore Figma inspector label */}
           </span>
-          <div className="grid grid-cols-[1fr_1fr_1.75rem] items-center gap-1.5">
+          <div className="grid grid-cols-[1fr_1fr_1.5rem] items-center gap-1">
             <SizingField
               axis="W"
               value={value.childSizing.horizontal}
@@ -378,7 +378,7 @@ export function AutoLayoutMatrix({
           <span className="text-[11px] font-medium text-muted-foreground">
             {copy.padding}
           </span>
-          <div className="grid grid-cols-[1fr_1fr_1.75rem] items-center gap-1.5">
+          <div className="grid grid-cols-[1fr_1fr_1.5rem] items-center gap-1">
             {/* Horizontal padding (left + right) */}
             <ScrubInput
               label={copy.padding}
@@ -641,15 +641,15 @@ function SizingField({
               )}
             >
               {/* Axis letter */}
-              <span className="flex h-full w-5 shrink-0 items-center justify-center border-r border-[var(--design-editor-control-border,hsl(var(--border)/0.6))] text-muted-foreground">
+              <span className="flex h-full w-4 shrink-0 items-center justify-center border-r border-[var(--design-editor-control-border,hsl(var(--border)/0.6))] text-muted-foreground">
                 {axis}
               </span>
               {/* Resolved size */}
-              <span className="min-w-0 flex-1 truncate px-1 tabular-nums text-foreground">
+              <span className="min-w-0 flex-1 truncate px-0.5 text-center tabular-nums text-foreground">
                 {Math.round(resolvedSize ?? 0)}
               </span>
               {/* Mode word + caret */}
-              <span className="flex h-full shrink-0 items-center gap-0.5 border-l border-[var(--design-editor-control-border,hsl(var(--border)/0.6))] px-1 text-muted-foreground">
+              <span className="flex h-full shrink-0 items-center gap-0 border-l border-[var(--design-editor-control-border,hsl(var(--border)/0.6))] px-0.5 text-muted-foreground">
                 {labels[value]}
                 <svg
                   viewBox="0 0 8 8"
