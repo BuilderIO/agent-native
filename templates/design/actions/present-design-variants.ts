@@ -4,11 +4,7 @@ import {
   writeAppState,
   writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
-import {
-  applyText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
+import { seedFromText } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -271,9 +267,6 @@ export default defineAction({
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
-    const existingByFilename = new Map(
-      existingFiles.map((file) => [file.filename, file]),
-    );
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const variantSetId = nanoid();
     const screens: VariantScreen[] = [];
@@ -283,39 +276,20 @@ export default defineAction({
       const label = variant.label.trim() || optionName(index);
       const slug = slugify(label, `option-${index + 1}`);
       const preferredFilename = `variant-${slug}.html`;
-      const existing = existingByFilename.get(preferredFilename);
-      const filename = existing
-        ? existing.filename
-        : uniqueFilename(preferredFilename, usedFilenames);
-      const fileId = existing?.id ?? nanoid();
+      const filename = uniqueFilename(preferredFilename, usedFilenames);
+      const fileId = nanoid();
       const { width, height } = inferVariantSize(variant);
 
-      if (existing) {
-        await db
-          .update(schema.designFiles)
-          .set({
-            content: variant.content,
-            fileType: "html",
-            updatedAt: now,
-          })
-          .where(eq(schema.designFiles.id, existing.id));
-        if (await hasCollabState(existing.id)) {
-          await applyText(existing.id, variant.content, "content", "agent");
-        } else {
-          await seedFromText(existing.id, variant.content);
-        }
-      } else {
-        await db.insert(schema.designFiles).values({
-          id: fileId,
-          designId,
-          filename,
-          fileType: "html",
-          content: variant.content,
-          createdAt: now,
-          updatedAt: now,
-        });
-        await seedFromText(fileId, variant.content);
-      }
+      await db.insert(schema.designFiles).values({
+        id: fileId,
+        designId,
+        filename,
+        fileType: "html",
+        content: variant.content,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await seedFromText(fileId, variant.content);
 
       screens.push({
         id: fileId,

@@ -1225,7 +1225,7 @@ function LayerRow({
               data-layer-row-button
               data-layer-node-id={node.id}
               className={cn(
-                "flex min-w-max flex-1 items-center gap-2 rounded-sm px-0.5 py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "flex min-w-0 flex-1 items-center gap-2 rounded-sm px-0.5 py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}
@@ -1289,7 +1289,7 @@ function LayerRow({
               ) : (
                 <span
                   className={cn(
-                    "min-w-max flex-1 whitespace-nowrap font-medium leading-none",
+                    "min-w-0 flex-1 truncate font-medium leading-none",
                     node.hidden && "line-through",
                   )}
                   title={node.name}

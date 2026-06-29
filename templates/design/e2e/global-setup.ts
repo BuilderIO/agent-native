@@ -18,6 +18,7 @@ export const SEED_TITLE = "E2E Seed Design";
 const AUTH_DIR = path.join(import.meta.dirname, ".auth");
 const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
+const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 
 /**
  * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
@@ -39,6 +40,15 @@ export const FIXTURE_HTML = `<!doctype html>
       <div style="display:flex;flex-direction:row;gap:16px">
         <button style="padding:14px 28px;border-radius:10px;border:0;background:#6366f1;color:#fff;font-size:16px">Alpha Button</button>
         <button style="padding:14px 28px;border-radius:10px;border:0;background:#22c55e;color:#06240f;font-size:16px">Beta Button</button>
+      </div>
+      <div style="padding:8px;border:1px solid #27272a;border-radius:12px">
+        <div style="padding:8px;border:1px solid #3f3f46;border-radius:10px">
+          <div style="padding:8px;border:1px solid #52525b;border-radius:8px">
+            <div style="padding:8px;border:1px solid #71717a;border-radius:6px">
+              <button style="padding:10px 18px;border-radius:8px;border:0;background:#f59e0b;color:#111827;font-size:14px">Deep Layer Button</button>
+            </div>
+          </div>
+        </div>
       </div>
       <section style="margin-top:16px;padding:24px;border-radius:14px;background:#1a1d24">
         <h2 style="font-size:24px;margin:0 0 8px">Fixture Card Title</h2>
@@ -72,7 +82,9 @@ export default async function globalSetup(config: FullConfig) {
     "http://127.0.0.1:9333";
   await mkdir(AUTH_DIR, { recursive: true });
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(
+    BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {},
+  );
   const context = await browser.newContext();
   const page = await context.newPage();
 

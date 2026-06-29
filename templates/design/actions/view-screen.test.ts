@@ -68,7 +68,7 @@ describe("view-screen", () => {
     mocks.readAppState.mockResolvedValue(undefined);
   });
 
-  it("uses selected overview screen ids before default active file state", async () => {
+  it("uses active file before overview multi-selection", async () => {
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({
         view: "editor",
@@ -79,6 +79,40 @@ describe("view-screen", () => {
         viewMode: "overview",
         activeFileId: "file_index",
         activeFilename: "index.html",
+        selectedScreenIds: ["file_checkout"],
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+      {
+        id: "file_checkout",
+        filename: "checkout.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design.activeScreen).toMatchObject({
+      id: "file_index",
+      filename: "index.html",
+    });
+  });
+
+  it("uses selected overview screen ids when no focused file is available", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
         selectedScreenIds: ["file_checkout"],
       });
     mocks.selectChain.where.mockResolvedValue([

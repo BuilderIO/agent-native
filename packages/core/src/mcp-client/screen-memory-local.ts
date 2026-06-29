@@ -152,13 +152,18 @@ async function resolvePaths(options: ScreenMemoryLocalOptions = {}): Promise<{
   const platform = options.platform ?? process.platform;
   const home = options.homeDir ?? os.homedir();
 
-  const appConfigBase =
+  const appDataBase =
     platform === "darwin"
       ? path.join(home, "Library", "Application Support")
       : platform === "win32"
         ? env.APPDATA || path.join(home, "AppData", "Roaming")
-        : env.XDG_CONFIG_HOME || path.join(home, ".config");
-  const clipsAppDir = path.join(appConfigBase, "com.clips.tray");
+        : env.XDG_DATA_HOME || path.join(home, ".local", "share");
+  const appConfigBase =
+    platform === "darwin" || platform === "win32"
+      ? appDataBase
+      : env.XDG_CONFIG_HOME || path.join(home, ".config");
+  const clipsDataDir = path.join(appDataBase, "com.clips.tray");
+  const clipsConfigDir = path.join(appConfigBase, "com.clips.tray");
   const fallbackDir = path.join(home, ".agent-native", "screen-memory");
   const envDir =
     env.AGENT_NATIVE_SCREEN_MEMORY_DIR ?? env.CLIPS_SCREEN_MEMORY_DIR;
@@ -166,14 +171,20 @@ async function resolvePaths(options: ScreenMemoryLocalOptions = {}): Promise<{
 
   const dataDirs = [
     ...(envDir ? [envDir] : []),
-    path.join(clipsAppDir, "screen-memory"),
+    path.join(clipsDataDir, "screen-memory"),
+    ...(clipsConfigDir === clipsDataDir
+      ? []
+      : [path.join(clipsConfigDir, "screen-memory")]),
     fallbackDir,
   ];
 
   return {
     featureConfigPaths: [
       ...(envConfig ? [envConfig] : []),
-      path.join(clipsAppDir, "feature-config.json"),
+      path.join(clipsDataDir, "feature-config.json"),
+      ...(clipsConfigDir === clipsDataDir
+        ? []
+        : [path.join(clipsConfigDir, "feature-config.json")]),
     ],
     standaloneConfigPath: path.join(fallbackDir, "config.json"),
     dataDirs,

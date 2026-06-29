@@ -44,15 +44,6 @@ function resolveActiveScreen(
   navigation: unknown,
   designSelection: unknown,
 ) {
-  const selectedScreenIds = stringArrayProp(
-    designSelection,
-    "selectedScreenIds",
-  );
-  for (const screenId of selectedScreenIds) {
-    const selected = files.find((file) => file.id === screenId);
-    if (selected) return selected;
-  }
-
   const selectionFileId = stringProp(designSelection, "activeFileId");
   if (selectionFileId) {
     const active = files.find((file) => file.id === selectionFileId);
@@ -63,6 +54,15 @@ function resolveActiveScreen(
   if (selectionFilename) {
     const active = files.find((file) => file.filename === selectionFilename);
     if (active) return active;
+  }
+
+  const selectedScreenIds = stringArrayProp(
+    designSelection,
+    "selectedScreenIds",
+  );
+  for (const screenId of selectedScreenIds) {
+    const selected = files.find((file) => file.id === screenId);
+    if (selected) return selected;
   }
 
   const navigationTargets = [

@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +21,20 @@ async function tempScreenMemoryEnv() {
       },
       homeDir: root,
       platform: "darwin" as const,
+    },
+  };
+}
+
+async function tempLinuxScreenMemoryEnv() {
+  const root = await mkdtemp(join(tmpdir(), "screen-memory-"));
+  const dataBase = join(root, ".local", "share", "com.clips.tray");
+  return {
+    root,
+    dataBase,
+    options: {
+      env: {},
+      homeDir: root,
+      platform: "linux" as const,
     },
   };
 }
@@ -62,6 +76,45 @@ describe("local Screen Memory helpers", () => {
       appName: "Clips",
       windowTitle: "Settings",
       text: "Screen Memory is enabled",
+    });
+  });
+
+  it("reads linux screen memory data from the app-data directory", async () => {
+    const { dataBase, options } = await tempLinuxScreenMemoryEnv();
+    const storeDir = join(dataBase, "screen-memory");
+    await mkdir(storeDir, { recursive: true });
+    await writeFile(
+      join(dataBase, "feature-config.json"),
+      `${JSON.stringify({
+        screenMemory: { enabled: true },
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(storeDir, "context.jsonl"),
+      `${JSON.stringify({
+        capturedAt: "2026-06-29T12:00:00.000Z",
+        appName: "Clips",
+        windowTitle: "Linux",
+        text: "Screen Memory is visible on Linux",
+      })}\n`,
+      "utf8",
+    );
+
+    const status = await readScreenMemoryStatus(options);
+    const result = await queryScreenMemoryContext(
+      { query: "linux", limit: 5 },
+      options,
+    );
+
+    expect(status.enabled).toBe(true);
+    expect(status.state).toBe("ready");
+    expect(status.contextFiles).toContain(join(storeDir, "context.jsonl"));
+    expect(result.count).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      appName: "Clips",
+      windowTitle: "Linux",
+      text: "Screen Memory is visible on Linux",
     });
   });
 });

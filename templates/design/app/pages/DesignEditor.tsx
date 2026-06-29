@@ -13,6 +13,7 @@ import {
   AgentToggleButton,
   ShareButton,
   agentNativePath,
+  appBasePath,
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
   sendToAgentChat,
@@ -292,6 +293,18 @@ export function getOverviewCanvasZoom(
 ) {
   const scale = overviewZoomScale > 0 ? overviewZoomScale : 1;
   return displayZoom / scale;
+}
+
+export function getDesignEditorShareUrl(
+  id: string,
+  origin: string,
+  basePath = "",
+) {
+  const normalizedBasePath = basePath.replace(/\/+$/, "");
+  const pathname = normalizedBasePath
+    ? `${normalizedBasePath}/design/${encodeURIComponent(id)}`
+    : `/design/${encodeURIComponent(id)}`;
+  return new URL(pathname, origin).toString();
 }
 
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
@@ -3264,7 +3277,7 @@ export default function DesignEditor() {
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
-    return `${window.location.origin}/design/${encodeURIComponent(id)}`;
+    return getDesignEditorShareUrl(id, window.location.origin, appBasePath());
   }, [id]);
   const {
     designSystems,

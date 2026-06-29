@@ -228,6 +228,7 @@ function createUserMessageRunConfig(
 
 const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
+const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
 const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
@@ -237,15 +238,27 @@ type ActiveRunLookup = {
   threadId?: string;
   status?: string;
   heartbeatAt?: number | null;
+  lastProgressAt?: number | null;
+  serverNow?: number;
 };
 
 function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
-  const heartbeatAt =
-    typeof runInfo.heartbeatAt === "number" ? runInfo.heartbeatAt : null;
+  const lastProgressAt =
+    typeof runInfo.lastProgressAt === "number" ? runInfo.lastProgressAt : null;
+  const nowMs =
+    typeof runInfo.serverNow === "number" ? runInfo.serverNow : Date.now();
   return (
     runInfo.status === "running" &&
-    heartbeatAt != null &&
-    Date.now() - heartbeatAt > 5000
+    lastProgressAt != null &&
+    nowMs - lastProgressAt > ACTIVE_RUN_STUCK_THRESHOLD_MS
+  );
+}
+
+function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    message.includes("MessageRepository") &&
+    message.includes("same id already exists")
   );
 }
 
@@ -295,14 +308,13 @@ async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
         `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
       );
       if (res.ok) {
-        const info = await res.json();
-        const heartbeatAt =
-          typeof info?.heartbeatAt === "number" ? info.heartbeatAt : null;
-        const stale =
-          info?.status === "running" &&
-          heartbeatAt != null &&
-          Date.now() - heartbeatAt > 5000;
-        if (!info?.active || info?.status !== "running" || stale) return;
+        const info = (await res.json()) as ActiveRunLookup;
+        if (
+          !info?.active ||
+          info?.status !== "running" ||
+          activeRunLooksStale(info)
+        )
+          return;
       }
     } catch {
       // Transient poll failure — try again until the short grace period ends.
@@ -1467,9 +1479,40 @@ const AssistantChatInner = forwardRef<
     }
   }, [apiUrl, importThreadData, loadHistoryRepository, threadId]);
 
+  const exportCleanThreadRepo = useCallback(
+    () =>
+      ensureMessageMetadata(normalizeThreadRepository(threadRuntime.export())),
+    [threadRuntime],
+  );
+
+  const appendThreadMessage = useCallback(
+    (message: Parameters<typeof threadRuntime.append>[0]) => {
+      try {
+        threadRuntime.append(message);
+        return;
+      } catch (error) {
+        if (!isAssistantUiDuplicateMessageIdError(error)) throw error;
+      }
+
+      try {
+        threadRuntime.import(exportCleanThreadRepo());
+      } catch {
+        // Best effort cleanup; retry below handles the still-duplicated case.
+      }
+
+      try {
+        threadRuntime.append(message);
+      } catch (retryError) {
+        if (isAssistantUiDuplicateMessageIdError(retryError)) return;
+        throw retryError;
+      }
+    },
+    [exportCleanThreadRepo, threadRuntime],
+  );
+
   const cacheCurrentThreadSnapshot = useCallback(() => {
     if (!threadId || messages.length === 0) return;
-    const repo = threadRuntime.export();
+    const repo = exportCleanThreadRepo();
     const threadData = JSON.stringify(stripBase64FromRepo(repo));
     const { title, preview } = extractThreadMeta(repo);
     writeCachedThreadSnapshot(apiUrl, threadId, {
@@ -1478,7 +1521,7 @@ const AssistantChatInner = forwardRef<
       preview,
       messageCount: messages.length,
     });
-  }, [apiUrl, messages.length, threadId, threadRuntime]);
+  }, [apiUrl, exportCleanThreadRepo, messages.length, threadId]);
 
   useBrowserLayoutEffect(() => {
     if (hasImportedInitialCachedSnapshotRef.current) return;
@@ -1975,7 +2018,7 @@ const AssistantChatInner = forwardRef<
     const timeSinceLastSave = now - lastSaveTimeRef.current;
     if (timeSinceLastSave < 5000) return;
 
-    const repo = threadRuntime.export();
+    const repo = exportCleanThreadRepo();
     const { title, preview } = extractThreadMeta(repo);
     const threadData = JSON.stringify(stripBase64FromRepo(repo));
     const snapshot = {
@@ -1989,7 +2032,7 @@ const AssistantChatInner = forwardRef<
     savedTitleRef.current = title;
     writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
     onSaveThreadRef.current(threadId, snapshot);
-  }, [apiUrl, messages, isRunning, threadId, threadRuntime]);
+  }, [apiUrl, exportCleanThreadRepo, messages, isRunning, threadId]);
 
   // Persist full thread data after each completed response
   useEffect(() => {
@@ -1997,7 +2040,7 @@ const AssistantChatInner = forwardRef<
     if (isRunning) return;
     if (messages.length === 0) return;
 
-    const repo = threadRuntime.export();
+    const repo = exportCleanThreadRepo();
 
     if (threadId && onSaveThreadRef.current) {
       // Save to server via the hook callback
@@ -2019,7 +2062,7 @@ const AssistantChatInner = forwardRef<
         sessionStorage.setItem(storageKey, JSON.stringify(repo));
       } catch {}
     }
-  }, [apiUrl, messages, isRunning, threadId, tabId, threadRuntime]);
+  }, [apiUrl, exportCleanThreadRepo, messages, isRunning, threadId, tabId]);
 
   useEffect(() => {
     onMessageCountChange?.(messages.length);
@@ -2280,7 +2323,7 @@ const AssistantChatInner = forwardRef<
             next.attachments && next.attachments.length > 0
               ? next.attachments
               : (imageAttachments ?? []);
-          threadRuntime.append({
+          appendThreadMessage({
             role: "user",
             content: [{ type: "text", text: next.text }],
             ...(messageAttachments.length > 0
@@ -2334,12 +2377,12 @@ const AssistantChatInner = forwardRef<
     };
   }, [
     apiUrl,
+    appendThreadMessage,
     applyLocalQueuedMessages,
     isRestoring,
     isRunning,
     queuedMessages,
     threadId,
-    threadRuntime,
   ]);
 
   // Clear frozen reconnect content + forceStopped only on the false→true
@@ -2683,7 +2726,7 @@ const AssistantChatInner = forwardRef<
           },
         ]);
       } else {
-        threadRuntime.append({
+        appendThreadMessage({
           role: "user",
           content: [{ type: "text", text: submittedText }],
           ...(messageAttachments.length > 0
@@ -2708,7 +2751,7 @@ const AssistantChatInner = forwardRef<
       execMode,
       isRunning,
       materializeFrozenReconnectContent,
-      threadRuntime,
+      appendThreadMessage,
       updateComposerContextItems,
     ],
   );
@@ -2774,7 +2817,7 @@ const AssistantChatInner = forwardRef<
       },
       exportThreadSnapshot() {
         if (messages.length === 0) return null;
-        const repo = threadRuntime.export();
+        const repo = exportCleanThreadRepo();
         const { title, preview } = extractThreadMeta(repo);
         return {
           threadData: JSON.stringify(repo),
@@ -2786,10 +2829,10 @@ const AssistantChatInner = forwardRef<
     }),
     [
       addToQueue,
+      exportCleanThreadRepo,
       messages.length,
       stageComposerContextItem,
       thread.isRunning,
-      threadRuntime,
     ],
   );
 
@@ -2986,7 +3029,7 @@ const AssistantChatInner = forwardRef<
   const approvalCtx = useMemo<ApprovalContextValue>(
     () => ({
       onApprove: (approvalKey: string) => {
-        threadRuntime.append({
+        appendThreadMessage({
           role: "user",
           content: [
             {
@@ -3008,7 +3051,7 @@ const AssistantChatInner = forwardRef<
         } as Parameters<typeof threadRuntime.append>[0]);
       },
     }),
-    [threadRuntime, execMode],
+    [appendThreadMessage, execMode],
   );
 
   return (
@@ -3201,7 +3244,7 @@ const AssistantChatInner = forwardRef<
                                   setMissingKeyBouncePulse((p) => p + 1);
                                   return;
                                 }
-                                threadRuntime.append({
+                                appendThreadMessage({
                                   role: "user",
                                   content: [{ type: "text", text: suggestion }],
                                 });

@@ -20,6 +20,7 @@ const E2E_DATABASE_URL = `file:${path.join(
   "data",
   "e2e.db",
 )}`;
+const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -38,7 +39,15 @@ export default defineConfig({
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: BROWSER_CHANNEL ? `chromium-${BROWSER_CHANNEL}` : "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {}),
+      },
+    },
+  ],
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {

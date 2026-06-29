@@ -253,6 +253,56 @@ describe("present-design-variants", () => {
     });
   });
 
+  it("keeps an existing screen intact when a generated filename collides", async () => {
+    mocks.filesSelectChain.where.mockResolvedValue([
+      {
+        id: "existing-screen",
+        designId: "design_123",
+        filename: "variant-pure-white.html",
+        content: "<!doctype html><html><body>Keep me</body></html>",
+        fileType: "html",
+      },
+    ]);
+
+    await action.run({
+      designId: "design_123",
+      variants: [
+        {
+          id: "pure-white",
+          label: "Pure White",
+          content: "<!doctype html><html><body>New one</body></html>",
+        },
+        {
+          id: "soft-cards",
+          label: "Soft Cards",
+          content: "<!doctype html><html><body>Two</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.insertChain.values).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        id: "file-a",
+        filename: "variant-pure-white-2.html",
+        content: expect.stringContaining("New one"),
+      }),
+    );
+    expect(mocks.insertChain.values).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        id: "file-b",
+        filename: "variant-soft-cards.html",
+        content: expect.stringContaining("Two"),
+      }),
+    );
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      "file-a",
+      expect.stringContaining("New one"),
+    );
+  });
+
   it("accepts 2-5 variants for the board choice flow", () => {
     const variant = (n: number) => ({
       id: `v${n}`,

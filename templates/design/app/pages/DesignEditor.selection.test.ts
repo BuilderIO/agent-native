@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getDesignEditorShareUrl,
   getOverviewCanvasZoom,
   getOverviewDisplayZoom,
   getOverviewEnterTarget,
@@ -70,6 +71,24 @@ describe("DesignEditor overview zoom display", () => {
 
     expect(getOverviewDisplayZoom(100, scale)).toBe(25);
     expect(getOverviewCanvasZoom(100, scale)).toBe(400);
+  });
+});
+
+describe("DesignEditor share URLs", () => {
+  it("keeps the app base path when building editor share links", () => {
+    expect(
+      getDesignEditorShareUrl(
+        "design-123",
+        "https://builder.example",
+        "/workspace",
+      ),
+    ).toBe("https://builder.example/workspace/design/design-123");
+  });
+
+  it("builds root-mounted editor share links without a base path", () => {
+    expect(
+      getDesignEditorShareUrl("design-123", "https://builder.example"),
+    ).toBe("https://builder.example/design/design-123");
   });
 });
 
