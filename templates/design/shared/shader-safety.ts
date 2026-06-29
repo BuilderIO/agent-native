@@ -36,8 +36,7 @@ export function isWebGLAvailable(): boolean {
   try {
     const canvas = document.createElement("canvas");
     const ctx =
-      canvas.getContext("webgl") ||
-      canvas.getContext("experimental-webgl");
+      canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
     _webGLAvailable = ctx !== null;
   } catch {
     _webGLAvailable = false;

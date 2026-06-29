@@ -264,7 +264,15 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
         kind: "enum",
         label: "Shape",
         default: "corners",
-        options: ["corners", "radial", "wave", "dots", "truchet", "ripple", "blob"],
+        options: [
+          "corners",
+          "radial",
+          "wave",
+          "dots",
+          "truchet",
+          "ripple",
+          "blob",
+        ],
       },
     ],
   },
@@ -549,7 +557,15 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
         kind: "enum",
         label: "Dither Type",
         default: "4x4",
-        options: ["4x4", "8x8", "2x2", "ordered", "checker", "bluenoise", "random"],
+        options: [
+          "4x4",
+          "8x8",
+          "2x2",
+          "ordered",
+          "checker",
+          "bluenoise",
+          "random",
+        ],
       },
       {
         key: "size",
@@ -569,7 +585,8 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
   {
     name: "PaperTexture",
     label: "Paper Texture",
-    description: "Procedural paper surface with grain, fiber, crumples, and folds.",
+    description:
+      "Procedural paper surface with grain, fiber, crumples, and folds.",
     defaultColorFront: "#9fadbc",
     defaultColorBack: "#ffffff",
     params: [
@@ -693,9 +710,10 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
 // ---------------------------------------------------------------------------
 
 export const SHADER_PRESET_MAP: Record<ShaderPresetName, ShaderPresetDef> =
-  Object.fromEntries(
-    SHADER_PRESETS.map((p) => [p.name, p]),
-  ) as Record<ShaderPresetName, ShaderPresetDef>;
+  Object.fromEntries(SHADER_PRESETS.map((p) => [p.name, p])) as Record<
+    ShaderPresetName,
+    ShaderPresetDef
+  >;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -729,7 +747,9 @@ export function validateDescriptor(descriptor: ShaderDescriptor): {
   for (const [key, value] of Object.entries(descriptor.params)) {
     const def = paramMap.get(key);
     if (!def) {
-      errors.push(`Unknown param key "${key}" for preset "${descriptor.preset}"`);
+      errors.push(
+        `Unknown param key "${key}" for preset "${descriptor.preset}"`,
+      );
       continue;
     }
 
@@ -740,14 +760,10 @@ export function validateDescriptor(descriptor: ShaderDescriptor): {
         continue;
       }
       if (def.min !== undefined && num < def.min) {
-        errors.push(
-          `Param "${key}" value ${num} is below minimum ${def.min}`,
-        );
+        errors.push(`Param "${key}" value ${num} is below minimum ${def.min}`);
       }
       if (def.max !== undefined && num > def.max) {
-        errors.push(
-          `Param "${key}" value ${num} is above maximum ${def.max}`,
-        );
+        errors.push(`Param "${key}" value ${num} is above maximum ${def.max}`);
       }
     }
   }

@@ -45,19 +45,19 @@ export default defineAction({
         ? `element matching "${target.selector}"`
         : "any element";
 
-    const availablePresets = (Object.keys(SHADER_PRESET_MAP) as ShaderPresetName[]).map(
-      (name) => {
-        const def = SHADER_PRESET_MAP[name];
-        return {
-          name,
-          label: def.label,
-          description: def.description,
-          isEffect: def.isEffect ?? false,
-          maxColorCount: def.maxColorCount,
-          paramKeys: def.params.map((p) => p.key),
-        };
-      },
-    );
+    const availablePresets = (
+      Object.keys(SHADER_PRESET_MAP) as ShaderPresetName[]
+    ).map((name) => {
+      const def = SHADER_PRESET_MAP[name];
+      return {
+        name,
+        label: def.label,
+        description: def.description,
+        isEffect: def.isEffect ?? false,
+        maxColorCount: def.maxColorCount,
+        paramKeys: def.params.map((p) => p.key),
+      };
+    });
 
     const presetSummaryLines = SHADER_PRESETS.map((p) => {
       const paramKeys = p.params.map((param) => param.key).join(", ");
@@ -85,7 +85,9 @@ export default defineAction({
     ];
 
     const inspectionSteps =
-      sourceKind === "inline-html" ? inspectionStepsInline : inspectionStepsFramework;
+      sourceKind === "inline-html"
+        ? inspectionStepsInline
+        : inspectionStepsFramework;
 
     const hint =
       sourceKind === "inline-html"

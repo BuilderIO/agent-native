@@ -45,9 +45,23 @@ export function IconPaddingHorizontal({ className }: IconProps) {
       {/* Outer frame */}
       <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="1.5" />
       {/* Thick left side */}
-      <line x1="3" y1="3" x2="3" y2="21" strokeWidth="4" strokeLinecap="square" />
+      <line
+        x1="3"
+        y1="3"
+        x2="3"
+        y2="21"
+        strokeWidth="4"
+        strokeLinecap="square"
+      />
       {/* Thick right side */}
-      <line x1="21" y1="3" x2="21" y2="21" strokeWidth="4" strokeLinecap="square" />
+      <line
+        x1="21"
+        y1="3"
+        x2="21"
+        y2="21"
+        strokeWidth="4"
+        strokeLinecap="square"
+      />
     </svg>
   );
 }
@@ -67,9 +81,23 @@ export function IconPaddingVertical({ className }: IconProps) {
       {/* Outer frame */}
       <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="1.5" />
       {/* Thick top side */}
-      <line x1="3" y1="3" x2="21" y2="3" strokeWidth="4" strokeLinecap="square" />
+      <line
+        x1="3"
+        y1="3"
+        x2="21"
+        y2="3"
+        strokeWidth="4"
+        strokeLinecap="square"
+      />
       {/* Thick bottom side */}
-      <line x1="3" y1="21" x2="21" y2="21" strokeWidth="4" strokeLinecap="square" />
+      <line
+        x1="3"
+        y1="21"
+        x2="21"
+        y2="21"
+        strokeWidth="4"
+        strokeLinecap="square"
+      />
     </svg>
   );
 }
@@ -89,9 +117,25 @@ export function IconFlowHorizontal({ className }: IconProps) {
       {/* Container frame */}
       <rect x="2" y="7" width="20" height="10" rx="2" strokeWidth="1.5" />
       {/* Left item */}
-      <rect x="5" y="10" width="5" height="4" rx="1" fill="currentColor" stroke="none" />
+      <rect
+        x="5"
+        y="10"
+        width="5"
+        height="4"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+      />
       {/* Right item */}
-      <rect x="14" y="10" width="5" height="4" rx="1" fill="currentColor" stroke="none" />
+      <rect
+        x="14"
+        y="10"
+        width="5"
+        height="4"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+      />
     </svg>
   );
 }
@@ -111,9 +155,25 @@ export function IconFlowVertical({ className }: IconProps) {
       {/* Container frame */}
       <rect x="7" y="2" width="10" height="20" rx="2" strokeWidth="1.5" />
       {/* Top item */}
-      <rect x="10" y="5" width="4" height="5" rx="1" fill="currentColor" stroke="none" />
+      <rect
+        x="10"
+        y="5"
+        width="4"
+        height="5"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+      />
       {/* Bottom item */}
-      <rect x="10" y="14" width="4" height="5" rx="1" fill="currentColor" stroke="none" />
+      <rect
+        x="10"
+        y="14"
+        width="4"
+        height="5"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+      />
     </svg>
   );
 }
@@ -182,7 +242,15 @@ export function IconDistributeHorizontal({ className }: IconProps) {
       {/* Right rail */}
       <line x1="21" y1="5" x2="21" y2="19" />
       {/* Center item */}
-      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" />
+      <rect
+        x="9"
+        y="9"
+        width="6"
+        height="6"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+      />
       {/* Spacing tick marks */}
       <line x1="6" y1="10" x2="6" y2="14" strokeWidth="1.5" />
       <line x1="18" y1="10" x2="18" y2="14" strokeWidth="1.5" />
@@ -207,7 +275,15 @@ export function IconDistributeVertical({ className }: IconProps) {
       {/* Bottom rail */}
       <line x1="5" y1="21" x2="19" y2="21" />
       {/* Center item */}
-      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" />
+      <rect
+        x="9"
+        y="9"
+        width="6"
+        height="6"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+      />
       {/* Spacing tick marks */}
       <line x1="10" y1="6" x2="14" y2="6" strokeWidth="1.5" />
       <line x1="10" y1="18" x2="14" y2="18" strokeWidth="1.5" />
@@ -229,13 +305,31 @@ export function IconLayoutSettings({ className }: IconProps) {
     >
       {/* Line 1 with handle at x=8 */}
       <line x1="3" y1="7" x2="21" y2="7" />
-      <circle cx="8" cy="7" r="2" fill="var(--background, white)" strokeWidth="2" />
+      <circle
+        cx="8"
+        cy="7"
+        r="2"
+        fill="var(--background, white)"
+        strokeWidth="2"
+      />
       {/* Line 2 with handle at x=15 */}
       <line x1="3" y1="12" x2="21" y2="12" />
-      <circle cx="15" cy="12" r="2" fill="var(--background, white)" strokeWidth="2" />
+      <circle
+        cx="15"
+        cy="12"
+        r="2"
+        fill="var(--background, white)"
+        strokeWidth="2"
+      />
       {/* Line 3 with handle at x=10 */}
       <line x1="3" y1="17" x2="21" y2="17" />
-      <circle cx="10" cy="17" r="2" fill="var(--background, white)" strokeWidth="2" />
+      <circle
+        cx="10"
+        cy="17"
+        r="2"
+        fill="var(--background, white)"
+        strokeWidth="2"
+      />
     </svg>
   );
 }

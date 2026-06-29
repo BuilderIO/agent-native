@@ -128,7 +128,9 @@ function ShaderPreview({ descriptor, animated }: ShaderPreviewProps) {
           />
         </TooltipTrigger>
         <TooltipContent>
-          {"WebGL unavailable - showing fallback" /* i18n-ignore shader tooltip */}
+          {
+            "WebGL unavailable - showing fallback" /* i18n-ignore shader tooltip */
+          }
         </TooltipContent>
       </Tooltip>
     );

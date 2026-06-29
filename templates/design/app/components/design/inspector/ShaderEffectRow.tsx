@@ -92,9 +92,7 @@ export function ShaderEffectRow({
             size="icon"
             className="size-5 shrink-0 text-muted-foreground hover:text-destructive"
             onClick={onRemove}
-            aria-label={
-              "Remove shader effect" /* i18n-ignore shader tooltip */
-            }
+            aria-label={"Remove shader effect" /* i18n-ignore shader tooltip */}
           >
             <IconTrash className="size-3" />
           </Button>

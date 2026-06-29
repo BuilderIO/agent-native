@@ -15,35 +15,54 @@ Do NOT rely on line numbers — they drift. Use the search strings instead.
 ### 1. Extend `FigmaFillType`
 
 Search for:
+
 ```ts
-export type FigmaFillType = "solid" | "gradient" | "image"
+export type FigmaFillType = "solid" | "gradient" | "image";
 ```
 
 Replace with:
+
 ```ts
-export type FigmaFillType = "solid" | "gradient" | "image" | "shader"
+export type FigmaFillType = "solid" | "gradient" | "image" | "shader";
 ```
 
 ### 2. Extend `FigmaPaintType`
 
 Search for:
+
 ```ts
-export type FigmaPaintType = "solid" | "linear" | "radial" | "angular" | "diamond" | "none"
+export type FigmaPaintType =
+  | "solid"
+  | "linear"
+  | "radial"
+  | "angular"
+  | "diamond"
+  | "none";
 ```
 
 Replace with:
+
 ```ts
-export type FigmaPaintType = "solid" | "linear" | "radial" | "angular" | "diamond" | "none" | "shader"
+export type FigmaPaintType =
+  | "solid"
+  | "linear"
+  | "radial"
+  | "angular"
+  | "diamond"
+  | "none"
+  | "shader";
 ```
 
 ### 3. Add `canUseShaders` prop to `FigmaColorPickerProps`
 
 Search for:
+
 ```ts
 canUseGradients?: boolean
 ```
 
 After that line, add:
+
 ```ts
 canUseShaders?: boolean
 ```
@@ -51,30 +70,35 @@ canUseShaders?: boolean
 ### 4. Add shader button to the paint-type button row
 
 Search for:
+
 ```tsx
 {canUseGradients && (
 ```
 
 After the closing `)}` of that block, add:
+
 ```tsx
-{canUseShaders && (
-  <button
-    type="button"
-    className={cn(
-      "flex h-6 w-6 items-center justify-center rounded transition-colors",
-      paintType === "shader"
-        ? "bg-white/20 text-white"
-        : "text-white/50 hover:text-white"
-    )}
-    onClick={() => onPaintTypeChange?.("shader")}
-    title="Shader"
-  >
-    <IconSparkles size={14} />
-  </button>
-)}
+{
+  canUseShaders && (
+    <button
+      type="button"
+      className={cn(
+        "flex h-6 w-6 items-center justify-center rounded transition-colors",
+        paintType === "shader"
+          ? "bg-white/20 text-white"
+          : "text-white/50 hover:text-white",
+      )}
+      onClick={() => onPaintTypeChange?.("shader")}
+      title="Shader"
+    >
+      <IconSparkles size={14} />
+    </button>
+  );
+}
 ```
 
 Add the import at the top of the file alongside the existing Tabler icon imports:
+
 ```ts
 import { IconSparkles } from "@tabler/icons-react";
 ```
@@ -118,6 +142,7 @@ Extend it to a three-way branch:
 ```
 
 Add the import near the other local inspector imports:
+
 ```ts
 import { ShaderControls } from "./ShaderControls";
 ```
@@ -136,12 +161,14 @@ slot.
 
 Search for the block that imports `ShadowEffectRow` (or the effects-related imports).
 Add alongside those:
+
 ```ts
 import { ShaderEffectRow } from "./inspector/ShaderEffectRow";
 import type { ShaderDescriptor } from "../../shared/shader-presets";
 ```
 
 If `EditPanel.tsx` is itself inside the `inspector/` folder, drop the `inspector/` prefix:
+
 ```ts
 import { ShaderEffectRow } from "./ShaderEffectRow";
 ```
@@ -150,6 +177,7 @@ import { ShaderEffectRow } from "./ShaderEffectRow";
 
 Search for the `EffectsProperties` function signature. It will include props like
 `shadowLayers` and `blurLayers`. Add:
+
 ```ts
 shaderLayers?: ShaderDescriptor[];
 onShaderLayersChange?: (layers: ShaderDescriptor[]) => void;
@@ -158,6 +186,7 @@ onShaderLayersChange?: (layers: ShaderDescriptor[]) => void;
 ### 3. Render shader effect rows
 
 Search for:
+
 ```tsx
 {shadowLayers.map(
 ```
@@ -166,21 +195,23 @@ After the `shadowLayers.map(...)` block and the `blurLayers.map(...)` block
 (whichever comes last), add:
 
 ```tsx
-{(shaderLayers ?? []).map((layer, i) => (
-  <ShaderEffectRow
-    key={layer.id ?? i}
-    descriptor={layer}
-    onChange={(updated) => {
-      const next = [...(shaderLayers ?? [])];
-      next[i] = updated;
-      onShaderLayersChange?.(next);
-    }}
-    onRemove={() => {
-      const next = (shaderLayers ?? []).filter((_, j) => j !== i);
-      onShaderLayersChange?.(next);
-    }}
-  />
-))}
+{
+  (shaderLayers ?? []).map((layer, i) => (
+    <ShaderEffectRow
+      key={layer.id ?? i}
+      descriptor={layer}
+      onChange={(updated) => {
+        const next = [...(shaderLayers ?? [])];
+        next[i] = updated;
+        onShaderLayersChange?.(next);
+      }}
+      onRemove={() => {
+        const next = (shaderLayers ?? []).filter((_, j) => j !== i);
+        onShaderLayersChange?.(next);
+      }}
+    />
+  ));
+}
 ```
 
 ### 4. Add "Add Shader" option to the effects dropdown
@@ -232,6 +263,7 @@ export at the top of each file is all that's needed for automatic discovery.
 ### 1. Locate the bridge scripts injection point
 
 Search for:
+
 ```
 // === BRIDGE SCRIPTS ===
 ```
@@ -359,6 +391,7 @@ interface DesignSystemData {
 ```
 
 Import `ShaderDescriptor` from:
+
 ```ts
 import type { ShaderDescriptor } from "../shared/shader-presets";
 ```

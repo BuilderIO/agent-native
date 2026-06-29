@@ -383,9 +383,7 @@ export function AutoLayoutMatrix({
             <ScrubInput
               label={copy.padding}
               value={
-                value.paddingLinked
-                  ? value.padding.top
-                  : horizontalPaddingValue
+                value.paddingLinked ? value.padding.top : horizontalPaddingValue
               }
               onChange={(next) => {
                 if (value.paddingLinked) {
@@ -659,7 +657,14 @@ function SizingField({
                   aria-hidden="true"
                   className="opacity-60"
                 >
-                  <path d="M1.5 3 L4 5.5 L6.5 3" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d="M1.5 3 L4 5.5 L6.5 3"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </span>
             </button>
@@ -678,7 +683,8 @@ function SizingField({
             onSelect={() => onChange(opt)}
             className={cn(
               "text-[12px]",
-              opt === value && "font-medium text-[var(--design-editor-accent-color)]",
+              opt === value &&
+                "font-medium text-[var(--design-editor-accent-color)]",
             )}
           >
             {labels[opt]}

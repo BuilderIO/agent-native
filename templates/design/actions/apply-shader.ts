@@ -27,9 +27,11 @@ const targetSchema = z.object({
 });
 
 const descriptorSchema = z.object({
-  preset: z.enum(PRESET_NAMES).describe(
-    "One of the 8 shader presets: MeshGradient, GrainGradient, Voronoi, Metaballs, Warp, GodRays, Dithering, PaperTexture.",
-  ),
+  preset: z
+    .enum(PRESET_NAMES)
+    .describe(
+      "One of the 8 shader presets: MeshGradient, GrainGradient, Voronoi, Metaballs, Warp, GodRays, Dithering, PaperTexture.",
+    ),
   params: z
     .record(z.string(), z.union([z.number(), z.boolean(), z.string()]))
     .optional()
@@ -117,8 +119,7 @@ function buildJsxSnippet(
     propLines.push(`  speed={${descriptor.speed}}`);
   if (descriptor.frame !== undefined)
     propLines.push(`  frame={${descriptor.frame}}`);
-  if (descriptor.fit !== undefined)
-    propLines.push(`  fit="${descriptor.fit}"`);
+  if (descriptor.fit !== undefined) propLines.push(`  fit="${descriptor.fit}"`);
   if (descriptor.scale !== undefined)
     propLines.push(`  scale={${descriptor.scale}}`);
   if (descriptor.rotation !== undefined)

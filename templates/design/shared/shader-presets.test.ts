@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   SHADER_PRESETS,
   SHADER_PRESET_MAP,
@@ -120,7 +121,9 @@ describe("UNIVERSAL_PARAMS", () => {
   it("fit param is an enum with 'none', 'contain', 'cover'", () => {
     const fit = UNIVERSAL_PARAMS.find((p) => p.key === "fit");
     expect(fit?.kind).toBe("enum");
-    expect(fit?.options).toEqual(expect.arrayContaining(["none", "contain", "cover"]));
+    expect(fit?.options).toEqual(
+      expect.arrayContaining(["none", "contain", "cover"]),
+    );
   });
 
   it("speed param allows negative values (for reverse)", () => {
@@ -183,7 +186,9 @@ describe("validateDescriptor", () => {
     };
     const result = validateDescriptor(descriptor);
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.includes("Unknown param key"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("Unknown param key"))).toBe(
+      true,
+    );
   });
 
   it("returns valid=false when a numeric param is below its minimum", () => {
@@ -210,7 +215,14 @@ describe("validateDescriptor", () => {
     const descriptor: ShaderDescriptor = {
       preset: "Voronoi", // maxColorCount=5
       params: {},
-      colors: ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff"], // 6 colors
+      colors: [
+        "#ff0000",
+        "#00ff00",
+        "#0000ff",
+        "#ffff00",
+        "#ff00ff",
+        "#00ffff",
+      ], // 6 colors
     };
     const result = validateDescriptor(descriptor);
     expect(result.valid).toBe(false);
