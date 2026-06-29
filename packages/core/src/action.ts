@@ -375,6 +375,13 @@ interface DefineActionWithSchema<
    *  result. This is first-party React UI, not arbitrary HTML/JS. */
   chatUI?: ActionChatUIConfig;
   /**
+   * Per-tool timeout override in milliseconds for agent-loop tool calls. Use
+   * sparingly for actions that legitimately wait on slow provider work.
+   */
+  timeoutMs?: number;
+  /** Per-tool result truncation override for agent-loop tool calls. */
+  maxResultChars?: number;
+  /**
    * Opt-in human-in-the-loop approval gate. **Default off** — the framework
    * intentionally keeps HITL approvals rare; almost every action should run
    * without one. Set this only for high-consequence, outward-facing,
@@ -461,6 +468,10 @@ interface DefineActionWithParams<
   mcpApp?: ActionMcpAppConfig;
   /** Optional native Agent-Native chat renderer. See schema overload above. */
   chatUI?: ActionChatUIConfig;
+  /** Per-tool timeout override in milliseconds. See schema overload above. */
+  timeoutMs?: number;
+  /** Per-tool result truncation override. See schema overload above. */
+  maxResultChars?: number;
   /** Opt-in human-in-the-loop approval gate (default off). See the schema
    *  overload above for full semantics. */
   needsApproval?:
@@ -512,6 +523,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly link?: ActionLinkBuilder;
   readonly mcpApp?: ActionMcpAppConfig;
   readonly chatUI?: ActionChatUIConfig;
+  /** Per-tool timeout override in milliseconds for agent-loop tool calls. */
+  readonly timeoutMs?: number;
+  /** Per-tool result truncation override for agent-loop tool calls. */
+  readonly maxResultChars?: number;
   /** Standard Schema the action's RETURN value is validated against after
    *  `run()` resolves. Present only when the caller passed `outputSchema`. */
   readonly outputSchema?: StandardSchemaV1;
@@ -732,6 +747,12 @@ export function defineAction(options: any) {
     ...(link ? { link } : {}),
     ...(mcpApp ? { mcpApp } : {}),
     ...(chatUI ? { chatUI } : {}),
+    ...(typeof options.timeoutMs === "number"
+      ? { timeoutMs: options.timeoutMs }
+      : {}),
+    ...(typeof options.maxResultChars === "number"
+      ? { maxResultChars: options.maxResultChars }
+      : {}),
     ...(hasOutputSchema
       ? {
           outputSchema: options.outputSchema,

@@ -27,7 +27,7 @@ export interface GradientValue {
   stops: GradientStopValue[];
 }
 
-// ─── Checkerboard (matches FigmaColorPicker) ───────────────────────────────────
+// ─── Checkerboard (matches DesignColorPicker) ───────────────────────────────────
 
 const CHECKER_A = "#d4d4d4";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
@@ -53,7 +53,7 @@ export function gradientToCss(value: GradientValue): string {
       return `radial-gradient(circle at center, ${stops})`;
     case "diamond":
       // CSS has no diamond gradient; a radial gradient with closest-side on a
-      // non-circular ellipse reads as the diamond falloff Figma shows.
+      // non-circular ellipse reads as the diamond falloff the design editor shows.
       return `radial-gradient(ellipse closest-side at center, ${stops})`;
     case "angular":
       return `conic-gradient(from ${round(value.angle)}deg at center, ${stops})`;
@@ -199,7 +199,7 @@ interface AngleDialProps {
   disabled?: boolean;
 }
 
-/** Figma-style circular dial for rotating gradient angle. */
+/** design-editor circular dial for rotating gradient angle. */
 function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
   const dialRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -210,7 +210,7 @@ function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
     const rad = Math.atan2(clientY - cy, clientX - cx);
-    // atan2 gives angle from east; Figma's 0° is north (up), clockwise.
+    // atan2 gives angle from east; the design editor's 0° is north (up), clockwise.
     let deg = (rad * 180) / Math.PI + 90;
     if (deg < 0) deg += 360;
     if (deg >= 360) deg -= 360;
@@ -311,7 +311,7 @@ export interface GradientEditorProps {
   className?: string;
 }
 
-// Stop handle dimensions — Figma uses ~12px handles with white ring.
+// Stop handle dimensions — the design editor uses ~12px handles with white ring.
 const STOP_SIZE = 12; // px, the colored circle diameter
 const STOP_RING = 2; // px, white border thickness
 const STOP_OUTER = STOP_SIZE + STOP_RING * 2; // 16px total outer
@@ -501,7 +501,7 @@ export function GradientEditor({
                 "absolute cursor-grab active:cursor-grabbing",
                 "rounded-full border-[2px] border-white",
                 "focus-visible:outline-none",
-                // Selected: accent-colored outer ring (like Figma's blue ring)
+                // Selected: accent-colored outer ring (the same way's blue ring)
                 isSelected
                   ? "shadow-[0_0_0_1.5px_var(--primary),0_1px_3px_rgba(0,0,0,0.35)]"
                   : "shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.25)]",

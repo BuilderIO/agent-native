@@ -57,7 +57,7 @@ const DEFAULT_LABELS: ExportSettingsPanelLabels = {
 
 const DEFAULT_FORMATS: ExportFormat[] = ["png", "jpg", "svg", "pdf", "webp"];
 
-/** Preset scale options shown in the scale dropdown — matches Figma's presets */
+/** Preset scale options shown in the scale dropdown — matches the design editor's presets */
 const SCALE_PRESETS: { label: string; value: ExportScale }[] = [
   { label: "0.5x", value: "0.5" },
   { label: "1x", value: "1" },
@@ -103,7 +103,7 @@ function rowFromValue(v: ExportSettingsValue): ExportRow {
   };
 }
 
-/** Scale dropdown — shows Figma's 0.5x/1x/2x/3x/4x presets + Custom */
+/** Scale dropdown — shows the design editor's 0.5x/1x/2x/3x/4x presets + Custom */
 function ScaleSelect({
   scale,
   customScale,
@@ -238,7 +238,7 @@ export function ExportSettingsPanel({
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      {/* Section header: title left, "+" right — matches Figma export header */}
+      {/* Section header: title left, "+" right — matches the design editor export header */}
       <div className="flex h-6 items-center justify-between">
         <span className="text-[11px] font-medium text-muted-foreground">
           {copy.title}
@@ -254,7 +254,7 @@ export function ExportSettingsPanel({
         </button>
       </div>
 
-      {/* Export rows: [scale ▾] [format ▾] [suffix] [×] — Figma compact inline layout */}
+      {/* Export rows: [scale ▾] [format ▾] [suffix] [×] — design-editor compact inline layout */}
       {rows.map((row) => (
         <ExportRow
           key={row.id}
@@ -268,7 +268,7 @@ export function ExportSettingsPanel({
         />
       ))}
 
-      {/* Export button — full width at bottom, Figma style */}
+      {/* Export button — full width at bottom, design-editor style */}
       <Button
         type="button"
         variant="outline"
@@ -380,7 +380,7 @@ function ExportRow({
         aria-label={labels.suffix}
       />
 
-      {/* Remove row button — matches Figma's × on each export entry */}
+      {/* Remove row button — matches the design editor's × on each export entry */}
       <button
         type="button"
         aria-label={labels.removeExport}

@@ -39,7 +39,7 @@ import {
   IconSizingMin,
   IconSizingRemove,
   IconSizingVariable,
-} from "./figma-icons";
+} from "./design-icons";
 import { ScrubInput } from "./ScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
@@ -78,7 +78,7 @@ export interface AutoLayoutMatrixValue {
   };
   /**
    * Currently-set min/max constraints per axis, in px. `null` means the
-   * constraint is not set (Figma shows the "Add min/max…" menu item instead of
+   * constraint is not set (the design editor shows the "Add min/max…" menu item instead of
    * a sub-row). Optional so existing callers are unaffected.
    */
   childMinMax?: {
@@ -157,7 +157,7 @@ export interface AutoLayoutMatrixProps {
   ) => void;
   /**
    * Invoked when the user picks "Apply variable…". Optional — when omitted the
-   * variable row is still shown but disabled (placeholder), matching Figma when
+   * variable row is still shown but disabled (placeholder), matching the design editor when
    * no variable collections exist.
    */
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
@@ -282,13 +282,13 @@ export function AutoLayoutMatrix({
         {/* ── Flow ── */}
         <div className="space-y-1.5">
           <ControlLabel>
-            {"Flow" /* i18n-ignore Figma inspector label */}
+            {"Flow" /* i18n-ignore design inspector label */}
           </ControlLabel>
           <div className="flex items-center gap-1.5">
             {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
             <div className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
               <FlowButton
-                label={"Normal flow" /* i18n-ignore Figma inspector label */}
+                label={"Normal flow" /* i18n-ignore design inspector label */}
                 active={activeFlow === "normal"}
                 disabled={disabled}
                 onClick={() => selectFlow("normal")}
@@ -312,7 +312,7 @@ export function AutoLayoutMatrix({
                 <IconFlowHorizontal className="size-3.5" />
               </FlowButton>
               <FlowButton
-                label={"Grid" /* i18n-ignore Figma inspector label */}
+                label={"Grid" /* i18n-ignore design inspector label */}
                 active={activeFlow === "grid"}
                 disabled={disabled}
                 onClick={() => selectFlow("grid")}
@@ -347,7 +347,7 @@ export function AutoLayoutMatrix({
         {/* ── Resizing ── */}
         <div className="space-y-1.5">
           <ControlLabel>
-            {"Resizing" /* i18n-ignore Figma inspector label */}
+            {"Resizing" /* i18n-ignore design inspector label */}
           </ControlLabel>
           <div className="grid grid-cols-[1fr_1fr_auto] items-start gap-1.5">
             <SizingField
@@ -414,7 +414,7 @@ export function AutoLayoutMatrix({
           {/* Left: Alignment label + compact 3×3 matrix (no border box) */}
           <div className="space-y-1.5">
             <ControlLabel>
-              {"Alignment" /* i18n-ignore Figma inspector label */}
+              {"Alignment" /* i18n-ignore design inspector label */}
             </ControlLabel>
             <CompactAlignmentMatrix
               value={value.alignment}
@@ -584,9 +584,9 @@ const ALIGNMENT_CELLS: Array<{
 /**
  * Compact 3×3 alignment grid (no border box). Inactive cells show a faint dot;
  * the active cell shows accent bars oriented by flow — horizontal bars for a
- * vertical flow, vertical bars for a horizontal flow (Figma convention).
+ * vertical flow, vertical bars for a horizontal flow (editor convention).
  * When `onDistribute` is provided, two distribute buttons (H + V) are rendered
- * below the grid, matching Figma's inspector layout.
+ * below the grid, matching the design editor's inspector layout.
  */
 function CompactAlignmentMatrix({
   value,
@@ -651,7 +651,7 @@ function CompactAlignmentMatrix({
               <button
                 type="button"
                 aria-label={
-                  "Distribute horizontal spacing" /* i18n-ignore Figma inspector tooltip */
+                  "Distribute horizontal spacing" /* i18n-ignore design inspector tooltip */
                 }
                 disabled={disabled}
                 onClick={() => onDistribute("horizontal")}
@@ -666,7 +666,7 @@ function CompactAlignmentMatrix({
             </TooltipTrigger>
             <TooltipContent>
               {
-                "Distribute horizontal spacing" /* i18n-ignore Figma inspector tooltip */
+                "Distribute horizontal spacing" /* i18n-ignore design inspector tooltip */
               }
             </TooltipContent>
           </Tooltip>
@@ -675,7 +675,7 @@ function CompactAlignmentMatrix({
               <button
                 type="button"
                 aria-label={
-                  "Distribute vertical spacing" /* i18n-ignore Figma inspector tooltip */
+                  "Distribute vertical spacing" /* i18n-ignore design inspector tooltip */
                 }
                 disabled={disabled}
                 onClick={() => onDistribute("vertical")}
@@ -690,7 +690,7 @@ function CompactAlignmentMatrix({
             </TooltipTrigger>
             <TooltipContent>
               {
-                "Distribute vertical spacing" /* i18n-ignore Figma inspector tooltip */
+                "Distribute vertical spacing" /* i18n-ignore design inspector tooltip */
               }
             </TooltipContent>
           </Tooltip>
@@ -903,20 +903,20 @@ function GapField({
                   /* Fixed gap: keep current numeric value (already numeric). */
                 }}
               >
-                {"Fixed" /* i18n-ignore Figma gap mode label */}
+                {"Fixed" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
                 checked={false}
                 className="text-[12px]"
                 onSelect={() => onDistribute("horizontal")}
               >
-                {"Auto" /* i18n-ignore Figma gap mode label */}
+                {"Auto" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
       </div>
-      {/* Sliders / advanced spacing icon (Figma's tune control) */}
+      {/* Sliders / advanced spacing icon (the design editor's tune control) */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -1050,8 +1050,8 @@ export interface SizingFieldProps {
 }
 
 /**
- * Figma-style sizing field. Trigger renders `[axis | value | mode ▾]`; the menu
- * is the full Figma resizing dropdown:
+ * design-editor sizing field. Trigger renders `[axis | value | mode ▾]`; the menu
+ * is the full design resizing dropdown:
  *   Fixed · Hug contents · Fill container
  *   ──────────────────────
  *   Add min … · Add max …
@@ -1087,7 +1087,7 @@ export function SizingField({
   const canHug = options.includes("hug");
   const canFill = options.includes("fill");
 
-  // Figma rule: when Fixed, show ONLY the numeric value + chevron (no word).
+  // design rule: when Fixed, show ONLY the numeric value + chevron (no word).
   // When Hug / Fill, show value + the mode word.
   const showWord = value !== "fixed";
 
@@ -1353,7 +1353,7 @@ function CheckMini() {
 // Inline SVG glyphs (Tabler-weight, 24px viewBox)
 // ─────────────────────────────────────────────────
 
-/** Minimal downward chevron — matches the Figma caret weight. */
+/** Minimal downward chevron — matches the design caret weight. */
 function ChevronDownMini() {
   return (
     <svg

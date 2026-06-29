@@ -152,7 +152,7 @@ interface MultiScreenCanvasProps {
 }
 
 /**
- * Figma-style overview canvas. Renders every file in the design as a movable,
+ * design-editor overview canvas. Renders every file in the design as a movable,
  * resizable frame inside an infinite, pannable surface.
  */
 const SCREEN_WIDTH = 320;

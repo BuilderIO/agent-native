@@ -378,7 +378,7 @@ export function IconResizeToFit({ className }: IconProps) {
 }
 
 // Auto-layout toggle "on" — rounded rectangle with two small boxes arranged in a row inside
-// Matches Figma's blue auto-layout indicator glyph
+// Matches the design editor's blue auto-layout indicator glyph
 export function IconAutoLayoutOn({ className }: IconProps) {
   return (
     <svg
@@ -583,7 +583,7 @@ export function IconAlignRight({ className }: IconProps) {
 }
 
 // ─────────────────────────────────────────────────
-// W/H sizing-menu glyphs (Figma resizing dropdown rows)
+// W/H sizing-menu glyphs (design resizing dropdown rows)
 // ─────────────────────────────────────────────────
 
 // Sizing: Fixed — a bar bounded by two end-stops (⊢ / fixed dimension)

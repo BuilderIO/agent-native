@@ -45,7 +45,7 @@ function imageFitMarker(fit: ImageFitMode): string {
 
 /**
  * Build the CSS `background` shorthand for an image fill.
- * Maps Figma's fit semantics onto background-size / background-repeat:
+ * Maps the design editor's fit semantics onto background-size / background-repeat:
  *  - Fill → cover, no-repeat
  *  - Fit  → contain, no-repeat
  *  - Crop → cover, no-repeat (cropped to the box; identical CSS to Fill but

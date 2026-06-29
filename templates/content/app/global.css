@@ -305,6 +305,15 @@
   min-height: 6rem;
 }
 
+.content-reference-preview .visual-editor-wrapper,
+.content-reference-preview .visual-editor-wrapper .notion-editor {
+  min-height: 0;
+}
+
+.content-reference-preview .notion-editor {
+  font-size: 0.875rem;
+}
+
 .notion-editor > *:first-child {
   margin-top: 0;
 }

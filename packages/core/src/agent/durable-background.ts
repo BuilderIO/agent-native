@@ -18,9 +18,10 @@
  * GUARDRAIL: when `isAgentChatDurableBackgroundEnabled()` returns false, the
  * agent-chat handler must behave byte-for-byte like the current synchronous
  * path. The gate is true only when ALL of these hold:
- *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is explicitly enabled. It is
- *      DEFAULT-OFF (opt-in): unset/empty/unknown counts as disabled; set it to a
- *      truthy value (`true`/`1`/`yes`/`on`) to opt a specific app in.
+ *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is explicitly enabled, or an app's
+ *      agent-chat plugin opts in with `durableBackgroundRuns`. It is DEFAULT-OFF
+ *      (opt-in): unset/empty/unknown counts as disabled; set it to a truthy
+ *      value (`true`/`1`/`yes`/`on`) or opt in in app code.
  *   2. The runtime is hosted/serverless (local dev keeps the inline path so SSE
  *      stays a single live stream and no second function is needed).
  *   3. `A2A_SECRET` is configured (the HMAC handoff is required to authenticate
@@ -260,16 +261,18 @@ function isFlagEnabled(): boolean {
 }
 
 /**
- * The single gate. True when the flag is explicitly enabled (opt-in/default-off)
- * AND the runtime is hosted AND A2A_SECRET is configured. False otherwise — and
- * false means the current synchronous behavior is used, unchanged. So a local /
- * non-hosted / unconfigured app stays synchronous, and an app that has not opted
- * in stays synchronous; durable only engages where it is explicitly enabled and
- * the runtime actually supports it.
+ * The single gate. True when the env flag is explicitly enabled or the app
+ * opted in (default-off) AND the runtime is hosted AND A2A_SECRET is configured.
+ * False otherwise — and false means the current synchronous behavior is used,
+ * unchanged. So a local / non-hosted / unconfigured app stays synchronous, and
+ * an app that has not opted in stays synchronous; durable only engages where it
+ * is explicitly enabled and the runtime actually supports it.
  */
-export function isAgentChatDurableBackgroundEnabled(): boolean {
+export function isAgentChatDurableBackgroundEnabled(options?: {
+  appOptIn?: boolean;
+}): boolean {
   return (
-    isFlagEnabled() &&
+    (options?.appOptIn === true || isFlagEnabled()) &&
     isHostedRuntimeForDurableBackground() &&
     hasConfiguredA2ASecret()
   );

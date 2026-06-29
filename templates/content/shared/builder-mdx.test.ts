@@ -56,6 +56,25 @@ const entry: BuilderContentEntry = {
               model: "docs-nav",
               entry: "nav-entry",
               data: { label: "Docs" },
+              content: {
+                id: "nav-entry",
+                modelName: "symbol",
+                name: "Docs Nav",
+                data: {
+                  title: "Docs Nav",
+                  blocks: [
+                    {
+                      "@type": "@builder.io/sdk:Element",
+                      "@version": 2,
+                      id: "symbol-text-1",
+                      component: {
+                        name: "Text",
+                        options: { text: "<p>Shared nav body</p>" },
+                      },
+                    },
+                  ],
+                },
+              },
             },
           },
         },
@@ -141,9 +160,15 @@ describe("Builder MDX conversion", () => {
     expect(bundle.mdx.source).toContain("<BuilderText");
     expect(bundle.mdx.source).toContain("<BuilderCodeBlock");
     expect(bundle.mdx.source).toContain("<BuilderSymbol");
+    expect(bundle.mdx.source).toContain(
+      'source="content/builder/symbols/symbol/docs-nav.builder.mdx"',
+    );
+    expect(
+      bundle.files["content/builder/symbols/symbol/docs-nav.builder.mdx"],
+    ).toContain("Shared nav body");
     expect(
       Object.keys(bundle.files).filter((path) => path.endsWith(".json")),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
   });
 
   it("round-trips unchanged Builder blocks without loss", async () => {

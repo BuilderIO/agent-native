@@ -398,8 +398,8 @@ iframe-backed screens on the infinite canvas.
 - Each screen is a URL-backed iframe, not copied HTML.
 - Each screen keeps URL metadata: \`connectionId\`, \`routeId\`, \`path\`,
   \`url\`, \`bridgeUrl\`, title, and viewport size.
-- Start in Design's screen overview mode. In overview, screens are static like
-  Figma frames; full-screen focus is for scrolling and app interaction.
+- Start in Design's screen overview mode. In overview, screens are static
+  design frames; full-screen focus is for scrolling and app interaction.
 - Alt-drag duplicates a screen. For localhost screens, duplication copies the
   iframe frame and URL metadata; change the copy's path/query for a new state.
 - Flow visualization is multiple URL states: \`/checkout?step=shipping\`,
@@ -930,7 +930,7 @@ and move any frame whose label, connector, or annotation crosses another frame.
 When in doubt, use larger values — the canvas auto-zooms to fit everything.
 
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
-present, sprinkle Figma-style notes near the frames they explain: a short
+present, sprinkle design-review notes near the frames they explain: a short
 heading, supporting text, and bullets — plain text layers, never bordered or
 shadowed cards, and never a box around a frame. The renderer spaces notes away
 from frames, so place each note by the frame it describes. Use an arrow only to

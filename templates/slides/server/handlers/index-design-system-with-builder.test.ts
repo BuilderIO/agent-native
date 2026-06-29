@@ -33,9 +33,9 @@ vi.mock("@agent-native/core/server", () => ({
     mockStartBuilderDesignSystemIndex(...args),
 }));
 
-import { importFigmaSystem } from "./import-figma-system";
+import { indexDesignSystemWithBuilder } from "./index-design-system-with-builder";
 
-describe("importFigmaSystem", () => {
+describe("indexDesignSystemWithBuilder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSession.mockResolvedValue({ email: "owner@example.com" });
@@ -64,7 +64,7 @@ describe("importFigmaSystem", () => {
       String(mockMaxFigBytes + 1024 * 1024 + 1),
     );
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockReadMultipartFormData).not.toHaveBeenCalled();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 413);
@@ -74,7 +74,7 @@ describe("importFigmaSystem", () => {
   it("returns a clear error when multipart parsing fails", async () => {
     mockReadMultipartFormData.mockRejectedValue(new Error("bad multipart"));
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 413);
     expect(result).toEqual({ error: "Upload too large or malformed." });
@@ -89,7 +89,7 @@ describe("importFigmaSystem", () => {
       },
     ]);
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockStartBuilderDesignSystemIndex).not.toHaveBeenCalled();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 413);
@@ -102,7 +102,7 @@ describe("importFigmaSystem", () => {
       { name: "fig", filename: "brand.fig", data },
     ]);
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockStartBuilderDesignSystemIndex).toHaveBeenCalledWith({
       projectName: "brand",
@@ -130,7 +130,7 @@ describe("importFigmaSystem", () => {
       }),
     );
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 412);
     expect(result).toEqual({
@@ -144,7 +144,7 @@ describe("importFigmaSystem", () => {
       new Error("Builder queue unavailable"),
     );
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 502);
     expect(result).toEqual({

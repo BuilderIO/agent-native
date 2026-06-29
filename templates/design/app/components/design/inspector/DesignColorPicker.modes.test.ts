@@ -1,6 +1,6 @@
 /**
  * Unit tests for the paint-type mode resolution logic extracted from
- * FigmaColorPicker.  These tests verify that:
+ * DesignColorPicker.  These tests verify that:
  *
  *  1. The three-level precedence (localPaintType > paintType prop > inferred)
  *     is respected so clicking a paint-type icon always engages the right editor.
@@ -16,7 +16,7 @@ import {
   GRADIENT_PAINT_TYPES,
   inferPaintType,
   resolveActivePaint,
-} from "./FigmaColorPicker";
+} from "./DesignColorPicker";
 
 // ─── inferPaintType ───────────────────────────────────────────────────────────
 

@@ -338,7 +338,7 @@ Every agent-callable operation is a TypeScript file in `templates/design/actions
 - **Designs** — `create-design` (empty shell), `generate-design` (write generated HTML/JSX content), `update-design`, `get-design`, `list-designs`, `duplicate-design`, `delete-design`, and `apply-tweaks` for persisting live tweak-knob values (accent color, density, etc.).
 - **Files** — `create-file`, `update-file`, `list-files`, `delete-file` for the files inside a design project.
 - **Design systems** — `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system`, and `analyze-brand-assets` for gathering brand data ahead of analysis.
-- **Import** — `index-design-system-with-builder` for Builder-backed code/GitHub design-system indexing, plus `import-figma`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
+- **Import** — `index-design-system-with-builder` for Builder-backed code/GitHub/Figma file design-system indexing, plus `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **Export & handoff** — `export-html`, `export-pdf`, `export-svg`, `export-zip`, and `export-coding-handoff` to turn a design into a coding-tool handoff.
 - **Context & navigation** — `view-screen` (current design, open file, view, pending question or variant grid), `get-design-snapshot` (current state for an external agent to continue from), and `navigate`.
 

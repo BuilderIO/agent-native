@@ -52,10 +52,10 @@ import { ShaderFillsPanel, shaderDescriptorToCss } from "./ShaderFillsPanel";
 
 // ─── Public types ──────────────────────────────────────────────────────────────
 
-export type FigmaColorMode = "hex" | "rgb" | "hsl" | "hsb";
-export type FigmaGradientType = "linear" | "radial" | "angular" | "diamond";
-export type FigmaFillType = "solid" | "gradient" | "image";
-export type FigmaPaintType =
+export type DesignColorMode = "hex" | "rgb" | "hsl" | "hsb";
+export type DesignGradientType = "linear" | "radial" | "angular" | "diamond";
+export type DesignFillType = "solid" | "gradient" | "image";
+export type DesignPaintType =
   | "solid"
   | "linear"
   | "radial"
@@ -70,22 +70,22 @@ export type FigmaPaintType =
 
 // These interfaces remain so EditPanel's prop types don't break, even though
 // the popover no longer renders the fills/gradient-stops list.
-export interface FigmaFillRow {
+export interface DesignFillRow {
   id: string;
   label: string;
   value: string;
-  type: FigmaFillType;
+  type: DesignFillType;
   opacity?: number;
   swatch?: string;
   selected?: boolean;
 }
 
-export interface FigmaFillRowPatch {
+export interface DesignFillRowPatch {
   value?: string;
   opacity?: number;
 }
 
-export interface FigmaGradientStop {
+export interface DesignGradientStop {
   id: string;
   color: string;
   position: number;
@@ -93,13 +93,13 @@ export interface FigmaGradientStop {
   label?: string;
 }
 
-export interface FigmaGradientStopPatch {
+export interface DesignGradientStopPatch {
   color?: string;
   position?: number;
   opacity?: number;
 }
 
-export interface FigmaColorPickerLabels {
+export interface DesignColorPickerLabels {
   trigger: string;
   hex: string;
   red: string;
@@ -126,7 +126,7 @@ export interface FigmaColorPickerLabels {
   diamond: string;
 }
 
-export interface FigmaColorPickerProps {
+export interface DesignColorPickerProps {
   value: string;
   onChange: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
@@ -137,21 +137,21 @@ export interface FigmaColorPickerProps {
   onBlendModeChange?: (mode: string) => void;
   showBlendMode?: boolean;
   // Accepted but unused in the popover — list management lives in the sidebar.
-  fillRows?: FigmaFillRow[];
+  fillRows?: DesignFillRow[];
   selectedFillId?: string;
   onFillSelect?: (id: string) => void;
-  onFillChange?: (id: string, patch: FigmaFillRowPatch) => void;
+  onFillChange?: (id: string, patch: DesignFillRowPatch) => void;
   onAddFill?: () => void;
   onRemoveFill?: (id: string) => void;
-  paintType?: FigmaPaintType;
-  onPaintTypeChange?: (type: FigmaPaintType) => void;
-  gradientType?: FigmaGradientType;
-  onGradientTypeChange?: (type: FigmaGradientType) => void;
+  paintType?: DesignPaintType;
+  onPaintTypeChange?: (type: DesignPaintType) => void;
+  gradientType?: DesignGradientType;
+  onGradientTypeChange?: (type: DesignGradientType) => void;
   // Accepted but unused in the popover — gradient stop handles belong on canvas.
-  gradientStops?: FigmaGradientStop[];
+  gradientStops?: DesignGradientStop[];
   selectedStopId?: string;
   onGradientStopSelect?: (id: string) => void;
-  onGradientStopChange?: (id: string, patch: FigmaGradientStopPatch) => void;
+  onGradientStopChange?: (id: string, patch: DesignGradientStopPatch) => void;
   onAddGradientStop?: () => void;
   onRemoveGradientStop?: (id: string) => void;
   /**
@@ -173,7 +173,7 @@ export interface FigmaColorPickerProps {
   };
   /** Notified when a shader fill is applied/tuned (descriptor + CSS fallback). */
   onShaderChange?: (descriptor: ShaderDescriptor, css: string) => void;
-  labels?: Partial<FigmaColorPickerLabels>;
+  labels?: Partial<DesignColorPickerLabels>;
   disabled?: boolean;
   className?: string;
 }
@@ -191,7 +191,7 @@ interface HsvaColor {
 
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
 
-const DEFAULT_LABELS: FigmaColorPickerLabels = {
+const DEFAULT_LABELS: DesignColorPickerLabels = {
   trigger: "Open color picker", // i18n-ignore fallback component label
   hex: "Hex", // i18n-ignore fallback component label
   red: "R", // i18n-ignore fallback component label
@@ -218,7 +218,7 @@ const DEFAULT_LABELS: FigmaColorPickerLabels = {
   diamond: "Diamond", // i18n-ignore fallback component label
 };
 
-// Figma-matching checkerboard: explicit light/dark tiles for legibility.
+// checkerboard: explicit light/dark tiles for legibility.
 const CHECKER_A = "#d4d4d4";
 const CHECKER_B = "#a3a3a3";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
@@ -448,7 +448,7 @@ function IconNoneFill({ className }: { className?: string }) {
 }
 
 function IconShaderFill({ className }: { className?: string }) {
-  // Droplet — Figma uses a teardrop for shader/blur-type fills.
+  // Droplet — the design editor uses a teardrop for shader/blur-type fills.
   return (
     <svg
       viewBox="0 0 24 24"
@@ -534,7 +534,7 @@ function IconPatternFill({ className }: { className?: string }) {
 // ─── Paint type definitions (only supported types rendered) ────────────────────
 
 const PAINT_TYPES: Array<{
-  type: FigmaPaintType;
+  type: DesignPaintType;
   label: string;
   Icon: (props: { className?: string }) => JSX.Element;
 }> = [
@@ -555,7 +555,7 @@ const PAINT_TYPES: Array<{
 // Both point at the same member set — keep reads using this name so the
 // component body compiles even though the exported constant is declared
 // at the bottom of the file (hoisting doesn't apply to const).
-const GRADIENT_TYPES = new Set<FigmaPaintType>([
+const GRADIENT_TYPES = new Set<DesignPaintType>([
   "linear",
   "radial",
   "angular",
@@ -571,7 +571,7 @@ const PATTERN_FALLBACK_CSS =
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function FigmaColorPicker({
+export function DesignColorPicker({
   value,
   onChange,
   onPaintValueChange,
@@ -603,24 +603,24 @@ export function FigmaColorPicker({
   labels,
   disabled = false,
   className,
-}: FigmaColorPickerProps) {
+}: DesignColorPickerProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
   const color = parseCssColor(value) ?? FALLBACK_COLOR;
   const hsv = rgbaToHsv(color);
   const hsl = rgbaToHsl(color);
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
 
-  const [mode, setMode] = useState<FigmaColorMode>("hex");
+  const [mode, setMode] = useState<DesignColorMode>("hex");
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
 
-  // Whole-popover view: the standard picker, or the Figma "Shader fills" panel.
+  // Whole-popover view: the standard picker, or the shader fills panel.
   const [view, setView] = useState<"picker" | "shader">("picker");
 
   // Self-managed paint-type fallback for when EditPanel doesn't drive it.
-  const [localPaintType, setLocalPaintType] = useState<FigmaPaintType | null>(
+  const [localPaintType, setLocalPaintType] = useState<DesignPaintType | null>(
     null,
   );
 
@@ -642,7 +642,7 @@ export function FigmaColorPicker({
   // engages its editor even when EditPanel doesn't complete the structural
   // fill switch. localPaintType is reset below when the prop changes (i.e. a
   // different element/fill is selected) so the picker still follows selection.
-  const effectivePaintType: FigmaPaintType =
+  const effectivePaintType: DesignPaintType =
     localPaintType ?? paintType ?? inferPaintType(value, effectiveOpacity);
 
   // Resolve the active gradient: prefer EditPanel-driven props; otherwise parse
@@ -739,7 +739,7 @@ export function FigmaColorPicker({
   const emitGradient = (next: GradientValue) => {
     setLocalGradient(next);
     if (onGradientTypeChange && next.kind !== gradientType) {
-      onGradientTypeChange(next.kind as FigmaGradientType);
+      onGradientTypeChange(next.kind as DesignGradientType);
     }
     emitPaintValue(gradientToCss(next));
   };
@@ -808,10 +808,10 @@ export function FigmaColorPicker({
 
   // ── Paint-type switching (does real work for every type) ──────────────────────
 
-  const setPaintType = (nextType: FigmaPaintType) => {
+  const setPaintType = (nextType: DesignPaintType) => {
     if (disabled) return;
 
-    // Shader opens the dedicated Figma "Shader fills" panel.
+    // Shader opens the dedicated shader fills panel.
     if (nextType === "shader") {
       setLocalPaintType("shader");
       setView("shader");
@@ -1007,7 +1007,7 @@ export function FigmaColorPicker({
     <div className={cn("space-y-1.5", className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          {/* Trigger: compact swatch + hex + opacity% — matches Figma's fill row */}
+          {/* Trigger: compact swatch + hex + opacity% — matches the design editor's fill row */}
           <button
             type="button"
             disabled={disabled}
@@ -1018,7 +1018,7 @@ export function FigmaColorPicker({
               disabled && "pointer-events-none opacity-50",
             )}
           >
-            {/* Flat swatch chip — no shadow-inner (Figma is flat) */}
+            {/* Flat swatch chip — no shadow-inner (the design editor uses a flat chip) */}
             <span
               className="size-4 shrink-0 rounded-[3px] border border-border/60"
               style={triggerSwatchStyle(value, color)}
@@ -1032,7 +1032,7 @@ export function FigmaColorPicker({
           </button>
         </PopoverTrigger>
 
-        {/* Figma popover: ~240px wide, uniform 12px padding, tight controls */}
+        {/* design popover: ~240px wide, uniform 12px padding, tight controls */}
         <PopoverContent
           side="left"
           align="start"
@@ -1056,7 +1056,7 @@ export function FigmaColorPicker({
               />
             ) : (
               <>
-                {/* ── Paint-type icon row (Figma-style, full-width tabs) ─── */}
+                {/* ── Paint-type icon row (design-editor, full-width tabs) ─── */}
                 {/* 11 types → two rows: first 6, then 5. Each icon is a
                     clearly-hittable 36×32px target with a distinct active
                     accent so the selected mode is immediately obvious. */}
@@ -1286,7 +1286,7 @@ export function FigmaColorPicker({
                         }}
                       />
 
-                      {/* Current-color swatch left of alpha (matches Figma's layout) */}
+                      {/* Current-color swatch left of alpha (matches the design editor's layout) */}
                       <div className="flex items-center gap-2">
                         <span
                           className="size-[18px] shrink-0 rounded-[3px] border border-border/60"
@@ -1330,11 +1330,11 @@ export function FigmaColorPicker({
                   activeGradient) && (
                   <div className="mt-2.5 px-3 pb-3">
                     <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-1">
-                      {/* Model pill — bare text+chevron, no border or bg box (Figma-style) */}
+                      {/* Model pill — bare text+chevron, no border or bg box (design-editor) */}
                       <ColorModelPill
                         value={mode}
                         disabled={disabled}
-                        onChange={(v) => setMode(v as FigmaColorMode)}
+                        onChange={(v) => setMode(v as DesignColorMode)}
                       />
 
                       {/* Value field(s) — adapts to mode */}
@@ -1379,9 +1379,9 @@ export function FigmaColorPicker({
                     otherwise falls back to the single current color so the
                     section is never empty. */}
                 <div className="border-t border-border/70 px-3 py-2.5">
-                  {/* Source label — matches Figma layout */}
+                  {/* Source label — matches the design editor layout */}
                   <div className="mb-2 flex h-6 w-full items-center justify-between px-0.5 text-[11px] text-muted-foreground">
-                    {"Document colors" /* i18n-ignore Figma picker source */}
+                    {"Document colors" /* i18n-ignore design picker source */}
                   </div>
 
                   {/* Swatch grid: document palette when available, else current color */}
@@ -1434,7 +1434,7 @@ export function FigmaColorPicker({
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
-const COLOR_MODES: Array<{ value: FigmaColorMode; label: string }> = [
+const COLOR_MODES: Array<{ value: DesignColorMode; label: string }> = [
   { value: "hex", label: "Hex" }, // i18n-ignore color mode
   { value: "rgb", label: "RGB" }, // i18n-ignore color mode
   { value: "hsl", label: "HSL" }, // i18n-ignore color mode
@@ -1442,7 +1442,7 @@ const COLOR_MODES: Array<{ value: FigmaColorMode; label: string }> = [
 ];
 
 /**
- * Figma-style bare color-model selector: text + small chevron, no border/bg box.
+ * design-editor bare color-model selector: text + small chevron, no border/bg box.
  * Hover reveals a subtle bg tint; active mode is font-semibold.
  * Renders its own lightweight dropdown (no Radix Select overhead).
  */
@@ -1451,9 +1451,9 @@ function ColorModelPill({
   disabled,
   onChange,
 }: {
-  value: FigmaColorMode;
+  value: DesignColorMode;
   disabled: boolean;
-  onChange: (mode: FigmaColorMode) => void;
+  onChange: (mode: DesignColorMode) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1720,7 +1720,7 @@ function ColorTrack({
       )}
       style={{ backgroundImage, backgroundSize, backgroundPosition }}
     >
-      {/* Thumb overhangs the track slightly, matching Figma */}
+      {/* Thumb overhangs the track slightly, matching the design editor */}
       <span
         className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"
         style={{ left: `${clamp(percent, 0, 100)}%` }}
@@ -1820,7 +1820,10 @@ function ScrubbyNumberInput({
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
-export function inferPaintType(value: string, opacity: number): FigmaPaintType {
+export function inferPaintType(
+  value: string,
+  opacity: number,
+): DesignPaintType {
   const lower = value.trim().toLowerCase();
   if (lower.includes("gradient(")) {
     if (lower.startsWith("radial-gradient")) return "radial";
@@ -1836,7 +1839,7 @@ export function inferPaintType(value: string, opacity: number): FigmaPaintType {
 }
 
 /** The set of paint types that render a gradient editor. */
-export const GRADIENT_PAINT_TYPES: ReadonlySet<FigmaPaintType> = new Set([
+export const GRADIENT_PAINT_TYPES: ReadonlySet<DesignPaintType> = new Set([
   "linear",
   "radial",
   "angular",
@@ -1860,17 +1863,17 @@ export const GRADIENT_PAINT_TYPES: ReadonlySet<FigmaPaintType> = new Set([
  * @param opacity         The current opacity (0–100).
  */
 export function resolveActivePaint(
-  paintType: FigmaPaintType | undefined,
-  localPaintType: FigmaPaintType | null,
+  paintType: DesignPaintType | undefined,
+  localPaintType: DesignPaintType | null,
   value: string,
   opacity: number,
 ): {
-  effectivePaintType: FigmaPaintType;
+  effectivePaintType: DesignPaintType;
   showGradientEditor: boolean;
   showImageControls: boolean;
   showShaderPanel: boolean;
 } {
-  const effectivePaintType: FigmaPaintType =
+  const effectivePaintType: DesignPaintType =
     localPaintType ?? paintType ?? inferPaintType(value, opacity);
   return {
     effectivePaintType,
@@ -1884,12 +1887,12 @@ function toCssColor(color: RgbaColor): string {
   return rgbaToCss(color);
 }
 
-/** Show hex without the leading # for the display field (matches Figma). */
+/** Show hex without the leading # for the display field (matches the design editor). */
 function toDisplayHex(color: RgbaColor): string {
   return rgbaToHex(color).replace(/^#/, "").toUpperCase();
 }
 
-function triggerLabel(type: FigmaPaintType, color: RgbaColor): string {
+function triggerLabel(type: DesignPaintType, color: RgbaColor): string {
   if (type === "solid") return toDisplayHex(color);
   if (type === "none") return "None";
   if (type === "image") return "Image";

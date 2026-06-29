@@ -22,6 +22,8 @@ import { readImageModelDefault } from "./_image-model-default.js";
 import generateImage from "./generate-image.js";
 import { upsertVariantSlot } from "./variant-slots.js";
 
+const IMAGE_GENERATION_TOOL_TIMEOUT_MS = 12 * 60_000;
+
 export default defineAction({
   description:
     "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
@@ -74,6 +76,7 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
+  timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
   run: async ({ slots, ...inputBase }, context?: ActionRunContext) => {
     const imageModelDefault = await readImageModelDefault();
     const libraryId = inputBase.libraryId;

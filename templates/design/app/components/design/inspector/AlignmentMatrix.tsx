@@ -77,7 +77,7 @@ const MATRIX_OPTIONS: Array<{
   { horizontal: "right", vertical: "bottom", labelKey: "alignBottomRight" },
 ];
 
-/** Figma-style alignment cell: blue bars when active, faint dot when inactive. */
+/** design-editor alignment cell: blue bars when active, faint dot when inactive. */
 function AlignmentCell({
   horizontal,
   vertical,
@@ -130,7 +130,7 @@ function AlignmentCell({
 }
 
 /**
- * Renders the Figma-style blue bars for the active alignment cell.
+ * Renders the design-editor blue bars for the active alignment cell.
  *
  * Bar orientation matches the flow direction:
  * - HORIZONTAL flow → VERTICAL bars (tall, narrow), packed to the active
@@ -138,7 +138,7 @@ function AlignmentCell({
  * - VERTICAL flow  → HORIZONTAL bars (wide, short), packed to the active
  *   vertical edge (top/middle/bottom), then aligned horizontally.
  *
- * No outer frame rect — Figma's active cell shows only the bars.
+ * No outer frame rect — the design editor's active cell shows only the bars.
  */
 function AlignmentBars({
   horizontal,
@@ -314,7 +314,7 @@ export function AlignmentMatrix({
     <TooltipProvider delayDuration={250}>
       <div className={cn("flex flex-col gap-0", className)}>
         {/*
-         * 3×3 dot grid — Figma style.
+         * 3×3 dot grid — design-editor style.
          * NO border, NO background box — bare grid of cells.
          * Each cell is 22px; 3 cols = 66px total.
          */}

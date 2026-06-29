@@ -20,6 +20,7 @@ export const BUILDER_DOCS_MODELS = [
   "docs-content",
   "blog-article",
   "agent-native-blog-article-test",
+  "symbol",
 ] as const;
 
 export type BuilderDocsModel = (typeof BUILDER_DOCS_MODELS)[number] | string;
@@ -175,6 +176,7 @@ export function builderRawRootForEntry(model: string, entryId: string) {
 function modelDirectory(model: string) {
   if (model === "docs-content") return "docs";
   if (model === "blog-article") return "blog";
+  if (model === "symbol") return "symbols";
   return safePathPart(model);
 }
 
@@ -191,6 +193,23 @@ export function builderMdxPathForEntry(entry: BuilderContentEntry) {
   const slug = slugify(handle?.replace(/^\/+|\/+$/g, "") || title, entry.id);
   return `${BUILDER_DOCS_CONTENT_ROOT}/${modelDirectory(
     entry.model,
+  )}/${slug}${BUILDER_DOCS_MDX_EXTENSION}`;
+}
+
+function builderSymbolMdxPathForEntry(entry: BuilderContentEntry) {
+  const data = entry.data ?? {};
+  const title = builderEntryTitle(entry);
+  const handle = stringFromRecord(data, [
+    "handle",
+    "slug",
+    "urlPath",
+    "url",
+    "path",
+  ]);
+  const slug = slugify(handle?.replace(/^\/+|\/+$/g, "") || title, entry.id);
+  return `${BUILDER_DOCS_CONTENT_ROOT}/symbols/${safePathPart(
+    entry.model,
+    "symbol",
   )}/${slug}${BUILDER_DOCS_MDX_EXTENSION}`;
 }
 
@@ -357,6 +376,50 @@ function childBlocks(block: unknown): unknown[] {
   return Array.isArray(block.children) ? block.children : [];
 }
 
+function symbolContentEntry(
+  symbol: Record<string, unknown>,
+): BuilderContentEntry | null {
+  const content = isRecord(symbol.content) ? symbol.content : null;
+  if (!content) return null;
+  const rawModel = stringFromRecord(symbol, ["model"]);
+  const rawEntry = stringFromRecord(symbol, ["entry"]);
+  const id = stringFromRecord(content, ["id", "entry", "uid"]) ?? rawEntry;
+  if (!id) return null;
+
+  const model =
+    stringFromRecord(content, ["model", "modelName", "queryModel"]) ??
+    rawModel ??
+    "symbol";
+  const data = isRecord(content.data)
+    ? (JSON.parse(JSON.stringify(content.data)) as Record<string, unknown>)
+    : {};
+  if (!Array.isArray(data.blocks) && Array.isArray(content.blocks)) {
+    data.blocks = content.blocks;
+  }
+  if (!data.blocks) return null;
+
+  return {
+    ...content,
+    id,
+    model,
+    name:
+      stringFromRecord(content, ["name"]) ??
+      stringFromRecord(data, ["title", "pageTitle", "name"]) ??
+      id,
+    published:
+      typeof content.published === "string" ? content.published : undefined,
+    lastUpdated:
+      typeof content.lastUpdated === "string" ||
+      typeof content.lastUpdated === "number"
+        ? content.lastUpdated
+        : typeof content.updatedDate === "string" ||
+            typeof content.updatedDate === "number"
+          ? content.updatedDate
+          : undefined,
+    data,
+  };
+}
+
 function blockSummary(block: unknown) {
   const name = componentName(block);
   const options = componentOptions(block);
@@ -382,6 +445,7 @@ interface BlocksToMdxContext {
   rawRoot: string;
   files: Record<string, string>;
   warnings: string[];
+  emitReferencedEntry: (entry: BuilderContentEntry) => Promise<string>;
 }
 
 async function builderBlocksToMdxBody(
@@ -493,10 +557,19 @@ async function builderBlockToMdx(
 
   if (name === "Symbol") {
     const symbol = isRecord(options.symbol) ? options.symbol : {};
+    const contentEntry = symbolContentEntry(symbol);
+    const source = contentEntry
+      ? await ctx.emitReferencedEntry(contentEntry)
+      : undefined;
     const data: BuilderSymbolData = {
       ...raw,
       entry: typeof symbol.entry === "string" ? symbol.entry : undefined,
       model: typeof symbol.model === "string" ? symbol.model : undefined,
+      source,
+      dynamic:
+        boolFromRecord(symbol, "dynamic") ??
+        boolFromRecord(symbol, "isDynamic") ??
+        boolFromRecord(options, "dynamicSymbol"),
       data: isRecord(symbol.data) ? symbol.data : undefined,
     };
     return serializeRegistryBlockToMdx("builder-symbol", {
@@ -525,12 +598,76 @@ async function builderBlockToMdx(
 export async function builderEntryToMdxBundle(
   entry: BuilderContentEntry,
 ): Promise<BuilderMdxBundle> {
+  const files: Record<string, string> = {};
+  const warnings: string[] = [];
+  const emitted = new Set<string>();
+  const mdx = await emitBuilderEntryToMdxFile({
+    entry,
+    files,
+    warnings,
+    emitted,
+    symbolPath: false,
+  });
+  return { mdx, files, blocks: builderEntryBlocks(entry) };
+}
+
+async function emitBuilderEntryToMdxFile({
+  entry,
+  files,
+  warnings,
+  emitted,
+  symbolPath,
+}: {
+  entry: BuilderContentEntry;
+  files: Record<string, string>;
+  warnings: string[];
+  emitted: Set<string>;
+  symbolPath: boolean;
+}): Promise<BuilderMdxFile> {
+  const path = symbolPath
+    ? builderSymbolMdxPathForEntry(entry)
+    : builderMdxPathForEntry(entry);
+  const key = `${entry.model}:${entry.id}:${path}`;
+  if (emitted.has(key)) {
+    return {
+      path,
+      documentId: builderDocumentId(entry.model, entry.id),
+      title: builderEntryTitle(entry),
+      metadata: {
+        model: entry.model,
+        entryId: entry.id,
+        lastUpdated: normalizeRemoteUpdatedAt(entry),
+        published: entry.published,
+        sourceHash: builderSourceHash(entry),
+        blocksHash: builderBlocksHash(builderEntryBlocks(entry)),
+        rawRoot: builderRawRootForEntry(entry.model, entry.id),
+        path,
+      },
+      frontmatter: {},
+      body: "",
+      source: files[path] ?? "",
+    };
+  }
+  emitted.add(key);
+
   const blocks = builderEntryBlocks(entry);
   const rawRoot = builderRawRootForEntry(entry.model, entry.id);
-  const files: Record<string, string> = {};
-  const ctx: BlocksToMdxContext = { rawRoot, files, warnings: [] };
+  const ctx: BlocksToMdxContext = {
+    rawRoot,
+    files,
+    warnings,
+    emitReferencedEntry: async (referencedEntry) => {
+      const nested = await emitBuilderEntryToMdxFile({
+        entry: referencedEntry,
+        files,
+        warnings,
+        emitted,
+        symbolPath: true,
+      });
+      return nested.path;
+    },
+  };
   const body = await builderBlocksToMdxBody(blocks, ctx);
-  const path = builderMdxPathForEntry(entry);
   const blocksHash = builderBlocksHash(blocks);
   const sourceHash = builderSourceHash(entry);
   const frontmatter = frontmatterForEntry({
@@ -552,7 +689,7 @@ export async function builderEntryToMdxBundle(
     source,
   };
   files[path] = source;
-  return { mdx, files, blocks };
+  return mdx;
 }
 
 function parseFrontmatterValue(value: string): unknown {

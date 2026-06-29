@@ -66,7 +66,7 @@ const DEFAULT_LABELS: ConstraintsWidgetLabels = {
 // ── pin-box geometry ────────────────────────────────────────────────────────
 // The preview box is 40×40px (size-10). Inside it sits an 18×14px inner rect
 // (representing a child element) centered at (20,20). The proportions match
-// Figma's "little box" widget — inner rect is ~45–50% of the outer box width
+// the design editor's "little box" widget — inner rect is ~45–50% of the outer box width
 // and slightly shorter in height to resemble a real element.
 //
 // Edge pins: 5px long, 2px wide, placed 2px from the box edge (flush to border).
@@ -83,7 +83,7 @@ const DEFAULT_LABELS: ConstraintsWidgetLabels = {
 //
 // Center marker: for h=center or v=center, a single accent line runs through
 // the full width/height of the box (including through the inner rect), drawn
-// on top at the midpoint — matching Figma's solid crosshair treatment.
+// on top at the midpoint — matching the design editor's solid crosshair treatment.
 //
 // Scale mode: all four pins on that axis render dashed, accent color.
 
@@ -93,7 +93,7 @@ const INNER_H = 14; // inner rect height (slightly shorter than wide = realistic
 const INNER_X = (BOX - INNER_W) / 2; // 11
 const INNER_Y = (BOX - INNER_H) / 2; // 13
 const PIN_LEN = 5; // visual pin length
-const PIN_W = 2; // pin stroke width (Figma: 2px thick pins)
+const PIN_W = 2; // pin stroke width (design editor: 2px thick pins)
 const MARGIN = 2; // gap between outer box edge and pin start
 const CENTER = BOX / 2; // 20
 
@@ -264,7 +264,7 @@ function PinBox({
       />
 
       {/* center crosshair lines — drawn THROUGH the full box width/height
-          (including through the inner rect), matching Figma's solid crosshair.
+          (including through the inner rect), matching the design editor's solid crosshair.
           Only rendered when the constraint is "center" on that axis.            */}
       {hCenter && (
         <line

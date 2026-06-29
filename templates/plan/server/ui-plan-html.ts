@@ -58,7 +58,7 @@ const DEFAULT_COMPONENTS: UiPlanComponent[] = [
   {
     name: "Comment popover",
     description:
-      "One-field Figma-like comment composer with no category picker or coordinate metadata in the user-facing bubble.",
+      "One-field compact comment composer with no category picker or coordinate metadata in the user-facing bubble.",
   },
   {
     name: "Drawing controls",
@@ -209,7 +209,7 @@ function renderCanvasAnnotationLayers(
     ? Math.min(board.width - 380, lastState.x + lastState.width + 96)
     : 1760;
   return `<div class="canvas-annotation handoff-note" style="${frameStyle(handoffX, 118, 340, 176)}">
-    <h4>Read this like a Figma handoff.</h4>
+    <h4>Read this like a design handoff.</h4>
     <ul>
       <li>Pan and zoom to compare frames.</li>
       <li>Leave comments directly on artboards.</li>

@@ -72,7 +72,7 @@ describe("code-layer projection", () => {
     expect(button?.layerNameSource).toBe("semantic");
   });
 
-  it("builds a Figma-like DOM layer tree from projection parentage", () => {
+  it("builds a design-editor DOM layer tree from projection parentage", () => {
     const html = `
       <main data-agent-native-layer-name="Page">
         <section data-layer-name="Hero">

@@ -195,6 +195,18 @@ Content has two file workflows:
   `select` fields; selecting the component in the editor shows a corner edit
   button that rewrites the MDX props. JSX expression props are preserved in
   source but shown as an unsupported preview.
+- **Reusable MDX references:** local-file MDX can embed another local document
+  with `<ContentReference sourcePath="./shared/example.mdx" />`. The editor
+  resolves `sourcePath` relative to the current file, previews the referenced
+  MDX read-only in place, and preserves the original tag in source. Use this for
+  reusable docs fragments instead of copy/pasting shared content.
+- **Builder Symbols:** Builder MDX pulls preserve Symbol blocks as
+  `<BuilderSymbol ... />`. When Builder returns enriched symbol content, the
+  pull also writes a referenced `.builder.mdx` file under
+  `content/builder/symbols/` and sets the Symbol block's `source` attribute.
+  Edit reusable symbol content in that emitted source file; do not retarget
+  `entry`, `model`, or `source` in the parent MDX unless a dedicated Builder
+  retargeting workflow is added.
 - **Picked folders and components:** browser-picked folders can be the
   source of truth for `.md`/`.mdx` files, but the browser does not expose an
   absolute path that Vite can compile. Component previews from a picked

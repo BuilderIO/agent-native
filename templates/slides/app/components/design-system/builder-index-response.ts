@@ -1,4 +1,4 @@
-export interface FigImportResult {
+export interface BuilderIndexResult {
   ok: boolean;
   source: "builder";
   suggestedTitle: string;
@@ -10,7 +10,7 @@ export interface FigImportResult {
   builderConnectUrl?: string;
 }
 
-export const MAX_FIG_UPLOAD_BYTES = 200 * 1024 * 1024;
+export const MAX_BUILDER_INDEX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 export function formatFileSize(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;
@@ -18,7 +18,7 @@ export function formatFileSize(bytes: number): string {
 
 function summarizeUploadFailure(status: number, bodyText: string): string {
   if (status === 413) {
-    return `File too large (max ${formatFileSize(MAX_FIG_UPLOAD_BYTES)}).`;
+    return `File too large (max ${formatFileSize(MAX_BUILDER_INDEX_UPLOAD_BYTES)}).`;
   }
 
   const trimmed = bodyText
@@ -31,9 +31,9 @@ function summarizeUploadFailure(status: number, bodyText: string): string {
   return `Upload failed (${status})`;
 }
 
-export async function readFigImportResponse(
+export async function readBuilderIndexResponse(
   res: Response,
-): Promise<FigImportResult> {
+): Promise<BuilderIndexResult> {
   const bodyText = await res.text();
   let json: unknown = null;
 
@@ -59,5 +59,5 @@ export async function readFigImportResponse(
     throw new Error(summarizeUploadFailure(res.status, bodyText));
   }
 
-  return json as FigImportResult;
+  return json as BuilderIndexResult;
 }

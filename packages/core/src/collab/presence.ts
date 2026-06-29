@@ -1,5 +1,5 @@
 /**
- * Presence kit — Liveblocks/Figma-grade presence primitives.
+ * Presence kit — Liveblocks/collaboration-grade presence primitives.
  *
  * usePresence(awareness) returns:
  *   - others: reactive array of remote participants (human + agent)

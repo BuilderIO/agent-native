@@ -78,6 +78,13 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
+  it("is ON when an app opts in through plugin options (hosted + secret)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(true);
+  });
+
   it("is ON only when explicitly opted in via a truthy flag (hosted + secret)", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
@@ -110,12 +117,14 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     process.env.A2A_SECRET = "shhh";
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
   });
 
   it("stays OFF when opted in + hosted but A2A_SECRET is missing", () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     makeHosted();
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
   });
 
   it("treats NETLIFY_LOCAL=true as NOT hosted (netlify dev), even when opted in", () => {

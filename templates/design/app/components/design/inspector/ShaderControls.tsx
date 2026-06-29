@@ -151,7 +151,7 @@ function ParamLabel({ children }: { children: React.ReactNode }) {
 }
 
 // ---------------------------------------------------------------------------
-// Color swatch button — Figma style: rounded rect swatch + hex label inline
+// Color swatch button — design-editor style: rounded rect swatch + hex label inline
 // ---------------------------------------------------------------------------
 
 interface ColorSwatchProps {

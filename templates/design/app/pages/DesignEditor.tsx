@@ -1477,7 +1477,7 @@ function fullPreviewHtml(content: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${content}</body></html>`;
 }
 
-type FigmaToolbarOption = {
+type DesignToolbarOption = {
   key: string;
   label: string;
   icon: ReactNode;
@@ -1487,7 +1487,7 @@ type FigmaToolbarOption = {
   onSelect: () => void;
 };
 
-function FigmaToolbarTool({
+function DesignToolbarTool({
   active,
   label,
   icon,
@@ -1497,7 +1497,7 @@ function FigmaToolbarTool({
   active: boolean;
   label: string;
   icon: ReactNode;
-  options: FigmaToolbarOption[];
+  options: DesignToolbarOption[];
   onPrimary: () => void;
 }) {
   const hasOptionsMenu = options.length > 1;
@@ -1506,7 +1506,7 @@ function FigmaToolbarTool({
       className={cn(
         "flex h-8 items-center overflow-hidden rounded-md text-neutral-200 transition-colors",
         active
-          ? "bg-[#0d99ff] text-white"
+          ? "bg-[var(--design-editor-accent-color)] text-white"
           : "hover:bg-white/10 hover:text-white",
       )}
     >
@@ -1574,7 +1574,7 @@ function FigmaToolbarTool({
   );
 }
 
-function FigmaModeTab({
+function DesignModeTab({
   active,
   disabled,
   label,
@@ -1610,7 +1610,7 @@ function FigmaModeTab({
   );
 }
 
-function FigmaBottomToolbar({
+function DesignBottomToolbar({
   mode,
   pinMode,
   drawMode,
@@ -1670,7 +1670,7 @@ function FigmaBottomToolbar({
         return <IconSquare className={className} />;
     }
   };
-  const shapeOptions: FigmaToolbarOption[] = [
+  const shapeOptions: DesignToolbarOption[] = [
     {
       key: "rect",
       label: t("designEditor.tools.rect"),
@@ -1735,7 +1735,7 @@ function FigmaBottomToolbar({
     label: string;
     icon: ReactNode;
     onClick: () => void;
-    options: FigmaToolbarOption[];
+    options: DesignToolbarOption[];
   }> = [
     {
       key: "move",
@@ -1896,7 +1896,7 @@ function FigmaBottomToolbar({
     <div className="absolute bottom-4 left-1/2 z-[70] flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1.5 overflow-hidden rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur">
       <div className="flex min-w-0 items-center gap-0.5">
         {tools.map((tool) => (
-          <FigmaToolbarTool
+          <DesignToolbarTool
             key={tool.key}
             active={tool.active}
             label={tool.label}
@@ -1911,7 +1911,7 @@ function FigmaBottomToolbar({
 
       <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
         {modes.map((item) => (
-          <FigmaModeTab
+          <DesignModeTab
             key={item.key}
             active={item.active}
             label={item.label}
@@ -7282,7 +7282,7 @@ ${serializedHtml}
         )}
 
         {!embedded && activeFile && !pendingVariants && !questionFlowActive && (
-          <FigmaBottomToolbar
+          <DesignBottomToolbar
             mode={mode}
             pinMode={pinMode}
             drawMode={drawMode}

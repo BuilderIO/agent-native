@@ -45,7 +45,7 @@ interface UploadedFile {
   textContent?: string;
 }
 
-interface FigImportResult {
+interface BuilderIndexResult {
   ok: boolean;
   source: "builder";
   suggestedTitle: string;
@@ -68,7 +68,6 @@ export default function DesignSystemSetup() {
   const [githubUrl, setGithubUrl] = useState("");
   const [githubLinks, setGithubLinks] = useState<GitHubLink[]>([]);
   const [codeFiles, setCodeFiles] = useState<UploadedFile[]>([]);
-  const [figFiles] = useState<UploadedFile[]>([]);
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
   const [imageFiles, setImageFiles] = useState<UploadedFile[]>([]);
   const [assets, setAssets] = useState<UploadedFile[]>([]);
@@ -96,42 +95,48 @@ export default function DesignSystemSetup() {
 
   // --- Figma .fig import (Builder design-system indexing) -----------------
   const realFigInputRef = useRef<HTMLInputElement>(null);
-  const [figParsing, setFigParsing] = useState(false);
-  const [figResult, setFigResult] = useState<FigImportResult | null>(null);
-  const [figError, setFigError] = useState<string | null>(null);
+  const [builderIndexing, setBuilderIndexing] = useState(false);
+  const [builderIndexResult, setBuilderIndexResult] =
+    useState<BuilderIndexResult | null>(null);
+  const [builderIndexError, setBuilderIndexError] = useState<string | null>(
+    null,
+  );
 
-  const handleFigImport = useCallback(
+  const handleBuilderIndexUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       e.target.value = "";
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
-        setFigError(t("designSystemSetup.errors.chooseFig"));
+        setBuilderIndexError(t("designSystemSetup.errors.chooseFig"));
         return;
       }
-      setFigError(null);
-      setFigResult(null);
-      setFigParsing(true);
+      setBuilderIndexError(null);
+      setBuilderIndexResult(null);
+      setBuilderIndexing(true);
       try {
         const body = new FormData();
         body.append("file", file);
-        const res = await fetch(appApiPath("/api/import-figma-system"), {
-          method: "POST",
-          body,
-        });
+        const res = await fetch(
+          appApiPath("/api/index-design-system-with-builder"),
+          {
+            method: "POST",
+            body,
+          },
+        );
         const json = await res.json();
         if (!res.ok || json?.error) {
           throw new Error(json?.error || `Upload failed (${res.status})`);
         }
-        setFigResult(json as FigImportResult);
+        setBuilderIndexResult(json as BuilderIndexResult);
       } catch (err) {
-        setFigError(
+        setBuilderIndexError(
           err instanceof Error
             ? err.message
             : t("designSystemSetup.errors.parseFig"),
         );
       } finally {
-        setFigParsing(false);
+        setBuilderIndexing(false);
       }
     },
     [t],
@@ -155,7 +160,7 @@ export default function DesignSystemSetup() {
       githubUrl.trim() ||
       githubLinks.length > 0 ||
       codeFiles.length > 0 ||
-      figFiles.length > 0 ||
+      builderIndexResult ||
       docFiles.length > 0 ||
       imageFiles.length > 0 ||
       assets.length > 0 ||
@@ -170,7 +175,7 @@ export default function DesignSystemSetup() {
     githubUrl,
     githubLinks,
     codeFiles,
-    figFiles,
+    builderIndexResult,
     docFiles,
     imageFiles,
     assets,
@@ -383,9 +388,9 @@ export default function DesignSystemSetup() {
       }
     }
 
-    if (figFiles.length > 0) {
+    if (builderIndexResult) {
       parts.push(
-        `\n## Figma Files\nCall \`import-figma\` and describe the design system from:\n${figFiles.map((f) => `- ${f.name}`).join("\n")}`,
+        `\n## Builder-Indexed Figma File\nBuilder design-system indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for extracted tokens, assets, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
       );
     }
 
@@ -450,7 +455,7 @@ export default function DesignSystemSetup() {
     githubUrl,
     githubLinks,
     codeFiles,
-    figFiles,
+    builderIndexResult,
     docFiles,
     imageFiles,
     assets,
@@ -517,15 +522,15 @@ export default function DesignSystemSetup() {
               title={t("designSystemSetup.sections.figma.title")}
               description={t("designSystemSetup.sections.figma.description")}
             >
-              {!figResult ? (
+              {!builderIndexResult ? (
                 <>
                   <button
                     type="button"
                     onClick={() => realFigInputRef.current?.click()}
-                    disabled={figParsing}
+                    disabled={builderIndexing}
                     className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-[#609FF8]/40 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                   >
-                    {figParsing ? (
+                    {builderIndexing ? (
                       <div className="flex flex-col items-center gap-2">
                         <Spinner className="size-6 text-[#609FF8]" />
                         <p className="text-sm text-foreground/80">
@@ -553,24 +558,24 @@ export default function DesignSystemSetup() {
                     ref={realFigInputRef}
                     type="file"
                     accept=".fig"
-                    onChange={handleFigImport}
+                    onChange={handleBuilderIndexUpload}
                     className="hidden"
                   />
-                  {figError && (
+                  {builderIndexError && (
                     <div
                       role="alert"
                       className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
                     >
-                      {figError}
+                      {builderIndexError}
                     </div>
                   )}
                 </>
               ) : (
-                <FigImportPreview
-                  result={figResult}
+                <BuilderIndexPreview
+                  result={builderIndexResult}
                   onReset={() => {
-                    setFigResult(null);
-                    setFigError(null);
+                    setBuilderIndexResult(null);
+                    setBuilderIndexError(null);
                   }}
                 />
               )}
@@ -1036,11 +1041,11 @@ function FileList({
   );
 }
 
-function FigImportPreview({
+function BuilderIndexPreview({
   result,
   onReset,
 }: {
-  result: FigImportResult;
+  result: BuilderIndexResult;
   onReset: () => void;
 }) {
   const t = useT();
