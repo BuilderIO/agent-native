@@ -23,6 +23,14 @@ describe("add-localhost-screens URL handling", () => {
     expect(slugForPath("localhost:1234/onboarding/3")).toBe("onboarding-3");
   });
 
+  it("does not expand host:port shorthand for non-loopback hosts", () => {
+    expect(() =>
+      routeUrl("http://localhost:1234", {
+        url: "example.com:3000/onboarding/3",
+      }),
+    ).toThrow(/http\(s\) URL/);
+  });
+
   it("rejects non-http URL schemes for localhost screens", () => {
     expect(() =>
       routeUrl("http://localhost:1234", { url: "mailto:test" }),

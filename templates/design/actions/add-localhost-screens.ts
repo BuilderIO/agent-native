@@ -73,8 +73,7 @@ function withLocalhostProtocol(value: string): string {
   if (
     /^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\]|::1)(?::\d+)?(?:[/?#]|$)/i.test(
       raw,
-    ) ||
-    /^[a-z0-9.-]+:\d+(?:[/?#]|$)/i.test(raw)
+    )
   ) {
     return `http://${raw}`;
   }
