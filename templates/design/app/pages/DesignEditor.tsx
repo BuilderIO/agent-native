@@ -1367,12 +1367,29 @@ function codeLayerTreeToPanelNodes(
   hiddenIds: Set<string>,
   inheritedLocked = false,
   inheritedHidden = false,
+  // Ancestor-path ids guarding against a cyclic projection (e.g. duplicate or
+  // empty node ids like "an-" that make a node its own descendant) recursing
+  // forever and crashing the whole editor with a stack overflow.
+  ancestors: Set<string> = new Set(),
 ): LayersPanelNode[] {
   return nodes.map((node) => {
     const selfLocked = lockedIds.has(node.id);
     const selfHidden = hiddenIds.has(node.id);
     const locked = inheritedLocked || selfLocked;
     const hidden = inheritedHidden || selfHidden;
+    let children: LayersPanelNode[] = [];
+    if (!ancestors.has(node.id)) {
+      ancestors.add(node.id);
+      children = codeLayerTreeToPanelNodes(
+        node.children,
+        lockedIds,
+        hiddenIds,
+        locked,
+        hidden,
+        ancestors,
+      );
+      ancestors.delete(node.id);
+    }
     return {
       id: node.id,
       name: node.name,
@@ -1386,13 +1403,7 @@ function codeLayerTreeToPanelNodes(
       hideable: true,
       locked,
       hidden,
-      children: codeLayerTreeToPanelNodes(
-        node.children,
-        lockedIds,
-        hiddenIds,
-        locked,
-        hidden,
-      ),
+      children,
     };
   });
 }
