@@ -131,6 +131,32 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+function isFocusableChromeTarget(target: EventTarget | null) {
+  if (!target || typeof Element === "undefined") return false;
+  if (!(target instanceof Element)) return false;
+  if (target === document.body || target === document.documentElement) {
+    return false;
+  }
+  return Boolean(
+    target.closest(
+      [
+        "a[href]",
+        "button",
+        "summary",
+        "input",
+        "textarea",
+        "select",
+        "[contenteditable]",
+        '[role="button"]',
+        '[role="menuitem"]',
+        '[role="option"]',
+        '[role="tab"]',
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(","),
+    ),
+  );
+}
+
 export function useDesignHotkeys(props: UseDesignHotkeysProps) {
   const propsRef = useRef(props);
 
@@ -236,7 +262,11 @@ function handleDesignHotkey(
 
   if (event.key === "Escape") return run(props.onEscape);
   if (event.key === "Enter") return run(props.onEnter);
-  if (event.key === "Tab" && props.onTab) {
+  if (
+    event.key === "Tab" &&
+    props.onTab &&
+    !isFocusableChromeTarget(event.target)
+  ) {
     prevent();
     props.onTab({ ...details, backwards: event.shiftKey });
     return true;

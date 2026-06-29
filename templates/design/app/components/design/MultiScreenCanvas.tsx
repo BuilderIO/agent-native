@@ -554,7 +554,7 @@ export function MultiScreenCanvas({
     const rect = surfaceRef.current.getBoundingClientRect();
     const columns = Math.min(screens.length, 3);
     const rows = Math.ceil(screens.length / columns);
-    const scale = zoom / 100;
+    const scale = zoomRef.current / 100;
     const totalWidth = columns * SCREEN_WIDTH + (columns - 1) * SCREEN_GAP;
     const totalHeight = rows * SCREEN_CARD_HEIGHT + (rows - 1) * SCREEN_GAP;
     const visualLeft = Math.max(24, (rect.width - totalWidth * scale) / 2);
@@ -567,7 +567,7 @@ export function MultiScreenCanvas({
     setPan(nextPan);
     // Only on mount or when screen count changes, not on every pan update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screens.length, zoom]);
+  }, [screens.length]);
 
   useEffect(() => {
     return () => {
