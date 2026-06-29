@@ -10,19 +10,66 @@ import {
   type HslaColor,
   type RgbaColor,
 } from "@shared/color-utils";
-import { IconColorSwatch, IconPlus, IconTrash } from "@tabler/icons-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { IconChevronDown, IconColorPicker, IconX } from "@tabler/icons-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type JSX,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+// ─── Public types ──────────────────────────────────────────────────────────────
+
+export type FigmaColorMode = "hex" | "rgb" | "hsl" | "hsb";
+export type FigmaGradientType = "linear" | "radial" | "angular" | "diamond";
+export type FigmaFillType = "solid" | "gradient" | "image";
+export type FigmaPaintType =
+  | "solid"
+  | "linear"
+  | "radial"
+  | "angular"
+  | "diamond"
+  | "image"
+  | "none";
+
+// These interfaces remain so EditPanel's prop types don't break, even though
+// the popover no longer renders the fills/gradient-stops list.
+export interface FigmaFillRow {
+  id: string;
+  label: string;
+  value: string;
+  type: FigmaFillType;
+  opacity?: number;
+  swatch?: string;
+  selected?: boolean;
+}
+
+export interface FigmaFillRowPatch {
+  value?: string;
+  opacity?: number;
+}
 
 export interface FigmaGradientStop {
   id: string;
@@ -46,12 +93,23 @@ export interface FigmaColorPickerLabels {
   blue: string;
   hue: string;
   saturation: string;
+  saturationBrightness: string;
   lightness: string;
+  brightness: string;
   opacity: string;
+  blendMode: string;
+  fills: string;
+  addFill: string;
+  removeFill: string;
+  gradientType: string;
   gradientStops: string;
   addStop: string;
   removeStop: string;
   stopPosition: string;
+  linear: string;
+  radial: string;
+  angular: string;
+  diamond: string;
 }
 
 export interface FigmaColorPickerProps {
@@ -60,6 +118,21 @@ export interface FigmaColorPickerProps {
   label?: string;
   opacity?: number;
   onOpacityChange?: (opacity: number) => void;
+  blendMode?: string;
+  onBlendModeChange?: (mode: string) => void;
+  showBlendMode?: boolean;
+  // Accepted but unused in the popover — list management lives in the sidebar.
+  fillRows?: FigmaFillRow[];
+  selectedFillId?: string;
+  onFillSelect?: (id: string) => void;
+  onFillChange?: (id: string, patch: FigmaFillRowPatch) => void;
+  onAddFill?: () => void;
+  onRemoveFill?: (id: string) => void;
+  paintType?: FigmaPaintType;
+  onPaintTypeChange?: (type: FigmaPaintType) => void;
+  gradientType?: FigmaGradientType;
+  onGradientTypeChange?: (type: FigmaGradientType) => void;
+  // Accepted but unused in the popover — gradient stop handles belong on canvas.
   gradientStops?: FigmaGradientStop[];
   selectedStopId?: string;
   onGradientStopSelect?: (id: string) => void;
@@ -71,6 +144,17 @@ export interface FigmaColorPickerProps {
   className?: string;
 }
 
+// ─── Internal types ────────────────────────────────────────────────────────────
+
+interface HsvaColor {
+  h: number;
+  s: number;
+  v: number;
+  a: number;
+}
+
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
 
 const DEFAULT_LABELS: FigmaColorPickerLabels = {
@@ -81,49 +165,345 @@ const DEFAULT_LABELS: FigmaColorPickerLabels = {
   blue: "B", // i18n-ignore fallback component label
   hue: "H", // i18n-ignore fallback component label
   saturation: "S", // i18n-ignore fallback component label
+  saturationBrightness: "Saturation and brightness", // i18n-ignore fallback component label
   lightness: "L", // i18n-ignore fallback component label
+  brightness: "B", // i18n-ignore fallback component label
   opacity: "Opacity", // i18n-ignore fallback component label
+  blendMode: "Blend", // i18n-ignore fallback component label
+  fills: "Fills", // i18n-ignore fallback component label
+  addFill: "Add fill", // i18n-ignore fallback component label
+  removeFill: "Remove fill", // i18n-ignore fallback component label
+  gradientType: "Type", // i18n-ignore fallback component label
   gradientStops: "Gradient stops", // i18n-ignore fallback component label
   addStop: "Add stop", // i18n-ignore fallback component label
   removeStop: "Remove stop", // i18n-ignore fallback component label
   stopPosition: "Position", // i18n-ignore fallback component label
+  linear: "Linear", // i18n-ignore fallback component label
+  radial: "Radial", // i18n-ignore fallback component label
+  angular: "Angular", // i18n-ignore fallback component label
+  diamond: "Diamond", // i18n-ignore fallback component label
 };
+
+// Figma-matching checkerboard: explicit light/dark tiles for legibility.
+const CHECKER_A = "#d4d4d4";
+const CHECKER_B = "#a3a3a3";
+const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
+
+// ─── Paint-type icon SVGs (Tabler style, distinct per type) ────────────────────
+
+function IconSolid({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <rect
+        x="4"
+        y="4"
+        width="16"
+        height="16"
+        rx="2"
+        fill="currentColor"
+        stroke="none"
+      />
+    </svg>
+  );
+}
+
+function IconLinearGradient({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <defs>
+        <linearGradient id="lg-ico" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="1" />
+        </linearGradient>
+      </defs>
+      <rect
+        x="4"
+        y="4"
+        width="16"
+        height="16"
+        rx="2"
+        fill="url(#lg-ico)"
+        stroke="currentColor"
+        strokeOpacity="0.5"
+      />
+    </svg>
+  );
+}
+
+function IconRadialGradient({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <defs>
+        <radialGradient id="rg-ico" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <rect
+        x="4"
+        y="4"
+        width="16"
+        height="16"
+        rx="2"
+        fill="url(#rg-ico)"
+        stroke="currentColor"
+        strokeOpacity="0.5"
+      />
+    </svg>
+  );
+}
+
+function IconAngularGradient({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <defs>
+        <linearGradient id="ag-ico" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <rect
+        x="4"
+        y="4"
+        width="16"
+        height="16"
+        rx="2"
+        fill="url(#ag-ico)"
+        stroke="currentColor"
+        strokeOpacity="0.5"
+      />
+      <line
+        x1="12"
+        y1="4"
+        x2="12"
+        y2="20"
+        stroke="currentColor"
+        strokeOpacity="0.4"
+        strokeDasharray="2 2"
+      />
+      <line
+        x1="4"
+        y1="12"
+        x2="20"
+        y2="12"
+        stroke="currentColor"
+        strokeOpacity="0.4"
+        strokeDasharray="2 2"
+      />
+    </svg>
+  );
+}
+
+function IconDiamondGradient({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <defs>
+        <radialGradient
+          id="dg-ico"
+          cx="50%"
+          cy="50%"
+          r="50%"
+          gradientTransform="scale(1, 1)"
+        >
+          <stop offset="0%" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <polygon
+        points="12,4 20,12 12,20 4,12"
+        fill="url(#dg-ico)"
+        stroke="currentColor"
+        strokeOpacity="0.5"
+      />
+    </svg>
+  );
+}
+
+function IconImageFill({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="m3 16 5-5 4 4 3-3 6 6" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+    </svg>
+  );
+}
+
+function IconNoneFill({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <line x1="5.636" y1="5.636" x2="18.364" y2="18.364" />
+    </svg>
+  );
+}
+
+// ─── Paint type definitions (only supported types rendered) ────────────────────
+
+const PAINT_TYPES: Array<{
+  type: FigmaPaintType;
+  label: string;
+  Icon: (props: { className?: string }) => JSX.Element;
+}> = [
+  { type: "solid", label: "Solid", Icon: IconSolid }, // i18n-ignore paint type label
+  { type: "linear", label: "Linear", Icon: IconLinearGradient }, // i18n-ignore paint type label
+  { type: "radial", label: "Radial", Icon: IconRadialGradient }, // i18n-ignore paint type label
+  { type: "angular", label: "Angular", Icon: IconAngularGradient }, // i18n-ignore paint type label
+  { type: "diamond", label: "Diamond", Icon: IconDiamondGradient }, // i18n-ignore paint type label
+  { type: "image", label: "Image", Icon: IconImageFill }, // i18n-ignore paint type label
+  { type: "none", label: "None", Icon: IconNoneFill }, // i18n-ignore paint type label
+];
+
+// ─── Document swatch placeholder (shown until real doc colors are provided) ────
+
+const PLACEHOLDER_SWATCHES = [
+  "#1f2937",
+  "#6b7280",
+  "#ffffff",
+  "#a3a3a3",
+  "#f8fafc",
+  "#111111",
+  "#000000",
+  "#a8a29e",
+  "#22c1e8",
+  "#f08ce3",
+  "#737373",
+  "#050505",
+  "#23d4b5",
+  "#d9d9d2",
+  "#e6d05c",
+  "#9ca3af",
+  "#020617",
+  "#171717",
+  "#d4d4d8",
+  "#27272a",
+];
+
+// ─── Main component ────────────────────────────────────────────────────────────
 
 export function FigmaColorPicker({
   value,
   onChange,
-  label,
+  label: _label,
   opacity,
   onOpacityChange,
-  gradientStops = [],
-  selectedStopId,
-  onGradientStopSelect,
-  onGradientStopChange,
-  onAddGradientStop,
-  onRemoveGradientStop,
+  blendMode: _blendMode,
+  onBlendModeChange: _onBlendModeChange,
+  showBlendMode: _showBlendMode,
+  fillRows: _fillRows,
+  selectedFillId: _selectedFillId,
+  onFillSelect: _onFillSelect,
+  onFillChange: _onFillChange,
+  onAddFill: _onAddFill,
+  onRemoveFill: _onRemoveFill,
+  paintType,
+  onPaintTypeChange,
+  gradientType: _gradientType,
+  onGradientTypeChange: _onGradientTypeChange,
+  gradientStops: _gradientStops,
+  selectedStopId: _selectedStopId,
+  onGradientStopSelect: _onGradientStopSelect,
+  onGradientStopChange: _onGradientStopChange,
+  onAddGradientStop: _onAddGradientStop,
+  onRemoveGradientStop: _onRemoveGradientStop,
   labels,
   disabled = false,
   className,
 }: FigmaColorPickerProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
   const color = parseCssColor(value) ?? FALLBACK_COLOR;
+  const hsv = rgbaToHsv(color);
   const hsl = rgbaToHsl(color);
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
-  const [hexDraft, setHexDraft] = useState(() => rgbaToHex(color));
+
+  const [mode, setMode] = useState<FigmaColorMode>("hex");
+  const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
+  const [open, setOpen] = useState(false);
+  const [sourceTab, setSourceTab] = useState<"custom" | "libraries">("custom");
+  const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
 
+  const effectivePaintType =
+    paintType ?? inferPaintType(value, effectiveOpacity);
+
   useEffect(() => {
-    setHexDraft(rgbaToHex(color));
-  }, [color.b, color.g, color.r]);
+    setHexDraft(toDisplayHex(color));
+  }, [color.r, color.g, color.b]);
+
+  // ── Emit helpers ────────────────────────────────────────────────────────────
 
   const emitColor = (nextColor: RgbaColor, nextOpacity = effectiveOpacity) => {
     onChange(rgbaToCss(withColorOpacity(nextColor, nextOpacity)));
   };
 
+  const emitColorFromHsv = (nextHsv: HsvaColor) => {
+    emitColor(hsvToRgba({ ...nextHsv, a: opacityToAlpha(effectiveOpacity) }));
+  };
+
+  const emitColorFromHsl = (nextHsl: HslaColor) => {
+    emitColor(hslToRgba({ ...nextHsl, a: opacityToAlpha(effectiveOpacity) }));
+  };
+
   const commitHex = () => {
-    const parsed = parseCssColor(hexDraft);
+    const parsed = parseCssColor(`#${hexDraft.replace(/^#/, "")}`);
     if (!parsed) {
-      setHexDraft(rgbaToHex(color));
+      setHexDraft(toDisplayHex(color));
       return;
     }
     const hexIncludesAlpha = hasHexAlpha(hexDraft);
@@ -139,179 +519,484 @@ export function FigmaColorPicker({
     else onChange(rgbaToCss(withColorOpacity(color, nextOpacity)));
   };
 
+  const setPaintType = (nextType: FigmaPaintType) => {
+    if (disabled) return;
+    if (onPaintTypeChange) {
+      onPaintTypeChange(nextType);
+      return;
+    }
+    if (nextType === "none") {
+      onChange("transparent");
+      return;
+    }
+    if (nextType === "solid") {
+      emitColor(color, effectiveOpacity > 0 ? effectiveOpacity : 100);
+      return;
+    }
+  };
+
+  const pickScreenColor = async () => {
+    const EyeDropperCtor = (
+      window as unknown as {
+        EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> };
+      }
+    ).EyeDropper;
+    if (!EyeDropperCtor || disabled) return;
+    setPicking(true);
+    try {
+      const result = await new EyeDropperCtor().open();
+      if (result.sRGBHex) onChange(result.sRGBHex);
+    } catch {
+      // Browser cancels are expected; keep the current color.
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const hasEyeDropper = typeof window !== "undefined" && "EyeDropper" in window;
+
+  // ── Value row inputs by mode ─────────────────────────────────────────────────
+
+  function renderValueInputs() {
+    if (mode === "hex") {
+      return (
+        <Input
+          value={hexDraft}
+          disabled={disabled}
+          aria-label={copy.hex}
+          spellCheck={false}
+          className="h-7 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] tabular-nums uppercase"
+          onChange={(e) => setHexDraft(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitHex();
+              skipNextHexBlurCommitRef.current = true;
+              e.currentTarget.blur();
+            }
+            if (e.key === "Escape") {
+              setHexDraft(toDisplayHex(color));
+              skipNextHexBlurCommitRef.current = true;
+              e.currentTarget.blur();
+            }
+          }}
+          onBlur={() => {
+            if (skipNextHexBlurCommitRef.current) {
+              skipNextHexBlurCommitRef.current = false;
+              return;
+            }
+            commitHex();
+          }}
+        />
+      );
+    }
+    if (mode === "rgb") {
+      return (
+        <div className="flex gap-1">
+          {(["r", "g", "b"] as const).map((ch) => (
+            <ScrubbyNumberInput
+              key={ch}
+              aria-label={ch.toUpperCase()}
+              value={color[ch]}
+              min={0}
+              max={255}
+              disabled={disabled}
+              onChange={(next) => emitColor({ ...color, [ch]: next })}
+            />
+          ))}
+        </div>
+      );
+    }
+    if (mode === "hsl") {
+      return (
+        <div className="flex gap-1">
+          <ScrubbyNumberInput
+            aria-label={copy.hue}
+            value={hsl.h}
+            min={0}
+            max={360}
+            disabled={disabled}
+            onChange={(h) => emitColorFromHsl({ ...hsl, h })}
+          />
+          <ScrubbyNumberInput
+            aria-label={copy.saturation}
+            value={hsl.s}
+            min={0}
+            max={100}
+            disabled={disabled}
+            onChange={(s) => emitColorFromHsl({ ...hsl, s })}
+          />
+          <ScrubbyNumberInput
+            aria-label={copy.lightness}
+            value={hsl.l}
+            min={0}
+            max={100}
+            disabled={disabled}
+            onChange={(l) => emitColorFromHsl({ ...hsl, l })}
+          />
+        </div>
+      );
+    }
+    // hsb
+    return (
+      <div className="flex gap-1">
+        <ScrubbyNumberInput
+          aria-label={copy.hue}
+          value={hsv.h}
+          min={0}
+          max={360}
+          disabled={disabled}
+          onChange={(h) => emitColorFromHsv({ ...hsv, h })}
+        />
+        <ScrubbyNumberInput
+          aria-label={copy.saturation}
+          value={hsv.s}
+          min={0}
+          max={100}
+          disabled={disabled}
+          onChange={(s) => emitColorFromHsv({ ...hsv, s })}
+        />
+        <ScrubbyNumberInput
+          aria-label={copy.brightness}
+          value={hsv.v}
+          min={0}
+          max={100}
+          disabled={disabled}
+          onChange={(v) => emitColorFromHsv({ ...hsv, v })}
+        />
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+
   return (
     <div className={cn("space-y-1.5", className)}>
-      {label && (
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-      )}
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button
+          {/* Trigger: compact swatch + hex + opacity% — matches Figma's fill row */}
+          <button
             type="button"
-            variant="outline"
             disabled={disabled}
             aria-label={copy.trigger}
-            className="h-8 w-full justify-start px-2 text-xs"
+            className={cn(
+              "flex h-7 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-xs shadow-none",
+              "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+              disabled && "pointer-events-none opacity-50",
+            )}
           >
+            {/* Flat swatch chip — no shadow-inner (Figma is flat) */}
             <span
-              className="size-5 rounded border border-border"
-              style={{ backgroundColor: rgbaToCss(color) }}
+              className="size-[18px] shrink-0 rounded-[3px] border border-border/60"
+              style={swatchStyle(rgbaToCss(color))}
             />
-            <span className="min-w-0 flex-1 truncate text-left tabular-nums">
-              {rgbaToHex(color)}
+            <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase text-[11px]">
+              {toDisplayHex(color)}
             </span>
-            <span className="text-muted-foreground tabular-nums">
+            <span className="tabular-nums text-muted-foreground text-[11px]">
               {effectiveOpacity}%
             </span>
-          </Button>
+          </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-72 p-3">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                aria-label={copy.trigger}
-                value={rgbaToHex(color)}
-                disabled={disabled}
-                onChange={(event) => {
-                  const parsed = parseCssColor(event.target.value);
-                  if (parsed) emitColor(parsed);
-                }}
-                className="size-9 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0"
-              />
-              <Field label={copy.hex} className="flex-1">
-                <Input
-                  value={hexDraft}
-                  disabled={disabled}
-                  onChange={(event) => setHexDraft(event.target.value)}
-                  onBlur={() => {
-                    if (skipNextHexBlurCommitRef.current) {
-                      skipNextHexBlurCommitRef.current = false;
-                      return;
+
+        {/* Figma popover: ~240px wide, uniform 12px padding, tight controls */}
+        <PopoverContent
+          side="left"
+          align="start"
+          sideOffset={8}
+          className="z-[10000] w-[252px] p-0 shadow-xl"
+        >
+          <div className="overflow-hidden rounded-md bg-popover text-popover-foreground">
+            {/* ── Header: Custom | Libraries  +  ✕ ────────────────────────── */}
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-3">
+                {(["custom", "libraries"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={sourceTab === tab}
+                    onClick={() => setSourceTab(tab)}
+                    className={cn(
+                      "cursor-pointer rounded px-1 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      sourceTab === tab
+                        ? "bg-[var(--design-editor-control-bg)] text-foreground shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {
+                      tab === "custom"
+                        ? "Custom" /* i18n-ignore Figma picker tab */
+                        : "Libraries" /* i18n-ignore Figma picker tab */
                     }
-                    commitHex();
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      commitHex();
-                      skipNextHexBlurCommitRef.current = true;
-                      event.currentTarget.blur();
-                    }
-                  }}
-                  className="h-8 text-xs tabular-nums"
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <NumberField
-                label={copy.red}
-                value={color.r}
-                min={0}
-                max={255}
-                disabled={disabled}
-                onChange={(next) => emitColor({ ...color, r: next })}
-              />
-              <NumberField
-                label={copy.green}
-                value={color.g}
-                min={0}
-                max={255}
-                disabled={disabled}
-                onChange={(next) => emitColor({ ...color, g: next })}
-              />
-              <NumberField
-                label={copy.blue}
-                value={color.b}
-                min={0}
-                max={255}
-                disabled={disabled}
-                onChange={(next) => emitColor({ ...color, b: next })}
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <NumberField
-                label={copy.hue}
-                value={hsl.h}
-                min={0}
-                max={360}
-                disabled={disabled}
-                onChange={(next) => emitColorFromHsl({ ...hsl, h: next })}
-              />
-              <NumberField
-                label={copy.saturation}
-                value={hsl.s}
-                min={0}
-                max={100}
-                disabled={disabled}
-                onChange={(next) => emitColorFromHsl({ ...hsl, s: next })}
-              />
-              <NumberField
-                label={copy.lightness}
-                value={hsl.l}
-                min={0}
-                max={100}
-                disabled={disabled}
-                onChange={(next) => emitColorFromHsl({ ...hsl, l: next })}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs text-muted-foreground">
-                  {copy.opacity}
-                </Label>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {effectiveOpacity}%
-                </span>
+                  </button>
+                ))}
               </div>
-              <Slider
-                value={[effectiveOpacity]}
-                min={0}
-                max={100}
-                step={1}
-                disabled={disabled}
-                onValueChange={([next]) => setOpacity(next)}
-              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={
+                      "Close" /* i18n-ignore Figma picker close label */
+                    }
+                    onClick={() => setOpen(false)}
+                    className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <IconX className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{"Close" /* i18n-ignore */}</TooltipContent>
+              </Tooltip>
             </div>
 
-            {(gradientStops.length > 0 || onAddGradientStop) && (
-              <div className="space-y-2 border-t border-border pt-3">
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <IconColorSwatch className="size-3.5" />
-                    {copy.gradientStops}
-                  </Label>
-                  {onAddGradientStop && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={disabled}
-                      aria-label={copy.addStop}
-                      title={copy.addStop}
-                      onClick={onAddGradientStop}
-                      className="size-7"
-                    >
-                      <IconPlus className="size-4" />
-                    </Button>
-                  )}
+            {sourceTab === "custom" ? (
+              <>
+                {/* ── Paint-type icon row ──────────────────────────────────── */}
+                <div className="border-t border-border/70 px-3 py-2">
+                  <div className="grid grid-cols-7 gap-0.5">
+                    {PAINT_TYPES.map(({ type, label, Icon }) => {
+                      const isActive = effectivePaintType === type;
+                      const isGradientType =
+                        type === "linear" ||
+                        type === "radial" ||
+                        type === "angular" ||
+                        type === "diamond";
+                      const gradientDisabled =
+                        isGradientType &&
+                        !onPaintTypeChange &&
+                        !_onGradientTypeChange &&
+                        !_onAddGradientStop;
+                      const imageDisabled =
+                        type === "image" && !onPaintTypeChange;
+                      const isDisabled =
+                        disabled || gradientDisabled || imageDisabled;
+                      return (
+                        <Tooltip key={type}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={label}
+                              aria-pressed={isActive}
+                              disabled={isDisabled}
+                              onClick={() => setPaintType(type)}
+                              className={cn(
+                                "flex size-7 cursor-pointer items-center justify-center rounded-sm transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                "active:scale-95",
+                                isActive
+                                  ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_var(--primary)]"
+                                  : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                                isDisabled && "pointer-events-none opacity-40",
+                              )}
+                            >
+                              <Icon className="size-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>{label}</TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  {gradientStops.map((stop) => (
-                    <GradientStopRow
-                      key={stop.id}
-                      stop={stop}
-                      selected={stop.id === selectedStopId}
-                      labels={copy}
+
+                {/* ── 2D Saturation/Brightness field ──────────────────────── */}
+                <div className="border-t border-border/70 px-3 pt-3">
+                  <SaturationBrightnessField
+                    hsv={hsv}
+                    label={copy.saturationBrightness}
+                    disabled={disabled}
+                    onChange={emitColorFromHsv}
+                  />
+                </div>
+
+                {/* ── Eyedropper + Hue slider / Swatch + Alpha slider ─────── */}
+                {/* Left gutter spans both rows with dropper centered vertically */}
+                <div className="mt-3 px-3">
+                  <div className="grid grid-cols-[1.5rem_1fr] items-center gap-x-2">
+                    {/* Eyedropper centered across the two slider rows via row-span-2 */}
+                    <div className="row-span-2 flex items-center justify-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={
+                              "Pick color" /* i18n-ignore browser eyedropper label */
+                            }
+                            disabled={disabled || !hasEyeDropper}
+                            onClick={() => void pickScreenColor()}
+                            className={cn(
+                              "flex size-6 cursor-pointer items-center justify-center rounded-sm transition-colors",
+                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                              picking
+                                ? "bg-primary/10 text-primary ring-1 ring-primary/50"
+                                : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                              (disabled || !hasEyeDropper) &&
+                                "pointer-events-none opacity-40",
+                            )}
+                          >
+                            <IconColorPicker className="size-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {
+                            hasEyeDropper
+                              ? "Pick color" // i18n-ignore browser eyedropper label
+                              : "Not supported in this browser" // i18n-ignore browser eyedropper disabled label
+                          }
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+
+                    {/* Hue track */}
+                    <ColorTrack
+                      label={copy.hue}
+                      value={hsv.h}
+                      min={0}
+                      max={360}
                       disabled={disabled}
-                      onSelect={onGradientStopSelect}
-                      onChange={onGradientStopChange}
-                      onRemove={onRemoveGradientStop}
+                      backgroundImage="linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)"
+                      onChange={(next) =>
+                        emitColorFromHsv({ ...hsv, h: next === 360 ? 0 : next })
+                      }
                     />
-                  ))}
+
+                    {/* Current-color swatch left of alpha (matches Figma's layout) */}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="size-[18px] shrink-0 rounded-[3px] border border-border/60"
+                        style={swatchStyle(rgbaToCss(color))}
+                      />
+                      {/* Alpha track fills remaining width */}
+                      <div className="flex-1">
+                        <ColorTrack
+                          label={copy.opacity}
+                          value={effectiveOpacity}
+                          min={0}
+                          max={100}
+                          disabled={disabled}
+                          backgroundImage={alphaTrackBackground(color)}
+                          backgroundSize="8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%"
+                          backgroundPosition="0 0, 0 4px, 4px -4px, -4px 0, 0 0"
+                          onChange={setOpacity}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Value row: [Hex ▾] [value input(s)] [opacity %] ─────── */}
+                <div className="mt-3 px-3 pb-3">
+                  <div className="grid grid-cols-[5rem_1fr_3.5rem] items-center gap-1.5">
+                    {/* Model dropdown */}
+                    <Select
+                      value={mode}
+                      onValueChange={(v) => setMode(v as FigmaColorMode)}
+                      disabled={disabled}
+                    >
+                      <SelectTrigger className="h-7 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] font-medium [&>svg]:size-3 [&>svg]:shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="text-xs">
+                        <SelectItem value="hex" className="text-xs">
+                          Hex
+                        </SelectItem>{" "}
+                        {/* i18n-ignore color mode */}
+                        <SelectItem value="rgb" className="text-xs">
+                          RGB
+                        </SelectItem>{" "}
+                        {/* i18n-ignore color mode */}
+                        <SelectItem value="hsl" className="text-xs">
+                          HSL
+                        </SelectItem>{" "}
+                        {/* i18n-ignore color mode */}
+                        <SelectItem value="hsb" className="text-xs">
+                          HSB
+                        </SelectItem>{" "}
+                        {/* i18n-ignore color mode */}
+                      </SelectContent>
+                    </Select>
+
+                    {/* Value field(s) — adapts to mode */}
+                    {renderValueInputs()}
+
+                    {/* Opacity % field */}
+                    <div className="flex h-7 overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
+                      <ScrubbyNumberInput
+                        aria-label={copy.opacity}
+                        value={effectiveOpacity}
+                        min={0}
+                        max={100}
+                        disabled={disabled}
+                        onChange={setOpacity}
+                        className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1.5 text-[11px] tabular-nums shadow-none focus-visible:ring-0"
+                        compact
+                      />
+                      <span className="flex w-5 shrink-0 items-center justify-center border-l border-border/60 text-[10px] text-muted-foreground">
+                        %
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── "On this page" source + swatches ────────────────────── */}
+                <div className="border-t border-border/70 px-3 py-3">
+                  {/* Source selector styled as a full-width bordered dropdown */}
+                  <button
+                    type="button"
+                    className="mb-2.5 flex h-7 w-full items-center justify-between rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]"
+                  >
+                    {"On this page" /* i18n-ignore Figma picker source */}
+                    <IconChevronDown className="size-3 text-muted-foreground" />
+                  </button>
+
+                  {/* Swatch grid: flat chips (no shadow-inner), 10 columns */}
+                  <div className="grid grid-cols-10 gap-1">
+                    {PLACEHOLDER_SWATCHES.map((swatch, index) => {
+                      const isCurrentColor =
+                        rgbaToHex(parseCssColor(swatch) ?? FALLBACK_COLOR) ===
+                        rgbaToHex(color);
+                      return (
+                        <Tooltip key={`${swatch}-${index}`}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              aria-label={swatch}
+                              aria-pressed={isCurrentColor}
+                              className={cn(
+                                "size-5 rounded-sm border transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                isCurrentColor
+                                  ? "border-primary ring-1 ring-primary"
+                                  : "border-border/60",
+                              )}
+                              style={swatchStyle(swatch)}
+                              onClick={() =>
+                                emitColor(parseCssColor(swatch) ?? color)
+                              }
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent>{swatch}</TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* ── Libraries tab: honest empty state ────────────────────── */
+              <div className="border-t border-border/70 p-3">
+                <div className="rounded-md border border-dashed border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-3 py-5 text-center">
+                  <p className="text-[11px] font-medium text-foreground">
+                    {
+                      "No color libraries connected" /* i18n-ignore Figma picker library empty state */
+                    }
+                  </p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {
+                      "Connect a library in the Assets panel to browse colors here." /* i18n-ignore Figma picker library hint */
+                    }
+                  </p>
                 </div>
               </div>
             )}
@@ -320,18 +1005,116 @@ export function FigmaColorPicker({
       </Popover>
     </div>
   );
-
-  function emitColorFromHsl(nextHsl: HslaColor) {
-    emitColor(hslToRgba({ ...nextHsl, a: opacityToAlpha(effectiveOpacity) }));
-  }
 }
 
-function NumberField({
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+function SaturationBrightnessField({
+  hsv,
+  label,
+  disabled,
+  onChange,
+}: {
+  hsv: HsvaColor;
+  label: string;
+  disabled: boolean;
+  onChange: (color: HsvaColor) => void;
+}) {
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const hueColor = rgbaToCss(hsvToRgba({ h: hsv.h, s: 100, v: 100, a: 1 }));
+
+  const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = fieldRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const nextSaturation = ((event.clientX - rect.left) / rect.width) * 100;
+    const nextBrightness =
+      100 - ((event.clientY - rect.top) / rect.height) * 100;
+    onChange({
+      ...hsv,
+      s: clamp(nextSaturation, 0, 100),
+      v: clamp(nextBrightness, 0, 100),
+    });
+  };
+
+  const stepWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    const step = event.shiftKey ? 10 : 1;
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      onChange({ ...hsv, s: clamp(hsv.s + step, 0, 100) });
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      onChange({ ...hsv, s: clamp(hsv.s - step, 0, 100) });
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onChange({ ...hsv, v: clamp(hsv.v + step, 0, 100) });
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onChange({ ...hsv, v: clamp(hsv.v - step, 0, 100) });
+    }
+  };
+
+  return (
+    <div
+      ref={fieldRef}
+      tabIndex={disabled ? -1 : 0}
+      aria-label={label}
+      aria-disabled={disabled}
+      onPointerDown={(event) => {
+        if (disabled) return;
+        draggingRef.current = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        updateFromPointer(event);
+      }}
+      onPointerMove={(event) => {
+        if (!draggingRef.current || disabled) return;
+        updateFromPointer(event);
+      }}
+      onPointerUp={(event) => {
+        draggingRef.current = false;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onPointerCancel={() => {
+        draggingRef.current = false;
+      }}
+      onKeyDown={stepWithKeyboard}
+      className={cn(
+        "relative h-48 w-full cursor-crosshair overflow-hidden rounded-md border border-border/60 outline-none",
+        "ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "active:cursor-grabbing",
+        disabled && "cursor-not-allowed opacity-60",
+      )}
+      style={{
+        backgroundImage: `linear-gradient(to top, #000 0%, transparent 100%), linear-gradient(to right, #fff 0%, ${hueColor} 100%)`,
+      }}
+    >
+      {/* Handle: size-4, white ring, consistent foreground shadow */}
+      <span
+        className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"
+        style={{
+          left: `${hsv.s}%`,
+          top: `${100 - hsv.v}%`,
+        }}
+      />
+    </div>
+  );
+}
+
+function ColorTrack({
   label,
   value,
   min,
   max,
   disabled,
+  backgroundImage,
+  backgroundSize,
+  backgroundPosition,
   onChange,
 }: {
   label: string;
@@ -339,128 +1122,265 @@ function NumberField({
   min: number;
   max: number;
   disabled: boolean;
+  backgroundImage: string;
+  backgroundSize?: string;
+  backgroundPosition?: string;
   onChange: (value: number) => void;
 }) {
-  return (
-    <Field label={label}>
-      <Input
-        type="number"
-        min={min}
-        max={max}
-        value={value}
-        disabled={disabled}
-        onChange={(event) => {
-          onChange(clamp(Number(event.target.value), min, max));
-        }}
-        className="h-8 text-xs tabular-nums"
-      />
-    </Field>
-  );
-}
+  const trackRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const percent = ((value - min) / (max - min)) * 100;
 
-function Field({
-  label,
-  children,
-  className,
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("space-y-1", className)}>
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      {children}
-    </div>
-  );
-}
+  const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = min + ((event.clientX - rect.left) / rect.width) * (max - min);
+    onChange(clamp(next, min, max));
+  };
 
-function GradientStopRow({
-  stop,
-  selected,
-  labels,
-  disabled,
-  onSelect,
-  onChange,
-  onRemove,
-}: {
-  stop: FigmaGradientStop;
-  selected: boolean;
-  labels: FigmaColorPickerLabels;
-  disabled: boolean;
-  onSelect?: (id: string) => void;
-  onChange?: (id: string, patch: FigmaGradientStopPatch) => void;
-  onRemove?: (id: string) => void;
-}) {
-  const stopColor = parseCssColor(stop.color) ?? FALLBACK_COLOR;
-  const stopOpacity = stop.opacity ?? alphaToOpacity(stopColor.a);
+  const stepWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    const step = event.shiftKey ? 10 : 1;
+    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      event.preventDefault();
+      onChange(clamp(value + step, min, max));
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      event.preventDefault();
+      onChange(clamp(value - step, min, max));
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      onChange(min);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      onChange(max);
+    }
+  };
 
   return (
     <div
-      className={cn(
-        "grid grid-cols-[auto_1fr_4.5rem_auto] items-center gap-2 rounded-md border border-transparent p-1",
-        selected && "border-primary/40 bg-primary/5",
-      )}
-    >
-      <button
-        type="button"
-        disabled={disabled || !onSelect}
-        aria-label={stop.label ?? `${labels.gradientStops} ${stop.position}%`}
-        onClick={() => onSelect?.(stop.id)}
-        className="size-6 rounded border border-border"
-        style={{ backgroundColor: rgbaToCss(stopColor) }}
-      />
-      <div className="min-w-0">
-        <input
-          type="color"
-          aria-label={stop.label ?? labels.hex}
-          value={rgbaToHex(stopColor)}
-          disabled={disabled || !onChange}
-          onChange={(event) => {
-            const parsed = parseCssColor(event.target.value);
-            if (parsed) onChange?.(stop.id, { color: rgbaToCss(parsed) });
-          }}
-          className="h-7 w-full cursor-pointer rounded border border-border bg-transparent p-0"
-        />
-      </div>
-      <Input
-        type="number"
-        min={0}
-        max={100}
-        value={stop.position}
-        disabled={disabled || !onChange}
-        aria-label={labels.stopPosition}
-        onChange={(event) =>
-          onChange?.(stop.id, {
-            position: clamp(Number(event.target.value), 0, 100),
-          })
+      ref={trackRef}
+      role="slider"
+      tabIndex={disabled ? -1 : 0}
+      aria-label={label}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={Math.round(value)}
+      aria-disabled={disabled}
+      onKeyDown={stepWithKeyboard}
+      onPointerDown={(event) => {
+        if (disabled) return;
+        draggingRef.current = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        updateFromPointer(event);
+      }}
+      onPointerMove={(event) => {
+        if (!draggingRef.current || disabled) return;
+        updateFromPointer(event);
+      }}
+      onPointerUp={(event) => {
+        draggingRef.current = false;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
         }
-        className="h-7 text-xs tabular-nums"
+      }}
+      onPointerCancel={() => {
+        draggingRef.current = false;
+      }}
+      className={cn(
+        "relative h-3.5 cursor-pointer rounded-full border border-border/60 outline-none",
+        "ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "active:cursor-grabbing",
+        disabled && "cursor-not-allowed opacity-60",
+      )}
+      style={{ backgroundImage, backgroundSize, backgroundPosition }}
+    >
+      {/* Thumb overhangs the track slightly, matching Figma */}
+      <span
+        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"
+        style={{ left: `${clamp(percent, 0, 100)}%` }}
       />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        disabled={disabled || !onRemove}
-        aria-label={labels.removeStop}
-        title={labels.removeStop}
-        onClick={() => onRemove?.(stop.id)}
-        className="size-7"
-      >
-        <IconTrash className="size-3.5" />
-      </Button>
-      <div className="col-span-4">
-        <Slider
-          value={[stopOpacity]}
-          min={0}
-          max={100}
-          step={1}
-          disabled={disabled || !onChange}
-          onValueChange={([next]) => onChange?.(stop.id, { opacity: next })}
-        />
-      </div>
     </div>
   );
+}
+
+/**
+ * A number input with select-on-focus and Esc-to-revert.
+ * The `compact` prop removes inner padding for use inside bordered wrappers.
+ */
+function ScrubbyNumberInput({
+  "aria-label": ariaLabel,
+  value,
+  min,
+  max,
+  disabled,
+  onChange,
+  className,
+  compact = false,
+}: {
+  "aria-label": string;
+  value: number;
+  min: number;
+  max: number;
+  disabled: boolean;
+  onChange: (value: number) => void;
+  className?: string;
+  compact?: boolean;
+}) {
+  const [draft, setDraft] = useState<string>(() => String(value));
+  const skipBlurRef = useRef(false);
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+    onChange(clamp(parsed, min, max));
+  };
+
+  return (
+    <input
+      type="number"
+      aria-label={ariaLabel}
+      value={draft}
+      min={min}
+      max={max}
+      disabled={disabled}
+      className={cn(
+        "h-7 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center text-[11px] tabular-nums",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        compact && "border-0 shadow-none focus-visible:ring-0",
+        className,
+      )}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => e.target.select()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+          skipBlurRef.current = true;
+          e.currentTarget.blur();
+        }
+        if (e.key === "Escape") {
+          setDraft(String(value));
+          skipBlurRef.current = true;
+          e.currentTarget.blur();
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          onChange(clamp(value + step, min, max));
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          onChange(clamp(value - step, min, max));
+        }
+      }}
+      onBlur={() => {
+        if (skipBlurRef.current) {
+          skipBlurRef.current = false;
+          return;
+        }
+        commit();
+      }}
+    />
+  );
+}
+
+// ─── Utilities ─────────────────────────────────────────────────────────────────
+
+function inferPaintType(value: string, opacity: number): FigmaPaintType {
+  const parsed = parseCssColor(value);
+  if (opacity <= 0 || parsed?.a === 0 || value.trim() === "transparent") {
+    return "none";
+  }
+  return "solid";
+}
+
+/** Show hex without the leading # for the display field (matches Figma). */
+function toDisplayHex(color: RgbaColor): string {
+  return rgbaToHex(color).replace(/^#/, "").toUpperCase();
+}
+
+function swatchStyle(value: string): {
+  backgroundColor?: string;
+  backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundPosition?: string;
+} {
+  const parsed = parseCssColor(value);
+  if (parsed && parsed.a < 1) {
+    return {
+      backgroundImage: `${CHECKERBOARD_IMAGE}, linear-gradient(${rgbaToCss(parsed)}, ${rgbaToCss(parsed)})`,
+      backgroundSize: "8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%",
+      backgroundPosition: "0 0, 0 4px, 4px -4px, -4px 0, 0 0",
+    };
+  }
+  if (parsed) return { backgroundColor: rgbaToCss(parsed) };
+  return { backgroundImage: value || "none" };
+}
+
+function alphaTrackBackground(color: RgbaColor): string {
+  return `${CHECKERBOARD_IMAGE}, linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1))`;
+}
+
+function rgbaToHsv(color: RgbaColor): HsvaColor {
+  const r = clampFloat(color.r / 255, 0, 1);
+  const g = clampFloat(color.g / 255, 0, 1);
+  const b = clampFloat(color.b / 255, 0, 1);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  let h = 0;
+  if (delta !== 0) {
+    if (max === r) h = ((g - b) / delta) % 6;
+    else if (max === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+
+  return {
+    h: Math.round(h),
+    s: max === 0 ? 0 : Math.round((delta / max) * 100),
+    v: Math.round(max * 100),
+    a: color.a,
+  };
+}
+
+function hsvToRgba(color: HsvaColor): RgbaColor {
+  const h = ((color.h % 360) + 360) % 360;
+  const s = clampFloat(color.s, 0, 100) / 100;
+  const v = clampFloat(color.v, 0, 100) / 100;
+  const chroma = v * s;
+  const x = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - chroma;
+
+  let r = 0,
+    g = 0,
+    b = 0;
+  if (h < 60) [r, g, b] = [chroma, x, 0];
+  else if (h < 120) [r, g, b] = [x, chroma, 0];
+  else if (h < 180) [r, g, b] = [0, chroma, x];
+  else if (h < 240) [r, g, b] = [0, x, chroma];
+  else if (h < 300) [r, g, b] = [x, 0, chroma];
+  else [r, g, b] = [chroma, 0, x];
+
+  return {
+    r: clamp(Math.round((r + m) * 255), 0, 255),
+    g: clamp(Math.round((g + m) * 255), 0, 255),
+    b: clamp(Math.round((b + m) * 255), 0, 255),
+    a: clampFloat(color.a, 0, 1),
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -468,6 +1388,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
 
+function clampFloat(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
 function hasHexAlpha(value: string): boolean {
-  return /^#(?:[0-9a-f]{4}|[0-9a-f]{8})$/i.test(value.trim());
+  return /^#?(?:[0-9a-f]{4}|[0-9a-f]{8})$/i.test(value.trim());
 }

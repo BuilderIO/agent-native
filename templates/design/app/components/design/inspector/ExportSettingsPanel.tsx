@@ -1,8 +1,7 @@
-import { IconDownload } from "@tabler/icons-react";
+import { IconDownload, IconPlus, IconX } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -63,49 +62,54 @@ export function ExportSettingsPanel({
   className,
 }: ExportSettingsPanelProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
+  const isDisabled = disabled || exporting;
 
   return (
-    <div className={cn("space-y-3", className)}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">
+    <div className={cn("space-y-1.5", className)}>
+      {/* Section header: title left, "+" right — matches Figma export header */}
+      <div className="flex h-6 items-center justify-between">
+        <span className="text-[11px] font-medium text-muted-foreground">
           {copy.title}
         </span>
-        <Button
+        <button
           type="button"
-          size="sm"
-          disabled={disabled || exporting}
-          onClick={() => onExport(value)}
-          className="h-8 px-2 text-xs"
+          aria-label="Add export setting"
+          disabled={isDisabled}
+          className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          onClick={() => {
+            /* single-value interface: noop — the setting already exists */
+          }}
         >
-          <IconDownload className="size-4" />
-          {copy.export}
-        </Button>
+          <IconPlus className="size-3.5" />
+        </button>
       </div>
 
-      <ScrubInput
-        label={copy.scale}
-        value={value.scale}
-        onChange={(scale) => onChange({ scale })}
-        unit="x"
-        min={0.1}
-        max={10}
-        step={0.5}
-        precision={2}
-        disabled={disabled || exporting}
-      />
+      {/* Export row: [scale] [format] [suffix] [×] — Figma compact inline layout */}
+      <div className="flex items-center gap-1">
+        {/* Scale scrub — compact, no label, unit "x" shown inline */}
+        <ScrubInput
+          label=""
+          value={value.scale}
+          onChange={(scale) => onChange({ scale })}
+          unit="x"
+          min={0.1}
+          max={10}
+          step={0.5}
+          precision={2}
+          disabled={isDisabled}
+          inputClassName="h-6 w-12 text-[11px]"
+          className="shrink-0"
+        />
 
-      <div className="flex items-center gap-2">
-        <Label className="w-20 shrink-0 text-xs text-muted-foreground">
-          {copy.format}
-        </Label>
+        {/* Format dropdown */}
         <Select
           value={value.format}
-          disabled={disabled || exporting}
+          disabled={isDisabled}
           onValueChange={(format) =>
             onChange({ format: format as ExportFormat })
           }
         >
-          <SelectTrigger className="h-8 text-xs">
+          <SelectTrigger className="h-6 min-w-0 flex-1 px-1.5 text-[11px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -114,7 +118,7 @@ export function ExportSettingsPanel({
                 <SelectItem
                   key={format}
                   value={format}
-                  className="text-xs uppercase"
+                  className="text-[11px] uppercase"
                 >
                   {format.toUpperCase()}
                 </SelectItem>
@@ -122,20 +126,41 @@ export function ExportSettingsPanel({
             </SelectGroup>
           </SelectContent>
         </Select>
-      </div>
 
-      <div className="flex items-center gap-2">
-        <Label className="w-20 shrink-0 text-xs text-muted-foreground">
-          {copy.suffix}
-        </Label>
+        {/* Suffix input */}
         <Input
           value={value.suffix}
-          disabled={disabled || exporting}
+          disabled={isDisabled}
           onChange={(event) => onChange({ suffix: event.target.value })}
           placeholder="@2x"
-          className="h-8 text-xs"
+          className="h-6 min-w-0 flex-1 px-1.5 text-[11px]"
         />
+
+        {/* Remove row button — matches Figma's × on each export entry */}
+        <button
+          type="button"
+          aria-label="Remove export setting"
+          disabled={isDisabled}
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          onClick={() => {
+            /* single-value interface: noop */
+          }}
+        >
+          <IconX className="size-3" />
+        </button>
       </div>
+
+      {/* Export button — full width at bottom, Figma style */}
+      <Button
+        type="button"
+        variant="outline"
+        disabled={isDisabled}
+        onClick={() => onExport(value)}
+        className="h-6 w-full px-2 text-[11px]"
+      >
+        <IconDownload className="size-3.5" />
+        {copy.export}
+      </Button>
     </div>
   );
 }

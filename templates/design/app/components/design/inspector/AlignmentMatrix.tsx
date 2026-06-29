@@ -1,19 +1,5 @@
-import {
-  IconAlignBoxBottomCenter,
-  IconAlignBoxBottomLeft,
-  IconAlignBoxBottomRight,
-  IconAlignBoxCenterMiddle,
-  IconAlignBoxCenterTop,
-  IconAlignBoxLeftMiddle,
-  IconAlignBoxLeftTop,
-  IconAlignBoxRightMiddle,
-  IconAlignBoxRightTop,
-  IconSpacingHorizontal,
-  IconSpacingVertical,
-} from "@tabler/icons-react";
 import type { ComponentType } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -76,63 +62,180 @@ const MATRIX_OPTIONS: Array<{
   horizontal: AlignmentHorizontal;
   vertical: AlignmentVertical;
   labelKey: keyof AlignmentMatrixLabels;
-  icon: MatrixIcon;
 }> = [
-  {
-    horizontal: "left",
-    vertical: "top",
-    labelKey: "alignTopLeft",
-    icon: IconAlignBoxLeftTop,
-  },
-  {
-    horizontal: "center",
-    vertical: "top",
-    labelKey: "alignTopCenter",
-    icon: IconAlignBoxCenterTop,
-  },
-  {
-    horizontal: "right",
-    vertical: "top",
-    labelKey: "alignTopRight",
-    icon: IconAlignBoxRightTop,
-  },
-  {
-    horizontal: "left",
-    vertical: "middle",
-    labelKey: "alignMiddleLeft",
-    icon: IconAlignBoxLeftMiddle,
-  },
-  {
-    horizontal: "center",
-    vertical: "middle",
-    labelKey: "alignCenter",
-    icon: IconAlignBoxCenterMiddle,
-  },
-  {
-    horizontal: "right",
-    vertical: "middle",
-    labelKey: "alignMiddleRight",
-    icon: IconAlignBoxRightMiddle,
-  },
-  {
-    horizontal: "left",
-    vertical: "bottom",
-    labelKey: "alignBottomLeft",
-    icon: IconAlignBoxBottomLeft,
-  },
-  {
-    horizontal: "center",
-    vertical: "bottom",
-    labelKey: "alignBottomCenter",
-    icon: IconAlignBoxBottomCenter,
-  },
-  {
-    horizontal: "right",
-    vertical: "bottom",
-    labelKey: "alignBottomRight",
-    icon: IconAlignBoxBottomRight,
-  },
+  { horizontal: "left", vertical: "top", labelKey: "alignTopLeft" },
+  { horizontal: "center", vertical: "top", labelKey: "alignTopCenter" },
+  { horizontal: "right", vertical: "top", labelKey: "alignTopRight" },
+  { horizontal: "left", vertical: "middle", labelKey: "alignMiddleLeft" },
+  { horizontal: "center", vertical: "middle", labelKey: "alignCenter" },
+  { horizontal: "right", vertical: "middle", labelKey: "alignMiddleRight" },
+  { horizontal: "left", vertical: "bottom", labelKey: "alignBottomLeft" },
+  { horizontal: "center", vertical: "bottom", labelKey: "alignBottomCenter" },
+  { horizontal: "right", vertical: "bottom", labelKey: "alignBottomRight" },
 ];
+
+/** Figma-style alignment cell: blue bars when active, faint dot when inactive. */
+function AlignmentCell({
+  horizontal,
+  vertical,
+  active,
+  label,
+  disabled,
+  onClick,
+}: {
+  horizontal: AlignmentHorizontal;
+  vertical: AlignmentVertical;
+  active: boolean;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  // The active cell shows blue bars representing the alignment direction.
+  // Inactive cells show a small faint dot.
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={active}
+          disabled={disabled}
+          onClick={onClick}
+          className={cn(
+            "flex size-[26px] items-center justify-center rounded-sm transition-colors",
+            "hover:bg-[var(--design-editor-control-bg)]",
+            disabled && "pointer-events-none opacity-40",
+          )}
+        >
+          {active ? (
+            <AlignmentBars horizontal={horizontal} vertical={vertical} />
+          ) : (
+            <span
+              className="block size-1 rounded-full bg-current opacity-25"
+              aria-hidden="true"
+            />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="text-xs">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Renders the Figma-style blue bars for the active alignment cell.
+ * The bars are drawn as short lines showing the items packed
+ * against the given horizontal + vertical edge.
+ */
+function AlignmentBars({
+  horizontal,
+  vertical,
+}: {
+  horizontal: AlignmentHorizontal;
+  vertical: AlignmentVertical;
+}) {
+  // We draw 2-3 small bars inside a tiny box to indicate alignment direction.
+  // The bars are positioned based on which corner/edge is active.
+  const accent = "var(--design-editor-accent-color, #18a0fb)";
+
+  // Determine the transform for the inner bars container
+  // based on alignment position within the 16×16 drawing area
+  const justifyClass =
+    horizontal === "left"
+      ? "justify-start"
+      : horizontal === "right"
+        ? "justify-end"
+        : "justify-center";
+
+  const alignClass =
+    vertical === "top"
+      ? "items-start"
+      : vertical === "bottom"
+        ? "items-end"
+        : "items-center";
+
+  return (
+    <svg
+      viewBox="0 0 14 14"
+      width={14}
+      height={14}
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* Outer frame (faint) */}
+      <rect
+        x="0.5"
+        y="0.5"
+        width="13"
+        height="13"
+        rx="1"
+        stroke={accent}
+        strokeWidth="1"
+        opacity="0.35"
+      />
+      {/* Inner content bars — positioned by alignment */}
+      <AlignmentBarsContent
+        horizontal={horizontal}
+        vertical={vertical}
+        accent={accent}
+      />
+    </svg>
+  );
+}
+
+function AlignmentBarsContent({
+  horizontal,
+  vertical,
+  accent,
+}: {
+  horizontal: AlignmentHorizontal;
+  vertical: AlignmentVertical;
+  accent: string;
+}) {
+  // Draw 2 bars (representing child items) packed toward the alignment edge.
+  // The bars are thin rectangles with rounded caps.
+  const barH = 2; // bar height in px
+  const barW = [4, 3]; // varying widths for visual interest
+  const gap = 1.5; // gap between bars
+  const totalH = barH * 2 + gap;
+  const totalW = Math.max(...barW);
+
+  // Y position based on vertical alignment
+  const yStart =
+    vertical === "top"
+      ? 2.5
+      : vertical === "bottom"
+        ? 14 - 2.5 - totalH
+        : (14 - totalH) / 2;
+
+  // X positions for the bars based on horizontal alignment
+  const getBarX = (w: number) => {
+    if (horizontal === "left") return 2.5;
+    if (horizontal === "right") return 14 - 2.5 - w;
+    return (14 - w) / 2;
+  };
+
+  return (
+    <>
+      <rect
+        x={getBarX(barW[0]!)}
+        y={yStart}
+        width={barW[0]}
+        height={barH}
+        rx={0.5}
+        fill={accent}
+      />
+      <rect
+        x={getBarX(barW[1]!)}
+        y={yStart + barH + gap}
+        width={barW[1]}
+        height={barH}
+        rx={0.5}
+        fill={accent}
+      />
+    </>
+  );
+}
 
 export function AlignmentMatrix({
   value,
@@ -146,87 +249,34 @@ export function AlignmentMatrix({
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={cn("space-y-2", className)}>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-muted-foreground">
-            {copy.title}
-          </span>
-          {onDistribute && (
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={disabled}
-                    aria-label={copy.distributeHorizontal}
-                    onClick={() => onDistribute("horizontal")}
-                    className="size-7"
-                  >
-                    <IconSpacingHorizontal className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="text-xs">
-                  {copy.distributeHorizontal}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={disabled}
-                    aria-label={copy.distributeVertical}
-                    onClick={() => onDistribute("vertical")}
-                    className="size-7"
-                  >
-                    <IconSpacingVertical className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="text-xs">
-                  {copy.distributeVertical}
-                </TooltipContent>
-              </Tooltip>
-            </div>
+      <div className={cn("space-y-0", className)}>
+        {/* 3×3 dot grid — Figma style */}
+        <div
+          className={cn(
+            "grid grid-cols-3 rounded-md border border-[var(--design-editor-control-border,hsl(var(--border)))]",
+            "bg-[var(--design-editor-control-bg)] p-0.5",
           )}
-        </div>
-        <div className="grid w-max grid-cols-3 gap-1 rounded-md border border-border bg-muted/20 p-1">
+          style={{ width: 84 }}
+        >
           {MATRIX_OPTIONS.map((option) => {
             const active =
               option.horizontal === value.horizontal &&
               option.vertical === value.vertical;
-            const Icon = option.icon;
-            const label = copy[option.labelKey];
             return (
-              <Tooltip key={`${option.horizontal}-${option.vertical}`}>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant={active ? "secondary" : "ghost"}
-                    size="icon"
-                    disabled={disabled}
-                    aria-label={label}
-                    aria-pressed={active}
-                    onClick={() =>
-                      onChange({
-                        horizontal: option.horizontal,
-                        vertical: option.vertical,
-                      })
-                    }
-                    className="size-8"
-                  >
-                    <Icon
-                      className={cn(
-                        "size-4",
-                        active ? "text-foreground" : "text-muted-foreground",
-                      )}
-                    />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="text-xs">{label}</TooltipContent>
-              </Tooltip>
+              <AlignmentCell
+                key={`${option.horizontal}-${option.vertical}`}
+                horizontal={option.horizontal}
+                vertical={option.vertical}
+                active={active}
+                label={copy[option.labelKey]}
+                disabled={disabled}
+                onClick={() =>
+                  onChange({
+                    horizontal: option.horizontal,
+                    vertical: option.vertical,
+                  })
+                }
+              />
             );
           })}
         </div>

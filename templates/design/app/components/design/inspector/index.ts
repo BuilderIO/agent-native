@@ -35,10 +35,15 @@ export {
 } from "./ExportSettingsPanel";
 export {
   FigmaColorPicker,
+  type FigmaColorMode,
   type FigmaColorPickerLabels,
   type FigmaColorPickerProps,
+  type FigmaFillRow,
+  type FigmaFillRowPatch,
+  type FigmaFillType,
   type FigmaGradientStop,
   type FigmaGradientStopPatch,
+  type FigmaGradientType,
 } from "./FigmaColorPicker";
 export {
   ScrubInput,

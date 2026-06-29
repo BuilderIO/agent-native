@@ -11,6 +11,11 @@ import {
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import {
@@ -159,24 +164,28 @@ export function ScrubInput({
   };
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <Label
-        htmlFor={inputId}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        className={cn(
-          "flex h-7 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 text-xs text-muted-foreground",
-          dragging && "text-foreground",
-          disabled && "pointer-events-none cursor-not-allowed opacity-50",
-          labelClassName,
-        )}
-        title={`${label}. Drag to scrub, use arrows to step.`}
-      >
-        <Icon className="size-3.5 shrink-0" />
-        <span className="truncate">{label}</span>
-      </Label>
+    <div className={cn("flex items-center gap-1.5", className)}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Label
+            htmlFor={inputId}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            className={cn(
+              "flex h-6 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 text-[11px] text-muted-foreground",
+              dragging && "text-foreground",
+              disabled && "pointer-events-none cursor-not-allowed opacity-50",
+              labelClassName,
+            )}
+          >
+            <Icon className="size-3 shrink-0" />
+            <span className="truncate">{label}</span>
+          </Label>
+        </TooltipTrigger>
+        <TooltipContent>{`${label}. Drag to scrub, use arrows to step.`}</TooltipContent>
+      </Tooltip>
       <Input
         id={inputId}
         value={draft}
@@ -195,7 +204,7 @@ export function ScrubInput({
         }}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={handleKeyDown}
-        className={cn("h-7 text-xs tabular-nums", inputClassName)}
+        className={cn("h-6 text-[11px] tabular-nums", inputClassName)}
       />
     </div>
   );
