@@ -610,7 +610,9 @@ function isAgentNativeDocsUrl(url: string): boolean {
 
 function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   const exceptionValues = event.exception?.values ?? [];
-  const requestUrl = event.request?.url?.toLowerCase() ?? "";
+  const taggedUrl =
+    typeof event.tags?.url === "string" ? event.tags.url : undefined;
+  const requestUrl = (event.request?.url ?? taggedUrl ?? "").toLowerCase();
   const isDocsPage = isAgentNativeDocsUrl(requestUrl);
   // AgentAutoContinueSignal is a control-flow sentinel thrown to bubble
   // out of the SSE stream parser when the agent run needs to be

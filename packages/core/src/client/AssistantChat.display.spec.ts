@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -96,6 +98,22 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+});
+
+describe("waitForThreadRunToClear", () => {
+  it("uses server-relative run progress when deciding whether an active run is stale", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("async function waitForThreadRunToClear");
+    const end = source.indexOf("// ─── Composer Attachment Preview");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("activeRunLooksStale(info)");
+    expect(helperSource).not.toContain("heartbeatAt");
   });
 });
 
