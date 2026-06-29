@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.80.5
+
+### Patch Changes
+
+- 8a43376: Allow app-level opt-in to durable background agent chat runs, let direct loop callers use that timeout regime, and expose per-action tool timeouts from `defineAction`.
+- 8a43376: Route Figma/code design-system indexing through Builder and keep the legacy fig subpath as a compatibility shim.
+- 8a43376: Expose the Design visual-edit skill in repo-local skill sync and generated app plugin bundles.
+- 8a43376: Defer agent chat context subscriber updates so embedded chat rendering does not trigger render-phase updates in host apps.
+- 8a43376: Make MCP install/connect idempotent for Codex `config.toml`. The writer now
+  recognizes a server's sub-tables (`[mcp_servers.<name>.http_headers]`,
+  `[mcp_servers.<name>.env]`, …) as part of its footprint, so re-installing or
+  reconnecting a server clears stale sub-tables instead of leaving one behind as a
+  duplicate TOML key. Same-URL alias cleanup removes the whole footprint too, and
+  the AGENTS.md / CLAUDE.md managed-instruction writers collapse any pre-existing
+  duplicate blocks into a single block.
+- 8a43376: Show a clear loading state while authorizing MCP device codes.
+- 8a43376: Render label share buttons without a leading visibility icon.
+- 8a43376: Show the Connect AI setup card and block submits from standalone prompt composers when no LLM is connected.
+
 ## 0.80.4
 
 ### Patch Changes
