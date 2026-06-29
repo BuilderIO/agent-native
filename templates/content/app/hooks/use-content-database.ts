@@ -1,8 +1,10 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
+  AddContentDatabaseSourceFieldPropertyRequest,
   AddDatabaseItemRequest,
   AttachContentDatabaseSourceRequest,
   BuilderCmsModelsResponse,
+  ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
   CreateInlineDatabaseRequest,
   CreateInlineDatabaseResponse,
@@ -297,6 +299,47 @@ export function useAttachContentDatabaseSource(documentId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
+      });
+    },
+  });
+}
+
+export function useChangeContentDatabaseSourceRole(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    ChangeContentDatabaseSourceRoleRequest
+  >("change-content-database-source-role", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseSourceFieldPropertyResponse,
+    AddContentDatabaseSourceFieldPropertyRequest
+  >("add-content-database-source-field-property", {
+    onSuccess: (data) => {
+      queryClient.setQueryData<ContentDatabaseResponse>(
+        contentDatabaseQueryKey(documentId),
+        (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
+      );
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-document-properties", { documentId }],
       });
     },
   });

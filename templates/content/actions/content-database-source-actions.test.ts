@@ -8,6 +8,7 @@ import addSourceFieldProperty, {
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import attachSource from "./attach-content-database-source";
+import changeSourceRole from "./change-content-database-source-role";
 import disconnectSource from "./disconnect-content-database-source";
 import executeBatch from "./execute-builder-source-batch";
 import executeExecution from "./execute-builder-source-execution";
@@ -69,6 +70,7 @@ describe("content database source actions", () => {
         sourceType: "builder-cms",
         sourceName: "Mock Builder",
         sourceTable: "blog_article",
+        relationshipMode: "items",
         limit: 50,
         offset: 25,
       }),
@@ -77,6 +79,7 @@ describe("content database source actions", () => {
       sourceType: "builder-cms",
       sourceName: "Mock Builder",
       sourceTable: "blog_article",
+      relationshipMode: "items",
       limit: 50,
       offset: 25,
     });
@@ -133,6 +136,22 @@ describe("content database source actions", () => {
       disconnectSource.schema.parse({ documentId: "database-page" }),
     ).toEqual({
       documentId: "database-page",
+    });
+  });
+
+  it("accepts source role changes with an explicit relationship mode", () => {
+    expect(
+      changeSourceRole.schema.parse({
+        documentId: "database-page",
+        sourceId: "source-1",
+        relationshipMode: "items",
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceId: "source-1",
+      relationshipMode: "items",
+      limit: 100,
+      offset: 0,
     });
   });
 

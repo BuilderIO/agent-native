@@ -131,16 +131,22 @@ export default defineAction({
       .string()
       .optional()
       .describe("Source table/model name, for example content_items."),
+    relationshipMode: z
+      .enum(["items", "details"])
+      .optional()
+      .describe(
+        "How to attach a second source: items adds more rows; details joins fields onto existing rows.",
+      ),
     join: joinSchema
       .optional()
       .describe(
-        "When adding a SECOND source, the canonical-key join that federates it onto the primary (read-only overlay).",
+        "When relationshipMode is details, the canonical-key join that adds fields onto the primary rows.",
       ),
     mode: z
       .enum(["replace", "add"])
       .optional()
       .describe(
-        "replace (default) re-links the primary source; add attaches an ADDITIONAL Builder source whose entries become their own rows (row-union, no join).",
+        "Backward-compatible alias: add means relationshipMode items; replace (default) re-links the primary source.",
       ),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
@@ -168,10 +174,16 @@ export default defineAction({
       await resolveReadableLocalTableSource(sourceTable);
     }
 
-    // Adding a SECOND source: federate it onto the primary on the canonical key
-    // instead of replacing the binding. Read-only overlay — the secondary's
-    // entries are NOT imported as local documents/items.
-    if (args.join && existingSource) {
+    const relationshipMode =
+      args.relationshipMode ?? (args.mode === "add" ? "items" : undefined);
+
+    // Adding a SECOND source as details: relate it onto the primary on the
+    // canonical key. Read-only overlay — the secondary's entries are NOT
+    // imported as local documents/items.
+    if ((relationshipMode === "details" || args.join) && existingSource) {
+      if (!args.join) {
+        throw new Error("Choose a match key before adding source details.");
+      }
       let entries: BuilderCmsSourceEntry[];
       let modelFields: BuilderCmsModelFieldSummary[];
       if (sourceType === "builder-cms") {
@@ -240,7 +252,11 @@ export default defineAction({
     // Adding an ADDITIONAL writable Builder source (row-union): insert a new
     // source and import its entries as their OWN rows, instead of replacing the
     // primary. No canonical-key join — each row belongs to exactly one source.
-    if (args.mode === "add" && existingSource && sourceType === "builder-cms") {
+    if (
+      relationshipMode === "items" &&
+      existingSource &&
+      sourceType === "builder-cms"
+    ) {
       // Don't add the same collection twice — each "add" starts a fresh source
       // with no prior rows, so a duplicate attach would re-import duplicate rows.
       if (await databaseSourceExistsForTable(database.id, sourceTable)) {
@@ -326,6 +342,10 @@ export default defineAction({
         limit: args.limit,
         offset: args.offset,
       });
+    }
+
+    if (relationshipMode === "items" && existingSource) {
+      throw new Error("Only Builder sources can add more items right now.");
     }
 
     const existingSourceRows = existingSource

@@ -2351,6 +2351,13 @@ export async function seedSecondarySourceFields(args: {
   now: string;
 }) {
   const db = getDb();
+  const existingFields = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId));
+  const existingBySourceFieldKey = new Map(
+    existingFields.map((field) => [field.sourceFieldKey, field]),
+  );
   await db
     .delete(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId));
@@ -2360,32 +2367,57 @@ export async function seedSecondarySourceFields(args: {
       normalizeBuilderCmsSourceFieldType(field.type),
     ]),
   );
-  const keys = new Set<string>(args.modelFields.map((field) => field.name));
-  for (const key of Object.keys(args.sampleEntry?.sourceValues ?? {})) {
-    keys.add(key);
+  const modelFieldByName = new Map(
+    args.modelFields.map((field) => [field.name, field]),
+  );
+  const sampleKeys = new Set(Object.keys(args.sampleEntry?.sourceValues ?? {}));
+  const keys = new Set<string>(sampleKeys);
+  for (const field of args.modelFields) {
+    if (sampleKeys.has(field.name)) {
+      keys.add(field.name);
+    } else if (sampleKeys.has(`data.${field.name}`)) {
+      keys.add(`data.${field.name}`);
+    } else {
+      keys.add(field.name);
+    }
   }
   if (keys.size === 0) return;
   await db.insert(schema.contentDatabaseSourceFields).values(
-    [...keys].map((key) => ({
-      id: crypto.randomUUID(),
-      ownerEmail: args.ownerEmail,
-      sourceId: args.sourceId,
-      propertyId: null,
-      localFieldKey: key,
-      sourceFieldKey: key,
-      sourceFieldLabel:
-        args.modelFields.find((field) => field.name === key)?.label ??
-        builderCmsModelFieldLabel(key),
-      sourceFieldType: fieldTypeByKey.get(key) ?? "text",
-      mappingType: "property" as const,
-      writeOwner: "source" as const,
-      readOnly: 1,
-      provenance: "secondary source field",
-      freshness: "fresh" as const,
-      lastSyncedAt: args.now,
-      createdAt: args.now,
-      updatedAt: args.now,
-    })),
+    [...keys].map((key) => {
+      const unprefixedKey = key.replace(/^data\./, "");
+      const existing =
+        existingBySourceFieldKey.get(key) ??
+        (key.startsWith("data.")
+          ? existingBySourceFieldKey.get(unprefixedKey)
+          : existingBySourceFieldKey.get(`data.${key}`));
+      const modelField =
+        modelFieldByName.get(key) ?? modelFieldByName.get(unprefixedKey);
+      return {
+        id: crypto.randomUUID(),
+        ownerEmail: args.ownerEmail,
+        sourceId: args.sourceId,
+        propertyId: existing?.propertyId ?? null,
+        localFieldKey: existing?.localFieldKey ?? key,
+        sourceFieldKey: key,
+        sourceFieldLabel:
+          modelField?.label ??
+          existing?.sourceFieldLabel ??
+          builderCmsModelFieldLabel(key),
+        sourceFieldType:
+          fieldTypeByKey.get(key) ??
+          fieldTypeByKey.get(unprefixedKey) ??
+          existing?.sourceFieldType ??
+          "text",
+        mappingType: "property" as const,
+        writeOwner: "source" as const,
+        readOnly: 1,
+        provenance: "secondary source field",
+        freshness: "fresh" as const,
+        lastSyncedAt: args.now,
+        createdAt: existing?.createdAt ?? args.now,
+        updatedAt: args.now,
+      };
+    }),
   );
 }
 

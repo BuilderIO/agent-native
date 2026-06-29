@@ -695,9 +695,22 @@ export interface AttachContentDatabaseSourceRequest {
   sourceType?: ContentDatabaseSourceType;
   sourceName?: string;
   sourceTable?: string;
+  /** "items" adds more rows; "details" joins fields onto existing rows. */
+  relationshipMode?: "items" | "details";
   join?: ContentDatabaseSourceJoinRequest;
   /** "add" attaches an additional row-union source; "replace" (default) re-links the primary. */
   mode?: "replace" | "add";
+  limit?: number;
+  offset?: number;
+}
+
+export interface ChangeContentDatabaseSourceRoleRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceId: string;
+  /** "items" adds more rows; "details" joins fields onto existing rows. */
+  relationshipMode: "items" | "details";
+  join?: ContentDatabaseSourceJoinRequest;
   limit?: number;
   offset?: number;
 }
