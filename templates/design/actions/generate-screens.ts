@@ -141,11 +141,26 @@ export default defineAction({
     });
 
     const seenFilenames = new Map<string, number>();
+    // Dedupe any filename (explicit or auto-generated) so two screens can never
+    // resolve to the same target file — otherwise generate-design silently
+    // overwrites the first screen's output with the second's.
+    const dedupeFilename = (base: string): string => {
+      if (!seenFilenames.has(base)) {
+        seenFilenames.set(base, 1);
+        return base;
+      }
+      const count = seenFilenames.get(base)! + 1;
+      seenFilenames.set(base, count);
+      const dot = base.lastIndexOf(".");
+      return dot > 0
+        ? `${base.slice(0, dot)}-${count}${base.slice(dot)}`
+        : `${base}-${count}`;
+    };
     const targets = frames.map((frame, index) => {
       const requested = screens[index]!;
       let filename: string;
       if (requested.filename) {
-        filename = requested.filename;
+        filename = dedupeFilename(requested.filename);
       } else {
         const slug =
           requested.title
@@ -153,15 +168,7 @@ export default defineAction({
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "")
             .slice(0, 48) || `screen-${index + 1}`;
-        const base = `${slug}.html`;
-        if (!seenFilenames.has(base)) {
-          seenFilenames.set(base, 1);
-          filename = base;
-        } else {
-          const count = seenFilenames.get(base)! + 1;
-          seenFilenames.set(base, count);
-          filename = `${slug}-${count}.html`;
-        }
+        filename = dedupeFilename(`${slug}.html`);
       }
       return {
         frameId: frame.frameId,

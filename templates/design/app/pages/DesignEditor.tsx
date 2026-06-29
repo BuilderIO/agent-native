@@ -207,11 +207,142 @@ const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 // Higher than the toolbar presets so overview zooming still feels like canvas
 // work; trackpad/pinch zooming past this commits to editing that screen.
 const OVERVIEW_EDIT_ZOOM_THRESHOLD = 250;
+const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
+  /\b(?:color|color-mix|oklch|oklab|lab|lch)\(/i;
+const HTML2CANVAS_COLOR_PROPERTIES = [
+  "color",
+  "background-color",
+  "border-top-color",
+  "border-right-color",
+  "border-bottom-color",
+  "border-left-color",
+  "outline-color",
+  "text-decoration-color",
+  "fill",
+  "stroke",
+] as const;
+const HTML2CANVAS_SHADOW_PROPERTIES = ["box-shadow", "text-shadow"] as const;
+const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
+  "background-image",
+  "border-image-source",
+  "list-style-image",
+] as const;
+
+let html2CanvasColorContext: CanvasRenderingContext2D | null | undefined;
 
 interface FileContentSaveRequest {
   id: string;
   content: string;
   syncCollab: boolean;
+}
+
+function getHtml2CanvasColorContext(): CanvasRenderingContext2D | null {
+  if (html2CanvasColorContext !== undefined) return html2CanvasColorContext;
+  if (typeof document === "undefined") {
+    html2CanvasColorContext = null;
+    return html2CanvasColorContext;
+  }
+  html2CanvasColorContext = document.createElement("canvas").getContext("2d");
+  return html2CanvasColorContext;
+}
+
+function parseColorFunctionComponent(component: string): number {
+  const trimmed = component.trim();
+  if (trimmed.endsWith("%")) {
+    return (Number(trimmed.slice(0, -1)) / 100) * 255;
+  }
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return 0;
+  return Math.abs(value) <= 1 ? value * 255 : value;
+}
+
+function parseColorFunctionAlpha(alpha: string | undefined): number {
+  if (!alpha) return 1;
+  const trimmed = alpha.trim();
+  if (trimmed.endsWith("%")) return Number(trimmed.slice(0, -1)) / 100;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : 1;
+}
+
+function parseRgbLikeColorFunction(value: string): string | null {
+  const match = value.match(/color\(\s*[\w-]+\s+([^)]+)\)/i);
+  if (!match) return null;
+  const [componentsPart, alphaPart] = match[1].split("/");
+  const channels = componentsPart.trim().split(/\s+/).slice(0, 3);
+  if (channels.length < 3) return null;
+  const [red, green, blue] = channels
+    .map(parseColorFunctionComponent)
+    .map((channel) => Math.round(Math.max(0, Math.min(255, channel))));
+  const alpha = Math.max(0, Math.min(1, parseColorFunctionAlpha(alphaPart)));
+  return alpha < 1
+    ? `rgba(${red}, ${green}, ${blue}, ${alpha})`
+    : `rgb(${red}, ${green}, ${blue})`;
+}
+
+function normalizeHtml2CanvasColor(value: string): string {
+  if (!UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) return value;
+  const context = getHtml2CanvasColorContext();
+  if (context) {
+    try {
+      context.fillStyle = "#000";
+      context.fillStyle = value;
+      const normalized = String(context.fillStyle);
+      if (normalized && !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(normalized)) {
+        return normalized;
+      }
+    } catch {
+      // Fall back to small parser below.
+    }
+  }
+  return parseRgbLikeColorFunction(value) ?? "rgb(0, 0, 0)";
+}
+
+function elementInlineStyle(
+  element: Element | undefined,
+): CSSStyleDeclaration | null {
+  if (!element) return null;
+  const style = (element as Element & { style?: CSSStyleDeclaration }).style;
+  return style && typeof style.setProperty === "function" ? style : null;
+}
+
+function sanitizeHtml2CanvasClone(
+  sourceDocument: Document,
+  clonedDocument: Document,
+) {
+  const sourceView = sourceDocument.defaultView;
+  if (!sourceView) return;
+  const sourceElements = [
+    sourceDocument.documentElement,
+    ...Array.from(sourceDocument.documentElement.querySelectorAll("*")),
+  ];
+  const clonedElements = [
+    clonedDocument.documentElement,
+    ...Array.from(clonedDocument.documentElement.querySelectorAll("*")),
+  ];
+  sourceElements.forEach((sourceElement, index) => {
+    const clonedStyle = elementInlineStyle(clonedElements[index]);
+    if (!clonedStyle) return;
+    const computed = sourceView.getComputedStyle(sourceElement);
+    for (const property of HTML2CANVAS_COLOR_PROPERTIES) {
+      const value = computed.getPropertyValue(property);
+      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
+      clonedStyle.setProperty(
+        property,
+        normalizeHtml2CanvasColor(value),
+        "important",
+      );
+    }
+    for (const property of HTML2CANVAS_SHADOW_PROPERTIES) {
+      const value = computed.getPropertyValue(property);
+      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
+      clonedStyle.setProperty(property, "none", "important");
+    }
+    for (const property of HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES) {
+      const value = computed.getPropertyValue(property);
+      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
+      clonedStyle.setProperty(property, "none", "important");
+    }
+  });
 }
 
 function byteLength(value: string): number {
@@ -5837,7 +5968,10 @@ export default function DesignEditor() {
             ),
           ),
           useCORS: true,
+          foreignObjectRendering: true,
           backgroundColor: null,
+          onclone: (clonedDocument) =>
+            sanitizeHtml2CanvasClone(doc, clonedDocument),
         });
         await new Promise<void>((resolve) => {
           canvas.toBlob((blob) => {
