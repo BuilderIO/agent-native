@@ -44,7 +44,32 @@ export {
   type FigmaGradientStop,
   type FigmaGradientStopPatch,
   type FigmaGradientType,
+  type FigmaPaintType,
 } from "./FigmaColorPicker";
+export {
+  GradientEditor,
+  defaultGradient,
+  gradientToCss,
+  parseGradientCss,
+  type GradientEditorProps,
+  type GradientKind,
+  type GradientStopValue,
+  type GradientValue,
+} from "./GradientEditor";
+export {
+  ImageFillControls,
+  imageFillToCss,
+  parseImageFillCss,
+  type ImageFillControlsProps,
+  type ImageFillValue,
+  type ImageFitMode,
+} from "./ImageFillControls";
+export {
+  ShaderFillsPanel,
+  descriptorFromPreset,
+  shaderDescriptorToCss,
+  type ShaderFillsPanelProps,
+} from "./ShaderFillsPanel";
 export {
   ScrubInput,
   type ScrubInputChangeMeta,

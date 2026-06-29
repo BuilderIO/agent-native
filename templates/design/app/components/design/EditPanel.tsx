@@ -13,8 +13,6 @@ import {
   IconAlignRight,
   IconBorderStyle,
   IconBrush,
-  IconChevronDown,
-  IconChevronRight,
   IconCode,
   IconComponents,
   IconEye,
@@ -22,6 +20,7 @@ import {
   IconFlipHorizontal,
   IconFlipVertical,
   IconFrame,
+  IconLayoutDistributeHorizontal,
   IconLayoutGrid,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
@@ -808,41 +807,48 @@ function PropSlider({
 
 const EmptyScrubIcon = () => null;
 
+/**
+ * Figma-style inspector section. Matches Figma's real "Design" panel chrome:
+ *   - NO left collapse chevron (Figma has none).
+ *   - A thin divider line above each section.
+ *   - A bold left-aligned title.
+ *   - Right-aligned action icons (add layer, toggles, styles, etc.).
+ *
+ * The title is still clickable to collapse the body (Figma collapses sections
+ * on title click) but renders no chevron glyph, just like Figma.
+ */
 function PanelSection({
   title,
   actions,
   children,
+  defaultCollapsed = false,
 }: {
   title: string;
   actions?: ReactNode;
   children?: ReactNode;
+  defaultCollapsed?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   return (
-    <section className="shrink-0 border-b border-border/90">
-      <div className="flex min-h-8 items-center gap-2 px-3 pt-1.5">
+    <section className="shrink-0 border-t border-border/60 first:border-t-0">
+      <div className="flex min-h-9 items-center gap-2 px-3">
         <button
           type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 truncate bg-transparent text-left"
+          className="flex min-w-0 flex-1 cursor-pointer items-center bg-transparent text-left"
           onClick={() => setCollapsed((c) => !c)}
           aria-expanded={!collapsed}
         >
-          {collapsed ? (
-            <IconChevronRight className="size-3 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
-          )}
-          <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+          <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
             {title}
           </h3>
         </button>
         {actions ? (
-          <div className="flex items-center gap-0.5">{actions}</div>
+          <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
         ) : null}
       </div>
       {!collapsed && children ? (
-        <div className="space-y-1.5 px-3 pb-2 pt-1.5 text-[11px]">
+        <div className="space-y-1.5 px-3 pb-3 pt-0.5 text-[11px]">
           {children}
         </div>
       ) : null}
@@ -1251,6 +1257,64 @@ function autoLayoutAlignmentFromStyles(
   };
 }
 
+/**
+ * Block-level container tags that act like Figma frames. Selecting any of
+ * these shows the Auto layout section (in an "add" state when not yet flex),
+ * mirroring Figma where any frame/container exposes auto-layout controls.
+ */
+const CONTAINER_TAGS = new Set([
+  "div",
+  "section",
+  "main",
+  "header",
+  "footer",
+  "nav",
+  "article",
+  "aside",
+  "form",
+  "ul",
+  "ol",
+  "figure",
+  "fieldset",
+  "details",
+  "dialog",
+  "blockquote",
+  "table",
+  "tbody",
+  "thead",
+  "tr",
+]);
+
+/** Leaf tags that never get auto-layout (text, media, vectors, controls). */
+const LEAF_TAGS = new Set([
+  "img",
+  "video",
+  "picture",
+  "audio",
+  "canvas",
+  "svg",
+  "path",
+  "input",
+  "textarea",
+  "select",
+  "br",
+  "hr",
+  "iframe",
+]);
+
+/**
+ * Whether the element should expose the Auto layout section. True for anything
+ * already laid out with flexbox, or any block-level container tag that isn't a
+ * known leaf/text element. This is what makes a plain frame/container with
+ * children show the full Auto layout section like Figma does.
+ */
+function isContainerElement(element: ElementInfo): boolean {
+  if (element.isFlexContainer) return true;
+  const tag = (element.tagName || "").toLowerCase();
+  if (TEXT_TAGS.has(tag) || LEAF_TAGS.has(tag)) return false;
+  return CONTAINER_TAGS.has(tag);
+}
+
 function isParentFlex(element: ElementInfo): boolean {
   return (
     element.isFlexChild ||
@@ -1440,6 +1504,45 @@ function SectionIconButton({
           disabled={disabled}
           onClick={onClick}
           aria-label={label}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Section-header toggle icon (Figma's right-aligned section actions, e.g. the
+ * auto-layout ⊞ toggle). Highlights with the accent color when active.
+ */
+function SectionIconToggle({
+  label,
+  active = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={label}
+          aria-pressed={active}
+          onClick={onClick}
+          className={cn(
+            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
+            active &&
+              "bg-[var(--design-editor-accent-color)]/15 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+          )}
         >
           {children}
         </Button>
@@ -2428,8 +2531,28 @@ function LayoutContextProperties({
   const flexChild = isParentFlex(element);
   const gridChild = isParentGrid(element);
   const availableSizing = availableSizingForElement(element);
+  const isFlex = element.isFlexContainer;
+  const isContainer = isContainerElement(element);
 
-  if (!element.isFlexContainer) {
+  const childControls = (
+    <>
+      {flexChild ? (
+        <div className="border-t border-border/70 pt-2">
+          <FlexChildControls element={element} onStyleChange={onStyleChange} />
+        </div>
+      ) : null}
+      {gridChild ? (
+        <div className="border-t border-border/70 pt-2">
+          <GridChildControls element={element} onStyleChange={onStyleChange} />
+        </div>
+      ) : null}
+    </>
+  );
+
+  // Leaf elements (text, img, svg, etc.) never get auto layout — show the plain
+  // Figma W/H sizing block instead. Containers always show the Auto layout
+  // section, in an "add" state until display:flex is applied.
+  if (!isContainer) {
     return (
       <PanelSection title={t("editPanel.sections.layout")}>
         {/* Figma-style single-row-per-axis: [W | value | Fixed/Hug ▾] */}
@@ -2465,43 +2588,201 @@ function LayoutContextProperties({
             }
           />
         </div>
-        {flexChild ? (
-          <FlexChildControls element={element} onStyleChange={onStyleChange} />
-        ) : null}
-        {gridChild ? (
-          <GridChildControls element={element} onStyleChange={onStyleChange} />
-        ) : null}
+        {childControls}
       </PanelSection>
     );
   }
+
+  const applyAutoLayout = () => {
+    // Sensible Figma defaults when turning a container into an auto-layout
+    // frame: horizontal row, a small gap, top-left packing, hug contents.
+    commitStylePatch(
+      {
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "flex-start",
+        gap: "10px",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
+  };
+
+  const removeAutoLayout = () => {
+    // Returning to a plain block container — drop the flex layout props.
+    commitStylePatch(
+      {
+        display: "block",
+        flexDirection: "row",
+        flexWrap: "nowrap",
+        gap: "0px",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
+  };
 
   return (
     <PanelSection
       title={t("editPanel.sections.autoLayout")}
       actions={
-        <span className="flex size-7 items-center justify-center rounded-md bg-[var(--design-editor-accent-color)]/15 text-[var(--design-editor-accent-color)]">
-          <IconLayoutGrid className="size-4" />
-        </span>
+        <SectionIconToggle
+          label={
+            isFlex
+              ? "Remove auto layout" /* i18n-ignore Figma inspector action */
+              : "Add auto layout" /* i18n-ignore Figma inspector action */
+          }
+          active={isFlex}
+          onClick={isFlex ? removeAutoLayout : applyAutoLayout}
+        >
+          <IconLayoutGrid className="size-3.5" />
+        </SectionIconToggle>
       }
     >
-      <FlexContainerControls
-        element={element}
-        onStyleChange={onStyleChange}
-        onStylesChange={onStylesChange}
-      />
-
-      {flexChild ? (
-        <div className="border-t border-border/70 pt-2">
-          <FlexChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
-
-      {gridChild ? (
-        <div className="border-t border-border/70 pt-2">
-          <GridChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
+      {isFlex ? (
+        <>
+          <FlexContainerControls
+            element={element}
+            onStyleChange={onStyleChange}
+            onStylesChange={onStylesChange}
+          />
+          {childControls}
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={applyAutoLayout}
+          className="flex w-full items-center gap-2 rounded-md border border-dashed border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 py-2 text-left text-[11px] text-muted-foreground transition-colors hover:border-[var(--design-editor-accent-color)] hover:text-foreground"
+        >
+          <IconLayoutGrid className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            {"Add auto layout" /* i18n-ignore Figma inspector hint */}
+          </span>
+          <IconPlus className="size-3.5 shrink-0" />
+        </button>
+      )}
     </PanelSection>
+  );
+}
+
+/**
+ * Figma "Layout grid" / layout-guide section. Shown for frame/container
+ * elements. Renders an overlay column/row guide by applying a non-destructive
+ * `backgroundImage` repeating gradient layer tagged so it can be toggled off
+ * without disturbing real fills.
+ */
+const LAYOUT_GUIDE_MARKER = "/* an-layout-guide */";
+
+function hasLayoutGuide(styles: Record<string, string>): boolean {
+  return Boolean(styles.backgroundImage?.includes("repeating-linear-gradient"));
+}
+
+function LayoutGuideProperties({
+  element,
+  onStyleChange,
+}: {
+  element: ElementInfo;
+  onStyleChange: (property: string, value: string) => void;
+}) {
+  const styles = element.computedStyles;
+  const active = hasLayoutGuide(styles);
+
+  const addGuide = () => {
+    // 12-column overlay guide — Figma's default columns layout grid.
+    const guide =
+      "repeating-linear-gradient(to right, color-mix(in srgb, var(--design-editor-accent-color) 22%, transparent) 0 1px, transparent 1px calc(100% / 12))";
+    const existing = compactCssValue(styles.backgroundImage, "");
+    onStyleChange(
+      "backgroundImage",
+      existing ? `${guide}, ${existing}` : guide,
+    );
+  };
+
+  const removeGuide = () => {
+    const layers = splitCssLayers(styles.backgroundImage || "").filter(
+      (layer) => !layer.includes("repeating-linear-gradient"),
+    );
+    onStyleChange(
+      "backgroundImage",
+      layers.length ? joinCssLayers(layers) : "none",
+    );
+  };
+
+  return (
+    <PanelSection
+      title={"Layout guide" /* i18n-ignore Figma inspector label */}
+      defaultCollapsed
+      actions={
+        <SectionIconButton
+          label={
+            active
+              ? "Remove layout guide" /* i18n-ignore Figma inspector action */
+              : "Add layout guide" /* i18n-ignore Figma inspector action */
+          }
+          onClick={active ? removeGuide : addGuide}
+        >
+          {active ? (
+            <IconMinus className="size-3.5" />
+          ) : (
+            <IconPlus className="size-3.5" />
+          )}
+        </SectionIconButton>
+      }
+    >
+      {active ? (
+        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px] text-muted-foreground">
+          <IconLayoutGrid className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {"Columns" /* i18n-ignore Figma inspector label */}
+          </span>
+          <span className="shrink-0 tabular-nums">12</span>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          {"No layout guides" /* i18n-ignore Figma inspector empty state */}
+        </p>
+      )}
+    </PanelSection>
+  );
+}
+
+/**
+ * Togglable export preview thumbnail (Figma shows a small preview of the export
+ * frame above the export rows). Renders a proportional placeholder reflecting
+ * the selected element's aspect ratio, fill, radius and dimensions.
+ */
+function ExportPreview({ element }: { element: ElementInfo | null }) {
+  const rect = element?.boundingRect;
+  const width = rect?.width ?? 0;
+  const height = rect?.height ?? 0;
+  const aspect = width > 0 && height > 0 ? width / height : 1;
+  const styles = element?.computedStyles ?? {};
+  const fill = cssColorOrFallback(
+    styles.backgroundColor || styles.color,
+    "var(--design-editor-control-bg)",
+  );
+  const radius = Math.min(8, cssLengthNumber(styles.borderRadius || "0"));
+
+  return (
+    <div className="mt-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-3">
+      <div
+        className="mx-auto flex max-h-28 items-center justify-center"
+        style={{
+          aspectRatio: aspect,
+          width: aspect >= 1 ? "100%" : "auto",
+          height: aspect < 1 ? "7rem" : "auto",
+        }}
+      >
+        <div
+          className="size-full border border-[var(--design-editor-control-border)] shadow-sm"
+          style={{ background: fill, borderRadius: radius }}
+        />
+      </div>
+      <p className="mt-2 text-center text-[10px] tabular-nums text-muted-foreground">
+        {Math.round(width)} × {Math.round(height)}
+      </p>
+    </div>
   );
 }
 
@@ -2517,6 +2798,10 @@ function PositionLayoutProperties({
   const styles = element.computedStyles;
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
+  // Reflect the active packing in the alignment segments (Figma highlights the
+  // current alignment). For a flex container the main axis is justifyContent.
+  const alignH = justifyToHorizontal(styles.justifyContent);
+  const alignV = alignToVertical(styles.alignItems);
   const constraintsValue: ConstraintsValue = {
     horizontal:
       styles.left && styles.right
@@ -2603,7 +2888,23 @@ function PositionLayoutProperties({
   );
 
   return (
-    <PanelSection title={t("editPanel.sections.positionLayout")}>
+    <PanelSection
+      title={t("editPanel.sections.positionLayout")}
+      actions={
+        <SectionIconToggle
+          label={"Absolute position" /* i18n-ignore Figma inspector action */}
+          active={constrainedPosition}
+          onClick={() =>
+            onStyleChange(
+              "position",
+              constrainedPosition ? "relative" : "absolute",
+            )
+          }
+        >
+          <IconLayoutDistributeHorizontal className="size-3.5" />
+        </SectionIconToggle>
+      }
+    >
       <div className="space-y-1.5">
         <SubsectionLabel>
           {"Alignment" /* i18n-ignore Figma inspector label */}
@@ -2612,41 +2913,47 @@ function PositionLayoutProperties({
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.textAligns.left")}
+              active={alignH === "left"}
               onClick={() => onStyleChange("justifyContent", "flex-start")}
             >
-              <IconLayoutAlignLeft className="size-4" />
+              <IconLayoutAlignLeft className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.center")}
+              active={alignH === "center"}
               onClick={() => onStyleChange("justifyContent", "center")}
             >
-              <IconLayoutAlignCenter className="size-4" />
+              <IconLayoutAlignCenter className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.right")}
+              active={alignH === "right"}
               onClick={() => onStyleChange("justifyContent", "flex-end")}
             >
-              <IconLayoutAlignRight className="size-4" />
+              <IconLayoutAlignRight className="size-3.5" />
             </InspectorIconButton>
           </InspectorSegment>
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.start")}
+              active={alignV === "top"}
               onClick={() => onStyleChange("alignItems", "flex-start")}
             >
-              <IconLayoutAlignTop className="size-4" />
+              <IconLayoutAlignTop className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.center")}
+              active={alignV === "middle"}
               onClick={() => onStyleChange("alignItems", "center")}
             >
-              <IconLayoutAlignMiddle className="size-4" />
+              <IconLayoutAlignMiddle className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.end")}
+              active={alignV === "bottom"}
               onClick={() => onStyleChange("alignItems", "flex-end")}
             >
-              <IconLayoutAlignBottom className="size-4" />
+              <IconLayoutAlignBottom className="size-3.5" />
             </InspectorIconButton>
           </InspectorSegment>
         </div>
@@ -2746,36 +3053,44 @@ function FillProperties({
     <PanelSection
       title={t("editPanel.sections.fill")}
       actions={
-        <SectionIconButton
-          label={t("editPanel.labels.addLayer")}
-          onClick={() => {
-            if (isTextElement) {
-              onStyleChange(
-                "color",
-                cssColorOrFallback(styles.color, "#000000"),
+        <>
+          {/* Figma color-styles affordance (grid icon) to the left of "+". */}
+          <SectionIconButton
+            label={"Styles" /* i18n-ignore Figma inspector action */}
+          >
+            <IconLayoutGrid className="size-3.5" />
+          </SectionIconButton>
+          <SectionIconButton
+            label={t("editPanel.labels.addLayer")}
+            onClick={() => {
+              if (isTextElement) {
+                onStyleChange(
+                  "color",
+                  cssColorOrFallback(styles.color, "#000000"),
+                );
+                return;
+              }
+              if (!colorHasVisibleAlpha(styles.backgroundColor)) {
+                onStyleChange(
+                  "backgroundColor",
+                  cssColorOrFallback(styles.backgroundColor, "#ffffff"),
+                );
+                return;
+              }
+              const current = compactCssValue(styles.backgroundImage, "");
+              const nextLayer = defaultGradientLayer(
+                "linear",
+                styles.backgroundColor || "#ffffff",
               );
-              return;
-            }
-            if (!colorHasVisibleAlpha(styles.backgroundColor)) {
               onStyleChange(
-                "backgroundColor",
-                cssColorOrFallback(styles.backgroundColor, "#ffffff"),
+                "backgroundImage",
+                current ? `${nextLayer}, ${current}` : nextLayer,
               );
-              return;
-            }
-            const current = compactCssValue(styles.backgroundImage, "");
-            const nextLayer = defaultGradientLayer(
-              "linear",
-              styles.backgroundColor || "#ffffff",
-            );
-            onStyleChange(
-              "backgroundImage",
-              current ? `${nextLayer}, ${current}` : nextLayer,
-            );
-          }}
-        >
-          <IconPlus className="size-3.5" />
-        </SectionIconButton>
+            }}
+          >
+            <IconPlus className="size-3.5" />
+          </SectionIconButton>
+        </>
       }
     >
       {hasVisibleFill ? (
@@ -3101,8 +3416,33 @@ function AppearanceProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
+  const hidden =
+    styles.visibility === "hidden" ||
+    styles.display === "none" ||
+    parseNumericValue(styles.opacity || "1") === 0;
   return (
-    <PanelSection title={t("root.commandAppearance")}>
+    <PanelSection
+      title={t("root.commandAppearance")}
+      actions={
+        <SectionIconToggle
+          label={
+            hidden
+              ? "Show" /* i18n-ignore Figma inspector action */
+              : "Hide" /* i18n-ignore Figma inspector action */
+          }
+          active={hidden}
+          onClick={() =>
+            onStyleChange("visibility", hidden ? "visible" : "hidden")
+          }
+        >
+          {hidden ? (
+            <IconEyeOff className="size-3.5" />
+          ) : (
+            <IconEye className="size-3.5" />
+          )}
+        </SectionIconToggle>
+      }
+    >
       <div className="grid grid-cols-2 gap-2">
         <ScrubInput
           label={t("editPanel.labels.opacity")}
@@ -3381,6 +3721,7 @@ export function EditPanel({
     format: "png",
     suffix: "",
   });
+  const [showExportPreview, setShowExportPreview] = useState(false);
   const isTextElement = selectedElement
     ? TEXT_TAGS.has(selectedElement.tagName)
     : false;
@@ -3431,6 +3772,12 @@ export function EditPanel({
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
+                {isContainerElement(selectedElement) ? (
+                  <LayoutGuideProperties
+                    element={selectedElement}
+                    onStyleChange={onStyleChange}
+                  />
+                ) : null}
                 <AppearanceProperties
                   element={selectedElement}
                   onStyleChange={onStyleChange}
@@ -3463,7 +3810,22 @@ export function EditPanel({
               </>
             )}
             {onExport ? (
-              <PanelSection title={t("editPanel.sections.export")}>
+              <PanelSection
+                title={t("editPanel.sections.export")}
+                actions={
+                  <SectionIconToggle
+                    label={
+                      showExportPreview
+                        ? "Hide preview" /* i18n-ignore Figma inspector action */
+                        : "Show preview" /* i18n-ignore Figma inspector action */
+                    }
+                    active={showExportPreview}
+                    onClick={() => setShowExportPreview((shown) => !shown)}
+                  >
+                    <IconPhoto className="size-3.5" />
+                  </SectionIconToggle>
+                }
+              >
                 <ExportSettingsPanel
                   value={exportSettings}
                   formats={["png", "svg"]}
@@ -3473,6 +3835,9 @@ export function EditPanel({
                   }
                   onExport={onExport}
                 />
+                {showExportPreview ? (
+                  <ExportPreview element={selectedElement} />
+                ) : null}
               </PanelSection>
             ) : null}
           </div>

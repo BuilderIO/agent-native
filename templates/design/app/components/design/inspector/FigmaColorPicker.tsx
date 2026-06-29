@@ -10,6 +10,7 @@ import {
   type HslaColor,
   type RgbaColor,
 } from "@shared/color-utils";
+import type { ShaderDescriptor } from "@shared/shader-presets";
 import { IconChevronDown, IconColorPicker, IconX } from "@tabler/icons-react";
 import {
   useEffect,
@@ -40,6 +41,22 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import {
+  GradientEditor,
+  defaultGradient,
+  gradientToCss,
+  parseGradientCss,
+  type GradientKind,
+  type GradientValue,
+} from "./GradientEditor";
+import {
+  ImageFillControls,
+  imageFillToCss,
+  parseImageFillCss,
+  type ImageFillValue,
+} from "./ImageFillControls";
+import { ShaderFillsPanel, shaderDescriptorToCss } from "./ShaderFillsPanel";
+
 // ─── Public types ──────────────────────────────────────────────────────────────
 
 export type FigmaColorMode = "hex" | "rgb" | "hsl" | "hsb";
@@ -53,6 +70,9 @@ export type FigmaPaintType =
   | "diamond"
   | "image"
   | "video"
+  | "shader"
+  | "noise"
+  | "pattern"
   | "none";
 
 // These interfaces remain so EditPanel's prop types don't break, even though
@@ -140,6 +160,18 @@ export interface FigmaColorPickerProps {
   onGradientStopChange?: (id: string, patch: FigmaGradientStopPatch) => void;
   onAddGradientStop?: () => void;
   onRemoveGradientStop?: (id: string) => void;
+  /**
+   * Optional design context forwarded to the apply-shader action when a shader
+   * fill is selected, so the agent can write real shader code for the target.
+   */
+  shaderContext?: {
+    designId?: string;
+    fileId?: string;
+    nodeId?: string;
+    selector?: string;
+  };
+  /** Notified when a shader fill is applied/tuned (descriptor + CSS fallback). */
+  onShaderChange?: (descriptor: ShaderDescriptor, css: string) => void;
   labels?: Partial<FigmaColorPickerLabels>;
   disabled?: boolean;
   className?: string;
@@ -414,6 +446,90 @@ function IconNoneFill({ className }: { className?: string }) {
   );
 }
 
+function IconShaderFill({ className }: { className?: string }) {
+  // Droplet — Figma uses a teardrop for shader/blur-type fills.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <defs>
+        <linearGradient id="shader-ico" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0.25" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M12 3c3.5 4 6 7 6 10a6 6 0 0 1-12 0c0-3 2.5-6 6-10z"
+        fill="url(#shader-ico)"
+        stroke="currentColor"
+        strokeOpacity="0.7"
+      />
+    </svg>
+  );
+}
+
+function IconNoiseFill({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="none"
+      className={className}
+    >
+      <rect
+        x="3.5"
+        y="3.5"
+        width="17"
+        height="17"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        strokeOpacity="0.6"
+      />
+      {[
+        [7, 7],
+        [11, 6.5],
+        [15, 8],
+        [8, 10.5],
+        [13, 11],
+        [16.5, 11.5],
+        [6.5, 13],
+        [10, 14],
+        [14, 13.5],
+        [9, 16.5],
+        [13, 16.5],
+        [16, 15.5],
+      ].map(([cx, cy], index) => (
+        <circle key={index} cx={cx} cy={cy} r="0.9" />
+      ))}
+    </svg>
+  );
+}
+
+function IconPatternFill({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <rect x="3.5" y="3.5" width="17" height="17" rx="2" strokeOpacity="0.6" />
+      <path d="M3.5 9h17M3.5 15h17M9 3.5v17M15 3.5v17" strokeOpacity="0.85" />
+    </svg>
+  );
+}
+
 // ─── Paint type definitions (only supported types rendered) ────────────────────
 
 const PAINT_TYPES: Array<{
@@ -428,8 +544,25 @@ const PAINT_TYPES: Array<{
   { type: "diamond", label: "Diamond", Icon: IconDiamondGradient }, // i18n-ignore paint type label
   { type: "image", label: "Image", Icon: IconImageFill }, // i18n-ignore paint type label
   { type: "video", label: "Video", Icon: IconVideoFill }, // i18n-ignore paint type label
+  { type: "shader", label: "Shader", Icon: IconShaderFill }, // i18n-ignore paint type label
+  { type: "noise", label: "Noise", Icon: IconNoiseFill }, // i18n-ignore paint type label
+  { type: "pattern", label: "Pattern", Icon: IconPatternFill }, // i18n-ignore paint type label
   { type: "none", label: "None", Icon: IconNoneFill }, // i18n-ignore paint type label
 ];
+
+const GRADIENT_TYPES: ReadonlySet<FigmaPaintType> = new Set([
+  "linear",
+  "radial",
+  "angular",
+  "diamond",
+]);
+
+// Static fallback fills for the "functional but minimal" paint types so the
+// element fill always reflects the selected mode even without bespoke editors.
+const NOISE_FALLBACK_CSS =
+  "repeating-conic-gradient(#0000 0% 25%, #00000010 0% 50%) 0 0 / 6px 6px, #8a8a8a";
+const PATTERN_FALLBACK_CSS =
+  "repeating-linear-gradient(45deg, #00000014 0 6px, #ffffff14 6px 12px), #9aa0a6";
 
 // ─── Document swatch placeholder (shown until real doc colors are provided) ────
 
@@ -475,14 +608,16 @@ export function FigmaColorPicker({
   onRemoveFill: _onRemoveFill,
   paintType,
   onPaintTypeChange,
-  gradientType: _gradientType,
-  onGradientTypeChange: _onGradientTypeChange,
+  gradientType,
+  onGradientTypeChange,
   gradientStops: _gradientStops,
   selectedStopId: _selectedStopId,
   onGradientStopSelect: _onGradientStopSelect,
   onGradientStopChange: _onGradientStopChange,
   onAddGradientStop: _onAddGradientStop,
   onRemoveGradientStop: _onRemoveGradientStop,
+  shaderContext,
+  onShaderChange,
   labels,
   disabled = false,
   className,
@@ -496,16 +631,68 @@ export function FigmaColorPicker({
   const [mode, setMode] = useState<FigmaColorMode>("hex");
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
   const [open, setOpen] = useState(false);
-  const [sourceTab, setSourceTab] = useState<"custom" | "libraries">("custom");
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
 
-  const effectivePaintType =
-    paintType ?? inferPaintType(value, effectiveOpacity);
+  // Whole-popover view: the standard picker, or the Figma "Shader fills" panel.
+  const [view, setView] = useState<"picker" | "shader">("picker");
+
+  // Self-managed paint-type fallback for when EditPanel doesn't drive it.
+  const [localPaintType, setLocalPaintType] = useState<FigmaPaintType | null>(
+    null,
+  );
+
+  // Locally-managed gradient/image/shader state, seeded from the current value
+  // so the editors round-trip when EditPanel passes the CSS back through value.
+  const [localGradient, setLocalGradient] = useState<GradientValue | null>(
+    null,
+  );
+  const [selectedStopId, setSelectedStopId] = useState<string>("");
+  const [imageFill, setImageFill] = useState<ImageFillValue>({
+    url: "",
+    fit: "fill",
+  });
+  const [shaderDescriptor, setShaderDescriptor] =
+    useState<ShaderDescriptor | null>(null);
+
+  const effectivePaintType: FigmaPaintType =
+    paintType ?? localPaintType ?? inferPaintType(value, effectiveOpacity);
+
+  // Resolve the active gradient: prefer EditPanel-driven props; otherwise parse
+  // the live CSS value, falling back to local edit state.
+  const parsedGradient = parseGradientCss(value, gradientType ?? "linear");
+  const activeGradient: GradientValue | null = GRADIENT_TYPES.has(
+    effectivePaintType,
+  )
+    ? (localGradient ??
+      parsedGradient ??
+      defaultGradient(
+        effectivePaintType as GradientKind,
+        toCssColor(color) || "#000000",
+      ))
+    : null;
 
   useEffect(() => {
     setHexDraft(toDisplayHex(color));
   }, [color.r, color.g, color.b]);
+
+  // Keep image-fill state synced when the incoming value is an image fill.
+  useEffect(() => {
+    if (effectivePaintType !== "image") return;
+    const parsed = parseImageFillCss(value);
+    if (parsed && parsed.url !== imageFill.url) setImageFill(parsed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, effectivePaintType]);
+
+  // Ensure a selected stop id exists whenever a gradient is active.
+  useEffect(() => {
+    if (!activeGradient) return;
+    const ids = activeGradient.stops.map((s) => s.id);
+    if (!ids.includes(selectedStopId)) {
+      setSelectedStopId(activeGradient.stops[0]?.id ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGradient?.stops.map((s) => s.id).join(",")]);
 
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
@@ -524,7 +711,12 @@ export function FigmaColorPicker({
   const commitHex = () => {
     const parsed = parseCssColor(`#${hexDraft.replace(/^#/, "")}`);
     if (!parsed) {
-      setHexDraft(toDisplayHex(color));
+      setHexDraft(toDisplayHex(activeGradient ? fieldColor : color));
+      return;
+    }
+    if (activeGradient) {
+      const hexIncludesAlpha = hasHexAlpha(hexDraft);
+      emitStopColor(hexIncludesAlpha ? parsed : { ...parsed, a: fieldColor.a });
       return;
     }
     const hexIncludesAlpha = hasHexAlpha(hexDraft);
@@ -540,18 +732,135 @@ export function FigmaColorPicker({
     else onChange(rgbaToCss(withColorOpacity(color, nextOpacity)));
   };
 
+  // ── Gradient editing ─────────────────────────────────────────────────────────
+
+  const emitGradient = (next: GradientValue) => {
+    setLocalGradient(next);
+    if (onGradientTypeChange && next.kind !== gradientType) {
+      onGradientTypeChange(next.kind as FigmaGradientType);
+    }
+    onChange(gradientToCss(next));
+  };
+
+  const selectedStop =
+    activeGradient?.stops.find((s) => s.id === selectedStopId) ??
+    activeGradient?.stops[0];
+
+  // The 2D field edits the selected gradient stop's color when in gradient mode.
+  const fieldColor: RgbaColor = activeGradient
+    ? (parseCssColor(selectedStop?.color ?? "#000000") ?? FALLBACK_COLOR)
+    : color;
+  const fieldHsv = rgbaToHsv(fieldColor);
+  const fieldHsl = rgbaToHsl(fieldColor);
+
+  // In gradient mode, mirror the selected stop's color into the hex draft.
+  const selectedStopColor = selectedStop?.color;
+  useEffect(() => {
+    if (!activeGradient || !selectedStopColor) return;
+    const parsed = parseCssColor(selectedStopColor);
+    if (parsed) setHexDraft(toDisplayHex(parsed));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStopColor, selectedStopId]);
+
+  const emitStopColor = (nextColor: RgbaColor) => {
+    if (!activeGradient || !selectedStop) return;
+    emitGradient({
+      ...activeGradient,
+      stops: activeGradient.stops.map((stop) =>
+        stop.id === selectedStop.id
+          ? { ...stop, color: rgbaToCss(nextColor) }
+          : stop,
+      ),
+    });
+  };
+
+  // Value-row emit helpers: route to the selected stop in gradient mode,
+  // else to the solid color (preserving the existing solid behavior).
+  const emitFieldColor = (next: RgbaColor) => {
+    if (activeGradient) emitStopColor({ ...next, a: fieldColor.a });
+    else emitColor(next);
+  };
+  const emitFieldHsl = (next: HslaColor) => {
+    if (activeGradient) emitStopColor(hslToRgba({ ...next, a: fieldColor.a }));
+    else emitColorFromHsl(next);
+  };
+  const emitFieldHsv = (next: HsvaColor) => {
+    if (activeGradient) emitStopColor(hsvToRgba({ ...next, a: fieldColor.a }));
+    else emitColorFromHsv(next);
+  };
+
+  // ── Image editing ─────────────────────────────────────────────────────────────
+
+  const emitImageFill = (next: ImageFillValue) => {
+    setImageFill(next);
+    onChange(imageFillToCss(next));
+  };
+
+  // ── Shader editing ──────────────────────────────────────────────────────────────
+
+  const emitShader = (descriptor: ShaderDescriptor, css: string) => {
+    setShaderDescriptor(descriptor);
+    onShaderChange?.(descriptor, css);
+    onChange(css);
+  };
+
+  // ── Paint-type switching (does real work for every type) ──────────────────────
+
   const setPaintType = (nextType: FigmaPaintType) => {
     if (disabled) return;
+
+    // Shader opens the dedicated Figma "Shader fills" panel.
+    if (nextType === "shader") {
+      setLocalPaintType("shader");
+      setView("shader");
+      return;
+    }
+
+    // Defer structural fill changes to EditPanel when it manages layered fills.
     if (onPaintTypeChange) {
+      setLocalPaintType(nextType);
       onPaintTypeChange(nextType);
       return;
     }
+
+    setLocalPaintType(nextType);
+
     if (nextType === "none") {
       onChange("transparent");
       return;
     }
     if (nextType === "solid") {
       emitColor(color, effectiveOpacity > 0 ? effectiveOpacity : 100);
+      return;
+    }
+    if (GRADIENT_TYPES.has(nextType)) {
+      const base =
+        activeGradient ??
+        defaultGradient(
+          nextType as GradientKind,
+          toCssColor(color) || "#000000",
+        );
+      const next: GradientValue = { ...base, kind: nextType as GradientKind };
+      setSelectedStopId(next.stops[0]?.id ?? "");
+      emitGradient(next);
+      return;
+    }
+    if (nextType === "image") {
+      onChange(imageFill.url ? imageFillToCss(imageFill) : "transparent");
+      return;
+    }
+    if (nextType === "video") {
+      // No standalone CSS for video; mark the fill type and keep a checker fill
+      // until a source is wired. The agent can replace it with a <video> layer.
+      onChange("transparent");
+      return;
+    }
+    if (nextType === "noise") {
+      onChange(NOISE_FALLBACK_CSS);
+      return;
+    }
+    if (nextType === "pattern") {
+      onChange(PATTERN_FALLBACK_CSS);
       return;
     }
   };
@@ -619,11 +928,11 @@ export function FigmaColorPicker({
             <ScrubbyNumberInput
               key={ch}
               aria-label={ch.toUpperCase()}
-              value={color[ch]}
+              value={fieldColor[ch]}
               min={0}
               max={255}
               disabled={disabled}
-              onChange={(next) => emitColor({ ...color, [ch]: next })}
+              onChange={(next) => emitFieldColor({ ...fieldColor, [ch]: next })}
             />
           ))}
         </div>
@@ -634,27 +943,27 @@ export function FigmaColorPicker({
         <div className="flex gap-1">
           <ScrubbyNumberInput
             aria-label={copy.hue}
-            value={hsl.h}
+            value={fieldHsl.h}
             min={0}
             max={360}
             disabled={disabled}
-            onChange={(h) => emitColorFromHsl({ ...hsl, h })}
+            onChange={(h) => emitFieldHsl({ ...fieldHsl, h })}
           />
           <ScrubbyNumberInput
             aria-label={copy.saturation}
-            value={hsl.s}
+            value={fieldHsl.s}
             min={0}
             max={100}
             disabled={disabled}
-            onChange={(s) => emitColorFromHsl({ ...hsl, s })}
+            onChange={(s) => emitFieldHsl({ ...fieldHsl, s })}
           />
           <ScrubbyNumberInput
             aria-label={copy.lightness}
-            value={hsl.l}
+            value={fieldHsl.l}
             min={0}
             max={100}
             disabled={disabled}
-            onChange={(l) => emitColorFromHsl({ ...hsl, l })}
+            onChange={(l) => emitFieldHsl({ ...fieldHsl, l })}
           />
         </div>
       );
@@ -664,27 +973,27 @@ export function FigmaColorPicker({
       <div className="flex gap-1">
         <ScrubbyNumberInput
           aria-label={copy.hue}
-          value={hsv.h}
+          value={fieldHsv.h}
           min={0}
           max={360}
           disabled={disabled}
-          onChange={(h) => emitColorFromHsv({ ...hsv, h })}
+          onChange={(h) => emitFieldHsv({ ...fieldHsv, h })}
         />
         <ScrubbyNumberInput
           aria-label={copy.saturation}
-          value={hsv.s}
+          value={fieldHsv.s}
           min={0}
           max={100}
           disabled={disabled}
-          onChange={(s) => emitColorFromHsv({ ...hsv, s })}
+          onChange={(s) => emitFieldHsv({ ...fieldHsv, s })}
         />
         <ScrubbyNumberInput
           aria-label={copy.brightness}
-          value={hsv.v}
+          value={fieldHsv.v}
           min={0}
           max={100}
           disabled={disabled}
-          onChange={(v) => emitColorFromHsv({ ...hsv, v })}
+          onChange={(v) => emitFieldHsv({ ...fieldHsv, v })}
         />
       </div>
     );
@@ -710,10 +1019,10 @@ export function FigmaColorPicker({
             {/* Flat swatch chip — no shadow-inner (Figma is flat) */}
             <span
               className="size-4 shrink-0 rounded-[3px] border border-border/60"
-              style={swatchStyle(rgbaToCss(color))}
+              style={triggerSwatchStyle(value, color)}
             />
             <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase text-[11px]">
-              {toDisplayHex(color)}
+              {triggerLabel(effectivePaintType, color)}
             </span>
             <span className="tabular-nums text-muted-foreground text-[11px]">
               {effectiveOpacity}%
@@ -729,70 +1038,49 @@ export function FigmaColorPicker({
           className="z-[10000] w-[252px] p-0 shadow-xl"
         >
           <div className="overflow-hidden rounded-md bg-popover text-popover-foreground">
-            {/* ── Header: Custom | Libraries  +  ✕ ────────────────────────── */}
-            <div className="flex items-center justify-between px-3 py-1.5">
-              <div className="flex items-center gap-2">
-                {(["custom", "libraries"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    role="tab"
-                    aria-selected={sourceTab === tab}
-                    onClick={() => setSourceTab(tab)}
-                    className={cn(
-                      "cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      sourceTab === tab
-                        ? "bg-[var(--design-editor-control-bg)] text-foreground shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {
-                      tab === "custom"
-                        ? "Custom" /* i18n-ignore Figma picker tab */
-                        : "Libraries" /* i18n-ignore Figma picker tab */
-                    }
-                  </button>
-                ))}
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={
-                      "Close" /* i18n-ignore Figma picker close label */
-                    }
-                    onClick={() => setOpen(false)}
-                    className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <IconX className="size-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{"Close" /* i18n-ignore */}</TooltipContent>
-              </Tooltip>
-            </div>
-
-            {sourceTab === "custom" ? (
+            {view === "shader" ? (
+              <ShaderFillsPanel
+                descriptor={shaderDescriptor ?? undefined}
+                applyContext={shaderContext}
+                disabled={disabled}
+                onApply={emitShader}
+                onBack={() => {
+                  setView("picker");
+                  if (effectivePaintType === "shader") {
+                    // No shader chosen — revert to a solid so the row isn't dead.
+                    if (!shaderDescriptor) setPaintType("solid");
+                  }
+                }}
+              />
+            ) : (
               <>
+                {/* ── Header: title + close ─────────────────────────────── */}
+                <div className="flex items-center justify-between px-3 py-1.5">
+                  <span className="text-[11px] font-semibold text-foreground">
+                    {triggerLabel(effectivePaintType, color)}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={
+                          "Close" /* i18n-ignore Figma picker close label */
+                        }
+                        onClick={() => setOpen(false)}
+                        className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <IconX className="size-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{"Close" /* i18n-ignore */}</TooltipContent>
+                  </Tooltip>
+                </div>
+
                 {/* ── Paint-type icon row ──────────────────────────────────── */}
                 <div className="border-t border-border/70 px-2 py-1.5">
-                  <div className="grid grid-cols-8 gap-px">
+                  <div className="grid grid-cols-11 gap-px">
                     {PAINT_TYPES.map(({ type, label, Icon }) => {
                       const isActive = effectivePaintType === type;
-                      const isGradientType =
-                        type === "linear" ||
-                        type === "radial" ||
-                        type === "angular" ||
-                        type === "diamond";
-                      const gradientDisabled =
-                        isGradientType &&
-                        !onPaintTypeChange &&
-                        !_onGradientTypeChange &&
-                        !_onAddGradientStop;
-                      const imageDisabled =
-                        (type === "image" || type === "video") &&
-                        !onPaintTypeChange;
-                      const isDisabled =
-                        disabled || gradientDisabled || imageDisabled;
                       return (
                         <Tooltip key={type}>
                           <TooltipTrigger asChild>
@@ -800,7 +1088,7 @@ export function FigmaColorPicker({
                               type="button"
                               aria-label={label}
                               aria-pressed={isActive}
-                              disabled={isDisabled}
+                              disabled={disabled}
                               onClick={() => setPaintType(type)}
                               className={cn(
                                 "flex h-6 w-full cursor-pointer items-center justify-center rounded-sm transition-colors",
@@ -809,7 +1097,7 @@ export function FigmaColorPicker({
                                 isActive
                                   ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_var(--primary)]"
                                   : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                                isDisabled && "pointer-events-none opacity-40",
+                                disabled && "pointer-events-none opacity-40",
                               )}
                             >
                               <Icon className="size-3.5" />
@@ -822,144 +1110,262 @@ export function FigmaColorPicker({
                   </div>
                 </div>
 
-                {/* ── 2D Saturation/Brightness field (edge-to-edge, no side padding) */}
-                <div className="border-t border-border/70">
-                  <SaturationBrightnessField
-                    hsv={hsv}
-                    label={copy.saturationBrightness}
-                    disabled={disabled}
-                    onChange={emitColorFromHsv}
-                  />
-                </div>
+                {/* ── Image fill controls ─────────────────────────────────── */}
+                {effectivePaintType === "image" && (
+                  <div className="border-t border-border/70">
+                    <ImageFillControls
+                      value={imageFill}
+                      disabled={disabled}
+                      onChange={emitImageFill}
+                    />
+                  </div>
+                )}
+
+                {/* ── Video fill: source field ────────────────────────────── */}
+                {effectivePaintType === "video" && (
+                  <div className="border-t border-border/70 px-3 py-2">
+                    <p className="mb-1.5 text-[10px] text-muted-foreground">
+                      {
+                        "Paste a video URL to use as the fill." /* i18n-ignore */
+                      }
+                    </p>
+                    <Input
+                      defaultValue=""
+                      disabled={disabled}
+                      placeholder={"Video URL (mp4, webm)" /* i18n-ignore */}
+                      aria-label={"Video URL" /* i18n-ignore */}
+                      spellCheck={false}
+                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px]"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const url = e.currentTarget.value.trim();
+                          if (url)
+                            onChange(`url("${url}") center / cover no-repeat`);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const url = e.currentTarget.value.trim();
+                        if (url)
+                          onChange(`url("${url}") center / cover no-repeat`);
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* ── Gradient editor (linear / radial / angular / diamond) ── */}
+                {activeGradient && (
+                  <div className="border-t border-border/70">
+                    <GradientEditor
+                      value={activeGradient}
+                      selectedStopId={selectedStopId}
+                      disabled={disabled}
+                      onSelectStop={setSelectedStopId}
+                      onChange={emitGradient}
+                    />
+                  </div>
+                )}
+
+                {/* ── 2D Saturation/Brightness field ──────────────────────── */}
+                {/* Hidden for non-color fills (image/video/noise/pattern). */}
+                {(effectivePaintType === "solid" ||
+                  effectivePaintType === "none" ||
+                  activeGradient) && (
+                  <div className="border-t border-border/70">
+                    <SaturationBrightnessField
+                      hsv={fieldHsv}
+                      label={copy.saturationBrightness}
+                      disabled={disabled}
+                      onChange={(nextHsv) => {
+                        if (activeGradient) {
+                          emitStopColor(
+                            hsvToRgba({
+                              ...nextHsv,
+                              a: opacityToAlpha(effectiveOpacity),
+                            }),
+                          );
+                        } else {
+                          emitColorFromHsv(nextHsv);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
 
                 {/* ── Eyedropper + Hue slider / Swatch + Alpha slider ─────── */}
-                {/* Left gutter spans both rows with dropper centered vertically */}
-                <div className="mt-2.5 px-3">
-                  <div className="grid grid-cols-[1.5rem_1fr] items-center gap-x-2">
-                    {/* Eyedropper centered across the two slider rows via row-span-2 */}
-                    <div className="row-span-2 flex items-center justify-center">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={
-                              "Pick color" /* i18n-ignore browser eyedropper label */
+                {/* Color sliders only apply to color-based fills. */}
+                {(effectivePaintType === "solid" ||
+                  effectivePaintType === "none" ||
+                  activeGradient) && (
+                  <div className="mt-2.5 px-3">
+                    <div className="grid grid-cols-[1.5rem_1fr] items-center gap-x-2">
+                      {/* Eyedropper centered across the two slider rows via row-span-2 */}
+                      <div className="row-span-2 flex items-center justify-center">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={
+                                "Pick color" /* i18n-ignore browser eyedropper label */
+                              }
+                              disabled={disabled || !hasEyeDropper}
+                              onClick={() => void pickScreenColor()}
+                              className={cn(
+                                "flex size-6 cursor-pointer items-center justify-center rounded-sm transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                picking
+                                  ? "bg-primary/10 text-primary ring-1 ring-primary/50"
+                                  : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                                (disabled || !hasEyeDropper) &&
+                                  "pointer-events-none opacity-40",
+                              )}
+                            >
+                              <IconColorPicker className="size-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {
+                              hasEyeDropper
+                                ? "Pick color" // i18n-ignore browser eyedropper label
+                                : "Not supported in this browser" // i18n-ignore browser eyedropper disabled label
                             }
-                            disabled={disabled || !hasEyeDropper}
-                            onClick={() => void pickScreenColor()}
-                            className={cn(
-                              "flex size-6 cursor-pointer items-center justify-center rounded-sm transition-colors",
-                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                              picking
-                                ? "bg-primary/10 text-primary ring-1 ring-primary/50"
-                                : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                              (disabled || !hasEyeDropper) &&
-                                "pointer-events-none opacity-40",
-                            )}
-                          >
-                            <IconColorPicker className="size-4" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {
-                            hasEyeDropper
-                              ? "Pick color" // i18n-ignore browser eyedropper label
-                              : "Not supported in this browser" // i18n-ignore browser eyedropper disabled label
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+
+                      {/* Hue track */}
+                      <ColorTrack
+                        label={copy.hue}
+                        value={fieldHsv.h}
+                        min={0}
+                        max={360}
+                        disabled={disabled}
+                        backgroundImage="linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)"
+                        onChange={(next) => {
+                          const h = next === 360 ? 0 : next;
+                          if (activeGradient) {
+                            emitStopColor(
+                              hsvToRgba({
+                                ...fieldHsv,
+                                h,
+                                a: fieldColor.a,
+                              }),
+                            );
+                          } else {
+                            emitColorFromHsv({ ...hsv, h });
                           }
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-
-                    {/* Hue track */}
-                    <ColorTrack
-                      label={copy.hue}
-                      value={hsv.h}
-                      min={0}
-                      max={360}
-                      disabled={disabled}
-                      backgroundImage="linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)"
-                      onChange={(next) =>
-                        emitColorFromHsv({ ...hsv, h: next === 360 ? 0 : next })
-                      }
-                    />
-
-                    {/* Current-color swatch left of alpha (matches Figma's layout) */}
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="size-[18px] shrink-0 rounded-[3px] border border-border/60"
-                        style={swatchStyle(rgbaToCss(color))}
+                        }}
                       />
-                      {/* Alpha track fills remaining width */}
-                      <div className="flex-1">
-                        <ColorTrack
-                          label={copy.opacity}
-                          value={effectiveOpacity}
-                          min={0}
-                          max={100}
-                          disabled={disabled}
-                          backgroundImage={alphaTrackBackground(color)}
-                          backgroundSize="8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%"
-                          backgroundPosition="0 0, 0 4px, 4px -4px, -4px 0, 0 0"
-                          onChange={setOpacity}
+
+                      {/* Current-color swatch left of alpha (matches Figma's layout) */}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="size-[18px] shrink-0 rounded-[3px] border border-border/60"
+                          style={swatchStyle(rgbaToCss(fieldColor))}
                         />
+                        {/* Alpha track fills remaining width */}
+                        <div className="flex-1">
+                          <ColorTrack
+                            label={copy.opacity}
+                            value={
+                              activeGradient
+                                ? alphaToOpacity(fieldColor.a)
+                                : effectiveOpacity
+                            }
+                            min={0}
+                            max={100}
+                            disabled={disabled}
+                            backgroundImage={alphaTrackBackground(fieldColor)}
+                            backgroundSize="8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%"
+                            backgroundPosition="0 0, 0 4px, 4px -4px, -4px 0, 0 0"
+                            onChange={(next) => {
+                              if (activeGradient) {
+                                emitStopColor({
+                                  ...fieldColor,
+                                  a: opacityToAlpha(next),
+                                });
+                              } else {
+                                setOpacity(next);
+                              }
+                            }}
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* ── Value row: [Hex ▾] [value input(s)] [opacity %] ─────── */}
-                <div className="mt-2.5 px-3 pb-3">
-                  <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-1">
-                    {/* Model dropdown */}
-                    <Select
-                      value={mode}
-                      onValueChange={(v) => setMode(v as FigmaColorMode)}
-                      disabled={disabled}
-                    >
-                      <SelectTrigger className="h-6 w-[4.5rem] rounded-md border-transparent bg-transparent px-1.5 text-[11px] font-semibold shadow-none hover:bg-[var(--design-editor-control-bg)] focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="text-[11px]">
-                        <SelectItem value="hex" className="text-[11px]">
-                          Hex
-                        </SelectItem>{" "}
-                        {/* i18n-ignore color mode */}
-                        <SelectItem value="rgb" className="text-[11px]">
-                          RGB
-                        </SelectItem>{" "}
-                        {/* i18n-ignore color mode */}
-                        <SelectItem value="hsl" className="text-[11px]">
-                          HSL
-                        </SelectItem>{" "}
-                        {/* i18n-ignore color mode */}
-                        <SelectItem value="hsb" className="text-[11px]">
-                          HSB
-                        </SelectItem>{" "}
-                        {/* i18n-ignore color mode */}
-                      </SelectContent>
-                    </Select>
-
-                    {/* Value field(s) — adapts to mode */}
-                    {renderValueInputs()}
-
-                    {/* Opacity % field */}
-                    <div className="flex h-6 overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
-                      <ScrubbyNumberInput
-                        aria-label={copy.opacity}
-                        value={effectiveOpacity}
-                        min={0}
-                        max={100}
+                {(effectivePaintType === "solid" ||
+                  effectivePaintType === "none" ||
+                  activeGradient) && (
+                  <div className="mt-2.5 px-3 pb-3">
+                    <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-1">
+                      {/* Model dropdown */}
+                      <Select
+                        value={mode}
+                        onValueChange={(v) => setMode(v as FigmaColorMode)}
                         disabled={disabled}
-                        onChange={setOpacity}
-                        className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 text-[11px] tabular-nums shadow-none focus-visible:ring-0"
-                        compact
-                      />
-                      <span className="flex w-4 shrink-0 items-center justify-center border-l border-border/60 text-[10px] text-muted-foreground">
-                        %
-                      </span>
+                      >
+                        <SelectTrigger className="h-6 w-[4.5rem] rounded-md border-transparent bg-transparent px-1.5 text-[11px] font-semibold shadow-none hover:bg-[var(--design-editor-control-bg)] focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="text-[11px]">
+                          <SelectItem value="hex" className="text-[11px]">
+                            Hex
+                          </SelectItem>{" "}
+                          {/* i18n-ignore color mode */}
+                          <SelectItem value="rgb" className="text-[11px]">
+                            RGB
+                          </SelectItem>{" "}
+                          {/* i18n-ignore color mode */}
+                          <SelectItem value="hsl" className="text-[11px]">
+                            HSL
+                          </SelectItem>{" "}
+                          {/* i18n-ignore color mode */}
+                          <SelectItem value="hsb" className="text-[11px]">
+                            HSB
+                          </SelectItem>{" "}
+                          {/* i18n-ignore color mode */}
+                        </SelectContent>
+                      </Select>
+
+                      {/* Value field(s) — adapts to mode */}
+                      {renderValueInputs()}
+
+                      {/* Opacity % field */}
+                      <div className="flex h-6 overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
+                        <ScrubbyNumberInput
+                          aria-label={copy.opacity}
+                          value={
+                            activeGradient
+                              ? alphaToOpacity(fieldColor.a)
+                              : effectiveOpacity
+                          }
+                          min={0}
+                          max={100}
+                          disabled={disabled}
+                          onChange={(next) => {
+                            if (activeGradient) {
+                              emitStopColor({
+                                ...fieldColor,
+                                a: opacityToAlpha(next),
+                              });
+                            } else {
+                              setOpacity(next);
+                            }
+                          }}
+                          className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 text-[11px] tabular-nums shadow-none focus-visible:ring-0"
+                          compact
+                        />
+                        <span className="flex w-4 shrink-0 items-center justify-center border-l border-border/60 text-[10px] text-muted-foreground">
+                          %
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* ── "On this page" source + swatches ────────────────────── */}
                 <div className="border-t border-border/70 px-3 py-2.5">
@@ -993,9 +1399,11 @@ export function FigmaColorPicker({
                                   : "border-border/60",
                               )}
                               style={swatchStyle(swatch)}
-                              onClick={() =>
-                                emitColor(parseCssColor(swatch) ?? color)
-                              }
+                              onClick={() => {
+                                const parsed = parseCssColor(swatch) ?? color;
+                                if (activeGradient) emitStopColor(parsed);
+                                else emitColor(parsed);
+                              }}
                             />
                           </TooltipTrigger>
                           <TooltipContent>{swatch}</TooltipContent>
@@ -1005,22 +1413,6 @@ export function FigmaColorPicker({
                   </div>
                 </div>
               </>
-            ) : (
-              /* ── Libraries tab: honest empty state ────────────────────── */
-              <div className="border-t border-border/70 p-3">
-                <div className="rounded-md border border-dashed border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-3 py-5 text-center">
-                  <p className="text-[11px] font-medium text-foreground">
-                    {
-                      "No color libraries connected" /* i18n-ignore Figma picker library empty state */
-                    }
-                  </p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">
-                    {
-                      "Connect a library in the Assets panel to browse colors here." /* i18n-ignore Figma picker library hint */
-                    }
-                  </p>
-                </div>
-              </div>
             )}
           </div>
         </PopoverContent>
@@ -1320,6 +1712,13 @@ function ScrubbyNumberInput({
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
 function inferPaintType(value: string, opacity: number): FigmaPaintType {
+  const lower = value.trim().toLowerCase();
+  if (lower.includes("gradient(")) {
+    if (lower.startsWith("radial-gradient")) return "radial";
+    if (lower.startsWith("conic-gradient")) return "angular";
+    return "linear";
+  }
+  if (lower.startsWith("url(")) return "image";
   const parsed = parseCssColor(value);
   if (opacity <= 0 || parsed?.a === 0 || value.trim() === "transparent") {
     return "none";
@@ -1327,9 +1726,46 @@ function inferPaintType(value: string, opacity: number): FigmaPaintType {
   return "solid";
 }
 
+function toCssColor(color: RgbaColor): string {
+  return rgbaToCss(color);
+}
+
 /** Show hex without the leading # for the display field (matches Figma). */
 function toDisplayHex(color: RgbaColor): string {
   return rgbaToHex(color).replace(/^#/, "").toUpperCase();
+}
+
+function triggerLabel(type: FigmaPaintType, color: RgbaColor): string {
+  if (type === "solid") return toDisplayHex(color);
+  if (type === "none") return "None";
+  if (type === "image") return "Image";
+  if (type === "video") return "Video";
+  if (type === "shader") return "Shader";
+  if (type === "noise") return "Noise";
+  if (type === "pattern") return "Pattern";
+  return `${type[0].toUpperCase()}${type.slice(1)} gradient`;
+}
+
+function triggerSwatchStyle(
+  value: string,
+  color: RgbaColor,
+): {
+  backgroundColor?: string;
+  backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundPosition?: string;
+} {
+  const lower = value.trim().toLowerCase();
+  if (!lower || lower === "transparent") {
+    return {
+      backgroundImage: CHECKERBOARD_IMAGE,
+      backgroundSize: "8px 8px",
+    };
+  }
+  if (lower.includes("gradient(") || lower.startsWith("url(")) {
+    return swatchStyle(value);
+  }
+  return swatchStyle(rgbaToCss(color));
 }
 
 function swatchStyle(value: string): {
