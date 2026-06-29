@@ -804,6 +804,20 @@ function uniqueLayerId(prefix: string): string {
     : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+/**
+ * Re-stamp every `data-agent-native-node-id` in duplicated screen content with a
+ * fresh unique id. Without this, a duplicated screen carries the SAME node ids as
+ * its source, which collapses the cross-file layer-owner map (selecting a layer
+ * in one screen resolves to the other) and can produce a malformed aggregate
+ * projection.
+ */
+function reassignDuplicatedNodeIds(content: string): string {
+  return content.replace(
+    /data-agent-native-node-id="[^"]*"/g,
+    () => `data-agent-native-node-id="${uniqueLayerId("copy")}"`,
+  );
+}
+
 function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
@@ -1353,12 +1367,29 @@ function codeLayerTreeToPanelNodes(
   hiddenIds: Set<string>,
   inheritedLocked = false,
   inheritedHidden = false,
+  // Ancestor-path ids guarding against a cyclic projection (e.g. duplicate or
+  // empty node ids like "an-" that make a node its own descendant) recursing
+  // forever and crashing the whole editor with a stack overflow.
+  ancestors: Set<string> = new Set(),
 ): LayersPanelNode[] {
   return nodes.map((node) => {
     const selfLocked = lockedIds.has(node.id);
     const selfHidden = hiddenIds.has(node.id);
     const locked = inheritedLocked || selfLocked;
     const hidden = inheritedHidden || selfHidden;
+    let children: LayersPanelNode[] = [];
+    if (!ancestors.has(node.id)) {
+      ancestors.add(node.id);
+      children = codeLayerTreeToPanelNodes(
+        node.children,
+        lockedIds,
+        hiddenIds,
+        locked,
+        hidden,
+        ancestors,
+      );
+      ancestors.delete(node.id);
+    }
     return {
       id: node.id,
       name: node.name,
@@ -1372,13 +1403,7 @@ function codeLayerTreeToPanelNodes(
       hideable: true,
       locked,
       hidden,
-      children: codeLayerTreeToPanelNodes(
-        node.children,
-        lockedIds,
-        hiddenIds,
-        locked,
-        hidden,
-      ),
+      children,
     };
   });
 }
@@ -1395,12 +1420,20 @@ function collectEffectiveCodeLayerState(
   inheritedLocked: boolean,
   inheritedHidden: boolean,
   state: EffectiveCodeLayerState,
+  // Ids on the current ancestor path — guards against a malformed/cyclic
+  // projection (e.g. a node that appears as its own descendant from duplicate
+  // node ids) recursing forever and crashing the whole editor with a stack
+  // overflow. A true cycle is skipped; duplicate ids in disjoint subtrees are
+  // still visited.
+  ancestors: Set<string> = new Set(),
 ): EffectiveCodeLayerState {
   nodes.forEach((node) => {
+    if (ancestors.has(node.id)) return;
     const locked = inheritedLocked || lockedIds.has(node.id);
     const hidden = inheritedHidden || hiddenIds.has(node.id);
     if (locked) state.lockedIds.add(node.id);
     if (hidden) state.hiddenIds.add(node.id);
+    ancestors.add(node.id);
     collectEffectiveCodeLayerState(
       node.children,
       lockedIds,
@@ -1408,7 +1441,9 @@ function collectEffectiveCodeLayerState(
       locked,
       hidden,
       state,
+      ancestors,
     );
+    ancestors.delete(node.id);
   });
   return state;
 }
@@ -3363,7 +3398,12 @@ export default function DesignEditor() {
                 ? command.screen
                 : null;
       const targetFile = findDesignFileByScreenTarget(files, target);
-      if (target && !targetFile && files.length === 0) return false;
+      // A navigate command can name a screen the agent just created that the
+      // get-design query hasn't refetched yet. Treat any unresolved named target
+      // as not-yet-applied (return false) so the app-state key is preserved and
+      // re-applied on the next tick once the file loads — not just when there are
+      // zero files. Otherwise the navigate is silently consumed and dropped.
+      if (target && !targetFile) return false;
 
       const inspectorTab =
         command.inspectorTab === "design" ||
@@ -3478,7 +3518,7 @@ export default function DesignEditor() {
         {
           designId: id,
           filename,
-          content: source.content,
+          content: reassignDuplicatedNodeIds(source.content),
           fileType: normalizedDesignFileType(source.fileType),
         } as any,
         {
@@ -4158,7 +4198,6 @@ export default function DesignEditor() {
       setCollabContent(nextContent);
       lastLocalContentRef.current = nextContent;
       if (id) {
-        const optimisticUpdatedAt = new Date().toISOString();
         queryClient.setQueryData(
           ["action", "get-design", { id }],
           (old: any) => {
@@ -4169,11 +4208,12 @@ export default function DesignEditor() {
               ...old,
               files: old.files.map((file: DesignFile) =>
                 file.id === activeFile.id
-                  ? {
-                      ...file,
-                      content: nextContent,
-                      updatedAt: optimisticUpdatedAt,
-                    }
+                  ? // Update content optimistically but keep the file's prior
+                    // (server-clock) updatedAt. Seeding the reconcile watermark
+                    // from a client-clock timestamp can, under clock skew, make a
+                    // later server-authored agent edit look "older" and get
+                    // dropped by the watermark gate (agent edit silently lost).
+                    { ...file, content: nextContent }
                   : file,
               ),
             };
