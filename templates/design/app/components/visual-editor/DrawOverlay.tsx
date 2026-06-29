@@ -7,15 +7,6 @@ import {
   IconCursorText,
   IconX,
 } from "@tabler/icons-react";
-/**
- * NOTE: This is the new shared visual-editor DrawOverlay, mirrored from the
- * slides template so both apps share the same comment/draw/save UX.
- *
- * The legacy iframe-based design overlay still lives at
- * `app/components/design/DrawOverlay.tsx` and is currently wired into
- * `DesignCanvas`. Both exist for now; the legacy one can be migrated to use
- * this shared version in a follow-up. Don't import both in the same screen.
- */
 import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -41,6 +32,12 @@ export interface DrawAnnotation {
   lineWidth: number;
   /** Position relative to the canvas (text annotations only) */
   position: { x: number; y: number };
+  /**
+   * Creation timestamp (Date.now()) — used for unified undo ordering across
+   * strokes and text annotations. Optional so existing callers of DrawAnnotation
+   * don't need to supply it.
+   */
+  createdAt?: number;
 }
 
 interface DrawOverlayProps {
@@ -50,6 +47,13 @@ interface DrawOverlayProps {
   canvasInteractive?: boolean;
   /** Extra queued annotations owned by sibling tools, such as comment pins. */
   queuedAnnotationCount?: number;
+  /**
+   * Current zoom level (percentage, e.g. 100 = 100%). Used to convert
+   * getBoundingClientRect() visual-space coordinates to layout-space so that
+   * strokes and text labels stay anchored to their painted position across
+   * zoom changes.
+   */
+  zoom?: number;
   /** Called when the user submits the queued strokes/text to the agent */
   onSend: (
     annotations: DrawAnnotation[],
@@ -73,6 +77,12 @@ const LINE_WIDTHS = [
   { value: 8, label: "Thick" },
 ];
 
+/**
+ * A point stored as fractions (0..1) of the canvas visual rect.
+ * This makes coordinates zoom- and resize-stable: multiply by the current
+ * rect width/height to get visual pixels for canvas drawing, or multiply by
+ * rect/scale to get layout-space for CSS positioning and pathData output.
+ */
 interface Point {
   x: number;
   y: number;
@@ -80,9 +90,12 @@ interface Point {
 
 interface Stroke {
   id: string;
+  /** Points stored as fractions (0..1) of the canvas visual rect. */
   points: Point[];
   color: string;
   lineWidth: number;
+  /** Creation timestamp for unified undo ordering. */
+  createdAt: number;
 }
 
 /**
@@ -97,11 +110,22 @@ interface Stroke {
  * This component is canvas-agnostic — it overlays absolutely-positioned over
  * its parent, so the parent (a slide editor or design canvas) only needs to
  * be `position: relative`.
+ *
+ * Coordinate model
+ * ----------------
+ * All stroke points and text positions are stored as fractions (0..1) of the
+ * canvas's visual rect (getBoundingClientRect). This makes them stable across
+ * zoom and resize. When rendering:
+ *   - Canvas strokes: multiply by rect.width / rect.height (visual pixels).
+ *   - CSS text labels: multiply by rect.width/scale / rect.height/scale
+ *     (layout pixels inside the scaled wrapper).
+ *   - pathData in send(): layout pixels = fraction * rect.width / scale.
  */
 export function DrawOverlay({
   visible,
   canvasInteractive = true,
   queuedAnnotationCount = 0,
+  zoom = 100,
   onSend,
   onClose,
 }: DrawOverlayProps) {
@@ -112,34 +136,52 @@ export function DrawOverlay({
   const [lineWidth, setLineWidth] = useState(LINE_WIDTHS[1].value);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [textAnnotations, setTextAnnotations] = useState<DrawAnnotation[]>([]);
-  // Redo stack. Pushing here happens via undo(); a fresh stroke clears it
-  // (standard editor convention — once you draw something new, the redo
-  // history is no longer reachable).
-  const [redoStrokes, setRedoStrokes] = useState<Stroke[]>([]);
+  // Unified redo stack. Each entry is either a Stroke or a DrawAnnotation so
+  // undo/redo work in creation order across both types.
+  const [redoStack, setRedoStack] = useState<Array<Stroke | DrawAnnotation>>(
+    [],
+  );
   const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
   const [textMode, setTextMode] = useState(false);
   const [textInput, setTextInput] = useState<{
-    x: number;
-    y: number;
+    /** Fractional x (0..1) of the visual rect. */
+    xFrac: number;
+    /** Fractional y (0..1) of the visual rect. */
+    yFrac: number;
     value: string;
   } | null>(null);
   const [instruction, setInstruction] = useState("");
   const drawing = useRef(false);
   const canvasSizeRef = useRef({ w: 0, h: 0 });
+  // Resize tick: bumped by ResizeObserver so the redraw effect re-runs when
+  // the canvas element's CSS size changes (e.g. device frame switch).
+  const [resizeTick, setResizeTick] = useState(0);
+
+  const scale = zoom / 100;
 
   // Clear all state on hide so the next open starts fresh.
   useEffect(() => {
     if (!visible) {
       setStrokes([]);
       setTextAnnotations([]);
-      setRedoStrokes([]);
+      setRedoStack([]);
       setCurrentStroke(null);
       setTextInput(null);
       setInstruction("");
     }
   }, [visible]);
 
-  // Redraw canvas whenever strokes change.
+  // ResizeObserver: bump resizeTick whenever the canvas changes CSS size so
+  // the redraw effect re-runs and the backing store is resized correctly.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ro = new ResizeObserver(() => setResizeTick((t) => t + 1));
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, []);
+
+  // Redraw canvas whenever strokes change or the canvas is resized.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -159,31 +201,50 @@ export function DrawOverlay({
 
     ctx.clearRect(0, 0, rect.width, rect.height);
 
+    // Points are stored as fractions; multiply by current rect to get visual px.
     for (const stroke of strokes) {
-      drawStroke(ctx, stroke.points, stroke.color, stroke.lineWidth);
+      drawStroke(
+        ctx,
+        stroke.points.map((p) => ({
+          x: p.x * rect.width,
+          y: p.y * rect.height,
+        })),
+        stroke.color,
+        stroke.lineWidth,
+      );
     }
 
     if (currentStroke && currentStroke.length > 0) {
-      drawStroke(ctx, currentStroke, color, lineWidth);
+      drawStroke(
+        ctx,
+        currentStroke.map((p) => ({
+          x: p.x * rect.width,
+          y: p.y * rect.height,
+        })),
+        color,
+        lineWidth,
+      );
     }
-  }, [strokes, currentStroke, color, lineWidth]);
+  }, [strokes, currentStroke, color, lineWidth, resizeTick]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
       if (textMode) {
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return;
         setTextInput({
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top,
+          xFrac: (e.clientX - rect.left) / rect.width,
+          yFrac: (e.clientY - rect.top) / rect.height,
           value: "",
         });
         return;
       }
       drawing.current = true;
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      // Store as fractions so the point survives zoom/resize changes.
+      const point = {
+        x: (e.clientX - rect.left) / rect.width,
+        y: (e.clientY - rect.top) / rect.height,
+      };
       setCurrentStroke([point]);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -195,7 +256,10 @@ export function DrawOverlay({
       if (!drawing.current || textMode) return;
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const point = {
+        x: (e.clientX - rect.left) / rect.width,
+        y: (e.clientY - rect.top) / rect.height,
+      };
       setCurrentStroke((prev) => (prev ? [...prev, point] : [point]));
     },
     [textMode],
@@ -212,9 +276,11 @@ export function DrawOverlay({
           points: currentStroke,
           color,
           lineWidth,
+          createdAt: Date.now(),
         },
       ]);
-      setRedoStrokes([]);
+      // A new stroke clears the redo stack (standard editor convention).
+      setRedoStack([]);
     }
     setCurrentStroke(null);
   }, [currentStroke, color, lineWidth]);
@@ -224,41 +290,65 @@ export function DrawOverlay({
     setCurrentStroke(null);
   }, []);
 
+  /**
+   * Undo removes the most recently created annotation (stroke or text) in
+   * creation order and pushes it onto the unified redo stack.
+   */
   const undo = () => {
-    setStrokes((prev) => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      setRedoStrokes((stack) => [...stack, last]);
-      return prev.slice(0, -1);
-    });
+    const lastStroke = strokes.length > 0 ? strokes[strokes.length - 1] : null;
+    const lastText =
+      textAnnotations.length > 0
+        ? textAnnotations[textAnnotations.length - 1]
+        : null;
+
+    if (!lastStroke && !lastText) return;
+
+    // Remove whichever was created most recently.
+    const strokeTime = lastStroke?.createdAt ?? -Infinity;
+    const textTime = lastText?.createdAt ?? 0;
+
+    if (lastStroke && strokeTime >= textTime) {
+      setStrokes((prev) => prev.slice(0, -1));
+      setRedoStack((stack) => [...stack, lastStroke]);
+    } else if (lastText) {
+      setTextAnnotations((prev) => prev.slice(0, -1));
+      setRedoStack((stack) => [...stack, lastText]);
+    }
   };
 
   const redo = () => {
-    setRedoStrokes((stack) => {
+    setRedoStack((stack) => {
       if (stack.length === 0) return stack;
       const top = stack[stack.length - 1];
-      setStrokes((prev) => [...prev, top]);
-      return stack.slice(0, -1);
+      const remaining = stack.slice(0, -1);
+      if ("points" in top) {
+        // It's a Stroke
+        setStrokes((prev) => [...prev, top as Stroke]);
+      } else {
+        // It's a DrawAnnotation (text)
+        setTextAnnotations((prev) => [...prev, top as DrawAnnotation]);
+      }
+      return remaining;
     });
   };
 
   const clear = () => {
     if (strokes.length === 0 && textAnnotations.length === 0) return;
-    // Snapshot for the toast's Undo. Using a toast (instead of an AlertDialog
-    // confirm) keeps Clear a single click for users who know what they want,
-    // while still letting an accidental click be recovered for the toast's
-    // lifetime.
     const prevStrokes = strokes;
     const prevTexts = textAnnotations;
+    const prevRedo = redoStack;
     setStrokes([]);
     setTextAnnotations([]);
-    setRedoStrokes([]);
+    setRedoStack([]);
     toast(t("visualEditor.clearedAllAnnotations"), {
       action: {
         label: t("visualEditor.undo"),
         onClick: () => {
-          setStrokes(prevStrokes);
-          setTextAnnotations(prevTexts);
+          // Merge snapshot with any strokes/texts drawn during the toast window
+          // so new work is not discarded; also restore the pre-clear redo stack.
+          setStrokes((cur) => [...prevStrokes, ...cur]);
+          setTextAnnotations((cur) => [...prevTexts, ...cur]);
+          setRedoStack(prevRedo);
         },
       },
       duration: 6000,
@@ -270,17 +360,19 @@ export function DrawOverlay({
       setTextInput(null);
       return;
     }
-    setTextAnnotations((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        type: "text",
-        text: textInput.value.trim(),
-        position: { x: textInput.x, y: textInput.y },
-        color,
-        lineWidth,
-      },
-    ]);
+    const ann: DrawAnnotation = {
+      id: crypto.randomUUID(),
+      type: "text",
+      text: textInput.value.trim(),
+      // Store fractional position so the label stays anchored across zoom changes.
+      position: { x: textInput.xFrac, y: textInput.yFrac },
+      color,
+      lineWidth,
+      createdAt: Date.now(),
+    };
+    setTextAnnotations((prev) => [...prev, ann]);
+    // A new text annotation also clears the redo stack.
+    setRedoStack([]);
     setTextInput(null);
   };
 
@@ -288,13 +380,18 @@ export function DrawOverlay({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
+    // Layout-space dimensions = visual rect / scale factor.
+    const layoutW = rect.width / scale;
+    const layoutH = rect.height / scale;
 
     const pathAnnotations: DrawAnnotation[] = strokes.map((s) => ({
       id: s.id,
       type: "path",
+      // Convert fractional points to layout-space absolute pixels for the agent.
       pathData: s.points
         .map(
-          (p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`,
+          (p, i) =>
+            `${i === 0 ? "M" : "L"}${(p.x * layoutW).toFixed(1)},${(p.y * layoutH).toFixed(1)}`,
         )
         .join(" "),
       color: s.color,
@@ -302,12 +399,23 @@ export function DrawOverlay({
       position: { x: 0, y: 0 },
     }));
 
-    const all = [...pathAnnotations, ...textAnnotations];
+    // Convert fractional text positions to layout-space absolute pixels.
+    const layoutTextAnnotations: DrawAnnotation[] = textAnnotations.map(
+      (a) => ({
+        ...a,
+        position: {
+          x: a.position.x * layoutW,
+          y: a.position.y * layoutH,
+        },
+      }),
+    );
+
+    const all = [...pathAnnotations, ...layoutTextAnnotations];
     if (all.length === 0 && !instruction.trim()) return;
 
     onSend(all, instruction.trim(), {
-      width: rect.width,
-      height: rect.height,
+      width: layoutW,
+      height: layoutH,
     });
   };
 
@@ -318,6 +426,9 @@ export function DrawOverlay({
     textAnnotations.length > 0 ||
     instruction.trim() ||
     queuedAnnotationCount > 0;
+
+  const canUndo = strokes.length > 0 || textAnnotations.length > 0;
+  const canRedo = redoStack.length > 0;
 
   return (
     <div
@@ -343,49 +454,74 @@ export function DrawOverlay({
         onPointerCancel={handlePointerCancel}
       />
 
-      {/* Rendered text annotations */}
-      {textAnnotations.map((ann) => (
-        <div
-          key={ann.id}
-          className="absolute pointer-events-none select-none whitespace-nowrap font-semibold"
-          style={{
-            left: ann.position.x,
-            top: ann.position.y,
-            color: ann.color,
-            fontSize: 14 + ann.lineWidth,
-          }}
-        >
-          {ann.text}
-        </div>
-      ))}
-
-      {/* Pending text input */}
-      {textInput && (
-        <div
-          className="pointer-events-auto absolute z-40"
-          style={{ left: textInput.x, top: textInput.y }}
-        >
-          <Input
-            value={textInput.value}
-            onChange={(e) =>
-              setTextInput((prev) =>
-                prev ? { ...prev, value: e.target.value } : null,
-              )
-            }
-            onBlur={commitTextAnnotation}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitTextAnnotation();
-              }
-              if (e.key === "Escape") setTextInput(null);
+      {/* Rendered text annotations.
+          Positions are stored as fractions (0..1) of the visual rect. Convert
+          to layout-space pixels (fraction * visualDim / scale) so the label
+          sits at the right layout position inside the scaled wrapper, where
+          CSS left/top are interpreted in pre-scale coordinates. */}
+      {textAnnotations.map((ann) => {
+        const canvas = canvasRef.current;
+        const rect = canvas?.getBoundingClientRect();
+        const layoutX = rect
+          ? (ann.position.x * rect.width) / scale
+          : ann.position.x;
+        const layoutY = rect
+          ? (ann.position.y * rect.height) / scale
+          : ann.position.y;
+        return (
+          <div
+            key={ann.id}
+            className="absolute pointer-events-none select-none whitespace-nowrap font-semibold"
+            style={{
+              left: layoutX,
+              top: layoutY,
+              color: ann.color,
+              fontSize: 14 + ann.lineWidth,
             }}
-            className="h-7 w-48 border-primary bg-background text-sm"
-            autoFocus
-            placeholder={t("visualEditor.typeAnnotationFancy")}
-          />
-        </div>
-      )}
+          >
+            {ann.text}
+          </div>
+        );
+      })}
+
+      {/* Pending text input — positioned at the click point in layout space. */}
+      {textInput &&
+        (() => {
+          const canvas = canvasRef.current;
+          const rect = canvas?.getBoundingClientRect();
+          const layoutX = rect
+            ? (textInput.xFrac * rect.width) / scale
+            : textInput.xFrac;
+          const layoutY = rect
+            ? (textInput.yFrac * rect.height) / scale
+            : textInput.yFrac;
+          return (
+            <div
+              className="pointer-events-auto absolute z-40"
+              style={{ left: layoutX, top: layoutY }}
+            >
+              <Input
+                value={textInput.value}
+                onChange={(e) =>
+                  setTextInput((prev) =>
+                    prev ? { ...prev, value: e.target.value } : null,
+                  )
+                }
+                onBlur={commitTextAnnotation}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitTextAnnotation();
+                  }
+                  if (e.key === "Escape") setTextInput(null);
+                }}
+                className="h-7 w-48 border-primary bg-background text-sm"
+                autoFocus
+                placeholder={t("visualEditor.typeAnnotationFancy")}
+              />
+            </div>
+          );
+        })()}
 
       {/* Bottom toolbar */}
       <div
@@ -462,12 +598,12 @@ export function DrawOverlay({
           </TooltipContent>
         </Tooltip>
 
-        {/* Undo last stroke */}
+        {/* Undo last annotation (stroke or text) */}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               onClick={undo}
-              disabled={strokes.length === 0}
+              disabled={!canUndo}
               className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
             >
               <IconArrowBackUp className="h-3.5 w-3.5" />
@@ -481,7 +617,7 @@ export function DrawOverlay({
           <TooltipTrigger asChild>
             <button
               onClick={redo}
-              disabled={redoStrokes.length === 0}
+              disabled={!canRedo}
               className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
             >
               <IconArrowForwardUp className="h-3.5 w-3.5" />

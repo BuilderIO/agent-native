@@ -110,6 +110,11 @@ export function useVariantFlow(designId: string | undefined) {
   // so a later, genuinely new variant set can still appear.
   const pickedRef = useRef(false);
 
+  // Tracks the designId of a consumed variant set so stale in-flight poll
+  // responses with the same designId cannot re-open the grid, even if the
+  // server DELETE is delayed or the user picks while a poll is in-flight.
+  const consumedDesignIdRef = useRef<string | null>(null);
+
   const { data } = useQuery({
     queryKey: ["design-variants"],
     queryFn: async () => {
@@ -133,6 +138,14 @@ export function useVariantFlow(designId: string | undefined) {
     const hasVariants = Boolean(
       data?.variants && data.variants.length > 0 && data.designId === designId,
     );
+    // Suppress any polled data whose designId matches a consumed (already-picked)
+    // variant set so stale in-flight polls can't re-open the grid.
+    if (data?.designId && data.designId === consumedDesignIdRef.current) {
+      // Re-arm the consumed marker once the server confirms the state is gone.
+      if (!hasVariants) consumedDesignIdRef.current = null;
+      setState(null);
+      return;
+    }
     // After a pick, keep the grid hidden until the server-side variant state is
     // actually cleared (DELETE landed), then re-arm for any future variant set.
     if (pickedRef.current) {
@@ -143,13 +156,39 @@ export function useVariantFlow(designId: string | undefined) {
     setState(hasVariants && data ? data : null);
   }, [data, designId]);
 
-  const clear = useCallback(() => {
-    setState(null);
-    qc.setQueryData(["design-variants"], null);
-    fetch(agentNativePath("/_agent-native/application-state/design-variants"), {
-      method: "DELETE",
-    }).catch(() => {});
-  }, [qc]);
+  const clear = useCallback(
+    async (consumedId?: string) => {
+      setState(null);
+      // Mark the designId as consumed before issuing the DELETE so any
+      // in-flight or subsequent polls with this designId are suppressed
+      // even if the network request is delayed.
+      if (consumedId) {
+        consumedDesignIdRef.current = consumedId;
+      }
+      qc.setQueryData(["design-variants"], null);
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/application-state/design-variants"),
+          { method: "DELETE" },
+        );
+        if (!res.ok) {
+          // DELETE failed — the consumed marker keeps the grid hidden client-side,
+          // but log so the issue is visible rather than silently swallowed.
+          console.warn(
+            "[use-variant-flow] Failed to clear design-variants state:",
+            res.status,
+          );
+        }
+      } catch (err) {
+        // Network error — same: log but don't re-show grid (consumed marker holds).
+        console.warn(
+          "[use-variant-flow] Error clearing design-variants state:",
+          err,
+        );
+      }
+    },
+    [qc],
+  );
 
   const dismissStandalonePick = useCallback(() => setStandalonePick(null), []);
 
@@ -251,7 +290,7 @@ export function useVariantFlow(designId: string | undefined) {
         // Only clear the grid when the variant was successfully persisted.
         // If saving failed, keep the grid open so the user can retry.
         if (persisted) {
-          clear();
+          await clear(designId);
         } else {
           // Re-arm the picking latch so the user can try again.
           pickedRef.current = false;
@@ -265,7 +304,7 @@ export function useVariantFlow(designId: string | undefined) {
 
   const dismiss = useCallback(() => {
     const embedded = isEmbedAuthActive();
-    clear();
+    void clear(designId);
     if (isLinkOnlyHandoff() && !isEmbedAuthActive()) {
       // No chat bridge to relay the dismissal — give the user a copyable note
       // so their coding agent doesn't wait on a pick that isn't coming.
@@ -282,7 +321,7 @@ export function useVariantFlow(designId: string | undefined) {
       submit: embedded,
       ...(embedded ? { openSidebar: false } : {}),
     });
-  }, [clear]);
+  }, [clear, designId]);
 
   return { state, useVariant, dismiss, standalonePick, dismissStandalonePick };
 }

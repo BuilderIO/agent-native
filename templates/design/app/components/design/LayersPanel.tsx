@@ -161,7 +161,23 @@ interface FlatLayerRow {
   depth: number;
   ancestorIds: string[];
   hasChildren: boolean;
+  canAcceptChildren: boolean;
 }
+
+// Node types that can contain children even when currently empty.
+// Leaf / void types (text, image, shape, rectangle) are excluded so we don't
+// offer an "inside" drop zone on genuinely non-container elements.
+const CONTAINER_TYPES = new Set<LayersPanelNodeType | undefined>([
+  "file",
+  "screen",
+  "frame",
+  "group",
+  "section",
+  "component",
+  "instance",
+  "code",
+  "element",
+]);
 
 const SECTION_CODE_ID = "__design_layers_code__";
 const SECTION_ELEMENT_ID = "__design_layers_elements__";
@@ -307,8 +323,16 @@ function flattenRows(
   nodes.forEach((node, index) => {
     const children = node.children ?? [];
     const hasChildren = children.length > 0;
+    const canAcceptChildren = CONTAINER_TYPES.has(node.type);
     const rowKey = `${parentKey}/${node.id}:${index}`;
-    rows.push({ node, rowKey, depth, ancestorIds, hasChildren });
+    rows.push({
+      node,
+      rowKey,
+      depth,
+      ancestorIds,
+      hasChildren,
+      canAcceptChildren,
+    });
     if (hasChildren && (forceExpanded || expandedIds.has(node.id))) {
       flattenRows(
         children,
@@ -823,7 +847,7 @@ function LayerRow({
   selectedIds: readonly string[];
   visibleRows: FlatLayerRow[];
 }) {
-  const { node, depth, hasChildren } = row;
+  const { node, depth, hasChildren, canAcceptChildren } = row;
   const selectable = node.selectable !== false;
   const lockable = node.lockable !== false && Boolean(onToggleLocked);
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
@@ -970,7 +994,7 @@ function LayerRow({
     const intent = {
       draggedIds: cleanedIds,
       targetId: node.id,
-      placement: dropPlacementForEvent(event, hasChildren),
+      placement: dropPlacementForEvent(event, canAcceptChildren),
     } satisfies LayersPanelMoveIntent;
     if (canMoveLayer && !canMoveLayer(intent)) return;
     event.preventDefault();
@@ -1008,7 +1032,7 @@ function LayerRow({
       const intent = {
         draggedIds: cleanedIds,
         targetId: node.id,
-        placement: dropPlacementForEvent(event, hasChildren),
+        placement: dropPlacementForEvent(event, canAcceptChildren),
       } satisfies LayersPanelMoveIntent;
       if (!canMoveLayer || canMoveLayer(intent)) {
         onMoveLayer(intent);

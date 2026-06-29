@@ -1402,10 +1402,10 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     }
   }
 
-	  function postVisualStructureChange(el, target) {
+	  function postVisualStructureChange(el, target, origin) {
 	    if (!el || !target || !target.anchor) return;
 	    var requestId = 'move-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-	    pendingStructureMove = { requestId: requestId, el: el, target: target };
+	    pendingStructureMove = { requestId: requestId, el: el, target: target, origin: origin || null };
 	    window.parent.postMessage({
 	      type: 'visual-structure-change',
 	      requestId: requestId,
@@ -1479,11 +1479,15 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	          applyRuntimeReorder(reorderEl, currentTarget);
 	          postVisualDuplicateChange(originalSelectedEl, reorderEl, currentTarget);
 	        } else {
+	          // Capture the pre-drag DOM anchor so we can revert if the parent
+	          // reports applied===false on the structure-ack.
+	          var prevParent = reorderEl.parentElement;
+	          var prevNextSibling = reorderEl.nextSibling;
 	          // Optimistically apply the reorder in the DOM for immediate
 	          // visual feedback; the visual-structure-ack handler will confirm
 	          // or revert once the parent processes the change.
 	          applyRuntimeReorder(reorderEl, currentTarget);
-	          postVisualStructureChange(reorderEl, currentTarget);
+	          postVisualStructureChange(reorderEl, currentTarget, { prevParent: prevParent, prevNextSibling: prevNextSibling });
 	        }
 	      }
       document.addEventListener('mousemove', onReorderMove, true);
@@ -2001,10 +2005,20 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	      var move = pendingStructureMove;
 	      pendingStructureMove = null;
 	      if (e.data.applied) {
-	        applyRuntimeReorder(move.el, move.target);
-	        selectedEl = move.el;
-	        positionOverlay(selectionOverlay, selectedEl);
-	        window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        if (move.el && move.el.isConnected) {
+	          applyRuntimeReorder(move.el, move.target);
+	          selectedEl = move.el;
+	          positionOverlay(selectionOverlay, selectedEl);
+	          window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        }
+	      } else {
+	        // Revert the optimistic reorder to its pre-drag position.
+	        if (move.el && move.el.isConnected && move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
+	          move.origin.prevParent.insertBefore(move.el, move.origin.prevNextSibling);
+	          selectedEl = move.el;
+	          positionOverlay(selectionOverlay, selectedEl);
+	          window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        }
 	      }
 	      return;
 	    }
@@ -2703,6 +2717,7 @@ export function DesignCanvas({
         visible={!!drawMode}
         canvasInteractive={!pinMode}
         queuedAnnotationCount={queuedAnnotationPins.length}
+        zoom={zoom}
         onClose={() => onExitDrawMode?.()}
         onSend={(annotations, instruction, canvasSize) => {
           const summary = annotations
