@@ -7,7 +7,8 @@ import {
   IconCursorText,
   IconX,
 } from "@tabler/icons-react";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -150,6 +151,7 @@ export function DrawOverlay({
     yFrac: number;
     value: string;
   } | null>(null);
+  const textInputRef = useRef<HTMLInputElement>(null);
   const [instruction, setInstruction] = useState("");
   const drawing = useRef(false);
   const canvasSizeRef = useRef({ w: 0, h: 0 });
@@ -170,6 +172,14 @@ export function DrawOverlay({
       setInstruction("");
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!textInput) return;
+    const id = window.requestAnimationFrame(() => {
+      textInputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [textInput?.xFrac, textInput?.yFrac]);
 
   // ResizeObserver: bump resizeTick whenever the canvas changes CSS size so
   // the redraw effect re-runs and the backing store is resized correctly.
@@ -434,6 +444,183 @@ export function DrawOverlay({
   const canUndo = strokes.length > 0 || textAnnotations.length > 0;
   const canRedo = redoStack.length > 0;
 
+  const toolbar = (
+    <div
+      data-draw-toolbar
+      className="pointer-events-auto fixed bottom-4 left-1/2 z-[110] flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
+    >
+      {/* Color picker */}
+      <div className="flex gap-1">
+        {PRESET_COLORS.map((preset) => (
+          <Tooltip key={preset.color}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={preset.label}
+                data-testid={`draw-color-${preset.label.toLowerCase()}`}
+                onClick={() => setColor(preset.color)}
+                className={cn(
+                  "h-5 w-5 cursor-pointer rounded-full",
+                  color === preset.color
+                    ? "ring-2 ring-foreground ring-offset-1 ring-offset-popover"
+                    : "ring-1 ring-border",
+                )}
+                style={{ backgroundColor: preset.color }}
+              />
+            </TooltipTrigger>
+            <TooltipContent>{preset.label}</TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+
+      <div className="mx-1 h-4 w-px bg-border" />
+
+      {/* Line widths */}
+      <div className="flex gap-1">
+        {LINE_WIDTHS.map((lw) => (
+          <Tooltip key={lw.value}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={lw.label}
+                data-testid={`draw-line-width-${lw.label.toLowerCase()}`}
+                onClick={() => setLineWidth(lw.value)}
+                className={cn(
+                  "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
+                  lineWidth === lw.value
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <div
+                  className="rounded-full bg-current"
+                  style={{ width: lw.value + 2, height: lw.value + 2 }}
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{lw.label}</TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+
+      <div className="mx-1 h-4 w-px bg-border" />
+
+      {/* Text mode */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("visualEditor.typeAnywhereOnCanvas")}
+            data-testid="draw-text-mode"
+            onClick={() => setTextMode(!textMode)}
+            className={cn(
+              "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
+              textMode
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <IconCursorText className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("visualEditor.typeAnywhereOnCanvas")}</TooltipContent>
+      </Tooltip>
+
+      {/* Undo last annotation (stroke or text) */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("visualEditor.undoStroke")}
+            data-testid="draw-undo"
+            onClick={undo}
+            disabled={!canUndo}
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
+          >
+            <IconArrowBackUp className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("visualEditor.undoStroke")}</TooltipContent>
+      </Tooltip>
+
+      {/* Redo */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("visualEditor.redoStroke")}
+            data-testid="draw-redo"
+            onClick={redo}
+            disabled={!canRedo}
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
+          >
+            <IconArrowForwardUp className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("visualEditor.redoStroke")}</TooltipContent>
+      </Tooltip>
+
+      {/* Clear all */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("visualEditor.clearAll")}
+            data-testid="draw-clear-all"
+            onClick={clear}
+            disabled={strokes.length === 0 && textAnnotations.length === 0}
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
+          >
+            <IconEraser className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("visualEditor.clearAll")}</TooltipContent>
+      </Tooltip>
+
+      <div className="mx-1 h-4 w-px bg-border" />
+
+      {/* Instruction input */}
+      <Input
+        value={instruction}
+        onChange={(e) => setInstruction(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && hasContent) send();
+          if (e.key === "Escape") onClose();
+        }}
+        placeholder={t("visualEditor.tellAgentWhatToDo")}
+        className="h-7 w-56 border-border bg-background text-xs"
+      />
+
+      {/* Send */}
+      <Button
+        size="sm"
+        data-testid="draw-send"
+        className="h-7 gap-1 px-3 text-[11px] cursor-pointer"
+        onClick={send}
+        disabled={!hasContent}
+      >
+        <IconSend className="h-3 w-3" />
+        {t("visualEditor.send")}
+      </Button>
+
+      {/* Close */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("visualEditor.exitDrawMode")}
+            data-testid="draw-exit"
+            onClick={onClose}
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          >
+            <IconX className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("visualEditor.exitDrawMode")}</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+
   return (
     <div
       ref={containerRef}
@@ -505,13 +692,16 @@ export function DrawOverlay({
               style={{ left: layoutX, top: layoutY }}
             >
               <Input
+                ref={textInputRef}
                 value={textInput.value}
                 onChange={(e) =>
                   setTextInput((prev) =>
                     prev ? { ...prev, value: e.target.value } : null,
                   )
                 }
-                onBlur={commitTextAnnotation}
+                onBlur={() => {
+                  if (textInput.value.trim()) commitTextAnnotation();
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -527,185 +717,14 @@ export function DrawOverlay({
           );
         })()}
 
-      {/* Bottom toolbar */}
-      <div
-        data-draw-toolbar
-        className="pointer-events-auto fixed bottom-4 left-1/2 z-[110] flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
-      >
-        {/* Color picker */}
-        <div className="flex gap-1">
-          {PRESET_COLORS.map((preset) => (
-            <Tooltip key={preset.color}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={preset.label}
-                  data-testid={`draw-color-${preset.label.toLowerCase()}`}
-                  onClick={() => setColor(preset.color)}
-                  className={cn(
-                    "h-5 w-5 cursor-pointer rounded-full",
-                    color === preset.color
-                      ? "ring-2 ring-foreground ring-offset-1 ring-offset-popover"
-                      : "ring-1 ring-border",
-                  )}
-                  style={{ backgroundColor: preset.color }}
-                />
-              </TooltipTrigger>
-              <TooltipContent>{preset.label}</TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-
-        <div className="mx-1 h-4 w-px bg-border" />
-
-        {/* Line widths */}
-        <div className="flex gap-1">
-          {LINE_WIDTHS.map((lw) => (
-            <Tooltip key={lw.value}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={lw.label}
-                  data-testid={`draw-line-width-${lw.label.toLowerCase()}`}
-                  onClick={() => setLineWidth(lw.value)}
-                  className={cn(
-                    "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
-                    lineWidth === lw.value
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <div
-                    className="rounded-full bg-current"
-                    style={{ width: lw.value + 2, height: lw.value + 2 }}
-                  />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{lw.label}</TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-
-        <div className="mx-1 h-4 w-px bg-border" />
-
-        {/* Text mode */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("visualEditor.typeAnywhereOnCanvas")}
-              data-testid="draw-text-mode"
-              onClick={() => setTextMode(!textMode)}
-              className={cn(
-                "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
-                textMode
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <IconCursorText className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {t("visualEditor.typeAnywhereOnCanvas")}
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Undo last annotation (stroke or text) */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("visualEditor.undoStroke")}
-              data-testid="draw-undo"
-              onClick={undo}
-              disabled={!canUndo}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
-            >
-              <IconArrowBackUp className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("visualEditor.undoStroke")}</TooltipContent>
-        </Tooltip>
-
-        {/* Redo */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("visualEditor.redoStroke")}
-              data-testid="draw-redo"
-              onClick={redo}
-              disabled={!canRedo}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
-            >
-              <IconArrowForwardUp className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("visualEditor.redoStroke")}</TooltipContent>
-        </Tooltip>
-
-        {/* Clear all */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("visualEditor.clearAll")}
-              data-testid="draw-clear-all"
-              onClick={clear}
-              disabled={strokes.length === 0 && textAnnotations.length === 0}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
-            >
-              <IconEraser className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("visualEditor.clearAll")}</TooltipContent>
-        </Tooltip>
-
-        <div className="mx-1 h-4 w-px bg-border" />
-
-        {/* Instruction input */}
-        <Input
-          value={instruction}
-          onChange={(e) => setInstruction(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && hasContent) send();
-            if (e.key === "Escape") onClose();
-          }}
-          placeholder={t("visualEditor.tellAgentWhatToDo")}
-          className="h-7 w-56 border-border bg-background text-xs"
-        />
-
-        {/* Send */}
-        <Button
-          size="sm"
-          data-testid="draw-send"
-          className="h-7 gap-1 px-3 text-[11px] cursor-pointer"
-          onClick={send}
-          disabled={!hasContent}
-        >
-          <IconSend className="h-3 w-3" />
-          {t("visualEditor.send")}
-        </Button>
-
-        {/* Close */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("visualEditor.exitDrawMode")}
-              data-testid="draw-exit"
-              onClick={onClose}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("visualEditor.exitDrawMode")}</TooltipContent>
-        </Tooltip>
-      </div>
+      <DrawToolbarPortal>{toolbar}</DrawToolbarPortal>
     </div>
   );
+}
+
+function DrawToolbarPortal({ children }: { children: ReactNode }) {
+  if (typeof document === "undefined") return <>{children}</>;
+  return createPortal(children, document.body);
 }
 
 function drawStroke(
