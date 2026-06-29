@@ -115,6 +115,7 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atTop();',
   'dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"sql":"SELECT date, COUNT(*) AS value FROM analytics_events GROUP BY date ORDER BY date"}).nextTo("retention-over-time");',
   'dashboard.insertPanel({"id":"row-chart","title":"Row Chart","source":"first-party","chartType":"bar","width":1,"sql":"SELECT name, COUNT(*) AS value FROM analytics_events GROUP BY name"}).atRow(2);',
+  'dashboard.insertPanel({"id":"pipeline-widget","title":"Pipeline Widget","chartType":"extension","width":3,"config":{"extensionId":"<existing-extension-id>"}}).atBottom();',
 ] as const;
 
 export type DashboardMutationOperation =

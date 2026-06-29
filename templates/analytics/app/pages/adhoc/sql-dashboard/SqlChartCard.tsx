@@ -292,7 +292,8 @@ export function SqlChartCard({
 
   // Extension panels render their sandboxed iframe full-bleed with no card chrome
   // or title — the extension owns its own UI. Editable dashboards still get a
-  // hover overlay for edit/delete/drag.
+  // hover overlay for delete/drag. Editing routes through the agent (the manual
+  // panel editor has no extension picker), so no inline edit action here.
   if (panel.chartType === "extension") {
     return (
       <div

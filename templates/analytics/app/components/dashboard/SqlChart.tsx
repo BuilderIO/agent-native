@@ -1098,6 +1098,9 @@ function DashboardExtensionPanel({
         extensionId={extensionId}
         slotId={`dashboard-panel-${panelId}`}
         className="w-full"
+        // Intentional for v1: extension panels are standalone widgets and do not
+        // receive the dashboard's filters/variables/date range as `context`.
+        initialHeight={180}
         onReady={() => setReady(true)}
         onUnavailable={() => {
           // Clear the report-loading gate so report capture doesn't hang.
