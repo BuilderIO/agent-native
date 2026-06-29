@@ -655,8 +655,13 @@ export function FigmaColorPicker({
   const [shaderDescriptor, setShaderDescriptor] =
     useState<ShaderDescriptor | null>(null);
 
+  // The user's explicit paint-type click (localPaintType) wins over the
+  // EditPanel-driven `paintType` prop so selecting a gradient/image/shader
+  // engages its editor even when EditPanel doesn't complete the structural
+  // fill switch. localPaintType is reset below when the prop changes (i.e. a
+  // different element/fill is selected) so the picker still follows selection.
   const effectivePaintType: FigmaPaintType =
-    paintType ?? localPaintType ?? inferPaintType(value, effectiveOpacity);
+    localPaintType ?? paintType ?? inferPaintType(value, effectiveOpacity);
 
   // Resolve the active gradient: prefer EditPanel-driven props; otherwise parse
   // the live CSS value, falling back to local edit state.
@@ -675,6 +680,11 @@ export function FigmaColorPicker({
   useEffect(() => {
     setHexDraft(toDisplayHex(color));
   }, [color.r, color.g, color.b]);
+
+  // The local override (the user's explicit paint-type click) persists for the
+  // life of the open popover so EditPanel bouncing `paintType` back to solid
+  // can't wipe a just-selected gradient/image/shader. A new element selection
+  // remounts this popover content, which resets the local state naturally.
 
   // Keep image-fill state synced when the incoming value is an image fill.
   useEffect(() => {
