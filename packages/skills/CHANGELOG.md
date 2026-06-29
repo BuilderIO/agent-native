@@ -1,5 +1,22 @@
 # @agent-native/skills
 
+## 0.2.156
+
+### Patch Changes
+
+- aa345cc: Add the Design `/visual-edit` skill and route it through the built-in skill installers so agents can open localhost routes as URL-backed Design screens.
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+  - @agent-native/core@0.80.0
+
 ## 0.2.155
 
 ### Patch Changes
