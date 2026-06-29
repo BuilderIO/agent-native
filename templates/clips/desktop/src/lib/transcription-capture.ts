@@ -41,6 +41,10 @@ export interface CapturedTranscript {
 export interface TranscriptionCapture {
   stop(): Promise<CapturedTranscript>;
   cancel(): Promise<void>;
+  /** Suspend the audio engine without discarding the captured transcript. */
+  pause(): Promise<void>;
+  /** Restart the audio engine after a `pause()`. */
+  resume(): Promise<void>;
 }
 
 interface SpeechRecognitionResultLike {
@@ -154,6 +158,7 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
   const recognition = new Ctor();
   let disposed = false;
   let stopped = false;
+  let paused = false;
   const transcriptBuffer = createWebSpeechTranscriptBuffer();
   let stopResolver: ((value: CapturedTranscript) => void) | null = null;
   let settleTimer: ReturnType<typeof window.setTimeout> | null = null;
@@ -195,11 +200,13 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
   recognition.onend = () => {
     if (disposed) return;
-    transcriptBuffer.commitSession({ preserveInterim: stopped });
+    transcriptBuffer.commitSession({ preserveInterim: stopped || paused });
     if (stopped) {
       settleStop();
       return;
     }
+    // While paused, keep the committed transcript but don't restart the engine.
+    if (paused) return;
     try {
       recognition.start();
     } catch (err) {
@@ -245,6 +252,29 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
         // ignore
       }
     },
+    async pause() {
+      if (disposed || stopped || paused) return;
+      paused = true;
+      console.log("[clips-recorder] transcription paused (web-speech)");
+      try {
+        recognition.stop();
+      } catch {
+        // ignore
+      }
+    },
+    async resume() {
+      if (disposed || stopped || !paused) return;
+      paused = false;
+      console.log("[clips-recorder] transcription resumed (web-speech)");
+      try {
+        recognition.start();
+      } catch (err) {
+        console.warn(
+          "[clips-recorder] Web Speech transcription resume failed:",
+          err,
+        );
+      }
+    },
   };
 }
 
@@ -260,6 +290,8 @@ export async function startTranscriptionCapture(
   const lines: string[] = [];
   const segments: SourcedTranscriptSegment[] = [];
   let disposed = false;
+  let paused = false;
+  let transitioning = false;
   const unlistens: UnlistenFn[] = [];
 
   const cleanup = () => {
@@ -301,6 +333,11 @@ export async function startTranscriptionCapture(
 
   return {
     async stop() {
+      // When already paused the engine is stopped; skip the stop + settle wait.
+      if (paused) {
+        cleanup();
+        return captured();
+      }
       try {
         await stopTranscriptionEngine(engine);
       } catch (err) {
@@ -314,12 +351,46 @@ export async function startTranscriptionCapture(
       return captured();
     },
     async cancel() {
-      try {
-        await stopTranscriptionEngine(engine);
-      } catch {
-        // ignore
+      if (!paused) {
+        try {
+          await stopTranscriptionEngine(engine);
+        } catch {
+          // ignore
+        }
       }
       cleanup();
+    },
+    async pause() {
+      if (disposed || paused || transitioning) return;
+      transitioning = true;
+      try {
+        await stopTranscriptionEngine(engine);
+        paused = true;
+        console.log(`[clips-recorder] transcription paused (${engine})`);
+      } catch (err) {
+        console.warn(
+          "[clips-recorder] transcription pause failed; staying live:",
+          err,
+        );
+      } finally {
+        transitioning = false;
+      }
+    },
+    async resume() {
+      if (disposed || !paused || transitioning) return;
+      transitioning = true;
+      try {
+        engine = await startTranscriptionEngine({ mic, captureSystem });
+        paused = false;
+        console.log(`[clips-recorder] transcription resumed (${engine})`);
+      } catch (err) {
+        console.warn(
+          "[clips-recorder] transcription resume failed; staying paused:",
+          err,
+        );
+      } finally {
+        transitioning = false;
+      }
     },
   };
 }

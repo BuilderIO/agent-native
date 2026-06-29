@@ -2029,6 +2029,8 @@ async function startNativeFullscreenRecording(
         .then(() => {
           pausedAt = at;
           emitState();
+          console.log("[clips-recorder] native pause: pausing transcription");
+          void transcriptionCapture?.pause().catch(() => {});
         })
         .catch((err) => {
           console.warn("[clips-recorder] native pause failed:", err);
@@ -2043,6 +2045,8 @@ async function startNativeFullscreenRecording(
             pausedAt = null;
           }
           emitState();
+          console.log("[clips-recorder] native resume: resuming transcription");
+          void transcriptionCapture?.resume().catch(() => {});
         })
         .catch((err) => {
           console.warn("[clips-recorder] native resume failed:", err);
@@ -2085,6 +2089,12 @@ async function startNativeFullscreenRecording(
     if (stopped && transcriptionCapture) {
       void transcriptionCapture.cancel().catch(() => {});
       transcriptionCapture = null;
+    } else if (pausedAt != null && transcriptionCapture) {
+      // The user paused while the engine was still starting; honor it now.
+      console.log(
+        "[clips-recorder] native: paused during startup, pausing transcription",
+      );
+      void transcriptionCapture.pause().catch(() => {});
     } else if (
       wantsAudio &&
       !transcriptionCapture &&
@@ -2845,6 +2855,8 @@ async function startRecordingInner(
           recorder.pause();
           pausedAt = Date.now();
           emitState(true);
+          console.log("[clips-recorder] recorder pause: pausing transcription");
+          void transcriptionCapture?.pause().catch(() => {});
         } catch {
           // ignore
         }
@@ -2857,6 +2869,10 @@ async function startRecordingInner(
           if (pausedAt) accumulatedPauseMs += Date.now() - pausedAt;
           pausedAt = null;
           emitState(false);
+          console.log(
+            "[clips-recorder] recorder resume: resuming transcription",
+          );
+          void transcriptionCapture?.resume().catch(() => {});
         } catch {
           // ignore
         }
@@ -2911,6 +2927,12 @@ async function startRecordingInner(
   if (stopped && transcriptionCapture) {
     void transcriptionCapture.cancel().catch(() => {});
     transcriptionCapture = null;
+  } else if (pausedAt != null && transcriptionCapture) {
+    // The user paused while the engine was still starting; honor it now.
+    console.log(
+      "[clips-recorder] recorder: paused during startup, pausing transcription",
+    );
+    void transcriptionCapture.pause().catch(() => {});
   } else if (
     wantsAudio &&
     !transcriptionCapture &&
