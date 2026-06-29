@@ -1107,16 +1107,16 @@ const jaJP = {
   },
   skillsPage: {
     metaTitle:
-      "Agent Skills - コーディングエージェント向け Visual Plan と Visual Recap",
+      "Agent Skills - コーディングエージェント向け Visual Plan、Visual Recap、Visual Edit",
     metaDescription:
-      "コーディングエージェントが視覚的な計画と PR レビュー要約を使えるように、Agent-Native アプリベースのスキルをインストールします。",
+      "コーディングエージェントが視覚的な計画、PR レビュー要約、ローカルの視覚編集を使えるように、Agent-Native アプリベースのスキルをインストールします。",
     metaOgDescription:
       "ホスト、確認、カスタマイズできる Agent-Native アプリで、コーディングエージェントにスラッシュコマンドを追加します。",
     metaKeywords:
-      "agent skills, visual plan, visual recap, コーディングエージェント, Claude Code, Codex, PR レビュー, 計画, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, コーディングエージェント, Claude Code, Codex, PR レビュー, 計画, agent-native",
     heroTitle: "コーディングエージェントに新しい力を追加",
     heroBody:
-      "完全にカスタマイズできる Agent-Native アプリベースのスキルをインストールします。実装前の視覚的な計画と、変更後の視覚的な PR レビュー要約に対応します。",
+      "完全にカスタマイズできる Agent-Native アプリベースのスキルをインストールします。実装前の視覚的な計画、変更後の視覚的な PR レビュー要約、ローカル UI フローの視覚編集に対応します。",
     sectionTitle: "コーディングエージェント向けアプリベーススキル",
     sectionBody:
       "ホストされた共有可能なアプリリンク、ローカルファイル、自分でホストまたはカスタマイズしたアプリを使えます。必要に応じて、エージェントには指示と対応する MCP サーフェスが渡されます。",

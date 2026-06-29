@@ -1094,16 +1094,17 @@ const messages = {
     },
   },
   skillsPage: {
-    metaTitle: "代理技能 - 面向編碼代理的 Visual Plan 和 Visual Recap",
+    metaTitle:
+      "代理技能 - 面向編碼代理的 Visual Plan、Visual Recap 和 Visual Edit",
     metaDescription:
-      "安裝由 Agent-Native 應用支援的技能，讓你的編碼代理能進行視覺化規劃和 PR 回顧。",
+      "安裝由 Agent-Native 應用支援的技能，讓你的編碼代理能進行視覺化規劃、PR 回顧和本機視覺化編輯。",
     metaOgDescription:
       "為你的編碼代理新增由 Agent-Native 應用驅動的斜杠指令，可託管、檢查並自訂。",
     metaKeywords:
-      "代理技能, visual plan, visual recap, 編碼代理, Claude Code, Codex, PR 審查, 規劃, agent-native",
+      "代理技能, visual plan, visual recap, visual edit, 編碼代理, Claude Code, Codex, PR 審查, 規劃, agent-native",
     heroTitle: "給你的編碼代理新的超能力",
     heroBody:
-      "安裝由 Agent-Native 應用支援、可完全自訂的應用技能：實現前做視覺化規劃，變更落地後做視覺化 PR 回顧。",
+      "安裝由 Agent-Native 應用支援、可完全自訂的應用技能：實現前做視覺化規劃，變更落地後做視覺化 PR 回顧，並視覺化編輯本機 UI 流程。",
     sectionTitle: "面向編碼代理的應用支援技能",
     sectionBody:
       "使用託管的可分享應用連結、本機檔案，或自託管/自訂應用；代理會獲得指令，並在需要時獲得匹配的 MCP 表面。",

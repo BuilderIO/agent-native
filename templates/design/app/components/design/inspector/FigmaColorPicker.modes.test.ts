@@ -40,7 +40,10 @@ describe("inferPaintType", () => {
 
   it("returns 'radial' for a radial-gradient CSS string", () => {
     expect(
-      inferPaintType("radial-gradient(circle at center, #000 0%, #fff 100%)", 100),
+      inferPaintType(
+        "radial-gradient(circle at center, #000 0%, #fff 100%)",
+        100,
+      ),
     ).toBe("radial");
   });
 
@@ -95,8 +98,7 @@ describe("resolveActivePaint – precedence", () => {
   });
 
   it("falls back to value inference when both localPaintType and paintType are absent", () => {
-    const gradientValue =
-      "linear-gradient(90deg, #000000 0%, #ffffff 100%)";
+    const gradientValue = "linear-gradient(90deg, #000000 0%, #ffffff 100%)";
     const result = resolveActivePaint(undefined, null, gradientValue, 100);
     expect(result.effectivePaintType).toBe("linear");
     expect(result.showGradientEditor).toBe(true);
@@ -104,8 +106,7 @@ describe("resolveActivePaint – precedence", () => {
 
   it("localPaintType beats inferred type from value", () => {
     // Value is a gradient but user explicitly chose 'solid'.
-    const gradientValue =
-      "linear-gradient(90deg, #000000 0%, #ffffff 100%)";
+    const gradientValue = "linear-gradient(90deg, #000000 0%, #ffffff 100%)";
     const result = resolveActivePaint(undefined, "solid", gradientValue, 100);
     expect(result.effectivePaintType).toBe("solid");
     expect(result.showGradientEditor).toBe(false);

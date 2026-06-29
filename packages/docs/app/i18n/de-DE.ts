@@ -1106,16 +1106,17 @@ const deDE = {
     },
   },
   skillsPage: {
-    metaTitle: "Agent Skills - Visual Plan und Visual Recap fuer Coding Agents",
+    metaTitle:
+      "Agent Skills - Visual Plan, Visual Recap und Visual Edit fuer Coding Agents",
     metaDescription:
-      "Installiere Agent-Native appgestuetzte Skills fuer visuelle Planung und PR-Recaps in deinem Coding Agent.",
+      "Installiere Agent-Native appgestuetzte Skills fuer visuelle Planung, PR-Recaps und lokale visuelle Bearbeitung in deinem Coding Agent.",
     metaOgDescription:
       "Gib deinem Coding Agent Slash-Commands auf Basis von Agent-Native Apps, die du hosten, pruefen und anpassen kannst.",
     metaKeywords:
-      "Agent Skills, Visual Plan, Visual Recap, Coding Agent, Claude Code, Codex, PR Review, Planung, agent-native",
+      "Agent Skills, Visual Plan, Visual Recap, Visual Edit, Coding Agent, Claude Code, Codex, PR Review, Planung, agent-native",
     heroTitle: "Gib deinem Coding Agent neue Superkraefte",
     heroBody:
-      "Installiere appgestuetzte Skills mit Agent-Native Apps, die du voll anpassen kannst: visuelle Planung vor der Umsetzung und visuelle PR-Recaps nach den Aenderungen.",
+      "Installiere appgestuetzte Skills mit Agent-Native Apps, die du voll anpassen kannst: visuelle Planung vor der Umsetzung, visuelle PR-Recaps nach den Aenderungen und visuelle Bearbeitung lokaler UI-Flows.",
     sectionTitle: "Appgestuetzte Skills fuer Coding Agents",
     sectionBody:
       "Nutze gehostete teilbare App-Links, lokale Dateien oder eine selbst gehostete/angepasste App; dein Agent erhaelt Anweisungen plus die passende MCP-Oberflaeche, wenn sie gebraucht wird.",

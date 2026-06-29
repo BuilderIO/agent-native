@@ -1106,16 +1106,17 @@ const frFR = {
     },
   },
   skillsPage: {
-    metaTitle: "Skills agent - Visual Plan et Visual Recap pour agents de code",
+    metaTitle:
+      "Skills agent - Visual Plan, Visual Recap et Visual Edit pour agents de code",
     metaDescription:
-      "Installez des skills adossees a des apps Agent-Native pour aider votre agent de code a produire des plans visuels et des recaps de PR.",
+      "Installez des skills adossees a des apps Agent-Native pour aider votre agent de code a produire des plans visuels, des recaps de PR et de l edition visuelle locale.",
     metaOgDescription:
       "Donnez a votre agent de code des commandes slash propulsees par des apps Agent-Native que vous pouvez heberger, inspecter et personnaliser.",
     metaKeywords:
-      "skills agent, visual plan, visual recap, agent de code, Claude Code, Codex, revue PR, planification, agent-native",
+      "skills agent, visual plan, visual recap, visual edit, agent de code, Claude Code, Codex, revue PR, planification, agent-native",
     heroTitle: "Donnez de nouveaux superpouvoirs a votre agent de code",
     heroBody:
-      "Installez des skills adossees a des apps Agent-Native entierement personnalisables : planification visuelle avant implementation et recaps visuels de PR apres les changements.",
+      "Installez des skills adossees a des apps Agent-Native entierement personnalisables : planification visuelle avant implementation, recaps visuels de PR apres les changements et edition visuelle des flows UI locaux.",
     sectionTitle: "Skills adossees a des apps pour agents de code",
     sectionBody:
       "Utilisez des liens d apps hebergees et partageables, des fichiers locaux ou une app auto-hebergee/personnalisee ; votre agent recoit les instructions et la surface MCP correspondante quand elle est necessaire.",

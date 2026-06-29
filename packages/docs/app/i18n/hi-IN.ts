@@ -1104,16 +1104,17 @@ const hiIN = {
     },
   },
   skillsPage: {
-    metaTitle: "Agent Skills - कोडिंग एजेंट के लिए Visual Plan और Visual Recap",
+    metaTitle:
+      "Agent Skills - कोडिंग एजेंट के लिए Visual Plan, Visual Recap, और Visual Edit",
     metaDescription:
-      "अपने कोडिंग एजेंट को विजुअल प्लानिंग और PR रिकैप देने के लिए Agent-Native ऐप-समर्थित skills इंस्टॉल करें।",
+      "अपने कोडिंग एजेंट को visual planning, PR recaps, और local visual editing देने के लिए Agent-Native app-backed skills इंस्टॉल करें।",
     metaOgDescription:
       "अपने कोडिंग एजेंट को Agent-Native ऐप्स से चलने वाले slash commands दें जिन्हें आप host, inspect और customize कर सकते हैं।",
     metaKeywords:
-      "agent skills, visual plan, visual recap, कोडिंग एजेंट, Claude Code, Codex, PR review, planning, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, कोडिंग एजेंट, Claude Code, Codex, PR review, planning, agent-native",
     heroTitle: "अपने कोडिंग एजेंट को नई शक्तियां दें",
     heroBody:
-      "पूरी तरह customize किए जा सकने वाले Agent-Native ऐप-समर्थित skills इंस्टॉल करें: implementation से पहले visual planning और changes के बाद visual PR recaps।",
+      "पूरी तरह customize किए जा सकने वाले Agent-Native app-backed skills इंस्टॉल करें: implementation से पहले visual planning, changes के बाद visual PR recaps, और local UI flows के लिए visual editing।",
     sectionTitle: "कोडिंग एजेंट के लिए ऐप-समर्थित skills",
     sectionBody:
       "Hosted shareable app links, local files, या self-hosted/custom app इस्तेमाल करें; आपके agent को instructions और जरूरत होने पर matching MCP surface मिलता है।",

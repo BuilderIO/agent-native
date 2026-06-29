@@ -1102,16 +1102,17 @@ const arSA = {
     },
   },
   skillsPage: {
-    metaTitle: "مهارات الوكيل - Visual Plan و Visual Recap لوكلاء البرمجة",
+    metaTitle:
+      "مهارات الوكيل - Visual Plan و Visual Recap و Visual Edit لوكلاء البرمجة",
     metaDescription:
-      "ثبّت مهارات مدعومة بتطبيقات Agent-Native ليستخدم وكيل البرمجة التخطيط المرئي وملخصات PR.",
+      "ثبّت مهارات مدعومة بتطبيقات Agent-Native ليستخدم وكيل البرمجة التخطيط المرئي وملخصات PR والتحرير المرئي المحلي.",
     metaOgDescription:
       "امنح وكيل البرمجة أوامر slash مدعومة بتطبيقات Agent-Native يمكنك استضافتها وفحصها وتخصيصها.",
     metaKeywords:
-      "مهارات الوكيل, visual plan, visual recap, وكيل برمجة, Claude Code, Codex, مراجعة PR, تخطيط, agent-native",
+      "مهارات الوكيل, visual plan, visual recap, visual edit, وكيل برمجة, Claude Code, Codex, مراجعة PR, تخطيط, agent-native",
     heroTitle: "امنح وكيل البرمجة قدرات جديدة",
     heroBody:
-      "ثبّت مهارات مدعومة بتطبيقات Agent-Native يمكنك تخصيصها بالكامل: تخطيط مرئي قبل التنفيذ وملخصات PR مرئية بعد وصول التغييرات.",
+      "ثبّت مهارات مدعومة بتطبيقات Agent-Native يمكنك تخصيصها بالكامل: تخطيط مرئي قبل التنفيذ وملخصات PR مرئية بعد وصول التغييرات وتحرير مرئي لتدفقات UI المحلية.",
     sectionTitle: "مهارات مدعومة بتطبيقات لوكلاء البرمجة",
     sectionBody:
       "استخدم روابط تطبيقات مستضافة قابلة للمشاركة أو ملفات محلية أو تطبيقا مستضافا ذاتيا/مخصصا؛ يحصل وكيلك على التعليمات وسطح MCP المطابق عند الحاجة.",
