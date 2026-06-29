@@ -804,6 +804,20 @@ function uniqueLayerId(prefix: string): string {
     : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+/**
+ * Re-stamp every `data-agent-native-node-id` in duplicated screen content with a
+ * fresh unique id. Without this, a duplicated screen carries the SAME node ids as
+ * its source, which collapses the cross-file layer-owner map (selecting a layer
+ * in one screen resolves to the other) and can produce a malformed aggregate
+ * projection.
+ */
+function reassignDuplicatedNodeIds(content: string): string {
+  return content.replace(
+    /data-agent-native-node-id="[^"]*"/g,
+    () => `data-agent-native-node-id="${uniqueLayerId("copy")}"`,
+  );
+}
+
 function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
@@ -1395,12 +1409,20 @@ function collectEffectiveCodeLayerState(
   inheritedLocked: boolean,
   inheritedHidden: boolean,
   state: EffectiveCodeLayerState,
+  // Ids on the current ancestor path — guards against a malformed/cyclic
+  // projection (e.g. a node that appears as its own descendant from duplicate
+  // node ids) recursing forever and crashing the whole editor with a stack
+  // overflow. A true cycle is skipped; duplicate ids in disjoint subtrees are
+  // still visited.
+  ancestors: Set<string> = new Set(),
 ): EffectiveCodeLayerState {
   nodes.forEach((node) => {
+    if (ancestors.has(node.id)) return;
     const locked = inheritedLocked || lockedIds.has(node.id);
     const hidden = inheritedHidden || hiddenIds.has(node.id);
     if (locked) state.lockedIds.add(node.id);
     if (hidden) state.hiddenIds.add(node.id);
+    ancestors.add(node.id);
     collectEffectiveCodeLayerState(
       node.children,
       lockedIds,
@@ -1408,7 +1430,9 @@ function collectEffectiveCodeLayerState(
       locked,
       hidden,
       state,
+      ancestors,
     );
+    ancestors.delete(node.id);
   });
   return state;
 }
@@ -3478,7 +3502,7 @@ export default function DesignEditor() {
         {
           designId: id,
           filename,
-          content: source.content,
+          content: reassignDuplicatedNodeIds(source.content),
           fileType: normalizedDesignFileType(source.fileType),
         } as any,
         {
