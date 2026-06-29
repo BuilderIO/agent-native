@@ -1522,6 +1522,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [topLevelDashboards, dashShowAll],
   );
 
+  // The flattened id order exactly as rendered (each parent immediately
+  // followed by its nested children). Drag reordering must use this so the
+  // arrayMove indices match what the user sees; the raw `visibleDashboards`
+  // order interleaves children at their sorted positions and would move the
+  // wrong rows once a dashboard is nested.
+  const dashboardRenderOrderIds = useMemo(
+    () =>
+      topLevelDashboards.flatMap((d) => [
+        d.id,
+        ...(dashboardChildren.get(d.id) ?? []).map((c) => c.id),
+      ]),
+    [topLevelDashboards, dashboardChildren],
+  );
+
   const handleDashboardDelete = useCallback(
     async (d: SidebarDashboard) => {
       if (d.source === "static") {
@@ -1833,18 +1847,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
+      const ids = dashboardRenderOrderIds;
+      const oldIndex = ids.indexOf(active.id as string);
+      const newIndex = ids.indexOf(over.id as string);
+      if (oldIndex === -1 || newIndex === -1) return;
       setDashboardSortMode("manual");
-      setDashboardOrderState((prev) => {
-        const ids = prev.length > 0 ? prev : visibleDashboards.map((d) => d.id);
-        const oldIndex = ids.indexOf(active.id as string);
-        const newIndex = ids.indexOf(over.id as string);
-        if (oldIndex === -1 || newIndex === -1) return prev;
-        const newOrder = arrayMove(ids, oldIndex, newIndex);
-        setDashboardOrder(newOrder);
-        return newOrder;
-      });
+      const newOrder = arrayMove(ids, oldIndex, newIndex);
+      setDashboardOrder(newOrder);
+      setDashboardOrderState(newOrder);
     },
-    [setDashboardSortMode, visibleDashboards],
+    [setDashboardSortMode, dashboardRenderOrderIds],
   );
 
   const handleAnalysisDragEnd = useCallback(

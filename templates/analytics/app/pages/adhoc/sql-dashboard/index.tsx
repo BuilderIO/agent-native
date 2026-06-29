@@ -345,6 +345,10 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       config: {
         name: data.name ?? "Untitled Dashboard",
         description: data.description,
+        parentId:
+          typeof data.parentId === "string" && data.parentId.trim().length > 0
+            ? data.parentId
+            : undefined,
         catalog: parseDashboardCatalogMetadata(data.catalog),
         demo: parseDashboardDemoMetadata(data.demo),
         filters: data.filters,
