@@ -810,6 +810,10 @@ const messages = {
     replyingTo: "正在回覆",
     commentAt: "評論於",
     writeReply: "寫回覆...",
+    commentButton: "留言",
+    composerPlaceholder: "新增留言…",
+    mentionSomeone: "提及某人",
+    addEmoji: "新增表情符號",
   },
   shareMeeting: {
     pageTitle: "會議筆記 · Clips",

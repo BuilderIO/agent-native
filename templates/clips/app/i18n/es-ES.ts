@@ -870,6 +870,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     replyingTo: "Respondiendo a",
     commentAt: "Comentar en",
     writeReply: "Escribe una respuesta...",
+    commentButton: "Comentar",
+    composerPlaceholder: "Añadir un comentario…",
+    mentionSomeone: "Mencionar a alguien",
+    addEmoji: "Añadir emoji",
   },
   shareMeeting: {
     pageTitle: "Notas de reunión · Clips",

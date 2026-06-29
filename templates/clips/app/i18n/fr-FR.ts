@@ -872,6 +872,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     replyingTo: "Réponse à",
     commentAt: "Commentaire à",
     writeReply: "Écrire une réponse...",
+    commentButton: "Commenter",
+    composerPlaceholder: "Ajouter un commentaire…",
+    mentionSomeone: "Mentionner quelqu'un",
+    addEmoji: "Ajouter un emoji",
   },
   shareMeeting: {
     pageTitle: "Notes de réunion · Clips",

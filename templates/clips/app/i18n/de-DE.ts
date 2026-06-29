@@ -878,6 +878,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     replyingTo: "Antwort an",
     commentAt: "Kommentar bei",
     writeReply: "Antwort schreiben...",
+    commentButton: "Kommentar",
+    composerPlaceholder: "Kommentar hinzufügen…",
+    mentionSomeone: "Jemanden erwähnen",
+    addEmoji: "Emoji hinzufügen",
   },
   shareMeeting: {
     pageTitle: "Meeting-Notizen · Clips",
