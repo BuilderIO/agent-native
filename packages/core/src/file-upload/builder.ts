@@ -2,6 +2,8 @@ import type {
   FileUploadProvider,
   FileUploadInput,
   FileUploadResult,
+  ResumableUploadSession,
+  ResumableChunkResult,
 } from "./types.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -46,8 +48,6 @@ async function uploadLargeFileViaSignedUrl(
   bareMimeType: string,
   bytes: Uint8Array,
 ): Promise<FileUploadResult> {
-  const host = builderUploadHost();
-  const authHeader = { Authorization: `Bearer ${privateKey}` };
   const name = input.filename ?? "upload";
   const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
@@ -57,32 +57,12 @@ async function uploadLargeFileViaSignedUrl(
 
   // Step 1 — request a signed URL.
   console.log(`[builder-upload] step 1: requesting signed URL`);
-  const step1Res = await fetchWithTimeout(
-    new URL("/api/v1/upload/signed-url", host).toString(),
-    {
-      method: "POST",
-      headers: { ...authHeader, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName: name,
-        contentType: bareMimeType,
-        size: bytes.byteLength,
-      }),
-    },
+  const { uploadUrl, assetId, requiredHeaders } = await requestBuilderSignedUrl(
+    privateKey,
+    name,
+    bareMimeType,
+    bytes.byteLength,
   );
-  await assertOk(step1Res, "Builder.io signed-URL request failed");
-
-  const step1Json = (await step1Res.json()) as {
-    uploadUrl?: string;
-    assetId?: string;
-    expiresAt?: string;
-    requiredHeaders?: Record<string, string>;
-  };
-  const { uploadUrl, assetId, requiredHeaders } = step1Json;
-  if (!uploadUrl || !assetId || !requiredHeaders) {
-    throw new Error(
-      `Builder.io signed-URL response missing required fields: ${JSON.stringify(Object.keys(step1Json))}`,
-    );
-  }
   console.log(`[builder-upload] step 1 ok: assetId=${assetId}`);
 
   // Step 2 — PUT bytes directly to GCS. Only requiredHeaders; no Authorization
@@ -102,21 +82,80 @@ async function uploadLargeFileViaSignedUrl(
   console.log(
     `[builder-upload] step 3: registering asset - ${assetId}, ${input.filename}`,
   );
-  const step3Res = await fetchWithTimeout(
+  const { url, id } = await completeBuilderUpload(
+    privateKey,
+    assetId,
+    input.filename,
+  );
+  console.log(`[builder-upload] done [${assetId}]: ${url}`);
+  return { url, id, provider: "builder" };
+}
+
+async function requestBuilderSignedUrl(
+  privateKey: string,
+  filename: string,
+  mimeType: string,
+  size: number,
+  resumable = false,
+): Promise<{
+  uploadUrl: string;
+  assetId: string;
+  requiredHeaders: Record<string, string>;
+}> {
+  const host = builderUploadHost();
+  const url = new URL("/api/v1/upload/signed-url", host);
+  const res = await fetchWithTimeout(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${privateKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fileName: filename,
+      contentType: mimeType,
+      size,
+      resumable,
+    }),
+  });
+  await assertOk(res, "Builder.io signed-URL request failed");
+  const json = (await res.json()) as {
+    uploadUrl?: string;
+    assetId?: string;
+    requiredHeaders?: Record<string, string>;
+  };
+  if (!json.uploadUrl || !json.assetId || !json.requiredHeaders) {
+    throw new Error(
+      `Builder.io signed-URL response missing required fields: ${JSON.stringify(Object.keys(json))}`,
+    );
+  }
+  return {
+    uploadUrl: json.uploadUrl,
+    assetId: json.assetId,
+    requiredHeaders: json.requiredHeaders,
+  };
+}
+
+async function completeBuilderUpload(
+  privateKey: string,
+  assetId: string,
+  filename: string | undefined,
+): Promise<{ url: string; id?: string }> {
+  const host = builderUploadHost();
+  const res = await fetchWithTimeout(
     new URL("/api/v1/upload/complete", host).toString(),
     {
       method: "POST",
-      headers: { ...authHeader, "Content-Type": "application/json" },
-      body: JSON.stringify({ assetId, name: input.filename }),
+      headers: {
+        Authorization: `Bearer ${privateKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ assetId, name: filename }),
     },
   );
-  await assertOk(step3Res, "Builder.io upload complete failed");
-
-  const { url, id } = (await step3Res.json()) as { url?: string; id?: string };
-  if (!url) throw new Error("Builder.io upload/complete returned no URL");
-
-  console.log(`[builder-upload] done [${assetId}]: ${url}`);
-  return { url, id, provider: "builder" };
+  await assertOk(res, "Builder.io upload complete failed");
+  const json = (await res.json()) as { url?: string; id?: string };
+  if (!json.url) throw new Error("Builder.io upload/complete returned no URL");
+  return { url: json.url, id: json.id };
 }
 
 // Retry transient 5xx once with backoff. Builder.io's upload service
@@ -220,5 +259,128 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
     console.log(`[builder-upload] done: ${json.url}`);
     return { url: json.url, id: json.id, provider: "builder" };
+  },
+
+  resumable: {
+    async startSession(filename, mimeType, maxBytes) {
+      const { resolveBuilderPrivateKey } =
+        await import("../server/credential-provider.js");
+      const privateKey = await resolveBuilderPrivateKey();
+      if (!privateKey) throw new Error("BUILDER_PRIVATE_KEY is not set");
+
+      console.log(
+        `[builder-resumable] starting session: ${filename} ${mimeType} ${maxBytes} bytes`,
+      );
+      const { uploadUrl, assetId, requiredHeaders } =
+        await requestBuilderSignedUrl(
+          privateKey,
+          filename,
+          mimeType,
+          maxBytes,
+          true,
+        );
+      console.log(`[builder-resumable] session step 1 ok: assetId=${assetId}`);
+
+      const initHeaders: Record<string, string> = {
+        "Content-Type": mimeType,
+        "x-goog-resumable": "start",
+      };
+      const contentLengthRange =
+        requiredHeaders?.["x-goog-content-length-range"];
+      if (contentLengthRange)
+        initHeaders["x-goog-content-length-range"] = contentLengthRange;
+
+      console.log(`[builder-resumable] session step 2: initiating GCS session`);
+      const initRes = await fetchWithTimeout(uploadUrl, {
+        method: "POST",
+        headers: initHeaders,
+        body: new Uint8Array(0),
+      });
+      if (!initRes.ok) {
+        const body = await initRes.text().catch(() => "");
+        throw new Error(
+          `GCS resumable session initiation failed (${initRes.status}): ${body}`,
+        );
+      }
+      const sessionUri = initRes.headers.get("location");
+      if (!sessionUri)
+        throw new Error(
+          "GCS did not return a Location header for the resumable session",
+        );
+
+      console.log(`[builder-resumable] session ready: assetId=${assetId}`);
+      return {
+        sessionId: sessionUri,
+        meta: { assetId, filename, mimeType },
+      } satisfies ResumableUploadSession;
+    },
+
+    async relayChunk(session, contentRange, bytes, options) {
+      const sessionUri = session.sessionId;
+      const MAX_ATTEMPTS = 4;
+      const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+      const delayMs = (attempt: number) =>
+        Math.min(2000, 300 * 2 ** (attempt - 1));
+
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          const headers: Record<string, string> = {
+            "Content-Range": contentRange,
+          };
+          if (options?.mimeType) headers["Content-Type"] = options.mimeType;
+          const res = await fetch(sessionUri, {
+            method: "PUT",
+            headers,
+            body: bytes as unknown as BodyInit,
+          });
+          if (res.status === 308 || res.ok)
+            return {
+              ok: true,
+              status: res.status,
+            } satisfies ResumableChunkResult;
+          if (RETRYABLE.has(res.status) && attempt < MAX_ATTEMPTS) {
+            await res.text().catch(() => "");
+            console.warn(
+              `[builder-resumable] transient ${res.status} on attempt ${attempt}, retrying`,
+            );
+            await new Promise((r) => setTimeout(r, delayMs(attempt)));
+            continue;
+          }
+          return {
+            ok: false,
+            status: res.status,
+          } satisfies ResumableChunkResult;
+        } catch (err) {
+          lastError = err;
+          if (attempt >= MAX_ATTEMPTS) break;
+          console.warn(
+            `[builder-resumable] network error on attempt ${attempt}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+          await new Promise((r) => setTimeout(r, delayMs(attempt)));
+        }
+      }
+      throw lastError instanceof Error
+        ? lastError
+        : new Error("GCS PUT failed after retries");
+    },
+
+    async completeSession(session, filename) {
+      const { resolveBuilderPrivateKey } =
+        await import("../server/credential-provider.js");
+      const privateKey = await resolveBuilderPrivateKey();
+      if (!privateKey) throw new Error("BUILDER_PRIVATE_KEY is not set");
+
+      const assetId = session.meta.assetId as string;
+      console.log(`[builder-resumable] completing upload: assetId=${assetId}`);
+      const { url } = await completeBuilderUpload(
+        privateKey,
+        assetId,
+        filename,
+      );
+      console.log(`[builder-resumable] upload complete: ${url}`);
+      return url;
+    },
   },
 };

@@ -10,8 +10,9 @@ import {
 } from "./registrySlashItems";
 
 // The block types Content offers in its slash menu, in registry order. Excludes
-// the registered-but-not-offered blocks: `columns` (needs nested editing) and
-// `question-form` / `visual-questions` (agent-intake forms, a plan workflow).
+// the registered-but-not-offered blocks: `columns` (needs nested editing),
+// `question-form` / `visual-questions` (agent-intake forms, a plan workflow),
+// and provider/runtime markers such as `source-component`.
 const AUTHORABLE_LIBRARY_BLOCK_TYPES = [
   "checklist",
   "table-block",
@@ -40,7 +41,10 @@ const AUTHORABLE_LIBRARY_BLOCK_TYPES = [
 
 /** Blocks registered in Content but intentionally hidden from the slash menu. */
 const HIDDEN_FROM_SLASH_MENU = ["columns", "question-form", "visual-questions"];
-const PHASED_BLOCKS_HIDDEN_FROM_SLASH_MENU = ["inline-database"];
+const PHASED_BLOCKS_HIDDEN_FROM_SLASH_MENU = [
+  "inline-database",
+  "source-component",
+];
 
 /**
  * T7 — registry-derived slash items + Notion gating for content's slash menu.
@@ -93,6 +97,8 @@ describe("buildRegistrySlashItems", () => {
     expect(offeredTypes).not.toContain("columns");
     expect(contentBlockRegistry.get("inline-database")).toBeDefined();
     expect(offeredTypes).not.toContain("inline-database");
+    expect(contentBlockRegistry.get("source-component")).toBeDefined();
+    expect(offeredTypes).not.toContain("source-component");
   });
 
   it("keeps API and schema aliases searchable in normal mode", () => {

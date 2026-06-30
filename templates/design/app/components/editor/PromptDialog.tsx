@@ -47,7 +47,9 @@ export interface UploadedFile {
 }
 
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
-const MAX_CHAT_IMAGE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const RAW_CHAT_IMAGE_ATTACHMENT_BYTES = 512 * 1024;
+const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
+const DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES = 1_250_000;
 const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
   "image/gif",
   "image/jpeg",
@@ -55,6 +57,11 @@ const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
+const IMAGE_COMPRESSION_PASSES = [
+  { maxDimension: 1400, jpegQuality: 0.76 },
+  { maxDimension: 1024, jpegQuality: 0.7 },
+  { maxDimension: 768, jpegQuality: 0.65 },
+];
 
 interface PickedAssetImagePayload {
   url?: unknown;
@@ -113,14 +120,11 @@ function pickedAssetContext(payload: unknown, url: string) {
   return lines.join("\n");
 }
 
-function readChatImageAttachment(file: File): Promise<string | null> {
-  if (
-    file.size > MAX_CHAT_IMAGE_ATTACHMENT_BYTES ||
-    !CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase())
-  ) {
-    return Promise.resolve(null);
-  }
+function dataUrlBytes(dataUrl: string): number {
+  return new TextEncoder().encode(dataUrl).byteLength;
+}
 
+function readFileDataUrl(file: File): Promise<string | null> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = () =>
@@ -128,6 +132,77 @@ function readChatImageAttachment(file: File): Promise<string | null> {
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode image"));
+    img.src = url;
+  });
+}
+
+async function compressImageAttachment(
+  file: File,
+  maxDimension: number,
+  jpegQuality: number,
+): Promise<string | null> {
+  if (typeof document === "undefined" || typeof Image === "undefined") {
+    return null;
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(objectUrl);
+    const ratio = Math.min(
+      maxDimension / image.naturalWidth,
+      maxDimension / image.naturalHeight,
+      1,
+    );
+    const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+    const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", jpegQuality);
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function readChatImageAttachment(
+  file: File,
+  maxDataUrlBytes = DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+): Promise<string | null> {
+  if (!CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase())) return null;
+
+  if (file.size <= RAW_CHAT_IMAGE_ATTACHMENT_BYTES) {
+    const raw = await readFileDataUrl(file);
+    if (raw && dataUrlBytes(raw) <= maxDataUrlBytes) return raw;
+  }
+
+  let fallback: string | null = null;
+  for (const pass of IMAGE_COMPRESSION_PASSES) {
+    const compressed = await compressImageAttachment(
+      file,
+      pass.maxDimension,
+      pass.jpegQuality,
+    );
+    if (!compressed) continue;
+    fallback = compressed;
+    if (dataUrlBytes(compressed) <= maxDataUrlBytes) {
+      return compressed;
+    }
+  }
+  return fallback && dataUrlBytes(fallback) <= maxDataUrlBytes
+    ? fallback
+    : null;
 }
 
 interface AssetsPickerDialogProps {
@@ -355,8 +430,18 @@ export default function PromptPopover({
           );
         }
         const uploaded = (await res.json()) as UploadedFile[];
+        const imageFileCount =
+          files.filter((file) =>
+            CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
+          ).length || 1;
+        const maxImageDataUrlBytes = Math.min(
+          DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+          Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+        );
         const visualAttachments = await Promise.all(
-          files.map((file) => readChatImageAttachment(file)),
+          files.map((file) =>
+            readChatImageAttachment(file, maxImageDataUrlBytes),
+          ),
         );
         return uploaded.map((file, index) =>
           visualAttachments[index]

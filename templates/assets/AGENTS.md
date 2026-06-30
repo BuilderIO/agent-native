@@ -47,6 +47,10 @@ prompt, aspectRatio }`.
   composer is empty. The image model is the only remaining composer-side
   default; the image-model picker writes `imageGenerationModel`, which image
   generation actions may use when `model` is omitted.
+- For exact visible copy inside a generated image, pass `embeddedText` and
+  optional `textPlacement` to `generate-image` or each `generate-image-batch`
+  slot. Keep the general `prompt` for creative direction; the structured text
+  fields are what allow the pipeline to render copy instead of suppressing it.
 - `asset-variants` is the shared live generation tray state. New image
   candidates should appear there through `generate-image` or
   `generate-image-batch`; do not invent page-local progress surfaces.

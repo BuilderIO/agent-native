@@ -53,7 +53,7 @@ function inferImportedPlanTitle(planText: string): string {
 
 export default defineAction({
   description:
-    "Create a document-first structured plan for any coding task. For a plan whose centerpiece is wireframed screens/states on a canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a running interactive prototype use create-prototype-plan; for a full-fidelity branded design use create-plan-design. Also accepts imported Codex, Claude Code, Markdown, or pasted plan text via planText. Publish via this tool; never deliver the plan as inline chat text.",
+    "Create a document-first structured plan for any coding task. Call this EXACTLY ONCE per plan — produce the final plan in a single call. Do NOT create a draft and then a second 'clean' version; if you need to revise after creating, call update-visual-plan with the existing planId instead of creating another plan (each create renders its own embed, so a second create leaves a duplicate). For a plan whose centerpiece is wireframed screens/states on a canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a running interactive prototype use create-prototype-plan; for a full-fidelity branded design use create-plan-design. Also accepts imported Codex, Claude Code, Markdown, or pasted plan text via planText. Publish via this tool; never deliver the plan as inline chat text.",
   schema: z
     .object({
       title: z.string().optional().describe("Short plan title"),
@@ -121,7 +121,7 @@ export default defineAction({
         "Open the Agent-Native Plan review surface for structured blocks, inline diagrams, optional UI wireframes/prototypes, and comments.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {
@@ -216,26 +216,43 @@ export default defineAction({
         visibility: "private",
       });
 
-    await getDb()
-      .insert(schema.planSections)
-      .values(
-        sections.map((section, index) => ({
-          id: section.id ?? newId("sec"),
-          planId: id,
-          type: section.type,
-          title: section.title,
-          body: section.body,
-          html: section.html ?? null,
-          order: section.order ?? index,
-          createdBy: section.createdBy,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
+    // `planSections.id` is a GLOBAL primary key, so a client-supplied id (e.g.
+    // "section-1") collides across plans/retries and throws on insert. Always
+    // generate a unique server id; keep a logical-id -> row-id map so comment
+    // anchors can be remapped instead of failing the foreign key.
+    const sectionIdByLogical = new Map<string, string>();
+    const sectionRows = sections.map((section, index) => {
+      const rowId = newId("sec");
+      const logicalId = section.id ?? `section-${index + 1}`;
+      sectionIdByLogical.set(logicalId, rowId);
+      if (section.id) sectionIdByLogical.set(section.id, rowId);
+      return {
+        id: rowId,
+        planId: id,
+        type: section.type,
+        title: section.title,
+        body: section.body,
+        html: section.html ?? null,
+        order: section.order ?? index,
+        createdBy: section.createdBy,
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
+    await getDb().insert(schema.planSections).values(sectionRows);
+
+    // Remap each comment's sectionId to its real row id; drop (undefined)
+    // anchors that match no section rather than failing the FK and blocking the
+    // publish.
+    const commentsForInsert = args.comments.map((comment) => {
+      if (!comment.sectionId) return comment;
+      const mapped = sectionIdByLogical.get(comment.sectionId);
+      return { ...comment, sectionId: mapped };
+    });
 
     await insertInitialPlanComments({
       planId: id,
-      comments: args.comments,
+      comments: commentsForInsert,
       requestEmail: requesterEmail,
       requestName: requesterName,
       now,

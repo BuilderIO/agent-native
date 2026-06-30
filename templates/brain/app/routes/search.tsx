@@ -166,7 +166,7 @@ export default function SearchRoute() {
               />
             </div>
 
-            <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_120px_auto]">
+            <div className="brain-search-filter-grid grid gap-2">
               <Select
                 value={type}
                 onValueChange={(value) => updateParam("type", value)}

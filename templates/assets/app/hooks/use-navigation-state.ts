@@ -73,6 +73,7 @@ function navigationFromPath(pathname: string, search = "") {
         query: optionalParam(params, "q"),
         prompt: optionalParam(params, "prompt"),
         aspectRatio: optionalParam(params, "aspectRatio"),
+        layout: params.get("layout") === "vertical" ? "vertical" : undefined,
       };
     }
     const queryLibraryId = optionalParam(params, "libraryId");
@@ -152,6 +153,9 @@ function pathFromCommand(command: any): string | null {
     }
     if (typeof command.aspectRatio === "string" && command.aspectRatio.trim()) {
       params.set("aspectRatio", command.aspectRatio.trim());
+    }
+    if (command.layout === "vertical") {
+      params.set("layout", "vertical");
     }
     const query = params.toString();
     return query ? `/library?${query}` : "/library";

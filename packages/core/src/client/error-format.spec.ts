@@ -116,4 +116,18 @@ describe("formatChatErrorText", () => {
       "Error: The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
     );
   });
+
+  it("normalizes provider API key authentication failures", () => {
+    const raw =
+      '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_example"}';
+    const normalized = normalizeChatError(raw, "authentication_error");
+
+    expect(normalized.message).toBe(
+      "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+    );
+    expect(normalized.details).toBe(raw);
+    expect(formatChatErrorText(raw, undefined, "authentication_error")).toBe(
+      "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+    );
+  });
 });

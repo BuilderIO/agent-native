@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -30,7 +31,10 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async ({ runId, slotId, sessionId, source, callerAppId }) => {
+  run: async (
+    { runId, slotId, sessionId, source, callerAppId },
+    context?: ActionRunContext,
+  ) => {
     const db = getDb();
     const [run] = await db
       .select()
@@ -52,6 +56,8 @@ export default defineAction({
         intent?: string;
         styleStrength?: string;
         subjectAssetId?: string;
+        embeddedText?: string | null;
+        textPlacement?: string | null;
       };
       includeLogo?: boolean;
       categories?: string[];
@@ -60,39 +66,54 @@ export default defineAction({
       intent?: string;
       styleStrength?: string;
       tier?: string | null;
+      embeddedText?: string | null;
+      textPlacement?: string | null;
     }>(run.metadata, {});
     const categories =
       metadata.settingsUsed?.categories ?? metadata.categories ?? undefined;
 
-    return generateImage.run({
-      libraryId: run.libraryId,
-      collectionId: run.collectionId ?? undefined,
-      presetId: run.presetId ?? undefined,
-      sessionId: resolvedSessionId,
-      prompt: run.prompt,
-      aspectRatio: run.aspectRatio as any,
-      imageSize: run.imageSize as any,
-      model: run.model as any,
-      tier: (metadata.settingsUsed?.tier ?? metadata.tier ?? undefined) as any,
-      intent: (metadata.settingsUsed?.intent ??
-        metadata.intent ??
-        "generate") as any,
-      styleStrength: (metadata.settingsUsed?.styleStrength ??
-        metadata.styleStrength ??
-        "balanced") as any,
-      categories: categories as any,
-      includeLogo: Boolean(
-        metadata.settingsUsed?.includeLogo ?? metadata.includeLogo,
-      ),
-      groundingMode: run.groundingMode as any,
-      sourceAssetId: metadata.sourceAssetId,
-      subjectAssetId:
-        metadata.settingsUsed?.subjectAssetId ??
-        metadata.subjectAssetId ??
-        undefined,
-      slotId,
-      source,
-      callerAppId,
-    });
+    return generateImage.run(
+      {
+        libraryId: run.libraryId,
+        collectionId: run.collectionId ?? undefined,
+        presetId: run.presetId ?? undefined,
+        sessionId: resolvedSessionId,
+        prompt: run.prompt,
+        embeddedText:
+          metadata.settingsUsed?.embeddedText ??
+          metadata.embeddedText ??
+          undefined,
+        textPlacement:
+          metadata.settingsUsed?.textPlacement ??
+          metadata.textPlacement ??
+          undefined,
+        aspectRatio: run.aspectRatio as any,
+        imageSize: run.imageSize as any,
+        model: run.model as any,
+        tier: (metadata.settingsUsed?.tier ??
+          metadata.tier ??
+          undefined) as any,
+        intent: (metadata.settingsUsed?.intent ??
+          metadata.intent ??
+          "generate") as any,
+        styleStrength: (metadata.settingsUsed?.styleStrength ??
+          metadata.styleStrength ??
+          "balanced") as any,
+        categories: categories as any,
+        includeLogo: Boolean(
+          metadata.settingsUsed?.includeLogo ?? metadata.includeLogo,
+        ),
+        groundingMode: run.groundingMode as any,
+        sourceAssetId: metadata.sourceAssetId,
+        subjectAssetId:
+          metadata.settingsUsed?.subjectAssetId ??
+          metadata.subjectAssetId ??
+          undefined,
+        slotId,
+        source,
+        callerAppId,
+      },
+      context,
+    );
   },
 });

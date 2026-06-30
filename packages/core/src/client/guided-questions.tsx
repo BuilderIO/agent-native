@@ -50,6 +50,8 @@ export interface GuidedQuestion {
   allowOther?: boolean;
   includeExplore?: boolean;
   includeDecide?: boolean;
+  /** Submit immediately when a single-select option is clicked. */
+  submitOnSelect?: boolean;
 }
 
 export type GuidedQuestionAnswers = Record<string, unknown>;
@@ -60,6 +62,8 @@ export interface GuidedQuestionPayload {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  submitMessage?: string;
+  skipMessage?: string;
   /**
    * @internal Set by {@link askUserQuestion} for client-initiated questions.
    * When present, `useGuidedQuestionFlow` resolves the matching in-memory
@@ -374,6 +378,7 @@ export function guidedQuestionsFingerprint(
       allowOther: question.allowOther ?? null,
       includeExplore: question.includeExplore ?? null,
       includeDecide: question.includeDecide ?? null,
+      submitOnSelect: question.submitOnSelect ?? false,
       min: question.min ?? null,
       max: question.max ?? null,
       step: question.step ?? null,
@@ -447,6 +452,11 @@ export function GuidedQuestionFlow({
   const setAnswer = useCallback((id: string, value: unknown) => {
     setAnswers((prev) => ({ ...prev, [id]: value }));
   }, []);
+  const submitAnswers = useCallback(
+    (nextAnswers: GuidedQuestionAnswers = answers) =>
+      onSubmit(normalizeGuidedAnswers(nextAnswers)),
+    [answers, onSubmit],
+  );
 
   const allRequiredAnswered = questions
     .filter((question) => question.required)
@@ -484,6 +494,9 @@ export function GuidedQuestionFlow({
               question={question}
               value={answers[question.id]}
               onChange={(value) => setAnswer(question.id, value)}
+              onSubmitAnswer={(value) =>
+                submitAnswers({ ...answers, [question.id]: value })
+              }
             />
           ))}
         </div>
@@ -512,7 +525,7 @@ export function GuidedQuestionFlow({
             </button>
             <button
               type="button"
-              onClick={() => onSubmit(normalizeGuidedAnswers(answers))}
+              onClick={() => submitAnswers()}
               disabled={!allRequiredAnswered}
               className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
@@ -531,11 +544,13 @@ function QuestionCard({
   question,
   value,
   onChange,
+  onSubmitAnswer,
 }: {
   index: number;
   question: GuidedQuestion;
   value: unknown;
   onChange: (value: unknown) => void;
+  onSubmitAnswer: (value: unknown) => void;
 }) {
   return (
     <section className="rounded-lg border border-border bg-card/65 p-4 shadow-sm">
@@ -564,7 +579,12 @@ function QuestionCard({
       </div>
 
       {question.type === "text-options" && (
-        <TextOptions question={question} value={value} onChange={onChange} />
+        <TextOptions
+          question={question}
+          value={value}
+          onChange={onChange}
+          onSubmitAnswer={onSubmitAnswer}
+        />
       )}
       {question.type === "color-options" && (
         <ColorOptions question={question} value={value} onChange={onChange} />
@@ -591,10 +611,12 @@ function TextOptions({
   question,
   value,
   onChange,
+  onSubmitAnswer,
 }: {
   question: GuidedQuestion;
   value: unknown;
   onChange: (value: unknown) => void;
+  onSubmitAnswer: (value: unknown) => void;
 }) {
   const options = useMemo(() => withDefaultOptions(question), [question]);
   const multiSelect = question.multiSelect === true;
@@ -612,6 +634,7 @@ function TextOptions({
   const toggleOption = (optionValue: string) => {
     if (!multiSelect) {
       onChange(optionValue);
+      if (question.submitOnSelect) onSubmitAnswer(optionValue);
       return;
     }
     const next = selectedValues.includes(optionValue)
@@ -1060,6 +1083,7 @@ export function useGuidedQuestionFlow({
         return;
       }
       const formattedAnswers = formatGuidedAnswersForAgent(answers);
+      const resolvedSubmitMessage = payload?.submitMessage ?? submitMessage;
       const context =
         buildSubmitContext?.({ answers, formattedAnswers }) ??
         [
@@ -1068,7 +1092,11 @@ export function useGuidedQuestionFlow({
           "Answers:",
           formattedAnswers,
         ].join("\n");
-      sendToAgentChat({ message: submitMessage, context, submit: true });
+      sendToAgentChat({
+        message: resolvedSubmitMessage,
+        context,
+        submit: true,
+      });
       clear();
     },
     [buildSubmitContext, clear, payload, submitMessage],
@@ -1082,7 +1110,7 @@ export function useGuidedQuestionFlow({
       return;
     }
     sendToAgentChat({
-      message: skipMessage,
+      message: payload?.skipMessage ?? skipMessage,
       context: buildSkipContext?.(),
       submit: true,
     });

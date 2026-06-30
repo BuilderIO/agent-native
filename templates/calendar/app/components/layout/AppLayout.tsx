@@ -341,11 +341,13 @@ export function AppLayout({ children }: AppLayoutProps) {
               !eventDraft &&
               isCalendarPage &&
               !isSettingsPage ? (
-                <main className="flex-1 overflow-y-auto">
+                <main className="agent-native-app-main flex-1 overflow-y-auto">
                   <GoogleConnectBanner variant="hero" />
                 </main>
               ) : (
-                <main className="flex-1 overflow-y-auto">{children}</main>
+                <main className="agent-native-app-main flex-1 overflow-y-auto">
+                  {children}
+                </main>
               )}
             </HeaderControlsContext.Provider>
           </div>

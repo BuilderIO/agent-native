@@ -1,4 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export type DesignHotkeyTool =
   | "move"
@@ -166,9 +169,9 @@ function isFocusableChromeTarget(target: EventTarget | null) {
 export function useDesignHotkeys(props: UseDesignHotkeysProps) {
   const propsRef = useRef(props);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     propsRef.current = props;
-  }, [props]);
+  });
 
   useEffect(() => {
     const eventTarget =
@@ -271,7 +274,14 @@ function handleDesignHotkey(
   if (
     event.key === "Tab" &&
     props.onTab &&
-    !isFocusableChromeTarget(event.target)
+    // Ignore synthetic (non-trusted) Tab events dispatched by handleIframeHotkey
+    // unless they carry the iframe-hotkey marker. This keeps inspector field
+    // tabbing native while allowing real iframe canvas Tab presses to cycle files.
+    (event.isTrusted !== false ||
+      (event as KeyboardEvent & { __agentNativeIframeHotkey?: boolean })
+        .__agentNativeIframeHotkey === true) &&
+    !isFocusableChromeTarget(event.target) &&
+    !isDesignHotkeyEditableTarget(document.activeElement)
   ) {
     prevent();
     props.onTab({ ...details, backwards: event.shiftKey });
@@ -300,7 +310,9 @@ function handleDesignHotkey(
   if (primary && key === "d") return run(props.onDuplicate);
   if (primary && key === "r") return run(props.onRename);
   if (primary && key === "g") {
-    return event.shiftKey ? run(props.onUngroup) : run(props.onGroup);
+    // Figma uses ⇧⌘G for ungroup; also support ⌥⌘G as an alias.
+    if (event.shiftKey || event.altKey) return run(props.onUngroup);
+    return run(props.onGroup);
   }
 
   if (primary && (key === "=" || key === "+")) return run(props.onZoomIn);

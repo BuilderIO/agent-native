@@ -46,6 +46,11 @@ export function pickMimeType(): string {
   return "";
 }
 
+/** How the client delivers recorded data to the server.
+ *  - `"streaming"` — chunks are flushed to GCS during recording via a resumable session
+ *  - `"buffered"`  — full blob assembled after stop() and uploaded in slices */
+export type UploadMode = "streaming" | "buffered";
+
 /** Query params understood by the chunk-upload route
  * (`/api/uploads/:id/chunk`). This is the on-the-wire contract — the route in
  * `server/routes/api/uploads/[recordingId]/chunk.post.ts` reads exactly these. */

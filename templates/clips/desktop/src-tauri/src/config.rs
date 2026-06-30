@@ -36,6 +36,36 @@ impl Default for RegionGuidesConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ScreenMemoryConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub paused: bool,
+    #[serde(default = "default_screen_memory_retention_hours")]
+    pub retention_hours: u32,
+    #[serde(default = "default_screen_memory_max_bytes")]
+    pub max_bytes: u64,
+    #[serde(default = "default_screen_memory_segment_seconds")]
+    pub segment_seconds: u64,
+    #[serde(default = "default_screen_memory_sample_interval_seconds")]
+    pub sample_interval_seconds: u64,
+}
+
+impl Default for ScreenMemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            paused: false,
+            retention_hours: default_screen_memory_retention_hours(),
+            max_bytes: default_screen_memory_max_bytes(),
+            segment_seconds: default_screen_memory_segment_seconds(),
+            sample_interval_seconds: default_screen_memory_sample_interval_seconds(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FeatureConfig {
     pub clips_enabled: bool,
     pub meetings_enabled: bool,
@@ -59,6 +89,8 @@ pub struct FeatureConfig {
     pub show_in_screen_capture: bool,
     #[serde(default)]
     pub region_guides: RegionGuidesConfig,
+    #[serde(default)]
+    pub screen_memory: ScreenMemoryConfig,
     pub onboarding_complete: bool,
     #[serde(default = "default_whisper_model_enabled")]
     pub whisper_model_enabled: bool,
@@ -97,6 +129,22 @@ fn default_whisper_model_enabled() -> bool {
     true
 }
 
+fn default_screen_memory_retention_hours() -> u32 {
+    24
+}
+
+fn default_screen_memory_max_bytes() -> u64 {
+    20 * 1024 * 1024 * 1024
+}
+
+fn default_screen_memory_segment_seconds() -> u64 {
+    5 * 60
+}
+
+fn default_screen_memory_sample_interval_seconds() -> u64 {
+    10
+}
+
 impl Default for FeatureConfig {
     fn default() -> Self {
         Self {
@@ -110,6 +158,7 @@ impl Default for FeatureConfig {
             show_meeting_widget_enabled: default_show_meeting_widget_enabled(),
             show_in_screen_capture: false,
             region_guides: RegionGuidesConfig::default(),
+            screen_memory: ScreenMemoryConfig::default(),
             onboarding_complete: false,
             whisper_model_enabled: default_whisper_model_enabled(),
         }
@@ -243,6 +292,7 @@ pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result
             serde_json::json!({ "enabled": config.whisper_model_enabled }),
         );
     }
+    crate::screen_memory::sync_from_config(&app, &config);
     let _ = app.emit("app:feature-config-changed", config);
     Ok(())
 }

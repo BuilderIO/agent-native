@@ -535,6 +535,39 @@ const runContentMigrations = runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS builder_doc_sidecars_document_idx ON builder_doc_sidecars (document_id);
         CREATE UNIQUE INDEX IF NOT EXISTS builder_doc_sidecars_doc_path_idx ON builder_doc_sidecars (document_id, path)`,
     },
+    {
+      version: 58,
+      sql: `ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_status TEXT NOT NULL DEFAULT 'hydrated';
+        ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_attempted_at TEXT;
+        ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_error TEXT;
+        ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_version TEXT`,
+    },
+    {
+      version: 59,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_body_hydration_queue (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      source_id TEXT NOT NULL,
+      database_item_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      source_row_id TEXT NOT NULL,
+      source_table TEXT NOT NULL,
+      source_entry_json TEXT NOT NULL DEFAULT '{}',
+      priority INTEGER NOT NULL DEFAULT 10,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_attempted_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 60,
+      sql: `CREATE INDEX IF NOT EXISTS content_database_body_hydration_queue_source_idx ON content_database_body_hydration_queue (source_id, priority, created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx ON content_database_body_hydration_queue (database_item_id);
+        CREATE INDEX IF NOT EXISTS content_database_items_body_hydration_idx ON content_database_items (database_id, body_hydration_status)`,
+    },
   ],
   { table: "content_migrations" },
 );

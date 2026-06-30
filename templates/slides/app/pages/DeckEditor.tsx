@@ -65,6 +65,7 @@ import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
+import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
@@ -81,7 +82,6 @@ const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
 );
 
 function MissingDeckAccessPane({
-  deckId,
   hasTeamJoinOption,
   orgLoading,
   orgError,
@@ -89,7 +89,6 @@ function MissingDeckAccessPane({
   onRetry,
   onBack,
 }: {
-  deckId: string | undefined;
   hasTeamJoinOption: boolean;
   orgLoading: boolean;
   orgError: boolean;
@@ -116,7 +115,7 @@ function MissingDeckAccessPane({
         : t("deckEditor.deckUnavailableDescription");
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-background px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
@@ -124,11 +123,6 @@ function MissingDeckAccessPane({
           </div>
           <div className="min-w-0">
             <h1 className="text-base font-semibold text-foreground">{title}</h1>
-            {deckId && (
-              <p className="truncate text-xs text-muted-foreground">
-                Deck ID: {deckId}
-              </p>
-            )}
           </div>
         </div>
         <p className="text-sm leading-6 text-muted-foreground">{description}</p>
@@ -723,7 +717,6 @@ export default function DeckEditor() {
   if (!deck || !id) {
     return (
       <MissingDeckAccessPane
-        deckId={id}
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
         orgError={orgError}
@@ -845,6 +838,16 @@ export default function DeckEditor() {
               variant: "destructive",
             });
           }
+        }}
+        onExportPptx={async () => {
+          const slides = deck.slides.map((s) => ({
+            id: s.id,
+            notes: s.notes,
+          }));
+          if (slides.length === 0) {
+            throw new Error(t("deckEditor.deckHasNoSlides"));
+          }
+          await exportDeckAsPptx(deck.title, slides, deck.aspectRatio);
         }}
         aspectRatio={deck.aspectRatio}
         designSystemTitle={designSystemTitle}

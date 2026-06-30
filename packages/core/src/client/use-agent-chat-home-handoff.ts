@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { appBasePath } from "./api-path.js";
 import {
   consumeAgentChatHomeHandoff,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
 } from "./chat-view-transition.js";
@@ -13,6 +14,8 @@ export interface UseAgentChatHomeHandoffOptions {
   storageKey?: string | null;
   /** The current destination path that receives the sidebar handoff. */
   activePath: string;
+  /** How long the handoff marker remains valid. Defaults to 6 hours. */
+  ttlMs?: number;
   /** Disable consumption without changing hook call order. */
   enabled?: boolean;
 }
@@ -30,6 +33,10 @@ export interface UseAgentChatHomeHandoffLinksOptions {
   isChatPath?: (pathname: string) => boolean;
   /** Disable link interception without changing hook call order. */
   enabled?: boolean;
+  /** How long the handoff marker remains valid. Defaults to 6 hours. */
+  ttlMs?: number;
+  /** Only intercept links if a recent handoff marker already exists. */
+  requireActiveHandoff?: boolean;
 }
 
 function stripBasePath(path: string): string {
@@ -96,6 +103,10 @@ function shouldHandleAnchorClick(
   return true;
 }
 
+function handoffTtlOptions(ttlMs: number | undefined) {
+  return ttlMs === undefined ? undefined : { ttlMs };
+}
+
 /**
  * Returns true for the route that has just received a full-page-chat handoff.
  * Pass the result to `AgentSidebar openOnChatRunning`.
@@ -103,6 +114,7 @@ function shouldHandleAnchorClick(
 export function useAgentChatHomeHandoff({
   storageKey,
   activePath,
+  ttlMs,
   enabled = true,
 }: UseAgentChatHomeHandoffOptions): boolean {
   const [handoffPath, setHandoffPath] = useState<string | null>(null);
@@ -112,10 +124,10 @@ export function useAgentChatHomeHandoff({
       setHandoffPath(null);
       return;
     }
-    if (consumeAgentChatHomeHandoff(storageKey)) {
+    if (consumeAgentChatHomeHandoff(storageKey, handoffTtlOptions(ttlMs))) {
       setHandoffPath(activePath);
     }
-  }, [activePath, enabled, storageKey]);
+  }, [activePath, enabled, storageKey, ttlMs]);
 
   return enabled && handoffPath === activePath;
 }
@@ -129,6 +141,8 @@ export function useAgentChatHomeHandoffLinks({
   chatPath = "/",
   isChatPath,
   enabled = true,
+  ttlMs,
+  requireActiveHandoff = false,
 }: UseAgentChatHomeHandoffLinksOptions): void {
   const location = useLocation();
   const navigate = useNavigate();
@@ -161,6 +175,13 @@ export function useAgentChatHomeHandoffLinks({
         return;
       }
 
+      if (
+        requireActiveHandoff &&
+        !isAgentChatHomeHandoffActive(storageKey, handoffTtlOptions(ttlMs))
+      ) {
+        return;
+      }
+
       event.preventDefault();
       markAgentChatHomeHandoff(storageKey);
       navigateWithAgentChatViewTransition(navigate, path);
@@ -168,5 +189,12 @@ export function useAgentChatHomeHandoffLinks({
 
     document.addEventListener("click", handleClick, true);
     return () => document.removeEventListener("click", handleClick, true);
-  }, [enabled, location.pathname, navigate, storageKey]);
+  }, [
+    enabled,
+    location.pathname,
+    navigate,
+    requireActiveHandoff,
+    storageKey,
+    ttlMs,
+  ]);
 }

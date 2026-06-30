@@ -1,25 +1,15 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-  useT,
-} from "@agent-native/core/client";
-import { useEffect } from "react";
+import { AgentChatSurface, useT } from "@agent-native/core/client";
+import { useState } from "react";
 
+import {
+  ANALYTICS_CHAT_STORAGE_KEY,
+  hasRecentAnalyticsChat,
+} from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
 export default function AskPage() {
   const t = useT();
-
-  useEffect(() => {
-    function handleChatRunning(event: Event) {
-      const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning === true) markAgentChatHomeHandoff("analytics");
-    }
-
-    window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
-      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, []);
+  const [restoreActiveThread] = useState(() => hasRecentAnalyticsChat());
 
   return (
     <div className="analytics-ask-page flex h-full min-h-0 flex-col bg-background">
@@ -28,7 +18,8 @@ export default function AskPage() {
         chatViewTransition
         className="analytics-chat-panel"
         defaultMode="chat"
-        storageKey="analytics"
+        storageKey={ANALYTICS_CHAT_STORAGE_KEY}
+        restoreActiveThread={restoreActiveThread}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}

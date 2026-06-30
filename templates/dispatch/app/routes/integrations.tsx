@@ -828,7 +828,7 @@ function ConnectionRow({
     connection.status === "disabled";
   return (
     <article className="rounded-lg border bg-card shadow-sm">
-      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
+      <div className="dispatch-connection-card-grid grid gap-4 p-4">
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
@@ -886,7 +886,7 @@ function ConnectionRow({
             </div>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="dispatch-connection-meta-grid grid gap-2">
             <ConnectionMeta
               icon={IconKey}
               label={t("integrations.credentialRefs")}
@@ -2365,9 +2365,10 @@ export default function WorkspaceIntegrationsRoute() {
     >
       <div className="space-y-6">
         <section
+          data-usage-tracked={usageTracked ? "true" : undefined}
           className={cx(
-            "grid gap-3 md:grid-cols-2",
-            usageTracked ? "xl:grid-cols-5" : "xl:grid-cols-4",
+            "dispatch-integrations-summary-grid grid gap-3",
+            usageTracked && "dispatch-integrations-summary-grid-tracked",
           )}
         >
           <SummaryCard
@@ -2452,7 +2453,7 @@ export default function WorkspaceIntegrationsRoute() {
               </p>
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="dispatch-provider-grid grid gap-3">
             {providers.map((provider) => (
               <ProviderCard
                 key={provider.id}
@@ -2586,7 +2587,7 @@ function IntegrationOnboarding() {
 
   return (
     <section className="rounded-lg border bg-card px-4 py-3 shadow-sm">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)] lg:items-center">
+      <div className="dispatch-onboarding-grid grid gap-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground">
             {t("integrations.onboardingTitle")}
@@ -2595,7 +2596,7 @@ function IntegrationOnboarding() {
             {t("integrations.onboardingDescription")}
           </p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="dispatch-onboarding-steps-grid grid gap-2">
           {steps.map((step) => {
             const Icon = step.icon;
             return (

@@ -4,6 +4,8 @@ import {
   compareReferenceCandidates,
   compilePrompt,
   generateWithManagedImageProvider,
+  resolveImageModelForRequest,
+  sanitizeStyleBrief,
 } from "./generation.js";
 import type { GenerateProviderInput } from "./generation.js";
 
@@ -51,6 +53,8 @@ const baseInput: GenerateProviderInput = {
   imageSize: "2K",
   groundingMode: "auto",
 };
+const SUPPRESS_EMBEDDED_TEXT =
+  "Do not render headlines, body text, UI labels, or prompt wording inside the image unless the user explicitly asks for exact visible text.";
 
 function mockBuilderFailure(status: number, body: unknown) {
   const fetchMock = vi.fn(async () => {
@@ -543,6 +547,196 @@ describe("compilePrompt", () => {
     expect(prompt).toContain("Make the background navy");
     expect(prompt).toContain("Preserve all unchanged areas");
     expect(prompt).not.toContain("Style brief:");
+  });
+
+  it("quotes exact embedded text and removes the blanket text suppression", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Bean Brand",
+      styleBrief: {
+        description: "Warm editorial cafe photography.",
+        typographyPolicy: "Use refined display lettering.",
+      },
+      prompt: "Create a poster for the spring menu",
+      embeddedText: "Bean & Brew",
+      textPlacement: "centered headline",
+      referenceCount: 2,
+      includeLogo: false,
+      category: "campaign",
+    });
+
+    expect(prompt).toContain('"Bean & Brew"');
+    expect(prompt).toContain("Placement: centered headline.");
+    expect(prompt).toContain("Match the brand typography");
+    expect(prompt).not.toContain(SUPPRESS_EMBEDDED_TEXT);
+  });
+
+  it("keeps the embedded text suppression when no exact text is requested", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Bean Brand",
+      styleBrief: {
+        description: "Warm editorial cafe photography.",
+      },
+      prompt: "Create a poster for the spring menu",
+      referenceCount: 2,
+      includeLogo: false,
+      category: "campaign",
+    });
+
+    expect(prompt).toContain(SUPPRESS_EMBEDDED_TEXT);
+  });
+
+  it("renders structured brand typography in generation prompts", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Northstar",
+      styleBrief: {
+        description: "Clean editorial product photography.",
+        fontFamilies: ["Sohne", "Georgia"],
+        fontWeights: ["regular", "bold"],
+        letterforms: "geometric sans, high x-height, single-story a",
+        caseStyle: "ALL CAPS headlines, sentence-case body",
+        typographyPolicy: "Keep copy compact and premium.",
+      },
+      prompt: "A landing-page hero background",
+      referenceCount: 3,
+      includeLogo: false,
+      aspectRatio: "16:9",
+      imageSize: "2K",
+      category: "landing",
+    });
+
+    expect(prompt).toContain("Brand typography:");
+    expect(prompt).toContain("families Sohne, Georgia");
+    expect(prompt).toContain(
+      "letterforms: geometric sans, high x-height, single-story a",
+    );
+    expect(prompt).toContain("case: ALL CAPS headlines");
+    expect(prompt).toContain("Keep copy compact and premium.");
+  });
+});
+
+describe("sanitizeStyleBrief", () => {
+  it("round-trips structured typography fields and drops empty array entries", () => {
+    const brief = sanitizeStyleBrief({
+      fontFamilies: [" Sohne ", "", 42, "Georgia"],
+      fontWeights: ["regular", null, " bold "],
+      letterforms: " geometric sans, high x-height ",
+      caseStyle: " ALL CAPS headlines ",
+      typographyPolicy: " Keep display text tight. ",
+      doNot: [" blurry text ", false, "", "extra logos"],
+    });
+
+    expect(brief).toMatchObject({
+      fontFamilies: ["Sohne", "Georgia"],
+      fontWeights: ["regular", "bold"],
+      letterforms: "geometric sans, high x-height",
+      caseStyle: "ALL CAPS headlines",
+      typographyPolicy: "Keep display text tight.",
+      doNot: ["blurry text", "extra logos"],
+    });
+    expect(brief.description).toBeUndefined();
+  });
+});
+
+describe("resolveImageModelForRequest", () => {
+  it("prefers Gemini Pro for embedded text when no model or tier was explicit", () => {
+    expect(
+      resolveImageModelForRequest({
+        imageModelDefault: "gemini-3.1-flash-image",
+        embeddedText: "Bean & Brew",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
+
+  it("keeps explicit model and tier choices ahead of embedded-text routing", () => {
+    expect(
+      resolveImageModelForRequest({
+        explicitModel: "gemini-3.1-flash-image",
+        embeddedText: "Bean & Brew",
+      }),
+    ).toBe("gemini-3.1-flash-image");
+    expect(
+      resolveImageModelForRequest({
+        imageModelDefault: "gemini-3.1-flash-image",
+        explicitTier: "fast",
+        resolvedTier: "fast",
+        embeddedText: "Bean & Brew",
+      }),
+    ).toBe("gemini-3.1-flash-image");
+  });
+
+  it("does not let embedded-text routing override a preset's saved model", () => {
+    expect(
+      resolveImageModelForRequest({
+        presetModel: "gemini-3.1-flash-image",
+        embeddedText: "Bean & Brew",
+      }),
+    ).toBe("gemini-3.1-flash-image");
+  });
+
+  it("does not let embedded-text routing override a preset-derived tier", () => {
+    // A preset that resolves to a `fast` tier (no explicit tier on the request)
+    // must keep its Flash model even when embedded text is requested.
+    expect(
+      resolveImageModelForRequest({
+        resolvedTier: "fast",
+        embeddedText: "Bean & Brew",
+      }),
+    ).toBe("gemini-3.1-flash-image");
+  });
+
+  it("does not let the composer default override a preset's saved model", () => {
+    // Sticky composer default differs from the tagged preset's saved model;
+    // the preset must win.
+    expect(
+      resolveImageModelForRequest({
+        imageModelDefault: "gemini-3.1-flash-image",
+        presetModel: "gemini-3-pro-image",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
+
+  it("does not let the composer default override a tier-derived model", () => {
+    // A `best` tier request must resolve to Pro even when the composer default
+    // is Flash.
+    expect(
+      resolveImageModelForRequest({
+        imageModelDefault: "gemini-3.1-flash-image",
+        explicitTier: "best",
+        resolvedTier: "best",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
+
+  it("still uses the composer default when nothing more specific applies", () => {
+    expect(
+      resolveImageModelForRequest({
+        imageModelDefault: "gemini-3-pro-image",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
+
+  it("keeps a preset's explicit model over its own drifted derived tier", () => {
+    // Preset saved model = Pro, but settings.tier drifted to `fast` (the two
+    // are separate fields and can be updated independently). With no explicit
+    // per-request tier, the explicit saved model must win.
+    expect(
+      resolveImageModelForRequest({
+        presetModel: "gemini-3-pro-image",
+        resolvedTier: "fast",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
+
+  it("lets an explicit per-request tier override the preset's saved model", () => {
+    // The caller deliberately requested `best` this turn, so it outranks the
+    // preset's saved Flash model.
+    expect(
+      resolveImageModelForRequest({
+        presetModel: "gemini-3.1-flash-image",
+        explicitTier: "best",
+        resolvedTier: "best",
+      }),
+    ).toBe("gemini-3-pro-image");
   });
 });
 

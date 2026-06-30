@@ -532,8 +532,8 @@ function CodeTabsBlock({
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
-      <div className="grid overflow-hidden border-y border-plan-line md:grid-cols-[300px_minmax(0,1fr)]">
-        <div className="border-plan-line md:border-r">
+      <div className="plan-code-tabs-layout grid overflow-hidden border-y border-plan-line">
+        <div className="plan-code-tabs-nav border-plan-line">
           {block.data.tabs.map((tab) => (
             <button
               key={tab.id}
@@ -609,8 +609,8 @@ function ImplementationMapBlock({
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
-      <div className="grid overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="border-plan-line lg:border-r">
+      <div className="plan-implementation-map-layout grid overflow-hidden">
+        <div className="plan-implementation-map-nav border-plan-line">
           {block.data.files.map((file, index) => (
             <button
               key={index}
@@ -698,14 +698,13 @@ function TabsBlock({
       {block.title && <div className="plan-block-label">{block.title}</div>}
       <div
         className={cn(
-          vertical &&
-            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",
+          vertical && "plan-vertical-tabs-layout grid min-w-0 gap-5",
         )}
       >
         <div
           className={cn(
             vertical
-              ? "mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto md:mb-0 md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"
+              ? "plan-vertical-tabs-list mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto"
               : "mb-8 inline-flex max-w-full gap-1 overflow-x-auto",
           )}
           role="tablist"

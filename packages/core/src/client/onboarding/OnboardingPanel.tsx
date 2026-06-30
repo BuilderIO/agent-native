@@ -570,7 +570,7 @@ function FormMethod({
   method: Extract<OnboardingMethod, { kind: "form" }>;
   onCompleted: () => Promise<void>;
 }) {
-  const { fields, writeScope } = method.payload;
+  const { fields, writeScope, saveTo, secretDescription } = method.payload;
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -585,6 +585,38 @@ function FormMethod({
         .filter((v) => v.value !== "");
       if (vars.length === 0) {
         setErr("Enter a value first.");
+        return;
+      }
+      if (saveTo === "scoped-secrets") {
+        const secretScope =
+          writeScope === "workspace" || writeScope === "app"
+            ? "workspace"
+            : "user";
+        for (const entry of vars) {
+          const res = await fetch(
+            agentNativePath("/_agent-native/secrets/adhoc"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: entry.key,
+                value: entry.value,
+                scope: secretScope,
+                description:
+                  secretDescription ?? method.description ?? "Setup key",
+              }),
+            },
+          );
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(
+              (data as { error?: string }).error ??
+                `Save failed: ${res.status}`,
+            );
+          }
+        }
+        setValues({});
+        await onCompleted();
         return;
       }
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {

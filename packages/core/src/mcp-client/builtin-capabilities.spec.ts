@@ -44,6 +44,12 @@ describe("built-in MCP capabilities", () => {
       command: "npx",
       args: ["-y", "computer-use-mcp@1.8.0"],
     });
+    expect(
+      toBuiltinMcpServerConfig(getBuiltinMcpCapability("screen-memory")!),
+    ).toMatchObject({
+      command: "agent-native",
+      args: ["mcp", "screen-memory"],
+    });
   });
 
   it("keeps the browser group exclusive with the last requested browser winning", () => {
@@ -56,15 +62,23 @@ describe("built-in MCP capabilities", () => {
     ).toEqual(["computer-use", "browser-playwright"]);
   });
 
-  it("treats computer-use as macOS-only", () => {
+  it("treats local desktop capabilities as macOS-only", () => {
     const computerUse = getBuiltinMcpCapability("computer-use")!;
     expect(isBuiltinMcpCapabilityAvailable(computerUse, "darwin")).toBe(true);
     expect(isBuiltinMcpCapabilityAvailable(computerUse, "linux")).toBe(false);
+    const screenMemory = getBuiltinMcpCapability("screen-memory")!;
+    expect(isBuiltinMcpCapabilityAvailable(screenMemory, "darwin")).toBe(true);
+    expect(isBuiltinMcpCapabilityAvailable(screenMemory, "linux")).toBe(false);
   });
 
   it("defines exactly the supported built-in ids", () => {
     expect(BUILTIN_MCP_CAPABILITIES.map((capability) => capability.id)).toEqual(
-      ["browser-chrome-devtools", "browser-playwright", "computer-use"],
+      [
+        "browser-chrome-devtools",
+        "browser-playwright",
+        "computer-use",
+        "screen-memory",
+      ],
     );
   });
 

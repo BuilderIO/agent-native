@@ -93,8 +93,47 @@ describe("document editor layout", () => {
     expect(source).toContain("type PendingDocumentSave");
     expect(source).toContain("pendingDocumentSaveRef.current = pending");
     expect(source).toContain("clearTimeout(saveTimeoutRef.current)");
+    expect(source).toContain("const flushPendingDocumentSave = useCallback");
+    expect(source).toContain("canEditWhenQueued: canEditRef.current");
+    expect(source).toContain("flushPendingDocumentSave(pending)");
+    expect(source).toContain("allowQueuedSave: true");
+    expect(source).toContain("handleBackgroundSaveError");
+    expect(source).toContain("const canEditRef = useRef(canEdit)");
     expect(source).toContain(
-      "void pending.save(pending.title, pending.content)",
+      "if (!options.allowQueuedSave && !canEditRef.current) return document",
+    );
+    expect(source).toContain("if (!canEditRef.current) return");
+  });
+
+  it("keeps read-only documents off editor-only realtime endpoints", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain(
+      'docId: canEdit && !isLocalFileDocument ? documentId : ""',
+    );
+    expect(source).toContain(
+      "canEdit && !isLocalFileDocument ? documentId : null",
+    );
+  });
+
+  it("keeps title and content save watermarks independent after partial saves", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain(
+      "saved?.title === lastSavedTitleRef.current.title",
+    );
+    expect(source).toContain(
+      "saved?.content === lastSavedContentRef.current.content",
     );
   });
 

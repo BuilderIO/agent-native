@@ -264,6 +264,12 @@ function hasStructuredFilters(filters: ReturnType<typeof buildFilterSummary>) {
 function buildGuidance(options: {
   query: string | undefined;
   structuredFilters: boolean;
+  truncated: boolean;
+  hasMore: boolean;
+  total: number;
+  returned: number;
+  offset: number;
+  limit: number;
 }) {
   const guidance: string[] = [];
 
@@ -285,6 +291,15 @@ function buildGuidance(options: {
     );
   }
 
+  if (options.truncated) {
+    const more = options.hasMore
+      ? `Fetch the next page with offset ${options.offset + options.returned}.`
+      : "This is the last page of the cohort.";
+    guidance.push(
+      `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}, offset ${options.offset}). This is a partial slice — do NOT treat it as the full cohort. Use total for counts/aggregates. ${more} Narrow the filters or, for exhaustive cohort analysis, use provider-api-request with provider = hubspot and stageAs.`,
+    );
+  }
+
   return guidance.join(" ");
 }
 
@@ -293,7 +308,7 @@ export default defineAction({
   // reusable across continuation retries (no re-fetch on resume).
   readOnly: true,
   description:
-    "Get HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields. This is a bounded deal analytics shortcut, not the full HubSpot capability surface. Use query for a specific customer/deal/account deep dive. For cohorts like products field = Publish, closed-won, pipeline = New Business, or close date in a range, use the structured product, pipeline, closedStatus, closedDateFrom, and closedDateTo filters instead of query when the answer is the deal list itself. If the cohort feeds a cross-source join, transcript/message/ticket search, exhaustive absence check, or downstream code/corpus workflow, prefer provider-api-catalog/provider-api-request with provider = hubspot and stageAs so the cohort is available as a staged dataset. For non-deal CRM records use hubspot-records; for arbitrary HubSpot endpoints, filters, associations, batch APIs, or payloads use provider-api-catalog/provider-api-docs/provider-api-request with provider = hubspot.",
+    "Get HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields. This is a bounded deal analytics shortcut, not the full HubSpot capability surface. Use query for a specific customer/deal/account deep dive. For cohorts like products field = Publish, closed-won, pipeline = New Business, or close date in a range, use the structured product, pipeline, closedStatus, closedDateFrom, and closedDateTo filters instead of query when the answer is the deal list itself. If the cohort feeds a cross-source join, transcript/message/ticket search, exhaustive absence check, or downstream code/corpus workflow, prefer provider-api-catalog/provider-api-request with provider = hubspot and stageAs so the cohort is available as a staged dataset. Both paths are bounded: at most limit deals are returned (default 25, max 100). The structured-filter path returns total as the true matched count and a truncated flag; page with offset (or narrow filters) instead of expecting the whole cohort in one call, since a full enriched cohort can be several MB and overruns extension and context budgets. For non-deal CRM records use hubspot-records; for arbitrary HubSpot endpoints, filters, associations, batch APIs, or payloads use provider-api-catalog/provider-api-docs/provider-api-request with provider = hubspot.",
   schema: z.object({
     properties: StringListSchema.describe(
       "Optional comma-separated extra HubSpot deal property names to include.",
@@ -344,7 +359,17 @@ export default defineAction({
       .min(1)
       .max(100)
       .default(25)
-      .describe("Maximum records to return when query is provided."),
+      .describe(
+        "Maximum deals to return. Applies to BOTH full-text query results and structured-filter cohorts. The structured-filter path returns at most this many enriched deals (use total for the true matched count and offset to page).",
+      ),
+    offset: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe(
+        "Number of structured-filter results to skip before returning limit deals. Use for paging through a large cohort; ignored when query is provided.",
+      ),
     after: z
       .string()
       .optional()
@@ -362,6 +387,7 @@ export default defineAction({
     closedDateTo,
     query,
     limit = 25,
+    offset = 0,
     after,
   }) => {
     const trimmedQuery = query?.trim();
@@ -414,7 +440,7 @@ export default defineAction({
       closedDateTo: closedDateTo?.trim(),
     });
     const structuredFilters = hasStructuredFilters(filters);
-    const deals = rawDeals
+    const matchedDeals = rawDeals
       .filter((d) => visibleIds.has(String(d.properties.pipeline)))
       .map((deal) => enrichDeal(deal, lookups, owners))
       .filter((deal) => {
@@ -435,18 +461,52 @@ export default defineAction({
         return matchesDateRange(deal, fromMs, toMs);
       });
 
+    // The full-text query path is already bounded by HubSpot's own `limit`.
+    // EVERY non-query call (with or without structured filters) scans the whole
+    // visible deal set, so bound the returned cohort here. This is deliberately
+    // NOT gated on `structuredFilters`: the unfiltered `hubspot-deals({})` call
+    // is the LARGEST payload of all (every visible deal), so it must be bounded
+    // too — a full enriched cohort can be multiple MB, which overruns the
+    // extension iframe bridge and the agent context. We
+    // keep `total` as the true matched count and signal partial slices via
+    // `truncated` so callers never mistake a page for the full cohort.
+    // `truncated` means "this response is only part of the cohort" (returned <
+    // total) and stays true on the LAST page of a paginated read too; pagination
+    // (is there a next page) is reported separately via `hasMore` / `nextOffset`.
+    const matchedTotal = matchedDeals.length;
+    const deals = trimmedQuery
+      ? matchedDeals
+      : matchedDeals.slice(offset, offset + limit);
+    const truncated = !trimmedQuery && deals.length < matchedTotal;
+    const hasMore = !trimmedQuery && offset + deals.length < matchedTotal;
+
     return {
       deals,
       stageLabels: lookups.stageLabels,
       pipelineLabels: lookups.pipelineLabels,
-      total: deals.length,
+      total: matchedTotal,
       count: deals.length,
       query: trimmedQuery || null,
       filters,
       nextAfter: Array.isArray(dealResult) ? null : dealResult.nextAfter,
+      ...(trimmedQuery
+        ? {}
+        : {
+            limit,
+            offset,
+            truncated,
+            hasMore,
+            nextOffset: hasMore ? offset + deals.length : null,
+          }),
       guidance: buildGuidance({
         query: trimmedQuery,
         structuredFilters,
+        truncated,
+        hasMore,
+        total: matchedTotal,
+        returned: deals.length,
+        offset,
+        limit,
       }),
       ...(Array.isArray(dealResult)
         ? {}

@@ -83,6 +83,60 @@ export function isTrustedFrameMessage(event: MessageEvent): boolean {
   return event.source === window.parent || event.source === window;
 }
 
+// ---------------------------------------------------------------------------
+// Content-height reporting (for MCP App embeds)
+// ---------------------------------------------------------------------------
+//
+// The embed shell renders this app in a cross-origin iframe and can't measure
+// its content, so we post the real content height for the shell to size to.
+// Only shrinks when the document flows to its natural height — embed layouts
+// must not force `100vh`/`h-screen` on the root, or scrollHeight just equals
+// the iframe height.
+let _contentHeightReportingStarted = false;
+let _lastReportedContentHeight = 0;
+
+function measureContentHeight(): number {
+  if (typeof document === "undefined") return 0;
+  const doc = document.documentElement;
+  const body = document.body;
+  return Math.ceil(
+    Math.max(doc ? doc.scrollHeight : 0, body ? body.scrollHeight : 0),
+  );
+}
+
+function reportContentHeight(): void {
+  if (typeof window === "undefined" || window.parent === window) return;
+  const height = measureContentHeight();
+  if (!height || Math.abs(height - _lastReportedContentHeight) < 2) return;
+  _lastReportedContentHeight = height;
+  sendToFrame("agentNative.contentHeight", { height });
+}
+
+function startContentHeightReporting(): void {
+  if (_contentHeightReportingStarted || typeof window === "undefined") return;
+  if (window.parent === window) return;
+  _contentHeightReportingStarted = true;
+  let scheduled = false;
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    window.requestAnimationFrame(() => {
+      scheduled = false;
+      reportContentHeight();
+    });
+  };
+  schedule();
+  for (const delay of [100, 300, 800, 1500]) window.setTimeout(schedule, delay);
+  try {
+    const observer = new ResizeObserver(schedule);
+    if (document.documentElement) observer.observe(document.documentElement);
+    if (document.body) observer.observe(document.body);
+  } catch {
+    window.addEventListener("resize", schedule, { passive: true });
+  }
+  window.addEventListener("load", schedule, { passive: true });
+}
+
 // Listen for frame origin message and cache it.
 // Only accept from the direct parent frame, and only set once.
 if (typeof window !== "undefined") {
@@ -102,6 +156,7 @@ if (typeof window !== "undefined") {
         { type: "agentNative.embeddedAppReady" },
         getFramePostMessageTargetOrigin() ?? window.location.origin,
       );
+      startContentHeightReporting();
     }
   });
 }

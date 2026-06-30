@@ -11,6 +11,9 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
+import type { UploadMode } from "@shared/recording-core.js";
+import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -19,6 +22,7 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
+import { setResumableSession } from "../server/lib/resumable-session.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
@@ -76,6 +80,45 @@ export default defineAction({
 
     console.log(`Created recording "${title}" (${id})`);
 
+    // Initialize a resumable upload session so chunks are streamed to the
+    // provider during recording (no post-stop assembly). Falls back gracefully
+    // to the SQL chunk path when no provider supports resumable uploads or the
+    // init fails.
+    let uploadMode: UploadMode = "buffered";
+    const uploadProvider = await getActiveFileUploadProviderForRequest();
+    if (args.requestStreaming && uploadProvider?.resumable) {
+      try {
+        const recordingMimeType =
+          args.mimeType?.split(";")[0]?.trim() || "video/webm";
+        const ext = /mp4|quicktime/i.test(recordingMimeType) ? "mp4" : "webm";
+        const filename = `${id}.${ext}`;
+        console.log(
+          `[create-recording] starting resumable session: provider=${uploadProvider.id} mimeType=${recordingMimeType}`,
+        );
+        const session = await uploadProvider.resumable.startSession(
+          filename,
+          recordingMimeType,
+          MAX_UPLOAD_BYTES,
+        );
+        await setResumableSession(id, {
+          providerId: uploadProvider.id,
+          sessionId: session.sessionId,
+          meta: session.meta,
+          bytesUploaded: 0,
+          lastCommittedIndex: -1,
+        });
+        uploadMode = "streaming";
+        console.log(
+          `[create-recording] resumable session ready for ${id}: provider=${uploadProvider.id}`,
+        );
+      } catch (err) {
+        console.warn(
+          `[create-recording] resumable session init failed, falling back to buffered:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
     return {
       id,
       organizationId,
@@ -84,6 +127,7 @@ export default defineAction({
       abortUrl: `/api/uploads/${id}/abort`,
       // Frontend substitutes {index}/{total}/{isFinal}
       uploadChunkUrlTemplate: `/api/uploads/${id}/chunk?index={index}&total={total}&isFinal={isFinal}`,
+      uploadMode,
     };
   },
 });

@@ -7,6 +7,7 @@ import {
 import {
   isOAuthConnected,
   getOAuthAccounts,
+  getRequestOrgId,
   resolveSecret,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -61,9 +62,9 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-async function getOAuth2Credentials(owner?: string) {
+async function getOAuth2Credentials(owner?: string, orgId?: string) {
   const credentials = (
-    await resolveGoogleProviderCredentialCandidates(owner)
+    await resolveGoogleProviderCredentialCandidates(owner, orgId)
   )[0];
   if (!credentials) {
     throw new Error(
@@ -73,8 +74,11 @@ async function getOAuth2Credentials(owner?: string) {
   return credentials;
 }
 
-async function getOAuth2RefreshCredentials(owner?: string) {
-  const candidates = await resolveGoogleProviderCredentialCandidates(owner);
+async function getOAuth2RefreshCredentials(owner?: string, orgId?: string) {
+  const candidates = await resolveGoogleProviderCredentialCandidates(
+    owner,
+    orgId,
+  );
   if (!candidates.length) {
     throw new Error(
       "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be saved in settings",
@@ -97,6 +101,7 @@ async function readCredentialPair(
 
 async function resolveGoogleProviderCredentialCandidates(
   owner?: string,
+  orgId?: string,
 ): Promise<GoogleOAuthCredentials[]> {
   const resolve = async () => {
     const primary = await readCredentialPair(
@@ -111,8 +116,9 @@ async function resolveGoogleProviderCredentialCandidates(
     if (!legacy || legacy.clientId === primary.clientId) return [primary];
     return [primary, legacy];
   };
+  const resolvedOrgId = orgId ?? getRequestOrgId();
   return owner
-    ? runWithRequestContext({ userEmail: owner }, resolve)
+    ? runWithRequestContext({ userEmail: owner, orgId: resolvedOrgId }, resolve)
     : await resolve();
 }
 
@@ -359,6 +365,7 @@ async function getValidAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
+  orgId?: string,
 ): Promise<string> {
   // Check if token is expired (with 5-minute buffer)
   if (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000) {
@@ -375,7 +382,7 @@ async function getValidAccessToken(
       for (const {
         clientId,
         clientSecret,
-      } of await getOAuth2RefreshCredentials(owner)) {
+      } of await getOAuth2RefreshCredentials(owner, orgId)) {
         try {
           const oauth2 = createOAuth2Client(clientId, clientSecret, "");
           const newTokens = await oauth2.refreshToken(tokens.refresh_token);
@@ -420,8 +427,9 @@ export async function getAuthUrl(
   redirectUri?: string,
   state?: string,
   owner?: string,
+  orgId?: string,
 ): Promise<string> {
-  const { clientId, clientSecret } = await getOAuth2Credentials(owner);
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
@@ -439,8 +447,9 @@ export async function exchangeCode(
   origin?: string,
   redirectUri?: string,
   owner?: string,
+  orgId?: string,
 ): Promise<string> {
-  const { clientId, clientSecret } = await getOAuth2Credentials(owner);
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
@@ -621,6 +630,7 @@ export async function getPrimaryAccountPhotoUrl(
 
 export async function getAuthStatus(
   forEmail?: string,
+  orgId?: string,
 ): Promise<GoogleAuthStatus> {
   const oauthAccounts = await getOAuthAccounts("google", forEmail);
 
@@ -642,6 +652,7 @@ export async function getAuthStatus(
         account.accountId,
         tokens,
         forEmail,
+        orgId,
       );
       tokenValid = true;
       photoUrl = await resolveAccountPhotoUrl(accessToken, photoUrl);

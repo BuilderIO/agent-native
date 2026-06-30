@@ -112,6 +112,10 @@ export interface StyleBrief {
   texture?: string;
   composition?: string;
   lighting?: string;
+  fontFamilies?: string[];
+  fontWeights?: string[];
+  letterforms?: string;
+  caseStyle?: string;
   typographyPolicy?: string;
   doNot?: string[];
 }

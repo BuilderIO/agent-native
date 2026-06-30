@@ -14,6 +14,7 @@ export default defineAction({
   }),
   readOnly: true,
   requiresAuth: false,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
   run: async ({ id }) => {
     const access = await resolveAccess("design", id);

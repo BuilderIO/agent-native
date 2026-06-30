@@ -15,8 +15,15 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
   `presetId`, and `media-type` references choose image generation versus video
   generation. Call `view-screen` when the user says "this library" or "this
   image" and you need fresh IDs. The image model may default from the composer
-  image-model picker; all other generation settings should be explicit action
-  args, preset values, or action schema defaults.
+  image-model picker.
+- A tagged `@preset` (presetId) owns `aspectRatio`, `imageSize`, `model`,
+  `tier`, and `category`. When a preset is set, do NOT pass those args yourself —
+  leave them out so the preset's saved values are used. You cannot see the
+  preset's settings from the presetId, so passing your own guess silently
+  overrides the preset (this is the usual cause of a preset's aspect ratio being
+  ignored). Pass one of these args alongside a preset ONLY when the user
+  explicitly asks for a value that differs from the preset. When there is no
+  preset, set them explicitly or rely on the action schema defaults.
 - Use category-tagged references. Blog heroes should prefer `hero`; diagrams
   should prefer `diagram`; product imagery should include `product` and `logo`
   references.

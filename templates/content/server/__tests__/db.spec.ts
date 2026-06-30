@@ -111,6 +111,23 @@ describe("content database migrations", () => {
     );
   });
 
+  it("adds Builder body hydration state additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_status TEXT NOT NULL DEFAULT 'hydrated'",
+    );
+    expect(source).toContain(
+      "CREATE TABLE IF NOT EXISTS content_database_body_hydration_queue",
+    );
+    expect(source).toContain(
+      "CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx",
+    );
+  });
+
   it("cleans source review and execution rows when database pages are deleted", () => {
     const source = readFileSync(
       join(__dirname, "..", "..", "actions", "_database-utils.ts"),

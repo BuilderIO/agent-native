@@ -575,9 +575,11 @@ export function BuilderSourceReviewDialog({
                               <div className="font-medium">
                                 {row.bodyChange.summary}
                               </div>
-                              <div className="mt-1 text-muted-foreground">
-                                {t("database.builderBodyEditsNeedSaferPath")}
-                              </div>
+                              {row.bodyChange.warnings?.length ? (
+                                <div className="mt-1 text-muted-foreground">
+                                  {row.bodyChange.warnings.join(" ")}
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
                           {showConflict ? (

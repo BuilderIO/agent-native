@@ -30,7 +30,7 @@ import {
 
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
-import { BuilderSetupCard } from "../chat/run-recovery.js";
+import { BuilderConnectCta, BuilderSetupCard } from "../chat/run-recovery.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import {
   fetchAgentEngineConfiguredState,
@@ -578,16 +578,35 @@ function PromptComposerInner({
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
   );
+  const useInlineMissingKeySetup = layoutVariant === "compact";
 
   return (
     <>
-      {missingApiKey ? (
+      {missingApiKey && !useInlineMissingKeySetup ? (
         <BuilderSetupCard
           onConnected={handleBuilderConnected}
           bouncePulse={missingKeyBouncePulse}
           fullWidth
           layout="sidebar"
         />
+      ) : null}
+      {missingApiKey && useInlineMissingKeySetup ? (
+        <div className="mb-2 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
+          <div className="flex flex-col gap-2">
+            <div className="min-w-0">
+              <p className="text-[12px] font-medium text-foreground">
+                Connect AI
+              </p>
+              <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                Connect Builder.io before sending.
+              </p>
+            </div>
+            <BuilderConnectCta
+              variant="compact"
+              onConnected={handleBuilderConnected}
+            />
+          </div>
+        </div>
       ) : null}
       <AgentComposerFrame
         className={cn(

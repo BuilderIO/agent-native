@@ -376,6 +376,14 @@ zu platzieren. Nummerierte Flows wie `localhost:1234/onboarding/1`,
 `/onboarding/2` und `/onboarding/3` bleiben als getrennte, geordnete Screens im
 Overview-Modus erhalten.
 
+Die Einstiegsroute `/visual-edit` kann laden, bevor der Betrachter angemeldet
+ist, und öffentliche `/design/:id`-Links können öffentliche Designs ohne Sitzung
+schreibgeschützt rendern. Das Speichern des Screen-Layouts, Generieren neuer
+Screens oder Teilen erstellt weiterhin accountgebundene Design-Daten:
+abgemeldete Benutzer gehen durch `/_agent-native/sign-in?return=...`;
+anschließend speichert oder kopiert Design das Projekt in dieses Konto, bevor
+der Teilen-Dialog geöffnet wird.
+
 Für stabile Ebenennamen fügen Sie wichtigen Elementen
 `data-agent-native-layer-name` hinzu. Design verwendet dies vor
 semantischen/textbasierten Fallbacks und kann Umbenennungen durch Bearbeiten

@@ -3,6 +3,8 @@ name: visual-edit
 description: >-
   Open a running local app in Design overview mode as URL-backed iframe screens
   for visual editing, flow review, duplication, and route-state exploration.
+  Use when the user asks to inspect, compare, or edit a real local app visually
+  in Design.
 metadata:
   visibility: exported
 ---
@@ -31,6 +33,17 @@ iframe-backed screens on the infinite canvas.
 - When the user gives a named flow or numbered screen list, preserve that order
   and create one screen per URL/path. Shorthand like
   `localhost:1234/onboarding/1` means `http://localhost:1234/onboarding/1`.
+
+## Review Quality
+
+- Treat the running app as the truth. Preserve its component language, tokens,
+  route state, and real content unless the user explicitly asks for a new visual
+  direction.
+- Use multiple URL states to reveal meaningful UX moments: empty/loading/error
+  states, focused panels, modals, responsive breakpoints, and completed flow
+  steps when those matter to the review.
+- For visual edits, compare before/after at the relevant viewport sizes and
+  check key hover/focus/scroll states when the app exposes them.
 
 ## Required Local Bridge
 

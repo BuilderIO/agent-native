@@ -17,5 +17,6 @@
     "react-router.config.ts",
     ".react-router/types/**/*",
     ".generated/**/*"
-  ]
+  ],
+  "exclude": ["node_modules", "dist", "app/**/*.bridge.ts"]
 }

@@ -77,6 +77,12 @@ function bundleWith(skills: Skill[]): AgentsBundle {
   };
 }
 
+function repoPath(...segments: string[]): string {
+  const fromPackageRoot = path.resolve(process.cwd(), "..", "..", ...segments);
+  if (fs.existsSync(fromPackageRoot)) return fromPackageRoot;
+  return path.resolve(process.cwd(), ...segments);
+}
+
 describe("parseSkillFrontmatter", () => {
   it("parses simple inline name + description", () => {
     const meta = parseSkillFrontmatter(
@@ -190,6 +196,8 @@ describe("generateSkillsPromptBlock scope filtering", () => {
     const block = generateSkillsPromptBlock(bundle);
     expect(block).toContain("runtime-one");
     expect(block).not.toContain("dev-one");
+    expect(block).toContain('docs-search --slug "skill-runtime-one"');
+    expect(block).not.toContain('bash(command="cat <skill-dir>/SKILL.md")');
   });
 
   it("returns empty string when every skill is dev-scoped", () => {
@@ -209,6 +217,8 @@ describe("generateDevelopmentSkillsPromptBlock scope filtering", () => {
     expect(block).toContain("dev-one");
     expect(block).toContain("shared-one");
     expect(block).not.toContain("runtime-one");
+    expect(block).toContain('bash(command="cat <skill-dir>/SKILL.md")');
+    expect(block).not.toContain('docs-search --slug "skill-dev-one"');
   });
 });
 
@@ -340,5 +350,32 @@ describe("readAgentsBundleFromFs", () => {
       fs.rmSync(tpl, { recursive: true, force: true });
       fs.rmSync(ws.dir, { recursive: true, force: true });
     }
+  });
+
+  it("loads Design template runtime skills with usable trigger descriptions", () => {
+    const bundle = readAgentsBundleFromFs(repoPath("templates", "design"));
+    const runtimeSkills = getRuntimeSkills(bundle);
+    const expected = [
+      "design-generation",
+      "design-systems",
+      "export-handoff",
+      "visual-edit",
+    ];
+
+    for (const name of expected) {
+      const skill = runtimeSkills.find((candidate) => {
+        return candidate.meta.name === name;
+      });
+      expect(skill, `expected runtime skill ${name}`).toBeDefined();
+      expect(skill!.meta.description.trim()).toContain("Use when");
+    }
+
+    const promptBlock = generateSkillsPromptBlock(bundle);
+    expect(promptBlock).toContain("Generate or refine complete interactive");
+    expect(promptBlock).toContain("Export Design work");
+    expect(promptBlock).toContain(
+      'docs-search --slug "skill-design-generation"',
+    );
+    expect(promptBlock).toContain('docs-search --slug "skill-visual-edit"');
   });
 });

@@ -41,14 +41,27 @@ export async function runDashboardReportsOnce(): Promise<{
     for (const sub of batch) {
       processed++;
       try {
-        await runWithRequestContext(
+        const result = await runWithRequestContext(
           {
             userEmail: sub.ownerEmail,
             orgId: sub.orgId ?? undefined,
           },
-          () => sendDashboardReportSubscription(sub),
+          () =>
+            sendDashboardReportSubscription(sub, { requireScreenshot: true }),
         );
-        await markDashboardReportResult(sub, "success");
+        if (result.screenshotAttached) {
+          await markDashboardReportResult(sub, "success");
+        } else {
+          failed++;
+          const message = result.screenshotError
+            ? `Dashboard screenshot unavailable: ${result.screenshotError}`
+            : "Dashboard screenshot unavailable";
+          console.error(
+            `[dashboard-report] Subscription ${sub.id} sent without a screenshot:`,
+            message,
+          );
+          await markDashboardReportResult(sub, "error", message);
+        }
       } catch (err: any) {
         failed++;
         const message = err?.message ?? String(err);

@@ -18,6 +18,7 @@ export default defineConfig({
       ssrStubs: [
         "shiki",
         "mermaid",
+        "dom-to-pptx",
         "@excalidraw/excalidraw",
         "@excalidraw/mermaid-to-excalidraw",
         "@agent-native/pinpoint",

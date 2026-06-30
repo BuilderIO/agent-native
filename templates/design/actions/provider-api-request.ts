@@ -71,8 +71,8 @@ const PaginationSchema = z
 export default defineAction({
   description:
     "Make an arbitrary authenticated HTTP request to a Design-connected provider API. " +
-    "Use this as the flexible escape hatch when a convenience action cannot express the needed GitHub endpoint, file tree query, issue/search query, request body, pagination mode, payload shape, or API version. " +
-    "The request is constrained to the provider host, uses the saved GITHUB_TOKEN automatically, blocks private/internal URLs, and redacts secrets from responses. " +
+    "Use this as the flexible escape hatch when a convenience action cannot express the needed GitHub endpoint, Figma file/library endpoint, request body, pagination mode, payload shape, or API version. " +
+    "The request is constrained to the provider host, uses saved scoped credentials such as GITHUB_TOKEN or FIGMA_ACCESS_TOKEN automatically, blocks private/internal URLs, and redacts secrets from responses. " +
     "\n\nSTAGING MODE (preferred for large responses): Pass stageAs to write response items into a scratch dataset instead of returning the raw body. " +
     "Returns { dataset, rowCount, columns, sampleRows } so only a compact summary enters context. Use query-staged-dataset to aggregate, filter, and project the data without re-fetching. " +
     "\n\nPAGINATION: When stageAs is set, pass pagination config to fetch all pages server-side into the same dataset. For GitHub page pagination, use pageParam='page', pageSize from per_page, and itemsPath when the response object contains an items array.",
@@ -83,7 +83,7 @@ export default defineAction({
       .string()
       .min(1)
       .describe(
-        "Provider API path such as /repos/{owner}/{repo}/contents/{path}, /search/code, /issues, or a full URL on an allowed provider host. Use placeholders from provider-api-catalog when provided.",
+        "Provider API path such as /repos/{owner}/{repo}/contents/{path}, /search/code, /files/{fileKey}/components, /images/{fileKey}, or a full URL on an allowed provider host. Use placeholders from provider-api-catalog when provided.",
       ),
     query: z
       .unknown()

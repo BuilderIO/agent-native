@@ -108,11 +108,11 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5 md:px-6">
+    <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
       <Card>
         <CardContent className="p-3">
-          <div className="grid gap-2 lg:grid-cols-[150px_minmax(260px,1fr)_160px_auto_auto] lg:items-center">
-            <div className="flex items-center gap-2 px-1 text-sm font-medium">
+          <div className="analytics-sessions-filter-grid grid gap-2">
+            <div className="analytics-sessions-filter-label flex items-center gap-2 px-1 text-sm font-medium">
               <IconFilter className="h-4 w-4 text-muted-foreground" />
               {t("sessions.segmentFilters")}
             </div>
@@ -171,7 +171,7 @@ export default function SessionsPage() {
             </Button>
           </div>
           {filtersOpen ? (
-            <div className="mt-3 grid gap-3 border-t pt-3 lg:grid-cols-2">
+            <div className="analytics-sessions-filter-extra mt-3 grid gap-3 border-t pt-3">
               <div className="rounded-md border bg-muted/20 p-3">
                 <div className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">
                   {t("sessions.userFilters")}
@@ -229,13 +229,13 @@ export default function SessionsPage() {
                     <button
                       key={recording.id}
                       type="button"
-                      className="grid w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none md:grid-cols-[104px_minmax(170px,0.85fr)_minmax(260px,1.25fr)_minmax(130px,0.55fr)] md:items-center"
+                      className="analytics-session-row grid w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none"
                       onClick={() => navigate(href)}
                       aria-label={t("sessions.watchReplay")}
                     >
                       <span className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-md bg-primary/10 font-medium text-primary">
                         <IconPlayerPlay className="h-4 w-4 fill-current" />
-                        {formatDuration(recording.durationMs)}
+                        {formatSessionDuration(recording.durationMs)}
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-foreground">
@@ -248,7 +248,7 @@ export default function SessionsPage() {
                           })}
                         </span>
                       </span>
-                      <span className="min-w-0">
+                      <span className="analytics-session-path min-w-0">
                         <span className="block truncate text-sm font-medium text-primary">
                           {pathLabel(recording)}
                         </span>
@@ -259,13 +259,13 @@ export default function SessionsPage() {
                             shortId(recording.sessionId)}
                         </span>
                       </span>
-                      <span className="min-w-0 text-left md:text-right">
+                      <span className="analytics-session-app-meta min-w-0 text-left">
                         <span className="block truncate text-sm text-muted-foreground">
                           {recording.app ||
                             recording.template ||
                             t("sessions.unknownApp")}
                         </span>
-                        <span className="mt-1 flex flex-wrap gap-1.5 md:justify-end">
+                        <span className="analytics-session-badges mt-1 flex flex-wrap gap-1.5">
                           {recording.errorCount > 0 ? (
                             <Badge variant="destructive">
                               {t("sessions.errorCount", {
@@ -310,7 +310,7 @@ function EmptySessionsState() {
   return (
     <div className="p-6 lg:p-8">
       {showStorageHint ? <ReplayStorageHint /> : null}
-      <div className="grid min-h-[380px] gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <div className="analytics-sessions-empty-grid grid min-h-[380px] gap-6">
         <div className="flex flex-col justify-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted/40">
             <IconPlayerPlay className="h-5 w-5 text-primary" />
@@ -523,13 +523,11 @@ function formatDateTime(value: string): string {
   }).format(date);
 }
 
-function formatDuration(ms: number | null): string {
-  if (!ms || !Number.isFinite(ms) || ms <= 0) return "0s";
+export function formatSessionDuration(ms: number | null): string {
+  if (!ms || !Number.isFinite(ms) || ms <= 0) return "0m";
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+  if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return `${hours}h ${remainingMinutes}m`;

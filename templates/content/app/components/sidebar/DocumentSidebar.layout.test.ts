@@ -121,4 +121,18 @@ describe("document sidebar layout", () => {
       sidebar.indexOf("<ExtensionsSidebarSection />"),
     );
   });
+
+  it("keeps favorite rows constrained so long titles ellipsize", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const favoriteRowWidth =");
+    expect(sidebar).toContain("{showFavorites && (");
+    expect(sidebar).toContain('"mb-2 min-w-0"');
+    expect(sidebar).toContain(
+      '"flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm"',
+    );
+    expect(sidebar).toContain("width:");
+    expect(sidebar).toContain('"min-w-0 flex-1 truncate"');
+    expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
+  });
 });

@@ -133,6 +133,31 @@ export function markAgentChatHomeHandoff(storageKey?: string | null): void {
 }
 
 /**
+ * Check whether a full-page-chat handoff marker is still recent without
+ * consuming it. Use this when a chat route should only restore or animate a
+ * conversation if the user actually chatted a moment ago.
+ */
+export function isAgentChatHomeHandoffActive(
+  storageKey?: string | null,
+  options: AgentChatHomeHandoffOptions = {},
+): boolean {
+  if (typeof window === "undefined") return false;
+
+  let startedAt = 0;
+  try {
+    const raw = window.sessionStorage.getItem(
+      agentChatHomeHandoffKey(storageKey),
+    );
+    startedAt = raw ? Number.parseInt(raw, 10) : 0;
+  } catch {
+    startedAt = 0;
+  }
+
+  const ttlMs = options.ttlMs ?? AGENT_CHAT_HOME_HANDOFF_TTL_MS;
+  return Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
+}
+
+/**
  * Consume a recent full-page-chat handoff marker. Returns true only once per
  * marker, so layouts can keep `openOnChatRunning` scoped to the route that
  * actually received the handoff.
@@ -153,9 +178,15 @@ export function consumeAgentChatHomeHandoff(
     startedAt = 0;
   }
 
+  return isAgentChatHomeHandoffActiveFromTimestamp(startedAt, options);
+}
+
+function isAgentChatHomeHandoffActiveFromTimestamp(
+  startedAt: number,
+  options: AgentChatHomeHandoffOptions,
+): boolean {
   const ttlMs = options.ttlMs ?? AGENT_CHAT_HOME_HANDOFF_TTL_MS;
-  const active = Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
-  return active;
+  return Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
 }
 
 /**

@@ -378,11 +378,14 @@ describe("session replay", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://analytics.example.test/session-replay");
     expect(url).not.toContain("anpk_test");
-    expect(headerValue(init.headers, "content-type")).toBe("application/json");
-    expect(headerValue(init.headers, "content-encoding")).toBe("gzip");
-    expect(headerValue(init.headers, "x-agent-native-analytics-key")).toBe(
-      "anpk_test",
+    expect(headerValue(init.headers, "content-type")).toBe(
+      "text/plain;charset=UTF-8",
     );
+    expect(init.keepalive).toBe(true);
+    expect(headerValue(init.headers, "content-encoding")).toBeUndefined();
+    expect(
+      headerValue(init.headers, "x-agent-native-analytics-key"),
+    ).toBeUndefined();
     const body = await parseReplayUpload(init);
     expect(body).toMatchObject({
       publicKey: "anpk_test",
@@ -408,6 +411,72 @@ describe("session replay", () => {
 
     stopSessionReplay();
     expect(stop).toHaveBeenCalled();
+  });
+
+  it("does not force keepalive for oversized cross-origin replay batches", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({
+      type: 3,
+      data: { href: "/inbox", text: "x".repeat(70_000) },
+    });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(headerValue(init.headers, "content-type")).toBe(
+      "text/plain;charset=UTF-8",
+    );
+    expect(init.keepalive).toBe(false);
+    expect(headerValue(init.headers, "content-encoding")).toBeUndefined();
+    expect(
+      headerValue(init.headers, "x-agent-native-analytics-key"),
+    ).toBeUndefined();
+  });
+
+  it("keeps gzip uploads for same-origin replay collectors", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/analytics/replay");
+    expect(headerValue(init.headers, "content-type")).toBe("application/json");
+    expect(headerValue(init.headers, "content-encoding")).toBe("gzip");
+    expect(headerValue(init.headers, "x-agent-native-analytics-key")).toBe(
+      "anpk_test",
+    );
+    const body = await parseReplayUpload(init);
+    expect(body).toMatchObject({
+      publicKey: "anpk_test",
+      type: "session_replay",
+      eventCount: 1,
+    });
+    expect(body.events[0].data.href).toBe("/inbox");
   });
 
   it("deduplicates concurrent replay startup attempts", async () => {
@@ -622,9 +691,12 @@ describe("session replay", () => {
     expect(replayCalls).toHaveLength(1);
     const [url, init] = replayCalls[0] as [string, RequestInit];
     expect(url).toBe("https://analytics.example.test/api/analytics/replay");
-    expect(init.headers).toMatchObject({
-      "X-Agent-Native-Analytics-Key": "anpk_configured",
-    });
+    expect(headerValue(init.headers, "content-type")).toBe(
+      "text/plain;charset=UTF-8",
+    );
+    expect(
+      headerValue(init.headers, "x-agent-native-analytics-key"),
+    ).toBeUndefined();
   });
 
   it("applies configureTracking default props to replay metadata", async () => {

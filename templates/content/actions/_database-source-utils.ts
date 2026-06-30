@@ -1,8 +1,10 @@
+import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabase,
+  ContentDatabaseBodyHydrationSummary,
   ContentDatabaseItem,
   ContentDatabaseResponse,
   ContentDatabaseSource,
@@ -32,6 +34,14 @@ import type {
   DocumentPropertyValue,
 } from "../shared/api.js";
 import {
+  builderBlocksHash,
+  builderBlocksToReadableMarkdown,
+  builderEntryToReadableMdxBundle,
+  builderEntryToMdxBundle,
+  builderReadableBodyToBuilderBlocks,
+  builderMdxBodyToBuilderBlocks,
+} from "../shared/builder-mdx.js";
+import {
   parsePropertyOptions,
   serializePropertyOptions,
   serializePropertyValue,
@@ -44,6 +54,11 @@ import {
   type BuilderCmsReadState,
 } from "./_builder-cms-read-client.js";
 import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  BUILDER_CMS_BODY_READABLE_MAP_KEY,
+  BUILDER_CMS_BODY_SIDECARS_KEY,
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
@@ -63,6 +78,9 @@ type ContentDatabaseSourceFieldRowDb =
   typeof schema.contentDatabaseSourceFields.$inferSelect;
 type ContentDatabaseSourceRecordRowDb =
   typeof schema.contentDatabaseSourceRows.$inferSelect;
+type ContentDatabaseItemRowDb = typeof schema.contentDatabaseItems.$inferSelect;
+type ContentDatabaseBodyHydrationQueueRowDb =
+  typeof schema.contentDatabaseBodyHydrationQueue.$inferSelect;
 type ContentDatabaseSourceChangeSetRowDb =
   typeof schema.contentDatabaseSourceChangeSets.$inferSelect;
 type ContentDatabaseSourceChangeReviewRowDb =
@@ -446,6 +464,836 @@ function sameSourceFieldValue(a: unknown, b: unknown): boolean {
   return normalize(a) === normalize(b);
 }
 
+function stringSourceValue(
+  values: Record<string, DocumentPropertyValue>,
+  key: string,
+) {
+  const value = values[key];
+  return typeof value === "string" ? value : null;
+}
+
+function bodyExcerpt(value: string | null | undefined) {
+  const excerpt = value?.trim().slice(0, 140) ?? "";
+  return excerpt || null;
+}
+
+const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
+const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
+const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 8;
+const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v4";
+
+async function builderBodySnapshotForEntry(entry: BuilderCmsSourceEntry) {
+  if (!entry.rawEntry) return null;
+  const [readableBundle, losslessBundle] = await Promise.all([
+    builderEntryToReadableMdxBundle(entry.rawEntry),
+    builderEntryToMdxBundle(entry.rawEntry),
+  ]);
+  const sidecars: Record<string, string> = {};
+  for (const [path, source] of Object.entries(losslessBundle.files)) {
+    if (path !== losslessBundle.mdx.path) sidecars[path] = source;
+  }
+  return {
+    content: readableBundle.mdx.body,
+    losslessContent: losslessBundle.mdx.body,
+    blocksHash: builderBlocksHash(losslessBundle.blocks),
+    readableMapJson: null,
+    sidecarsJson: JSON.stringify(sidecars),
+  };
+}
+
+export function builderBodyHydrationVersion(entry: BuilderCmsSourceEntry) {
+  const hash = stringSourceValue(
+    entry.sourceValues,
+    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  );
+  return `${hash ?? entry.updatedAt ?? entry.id}:${BUILDER_BODY_HYDRATION_CODEC_VERSION}`;
+}
+
+function normalizeHydrationLimit(limit: number | null | undefined) {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) {
+    return BUILDER_BODY_HYDRATION_BATCH_LIMIT;
+  }
+  return Math.max(1, Math.min(Math.floor(limit), 50));
+}
+
+function builderBodyIsRawPlaceholderOnly(content: string | null | undefined) {
+  const trimmed = content?.trim() ?? "";
+  return (
+    trimmed.startsWith("<BuilderRawBlock") &&
+    !trimmed.includes("<BuilderText") &&
+    !trimmed.includes("<BuilderTabbedContent") &&
+    !trimmed.includes("<BuilderCodeBlock")
+  );
+}
+
+function builderBodyHasLegacyPreservedComponentPlaceholders(
+  content: string | null | undefined,
+) {
+  const value = content ?? "";
+  return /^>\s*Builder .+ component preserved from source\.$/m.test(value);
+}
+
+function builderBodyWithoutSourceComponentMarkers(
+  content: string | null | undefined,
+) {
+  return (content ?? "")
+    .replace(/(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function builderBodyWithoutImageSourceComponentMarkers(
+  content: string | null | undefined,
+) {
+  return (content ?? "")
+    .replace(/(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g, (marker) =>
+      marker.includes('componentName="Image"') ? "\n" : marker,
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function builderBodyWithoutMarkdownImages(content: string | null | undefined) {
+  return (content ?? "")
+    .replace(
+      /(?:^|\n)!\[(?:\\.|[^\]\\])*\]\(\S+?(?:\s+"[^"]*")?\)[ \t]*(?=\n|$)/g,
+      "\n",
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function normalizedBuilderBodyProse(content: string | null | undefined) {
+  return (content ?? "")
+    .normalize("NFKC")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function builderBodyNeedsSourceComponentWrite(args: {
+  currentContent: string | null | undefined;
+  nextContent: string | null | undefined;
+}) {
+  const nextContent = args.nextContent ?? "";
+  const currentContent = args.currentContent ?? "";
+  const needsSourceComponentRefresh =
+    nextContent.includes("<SourceComponent") &&
+    normalizedBuilderBodyProse(
+      builderBodyWithoutSourceComponentMarkers(nextContent),
+    ) ===
+      normalizedBuilderBodyProse(
+        builderBodyWithoutSourceComponentMarkers(currentContent),
+      );
+  if (needsSourceComponentRefresh) return true;
+  if (
+    !currentContent.includes('componentName="Image"') ||
+    !nextContent.includes("![")
+  ) {
+    return false;
+  }
+  return (
+    normalizedBuilderBodyProse(
+      builderBodyWithoutMarkdownImages(nextContent),
+    ) ===
+    normalizedBuilderBodyProse(
+      builderBodyWithoutImageSourceComponentMarkers(currentContent),
+    )
+  );
+}
+
+function builderStoredBodyIsStale(args: {
+  item: Pick<
+    ContentDatabaseItemRowDb,
+    "bodyHydrationStatus" | "bodyHydrationVersion"
+  >;
+  entry: BuilderCmsSourceEntry;
+}) {
+  return (
+    args.item.bodyHydrationStatus !== "hydrated" ||
+    args.item.bodyHydrationVersion !== builderBodyHydrationVersion(args.entry)
+  );
+}
+
+async function readableBuilderBodyFromStoredLossless(args: {
+  losslessContent: string | null;
+  sidecarsJson: string | null;
+}) {
+  if (!args.losslessContent?.trim()) return null;
+  const sidecars =
+    parseObject<Record<string, string>>(args.sidecarsJson ?? "{}") ?? {};
+  const blocks = await builderMdxBodyToBuilderBlocks(
+    args.losslessContent,
+    sidecars,
+  );
+  if (blocks.length === 0) return null;
+  return builderBlocksToReadableMarkdown(blocks);
+}
+
+async function refreshBuilderBodySourceValuesFromStoredLossless(
+  entry: BuilderCmsSourceEntry,
+) {
+  const losslessContent = stringSourceValue(
+    entry.sourceValues,
+    BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  );
+  const sidecarsJson = stringSourceValue(
+    entry.sourceValues,
+    BUILDER_CMS_BODY_SIDECARS_KEY,
+  );
+  const content = await readableBuilderBodyFromStoredLossless({
+    losslessContent,
+    sidecarsJson,
+  });
+  if (!content) return entry;
+  return {
+    ...entry,
+    sourceValues: {
+      ...entry.sourceValues,
+      [BUILDER_CMS_BODY_CONTENT_KEY]: content,
+    },
+  };
+}
+
+function builderEntryFromSourceRow(args: {
+  row: Pick<
+    ContentDatabaseSourceRecordRowDb,
+    "sourceRowId" | "sourceValuesJson" | "lastSourceUpdatedAt"
+  >;
+  sourceTable: string;
+  fallbackTitle: string;
+}): BuilderCmsSourceEntry | null {
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(
+      args.row.sourceValuesJson,
+    ) ?? {};
+  const id = args.row.sourceRowId;
+  if (!id) return null;
+  return {
+    id,
+    model: args.sourceTable,
+    title:
+      stringSourceValue(sourceValues, "data.title") ??
+      stringSourceValue(sourceValues, "title") ??
+      args.fallbackTitle,
+    urlPath:
+      stringSourceValue(sourceValues, "data.url") ??
+      stringSourceValue(sourceValues, "url") ??
+      "",
+    updatedAt:
+      args.row.lastSourceUpdatedAt ??
+      stringSourceValue(sourceValues, "lastUpdated") ??
+      id,
+    sourceValues,
+  };
+}
+
+export async function enqueueBuilderBodyHydration(args: {
+  sourceId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  databaseItemId: string;
+  documentId: string;
+  sourceTable: string;
+  entry: BuilderCmsSourceEntry;
+  now: string;
+  priority?: number;
+}) {
+  const db = getDb();
+  const sourceRowId = args.entry.id;
+  const priority = args.priority ?? BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY;
+  const [existing] = await db
+    .select()
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        args.databaseItemId,
+      ),
+    );
+  const values = {
+    ownerEmail: args.ownerEmail,
+    orgId: args.orgId,
+    sourceId: args.sourceId,
+    databaseItemId: args.databaseItemId,
+    documentId: args.documentId,
+    sourceRowId,
+    sourceTable: args.sourceTable,
+    sourceEntryJson: JSON.stringify(args.entry),
+    priority: Math.min(existing?.priority ?? priority, priority),
+    lastError: null,
+    updatedAt: args.now,
+  };
+  if (existing) {
+    await db
+      .update(schema.contentDatabaseBodyHydrationQueue)
+      .set(values)
+      .where(eq(schema.contentDatabaseBodyHydrationQueue.id, existing.id));
+  } else {
+    await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+      id: crypto.randomUUID(),
+      ...values,
+      attempts: 0,
+      lastAttemptedAt: null,
+      createdAt: args.now,
+    });
+  }
+  await db
+    .update(schema.contentDatabaseItems)
+    .set({
+      bodyHydrationStatus: "pending",
+      bodyHydrationError: null,
+      updatedAt: args.now,
+    })
+    .where(eq(schema.contentDatabaseItems.id, args.databaseItemId));
+}
+
+export async function enqueueBuilderBodyHydrationForItems(args: {
+  sourceId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  sourceTable: string;
+  items: ContentDatabaseItem[];
+  builderEntriesByDocumentId: Map<string, BuilderCmsSourceEntry> | undefined;
+  now: string;
+}) {
+  if (!args.builderEntriesByDocumentId?.size) return;
+  for (const item of args.items) {
+    const entry = args.builderEntriesByDocumentId.get(item.document.id);
+    if (!entry?.rawEntry) continue;
+    if (
+      item.bodyHydration?.status === "hydrated" &&
+      item.bodyHydration.version === builderBodyHydrationVersion(entry) &&
+      !builderBodyIsRawPlaceholderOnly(item.document.content)
+    ) {
+      continue;
+    }
+    await enqueueBuilderBodyHydration({
+      sourceId: args.sourceId,
+      ownerEmail: args.ownerEmail,
+      orgId: args.orgId,
+      databaseItemId: item.id,
+      documentId: item.document.id,
+      sourceTable: args.sourceTable,
+      entry,
+      now: args.now,
+    });
+  }
+  void processBuilderBodyHydrationQueue({
+    sourceId: args.sourceId,
+    limit: BUILDER_BODY_HYDRATION_BATCH_LIMIT,
+  }).catch(() => undefined);
+}
+
+function parseHydrationEntry(
+  row: ContentDatabaseBodyHydrationQueueRowDb,
+): BuilderCmsSourceEntry | null {
+  const parsed = parseObject<BuilderCmsSourceEntry>(row.sourceEntryJson);
+  return parsed?.id ? parsed : null;
+}
+
+async function processBuilderBodyHydrationJob(
+  row: ContentDatabaseBodyHydrationQueueRowDb,
+  now: string,
+) {
+  const db = getDb();
+  const [claimed] = await db
+    .update(schema.contentDatabaseBodyHydrationQueue)
+    .set({
+      attempts: row.attempts + 1,
+      lastAttemptedAt: now,
+      lastError: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+        eq(
+          schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+          row.sourceEntryJson,
+        ),
+      ),
+    )
+    .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+  if (!claimed) return;
+
+  await db
+    .update(schema.contentDatabaseItems)
+    .set({
+      bodyHydrationStatus: "hydrating",
+      bodyHydrationAttemptedAt: now,
+      bodyHydrationError: null,
+      updatedAt: now,
+    })
+    .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+
+  const entry = parseHydrationEntry(row);
+  if (!entry) throw new Error("Builder body hydration entry is missing.");
+  const entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
+    await withBuilderBodySourceValues(entry),
+  );
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(
+      (
+        await db
+          .select({
+            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+              eq(
+                schema.contentDatabaseSourceRows.databaseItemId,
+                row.databaseItemId,
+              ),
+            ),
+          )
+      )[0]?.sourceValuesJson ?? "{}",
+    ) ?? {};
+  const nextValues = {
+    ...sourceValues,
+    ...entryWithBody.sourceValues,
+  };
+  const nextContent =
+    stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+  const [document] = await db
+    .select({ content: schema.documents.content })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, row.documentId));
+  const previousContent =
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+  const currentContent = document?.content ?? "";
+  const shouldWriteBody =
+    currentContent === "" ||
+    currentContent === previousContent ||
+    currentContent.trim() === "" ||
+    builderBodyIsRawPlaceholderOnly(currentContent) ||
+    builderBodyHasLegacyPreservedComponentPlaceholders(currentContent) ||
+    builderBodyNeedsSourceComponentWrite({
+      currentContent,
+      nextContent,
+    });
+  let wroteBody = false;
+  await db.transaction(async (tx) => {
+    if (shouldWriteBody) {
+      const [updatedDocument] = await tx
+        .update(schema.documents)
+        .set({ content: nextContent, updatedAt: now })
+        .where(
+          and(
+            eq(schema.documents.id, row.documentId),
+            eq(schema.documents.content, currentContent),
+          ),
+        )
+        .returning({ id: schema.documents.id });
+      wroteBody = Boolean(updatedDocument);
+    }
+    if (shouldWriteBody && !wroteBody) {
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationAttemptedAt: now,
+          bodyHydrationError:
+            "Skipped Builder body hydration because the document changed during sync.",
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      await tx
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          lastError:
+            "Skipped Builder body hydration because the document changed during sync.",
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+            eq(
+              schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+              row.sourceEntryJson,
+            ),
+          ),
+        );
+      return;
+    }
+    const [deleted] = await tx
+      .delete(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        and(
+          eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+          eq(
+            schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+            row.sourceEntryJson,
+          ),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+    if (!deleted) {
+      if (wroteBody) {
+        await tx
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify(nextValues),
+            lastSyncedAt: now,
+            lastSourceUpdatedAt: entry.updatedAt ?? now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+              eq(
+                schema.contentDatabaseSourceRows.databaseItemId,
+                row.databaseItemId,
+              ),
+            ),
+          );
+      }
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationAttemptedAt: now,
+          bodyHydrationError: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      return;
+    }
+    await tx
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify(nextValues),
+        lastSyncedAt: now,
+        lastSourceUpdatedAt: entry.updatedAt ?? now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+          eq(
+            schema.contentDatabaseSourceRows.databaseItemId,
+            row.databaseItemId,
+          ),
+        ),
+      );
+    await tx
+      .update(schema.contentDatabaseItems)
+      .set({
+        bodyHydrationStatus: "hydrated",
+        bodyHydrationAttemptedAt: now,
+        bodyHydrationError: null,
+        bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
+        updatedAt: now,
+      })
+      .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+  });
+  if (wroteBody) {
+    try {
+      await deleteCollabState(row.documentId);
+      releaseDoc(row.documentId);
+    } catch {
+      // Non-fatal: the updated document row still lets open editors reconcile.
+    }
+  }
+}
+
+async function enqueueStaleBuilderBodyHydrationForOpenDocument(args: {
+  sourceId: string;
+  documentId: string;
+  now: string;
+}) {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      source: schema.contentDatabaseSources,
+      item: schema.contentDatabaseItems,
+      sourceRow: schema.contentDatabaseSourceRows,
+      document: schema.documents,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceRows.sourceId,
+      ),
+    )
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(
+        schema.contentDatabaseItems.id,
+        schema.contentDatabaseSourceRows.databaseItemId,
+      ),
+    )
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseSourceRows.documentId),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+        eq(schema.contentDatabaseSourceRows.documentId, args.documentId),
+      ),
+    );
+  if (!row || row.source.sourceType !== "builder-cms") return;
+  const entry = builderEntryFromSourceRow({
+    row: row.sourceRow,
+    sourceTable: row.source.sourceTable,
+    fallbackTitle: row.document.title,
+  });
+  if (!entry) return;
+  const refreshedEntry =
+    await refreshBuilderBodySourceValuesFromStoredLossless(entry);
+  if (
+    !builderStoredBodyIsStale({ item: row.item, entry: refreshedEntry }) &&
+    !builderBodyHasLegacyPreservedComponentPlaceholders(row.document.content) &&
+    !builderBodyNeedsSourceComponentWrite({
+      currentContent: row.document.content,
+      nextContent: stringSourceValue(
+        refreshedEntry.sourceValues,
+        BUILDER_CMS_BODY_CONTENT_KEY,
+      ),
+    })
+  ) {
+    return;
+  }
+  await enqueueBuilderBodyHydration({
+    sourceId: args.sourceId,
+    ownerEmail: row.item.ownerEmail,
+    orgId: row.item.orgId,
+    databaseItemId: row.item.id,
+    documentId: row.item.documentId,
+    sourceTable: row.source.sourceTable,
+    entry: refreshedEntry,
+    now: args.now,
+    priority: BUILDER_BODY_HYDRATION_OPEN_PRIORITY,
+  });
+}
+
+export async function processBuilderBodyHydrationQueue(args: {
+  sourceId: string;
+  documentId?: string | null;
+  limit?: number | null;
+}) {
+  const db = getDb();
+  const limit = normalizeHydrationLimit(args.limit);
+  const now = new Date().toISOString();
+  if (args.documentId) {
+    await enqueueStaleBuilderBodyHydrationForOpenDocument({
+      sourceId: args.sourceId,
+      documentId: args.documentId,
+      now,
+    });
+    await db
+      .update(schema.contentDatabaseBodyHydrationQueue)
+      .set({
+        priority: BUILDER_BODY_HYDRATION_OPEN_PRIORITY,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
+          eq(
+            schema.contentDatabaseBodyHydrationQueue.documentId,
+            args.documentId,
+          ),
+        ),
+      );
+  }
+  const jobs = await db
+    .select()
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(
+      args.documentId
+        ? and(
+            eq(
+              schema.contentDatabaseBodyHydrationQueue.sourceId,
+              args.sourceId,
+            ),
+            eq(
+              schema.contentDatabaseBodyHydrationQueue.documentId,
+              args.documentId,
+            ),
+          )
+        : eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
+    )
+    .orderBy(
+      asc(schema.contentDatabaseBodyHydrationQueue.priority),
+      asc(schema.contentDatabaseBodyHydrationQueue.createdAt),
+    )
+    .limit(limit);
+
+  let succeeded = 0;
+  let failed = 0;
+  for (const job of jobs) {
+    const attemptNow = new Date().toISOString();
+    try {
+      await processBuilderBodyHydrationJob(job, attemptNow);
+      succeeded += 1;
+    } catch (error) {
+      failed += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      await db
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "error",
+          bodyHydrationAttemptedAt: attemptNow,
+          bodyHydrationError: message,
+          updatedAt: attemptNow,
+        })
+        .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
+      await db
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          attempts: job.attempts + 1,
+          lastAttemptedAt: attemptNow,
+          lastError: message,
+          priority: job.priority + 10,
+          updatedAt: attemptNow,
+        })
+        .where(eq(schema.contentDatabaseBodyHydrationQueue.id, job.id));
+    }
+  }
+  const [remaining] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(
+      eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
+    );
+  return {
+    sourceId: args.sourceId,
+    processed: jobs.length,
+    succeeded,
+    failed,
+    remaining: Number(remaining?.count ?? 0),
+  };
+}
+
+export async function withBuilderBodySourceValues(
+  entry: BuilderCmsSourceEntry,
+): Promise<BuilderCmsSourceEntry> {
+  const snapshot = await builderBodySnapshotForEntry(entry);
+  if (!snapshot) return entry;
+  return {
+    ...entry,
+    sourceValues: {
+      ...entry.sourceValues,
+      [BUILDER_CMS_BODY_CONTENT_KEY]: snapshot.content,
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: snapshot.losslessContent,
+      [BUILDER_CMS_BODY_READABLE_MAP_KEY]: snapshot.readableMapJson,
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: snapshot.blocksHash,
+      [BUILDER_CMS_BODY_SIDECARS_KEY]: snapshot.sidecarsJson,
+    },
+  };
+}
+
+export async function withBuilderBodiesSourceValues(
+  entries: BuilderCmsSourceEntry[],
+) {
+  return Promise.all(
+    entries.map((entry) => withBuilderBodySourceValues(entry)),
+  );
+}
+
+async function builderBodyChangeForLocalContent(args: {
+  row: Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">;
+  localContent: string | null | undefined;
+}): Promise<ContentDatabaseSourceBodyChange | null> {
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(
+      args.row.sourceValuesJson,
+    ) ?? {};
+  const currentHash = stringSourceValue(
+    sourceValues,
+    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  );
+  const currentContent = stringSourceValue(
+    sourceValues,
+    BUILDER_CMS_BODY_CONTENT_KEY,
+  );
+  const losslessContent = stringSourceValue(
+    sourceValues,
+    BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  );
+  const sidecarsJson =
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_SIDECARS_KEY) ?? "{}";
+  const localContent = args.localContent ?? "";
+  if (!currentHash && !currentContent && !localContent.trim()) return null;
+
+  let sidecars: Record<string, string> = {};
+  try {
+    const parsed = JSON.parse(sidecarsJson) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      sidecars = Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      );
+    }
+  } catch {
+    sidecars = {};
+  }
+
+  try {
+    const proposed =
+      losslessContent && !localContent.includes("<Builder")
+        ? await builderReadableBodyToBuilderBlocks({
+            localContent,
+            losslessContent,
+            sidecars,
+          })
+        : {
+            blocks: await builderMdxBodyToBuilderBlocks(localContent, sidecars),
+            warnings: [] as string[],
+          };
+    if (!proposed.blocks) {
+      return {
+        summary: "Builder body blocks changed, but need attention before push.",
+        currentExcerpt: bodyExcerpt(currentContent),
+        proposedExcerpt: bodyExcerpt(localContent),
+        currentHash,
+        proposedHash: null,
+        proposedContent: localContent,
+        proposedBlocksJson: null,
+        sidecarsJson,
+        warnings: proposed.warnings,
+      };
+    }
+    const proposedBlocks = proposed.blocks;
+    const proposedHash = builderBlocksHash(proposedBlocks);
+    if (currentHash && proposedHash === currentHash) return null;
+    return {
+      summary: "Builder body blocks changed.",
+      currentExcerpt: bodyExcerpt(currentContent),
+      proposedExcerpt: bodyExcerpt(localContent),
+      currentHash,
+      proposedHash,
+      proposedContent: localContent,
+      proposedBlocksJson: JSON.stringify(proposedBlocks),
+      sidecarsJson,
+      warnings: proposed.warnings,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Builder body could not be converted.";
+    return {
+      summary: "Builder body blocks changed, but need attention before push.",
+      currentExcerpt: bodyExcerpt(currentContent),
+      proposedExcerpt: bodyExcerpt(localContent),
+      currentHash,
+      proposedHash: null,
+      proposedContent: localContent,
+      proposedBlocksJson: null,
+      sidecarsJson,
+      warnings: [message],
+    };
+  }
+}
+
 export function buildBuilderLocalOutboundChangeSets(args: {
   source: ContentDatabaseSourceRowDb;
   rowRows: ContentDatabaseSourceRecordRowDb[];
@@ -473,6 +1321,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
   // collection is adopted as a create_draft by THAT collection only; an
   // untagged / "Local" row falls back to the primary (allowUnsourcedCreates).
   taggedSourceByDocumentId?: Map<string, string>;
+  bodyChangeByDocumentId?: Map<string, ContentDatabaseSourceBodyChange>;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
 
@@ -528,7 +1377,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         });
       }
     }
-    if (fieldChanges.length === 0) continue;
+    const bodyChange = args.bodyChangeByDocumentId?.get(row.documentId) ?? null;
+    if (fieldChanges.length === 0 && !bodyChange) continue;
     // Skip if this row already has a live (non-rejected/applied) stored outbound
     // autosave change-set — the stored one is what's being reviewed/pushed.
     const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
@@ -541,35 +1391,45 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       ) {
         return false;
       }
-      return changeSet.fieldChanges.some((stored) =>
-        fieldChanges.some(
-          (change) =>
-            change.localFieldKey === stored.localFieldKey &&
-            sameSourceFieldValue(change.currentValue, stored.currentValue) &&
-            sameSourceFieldValue(change.proposedValue, stored.proposedValue),
-        ),
+      return (
+        changeSet.fieldChanges.some((stored) =>
+          fieldChanges.some(
+            (change) =>
+              change.localFieldKey === stored.localFieldKey &&
+              sameSourceFieldValue(change.currentValue, stored.currentValue) &&
+              sameSourceFieldValue(change.proposedValue, stored.proposedValue),
+          ),
+        ) ||
+        (!!bodyChange && !!changeSet.bodyChange)
       );
     });
     if (matchesStoredChange) continue;
 
     const now = new Date().toISOString();
+    const displayTitle = localTitle || sourceTitle;
     pending.push({
-      id: `local-pending-${row.id}-title`,
+      id: `local-pending-${row.id}-${bodyChange ? "body" : "fields"}`,
       databaseItemId: row.databaseItemId,
       documentId: row.documentId,
-      kind: "field_update",
+      kind:
+        bodyChange && fieldChanges.length === 0
+          ? "body_update"
+          : "field_update",
       direction: "outbound",
       state: "pending_push",
       pushMode: "autosave",
       localOnly: true,
       summary:
-        fieldChanges.length === 1 && fieldChanges[0]?.localFieldKey === "title"
-          ? `Pending local Builder CMS title change for "${localTitle}".`
-          : `Pending local Builder CMS changes for "${localTitle || sourceTitle}".`,
+        bodyChange && fieldChanges.length === 0
+          ? `Pending local Builder CMS body change for "${displayTitle}".`
+          : fieldChanges.length === 1 &&
+              fieldChanges[0]?.localFieldKey === "title"
+            ? `Pending local Builder CMS title change for "${localTitle}".`
+            : `Pending local Builder CMS changes for "${displayTitle}".`,
       fieldChanges,
-      bodyChange: null,
+      bodyChange,
       riskLevel: "low",
-      riskReasons: ["single field diff"],
+      riskReasons: bodyChange ? ["body diff"] : ["single field diff"],
       conflictState: "none",
       reviewEvents: [],
       executions: [],
@@ -617,6 +1477,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       const title = args.documentTitleById.get(item.documentId)?.trim() ?? "";
       if (!title) continue;
       const localValues = args.localValuesByDocument?.get(item.documentId);
+      const bodyChange =
+        args.bodyChangeByDocumentId?.get(item.documentId) ?? null;
       const fieldChanges: ContentDatabaseSourceFieldChange[] = [
         {
           propertyId: null,
@@ -651,9 +1513,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         localOnly: true,
         summary: `Pending new Builder entry "${title}".`,
         fieldChanges,
-        bodyChange: null,
+        bodyChange,
         riskLevel: "low",
-        riskReasons: ["new Builder entry (create as draft)"],
+        riskReasons: bodyChange
+          ? ["new Builder entry (create as draft)", "body diff"]
+          : ["new Builder entry (create as draft)"],
         conflictState: "none",
         reviewEvents: [],
         executions: [],
@@ -867,6 +1731,7 @@ async function loadSourceSnapshot(
         .select({
           id: schema.contentDatabaseItems.id,
           documentId: schema.contentDatabaseItems.documentId,
+          bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
         })
         .from(schema.contentDatabaseItems)
         .where(
@@ -888,6 +1753,7 @@ async function loadSourceSnapshot(
           .select({
             id: schema.documents.id,
             title: schema.documents.title,
+            content: schema.documents.content,
           })
           .from(schema.documents)
           .where(
@@ -899,6 +1765,9 @@ async function loadSourceSnapshot(
       : [];
   const documentTitleById = new Map(
     rowDocuments.map((document) => [document.id, document.title]),
+  );
+  const documentContentById = new Map(
+    rowDocuments.map((document) => [document.id, document.content]),
   );
   const propertyValueRows =
     isBuilderSource && allDocumentIds.length > 0
@@ -1003,6 +1872,34 @@ async function loadSourceSnapshot(
       }
     }
   }
+  const bodyChangeByDocumentId = new Map<
+    string,
+    ContentDatabaseSourceBodyChange
+  >();
+  if (isBuilderSource) {
+    const sourceRowByDocumentId = new Map(
+      rowRows.map((row) => [row.documentId, row]),
+    );
+    const hydratedDocumentIds = new Set(
+      databaseItemRows
+        .filter((item) => item.bodyHydrationStatus === "hydrated")
+        .map((item) => item.documentId),
+    );
+    await Promise.all(
+      allDocumentIds.map(async (documentId) => {
+        if (!hydratedDocumentIds.has(documentId)) return;
+        const row = sourceRowByDocumentId.get(documentId) ?? {
+          sourceValuesJson: "{}",
+        };
+        const bodyChange = await builderBodyChangeForLocalContent({
+          row,
+          localContent: documentContentById.get(documentId),
+        });
+        if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
+      }),
+    );
+  }
+
   const localOutboundChangeSets = buildBuilderLocalOutboundChangeSets({
     source,
     rowRows,
@@ -1017,6 +1914,7 @@ async function loadSourceSnapshot(
     otherSourceDocumentIds,
     allowUnsourcedCreates: isPrimarySource,
     taggedSourceByDocumentId,
+    bodyChangeByDocumentId,
   });
   const rowByDocumentId = new Map(rowRows.map((row) => [row.documentId, row]));
   const changeSets = [...storedChangeSets, ...localOutboundChangeSets].map(
@@ -1051,6 +1949,13 @@ async function loadSourceSnapshot(
       .where(eq(schema.contentDatabases.id, source.sourceTable));
     if (target?.title) displaySourceName = target.title;
   }
+
+  const bodyHydration = isBuilderSource
+    ? await sourceBodyHydrationSummary({
+        sourceId: source.id,
+        databaseId: database.id,
+      })
+    : undefined;
 
   return {
     id: source.id,
@@ -1097,7 +2002,44 @@ async function loadSourceSnapshot(
     fields,
     rows,
     changeSets,
+    bodyHydration,
   };
+}
+
+async function sourceBodyHydrationSummary(args: {
+  sourceId: string;
+  databaseId: string;
+}): Promise<ContentDatabaseBodyHydrationSummary> {
+  const rows = await getDb()
+    .select({ status: schema.contentDatabaseItems.bodyHydrationStatus })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, args.databaseId),
+        eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+      ),
+    );
+  const summary: ContentDatabaseBodyHydrationSummary = {
+    pending: 0,
+    hydrating: 0,
+    hydrated: 0,
+    error: 0,
+    total: rows.length,
+  };
+  for (const row of rows) {
+    if (row.status === "pending") summary.pending += 1;
+    else if (row.status === "hydrating") summary.hydrating += 1;
+    else if (row.status === "error") summary.error += 1;
+    else summary.hydrated += 1;
+  }
+  return summary;
 }
 
 // Pass a stored federation block through only when it has the shape the join
@@ -1715,6 +2657,11 @@ export async function resyncMockSourceSnapshot(args: {
     .delete(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
   await db
+    .delete(schema.contentDatabaseBodyHydrationQueue)
+    .where(
+      eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.source.id),
+    );
+  await db
     .delete(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
 
@@ -1987,6 +2934,8 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       databaseId: args.database.id,
       documentId,
       position: nextItemPosition++,
+      bodyHydrationStatus: entry.rawEntry ? "pending" : "hydrated",
+      bodyHydrationError: null,
       createdAt: args.now,
       updatedAt: args.now,
     });
@@ -2006,6 +2955,8 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   const builderRead = await readBuilderCmsContentEntries({
     model: args.source.sourceTable,
   });
+  const builderEntries =
+    builderRead.state === "live" ? builderRead.entries : [];
   let existingRows = await db
     .select()
     .from(schema.contentDatabaseSourceRows)
@@ -2013,7 +2964,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   if (builderRead.state === "live") {
     const imported = await importBuilderCmsEntriesAsDatabaseItems({
       database: args.database,
-      entries: builderRead.entries,
+      entries: builderEntries,
       now: args.now,
       sourceTable: args.source.sourceTable,
       existingSourceRows: existingRows,
@@ -2032,7 +2983,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   const builderEntriesByDocumentId =
     builderRead.state === "live"
       ? mapBuilderCmsEntriesToLocalItems({
-          entries: builderRead.entries,
+          entries: builderEntries,
           items: response.items,
           sourceTable: args.source.sourceTable,
           now: args.now,
@@ -2052,7 +3003,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       },
     ]),
   );
-
   await db
     .delete(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
@@ -2066,8 +3016,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     sourceType: "builder-cms",
     properties,
     builderModelFields,
-    builderSampleEntries:
-      builderRead.state === "live" ? builderRead.entries : [],
+    builderSampleEntries: builderEntries,
     now: args.now,
   });
   // Row-union: a resync must only (re)link items that BELONG to this source —
@@ -2102,6 +3051,17 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     existingBuilderRows,
     builderEntriesByDocumentId,
   });
+  if (builderRead.state === "live") {
+    await enqueueBuilderBodyHydrationForItems({
+      sourceId: args.source.id,
+      ownerEmail: args.database.ownerEmail,
+      orgId: args.database.orgId,
+      sourceTable: args.source.sourceTable,
+      items: itemsToLink,
+      builderEntriesByDocumentId,
+      now: args.now,
+    });
+  }
 
   const currentDocumentIds = new Set(
     response.items.map((item) => item.document.id),
@@ -2202,6 +3162,11 @@ export async function replaceSourceMetadata(args: {
 
   if (args.source) {
     await deleteSourceChangeSetRecords({ sourceId: args.source.id });
+    await db
+      .delete(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.source.id),
+      );
     await db
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));

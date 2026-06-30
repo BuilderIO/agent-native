@@ -81,6 +81,23 @@ function isProviderRateLimit(text: string, errorCode?: string): boolean {
   );
 }
 
+function isProviderAuthenticationError(
+  text: string,
+  errorCode?: string,
+): boolean {
+  const code = normalizeErrorCode(errorCode);
+  const lower = text.toLowerCase();
+  return (
+    code === "authentication_error" ||
+    code === "http_401" ||
+    lower.includes("invalid x-api-key") ||
+    lower.includes("invalid api key") ||
+    lower.includes("incorrect api key") ||
+    lower.includes("api key is invalid") ||
+    (lower.includes("authentication_error") && lower.includes("api"))
+  );
+}
+
 export function normalizeChatError(
   errorMessage: string,
   errorCode?: string,
@@ -93,6 +110,14 @@ export function normalizeChatError(
     return {
       message:
         "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+      details: text,
+    };
+  }
+
+  if (isProviderAuthenticationError(text, errorCode)) {
+    return {
+      message:
+        "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
       details: text,
     };
   }

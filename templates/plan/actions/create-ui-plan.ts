@@ -127,7 +127,7 @@ export default defineAction({
         "Open the Agent-Native Plan UI review surface for sketch mockups, state annotations, implementation maps, snippets, and validation notes.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open UI Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

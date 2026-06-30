@@ -45,6 +45,23 @@ function bodyError(
     `${fallback} (HTTP ${res.status})`;
   const error = new Error(message);
   (error as any).status = res.status;
+  if (body && typeof body === "object") {
+    const record = body as Record<string, unknown>;
+    for (const key of [
+      "error",
+      "code",
+      "accountId",
+      "existingOwner",
+      "attemptedOwner",
+    ]) {
+      if (typeof record[key] === "string") {
+        (error as any)[key] = record[key];
+      }
+    }
+    if (!(error as any).code && typeof record.error === "string") {
+      (error as any).code = record.error;
+    }
+  }
   return error;
 }
 
@@ -204,6 +221,33 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
         setIsPending(false);
         onError?.(issue);
       };
+      const authStartIssue = (err: unknown): DesktopAuthIssue => {
+        const source = err as Partial<DesktopAuthIssue> | undefined;
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Could not start Google sign-in.";
+        return {
+          code:
+            typeof source?.code === "string"
+              ? source.code
+              : "desktop_auth_start_failed",
+          error: typeof source?.error === "string" ? source.error : undefined,
+          message,
+          accountId:
+            typeof source?.accountId === "string"
+              ? source.accountId
+              : undefined,
+          existingOwner:
+            typeof source?.existingOwner === "string"
+              ? source.existingOwner
+              : undefined,
+          attemptedOwner:
+            typeof source?.attemptedOwner === "string"
+              ? source.attemptedOwner
+              : undefined,
+        };
+      };
       const openAuthUrl = (url: string) => {
         if (popup && !popup.closed) {
           popup.location.href = url;
@@ -220,50 +264,37 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
         await onSuccess?.(result);
       };
 
-      if (startOptions.addAccount) {
-        popup = window.open("about:blank", "_blank");
-        void (async () => {
-          try {
-            const { url } = await fetchJson<{ url: string }>(
-              agentNativePath(
-                `/_agent-native/google/add-account/auth-url?${params.toString()}`,
-              ),
-              { credentials: "include" },
-            );
-            if (!openAuthUrl(url)) {
-              reportError({
-                code: "popup_blocked",
-                message:
-                  "Calendar could not open Google sign-in. Allow popups and try again.",
-              });
-            }
-          } catch (err) {
-            popup?.close();
+      popup = window.open("about:blank", "_blank");
+      if (!popup) {
+        reportError({
+          code: "popup_blocked",
+          message:
+            "Calendar could not open Google sign-in. Allow popups and try again.",
+        });
+        return true;
+      }
+
+      void (async () => {
+        try {
+          const path = startOptions.addAccount
+            ? "/_agent-native/google/add-account/auth-url"
+            : "/_agent-native/google/auth-url";
+          const { url } = await fetchJson<{ url: string }>(
+            agentNativePath(`${path}?${params.toString()}`),
+            { credentials: "include" },
+          );
+          if (!openAuthUrl(url)) {
             reportError({
-              code: "desktop_auth_start_failed",
+              code: "popup_blocked",
               message:
-                err instanceof Error
-                  ? err.message
-                  : "Could not start Google sign-in.",
+                "Calendar could not open Google sign-in. Allow popups and try again.",
             });
           }
-        })();
-      } else {
-        params.set("redirect", "1");
-        const opened = openAuthUrl(
-          `${window.location.origin}${agentNativePath(
-            "/_agent-native/google/auth-url",
-          )}?${params.toString()}`,
-        );
-        if (!opened) {
-          reportError({
-            code: "popup_blocked",
-            message:
-              "Calendar could not open Google sign-in. Allow popups and try again.",
-          });
-          return true;
+        } catch (err) {
+          popup?.close();
+          reportError(authStartIssue(err));
         }
-      }
+      })();
 
       pollRef.current = setInterval(async () => {
         try {
