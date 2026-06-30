@@ -53,6 +53,45 @@ interface Extension {
   };
 }
 
+// CSS theme variables the embedded iframe should mirror from the host app.
+// The iframe ships with a generic baked palette (getThemeVars); reading the
+// host's *actual* computed values keeps embedded extensions visually identical
+// to the surrounding app even when a template overrides the default palette
+// (e.g. analytics uses a neutral-gray dark theme, not the default near-black).
+const HOST_THEME_VARS = [
+  "--background",
+  "--foreground",
+  "--card",
+  "--card-foreground",
+  "--popover",
+  "--popover-foreground",
+  "--primary",
+  "--primary-foreground",
+  "--secondary",
+  "--secondary-foreground",
+  "--muted",
+  "--muted-foreground",
+  "--accent",
+  "--accent-foreground",
+  "--destructive",
+  "--destructive-foreground",
+  "--border",
+  "--input",
+  "--ring",
+  "--radius",
+] as const;
+
+function readHostThemeVars(): Record<string, string> {
+  if (typeof document === "undefined") return {};
+  const computed = getComputedStyle(document.documentElement);
+  const vars: Record<string, string> = {};
+  for (const name of HOST_THEME_VARS) {
+    const value = computed.getPropertyValue(name).trim();
+    if (value) vars[name] = value;
+  }
+  return vars;
+}
+
 function serializeChatValue(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === "string") return value;
@@ -207,7 +246,10 @@ export function EmbeddedExtension({
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
-    win.postMessage({ type: "agent-native-theme-update", isDark }, "*");
+    win.postMessage(
+      { type: "agent-native-theme-update", isDark, vars: readHostThemeVars() },
+      "*",
+    );
   }, [isDark]);
 
   // Forward slot context whenever it changes. The iframe's own load handler
@@ -380,7 +422,11 @@ export function EmbeddedExtension({
           // the initial dark state, but this covers the race where isDark
           // settled before the iframe's message listener existed.
           iframeRef.current?.contentWindow?.postMessage(
-            { type: "agent-native-theme-update", isDark },
+            {
+              type: "agent-native-theme-update",
+              isDark,
+              vars: readHostThemeVars(),
+            },
             "*",
           );
           // Fallback readiness signal in case the extension never reports a
