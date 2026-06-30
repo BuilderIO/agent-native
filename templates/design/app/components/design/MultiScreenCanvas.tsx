@@ -3925,6 +3925,7 @@ export function MultiScreenCanvas({
                   contentKey={boardContentKey}
                   zoom={100}
                   deviceFrame="none"
+                  transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
@@ -3932,6 +3933,7 @@ export function MultiScreenCanvas({
                     displayHeight: Math.max(1, Math.round(boardH)),
                     fluid: true,
                   }}
+                  transparentBackground
                   editorChromeScaleX={canvasZoom / 100}
                   editorChromeScaleY={canvasZoom / 100}
                   editMode={boardEditMode}

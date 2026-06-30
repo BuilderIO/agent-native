@@ -301,6 +301,7 @@ interface DesignCanvasProps {
     displayHeight: number;
     fluid?: boolean;
   };
+  transparentBackground?: boolean;
   editorChromeScaleX?: number;
   editorChromeScaleY?: number;
   editMode: boolean;
@@ -448,6 +449,25 @@ function getExternalPreviewUrl(content: string): string | null {
   }
 }
 
+const TRANSPARENT_EMBEDDED_FRAME_STYLE =
+  "<style data-agent-native-transparent-frame>html,body{background:transparent!important;}body{background-color:transparent!important;}</style>";
+
+function injectTransparentEmbeddedFrameStyle(content: string): string {
+  if (/<\/head>/i.test(content)) {
+    return content.replace(
+      /<\/head>/i,
+      `${TRANSPARENT_EMBEDDED_FRAME_STYLE}</head>`,
+    );
+  }
+  if (/<body\b/i.test(content)) {
+    return content.replace(
+      /<body\b/i,
+      `${TRANSPARENT_EMBEDDED_FRAME_STYLE}<body`,
+    );
+  }
+  return `${TRANSPARENT_EMBEDDED_FRAME_STYLE}${content}`;
+}
+
 export interface IframeHotkeyPayload {
   key: string;
   code: string;
@@ -475,6 +495,7 @@ export function DesignCanvas({
   onZoomChange,
   deviceFrame,
   embeddedFrame,
+  transparentBackground = false,
   editorChromeScaleX = 1,
   editorChromeScaleY = editorChromeScaleX,
   editMode,
@@ -609,14 +630,17 @@ export function DesignCanvas({
       NAV_BRIDGE_SCRIPT +
       embeddedWheelBridge +
       editorChromeBridge;
-    if (renderedContent.includes("</body>")) {
-      return renderedContent.replace("</body>", bridgeToInject + "</body>"); // i18n-ignore generated iframe HTML injection
+    const frameContent = transparentBackground
+      ? injectTransparentEmbeddedFrameStyle(renderedContent)
+      : renderedContent;
+    if (frameContent.includes("</body>")) {
+      return frameContent.replace("</body>", bridgeToInject + "</body>"); // i18n-ignore generated iframe HTML injection
     }
-    if (renderedContent.includes("</html>")) {
-      return renderedContent.replace("</html>", bridgeToInject + "</html>"); // i18n-ignore generated iframe HTML injection
+    if (frameContent.includes("</html>")) {
+      return frameContent.replace("</html>", bridgeToInject + "</html>"); // i18n-ignore generated iframe HTML injection
     }
     // No body/html tags — wrap it
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${renderedContent}${bridgeToInject}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${transparentBackground ? TRANSPARENT_EMBEDDED_FRAME_STYLE : ""}</head><body>${renderedContent}${bridgeToInject}</body></html>`;
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
@@ -629,6 +653,7 @@ export function DesignCanvas({
     interactMode,
     isEmbeddedFrame,
     renderedContent,
+    transparentBackground,
   ]);
 
   // Listen for messages from the iframe
@@ -1356,6 +1381,7 @@ export function DesignCanvas({
             : "inline")
         }
         className="block h-full w-full border-0 bg-transparent"
+        style={{ backgroundColor: "transparent" }}
         title={t("designEditor.designPreview")}
       />
       {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}
