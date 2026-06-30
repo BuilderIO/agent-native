@@ -8,6 +8,8 @@ export interface ElementInfo {
   boundingRect: { x: number; y: number; width: number; height: number };
   textContent?: string;
   htmlContent?: string;
+  /** Direct element children; text nodes are ignored. */
+  childElementCount?: number;
   isFlexChild: boolean;
   isFlexContainer: boolean;
   parentDisplay?: string;

@@ -443,6 +443,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
         el.innerHTML && el.innerHTML !== el.textContent
           ? el.innerHTML.slice(0, 4000)
           : undefined,
+      childElementCount: el.children ? el.children.length : 0,
       isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
       isFlexChild: parentDisplay === "flex" || parentDisplay === "inline-flex",
       parentDisplay: parentDisplay,

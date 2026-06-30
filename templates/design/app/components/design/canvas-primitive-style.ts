@@ -8,11 +8,11 @@
  * jump and the B6 ellipse border-radius jump.
  *
  * Design decisions:
- * - Fill: `hsl(var(--primary) / 0.12)` — the calm, theme-adaptive tint already
- *   used by the draft preview.  NOT the saturated blue previously hard-coded in
- *   appendCanvasPrimitiveToHtml (`rgba(37,99,235,0.16)`).
- * - Stroke: `hsl(var(--primary) / 0.7)` — same CSS-var approach, adapts to
- *   light/dark mode automatically.
+ * - Fill: `hsl(var(--primary, 213 91% 67%) / 0.24)` — theme-adaptive when the
+ *   document defines `--primary`, but still visibly blue inside standalone
+ *   iframe documents such as the overview board.
+ * - Stroke: `hsl(var(--primary, 213 91% 67%) / 0.95)` — same CSS-var approach
+ *   with a fallback so committed shapes do not become invisible.
  * - Stroke width: 1px for div-based shapes.
  * - Ellipse: borderRadius "50%" in both paths — no more "oval on commit" jump.
  * - Rect: borderRadius "2px" (small, matches the previous committed value; the
@@ -57,11 +57,11 @@ export interface CanvasPrimitiveVisual {
 // Canonical tokens
 // ---------------------------------------------------------------------------
 
-/** Default fill tint — calm, theme-adaptive, not saturated. */
-const DEFAULT_FILL = "hsl(var(--primary) / 0.12)";
+/** Default fill tint — calm, theme-adaptive, with an iframe-safe fallback. */
+const DEFAULT_FILL = "hsl(var(--primary, 213 91% 67%) / 0.24)";
 
 /** Default stroke — uses the same hue at higher opacity for clarity. */
-const DEFAULT_STROKE = "hsl(var(--primary) / 0.7)";
+const DEFAULT_STROKE = "hsl(var(--primary, 213 91% 67%) / 0.95)";
 
 /** Stroke width in pixels for div-based shapes. */
 const DEFAULT_STROKE_WIDTH_PX = 1;

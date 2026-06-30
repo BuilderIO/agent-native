@@ -829,6 +829,21 @@ export function MultiScreenCanvas({
   const [chromeSettling, setChromeSettling] = useState(false);
   const previousPreviewDeviceFrameRef = useRef(previewDeviceFrame);
 
+  const claimKeyboardFocus = useCallback(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active !== surface &&
+      !surface.contains(active) &&
+      isEditableHotkeyTarget(active)
+    ) {
+      active.blur();
+    }
+    surface.focus({ preventScroll: true });
+  }, []);
+
   const getResolvedMetadata = useCallback(
     (screen: ScreenFile) =>
       resolveScreenMetadata(
@@ -3247,6 +3262,7 @@ export function MultiScreenCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      claimKeyboardFocus();
       // Clear any stale pick-suppression left over from a prior resize/rotate/move
       // gesture that never received its trailing frame click — otherwise it would
       // silently swallow this unrelated interaction.
@@ -3281,6 +3297,7 @@ export function MultiScreenCanvas({
       beginMarquee,
       beginPan,
       beginPenNodeCreation,
+      claimKeyboardFocus,
       localActiveTool,
     ],
   );
@@ -3852,7 +3869,8 @@ export function MultiScreenCanvas({
   return (
     <div
       ref={surfaceRef}
-      className="relative h-full w-full select-none overflow-hidden"
+      tabIndex={-1}
+      className="relative h-full w-full select-none overflow-hidden outline-none"
       onMouseDownCapture={handleMouseDown}
       onMouseMove={handleMouseMove}
       style={{ cursor: surfaceCursor, touchAction: "none" }}
@@ -3933,7 +3951,6 @@ export function MultiScreenCanvas({
                     displayHeight: Math.max(1, Math.round(boardH)),
                     fluid: true,
                   }}
-                  transparentBackground
                   editorChromeScaleX={canvasZoom / 100}
                   editorChromeScaleY={canvasZoom / 100}
                   editMode={boardEditMode}

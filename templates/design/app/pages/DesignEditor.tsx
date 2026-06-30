@@ -232,7 +232,10 @@ import {
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
-import { useDesignHotkeys } from "@/hooks/useDesignHotkeys";
+import {
+  isDesignHotkeyEditableTarget,
+  useDesignHotkeys,
+} from "@/hooks/useDesignHotkeys";
 import {
   clearPendingGeneration,
   hasFreshPendingGeneration,
@@ -266,6 +269,7 @@ const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const MOTION_DOCK_TRANSITION_MS = 200;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
+const BOARD_SURFACE_SIZE = 16384;
 /** Extensions that the localhost bridge allows to be written back to source. */
 const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
 const NO_LOCALHOST_WRITE_CONTENT_MESSAGE =
@@ -292,6 +296,14 @@ const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
   "border-image-source",
   "list-style-image",
 ] as const;
+
+function blurActiveDesignEditableTarget() {
+  if (typeof document === "undefined") return;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && isDesignHotkeyEditableTarget(active)) {
+    active.blur();
+  }
+}
 
 function getContentSignature(content: string): string {
   let hash = 2166136261;
@@ -2336,6 +2348,7 @@ function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     ),
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
+    childElementCount: node.children.length,
     isFlexChild: node.layout.parentDisplay?.includes("flex") ? true : false,
     isFlexContainer: node.layout.isFlexContainer,
     parentDisplay: node.layout.parentDisplay,
@@ -2464,6 +2477,7 @@ function canonicalElementInfoForCodeLayerNode(
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
     confidence: node.confidence,
+    childElementCount: node.children.length,
     editCapabilities: info.editCapabilities?.some((capability) =>
       capability.kind.startsWith("deterministic"),
     )
@@ -2530,6 +2544,7 @@ export function refreshElementInfoFromContent(
         sourceInfo.classes,
       ),
       textContent: sourceInfo.textContent,
+      childElementCount: sourceInfo.childElementCount,
       isFlexChild: sourceInfo.isFlexChild,
       isFlexContainer: sourceInfo.isFlexContainer,
       parentDisplay: sourceInfo.parentDisplay,
@@ -2550,6 +2565,7 @@ export function refreshElementInfoFromContent(
         classes,
       ),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
+      childElementCount: element.children.length,
     };
   } catch {
     return null;
@@ -5088,28 +5104,18 @@ export default function DesignEditor() {
     return typeof boardFile?.content === "string" ? boardFile.content : "";
   }, [boardFileId, files]);
 
-  // Logical canvas-space bounding box of the board iframe.  The board covers the
-  // full canvas surface, so we compute the union of all screen frame geometries.
-  // x:0/y:0 since screen geometries use canvas-space coords that start at origin.
+  // Logical canvas-space bounding box of the board iframe. The board is an
+  // invisible editing layer behind screen frames, not a finite artboard, so keep
+  // it at the canvas-safe maximum instead of clipping it to the screen union.
   const boardFrameGeometry = useMemo((): FrameGeometry | undefined => {
     if (!boardFileId) return undefined;
-    const entries = Object.values(canvasFrameGeometryById);
-    if (entries.length === 0) return { x: 0, y: 0, width: 1920, height: 1080 };
-    let maxRight = 0;
-    let maxBottom = 0;
-    for (const geo of entries) {
-      const right = (geo.x ?? 0) + (geo.width ?? 0);
-      const bottom = (geo.y ?? 0) + (geo.height ?? 0);
-      if (right > maxRight) maxRight = right;
-      if (bottom > maxBottom) maxBottom = bottom;
-    }
     return {
       x: 0,
       y: 0,
-      width: Math.min(Math.max(maxRight, 1920), 16384),
-      height: Math.min(Math.max(maxBottom, 1080), 16384),
+      width: BOARD_SURFACE_SIZE,
+      height: BOARD_SURFACE_SIZE,
     };
-  }, [boardFileId, canvasFrameGeometryById]);
+  }, [boardFileId]);
 
   const queueFrameGeometrySave = useCallback(
     (geometryById: CanvasFrameGeometryById) => {
@@ -7488,6 +7494,7 @@ export default function DesignEditor() {
 
   const handleMoveTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     setActiveTool("move");
     setMode("edit");
     setDrawMode(false);
@@ -7496,6 +7503,7 @@ export default function DesignEditor() {
 
   const handleFrameTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("frame");
       setMode("edit");
@@ -7509,6 +7517,7 @@ export default function DesignEditor() {
 
   const handleTextTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("text");
       viewModeRef.current = "overview";
@@ -7523,6 +7532,7 @@ export default function DesignEditor() {
   const handleShapeTool = useCallback(
     (tool: ShapeTool) => {
       if (!canEditDesign) return;
+      blurActiveDesignEditableTarget();
       flushSync(() => {
         setActiveTool(tool);
         viewModeRef.current = "overview";
@@ -7542,6 +7552,7 @@ export default function DesignEditor() {
 
   const handlePenTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("pen");
       viewModeRef.current = "overview";
@@ -7555,6 +7566,7 @@ export default function DesignEditor() {
 
   const handleHandTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     setActiveTool("hand");
     setMode("edit");
     setDrawMode(false);
@@ -7565,6 +7577,7 @@ export default function DesignEditor() {
 
   const handleScaleTool = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
+    blurActiveDesignEditableTarget();
     setActiveTool("scale");
     setMode("edit");
     setDrawMode(false);

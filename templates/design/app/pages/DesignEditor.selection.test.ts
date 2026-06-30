@@ -656,6 +656,27 @@ describe("DesignEditor element canonicalization", () => {
     expect(refreshed?.computedStyles.fontSize).toBe("32px");
   });
 
+  it("refreshes source-backed child counts and class-derived flex layout", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section class="flex" data-agent-native-node-id="hero"><div>Child</div></section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.childElementCount).toBe(1);
+    expect(refreshed?.isFlexContainer).toBe(true);
+  });
+
   it("drops stale class-backed computed styles when the source class is removed", () => {
     const previous = {
       tagName: "section",

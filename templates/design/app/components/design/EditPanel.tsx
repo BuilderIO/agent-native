@@ -1757,6 +1757,13 @@ function isParentGrid(element: ElementInfo): boolean {
   return Boolean(element.parentDisplay?.toLowerCase().includes("grid"));
 }
 
+function elementHasLayoutChildren(element: ElementInfo): boolean {
+  if (typeof element.childElementCount === "number") {
+    return element.childElementCount > 0;
+  }
+  return Boolean(element.htmlContent?.match(/<\s*[a-zA-Z][^>]*>/));
+}
+
 function parentFlexDirection(element: ElementInfo): AutoLayoutSizingAxis {
   return element.parentLayout?.flexDirection?.includes("column")
     ? "vertical"
@@ -3742,7 +3749,11 @@ function FlexContainerControls({
   // control can show the right state (normal vs horizontal/vertical/wrap)
   // instead of an empty "add" affordance.
   const display = (styles.display || "").toLowerCase();
-  const isFlex = display.includes("flex");
+  const isFlex = element.isFlexContainer || display.includes("flex");
+  const displayMode: AutoLayoutMatrixValue["display"] = isFlex
+    ? "flex"
+    : "block";
+  const hasLayoutChildren = elementHasLayoutChildren(element);
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
   const mainGapAxis =
@@ -3830,18 +3841,14 @@ function FlexContainerControls({
       horizontal: cssElementSize(element, "horizontal"),
       vertical: cssElementSize(element, "vertical"),
     },
-    // Forward the raw CSS display so the matrix can render the correct Flow
-    // state (normal flow for block/grid, flex for flex/inline-flex). Added as an
-    // optional contract field consumed by AutoLayoutMatrix; harmless when the
-    // matrix ignores it.
-    ...({ display } as Partial<AutoLayoutMatrixValue>),
+    display: displayMode,
     spaceBetween: styles.justifyContent === "space-between",
   };
 
   return (
     <div className="space-y-2">
-      {/* Convert to auto layout — shown when the container is not yet flex */}
-      {!isFlex ? (
+      {/* Convert to auto layout — shown when a childful container is not yet flex. */}
+      {!isFlex && hasLayoutChildren ? (
         <Button
           type="button"
           variant="outline"
@@ -3937,6 +3944,7 @@ function FlexContainerControls({
         onChildMinMaxChange={(axis, kind, val) =>
           commitElementMinMax(axis, kind, val, onStyleChange)
         }
+        showChildLayoutControls={hasLayoutChildren}
       />
     </div>
   );
