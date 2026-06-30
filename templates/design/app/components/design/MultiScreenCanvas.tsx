@@ -217,7 +217,7 @@ interface MultiScreenCanvasProps {
   ) => void;
   onSelectionChange?: (selectedIds: string[]) => void;
   onLayerMarqueeSelectionChange?: (
-    selectedIds: string[],
+    selection: CanvasLayerMarqueeSelection[],
     intent: ElementSelectionIntent,
   ) => void;
   selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
@@ -557,6 +557,11 @@ interface CanvasLayerMarqueeCandidate {
   info: ElementInfo;
   geometry: FrameGeometry;
   frameGeometry: FrameGeometry;
+}
+
+export interface CanvasLayerMarqueeSelection {
+  screenId: string;
+  info: ElementInfo;
 }
 
 export interface CrossScreenDropGuide {
@@ -2125,6 +2130,30 @@ export function MultiScreenCanvas({
       e.preventDefault();
       e.stopPropagation();
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
+      let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
+      let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
+      const reportLayerSelection = (rect: MarqueeRect) => {
+        const state = dragState.current;
+        if (!state || state.type !== "marquee") return;
+        const selection = layerCandidates
+          .filter((candidate) =>
+            rotatedRectIntersects(
+              rect,
+              getSelectableBounds(candidate.geometry),
+              getFrameCenter(candidate.frameGeometry),
+              candidate.frameGeometry.rotation ?? 0,
+            ),
+          )
+          .map((candidate) => ({
+            screenId: candidate.screenId,
+            info: candidate.info,
+          }));
+        onLayerMarqueeSelectionChange?.(selection, {
+          source: "marquee",
+          additive: state.additive,
+          shiftKey: state.additive,
+        });
+      };
       dragState.current = {
         type: "marquee",
         originClient: { x: e.clientX, y: e.clientY },
@@ -2138,14 +2167,25 @@ export function MultiScreenCanvas({
       if (!e.shiftKey) {
         updateSelectedIds(() => []);
         updateSelectedDraftIds(() => []);
+        onLayerMarqueeSelectionChange?.([], {
+          source: "marquee",
+          additive: false,
+          shiftKey: false,
+        });
       }
       setIsDragging(true);
+      void collectLayerMarqueeCandidates().then((candidates) => {
+        if (dragState.current?.type !== "marquee") return;
+        layerCandidates = candidates;
+        reportLayerSelection(latestRect);
+      });
 
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "marquee") return;
         const nextPoint = getCanvasPoint(ev.clientX, ev.clientY);
         const rect = normalizeRectFromPoints(state.originCanvas, nextPoint);
+        latestRect = rect;
         if (
           !state.hasMoved &&
           Math.hypot(
@@ -2188,6 +2228,7 @@ export function MultiScreenCanvas({
             ? dedupeIds([...state.baseSelectedDraftIds, ...hitDraftIds])
             : hitDraftIds,
         );
+        reportLayerSelection(rect);
       };
 
       const handleMouseUp = () => {
@@ -2195,6 +2236,11 @@ export function MultiScreenCanvas({
         if (state?.type === "marquee" && !state.hasMoved && !state.additive) {
           updateSelectedIds(() => []);
           updateSelectedDraftIds(() => []);
+          onLayerMarqueeSelectionChange?.([], {
+            source: "marquee",
+            additive: false,
+            shiftKey: false,
+          });
         }
         finishDrag();
       };
@@ -2202,11 +2248,13 @@ export function MultiScreenCanvas({
       installDragListeners(handleMouseMove, handleMouseUp);
     },
     [
+      collectLayerMarqueeCandidates,
       finishDrag,
       getCanvasPoint,
       getCurrentDraftEntries,
       getCurrentFrameEntries,
       installDragListeners,
+      onLayerMarqueeSelectionChange,
       updateSelectedDraftIds,
       updateSelectedIds,
     ],
@@ -4348,6 +4396,7 @@ export function MultiScreenCanvas({
                 <DesignCanvas
                   content={boardFileContent}
                   contentKey={boardContentKey}
+                  screenId={boardFileId}
                   zoom={100}
                   deviceFrame="none"
                   transparentBackground
@@ -4371,6 +4420,9 @@ export function MultiScreenCanvas({
                   }
                   selectedSelectorCandidates={
                     boardIsActive ? (boardSelectedSelectorCandidates ?? []) : []
+                  }
+                  selectedSelectorGroups={
+                    selectedLayerSelectorGroupsByScreen[boardFileId] ?? []
                   }
                   hoveredSelector={boardHoveredSelector ?? null}
                   hoveredSelectorCandidates={

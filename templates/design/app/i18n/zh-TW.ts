@@ -281,9 +281,9 @@ const messages = {
     clickToRename: "點選重新命名",
     collaborators: "協作者",
     share: "分享",
-    signUpToSave: "儲存副本",
+    signUpToSave: "註冊以儲存",
     signUpToSaveDescription: "登入即可儲存這個設計的可編輯副本。",
-    signUpToShare: "登入以分享",
+    signUpToShare: "註冊以分享",
     shareEditorLink: "編輯器連結",
     shareEditorLinkDescription: "分享可在編輯器中開啟這個設計的連結。",
     modes: {
@@ -618,7 +618,7 @@ const messages = {
     title: "登入前先檢查本機應用畫面",
     description:
       "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
-    saveCta: "免費註冊以儲存",
+    saveCta: "儲存",
     openDesign: "開啟 Design",
     templatesCta: "瀏覽範本",
     previewLabel: "本機預覽",

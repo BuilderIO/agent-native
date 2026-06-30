@@ -290,10 +290,10 @@ const enUS = {
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
     share: "Share",
-    signUpToSave: "Sign up free to save",
+    signUpToSave: "Sign up to save",
     signUpToSaveDescription:
       "Sign up for a free account to save designs, screen layouts, and generate new ones.",
-    signUpToShare: "Sign up to save and share",
+    signUpToShare: "Sign up to share",
     shareEditorLink: "Design editor link",
     shareEditorLinkDescription:
       "Anyone with access can open this design in the editor.",
@@ -697,7 +697,7 @@ const enUS = {
     title: "Inspect local app screens before you sign in",
     description:
       "Open visual-edit without an account. Sign up only when you want to save designs, keep screen layouts, share with others, or generate new directions.",
-    saveCta: "Sign up free to save",
+    saveCta: "Save",
     openDesign: "Open Design",
     templatesCta: "Browse templates",
     previewLabel: "Local preview",
@@ -8916,10 +8916,10 @@ const designPublicShareOverrides = {
   "zh-TW": {
     designEditor: {
       share: "分享",
-      signUpToSave: "免費註冊以儲存",
+      signUpToSave: "註冊以儲存",
       signUpToSaveDescription:
         "註冊免費帳號即可儲存設計、畫面版面，並產生新的方向。",
-      signUpToShare: "註冊以儲存並分享",
+      signUpToShare: "註冊以分享",
       shareEditorLink: "設計編輯器連結",
       shareEditorLinkDescription: "有權限的任何人都能在編輯器中開啟這個設計。",
       toasts: {
@@ -8932,7 +8932,7 @@ const designPublicShareOverrides = {
       title: "登入前先檢視本機 App 畫面",
       description:
         "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、分享給他人或產生新方向時才需要註冊。",
-      saveCta: "免費註冊以儲存",
+      saveCta: "儲存",
       openDesign: "開啟 Design",
       templatesCta: "瀏覽範本",
       previewLabel: "本機預覽",
@@ -8945,10 +8945,10 @@ const designPublicShareOverrides = {
   "zh-CN": {
     designEditor: {
       share: "分享",
-      signUpToSave: "免费注册以保存",
+      signUpToSave: "注册以保存",
       signUpToSaveDescription:
         "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
-      signUpToShare: "注册以保存并共享",
+      signUpToShare: "注册以共享",
       shareEditorLink: "设计编辑器链接",
       shareEditorLinkDescription:
         "有访问权限的任何人都可以在编辑器中打开此设计。",
@@ -8962,7 +8962,7 @@ const designPublicShareOverrides = {
       title: "登录前先检查本地应用屏幕",
       description:
         "无需帐户即可打开 visual-edit。只有在需要保存设计、保留屏幕布局、与他人共享或生成新方向时才注册。",
-      saveCta: "免费注册以保存",
+      saveCta: "保存",
       openDesign: "打开 Design",
       templatesCta: "浏览模板",
       previewLabel: "本地预览",
@@ -8975,10 +8975,10 @@ const designPublicShareOverrides = {
   "es-ES": {
     designEditor: {
       share: "Compartir",
-      signUpToSave: "Registrarse gratis para guardar",
+      signUpToSave: "Registrarse para guardar",
       signUpToSaveDescription:
         "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
-      signUpToShare: "Registrarse para guardar y compartir",
+      signUpToShare: "Registrarse para compartir",
       shareEditorLink: "Enlace del editor de diseño",
       shareEditorLinkDescription:
         "Cualquier persona con acceso puede abrir este diseño en el editor.",
@@ -8992,7 +8992,7 @@ const designPublicShareOverrides = {
       title: "Inspecciona pantallas locales antes de iniciar sesion",
       description:
         "Abre visual-edit sin una cuenta. Registrate solo cuando quieras guardar diseños, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
-      saveCta: "Registrarse gratis para guardar",
+      saveCta: "Guardar",
       openDesign: "Abrir Design",
       templatesCta: "Explorar plantillas",
       previewLabel: "Vista previa local",
@@ -9005,10 +9005,10 @@ const designPublicShareOverrides = {
   "fr-FR": {
     designEditor: {
       share: "Partager",
-      signUpToSave: "S'inscrire gratuitement pour enregistrer",
+      signUpToSave: "S'inscrire pour enregistrer",
       signUpToSaveDescription:
         "Creez un compte gratuit pour enregistrer des designs, des mises en page et generer de nouvelles directions.",
-      signUpToShare: "S'inscrire pour enregistrer et partager",
+      signUpToShare: "S'inscrire pour partager",
       shareEditorLink: "Lien de l'editeur de design",
       shareEditorLinkDescription:
         "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
@@ -9022,7 +9022,7 @@ const designPublicShareOverrides = {
       title: "Inspectez les ecrans locaux avant de vous connecter",
       description:
         "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
-      saveCta: "S'inscrire gratuitement pour enregistrer",
+      saveCta: "Enregistrer",
       openDesign: "Ouvrir Design",
       templatesCta: "Parcourir les modeles",
       previewLabel: "Apercu local",
@@ -9035,10 +9035,10 @@ const designPublicShareOverrides = {
   "de-DE": {
     designEditor: {
       share: "Teilen",
-      signUpToSave: "Kostenlos registrieren zum Speichern",
+      signUpToSave: "Zum Speichern registrieren",
       signUpToSaveDescription:
         "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
-      signUpToShare: "Registrieren zum Speichern und Teilen",
+      signUpToShare: "Zum Teilen registrieren",
       shareEditorLink: "Design-Editor-Link",
       shareEditorLinkDescription:
         "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
@@ -9053,7 +9053,7 @@ const designPublicShareOverrides = {
       title: "Lokale App-Screens vor der Anmeldung pruefen",
       description:
         "Oeffne visual-edit ohne Konto. Registriere dich erst, wenn du Designs speichern, Screen-Layouts behalten, teilen oder neue Richtungen generieren moechtest.",
-      saveCta: "Kostenlos registrieren zum Speichern",
+      saveCta: "Speichern",
       openDesign: "Design oeffnen",
       templatesCta: "Vorlagen durchsuchen",
       previewLabel: "Lokale Vorschau",
@@ -9066,10 +9066,10 @@ const designPublicShareOverrides = {
   "ja-JP": {
     designEditor: {
       share: "共有",
-      signUpToSave: "無料登録して保存",
+      signUpToSave: "登録して保存",
       signUpToSaveDescription:
         "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
-      signUpToShare: "登録して保存と共有",
+      signUpToShare: "登録して共有",
       shareEditorLink: "デザインエディターリンク",
       shareEditorLinkDescription:
         "アクセス権のある人は、このデザインをエディターで開けます。",
@@ -9083,7 +9083,7 @@ const designPublicShareOverrides = {
       title: "サインイン前にローカルアプリ画面を確認",
       description:
         "アカウントなしで visual-edit を開けます。デザインの保存、画面レイアウトの保持、共有、新しい方向の生成が必要なときだけ登録します。",
-      saveCta: "無料登録して保存",
+      saveCta: "保存",
       openDesign: "Design を開く",
       templatesCta: "テンプレートを見る",
       previewLabel: "ローカルプレビュー",
@@ -9096,10 +9096,10 @@ const designPublicShareOverrides = {
   "ko-KR": {
     designEditor: {
       share: "공유",
-      signUpToSave: "무료 가입하고 저장",
+      signUpToSave: "가입하고 저장",
       signUpToSaveDescription:
         "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
-      signUpToShare: "가입하고 저장 및 공유",
+      signUpToShare: "가입하고 공유",
       shareEditorLink: "디자인 편집기 링크",
       shareEditorLinkDescription:
         "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
@@ -9113,7 +9113,7 @@ const designPublicShareOverrides = {
       title: "로그인 전에 로컬 앱 화면 확인",
       description:
         "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 보관, 공유 또는 새 방향 생성이 필요할 때만 가입하세요.",
-      saveCta: "무료 가입하고 저장",
+      saveCta: "저장",
       openDesign: "Design 열기",
       templatesCta: "템플릿 찾아보기",
       previewLabel: "로컬 미리보기",
@@ -9126,10 +9126,10 @@ const designPublicShareOverrides = {
   "pt-BR": {
     designEditor: {
       share: "Compartilhar",
-      signUpToSave: "Criar conta gratis para salvar",
+      signUpToSave: "Criar conta para salvar",
       signUpToSaveDescription:
         "Crie uma conta gratis para salvar designs, layouts de tela e gerar novas direcoes.",
-      signUpToShare: "Criar conta para salvar e compartilhar",
+      signUpToShare: "Criar conta para compartilhar",
       shareEditorLink: "Link do editor de design",
       shareEditorLinkDescription:
         "Qualquer pessoa com acesso pode abrir este design no editor.",
@@ -9143,7 +9143,7 @@ const designPublicShareOverrides = {
       title: "Inspecione telas locais antes de entrar",
       description:
         "Abra o visual-edit sem uma conta. Crie uma conta apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
-      saveCta: "Criar conta gratis para salvar",
+      saveCta: "Salvar",
       openDesign: "Abrir Design",
       templatesCta: "Ver modelos",
       previewLabel: "Previa local",
@@ -9156,10 +9156,10 @@ const designPublicShareOverrides = {
   "hi-IN": {
     designEditor: {
       share: "साझा करें",
-      signUpToSave: "सहेजने के लिए मुफ्त साइन अप करें",
+      signUpToSave: "सहेजने के लिए साइन अप करें",
       signUpToSaveDescription:
         "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
-      signUpToShare: "सहेजने और साझा करने के लिए sign up करें",
+      signUpToShare: "साझा करने के लिए sign up करें",
       shareEditorLink: "design editor link",
       shareEditorLinkDescription:
         "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
@@ -9173,7 +9173,7 @@ const designPublicShareOverrides = {
       title: "sign in से पहले local app screens देखें",
       description:
         "account के बिना visual-edit खोलें। designs सहेजने, screen layouts रखने, share करने या नए directions generate करने के लिए ही sign up करें।",
-      saveCta: "सहेजने के लिए मुफ्त साइन अप करें",
+      saveCta: "सहेजें",
       openDesign: "Design खोलें",
       templatesCta: "templates देखें",
       previewLabel: "स्थानीय पूर्वावलोकन",
@@ -9186,10 +9186,10 @@ const designPublicShareOverrides = {
   "ar-SA": {
     designEditor: {
       share: "مشاركة",
-      signUpToSave: "سجل مجانا للحفظ",
+      signUpToSave: "سجل للحفظ",
       signUpToSaveDescription:
         "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
-      signUpToShare: "سجل للحفظ والمشاركة",
+      signUpToShare: "سجل للمشاركة",
       shareEditorLink: "رابط محرر التصميم",
       shareEditorLinkDescription:
         "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
@@ -9203,7 +9203,7 @@ const designPublicShareOverrides = {
       title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
       description:
         "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم وتخطيطات الشاشة او مشاركتها او انشاء اتجاهات جديدة.",
-      saveCta: "سجل مجانا للحفظ",
+      saveCta: "حفظ",
       openDesign: "افتح Design",
       templatesCta: "تصفح القوالب",
       previewLabel: "معاينة محلية",
@@ -9222,7 +9222,7 @@ const designVisualEditOverrides = {
       title: "登入前先檢查本機應用畫面",
       description:
         "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
-      saveCta: "免費註冊以儲存",
+      saveCta: "儲存",
       openDesign: "開啟 Design",
       templatesCta: "瀏覽範本",
       previewLabel: "本機預覽",
@@ -9238,7 +9238,7 @@ const designVisualEditOverrides = {
       title: "登录前检查本地应用屏幕",
       description:
         "无需账号即可打开 visual-edit。只有在想保存设计、保留屏幕布局、与他人共享或生成新方向时才需要注册。",
-      saveCta: "免费注册以保存",
+      saveCta: "保存",
       openDesign: "打开 Design",
       templatesCta: "浏览模板",
       previewLabel: "本地预览",
@@ -9254,7 +9254,7 @@ const designVisualEditOverrides = {
       title: "Inspecciona pantallas locales de la app antes de iniciar sesion",
       description:
         "Abre visual-edit sin cuenta. Registrate solo cuando quieras guardar disenos, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
-      saveCta: "Registrate gratis para guardar",
+      saveCta: "Guardar",
       openDesign: "Abrir Design",
       templatesCta: "Ver plantillas",
       previewLabel: "Vista previa local",
@@ -9270,7 +9270,7 @@ const designVisualEditOverrides = {
       title: "Inspectez les ecrans locaux de l'app avant connexion",
       description:
         "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
-      saveCta: "Inscription gratuite pour enregistrer",
+      saveCta: "Enregistrer",
       openDesign: "Ouvrir Design",
       templatesCta: "Parcourir les modeles",
       previewLabel: "Apercu local",
@@ -9286,7 +9286,7 @@ const designVisualEditOverrides = {
       title: "Lokale App-Bildschirme vor der Anmeldung pruefen",
       description:
         "Oeffne visual-edit ohne Konto. Melde dich nur an, wenn du Designs speichern, Layouts behalten, teilen oder neue Richtungen generieren willst.",
-      saveCta: "Kostenlos registrieren und speichern",
+      saveCta: "Speichern",
       openDesign: "Design oeffnen",
       templatesCta: "Vorlagen durchsuchen",
       previewLabel: "Lokale Vorschau",
@@ -9302,7 +9302,7 @@ const designVisualEditOverrides = {
       title: "サインイン前にローカルアプリ画面を確認",
       description:
         "アカウントなしで visual-edit を開けます。デザイン保存、画面レイアウト保持、共有、新しい方向の生成が必要なときだけ登録します。",
-      saveCta: "無料登録して保存",
+      saveCta: "保存",
       openDesign: "Design を開く",
       templatesCta: "テンプレートを見る",
       previewLabel: "ローカルプレビュー",
@@ -9318,7 +9318,7 @@ const designVisualEditOverrides = {
       title: "로그인 전에 로컬 앱 화면 검사",
       description:
         "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 유지, 공유, 새 방향 생성을 원할 때만 가입하세요.",
-      saveCta: "무료 가입하고 저장",
+      saveCta: "저장",
       openDesign: "Design 열기",
       templatesCta: "템플릿 둘러보기",
       previewLabel: "로컬 미리보기",
@@ -9334,7 +9334,7 @@ const designVisualEditOverrides = {
       title: "Inspecione telas locais do app antes de entrar",
       description:
         "Abra visual-edit sem conta. Cadastre-se apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
-      saveCta: "Cadastre-se gratis para salvar",
+      saveCta: "Salvar",
       openDesign: "Abrir Design",
       templatesCta: "Ver modelos",
       previewLabel: "Previa local",
@@ -9350,7 +9350,7 @@ const designVisualEditOverrides = {
       title: "Sign in से पहले local app screens जांचें",
       description:
         "बिना account visual-edit खोलें। Designs save करने, screen layouts रखने, share करने या नई directions generate करने पर ही sign up करें।",
-      saveCta: "Save करने के लिए free sign up",
+      saveCta: "सहेजें",
       openDesign: "Design खोलें",
       templatesCta: "Templates देखें",
       previewLabel: "स्थानीय पूर्वावलोकन",
@@ -9366,7 +9366,7 @@ const designVisualEditOverrides = {
       title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
       description:
         "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم أو الاحتفاظ بتخطيطات الشاشة أو المشاركة أو توليد اتجاهات جديدة.",
-      saveCta: "سجل مجانا للحفظ",
+      saveCta: "حفظ",
       openDesign: "فتح Design",
       templatesCta: "تصفح القوالب",
       previewLabel: "معاينة محلية",

@@ -173,13 +173,18 @@ import {
 import {
   MultiScreenCanvas,
   OVERVIEW_FRAME_WIDTH,
+  type CanvasLayerMarqueeSelection,
   type CanvasPrimitiveInsert,
   type FrameGeometry,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
-import type { ElementInfo, DeviceFrameType } from "@/components/design/types";
+import type {
+  ElementInfo,
+  ElementSelectionIntent,
+  DeviceFrameType,
+} from "@/components/design/types";
 import {
   DEVICE_FRAME_VIEWPORTS,
   ZOOM_PRESETS,
@@ -313,6 +318,10 @@ function getContentSignature(content: string): string {
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   return `${content.length}:${hash.toString(36)}`;
+}
+
+function dedupeStringIds(ids: string[]): string[] {
+  return Array.from(new Set(ids.filter(Boolean)));
 }
 
 export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
@@ -2349,6 +2358,14 @@ interface EffectiveCodeLayerState {
   hiddenIds: Set<string>;
 }
 
+interface SelectedLayerTarget {
+  layerId: string;
+  fileId: string;
+  node: CodeLayerNode;
+  tree: CodeLayerTreeNode[];
+  elementInfo: ElementInfo;
+}
+
 function collectEffectiveCodeLayerState(
   nodes: CodeLayerTreeNode[],
   lockedIds: Set<string>,
@@ -3787,6 +3804,7 @@ export default function DesignEditor() {
   const [selectedLayerIdsState, setSelectedLayerIdsState] = useState<string[]>(
     [],
   );
+  const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
@@ -4495,11 +4513,10 @@ export default function DesignEditor() {
         : undefined,
     [session?.email, session?.name],
   );
+  const signInToSaveHref = buildSignInHrefForDesignIntent("save");
+  const signInToShareHref = buildSignInHrefForDesignIntent("share");
   const handleSignInToSave = useCallback(() => {
     window.location.href = buildSignInHrefForDesignIntent("save");
-  }, []);
-  const handleSignInToShare = useCallback(() => {
-    window.location.href = buildSignInHrefForDesignIntent("share");
   }, []);
 
   // Data fetching
@@ -8117,7 +8134,7 @@ export default function DesignEditor() {
   );
 
   const handleScreenElementSelect = useCallback(
-    (screenId: string, info: ElementInfo) => {
+    (screenId: string, info: ElementInfo, intent?: ElementSelectionIntent) => {
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
       const createdSelection = createdOverviewLayerSelection;
@@ -8150,11 +8167,33 @@ export default function DesignEditor() {
       ) {
         return;
       }
+      const additiveSelection = Boolean(
+        node &&
+        (intent?.additive ||
+          intent?.range ||
+          intent?.shiftKey ||
+          intent?.metaKey ||
+          intent?.ctrlKey),
+      );
       setActiveFileId(screenId);
       setSelectedElement(canonical);
       setHoveredElement(null);
       setHoveredElementScreenId(null);
-      setSelectedLayerIdsState(node ? [node.id] : []);
+      if (node && additiveSelection) {
+        setSelectedLayerIdsState((current) => {
+          const removeExisting =
+            Boolean(intent?.metaKey || intent?.ctrlKey) &&
+            !intent?.shiftKey &&
+            current.includes(node.id);
+          if (removeExisting) {
+            const next = current.filter((layerId) => layerId !== node.id);
+            return next.length > 0 ? next : [node.id];
+          }
+          return dedupeStringIds([...current, node.id]);
+        });
+      } else {
+        setSelectedLayerIdsState(node ? [node.id] : []);
+      }
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
       }
@@ -8207,10 +8246,10 @@ export default function DesignEditor() {
   );
 
   const handleElementSelect = useCallback(
-    (info: ElementInfo) => {
+    (info: ElementInfo, intent?: ElementSelectionIntent) => {
       const screenId = activeFile?.id ?? activeFileId;
       if (screenId) {
-        handleScreenElementSelect(screenId, info);
+        handleScreenElementSelect(screenId, info, intent);
         return;
       }
       setSelectedElement(
@@ -12425,6 +12464,63 @@ ${serializedHtml}
     selectedLayerIdsRef.current = selectedLayerIds;
   }, [selectedLayerIds]);
 
+  const selectedLayerTargets = useMemo<SelectedLayerTarget[]>(
+    () =>
+      selectedLayerIds
+        .map((layerId) => {
+          const owner = codeLayerOwnerByNodeId.get(layerId);
+          if (!owner) return null;
+          const selectedMatches =
+            selectedElement &&
+            codeLayerNodeMatchesBridgeTarget(
+              owner.node,
+              selectedElement.selector,
+              selectedElement.sourceId ?? selectedElement.id,
+            );
+          return {
+            layerId,
+            fileId: owner.fileId,
+            node: owner.node,
+            tree: owner.tree,
+            elementInfo: selectedMatches
+              ? canonicalElementInfoForCodeLayerNode(
+                  selectedElement,
+                  owner.node,
+                )
+              : elementInfoFromCodeLayerNode(owner.node),
+          };
+        })
+        .filter((target): target is SelectedLayerTarget => Boolean(target)),
+    [codeLayerOwnerByNodeId, selectedElement, selectedLayerIds],
+  );
+
+  useLayoutEffect(() => {
+    selectedLayerTargetsRef.current = selectedLayerTargets;
+  }, [selectedLayerTargets]);
+
+  const selectedLayerSelectorGroupsByScreen = useMemo(() => {
+    const groupsByScreen: Record<string, string[][]> = {};
+    selectedLayerTargets.forEach((target) => {
+      const selectorGroup = codeLayerSelectorAliases(target.node);
+      if (selectorGroup.length === 0) return;
+      groupsByScreen[target.fileId] = [
+        ...(groupsByScreen[target.fileId] ?? []),
+        selectorGroup,
+      ];
+    });
+    return groupsByScreen;
+  }, [selectedLayerTargets]);
+
+  const selectedInspectorElements = useMemo(
+    () =>
+      selectedLayerTargets.length > 0
+        ? selectedLayerTargets.map((target) => target.elementInfo)
+        : selectedElement
+          ? [selectedElement]
+          : [],
+    [selectedElement, selectedLayerTargets],
+  );
+
   const layerPanelSelectedIds = useMemo(
     () =>
       viewMode === "overview" && createdOverviewLayerSelection
@@ -13919,28 +14015,39 @@ ${serializedHtml}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
+            asChild
             variant="outline"
             size="sm"
-            onClick={handleSignInToSave}
-            className="h-8 max-w-[13rem] cursor-pointer gap-1.5 truncate rounded-md bg-[var(--design-editor-panel-raised-bg)] px-2 text-xs shadow-none"
+            className="h-8 cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] px-3 text-sm shadow-none"
             aria-label={t("designEditor.signUpToSave")}
           >
-            <span className="truncate">{t("designEditor.signUpToSave")}</span>
+            <a
+              href={signInToSaveHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>{t("home.save")}</span>
+            </a>
           </Button>
         </TooltipTrigger>
-        <TooltipContent>
-          {t("designEditor.signUpToSaveDescription")}
-        </TooltipContent>
+        <TooltipContent>{t("designEditor.signUpToSave")}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
+            asChild
             variant="default"
             size="sm"
-            onClick={handleSignInToShare}
             className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+            aria-label={t("designEditor.signUpToShare")}
           >
-            <span>{t("designEditor.share")}</span>
+            <a
+              href={signInToShareHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>{t("designEditor.share")}</span>
+            </a>
           </Button>
         </TooltipTrigger>
         <TooltipContent>{t("designEditor.signUpToShare")}</TooltipContent>
