@@ -6,6 +6,21 @@ export const hitTestBridgeScript: string = `"use strict";
 (() => {
   // app/components/design/bridge/hit-test.bridge.ts
   (function() {
+    var insertionGuide = null;
+    function ensureInsertionGuide() {
+      if (insertionGuide && document.body.contains(insertionGuide)) {
+        return insertionGuide;
+      }
+      insertionGuide = document.createElement("div");
+      insertionGuide.setAttribute("data-agent-native-hit-test-preview", "");
+      insertionGuide.setAttribute("data-agent-native-edit-overlay", "drop-guide");
+      insertionGuide.style.cssText = "position:fixed;pointer-events:none;z-index:99995;display:none;box-sizing:border-box;";
+      document.body.appendChild(insertionGuide);
+      return insertionGuide;
+    }
+    function hideInsertionGuide() {
+      if (insertionGuide) insertionGuide.style.display = "none";
+    }
     var BRIDGE_CONTAINER_TAGS = [
       "div",
       "section",
@@ -159,14 +174,57 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return null;
     }
+    function showInsertionGuideFor(target) {
+      if (!target || !target.anchor) {
+        hideInsertionGuide();
+        return;
+      }
+      var guide = ensureInsertionGuide();
+      var rect = target.anchor.getBoundingClientRect();
+      guide.style.display = "block";
+      guide.style.background = "var(--design-editor-accent-color)";
+      guide.style.border = "0";
+      guide.style.borderRadius = "999px";
+      guide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
+      if (target.placement === "inside") {
+        guide.style.left = rect.left + "px";
+        guide.style.top = rect.top + "px";
+        guide.style.width = rect.width + "px";
+        guide.style.height = rect.height + "px";
+        guide.style.background = "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)";
+        guide.style.border = "2px solid var(--design-editor-accent-color)";
+        guide.style.borderRadius = "2px";
+        guide.style.boxShadow = "none";
+        return;
+      }
+      if (target.axis === "x") {
+        var x = target.placement === "before" ? rect.left : rect.right;
+        guide.style.left = x + "px";
+        guide.style.top = rect.top + "px";
+        guide.style.width = "2px";
+        guide.style.height = rect.height + "px";
+      } else {
+        var y = target.placement === "before" ? rect.top : rect.bottom;
+        guide.style.left = rect.left + "px";
+        guide.style.top = y + "px";
+        guide.style.width = rect.width + "px";
+        guide.style.height = "2px";
+      }
+    }
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
-      if (!e.data || e.data.type !== "agent-native:hit-test") return;
+      if (!e.data) return;
+      if (e.data.type === "agent-native:hit-test-preview-clear") {
+        hideInsertionGuide();
+        return;
+      }
+      if (e.data.type !== "agent-native:hit-test") return;
       var correlationId = e.data.correlationId;
       var x = Number(e.data.x);
       var y = Number(e.data.y);
       if (!correlationId) return;
       var result = resolveHitTarget(x, y);
+      if (e.data.preview) showInsertionGuideFor(result);
       var anchorNodeId = result ? getNodeId(result.anchor) : "";
       var placement = result ? result.placement : "inside";
       var axis = result ? result.axis : "y";

@@ -4035,6 +4035,10 @@ function FlexContainerControls({
       horizontal: cssElementSize(element, "horizontal"),
       vertical: cssElementSize(element, "vertical"),
     },
+    mixedSize: {
+      horizontal: isMixedValue(styles.width),
+      vertical: isMixedValue(styles.height),
+    },
     display: displayMode,
     spaceBetween: styles.justifyContent === "space-between",
   };
@@ -4267,6 +4271,7 @@ function LayoutContextProperties({
             sizingAxis="horizontal"
             value={inferElementSizing(element, "horizontal")}
             resolvedSize={cssElementSize(element, "horizontal")}
+            mixed={isMixedValue(element.computedStyles.width)}
             minMax={readElementMinMax(element, "horizontal")}
             options={availableSizing.horizontal ?? ["fixed"]}
             disabled={false}
@@ -4289,6 +4294,7 @@ function LayoutContextProperties({
             sizingAxis="vertical"
             value={inferElementSizing(element, "vertical")}
             resolvedSize={cssElementSize(element, "vertical")}
+            mixed={isMixedValue(element.computedStyles.height)}
             minMax={readElementMinMax(element, "vertical")}
             options={availableSizing.vertical ?? ["fixed"]}
             disabled={false}

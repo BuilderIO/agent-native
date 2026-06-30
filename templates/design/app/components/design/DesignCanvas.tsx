@@ -168,6 +168,8 @@ ${navBridgeScript}
  * Protocol (parent → iframe via postMessage):
  *   { type: 'agent-native:hit-test', correlationId: string, x: number, y: number }
  *   where x/y are in this iframe's viewport coordinate space.
+ *   When preview is true, the iframe also renders its local insertion guide.
+ *   { type: 'agent-native:hit-test-preview-clear' } hides that guide.
  *
  * Reply (iframe → window.parent):
  *   { type: 'agent-native:hit-test-result', correlationId: string,
@@ -334,6 +336,10 @@ interface DesignCanvasProps {
   readOnly?: boolean;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo, intent?: ElementSelectionIntent) => void;
+  onElementMarqueeSelect?: (
+    infos: ElementInfo[],
+    intent?: ElementSelectionIntent,
+  ) => void;
   onElementHover: (info: ElementInfo | null) => void;
   onClearSelection?: () => void;
   onVisualStyleChange?: (
@@ -589,6 +595,7 @@ export function DesignCanvas({
   scaleMode = false,
   clearSelectionRequest,
   onElementSelect,
+  onElementMarqueeSelect,
   onElementHover,
   onClearSelection,
   onVisualStyleChange,
@@ -877,6 +884,17 @@ export function DesignCanvas({
       }
       if (e.data.type === "element-select") {
         onElementSelect(e.data.payload, e.data.intent);
+        return;
+      }
+      if (
+        e.data.type === "agent-native:layer-marquee-selection" ||
+        e.data.type === "element-marquee-select"
+      ) {
+        onElementMarqueeSelect?.(
+          Array.isArray(e.data.payload) ? e.data.payload : [],
+          e.data.intent,
+        );
+        return;
       }
       if (e.data.type === "element-hover") {
         onElementHover(e.data.payload);
@@ -1113,6 +1131,7 @@ export function DesignCanvas({
     return () => window.removeEventListener("message", handleMessage);
   }, [
     onElementSelect,
+    onElementMarqueeSelect,
     onElementHover,
     onClearSelection,
     onVisualStyleChange,

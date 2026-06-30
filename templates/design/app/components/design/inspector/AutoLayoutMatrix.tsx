@@ -72,6 +72,10 @@ export interface AutoLayoutMatrixValue {
     horizontal?: number;
     vertical?: number;
   };
+  mixedSize?: {
+    horizontal?: boolean;
+    vertical?: boolean;
+  };
   childSizing: {
     horizontal: AutoLayoutSizing;
     vertical: AutoLayoutSizing;
@@ -376,6 +380,7 @@ export function AutoLayoutMatrix({
               sizingAxis="horizontal"
               value={value.childSizing.horizontal}
               resolvedSize={value.resolvedSize?.horizontal}
+              mixed={Boolean(value.mixedSize?.horizontal)}
               minMax={value.childMinMax?.horizontal}
               options={resolveSizingOptions(
                 availableChildSizing?.horizontal,
@@ -397,6 +402,7 @@ export function AutoLayoutMatrix({
               sizingAxis="vertical"
               value={value.childSizing.vertical}
               resolvedSize={value.resolvedSize?.vertical}
+              mixed={Boolean(value.mixedSize?.vertical)}
               minMax={value.childMinMax?.vertical}
               options={resolveSizingOptions(
                 availableChildSizing?.vertical,
@@ -1079,6 +1085,7 @@ export interface SizingFieldProps {
   sizingAxis: AutoLayoutSizingAxis;
   value: AutoLayoutSizing;
   resolvedSize?: number;
+  mixed?: boolean;
   /** Currently-set min/max constraints (px). */
   minMax?: SizingFieldMinMax;
   options?: AutoLayoutSizing[];
@@ -1117,6 +1124,7 @@ export function SizingField({
   sizingAxis,
   value,
   resolvedSize,
+  mixed = false,
   minMax,
   options = SIZING_OPTIONS,
   labels: labelOverrides,
@@ -1243,8 +1251,9 @@ export function SizingField({
               ariaLabel={`${axis} size in pixels`}
               tooltipLabel={`${axis} size`}
               icon={null}
-              value={Math.round(resolvedSize ?? 0)}
+              value={mixed ? 0 : Math.round(resolvedSize ?? 0)}
               onChange={(next) => onSizeChange!(Math.max(0, Math.round(next)))}
+              mixed={mixed}
               unit="px"
               min={0}
               step={1}
@@ -1290,7 +1299,7 @@ export function SizingField({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  aria-label={`${axis} ${Math.round(resolvedSize ?? 0)} ${labels[value]}`}
+                  aria-label={`${axis} ${mixed ? "Mixed" : Math.round(resolvedSize ?? 0)} ${labels[value]}`}
                   disabled={disabled}
                   className={cn(
                     "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
@@ -1303,8 +1312,13 @@ export function SizingField({
                   {/* Axis letter */}
                   <span className="shrink-0 text-muted-foreground">{axis}</span>
                   {/* Resolved size */}
-                  <span className="min-w-0 flex-1 truncate text-left tabular-nums text-foreground">
-                    {Math.round(resolvedSize ?? 0)}
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-left tabular-nums",
+                      mixed ? "text-muted-foreground" : "text-foreground",
+                    )}
+                  >
+                    {mixed ? "Mixed" : Math.round(resolvedSize ?? 0)}
                   </span>
                   {/* Mode word (Hug/Fill only) */}
                   {showWord ? (

@@ -13741,6 +13741,42 @@ ${serializedHtml}
     ],
   );
 
+  const handleScreenElementMarqueeSelect = useCallback(
+    (
+      screenId: string,
+      infos: ElementInfo[],
+      intent?: ElementSelectionIntent,
+    ) => {
+      handleLayerMarqueeSelectionChange(
+        infos.map((info) => ({ screenId, info })),
+        {
+          additive: Boolean(
+            intent?.additive ||
+            intent?.range ||
+            intent?.shiftKey ||
+            intent?.metaKey ||
+            intent?.ctrlKey,
+          ),
+          range: Boolean(intent?.range || intent?.shiftKey),
+          source: "marquee",
+          shiftKey: Boolean(intent?.shiftKey),
+          metaKey: Boolean(intent?.metaKey),
+          ctrlKey: Boolean(intent?.ctrlKey),
+        },
+      );
+    },
+    [handleLayerMarqueeSelectionChange],
+  );
+
+  const handleElementMarqueeSelect = useCallback(
+    (infos: ElementInfo[], intent?: ElementSelectionIntent) => {
+      const screenId = activeFile?.id ?? activeFileId;
+      if (!screenId) return;
+      handleScreenElementMarqueeSelect(screenId, infos, intent);
+    },
+    [activeFile?.id, activeFileId, handleScreenElementMarqueeSelect],
+  );
+
   const handleLayerRename = useCallback(
     (layerId: string, name: string) => {
       if (!canEditDesign) return;
@@ -15342,6 +15378,16 @@ ${serializedHtml}
                               )
                           : undefined
                       }
+                      onBoardElementMarqueeSelect={
+                        boardFileId
+                          ? (infos, intent) =>
+                              handleScreenElementMarqueeSelect(
+                                boardFileId,
+                                infos,
+                                intent,
+                              )
+                          : undefined
+                      }
                       onBoardElementHover={
                         boardFileId
                           ? (info) =>
@@ -15589,6 +15635,13 @@ ${serializedHtml}
                             onElementSelect={(info, intent) =>
                               handleScreenElementSelect(screen.id, info, intent)
                             }
+                            onElementMarqueeSelect={(infos, intent) =>
+                              handleScreenElementMarqueeSelect(
+                                screen.id,
+                                infos,
+                                intent,
+                              )
+                            }
                             onElementHover={(info) =>
                               handleScreenElementHover(screen.id, info)
                             }
@@ -15710,6 +15763,7 @@ ${serializedHtml}
                         lockedSelectors={lockedLayerSelectors}
                         hiddenSelectors={hiddenLayerSelectors}
                         onElementSelect={handleElementSelect}
+                        onElementMarqueeSelect={handleElementMarqueeSelect}
                         onElementHover={handleElementHover}
                         onClearSelection={() => {
                           setSelectedElement(null);

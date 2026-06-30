@@ -108,6 +108,9 @@ describe("board surface pointer capture", () => {
       "body>:not([data-agent-native-node-id]):not(style):not(script)",
     );
     expect(result).toContain(
+      "body>[data-agent-native-node-id]:not([data-an-primitive]):has([data-agent-native-node-id])",
+    );
+    expect(result).toContain(
       `<div data-agent-native-node-id="rect" style="background:#ddd">`,
     );
   });

@@ -494,14 +494,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     (window.parent as Window).postMessage(message, "*");
   }
 
-  function collectSelectableElementInfos(): unknown[] {
+  function collectSelectableElements(): Element[] {
     var nodes = Array.prototype.slice.call(
       document.querySelectorAll(
         "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]",
       ),
     ) as Element[];
     var seen = new Set<Element>();
-    var infos: unknown[] = [];
+    var elements: Element[] = [];
     nodes.forEach(function (node) {
       var target = selectionTargetForHit(node);
       if (
@@ -516,9 +516,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var rect = target.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       seen.add(target);
-      infos.push(getElementInfo(target));
+      elements.push(target);
     });
-    return infos;
+    return elements;
+  }
+
+  function collectSelectableElementInfos(): unknown[] {
+    return collectSelectableElements().map(function (target) {
+      return getElementInfo(target);
+    });
   }
 
   var shieldOverlay = document.createElement("div");
@@ -532,6 +538,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   highlightOverlay.style.cssText =
     "position:fixed;pointer-events:none;z-index:99997;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
   document.body.appendChild(highlightOverlay);
+
+  var marqueeSelectionOverlay = document.createElement("div");
+  marqueeSelectionOverlay.setAttribute(
+    "data-agent-native-edit-overlay",
+    "marquee-selection",
+  );
+  marqueeSelectionOverlay.style.cssText =
+    "position:fixed;pointer-events:none;z-index:99995;border:1px solid var(--design-editor-accent-color);background:color-mix(in srgb,var(--design-editor-accent-color) 14%,transparent);display:none;box-sizing:border-box;";
+  document.body.appendChild(marqueeSelectionOverlay);
 
   var selectionOverlay = document.createElement("div");
   selectionOverlay.setAttribute("data-agent-native-edit-overlay", "selection");
@@ -739,6 +754,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   var hoveredEl: Element | null = null;
   var passiveSelectionEls: Element[] = [];
   var passiveSelectionOverlays: HTMLElement[] = [];
+  var activeMarqueeSelection: {
+    startX: number;
+    startY: number;
+    additive: boolean;
+    moved: boolean;
+    pointerId?: number;
+    move: string;
+    up: string;
+    onMove: (ev: MouseEvent) => void;
+    onUp: (ev: MouseEvent) => void;
+  } | null = null;
   var activeTextEditEl: HTMLElement | null = null;
   var textEditPointerState: {
     shield: string;
@@ -799,6 +825,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     spacingDrag = null;
     selectionOverlay.style.display = "none";
     highlightOverlay.style.display = "none";
+    marqueeSelectionOverlay.style.display = "none";
+    clearActiveMarqueeSelection();
     hideSpacingOverlay();
     hideMeasurements();
     clearComponentTag();
@@ -811,11 +839,30 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     passiveSelectionOverlays = [];
   }
 
+  function appendPassiveSelectionHandles(overlay: HTMLElement): void {
+    ["nw", "ne", "se", "sw"].forEach(function (pos) {
+      var handle = document.createElement("span");
+      handle.setAttribute(
+        "data-agent-native-edit-overlay",
+        "multi-selection-handle",
+      );
+      handle.setAttribute("data-corner", pos);
+      handle.style.cssText =
+        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:none;";
+      if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
+      if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
+      if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
+      if (pos.indexOf("e") !== -1) handle.style.right = "-4px";
+      overlay.appendChild(handle);
+    });
+  }
+
   function makePassiveSelectionOverlay(): HTMLElement {
     var overlay = document.createElement("div");
     overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
     overlay.style.cssText =
       "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
+    appendPassiveSelectionHandles(overlay);
     document.body.appendChild(overlay);
     return overlay;
   }
@@ -1535,6 +1582,31 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     spacingOverlay.appendChild(regionNode);
   }
 
+  function updateSpacingHandleHighlights(
+    handles: ({
+      key: string;
+      groupKey: string;
+      kind: string;
+      orientation: string;
+    } | null)[],
+    activeGroupKey: string,
+  ): void {
+    handles.forEach(function (handle) {
+      if (!handle) return;
+      var regionNode = spacingHandleNodesByKey[handle.key];
+      if (!regionNode) return;
+      var highlighted = Boolean(
+        activeGroupKey && handle.groupKey === activeGroupKey,
+      );
+      (regionNode as HTMLElement).style.background = highlighted
+        ? spacingFill(handle.kind, handle.orientation)
+        : "transparent";
+      (regionNode as HTMLElement).style.outline = highlighted
+        ? "1px solid " + spacingColor(handle.kind)
+        : "0";
+    });
+  }
+
   function updateSpacingOverlay(el: Element | null): void {
     if (el && el !== selectedEl) {
       hideSpacingOverlay();
@@ -1560,29 +1632,27 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       }) ||
       null;
     var activeGroupKey = activeHandle ? activeHandle.groupKey : "";
-    var nextRenderKey =
-      activeGroupKey +
-      "|" +
-      handles
-        .map(function (handle) {
-          return [
-            handle.key,
-            handle.value,
-            handle.region.x,
-            handle.region.y,
-            handle.region.width,
-            handle.region.height,
-            handle.line.x,
-            handle.line.y,
-            handle.line.width,
-            handle.line.height,
-          ].join(",");
-        })
-        .join("|");
+    var nextRenderKey = handles
+      .map(function (handle) {
+        return [
+          handle.key,
+          handle.value,
+          handle.region.x,
+          handle.region.y,
+          handle.region.width,
+          handle.region.height,
+          handle.line.x,
+          handle.line.y,
+          handle.line.width,
+          handle.line.height,
+        ].join(",");
+      })
+      .join("|");
     if (
       spacingOverlay.style.display === "block" &&
       spacingOverlayRenderKey === nextRenderKey
     ) {
+      updateSpacingHandleHighlights(handles, activeGroupKey);
       if (activeHandle) {
         showSpacingBadgeForHandle(
           activeHandle,
@@ -2237,6 +2307,180 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       suppressNextShieldClick = false;
       suppressNextShieldClickTimer = null;
     }, 250);
+  }
+
+  function clearActiveMarqueeSelection(): void {
+    if (!activeMarqueeSelection) return;
+    document.removeEventListener(
+      activeMarqueeSelection.move,
+      activeMarqueeSelection.onMove,
+      true,
+    );
+    document.removeEventListener(
+      activeMarqueeSelection.up,
+      activeMarqueeSelection.onUp,
+      true,
+    );
+    if (
+      activeMarqueeSelection.pointerId !== undefined &&
+      shieldOverlay.releasePointerCapture
+    ) {
+      try {
+        shieldOverlay.releasePointerCapture(activeMarqueeSelection.pointerId);
+      } catch (_err) {}
+    }
+    activeMarqueeSelection = null;
+  }
+
+  function marqueeRectFromPoints(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+  ): {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  } {
+    var left = Math.min(startX, endX);
+    var top = Math.min(startY, endY);
+    var right = Math.max(startX, endX);
+    var bottom = Math.max(startY, endY);
+    return {
+      left: left,
+      top: top,
+      right: right,
+      bottom: bottom,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    };
+  }
+
+  function rectsIntersect(
+    a: { left: number; top: number; right: number; bottom: number },
+    b: { left: number; top: number; right: number; bottom: number },
+  ): boolean {
+    return (
+      a.left <= b.right &&
+      a.right >= b.left &&
+      a.top <= b.bottom &&
+      a.bottom >= b.top
+    );
+  }
+
+  function postElementMarqueeSelect(
+    elements: Element[],
+    additive: boolean,
+    e,
+  ): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:layer-marquee-selection",
+        phase: "change",
+        payload: elements.map(function (el) {
+          return getElementInfo(el);
+        }),
+        intent: {
+          additive: additive,
+          range: Boolean(e && e.shiftKey),
+          source: "marquee",
+          shiftKey: Boolean(e && e.shiftKey),
+          metaKey: Boolean(e && e.metaKey),
+          ctrlKey: Boolean(e && e.ctrlKey),
+        },
+      },
+      "*",
+    );
+  }
+
+  function updateMarqueeSelection(e): void {
+    if (!activeMarqueeSelection) return;
+    var rect = marqueeRectFromPoints(
+      activeMarqueeSelection.startX,
+      activeMarqueeSelection.startY,
+      e.clientX,
+      e.clientY,
+    );
+    marqueeSelectionOverlay.style.display = "block";
+    marqueeSelectionOverlay.style.left = rect.left + "px";
+    marqueeSelectionOverlay.style.top = rect.top + "px";
+    marqueeSelectionOverlay.style.width = rect.width + "px";
+    marqueeSelectionOverlay.style.height = rect.height + "px";
+
+    var hitElements = collectSelectableElements().filter(function (el) {
+      var bounds = el.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) return false;
+      return rectsIntersect(rect, {
+        left: bounds.left,
+        top: bounds.top,
+        right: bounds.right,
+        bottom: bounds.bottom,
+      });
+    });
+    var primary = hitElements[hitElements.length - 1] || null;
+    if (primary) {
+      selectedEl = primary;
+      positionOverlay(selectionOverlay, primary);
+    } else if (!activeMarqueeSelection.additive) {
+      selectedEl = null;
+      selectionOverlay.style.display = "none";
+      clearComponentTag();
+    }
+    setPassiveSelectionElements(hitElements);
+    postElementMarqueeSelect(hitElements, activeMarqueeSelection.additive, e);
+  }
+
+  function beginMarqueeSelection(e): void {
+    if (e.button !== 0 || activeTextEditEl) return;
+    clearActiveMarqueeSelection();
+    var events = dragEventNames(e);
+    var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    function onMove(ev) {
+      if (!activeMarqueeSelection) return;
+      if (
+        !activeMarqueeSelection.moved &&
+        Math.hypot(
+          ev.clientX - activeMarqueeSelection.startX,
+          ev.clientY - activeMarqueeSelection.startY,
+        ) <= 3
+      ) {
+        return;
+      }
+      activeMarqueeSelection.moved = true;
+      stopNativeInteraction(ev);
+      updateMarqueeSelection(ev);
+    }
+    function onUp(ev) {
+      var didMove = Boolean(activeMarqueeSelection?.moved);
+      if (didMove) {
+        stopNativeInteraction(ev);
+        updateMarqueeSelection(ev);
+        suppressNextShieldClickBriefly();
+      }
+      marqueeSelectionOverlay.style.display = "none";
+      clearActiveMarqueeSelection();
+    }
+    activeMarqueeSelection = {
+      startX: e.clientX,
+      startY: e.clientY,
+      additive: additive,
+      moved: false,
+      pointerId: e.pointerId,
+      move: events.move,
+      up: events.up,
+      onMove: onMove,
+      onUp: onUp,
+    };
+    if (e.pointerId !== undefined && shieldOverlay.setPointerCapture) {
+      try {
+        shieldOverlay.setPointerCapture(e.pointerId);
+      } catch (_err) {}
+    }
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
   }
 
   function openContextMenuAtEvent(e) {
@@ -3489,8 +3733,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     if (e.button !== 0 || activeTextEditEl) return;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
-    if (!hit || hit === document.body || hit === document.documentElement)
+    if (!hit || hit === document.body || hit === document.documentElement) {
+      beginMarqueeSelection(e);
       return;
+    }
     var dragTarget =
       selectedEl &&
       document.documentElement.contains(selectedEl) &&

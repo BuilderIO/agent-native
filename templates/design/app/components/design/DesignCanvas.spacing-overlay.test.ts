@@ -60,8 +60,10 @@ describe("DesignCanvas spacing overlay bridge", () => {
 
   it("clicks children inside a selected parent while drags still move the parent", () => {
     expect(source).toContain("var clickTarget = selectionTargetForHit(hit)");
-    expect(source).toContain("selectTarget(clickTarget || dragTarget)");
-    expect(source).toContain("selectTarget(dragTarget)");
+    expect(source).toMatch(
+      /selectTarget\(\s*clickTarget \|\| dragTarget\s*,\s*ev\s*\)/,
+    );
+    expect(source).toMatch(/selectTarget\(\s*dragTarget\s*,\s*ev\s*\)/);
   });
 });
 

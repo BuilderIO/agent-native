@@ -265,6 +265,7 @@ export function ScrubInput({
           "h-6 text-[11px] tabular-nums",
           "focus-visible:ring-1 focus-visible:ring-offset-0",
           inputClassName,
+          mixed && "text-muted-foreground",
         )}
       />
     </div>

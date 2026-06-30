@@ -6,6 +6,8 @@
  * Protocol (parent → iframe via postMessage):
  *   { type: 'agent-native:hit-test', correlationId: string, x: number, y: number }
  *   where x/y are in this iframe's viewport coordinate space.
+ *   When preview is true, the iframe also renders its local insertion guide.
+ *   { type: 'agent-native:hit-test-preview-clear' } hides that guide.
  *
  * Reply (iframe → window.parent):
  *   { type: 'agent-native:hit-test-result', correlationId: string,
@@ -24,6 +26,25 @@
  *   • Wrap everything in a self-executing IIFE.
  */
 (function () {
+  var insertionGuide: HTMLDivElement | null = null;
+
+  function ensureInsertionGuide(): HTMLDivElement {
+    if (insertionGuide && document.body.contains(insertionGuide)) {
+      return insertionGuide;
+    }
+    insertionGuide = document.createElement("div");
+    insertionGuide.setAttribute("data-agent-native-hit-test-preview", "");
+    insertionGuide.setAttribute("data-agent-native-edit-overlay", "drop-guide");
+    insertionGuide.style.cssText =
+      "position:fixed;pointer-events:none;z-index:99995;display:none;box-sizing:border-box;";
+    document.body.appendChild(insertionGuide);
+    return insertionGuide;
+  }
+
+  function hideInsertionGuide(): void {
+    if (insertionGuide) insertionGuide.style.display = "none";
+  }
+
   // keep in sync with editor-chrome.bridge.ts container/leaf/text tag lists
   var BRIDGE_CONTAINER_TAGS = [
     "div",
@@ -250,14 +271,61 @@
     return null;
   }
 
+  function showInsertionGuideFor(
+    target: { anchor: Element; placement: string; axis: string } | null,
+  ): void {
+    if (!target || !target.anchor) {
+      hideInsertionGuide();
+      return;
+    }
+    var guide = ensureInsertionGuide();
+    var rect = target.anchor.getBoundingClientRect();
+    guide.style.display = "block";
+    guide.style.background = "var(--design-editor-accent-color)";
+    guide.style.border = "0";
+    guide.style.borderRadius = "999px";
+    guide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
+    if (target.placement === "inside") {
+      guide.style.left = rect.left + "px";
+      guide.style.top = rect.top + "px";
+      guide.style.width = rect.width + "px";
+      guide.style.height = rect.height + "px";
+      guide.style.background =
+        "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)";
+      guide.style.border = "2px solid var(--design-editor-accent-color)";
+      guide.style.borderRadius = "2px";
+      guide.style.boxShadow = "none";
+      return;
+    }
+    if (target.axis === "x") {
+      var x = target.placement === "before" ? rect.left : rect.right;
+      guide.style.left = x + "px";
+      guide.style.top = rect.top + "px";
+      guide.style.width = "2px";
+      guide.style.height = rect.height + "px";
+    } else {
+      var y = target.placement === "before" ? rect.top : rect.bottom;
+      guide.style.left = rect.left + "px";
+      guide.style.top = y + "px";
+      guide.style.width = rect.width + "px";
+      guide.style.height = "2px";
+    }
+  }
+
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;
-    if (!e.data || e.data.type !== "agent-native:hit-test") return;
+    if (!e.data) return;
+    if (e.data.type === "agent-native:hit-test-preview-clear") {
+      hideInsertionGuide();
+      return;
+    }
+    if (e.data.type !== "agent-native:hit-test") return;
     var correlationId: string = e.data.correlationId;
     var x: number = Number(e.data.x);
     var y: number = Number(e.data.y);
     if (!correlationId) return;
     var result = resolveHitTarget(x, y);
+    if (e.data.preview) showInsertionGuideFor(result);
     var anchorNodeId: string = result ? getNodeId(result.anchor) : "";
     var placement: string = result ? result.placement : "inside";
     var axis: string = result ? result.axis : "y";
