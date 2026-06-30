@@ -1,5 +1,6 @@
 import {
   appApiPath,
+  callAction,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
@@ -81,19 +82,23 @@ export function useDocumentSyncStatus(
 ) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
-  const query = useActionQuery<DocumentSyncStatus>(
-    "refresh-notion-sync-status",
-    documentId
-      ? { documentId, autoSync: !!options?.autoSync }
-      : (undefined as any),
-    {
-      enabled: !!documentId,
-      // Poll Notion aggressively when auto-sync is on so remote changes appear
-      // within ~2s. Server throttles match (see REFRESH_THROTTLE_AUTO_SYNC_MS in
-      // notion-sync.ts) so we make at most one real Notion request per 2s per doc.
-      refetchInterval: options?.autoSync ? 2_000 : 30_000,
+  const query = useQuery<DocumentSyncStatus>({
+    queryKey: documentId
+      ? documentSyncStatusQueryKey(documentId, options)
+      : ["action", "refresh-notion-sync-status", null],
+    queryFn: () => {
+      if (!documentId) throw new Error("documentId is required");
+      return callAction<DocumentSyncStatus>("refresh-notion-sync-status", {
+        documentId,
+        autoSync: !!options?.autoSync,
+      });
     },
-  );
+    enabled: !!documentId,
+    // Poll Notion aggressively when auto-sync is on so remote changes appear
+    // within ~2s. Server throttles match (see REFRESH_THROTTLE_AUTO_SYNC_MS in
+    // notion-sync.ts) so we make at most one real Notion request per 2s per doc.
+    refetchInterval: options?.autoSync ? 2_000 : 30_000,
+  });
 
   useEffect(() => {
     if (!documentId || !query.data?.lastSyncedAt) return;

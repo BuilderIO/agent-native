@@ -320,11 +320,7 @@ export async function runEvalSuite(
     evals = loaded.evals;
   }
 
-  const needsRunner = evals.some(
-    (evalCase) =>
-      !evalCase.skipReason &&
-      (!evalCase.run || evalCase.scorers.some((scorer) => scorer.analyze)),
-  );
+  const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
   const runner =
     opts.runner ??
     (needsRunner

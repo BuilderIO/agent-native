@@ -138,9 +138,17 @@ export function NotionButton() {
       toast.error(t("sidebar.notionOAuthNotConfigured"));
       return;
     }
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      toast.error(t("sidebar.notionOAuthNotConfigured"));
+      return;
+    }
+    popup.opener = null;
+
     try {
-      window.open(await openNotionOAuthUrl(), "_blank");
+      popup.location.href = await openNotionOAuthUrl();
     } catch (error) {
+      popup.close();
       toast.error(
         error instanceof Error
           ? error.message

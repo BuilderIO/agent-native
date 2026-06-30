@@ -36,7 +36,7 @@ describe("Content Notion action parity", () => {
       const file = new URL(`${action}.ts`, actionsDir);
       if (!existsSync(file)) return [`${action}: missing action file`];
       const source = readFileSync(file, "utf8");
-      return /http:\s*false/.test(source) || !/http:\s*\{/.test(source)
+      return /http:\s*false/.test(source)
         ? [`${action}: not HTTP exposed for UI action hooks`]
         : [];
     });

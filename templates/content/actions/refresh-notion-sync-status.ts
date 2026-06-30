@@ -14,7 +14,6 @@ export default defineAction({
     id: z.string().optional().describe("Alias for --documentId"),
     autoSync: z.boolean().optional(),
   }),
-  http: { method: "GET" },
   run: async (args) => {
     const documentId = resolveDocumentId(args);
     const owner = await getNotionDocumentOwner(documentId);

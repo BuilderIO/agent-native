@@ -14,9 +14,14 @@ import type { AgentRunOutput } from "./types.js";
 
 // Mock production-agent: actionsToEngineTools is a no-op, runAgentLoop is
 // injected per-test via the runLoop seam so this default is never hit.
-vi.mock("../agent/production-agent.js", () => ({
-  actionsToEngineTools: () => [],
+const productionMod = vi.hoisted(() => ({
+  actionsToEngineTools: vi.fn(() => []),
   runAgentLoop: vi.fn(),
+}));
+vi.mock("../agent/production-agent.js", () => ({
+  actionsToEngineTools: (...a: unknown[]) =>
+    productionMod.actionsToEngineTools(...a),
+  runAgentLoop: (...a: unknown[]) => productionMod.runAgentLoop(...a),
 }));
 
 const engineMod = vi.hoisted(() => ({
@@ -81,6 +86,17 @@ function fakeRunner(
 beforeEach(() => {
   vi.clearAllMocks();
   storeMod.insertEvalResult.mockResolvedValue(undefined);
+  engineMod.resolveEngine.mockResolvedValue({
+    defaultModel: "fake-model",
+  });
+  engineMod.getStoredModelForEngine.mockResolvedValue(null);
+  productionMod.runAgentLoop.mockResolvedValue({
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: "fake-model",
+  });
 });
 
 describe("scoreEval with a JS scorer", () => {
@@ -379,17 +395,11 @@ describe("persistence to the observability store", () => {
 });
 
 describe("runEvalSuite runner creation", () => {
-  it("does not resolve an engine or discover actions when evals are fully self-running", async () => {
+  it("creates a runner for custom evals because run(ctx) may call runAgent", async () => {
     const e = defineEval({
-      name: "self-running",
+      name: "custom-run-calls-agent",
       input: { prompt: "x" },
-      run: async () => ({
-        text: "skipped",
-        toolCalls: [],
-        ok: true,
-        runId: "eval:self-running",
-        durationMs: 0,
-      }),
+      run: (ctx) => ctx.runAgent(ctx.input),
       scorers: [
         createScorer({
           name: "always_pass",
@@ -400,10 +410,15 @@ describe("runEvalSuite runner creation", () => {
       ],
     });
 
-    const result = await runEvalSuite({ evals: [e], persist: false });
+    const result = await runEvalSuite({
+      evals: [e],
+      actions: {},
+      persist: false,
+    });
 
     expect(result.report.failed).toBe(0);
-    expect(engineMod.resolveEngine).not.toHaveBeenCalled();
+    expect(engineMod.resolveEngine).toHaveBeenCalled();
+    expect(productionMod.runAgentLoop).toHaveBeenCalled();
   });
 
   it("does not resolve an engine or discover actions when all evals are skipped", async () => {
