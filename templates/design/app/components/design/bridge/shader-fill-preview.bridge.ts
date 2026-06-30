@@ -27,10 +27,7 @@
   var patchedEl: HTMLElement | null = null;
   var originalBackground = "";
 
-  function resolveTarget(
-    selector: string,
-    nodeId: string,
-  ): HTMLElement | null {
+  function resolveTarget(selector: string, nodeId: string): HTMLElement | null {
     if (selector) {
       try {
         var hit = document.querySelector(selector) as HTMLElement | null;
@@ -39,20 +36,14 @@
     }
     if (nodeId) {
       var byId = document.querySelector(
-        '[data-agent-native-node-id="' +
-          nodeId.replace(/"/g, '\\"') +
-          '"]',
+        '[data-agent-native-node-id="' + nodeId.replace(/"/g, '\\"') + '"]',
       ) as HTMLElement | null;
       if (byId) return byId;
     }
     return document.body;
   }
 
-  function applyPreview(
-    selector: string,
-    nodeId: string,
-    css: string,
-  ): void {
+  function applyPreview(selector: string, nodeId: string, css: string): void {
     // Clear any prior patch first so we don't stack patches.
     clearPreview();
     var el = resolveTarget(selector, nodeId);
@@ -73,10 +64,8 @@
     if (e.source !== window.parent) return;
     if (!e.data || typeof e.data.type !== "string") return;
     if (e.data.type === "shader-fill-preview") {
-      var selector =
-        typeof e.data.selector === "string" ? e.data.selector : "";
-      var nodeId =
-        typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      var selector = typeof e.data.selector === "string" ? e.data.selector : "";
+      var nodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       var css = typeof e.data.css === "string" ? e.data.css : "";
       applyPreview(selector, nodeId, css);
       return;

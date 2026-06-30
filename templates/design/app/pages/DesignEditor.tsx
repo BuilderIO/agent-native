@@ -4912,25 +4912,6 @@ export default function DesignEditor() {
     };
   }, [boardFileId, canvasFrameGeometryById]);
 
-  // Top-level body children of the board file projected as LayersPanelNode[].
-  // Shown as peer rows alongside screens in the layers panel.
-  const boardElements = useMemo((): LayersPanelNode[] | undefined => {
-    if (!boardFileId || !boardFileContent) return undefined;
-    const projection = buildCodeLayerProjection(boardFileContent);
-    if (projection.rootNodeIds.length === 0) return undefined;
-    const nodesById = new Map(projection.nodes.map((n) => [n.id, n]));
-    return projection.rootNodeIds
-      .map((nodeId) => nodesById.get(nodeId))
-      .filter((node): node is NonNullable<typeof node> => Boolean(node))
-      .map((node) => ({
-        id: node.id,
-        name: node.layerName || node.tag || "Board element",
-        type: "board-element" as const,
-        lockable: false,
-        hideable: false,
-      }));
-  }, [boardFileId, boardFileContent]);
-
   const queueFrameGeometrySave = useCallback(
     (geometryById: CanvasFrameGeometryById) => {
       if (!id || !canEditDesignRef.current) return;
@@ -11480,6 +11461,24 @@ ${serializedHtml}
         }),
     [codeLayerModelByFileId, files, hiddenLayerIds, lockedLayerIds],
   );
+
+  // Board objects shown as top-level peer rows in the layers panel, right
+  // alongside the screen frames. Derived from the same code-layer model that
+  // feeds codeLayerOwnerByNodeId so a layer-row click resolves to the board
+  // file (sets it active + selects the element). buildCodeLayerProjection was
+  // the wrong source here: it produced different node ids that the owner map
+  // could not route, and returned no roots for the migrated board fragments.
+  const boardElements = useMemo<LayersPanelNode[] | undefined>(() => {
+    if (!boardFileId) return undefined;
+    const model = codeLayerModelByFileId.get(boardFileId);
+    if (!model?.tree?.length) return undefined;
+    const nodes = codeLayerTreeToPanelNodes(
+      model.tree,
+      lockedLayerIds,
+      hiddenLayerIds,
+    );
+    return nodes.length > 0 ? nodes : undefined;
+  }, [boardFileId, codeLayerModelByFileId, lockedLayerIds, hiddenLayerIds]);
 
   const activeLayerPanelNodes = useMemo<LayersPanelNode[]>(
     () => activeCodeLayerPanelNodes,

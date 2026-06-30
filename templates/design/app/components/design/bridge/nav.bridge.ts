@@ -31,18 +31,13 @@
     var lower = h.toLowerCase();
     if (lower.charAt(0) === "#") return null;
     if (lower.indexOf("javascript:") === 0) return null;
-    if (
-      lower.indexOf("mailto:") === 0 ||
-      lower.indexOf("tel:") === 0
-    ) {
+    if (lower.indexOf("mailto:") === 0 || lower.indexOf("tel:") === 0) {
       return { external: true, href: h };
     }
     if (/^https?:\/\//i.test(h) || /^\/\//.test(h)) {
       return { external: true, href: h };
     }
-    var screen = h
-      .replace(/^\.?\//, "")
-      .split(/[?#]/)[0];
+    var screen = h.replace(/^\.?\//, "").split(/[?#]/)[0];
     return { external: false, href: h, screen: screen };
   }
   document.addEventListener(

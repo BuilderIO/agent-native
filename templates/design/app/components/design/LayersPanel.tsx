@@ -931,7 +931,6 @@ export function LayersPanel({
   );
 }
 
-
 function LayerRow({
   row,
   labels,
