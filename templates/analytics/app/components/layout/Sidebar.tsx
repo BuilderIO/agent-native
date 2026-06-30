@@ -47,6 +47,8 @@ import {
   dashboards,
   hideDashboard,
   getHiddenDashboards,
+  getDashboardOrder,
+  setDashboardOrder,
   type DashboardSubview,
 } from "@/pages/adhoc/registry";
 
@@ -125,6 +127,7 @@ import { NewDashboardDialog } from "./NewDashboardDialog";
 type AnalysisHiddenFilter = "visible" | "hidden";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
+const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
 const ANALYSIS_SORT_MODE_KEY = "analysis-sort-mode";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
 const ANALYSES_OPEN_KEY = "analytics-sidebar-analyses-open";
@@ -223,16 +226,14 @@ function SidebarSectionSettingsPopover({
   label,
   sortMode,
   onSortModeChange,
-  showSortMode = true,
   sharedOnly,
   onSharedOnlyChange,
   showHidden,
   onShowHiddenChange,
 }: {
   label: string;
-  sortMode?: SidebarSortMode;
-  onSortModeChange?: (value: SidebarSortMode) => void;
-  showSortMode?: boolean;
+  sortMode: SidebarSortMode;
+  onSortModeChange: (value: SidebarSortMode) => void;
   sharedOnly: boolean;
   onSharedOnlyChange: (value: boolean) => void;
   showHidden?: boolean;
@@ -261,49 +262,47 @@ function SidebarSectionSettingsPopover({
           <p className="text-xs font-medium text-foreground">{label}</p>
         </div>
         <div className="grid gap-3">
-          {showSortMode && sortMode && onSortModeChange && (
-            <div className="grid gap-1.5">
-              <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t("sidebar.sortBy")}
-              </p>
-              <ToggleGroup
-                type="single"
-                value={sortMode}
-                onValueChange={(next) => {
-                  if (
-                    next === "most-used" ||
-                    next === "alphabetical" ||
-                    next === "manual"
-                  ) {
-                    onSortModeChange(next);
-                  }
-                }}
-                className="grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1"
+          <div className="grid gap-1.5">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t("sidebar.sortBy")}
+            </p>
+            <ToggleGroup
+              type="single"
+              value={sortMode}
+              onValueChange={(next) => {
+                if (
+                  next === "most-used" ||
+                  next === "alphabetical" ||
+                  next === "manual"
+                ) {
+                  onSortModeChange(next);
+                }
+              }}
+              className="grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1"
+            >
+              <ToggleGroupItem
+                value="most-used"
+                aria-label={t("sidebar.sortMostUsed")}
+                className="h-7 px-2 text-[11px]"
               >
-                <ToggleGroupItem
-                  value="most-used"
-                  aria-label={t("sidebar.sortMostUsed")}
-                  className="h-7 px-2 text-[11px]"
-                >
-                  {t("sidebar.used")}
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="alphabetical"
-                  aria-label={t("sidebar.sortAlphabetically")}
-                  className="h-7 px-2 text-[11px]"
-                >
-                  {t("sidebar.alphabetical")}
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="manual"
-                  aria-label={t("sidebar.sortManually")}
-                  className="h-7 px-2 text-[11px]"
-                >
-                  {t("sidebar.manual")}
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-          )}
+                {t("sidebar.used")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="alphabetical"
+                aria-label={t("sidebar.sortAlphabetically")}
+                className="h-7 px-2 text-[11px]"
+              >
+                {t("sidebar.alphabetical")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="manual"
+                aria-label={t("sidebar.sortManually")}
+                className="h-7 px-2 text-[11px]"
+              >
+                {t("sidebar.manual")}
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
           <div className="grid gap-1">
             <label
               htmlFor={`${label.toLowerCase()}-shared-filter`}
@@ -365,7 +364,6 @@ function SortableRow({
   onPrefetch,
   visibility,
   onSetVisibility,
-  disableDrag,
   children,
 }: {
   id: string;
@@ -373,7 +371,6 @@ function SortableRow({
   name: string;
   href: string;
   isActive: boolean;
-  disableDrag?: boolean;
   favoriteIds: Set<string>;
   onToggleFavorite: (key: string) => void;
   onDelete: () => Promise<void> | void;
@@ -535,17 +532,15 @@ function SortableRow({
 
   return (
     <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
-      {!disableDrag && (
-        <button
-          type="button"
-          className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
-          aria-label={t("sidebar.dragItem", { name })}
-          {...attributes}
-          {...listeners}
-        >
-          <IconGripVertical className="h-3 w-3" />
-        </button>
-      )}
+      <button
+        type="button"
+        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
+        aria-label={t("sidebar.dragItem", { name })}
+        {...attributes}
+        {...listeners}
+      >
+        <IconGripVertical className="h-3 w-3" />
+      </button>
       <div
         className={cn(
           "relative flex min-w-0 items-center rounded-lg transition-colors",
@@ -762,11 +757,9 @@ function SortableDashboardItem({
   onPrefetch,
   views,
   onSetVisibility,
-  disableDrag,
 }: {
   d: SidebarDashboard;
   isActive: boolean;
-  disableDrag?: boolean;
   location: ReturnType<typeof useLocation>;
   favoriteIds: Set<string>;
   onToggleFavorite: (id: string) => void;
@@ -832,7 +825,6 @@ function SortableDashboardItem({
       onArchive={onArchive ? () => onArchive(d) : undefined}
       onPrefetch={() => onPrefetch?.(d)}
       visibility={d.visibility}
-      disableDrag={disableDrag}
       onSetVisibility={
         onSetVisibility ? (v) => onSetVisibility(d, v) : undefined
       }
@@ -1216,6 +1208,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [analysisFilter, setAnalysisFilter] = useState<"all" | "org">("all");
   const [analysisHiddenFilter, setAnalysisHiddenFilter] =
     useState<AnalysisHiddenFilter>("visible");
+  const [dashboardSortMode, setDashboardSortModeState] =
+    useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const [analysisSortMode, setAnalysisSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const popularity = usePopularity();
@@ -1271,6 +1265,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [staticDashboardRenames, setStaticDashboardRenamesState] = useState<
     Record<string, string>
   >(() => (typeof window === "undefined" ? {} : getStaticDashboardRenames()));
+  const [dashboardOrderState, setDashboardOrderState] = useState(() =>
+    typeof window === "undefined" ? [] : getDashboardOrder(),
+  );
   const [analysisOrderState, setAnalysisOrderState] = useState(() =>
     typeof window === "undefined" ? [] : getAnalysisOrder(),
   );
@@ -1295,6 +1292,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     },
     [favoriteIds, saveFavorites],
   );
+
+  const setDashboardSortMode = useCallback((mode: SidebarSortMode) => {
+    setStoredSortMode(DASHBOARD_SORT_MODE_KEY, mode);
+    setDashboardSortModeState(mode);
+  }, []);
 
   const setAnalysisSortMode = useCallback((mode: SidebarSortMode) => {
     setStoredSortMode(ANALYSIS_SORT_MODE_KEY, mode);
@@ -1460,9 +1462,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       parentId: d.parentId,
     }));
     const all = [...staticItems, ...sqlItems];
-    // Dashboards always render alphabetically.
+    // Dashboards are always listed alphabetically.
     return sortByName(all);
-  }, [hiddenIds, staticDashboardRenames, sqlDashboards]);
+  }, [
+    hiddenIds,
+    staticDashboardRenames,
+    favoriteIds,
+    dashboardSortMode,
+    dashboardOrderState,
+    sqlDashboards,
+    popularity,
+  ]);
 
   const filteredDashboards = useMemo(
     () =>
@@ -1508,6 +1518,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         ? topLevelDashboards
         : topLevelDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
     [topLevelDashboards, dashShowAll],
+  );
+
+  // The flattened id order exactly as rendered (each parent immediately
+  // followed by its nested children). Drag reordering must use this so the
+  // arrayMove indices match what the user sees; the raw `visibleDashboards`
+  // order interleaves children at their sorted positions and would move the
+  // wrong rows once a dashboard is nested.
+  const dashboardRenderOrderIds = useMemo(
+    () =>
+      topLevelDashboards.flatMap((d) => [
+        d.id,
+        ...(dashboardChildren.get(d.id) ?? []).map((c) => c.id),
+      ]),
+    [topLevelDashboards, dashboardChildren],
   );
 
   const handleDashboardDelete = useCallback(
@@ -1815,6 +1839,22 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
+  );
+
+  const handleDashboardDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const ids = dashboardRenderOrderIds;
+      const oldIndex = ids.indexOf(active.id as string);
+      const newIndex = ids.indexOf(over.id as string);
+      if (oldIndex === -1 || newIndex === -1) return;
+      setDashboardSortMode("manual");
+      const newOrder = arrayMove(ids, oldIndex, newIndex);
+      setDashboardOrder(newOrder);
+      setDashboardOrderState(newOrder);
+    },
+    [setDashboardSortMode, dashboardRenderOrderIds],
   );
 
   const handleAnalysisDragEnd = useCallback(
@@ -2138,7 +2178,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   </button>
                   <SidebarSectionSettingsPopover
                     label={t("navigation.dashboards")}
-                    showSortMode={false}
+                    sortMode={dashboardSortMode}
+                    onSortModeChange={setDashboardSortMode}
                     sharedOnly={dashFilter === "org"}
                     onSharedOnlyChange={(checked) =>
                       setDashFilter(checked ? "org" : "all")
@@ -2164,87 +2205,101 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 </div>
 
                 {dashOpen && (
-                  <div className="ms-4 min-w-0 space-y-0.5">
-                    {displayedDashboards.map((d) => {
-                      const children = dashboardChildren.get(d.id) ?? [];
-                      return (
-                        <Fragment key={d.id}>
-                          <SortableDashboardItem
-                            d={d}
-                            isActive={activeDashboardId === d.id}
-                            location={location}
-                            favoriteIds={favoriteIds}
-                            onToggleFavorite={toggleFavorite}
-                            onDelete={handleDashboardDelete}
-                            onRename={handleDashboardRename}
-                            onArchive={handleDashboardArchive}
-                            onSetVisibility={handleDashboardSetVisibility}
-                            onPrefetch={prefetchDashboard}
-                            views={allViewsMap[d.id]}
-                            disableDrag
-                          />
-                          {children.length > 0 && (
-                            <div className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
-                              {children.map((child) => (
-                                <SortableDashboardItem
-                                  key={child.id}
-                                  d={child}
-                                  isActive={activeDashboardId === child.id}
-                                  location={location}
-                                  favoriteIds={favoriteIds}
-                                  onToggleFavorite={toggleFavorite}
-                                  onDelete={handleDashboardDelete}
-                                  onRename={handleDashboardRename}
-                                  onArchive={handleDashboardArchive}
-                                  onSetVisibility={handleDashboardSetVisibility}
-                                  onPrefetch={prefetchDashboard}
-                                  views={allViewsMap[child.id]}
-                                  disableDrag
-                                />
-                              ))}
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDashboardDragEnd}
+                  >
+                    <SortableContext
+                      items={displayedDashboards.flatMap((d) => [
+                        d.id,
+                        ...(dashboardChildren.get(d.id) ?? []).map((c) => c.id),
+                      ])}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="ms-4 min-w-0 space-y-0.5">
+                        {displayedDashboards.map((d) => {
+                          const children = dashboardChildren.get(d.id) ?? [];
+                          return (
+                            <Fragment key={d.id}>
+                              <SortableDashboardItem
+                                d={d}
+                                isActive={activeDashboardId === d.id}
+                                location={location}
+                                favoriteIds={favoriteIds}
+                                onToggleFavorite={toggleFavorite}
+                                onDelete={handleDashboardDelete}
+                                onRename={handleDashboardRename}
+                                onArchive={handleDashboardArchive}
+                                onSetVisibility={handleDashboardSetVisibility}
+                                onPrefetch={prefetchDashboard}
+                                views={allViewsMap[d.id]}
+                              />
+                              {children.length > 0 && (
+                                <div className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
+                                  {children.map((child) => (
+                                    <SortableDashboardItem
+                                      key={child.id}
+                                      d={child}
+                                      isActive={activeDashboardId === child.id}
+                                      location={location}
+                                      favoriteIds={favoriteIds}
+                                      onToggleFavorite={toggleFavorite}
+                                      onDelete={handleDashboardDelete}
+                                      onRename={handleDashboardRename}
+                                      onArchive={handleDashboardArchive}
+                                      onSetVisibility={
+                                        handleDashboardSetVisibility
+                                      }
+                                      onPrefetch={prefetchDashboard}
+                                      views={allViewsMap[child.id]}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                        {topLevelDashboards.length > SIDEBAR_PREVIEW_COUNT && (
+                          <button
+                            onClick={() => setDashShowAll(!dashShowAll)}
+                            className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                          >
+                            {dashShowAll
+                              ? t("sidebar.showLess")
+                              : t("sidebar.showMore", {
+                                  count:
+                                    topLevelDashboards.length -
+                                    SIDEBAR_PREVIEW_COUNT,
+                                })}
+                          </button>
+                        )}
+                        {sqlDashboardsLoading &&
+                          sqlDashboards.length === 0 &&
+                          Array.from({ length: 3 }).map((_, i) => (
+                            <div
+                              key={`sql-skeleton-${i}`}
+                              className="flex items-center gap-2 px-3 py-1"
+                            >
+                              <Skeleton
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0 rounded-sm",
+                                  SIDEBAR_SKELETON_CLASS,
+                                )}
+                              />
+                              <Skeleton
+                                className={cn(
+                                  "h-3 rounded",
+                                  SIDEBAR_SKELETON_CLASS,
+                                )}
+                                style={{ width: `${60 + ((i * 17) % 30)}%` }}
+                              />
                             </div>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                    {topLevelDashboards.length > SIDEBAR_PREVIEW_COUNT && (
-                      <button
-                        onClick={() => setDashShowAll(!dashShowAll)}
-                        className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
-                      >
-                        {dashShowAll
-                          ? t("sidebar.showLess")
-                          : t("sidebar.showMore", {
-                              count:
-                                topLevelDashboards.length -
-                                SIDEBAR_PREVIEW_COUNT,
-                            })}
-                      </button>
-                    )}
-                    {sqlDashboardsLoading &&
-                      sqlDashboards.length === 0 &&
-                      Array.from({ length: 3 }).map((_, i) => (
-                        <div
-                          key={`sql-skeleton-${i}`}
-                          className="flex items-center gap-2 px-3 py-1"
-                        >
-                          <Skeleton
-                            className={cn(
-                              "h-3.5 w-3.5 shrink-0 rounded-sm",
-                              SIDEBAR_SKELETON_CLASS,
-                            )}
-                          />
-                          <Skeleton
-                            className={cn(
-                              "h-3 rounded",
-                              SIDEBAR_SKELETON_CLASS,
-                            )}
-                            style={{ width: `${60 + ((i * 17) % 30)}%` }}
-                          />
-                        </div>
-                      ))}
-                    <NewDashboardDialog />
-                  </div>
+                          ))}
+                        <NewDashboardDialog />
+                      </div>
+                    </SortableContext>
+                  </DndContext>
                 )}
               </div>
 
