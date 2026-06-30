@@ -33,7 +33,7 @@ export default defineAction({
   run: async (args): Promise<ListContentDatabasesResponse> => {
     const db = getDb();
     const query = args.query?.trim();
-    const pattern = query ? `%${escapeLike(query)}%` : null;
+    const pattern = query ? `%${escapeLike(query.toLowerCase())}%` : null;
     // The same access + discovery filter the sidebar uses, so the picker shows
     // owned AND shared/org databases and never a trashed/hidden one.
     const queryBuilder = db
@@ -56,7 +56,7 @@ export default defineAction({
             ? ne(schema.contentDatabases.id, args.excludeDatabaseId)
             : undefined,
           pattern
-            ? sql`${schema.documents.title} LIKE ${pattern} ESCAPE '\\'`
+            ? sql`lower(${schema.documents.title}) LIKE ${pattern} ESCAPE '\\'`
             : undefined,
         ),
       )
