@@ -291,7 +291,7 @@ function ContentCommandSearchResults({
   );
   const databasesQuery = useActionQuery<ListContentDatabasesResponse>(
     "list-content-databases",
-    {},
+    searchEnabled ? { query: debouncedQuery, limit: 6 } : undefined,
     { enabled: searchEnabled, retry: false, staleTime: 60_000 },
   );
 
@@ -341,7 +341,7 @@ function ContentCommandSearchResults({
     );
   }
 
-  if (error) {
+  if (error && !hasResults) {
     return (
       <CommandMenu.Group heading={t("root.commandSearchHeading")}>
         <CommandStateMessage>

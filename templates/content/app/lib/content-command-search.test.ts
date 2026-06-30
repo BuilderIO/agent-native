@@ -63,11 +63,33 @@ describe("content command search", () => {
   it("uses document page routes for selectable results", () => {
     expect(contentCommandDocumentPath("doc-1")).toBe("/page/doc-1");
     expect(contentCommandDocumentPath("local-file:ZG9jcy9sYXVuY2gubWQ")).toBe(
-      "/page/local-file%3AZG9jcy9sYXVuY2gubWQ",
+      "/page/local-file:ZG9jcy9sYXVuY2gubWQ",
     );
     expect(contentCommandDocumentPath("local-file:docs/launch.md")).toBe(
-      "/page/local-file%3Adocs%2Flaunch.md",
+      "/page/local-file:docs/launch.md",
     );
+  });
+
+  it("does not duplicate database-backed pages as document results", () => {
+    const groups = groupContentCommandSearchResults({
+      query: "launch",
+      documents: [
+        document("doc-1", "Launch notes"),
+        document("db-doc-1", "Launch calendar"),
+      ],
+      databases: [
+        {
+          databaseId: "db-1",
+          documentId: "db-doc-1",
+          title: "Launch calendar",
+        },
+      ],
+    });
+
+    expect(groups.documents.map((doc) => doc.id)).toEqual(["doc-1"]);
+    expect(groups.databases.map((database) => database.documentId)).toEqual([
+      "db-doc-1",
+    ]);
   });
 
   it("excludes hidden documents from command search groups", () => {

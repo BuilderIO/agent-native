@@ -31,7 +31,7 @@ export function isLocalFileSearchResult(
 }
 
 export function contentCommandDocumentPath(documentId: string) {
-  return `/page/${encodeURIComponent(documentId)}`;
+  return `/page/${documentId}`;
 }
 
 export function groupContentCommandSearchResults(args: {
@@ -48,10 +48,15 @@ export function groupContentCommandSearchResults(args: {
         .filter((database) => database.title.toLowerCase().includes(needle))
         .slice(0, 6)
     : [];
+  const databaseDocumentIds = new Set(
+    matchingDatabases.map((database) => database.documentId),
+  );
 
   return {
     documents: visibleDocuments.filter(
-      (document) => !isLocalFileSearchResult(document),
+      (document) =>
+        !isLocalFileSearchResult(document) &&
+        !databaseDocumentIds.has(document.id),
     ),
     databases: matchingDatabases,
     localFiles: visibleDocuments.filter(isLocalFileSearchResult),
