@@ -218,4 +218,29 @@ describe("DesignEditor element canonicalization", () => {
 
     expect(node).toBeNull();
   });
+
+  it("does not resolve a runtime-only chrome element that has no source signal", () => {
+    // The editor injects overlay <div>s (selection/highlight/measurement/etc.)
+    // directly into the iframe body. If one leaks into a selection, its payload
+    // has no text, no design classes, and a body-rooted positional selector. It
+    // must resolve to null (runtime-only) so the editor fails softly instead of
+    // silently editing an unrelated source node.
+    const projection = buildCodeLayerProjection(
+      `<main><section class="hero"><div class="copy">Headline</div></section></main>`,
+    );
+
+    const node = resolveCodeLayerNodeFromElementInfo(projection, {
+      tagName: "div",
+      selector:
+        'body[data-agent-native-node-id="an-wonwkk"] > div:nth-of-type(6)',
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "",
+      isFlexChild: false,
+      isFlexContainer: false,
+    });
+
+    expect(node).toBeNull();
+  });
 });

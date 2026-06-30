@@ -111,6 +111,30 @@ function expectCloseToFrameSize(
   expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(1);
 }
 
+async function expectTransformBadgeNear(
+  page: Page,
+  point: { x: number; y: number },
+): Promise<void> {
+  const badge = page.locator("[data-transform-badge]");
+  await expect(badge).toBeVisible();
+  const box = await badge.boundingBox();
+  if (!box) throw new Error("no transform badge box");
+  const dx =
+    point.x < box.x
+      ? box.x - point.x
+      : point.x > box.x + box.width
+        ? point.x - (box.x + box.width)
+        : 0;
+  const dy =
+    point.y < box.y
+      ? box.y - point.y
+      : point.y > box.y + box.height
+        ? point.y - (box.y + box.height)
+        : 0;
+  expect(dx).toBeLessThanOrEqual(24);
+  expect(dy).toBeLessThanOrEqual(24);
+}
+
 test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
   await expect(toolButton(page, "Edit")).toHaveAttribute(
     "aria-pressed",
@@ -269,18 +293,21 @@ test("dragging the Home screen shell moves and resizes it", async ({
   const resizeHandle = page.locator('[data-resize-handle="se"]').last();
   const handleBox = await resizeHandle.boundingBox();
   if (!handleBox) throw new Error("no resize handle box");
+  const resizeStart = {
+    x: handleBox.x + handleBox.width / 2,
+    y: handleBox.y + handleBox.height / 2,
+  };
+  const resizeEnd = {
+    x: resizeStart.x + 48,
+    y: resizeStart.y + 32,
+  };
 
-  await dragBetween(
-    page,
-    {
-      x: handleBox.x + handleBox.width / 2,
-      y: handleBox.y + handleBox.height / 2,
-    },
-    {
-      x: handleBox.x + handleBox.width / 2 + 48,
-      y: handleBox.y + handleBox.height / 2 + 32,
-    },
-  );
+  await page.mouse.move(resizeStart.x, resizeStart.y);
+  await page.mouse.down();
+  await page.mouse.move(resizeEnd.x, resizeEnd.y, { steps: 12 });
+  await expectTransformBadgeNear(page, resizeEnd);
+  await page.mouse.up();
+  await page.waitForTimeout(150);
 
   const resized = await shell.boundingBox();
   if (!resized) throw new Error("no resized shell box");
@@ -291,10 +318,33 @@ test("dragging the Home screen shell moves and resizes it", async ({
   expect(resizedViewport.height).toBeGreaterThan(movedViewport.height + 12);
   expectCloseToFrameSize(resizedViewport, await screenCardLayoutSize(shell));
 
+  const bottomHandle = page.locator('[data-resize-handle="s"]').last();
+  const bottomHandleBox = await bottomHandle.boundingBox();
+  if (!bottomHandleBox) throw new Error("no bottom resize handle box");
+
   await dragBetween(
     page,
-    { x: resized.x + resized.width * 0.34, y: resized.y + 12 },
-    { x: resized.x + resized.width * 0.34 - 64, y: resized.y + 12 - 28 },
+    {
+      x: bottomHandleBox.x + bottomHandleBox.width / 2,
+      y: bottomHandleBox.y + bottomHandleBox.height / 2,
+    },
+    {
+      x: bottomHandleBox.x + bottomHandleBox.width / 2,
+      y: bottomHandleBox.y + bottomHandleBox.height / 2 - 48,
+    },
+  );
+
+  const shrunk = await shell.boundingBox();
+  if (!shrunk) throw new Error("no shrunk shell box");
+  expect(shrunk.height).toBeLessThan(resized.height - 20);
+  const shrunkViewport = await screenIframeViewportSize(shell);
+  expect(shrunkViewport.height).toBeLessThan(resizedViewport.height - 20);
+  expectCloseToFrameSize(shrunkViewport, await screenCardLayoutSize(shell));
+
+  await dragBetween(
+    page,
+    { x: shrunk.x + shrunk.width * 0.34, y: shrunk.y + 12 },
+    { x: shrunk.x + shrunk.width * 0.34 - 64, y: shrunk.y + 12 - 28 },
   );
   const movedBack = await shell.boundingBox();
   if (!movedBack) throw new Error("no restored shell box");

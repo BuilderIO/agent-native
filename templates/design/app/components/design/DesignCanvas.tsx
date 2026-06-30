@@ -804,7 +804,14 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
       try {
         var match = document.querySelector(activeCandidates[i]);
-        if (match && !isLayerInteractionBlocked(match)) selectedEl = match;
+        // Skip the editor's own injected overlay chrome and re-anchor to a
+        // source-backed element. A stale positional candidate like
+        // body > div:nth-of-type(6) can otherwise re-match an overlay div
+        // (the only direct div children of body at runtime), which then has
+        // no code-layer node and fails every edit.
+        if (match && !isLayerInteractionBlocked(match) && !isOverlayElement(match)) {
+          selectedEl = selectionTargetForHit(match) || match;
+        }
       } catch (_err) {}
     }
     if (selectedEl) {
@@ -1658,9 +1665,16 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       if (handle.indexOf('s') !== -1) height = origin.height + dy;
       // Apply Shift / scaleToolEnabled aspect-ratio lock BEFORE the min-size
       // clamp so the ratio is computed from unclamped values (bug fix).
-      if (ev.shiftKey && handle.length === 2) {
-        if (Math.abs(dx) > Math.abs(dy)) height = width / origin.ratio;
-        else width = height * origin.ratio;
+      if (ev.shiftKey) {
+        // Shift locks aspect ratio for ALL 8 handles (corners and edges).
+        if (handle === 'e' || handle === 'w') {
+          height = width / origin.ratio;
+        } else if (handle === 'n' || handle === 's') {
+          width = height * origin.ratio;
+        } else if (handle.length === 2) {
+          if (Math.abs(dx) > Math.abs(dy)) height = width / origin.ratio;
+          else width = height * origin.ratio;
+        }
       }
       if (scaleToolEnabled) {
         // Scale tool: enforce aspect ratio on all 8 handles, not just corners.
@@ -1673,9 +1687,22 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
           else width = height * origin.ratio;
         }
       }
-      // Clamp after ratio correction.
-      width = Math.max(8, width);
-      height = Math.max(8, height);
+      // Clamp to minimum size.
+      var clampedW = Math.max(8, width);
+      var clampedH = Math.max(8, height);
+      // After clamping, re-apply the ratio if Shift or scale tool is active so
+      // the clamped dimension doesn't silently break the locked aspect ratio.
+      if (ev.shiftKey || scaleToolEnabled) {
+        if (clampedW !== width) {
+          // Width was clamped; re-derive height from the clamped width.
+          clampedH = Math.max(8, clampedW / origin.ratio);
+        } else if (clampedH !== height) {
+          // Height was clamped; re-derive width from the clamped height.
+          clampedW = Math.max(8, clampedH * origin.ratio);
+        }
+      }
+      width = clampedW;
+      height = clampedH;
       // Re-anchor the pinned edge for w/n handles after aspect-ratio lock and
       // clamping so the opposite (e/s) edge stays fixed regardless of whether
       // the dimension change was driven by raw dx/dy or by the ratio lock.
@@ -1844,7 +1871,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     stopNativeInteraction(e);
     var target = findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY));
     if (!target || target.nodeType !== 1) return;
-    selectedEl = target;
+    // Anchor the selection identity to the nearest source-backed element. Text
+    // editing still operates on the actual target text node, but a later
+    // style edit posts from selectedEl, so it must point at a patchable
+    // code-layer node rather than a runtime-only descendant (which would emit a
+    // brittle body > div:nth-of-type(...) selector that never resolves).
+    selectedEl = selectionTargetForHit(target) || target;
 	    var originalText = target.textContent || '';
 	    var originalHtml = target.innerHTML || '';
 	    var committed = false;

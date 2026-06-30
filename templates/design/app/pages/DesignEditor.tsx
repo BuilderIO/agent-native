@@ -2346,9 +2346,23 @@ function DesignBottomToolbar({
   }> = [
     {
       key: "move",
-      active: activeTool === "move" && mode === "edit",
+      // Parent button is active whenever any of the move-group sub-tools is
+      // selected so the toolbar visually reflects hand and scale modes too.
+      active:
+        (activeTool === "move" && mode === "edit") ||
+        activeTool === "hand" ||
+        activeTool === "scale",
       label: t("designEditor.tools.move"),
-      icon: <IconPointer className="size-[18px]" />,
+      // Mirror the active sub-tool icon so the parent button is always
+      // informative about the currently selected move-group tool.
+      icon:
+        activeTool === "hand" ? (
+          <IconHandStop className="size-[18px]" />
+        ) : activeTool === "scale" ? (
+          <IconScale className="size-[18px]" />
+        ) : (
+          <IconPointer className="size-[18px]" />
+        ),
       onClick: onMove,
       options: [
         {

@@ -188,6 +188,11 @@ const FRAME_HEADER_DIMENSIONS_WIDTH = 72;
 const FRAME_HEADER_TITLE_CHAR_WIDTH = 6.5;
 const FRAME_HEADER_MIN_TITLE_WIDTH = 28;
 const FRAME_HEADER_MAX_TITLE_WIDTH = 180;
+const TRANSFORM_BADGE_OFFSET = 12;
+const TRANSFORM_BADGE_EDGE_PADDING = 8;
+const TRANSFORM_BADGE_HEIGHT = 28;
+const TRANSFORM_BADGE_MIN_WIDTH = 64;
+const TRANSFORM_BADGE_MAX_WIDTH = 180;
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 800;
 const ZOOM_SENSITIVITY = 0.01;
@@ -908,6 +913,9 @@ export function MultiScreenCanvas({
       handleMouseUp: (ev: MouseEvent) => void,
     ) => {
       dragCleanup.current?.();
+      const restorePreviewPointerEvents = mutePreviewIframePointerEvents(
+        surfaceRef.current,
+      );
       let lastMouseEvent: MouseEvent | null = null;
       const move = (ev: MouseEvent) => {
         lastMouseEvent = ev;
@@ -925,6 +933,7 @@ export function MultiScreenCanvas({
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
         window.removeEventListener("blur", cleanupOnBlur);
+        restorePreviewPointerEvents();
         dragCleanup.current = null;
       };
       window.addEventListener("mousemove", move);
@@ -947,10 +956,34 @@ export function MultiScreenCanvas({
 
   const showTransformFeedback = useCallback(
     (text: string, clientX: number, clientY: number) => {
+      const estimatedWidth = Math.min(
+        TRANSFORM_BADGE_MAX_WIDTH,
+        Math.max(TRANSFORM_BADGE_MIN_WIDTH, text.length * 7 + 16),
+      );
+      const maxX = Math.max(
+        TRANSFORM_BADGE_EDGE_PADDING,
+        window.innerWidth - estimatedWidth - TRANSFORM_BADGE_EDGE_PADDING,
+      );
+      const maxY = Math.max(
+        TRANSFORM_BADGE_EDGE_PADDING,
+        window.innerHeight -
+          TRANSFORM_BADGE_HEIGHT -
+          TRANSFORM_BADGE_EDGE_PADDING,
+      );
+      const preferredX =
+        clientX + TRANSFORM_BADGE_OFFSET + estimatedWidth <=
+        window.innerWidth - TRANSFORM_BADGE_EDGE_PADDING
+          ? clientX + TRANSFORM_BADGE_OFFSET
+          : clientX - estimatedWidth - TRANSFORM_BADGE_OFFSET;
+      const preferredY =
+        clientY + TRANSFORM_BADGE_OFFSET + TRANSFORM_BADGE_HEIGHT <=
+        window.innerHeight - TRANSFORM_BADGE_EDGE_PADDING
+          ? clientY + TRANSFORM_BADGE_OFFSET
+          : clientY - TRANSFORM_BADGE_HEIGHT - TRANSFORM_BADGE_OFFSET;
       setTransformBadge({
         text,
-        x: clientX + 12,
-        y: clientY + 12,
+        x: clampNumber(preferredX, TRANSFORM_BADGE_EDGE_PADDING, maxX),
+        y: clampNumber(preferredY, TRANSFORM_BADGE_EDGE_PADDING, maxY),
       });
     },
     [],
@@ -1166,7 +1199,10 @@ export function MultiScreenCanvas({
         : undefined;
       if (preferred) return preferred;
 
-      return entries
+      const draftCenter = getFrameCenter(draft.geometry);
+
+      // Primary: find the frame whose bounds contain the draft's center point.
+      const containing = entries
         .filter(({ geometry }) => {
           const bounds = {
             left: geometry.x,
@@ -1174,7 +1210,6 @@ export function MultiScreenCanvas({
             right: geometry.x + geometry.width,
             bottom: geometry.y + geometry.height,
           };
-          const draftCenter = getFrameCenter(draft.geometry);
           const local = rotatePointAroundCenter(
             draftCenter,
             getFrameCenter(geometry),
@@ -1183,6 +1218,22 @@ export function MultiScreenCanvas({
           return rectContainsPoint(bounds, local);
         })
         .sort((a, b) => (b.geometry.z ?? 0) - (a.geometry.z ?? 0))[0];
+
+      if (containing) return containing;
+
+      // Fallback: if no frame contains the center (shape drawn outside all
+      // frames), use the nearest frame so the shape still persists rather than
+      // becoming a lost draft primitive.  With a single screen this is always
+      // that screen; with multiple screens it's the visually closest one.
+      if (entries.length === 0) return undefined;
+      if (entries.length === 1) return entries[0];
+      return entries.slice().sort((a, b) => {
+        const ca = getFrameCenter(a.geometry);
+        const cb = getFrameCenter(b.geometry);
+        const da = Math.hypot(draftCenter.x - ca.x, draftCenter.y - ca.y);
+        const db = Math.hypot(draftCenter.x - cb.x, draftCenter.y - cb.y);
+        return da - db;
+      })[0];
     },
     [getCurrentFrameEntries],
   );
@@ -2830,6 +2881,7 @@ export function MultiScreenCanvas({
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
   const penActive = effectiveTool === "pen";
   const creationToolActive = Boolean(getDraftCreationTool(effectiveTool));
+  const canvasGestureActive = isDragging || isPanning;
   const displayedPenPath = penGesturePreview
     ? penGesturePreview
     : activePenPath && penPointer && activePenPath.nodes.length > 0
@@ -2953,6 +3005,7 @@ export function MultiScreenCanvas({
               handlesEnabled={!hasGroupSelection}
               penActive={penActive}
               creationToolActive={creationToolActive}
+              canvasGestureActive={canvasGestureActive}
               chromeScale={chromeScale}
               onPick={handleFrameClick}
               onEdit={handleFrameDoubleClick}
@@ -3111,7 +3164,8 @@ export function MultiScreenCanvas({
 
       {transformBadge ? (
         <div
-          className="pointer-events-none absolute z-50 rounded border border-border bg-background/95 px-1.5 py-0.5 font-mono text-[11px] leading-5 text-foreground shadow-lg backdrop-blur"
+          data-transform-badge
+          className="pointer-events-none fixed z-50 rounded border border-border bg-background/95 px-1.5 py-0.5 font-mono text-[11px] leading-5 text-foreground shadow-lg backdrop-blur"
           style={{ left: transformBadge.x, top: transformBadge.y }}
         >
           {transformBadge.text}
@@ -3447,6 +3501,7 @@ interface ScreenProps {
   handlesEnabled: boolean;
   penActive: boolean;
   creationToolActive: boolean;
+  canvasGestureActive: boolean;
   chromeScale: number;
   screenContent?: ReactNode;
   onPick: (id: string, e: React.MouseEvent<HTMLElement>) => void;
@@ -3476,6 +3531,7 @@ const Screen = memo(function Screen({
   handlesEnabled,
   penActive,
   creationToolActive,
+  canvasGestureActive,
   chromeScale,
   onPick,
   onEdit,
@@ -3495,7 +3551,10 @@ const Screen = memo(function Screen({
   const showHoverChrome =
     !creationToolActive && !isSelected && !groupSelected && !hasHoveredChild;
   const screenContentInteractive =
-    Boolean(screenContent) && !penActive && !creationToolActive;
+    Boolean(screenContent) &&
+    !penActive &&
+    !creationToolActive &&
+    !canvasGestureActive;
   const frameLabelHeight = FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
   const fullViewOutsideFrame =
@@ -3746,6 +3805,13 @@ const Screen = memo(function Screen({
               aria-hidden="true"
             />
           ) : null}
+          {canvasGestureActive && screenContent ? (
+            <span
+              data-screen-interaction-shield
+              className="pointer-events-auto absolute inset-0 z-30"
+              aria-hidden="true"
+            />
+          ) : null}
           <span className="pointer-events-none absolute inset-0 rounded-[7px] border border-black/5" />
         </span>
         <ResizeHandles
@@ -3780,6 +3846,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.handlesEnabled === next.handlesEnabled &&
     prev.penActive === next.penActive &&
     prev.creationToolActive === next.creationToolActive &&
+    prev.canvasGestureActive === next.canvasGestureActive &&
     prev.chromeScale === next.chromeScale &&
     prev.onPick === next.onPick &&
     prev.onEdit === next.onEdit &&
@@ -4035,9 +4102,14 @@ interface BoundsRect {
   bottom: number;
 }
 
+interface ScreenViewportSize {
+  width: number;
+  height: number;
+}
+
 function getInitialFrameGeometry(
   index: number,
-  metadata?: Pick<ResolvedScreenMetadata, "width" | "height">,
+  metadata?: ScreenViewportSize,
 ): FrameGeometry {
   // Seed default frames with the actual screen dimensions and the 3-column grid
   // the overview centering math (which uses SCREEN_WIDTH/SCREEN_GAP) expects, so
@@ -4055,10 +4127,7 @@ function getInitialFrameGeometry(
   };
 }
 
-function getOverviewFrameHeight(
-  width: number,
-  metadata?: Pick<ResolvedScreenMetadata, "width" | "height">,
-) {
+function getOverviewFrameHeight(width: number, metadata?: ScreenViewportSize) {
   const sourceWidth =
     metadata?.width && metadata.width > 0 ? metadata.width : 1280;
   const sourceHeight =
@@ -4067,8 +4136,8 @@ function getOverviewFrameHeight(
 }
 
 function getScreenPreviewViewport(
-  metadata: Pick<ResolvedScreenMetadata, "width" | "height">,
-  geometry: Pick<FrameGeometry, "width" | "height">,
+  metadata: ScreenViewportSize,
+  geometry: ScreenViewportSize,
 ) {
   const metadataWidth = Math.max(1, Math.round(metadata.width));
   const metadataHeight = Math.max(1, Math.round(metadata.height));
@@ -4154,6 +4223,22 @@ function isInteractiveScreenContentTarget(target: EventTarget | null) {
       ),
     )
   );
+}
+
+function mutePreviewIframePointerEvents(root: HTMLElement | null) {
+  if (!root) return () => {};
+  const previous = new Map<HTMLIFrameElement, string>();
+  root
+    .querySelectorAll<HTMLIFrameElement>("[data-design-preview-iframe]")
+    .forEach((iframe) => {
+      previous.set(iframe, iframe.style.pointerEvents);
+      iframe.style.pointerEvents = "none";
+    });
+  return () => {
+    previous.forEach((pointerEvents, iframe) => {
+      if (iframe.isConnected) iframe.style.pointerEvents = pointerEvents;
+    });
+  };
 }
 
 function frameBoundsToGeometry(bounds: {
@@ -4852,4 +4937,8 @@ function getUrl(value: string | undefined) {
   } catch {
     return undefined;
   }
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }

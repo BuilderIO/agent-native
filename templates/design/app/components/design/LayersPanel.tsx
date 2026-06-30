@@ -1146,7 +1146,7 @@ function LayerRow({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative w-max min-w-full"
+          className="relative min-w-full"
           draggable={draggable}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -1178,7 +1178,7 @@ function LayerRow({
           ) : null}
           <div
             className={cn(
-              "group flex h-8 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px]",
+              "group flex h-8 min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
