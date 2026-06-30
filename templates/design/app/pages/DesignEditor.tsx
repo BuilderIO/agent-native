@@ -876,6 +876,32 @@ interface GeometryHistoryEntry {
   after: CanvasFrameGeometryById;
 }
 
+function geometryHistoryEntryTouchesFrameIds(
+  entry: GeometryHistoryEntry,
+  frameIds: Set<string>,
+) {
+  for (const frameId of frameIds) {
+    if (entry.before[frameId] || entry.after[frameId]) return true;
+  }
+  return false;
+}
+
+function removeRecentUndoRedoOrderKinds<T extends string>(
+  order: T[],
+  kind: T,
+  count: number,
+): T[] {
+  if (count <= 0) return order;
+  const next = [...order];
+  let remaining = count;
+  for (let index = next.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    if (next[index] !== kind) continue;
+    next.splice(index, 1);
+    remaining -= 1;
+  }
+  return next;
+}
+
 export interface ContentHistoryChange {
   fileId: string;
   before: string;
@@ -4035,6 +4061,29 @@ export default function DesignEditor() {
         (change) => change.before !== change.after,
       );
       if (changes.length === 0) return;
+      const activeHistoryFileId = activeFileIdForUndoRef.current;
+      if (
+        activeHistoryFileId &&
+        changes.some((change) => change.fileId === activeHistoryFileId)
+      ) {
+        undoManagerRef.current?.clear(true, false);
+        localContentUndoStackRef.current =
+          localContentUndoStackRef.current.filter(
+            (change) => change.fileId !== activeHistoryFileId,
+          );
+        localContentRedoStackRef.current =
+          localContentRedoStackRef.current.filter(
+            (change) => change.fileId !== activeHistoryFileId,
+          );
+        historyOrderRef.current = removeUndoRedoOrderKind(
+          historyOrderRef.current,
+          "content",
+        );
+        redoOrderRef.current = removeUndoRedoOrderKind(
+          redoOrderRef.current,
+          "content",
+        );
+      }
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         changes.length === 1 ? changes[0] : { changes },
@@ -10190,6 +10239,38 @@ export default function DesignEditor() {
         delete nextGeometry[file.id];
       });
 
+      const nextGeometryUndoStack: GeometryHistoryEntry[] = [];
+      let removedGeometryUndoEntries = 0;
+      geometryUndoStackRef.current.forEach((entry) => {
+        if (geometryHistoryEntryTouchesFrameIds(entry, deleteIds)) {
+          removedGeometryUndoEntries += 1;
+          return;
+        }
+        nextGeometryUndoStack.push(entry);
+      });
+      geometryUndoStackRef.current = nextGeometryUndoStack;
+      historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+        historyOrderRef.current,
+        "geometry",
+        removedGeometryUndoEntries,
+      );
+
+      const nextGeometryRedoStack: GeometryHistoryEntry[] = [];
+      let removedGeometryRedoEntries = 0;
+      geometryRedoStackRef.current.forEach((entry) => {
+        if (geometryHistoryEntryTouchesFrameIds(entry, deleteIds)) {
+          removedGeometryRedoEntries += 1;
+          return;
+        }
+        nextGeometryRedoStack.push(entry);
+      });
+      geometryRedoStackRef.current = nextGeometryRedoStack;
+      redoOrderRef.current = removeRecentUndoRedoOrderKinds(
+        redoOrderRef.current,
+        "geometry",
+        removedGeometryRedoEntries,
+      );
+
       writeFrameGeometrySnapshot(nextGeometry);
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
         if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
@@ -10226,6 +10307,7 @@ export default function DesignEditor() {
       // are hard-deleted, so suppress MultiScreenCanvas' local frame-history
       // entry; otherwise undo would restore geometry for files that no longer
       // exist.
+      syncUndoRedoState();
       return false;
     },
     [
@@ -10236,6 +10318,7 @@ export default function DesignEditor() {
       files,
       id,
       queryClient,
+      syncUndoRedoState,
       t,
       writeFrameGeometrySnapshot,
     ],

@@ -1457,6 +1457,23 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
   if (!aboutFile) throw new Error("about.html was not created");
 
   const aboutShell = screenShell(page, "About");
+  const aboutBoxBeforeMove = await aboutShell.boundingBox();
+  if (!aboutBoxBeforeMove) throw new Error("no about shell before move");
+  await dragBetween(
+    page,
+    {
+      x: aboutBoxBeforeMove.x + aboutBoxBeforeMove.width * 0.34,
+      y: aboutBoxBeforeMove.y + 12,
+    },
+    {
+      x: aboutBoxBeforeMove.x + aboutBoxBeforeMove.width * 0.34 + 80,
+      y: aboutBoxBeforeMove.y + 12 + 36,
+    },
+  );
+  const movedAboutBox = await aboutShell.boundingBox();
+  if (!movedAboutBox) throw new Error("no moved about shell box");
+  expect(movedAboutBox.x).toBeGreaterThan(aboutBoxBeforeMove.x + 20);
+
   const aboutBox = await aboutShell.boundingBox();
   if (!aboutBox) throw new Error("no about shell box");
   await page.mouse.click(aboutBox.x + aboutBox.width * 0.3, aboutBox.y + 12);

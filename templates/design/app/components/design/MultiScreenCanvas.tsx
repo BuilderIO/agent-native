@@ -1306,13 +1306,11 @@ export function MultiScreenCanvas({
           sourceId: msg.sourceId,
         };
         stopParentCrossScreenDrag();
-        let restorePreviewPointerEvents: (() => void) | null = null;
+        const restorePreviewPointerEvents = mutePreviewIframePointerEvents(
+          surfaceRef.current,
+        );
+        let didCleanup = false;
         const activateParentDrag = (ev: MouseEvent) => {
-          if (!restorePreviewPointerEvents) {
-            restorePreviewPointerEvents = mutePreviewIframePointerEvents(
-              surfaceRef.current,
-            );
-          }
           ev.preventDefault();
           updateCrossScreenTargetFromBoardPoint(
             getCanvasPoint(ev.clientX, ev.clientY),
@@ -1337,11 +1335,16 @@ export function MultiScreenCanvas({
             lastBoardPoint,
           );
         };
+        const handleParentWindowBlur = () => {
+          clearCrossScreenDrag();
+        };
         const cleanup = () => {
+          if (didCleanup) return;
+          didCleanup = true;
           window.removeEventListener("mousemove", handleParentMouseMove, true);
           window.removeEventListener("mouseup", handleParentMouseUp, true);
-          restorePreviewPointerEvents?.();
-          restorePreviewPointerEvents = null;
+          window.removeEventListener("blur", handleParentWindowBlur, true);
+          restorePreviewPointerEvents();
           if (crossScreenParentDragCleanupRef.current === cleanup) {
             crossScreenParentDragCleanupRef.current = null;
           }
@@ -1349,6 +1352,7 @@ export function MultiScreenCanvas({
         crossScreenParentDragCleanupRef.current = cleanup;
         window.addEventListener("mousemove", handleParentMouseMove, true);
         window.addEventListener("mouseup", handleParentMouseUp, true);
+        window.addEventListener("blur", handleParentWindowBlur, true);
         return;
       }
 
