@@ -167,7 +167,11 @@ describe("reconnectProgressTimedOut", () => {
     let lastProgressAt = 0;
     for (let now = 0; now <= 300_000; now += 8_000) {
       expect(
-        reconnectProgressTimedOut({ lastProgressAt, now, thresholdMs: threshold }),
+        reconnectProgressTimedOut({
+          lastProgressAt,
+          now,
+          thresholdMs: threshold,
+        }),
       ).toBe(false);
       lastProgressAt = now; // event arrived → markReconnectProgress()
     }
