@@ -1035,27 +1035,6 @@ export function embedApp(
       stage.innerHTML = '<div class="message">' + esc(message) + '</div>';
     }
 
-    // No app to show (tool result carried no open URL). Clear the stage and
-    // report a 0 intrinsic height (bypassing applyIntrinsicHeight's floor) so an
-    // output-less result doesn't occupy a tall empty box; a later sync with a
-    // real URL re-expands it.
-    function collapseEmptyEmbed() {
-      clearFrameReadyTimer();
-      clearFrameLoadTimer();
-      appFrame = null;
-      appFrameReady = false;
-      stage.innerHTML = "";
-      document.documentElement.style.setProperty("--agent-native-shell-height", "0px");
-      document.documentElement.style.setProperty("--agent-native-viewport-height", "0px");
-      try {
-        if (openAiBridge && typeof openAiBridge.notifyIntrinsicHeight === "function") {
-          openAiBridge.notifyIntrinsicHeight({ height: 0 });
-        } else if (app && typeof app.sendSizeChanged === "function") {
-          app.sendSizeChanged({ height: 0 });
-        }
-      } catch {}
-    }
-
     function clearFrameReadyTimer() {
       if (!appFrameReadyTimer) return;
       clearTimeout(appFrameReadyTimer);
