@@ -744,7 +744,7 @@ export function buildExtensionHtml(
 	    });
 	  </script>
 	</head>
-	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="bg-background text-foreground">
+	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="text-foreground">
 	${content}
 	<div id="__extension-error-toast">
 	  <div style="display:flex;align-items:flex-start;gap:8px;">
