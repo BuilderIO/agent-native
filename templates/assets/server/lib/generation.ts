@@ -826,16 +826,23 @@ export function resolveImageModelForRequest(input: {
       : undefined;
 
   // Precedence: explicit per-request model (handled above) > embedded-text
-  // upgrade > the tier-derived model (an explicit or preset-derived tier) >
-  // the preset's saved model > the sticky composer default > the floor. The
-  // composer default ranks LAST of the real signals: it is a global stored
-  // preference, so it must not silently defeat a tagged preset's model or a
-  // tier-only request (the preset/tier "own" the model unless the caller
-  // explicitly overrides them).
+  // upgrade > an EXPLICIT per-request tier > the preset's saved model > the
+  // preset-DERIVED tier mapping > the sticky composer default > the floor.
+  //
+  // Two subtleties:
+  //   - An explicit per-request tier outranks the preset's saved model (the
+  //     caller is deliberately overriding the preset this turn).
+  //   - The preset's explicit saved model outranks its OWN derived tier: a
+  //     preset's `model` column and `settings.tier` can drift out of sync
+  //     (update-generation-preset can change one without the other), and the
+  //     explicitly saved model is the authoritative choice.
+  //   - The composer default ranks LAST of the real signals: it is a global
+  //     stored preference and must not defeat a tagged preset or a tier request.
   return (
     textAccurateModel ??
-    resolveModelForTier(input.resolvedTier, input.category) ??
+    resolveModelForTier(input.explicitTier, input.category) ??
     input.presetModel ??
+    resolveModelForTier(input.resolvedTier, input.category) ??
     input.imageModelDefault ??
     "gemini-3.1-flash-image"
   );

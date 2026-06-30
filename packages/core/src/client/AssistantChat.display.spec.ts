@@ -151,7 +151,10 @@ describe("waitForThreadRunToClear", () => {
     expect(labelSource.indexOf("runningActivityLabel")).toBeLessThan(
       labelSource.indexOf("isReconnecting"),
     );
-    expect(labelSource).toContain('"Working"');
+    // A bare reconnect (no replayed content) must default to "Thinking", never a
+    // perpetual "Working" — that label was removed.
+    expect(labelSource).not.toContain('"Working"');
+    expect(labelSource).toContain('"Thinking"');
   });
 });
 

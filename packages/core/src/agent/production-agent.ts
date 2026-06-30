@@ -3433,6 +3433,25 @@ export async function runAgentLoop(opts: {
         }
       }
 
+      // Stop BEFORE emitting tool_start if the run was already aborted —
+      // typically because the ledger wait above polled for minutes and the soft
+      // timeout fired meanwhile. Emitting tool_start/tool_done here would leave a
+      // bogus interrupted pair in the transcript for a tool that never re-ran,
+      // and re-invoking would spawn a duplicate zombie. Return the interrupted
+      // marker (no events) so the next continuation recovers via the ledger.
+      // (A second guard inside the try below still covers an abort that lands in
+      // the tiny sync window between here and the action invocation.)
+      if (signal.aborted) {
+        recordToolResult(INTERRUPTED_TOOL_RESULT_MARKER, false);
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: INTERRUPTED_TOOL_RESULT_MARKER,
+        };
+      }
+
       send({
         type: "tool_start",
         tool: toolCall.name,

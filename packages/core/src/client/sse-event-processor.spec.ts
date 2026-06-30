@@ -1137,3 +1137,69 @@ describe("SSE event processor tool id matching", () => {
     });
   });
 });
+
+describe("SSE event processor activity-label clearing", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const stubWindow = () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    return dispatchEvent;
+  };
+
+  it("clears the running activity label when a tool finishes", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "generate-image", input: {} },
+          { type: "tool_done", tool: "generate-image", result: "ok" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear-tool",
+      ),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear-tool" },
+      }),
+    );
+  });
+
+  it("clears the running activity label when visible text streams", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Here is your answer." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear-text",
+      ),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear-text" },
+      }),
+    );
+  });
+});

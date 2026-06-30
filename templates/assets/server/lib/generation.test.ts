@@ -714,6 +714,30 @@ describe("resolveImageModelForRequest", () => {
       }),
     ).toBe("gemini-3-pro-image");
   });
+
+  it("keeps a preset's explicit model over its own drifted derived tier", () => {
+    // Preset saved model = Pro, but settings.tier drifted to `fast` (the two
+    // are separate fields and can be updated independently). With no explicit
+    // per-request tier, the explicit saved model must win.
+    expect(
+      resolveImageModelForRequest({
+        presetModel: "gemini-3-pro-image",
+        resolvedTier: "fast",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
+
+  it("lets an explicit per-request tier override the preset's saved model", () => {
+    // The caller deliberately requested `best` this turn, so it outranks the
+    // preset's saved Flash model.
+    expect(
+      resolveImageModelForRequest({
+        presetModel: "gemini-3.1-flash-image",
+        explicitTier: "best",
+        resolvedTier: "best",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
 });
 
 describe("compareReferenceCandidates", () => {
