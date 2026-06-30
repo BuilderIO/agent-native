@@ -52,6 +52,8 @@ export default defineAction({
         intent?: string;
         styleStrength?: string;
         subjectAssetId?: string;
+        embeddedText?: string | null;
+        textPlacement?: string | null;
       };
       includeLogo?: boolean;
       categories?: string[];
@@ -60,6 +62,8 @@ export default defineAction({
       intent?: string;
       styleStrength?: string;
       tier?: string | null;
+      embeddedText?: string | null;
+      textPlacement?: string | null;
     }>(run.metadata, {});
     const categories =
       metadata.settingsUsed?.categories ?? metadata.categories ?? undefined;
@@ -70,6 +74,14 @@ export default defineAction({
       presetId: run.presetId ?? undefined,
       sessionId: resolvedSessionId,
       prompt: run.prompt,
+      embeddedText:
+        metadata.settingsUsed?.embeddedText ??
+        metadata.embeddedText ??
+        undefined,
+      textPlacement:
+        metadata.settingsUsed?.textPlacement ??
+        metadata.textPlacement ??
+        undefined,
       aspectRatio: run.aspectRatio as any,
       imageSize: run.imageSize as any,
       model: run.model as any,

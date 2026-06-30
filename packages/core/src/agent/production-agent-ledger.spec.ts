@@ -229,6 +229,78 @@ describe("tool-call result ledger", () => {
     );
   });
 
+  it("waits briefly for a late zombie ledger result before re-executing", async () => {
+    readLedgerMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce("late zombie result");
+
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "slow" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "save this" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-late",
+              name: "save-data",
+              input: { content: "slow" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-late",
+              toolName: "save-data",
+              toolInput: '{"content":"slow"}',
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-late-zombie",
+    });
+
+    expect(readLedgerMock).toHaveBeenCalledTimes(2);
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "save-data",
+        label: "Waiting for previous save-data result.",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        result: expect.stringContaining("late zombie result"),
+      }),
+    );
+  });
+
   it("returns a completed journal result without re-executing a write tool", async () => {
     currentTurnEventsMock.mockResolvedValue([
       {

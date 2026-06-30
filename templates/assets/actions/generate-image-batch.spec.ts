@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const assertAccessMock = vi.hoisted(() => vi.fn());
 const requireGenerationSessionInLibraryMock = vi.hoisted(() => vi.fn());
-const readImageModelDefaultMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
 const upsertVariantSlotMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
@@ -36,10 +35,6 @@ vi.mock("./_helpers.js", () => ({
   requireGenerationSessionInLibrary: requireGenerationSessionInLibraryMock,
 }));
 
-vi.mock("./_image-model-default.js", () => ({
-  readImageModelDefault: readImageModelDefaultMock,
-}));
-
 vi.mock("./generate-image.js", () => ({
   default: {
     run: generateImageRunMock,
@@ -66,7 +61,6 @@ describe("generate-image-batch", () => {
     requireGenerationSessionInLibraryMock.mockResolvedValue({
       id: "session-1",
     });
-    readImageModelDefaultMock.mockResolvedValue(undefined);
     generateImageRunMock.mockResolvedValue({ assetId: "asset-1" });
     upsertVariantSlotMock.mockResolvedValue(undefined);
     getDbMock.mockReturnValue(createDb());
@@ -157,6 +151,29 @@ describe("generate-image-batch", () => {
         variantScopeId: "picker:tab-1",
         dismissible: false,
         activateSessionAsset: false,
+      }),
+      undefined,
+    );
+  });
+
+  it("forwards exact embedded text controls per slot", async () => {
+    await action.run({
+      libraryId: "lib-1",
+      slots: [
+        {
+          slotId: "slot-1",
+          prompt: "Generate a cafe poster",
+          embeddedText: "Bean & Brew",
+          textPlacement: "centered headline",
+        },
+      ],
+    });
+
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slotId: "slot-1",
+        embeddedText: "Bean & Brew",
+        textPlacement: "centered headline",
       }),
       undefined,
     );
