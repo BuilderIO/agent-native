@@ -69,6 +69,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -100,6 +101,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -135,6 +137,7 @@ import {
 } from "./inspector";
 import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
+import { InspectorAiActions } from "./inspector/InspectorAiActions";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import { StatesPanel } from "./StatesPanel";
@@ -167,17 +170,28 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
   readOnly?: boolean;
+  /** Active file id — forwarded to InspectorAiActions for agent context. */
+  fileId?: string;
+  /** Active file name (e.g. "index.html") — forwarded to InspectorAiActions. */
+  filename?: string;
   // -------------------------------------------------------------------------
   // Design Studio panels (§6.2, §6.4, §6.5)
   // Pass `designId` to unlock Tokens, States, and Review sections.
   // -------------------------------------------------------------------------
   /** The active design's id — required to mount Tokens / States / Review. */
   designId?: string;
-  /** The active design file's id — scopes component read/write actions. */
-  activeFileId?: string;
+  /**
+   * Called after a component prop edit returns the patched source so the parent
+   * editor can sync local/Yjs content instead of waiting for query invalidation.
+   */
+  onComponentPropApplied?: (fileId: string, content: string) => void;
   /**
    * Called after a token edit is applied so the parent can push the resolved
    * CSS-var map into the iframe via the tweak-values postMessage.
@@ -2044,6 +2058,110 @@ function vscodeDeepLink(
 }
 
 /**
+ * Extract the *opening tag* from an element's outer HTML for an at-a-glance
+ * summary (e.g. `<main class="hero" data-x="y">`). Self-closing tags keep
+ * their `/>`. Returns `null` when no tag can be parsed.
+ *
+ * Pure — exported for tests.
+ */
+export function openingTagOf(html: string | null | undefined): string | null {
+  if (!html) return null;
+  const trimmed = html.trimStart();
+  // Match the first `<tag ...>` (greedy up to the first unquoted `>`), allowing
+  // quoted attribute values to contain `>`.
+  const match = /^<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>])*?)\/?>/.exec(
+    trimmed,
+  );
+  if (!match) return null;
+  return match[0];
+}
+
+/**
+ * Collapse long attribute values in an opening tag so the at-a-glance summary
+ * stays readable. Values longer than `max` chars are truncated with an
+ * ellipsis (the surrounding quotes are preserved).
+ *
+ * Pure — exported for tests.
+ */
+export function truncateOpeningTag(openTag: string, max = 32): string {
+  return openTag.replace(
+    /("|')((?:\\.|(?!\1)[^\\])*)\1/g,
+    (full, quote, value) => {
+      if (typeof value !== "string" || value.length <= max) return full;
+      return `${quote}${value.slice(0, max - 1)}…${quote}`;
+    },
+  );
+}
+
+/**
+ * Parse the top-level `key: value` pairs from an Alpine `x-data` object literal
+ * (e.g. `{ variant: 'outline', size: 'lg', disabled: false }`).
+ *
+ * Best-effort: only handles a flat object of simple string / boolean / number
+ * literals — exactly the shape used for component variant + state props. Nested
+ * objects, methods, and computed expressions are ignored. Returns `null` when
+ * the value is not a recognizable flat object literal.
+ *
+ * Pure — exported for tests.
+ */
+export function parseAlpineDataObject(
+  xData: string | null | undefined,
+): Record<string, string> | null {
+  if (!xData) return null;
+  const trimmed = xData.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  const inner = trimmed.slice(1, -1).trim();
+  if (!inner) return {};
+
+  const out: Record<string, string> = {};
+  // Split on top-level commas only (no nesting / quotes inside values here).
+  const pairRe =
+    /(?:^|,)\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_$][\w$]*))\s*:\s*('[^']*'|"[^"]*"|true|false|-?\d+(?:\.\d+)?)/g;
+  let m: RegExpExecArray | null;
+  let matched = false;
+  while ((m = pairRe.exec(inner)) !== null) {
+    matched = true;
+    const key = m[1] ?? m[2] ?? m[3];
+    let raw = m[4]!;
+    // Unwrap quotes for string literals; keep booleans / numbers verbatim.
+    if (
+      (raw.startsWith("'") && raw.endsWith("'")) ||
+      (raw.startsWith('"') && raw.endsWith('"'))
+    ) {
+      raw = raw.slice(1, -1);
+    }
+    if (key) out[key] = raw;
+  }
+  // If there was content but nothing parsed, the shape is too complex to edit
+  // safely — bail so the caller falls back to attribute-based prop edits.
+  if (!matched) return null;
+  return out;
+}
+
+/**
+ * Re-serialize a flat Alpine data object back into an `x-data` literal,
+ * preserving boolean / number literals unquoted and single-quoting strings.
+ *
+ * Pure — exported for tests.
+ */
+export function serializeAlpineDataObject(obj: Record<string, string>): string {
+  const parts = Object.entries(obj).map(([key, value]) => {
+    const isBoolean = value === "true" || value === "false";
+    const isNumber = /^-?\d+(\.\d+)?$/.test(value);
+    const literal =
+      isBoolean || isNumber ? value : `'${value.replace(/'/g, "\\'")}'`;
+    return `${key}: ${literal}`;
+  });
+  return parts.length ? `{ ${parts.join(", ")} }` : "{}";
+}
+
+/** A boolean-ish prop value (`"true"` / `"false"`), case-insensitive. */
+export function isBooleanPropValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v === "true" || v === "false";
+}
+
+/**
  * Popover anchored to the "Inspect code" button showing the selected node's
  * code.  Inline/Alpine sources show the element's outer HTML with a Copy
  * button; real-app sources additionally render an "Open in VS Code" button.
@@ -2062,6 +2180,11 @@ function InspectCodePopover({
   const html = data.html ?? "";
   const source = data.sourceLocation ?? null;
   const snippet = source?.snippet || html;
+  // At-a-glance opening tag (tag name + attributes), truncated for readability.
+  const openingTag = (() => {
+    const raw = openingTagOf(html);
+    return raw ? truncateOpeningTag(raw) : null;
+  })();
 
   const handleCopy = () => {
     if (!snippet) return;
@@ -2099,6 +2222,16 @@ function InspectCodePopover({
             }
           </Button>
         </div>
+
+        {/* At-a-glance opening tag (tag name + attributes) above the full HTML. */}
+        {openingTag && (
+          <code
+            className="block truncate rounded bg-[var(--design-editor-control-bg)] px-2 py-1 font-mono text-[10px] text-foreground"
+            title={openingTag}
+          >
+            {openingTag}
+          </code>
+        )}
 
         {source && (
           <div
@@ -3278,10 +3411,15 @@ function FlexContainerControls({
   element,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -3301,6 +3439,47 @@ function FlexContainerControls({
   // alone is a no-op against a block element.
   const ensureFlex = () => {
     if (!isFlex) onStyleChange("display", "flex");
+  };
+
+  /**
+   * Handle the Flow control switching between flex and normal-flow (block).
+   *
+   * For 'flex': ensures display:flex is set (ensureFlex path).
+   * For 'block': sets display:block and leaves children unchanged — mirrors
+   * the { kind:"autoLayout", enabled:false } substrate intent exactly.
+   */
+  const handleDisplayChange = (nextDisplay: "flex" | "block") => {
+    if (nextDisplay === "flex") {
+      ensureFlex();
+      return;
+    }
+    // Turn auto-layout off: set display:block, leaving children unchanged.
+    // This is the direct equivalent of the autoLayout substrate with enabled:false.
+    onStyleChange("display", "block");
+  };
+
+  /**
+   * "Convert to auto layout" — enables flex on a non-flex container and strips
+   * position:absolute from direct children (full reflow via the autoLayout
+   * substrate intent). Falls back to a style-only patch when no substrate
+   * handler is wired (e.g. read-only or non-editable contexts).
+   */
+  const handleConvertToAutoLayout = () => {
+    if (onAutoLayoutConvert && element.sourceId) {
+      onAutoLayoutConvert(element.sourceId, { direction: "row", gap: "8px" });
+      return;
+    }
+    // Fallback: set display:flex on the parent only (no child strip).
+    commitStylePatch(
+      {
+        display: "flex",
+        flexDirection: "row",
+        gap: "8px",
+        alignItems: "flex-start",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
   };
   const padding = {
     top: parseNumericValue(styles.paddingTop || "0"),
@@ -3348,8 +3527,22 @@ function FlexContainerControls({
 
   return (
     <div className="space-y-2">
+      {/* Convert to auto layout — shown when the container is not yet flex */}
+      {!isFlex ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 w-full gap-1.5 text-[11px]"
+          onClick={handleConvertToAutoLayout}
+        >
+          <IconLayoutSettings className="size-3.5 shrink-0" />
+          {"Convert to auto layout" /* i18n-ignore design inspector action */}
+        </Button>
+      ) : null}
       <AutoLayoutMatrix
         value={autoLayoutValue}
+        onDisplayChange={handleDisplayChange}
         onDirectionChange={(direction) => {
           ensureFlex();
           onStyleChange(
@@ -3533,10 +3726,15 @@ function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
 }) {
   const t = useT();
   const flexChild = isParentFlex(element);
@@ -3629,6 +3827,7 @@ function LayoutContextProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
+        onAutoLayoutConvert={onAutoLayoutConvert}
       />
       {childControls}
     </PanelSection>
@@ -5182,10 +5381,15 @@ interface ComponentDetailsResult {
   nodeId: string;
   name: string;
   sourceType: string;
-  instance?: { selector?: string; nodeId?: string };
   observedProps: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
+  /** Component instance shape, including the Alpine `x-data` expression. */
+  instance?: {
+    alpineData?: string | null;
+    nodeId?: string;
+    selector?: string;
+  } | null;
   capabilities: {
     canResolveToFile: boolean;
     hasFullIndex: boolean;
@@ -5212,69 +5416,29 @@ function ComponentSection({
   designId,
   fileId,
   nodeId,
+  onComponentPropApplied,
   sourceCapabilities = [],
 }: {
   designId: string;
   fileId?: string;
   nodeId: string;
+  onComponentPropApplied?: (fileId: string, content: string) => void;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
 }) {
+  const queryClient = useQueryClient();
+  const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
+  const detailsKey = ["action", "get-component-details", detailsParams];
+
   const { data, isLoading, error, refetch } =
     useActionQuery<ComponentDetailsResult>(
       "get-component-details",
-      {
-        designId,
-        nodeId,
-        ...(fileId ? { fileId } : {}),
-      },
+      detailsParams,
       { refetchOnMount: "always" },
     );
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
-  const queryClient = useQueryClient();
-  const [optimisticProps, setOptimisticProps] = useState<
-    Record<string, string>
-  >({});
-  const [liveProps, setLiveProps] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    setOptimisticProps({});
-    setLiveProps({});
-  }, [designId, nodeId]);
-
-  const readLiveComponentProps = useCallback(() => {
-    if (typeof document === "undefined") return;
-    if (!data) return;
-
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    );
-    const doc = iframe?.contentDocument;
-    if (!doc) return;
-
-    let element: Element | null = null;
-    const selector = data.instance?.selector;
-    if (selector) {
-      try {
-        element = doc.querySelector(selector);
-      } catch {
-        element = null;
-      }
-    }
-    element ??= doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
-    );
-    if (!element) return;
-
-    const next: Record<string, string> = {};
-    for (const groupName of Object.keys(data.persistedVariants)) {
-      const value = element.getAttribute(propNameToDataAttribute(groupName));
-      if (value !== null) next[groupName] = value;
-    }
-    setLiveProps(next);
-  }, [data, nodeId]);
 
   const postComponentPropPreview = useCallback(
     (attribute: string, value: string) => {
@@ -5296,22 +5460,62 @@ function ComponentSection({
     [data?.instance?.nodeId, data?.instance?.selector, nodeId],
   );
 
+  // Persist a single prop change through apply-component-prop-edit. Attribute
+  // props also preview immediately in the iframe so the selected component
+  // changes without waiting for the write/refetch round-trip.
+  const persistPropEdit = (
+    edit:
+      | { kind: "alpineData"; value: string }
+      | { kind: "attribute"; attribute: string; value: string },
+    optimistic: (prev: ComponentDetailsResult) => ComponentDetailsResult,
+  ) => {
+    queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
+      prev ? optimistic(prev) : prev,
+    );
+    if (edit.kind === "attribute") {
+      postComponentPropPreview(edit.attribute, edit.value);
+    }
+    applyPropMutation.mutate(
+      { designId, nodeId, ...(fileId ? { fileId } : {}), edit },
+      {
+        onSuccess: (result) => {
+          const response = result as {
+            content?: unknown;
+            fileId?: unknown;
+          };
+          if (
+            typeof response.fileId === "string" &&
+            typeof response.content === "string"
+          ) {
+            onComponentPropApplied?.(response.fileId, response.content);
+          }
+        },
+        onSettled: () => {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
+          void queryClient.invalidateQueries({ queryKey: detailsKey });
+          void refetch();
+        },
+      },
+    );
+  };
+
   useEffect(() => {
-    readLiveComponentProps();
-    const timeout = window.setTimeout(readLiveComponentProps, 250);
+    if (typeof document === "undefined") return;
+
     const handleMessage = (event: MessageEvent) => {
       if (
         (event.data as { type?: unknown } | null)?.type === "element-select"
       ) {
-        window.setTimeout(readLiveComponentProps, 0);
+        void refetch();
       }
     };
     window.addEventListener("message", handleMessage);
     return () => {
-      window.clearTimeout(timeout);
       window.removeEventListener("message", handleMessage);
     };
-  }, [readLiveComponentProps]);
+  }, [refetch]);
 
   // While loading, show a compact skeleton that matches the section width.
   if (isLoading) {
@@ -5334,16 +5538,113 @@ function ComponentSection({
 
   const {
     name,
+    sourceType,
     sourceLocation,
     observedProps,
     persistedVariants,
+    instance,
     capabilities,
   } = data;
 
-  // ── Variant groups (from persistedVariants for real-app, or a single
-  //    "x-data" pseudo-group for Alpine).
-  const variantGroups = Object.entries(persistedVariants);
-  const hasVariants = variantGroups.length > 0;
+  // ── Editable prop model ───────────────────────────────────────────────────
+  // Inline/Alpine designs persist through apply-component-prop-edit. Two write
+  // surfaces:
+  //   • x-data keys      → kind "alpineData" (rewrites the whole object)
+  //   • data-prop-* attrs → kind "attribute"  (data-agent-native-prop-<kebab>)
+  // Real-app sources keep the deeper source-prop controls gated as-is, so for
+  // non-inline sources the controls are read-only here.
+  const isInline = sourceType === "inline";
+  const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
+  const alpineData = parseAlpineDataObject(instance?.alpineData);
+
+  // Each editable row: name + current value + how it persists + its options.
+  type PropRow = {
+    name: string;
+    value: string;
+    /** Variant/enum options when the prop is a known group. */
+    options?: string[];
+    /** Persist surface for this prop. */
+    surface: "alpineData" | "attribute";
+  };
+
+  const rows: PropRow[] = [];
+  const seen = new Set<string>();
+
+  // 1) Alpine x-data keys come first — they drive the live variant/state.
+  if (alpineData) {
+    for (const [key, value] of Object.entries(alpineData)) {
+      rows.push({
+        name: key,
+        value,
+        options: persistedVariants[key],
+        surface: "alpineData",
+      });
+      seen.add(key);
+    }
+  }
+
+  // 2) data-agent-native-prop-* attributes not already covered by x-data.
+  for (const prop of observedProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 3) persistedVariant groups with no observed value yet (default to first).
+  for (const [group, options] of Object.entries(persistedVariants)) {
+    if (seen.has(group)) continue;
+    rows.push({
+      name: group,
+      value: options[0] ?? "",
+      options,
+      surface: alpineData ? "alpineData" : "attribute",
+    });
+    seen.add(group);
+  }
+
+  const hasRows = rows.length > 0;
+
+  // Build the apply-component-prop-edit payload + optimistic cache patch for a
+  // single prop change.
+  const commitProp = (row: PropRow, nextValue: string) => {
+    if (!editingEnabled || nextValue === row.value) return;
+
+    if (row.surface === "alpineData") {
+      const nextData = { ...(alpineData ?? {}), [row.name]: nextValue };
+      const serialized = serializeAlpineDataObject(nextData);
+      persistPropEdit({ kind: "alpineData", value: serialized }, (prev) => ({
+        ...prev,
+        instance: { ...(prev.instance ?? {}), alpineData: serialized },
+        observedProps: prev.observedProps.map((p) =>
+          p.name === row.name ? { ...p, value: nextValue } : p,
+        ),
+      }));
+    } else {
+      persistPropEdit(
+        {
+          kind: "attribute",
+          attribute: propNameToDataAttribute(row.name),
+          value: nextValue,
+        },
+        (prev) => {
+          const exists = prev.observedProps.some((p) => p.name === row.name);
+          return {
+            ...prev,
+            observedProps: exists
+              ? prev.observedProps.map((p) =>
+                  p.name === row.name ? { ...p, value: nextValue } : p,
+                )
+              : [...prev.observedProps, { name: row.name, value: nextValue }],
+          };
+        },
+      );
+    }
+  };
 
   // ── Capability gates ──
   const canJumpToSource =
@@ -5420,118 +5721,79 @@ function ComponentSection({
           </div>
         )}
 
-        {/* Observed props (attribute-level, Alpine + real-app) */}
-        {observedProps.length > 0 && (
-          <div className="space-y-1">
-            {observedProps.map((prop) => (
-              <div key={prop.name} className="flex items-center gap-1.5">
-                <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground">
-                  {prop.name}
-                </Label>
-                <span className="min-w-0 flex-1 truncate rounded bg-[var(--design-editor-control-bg)] px-1.5 py-0.5 text-[11px] text-foreground">
-                  {prop.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Variant controls (real-app tier: persistedVariants from component_index) */}
-        {hasVariants && (
+        {/* Typed prop controls. Inline/Alpine designs are editable and persist
+            through apply-component-prop-edit; real-app sources are read-only
+            until the deeper source-prop controls land. */}
+        {hasRows && (
           <div className="space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-              {"Variants" /* i18n-ignore design inspector label */}
+              {"Props" /* i18n-ignore design inspector label */}
             </p>
-            {variantGroups.map(([groupName, options]) => (
-              <div key={groupName} className="flex items-center gap-1.5">
-                <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground capitalize">
-                  {groupName}
-                </Label>
-                <Select
-                  value={
-                    optimisticProps[groupName] ??
-                    liveProps[groupName] ??
-                    observedProps.find((p) => p.name === groupName)?.value ??
-                    options[0] ??
-                    ""
-                  }
-                  onValueChange={(value) => {
-                    const attribute = propNameToDataAttribute(groupName);
-                    setOptimisticProps((prev) => ({
-                      ...prev,
-                      [groupName]: value,
-                    }));
-                    applyPropMutation.mutate(
-                      {
-                        designId,
-                        nodeId,
-                        ...(fileId ? { fileId } : {}),
-                        edit: {
-                          kind: "attribute",
-                          attribute,
-                          value,
-                        },
-                      },
-                      {
-                        onSuccess: () => {
-                          postComponentPropPreview(attribute, value);
-                          queryClient.setQueriesData<ComponentDetailsResult>(
-                            { queryKey: ["action", "get-component-details"] },
-                            (current) => {
-                              if (
-                                current?.nodeId !== nodeId ||
-                                current.name !== name
-                              ) {
-                                return current;
-                              }
-                              const nextObserved = [
-                                ...current.observedProps.filter(
-                                  (prop) => prop.name !== groupName,
-                                ),
-                                { name: groupName, value },
-                              ];
-                              return {
-                                ...current,
-                                observedProps: nextObserved,
-                                instance: current.instance
-                                  ? {
-                                      ...current.instance,
-                                      props: nextObserved,
-                                    }
-                                  : current.instance,
-                              };
-                            },
-                          );
-                          void refetch();
-                        },
-                        onError: () => {
-                          setOptimisticProps((prev) => {
-                            const next = { ...prev };
-                            delete next[groupName];
-                            return next;
-                          });
-                          void refetch();
-                        },
-                      },
-                    );
-                  }}
-                  disabled={
-                    !capabilities.canEditProps || applyPropMutation.isPending
-                  }
-                >
-                  <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {options.map((opt) => (
-                      <SelectItem key={opt} value={opt} className="text-[11px]">
-                        {opt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
+            {rows.map((row) => {
+              const hasOptions = (row.options?.length ?? 0) > 0;
+              const isBoolean = !hasOptions && isBooleanPropValue(row.value);
+              const disabled = !editingEnabled || applyPropMutation.isPending;
+              return (
+                <div key={row.name} className="flex items-center gap-1.5">
+                  <Label className="w-[64px] shrink-0 truncate text-[11px] font-medium capitalize text-muted-foreground">
+                    {row.name}
+                  </Label>
+                  {hasOptions ? (
+                    // Dropdown for variant / enum groups.
+                    <Select
+                      value={row.value || row.options![0] || ""}
+                      onValueChange={(v) => commitProp(row, v)}
+                      disabled={disabled}
+                    >
+                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {row.options!.map((opt) => (
+                          <SelectItem
+                            key={opt}
+                            value={opt}
+                            className="text-[11px]"
+                          >
+                            {opt}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : isBoolean ? (
+                    // Toggle for boolean props.
+                    <div className="flex min-w-0 flex-1 items-center">
+                      <Switch
+                        checked={row.value.trim().toLowerCase() === "true"}
+                        onCheckedChange={(checked) =>
+                          commitProp(row, checked ? "true" : "false")
+                        }
+                        disabled={disabled}
+                        className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
+                        aria-label={
+                          row.name /* i18n-ignore dynamic prop name */
+                        }
+                      />
+                    </div>
+                  ) : (
+                    // Text input for string props (e.g. a label).
+                    <Input
+                      defaultValue={row.value}
+                      key={`${row.name}:${row.value}`}
+                      disabled={disabled}
+                      onBlur={(e) => commitProp(row, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -5561,11 +5823,14 @@ export function EditPanel({
   onRequestTweaks,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
   onExport,
   exporting = false,
   readOnly = false,
+  fileId,
+  filename,
   designId,
-  activeFileId,
+  onComponentPropApplied,
   onTokensApplied,
   statesPanelProps,
   reviewPanelProps,
@@ -5783,8 +6048,9 @@ export function EditPanel({
             {designId && componentNodeId && (
               <ComponentSection
                 designId={designId}
-                fileId={activeFileId}
+                fileId={fileId}
                 nodeId={componentNodeId}
+                onComponentPropApplied={onComponentPropApplied}
                 sourceCapabilities={sourceCapabilities}
               />
             )}
@@ -5807,6 +6073,7 @@ export function EditPanel({
                   element={selectedElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  onAutoLayoutConvert={onAutoLayoutConvert}
                 />
                 <AppearanceProperties
                   element={selectedElement}
@@ -5843,6 +6110,17 @@ export function EditPanel({
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
+                {/* AI edit request block — collapsible, collapsed by default */}
+                <section className="shrink-0 border-t border-[var(--design-editor-control-border)]">
+                  <InspectorAiActions
+                    selector={selectedElement.selector}
+                    sourceId={selectedElement.sourceId}
+                    designId={designId}
+                    fileId={fileId}
+                    filename={filename}
+                    canEdit={!readOnly}
+                  />
+                </section>
               </>
             )}
             {onExport ? (

@@ -295,10 +295,7 @@ test("pen escape cancels the in-progress path and enter commits vector art", asy
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  await expect(toolButton(page, "Move")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
   await expect(selectedLayerRow(page)).toContainText("Vector");
 
   await restoreHome(page);

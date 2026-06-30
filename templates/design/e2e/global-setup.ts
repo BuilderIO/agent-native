@@ -70,6 +70,7 @@ export const FIXTURE_HTML = `<!doctype html>
       <div style="display:flex;align-items:center;gap:12px">
         <img data-agent-native-node-id="e2e-audit-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" style="width:32px;height:32px;border-radius:8px;background:#27272a" />
         <input data-agent-native-node-id="e2e-audit-input" placeholder="Email" style="height:32px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#fff;padding:0 10px" />
+        <button data-agent-native-node-id="e2e-audit-focus-button" class="outline-none" style="height:32px;border-radius:8px;border:1px solid #3f3f46;background:#27272a;color:#fff;padding:0 10px">Focus me</button>
       </div>
       <div style="padding:8px;border:1px solid #27272a;border-radius:12px">
         <div style="padding:8px;border:1px solid #3f3f46;border-radius:10px">

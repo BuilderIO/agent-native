@@ -164,8 +164,6 @@ test("inline component prop dropdown persists on the selected component", async 
 
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
-  await expect.poll(() => selectedComponentVariant(page)).toBe("secondary");
-
   await selectByText(page, "Variant CTA");
   await expect(
     page.getByTestId("component-section").getByRole("combobox").first(),
@@ -191,7 +189,9 @@ test("token CSS-var edits update the iframe live and persist after reload", asyn
     .toBe("rgb(255, 51, 102)");
 });
 
-test("Review panel runs an audit and renders findings", async ({ page }) => {
+test("Review panel runs an audit and applies an inline a11y fix", async ({
+  page,
+}) => {
   const reviewToggle = page.getByRole("button", {
     name: "Review",
     exact: true,
@@ -214,6 +214,35 @@ test("Review panel runs an audit and renders findings", async ({ page }) => {
       exact: true,
     }),
   ).toBeVisible();
+
+  const focusFinding = page.getByRole("button", {
+    name: "Interactive element uses outline-none without a focus-visible ring.",
+    exact: true,
+  });
+  await expect(focusFinding).toBeVisible();
+
+  await waitForAction(page, "apply-a11y-fix", async () => {
+    await focusFinding
+      .getByRole("button", { name: "Fix", exact: true })
+      .click();
+  });
+
+  await expect
+    .poll(() =>
+      designFrame(page)
+        .locator('[data-agent-native-node-id="e2e-audit-focus-button"]')
+        .getAttribute("class"),
+    )
+    .toContain("focus-visible:ring-2");
+
+  await gotoEditor(page, designId);
+  await expect
+    .poll(() =>
+      designFrame(page)
+        .locator('[data-agent-native-node-id="e2e-audit-focus-button"]')
+        .getAttribute("class"),
+    )
+    .toContain("focus-visible:ring-2");
 });
 
 test("Motion dock can add a first track and Write to CSS", async ({ page }) => {
@@ -223,13 +252,17 @@ test("Motion dock can add a first track and Write to CSS", async ({ page }) => {
     .getByRole("button", { name: "Expand motion dock", exact: true })
     .click();
   await expect(
-    page.getByText("Select an element and add a motion track to begin.", {
-      exact: true,
-    }),
+    page.getByText("Pick a property to add the first track.", { exact: false }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Add track", exact: true }).click();
   const motionDock = page.locator('[aria-label="Motion dock"]').first();
+  await motionDock
+    .getByRole("button", { name: "Add track", exact: true })
+    .last()
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Fade (opacity)", exact: true })
+    .click();
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();

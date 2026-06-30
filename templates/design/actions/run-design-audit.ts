@@ -170,7 +170,7 @@ function checkTapTargets(html: string): A11yFinding[] {
         nodeId: extractNodeId(tag),
         selector: extractSelector(tag, "button"),
         wcag: "2.5.5",
-        fixAvailable: false,
+        fixAvailable: true,
       });
     }
     idx++;
@@ -272,7 +272,7 @@ function checkFocusVisibility(html: string): A11yFinding[] {
         nodeId: extractNodeId(tag),
         selector: extractSelector(tag, tag.match(/^<([a-z]+)/i)?.[1] ?? "*"),
         wcag: "2.4.7",
-        fixAvailable: false,
+        fixAvailable: true,
       });
     }
     inlineIdx++;
@@ -286,10 +286,23 @@ function checkContrastHint(html: string): A11yFinding[] {
   // Static analysis cannot compute real contrast ratios without a DOM/CSS
   // cascade resolver. We flag the presence of explicit low-opacity text colors
   // as a human-review hint — the UI will show these as "info" prompts.
-  const lowOpacityTextPattern =
-    /class\s*=\s*"[^"]*\btext-(?:white|black|gray-\d+)\s+(?:opacity-[0-3]\d|text-opacity-[0-3]\d)[^"]*"/gi;
+  const tagPattern = /<([a-z][a-z0-9:-]*)\b[^>]*>/gi;
+  const textColorPattern = /\btext-(?:white|black|gray-\d+)\b/i;
+  const lowOpacityPattern = /\b(?:opacity-[0-3]\d|text-opacity-[0-3]\d)\b/i;
   let idx = 0;
-  for (const m of html.matchAll(lowOpacityTextPattern)) {
+  for (const m of html.matchAll(tagPattern)) {
+    const tag = m[0];
+    const classMatch = tag.match(/\bclass\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
+    const className = classMatch?.[1] ?? classMatch?.[2] ?? "";
+    if (
+      !textColorPattern.test(className) ||
+      !lowOpacityPattern.test(className)
+    ) {
+      continue;
+    }
+    const tagName = m[1] ?? "*";
+    const nodeId = extractNodeId(tag);
+    const selector = extractSelector(tag, tagName);
     findings.push({
       id: `contrast:low-opacity-${idx}`,
       severity: "info" as A11ySeverity,
@@ -298,8 +311,10 @@ function checkContrastHint(html: string): A11yFinding[] {
         "Text element has a low-opacity modifier — verify contrast ratio meets 4.5:1 minimum.",
       detail:
         "Low-opacity text can fail WCAG 1.4.3. Run a live contrast check in the browser.",
+      nodeId,
+      selector,
       wcag: "1.4.3",
-      fixAvailable: false,
+      fixAvailable: Boolean(nodeId || selector),
     });
     idx++;
   }
