@@ -85,7 +85,7 @@ function jsonErrorResponse(status: number, body: unknown): Response {
 }
 
 const BASE_OPTS: EngineStreamOptions = {
-  model: "claude-sonnet-4-6",
+  model: "claude-sonnet-5",
   systemPrompt: "You are helpful.",
   messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
   tools: [],
@@ -116,9 +116,9 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     expect(engine.name).toBe("builder");
     expect(engine.defaultModel).toBe(BUILDER_DEFAULT_MODEL);
-    expect(engine.defaultModel).toBe("claude-sonnet-4-6");
+    expect(engine.defaultModel).toBe("claude-sonnet-5");
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
-    expect(engine.supportedModels).toContain("claude-sonnet-4-6");
+    expect(engine.supportedModels).toContain("claude-sonnet-5");
     expect(engine.supportedModels).toContain("auto");
     expect(engine.supportedModels).toContain("claude-opus-4-7");
     expect(engine.supportedModels).toContain("gpt-5-5");
@@ -208,7 +208,7 @@ describe("createBuilderEngine", () => {
     expect(String(init.headers["x-client-version"])).toMatch(/\d+\.\d+\.\d+/);
 
     const body = JSON.parse(init.body);
-    expect(body.model).toBe("claude-sonnet-4-6");
+    expect(body.model).toBe("claude-sonnet-5");
     expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
     // With prompt caching enabled the system prompt is wrapped in an array
     // with a cache_control block on the last element.

@@ -500,11 +500,11 @@ function ManualSetupCard({
 
 function friendlyModelName(model: string): string {
   const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8,})?$/,
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
-    return `${tier} ${claude[2]}.${claude[3]}`;
+    return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
   if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
   if (/^o\d/.test(model)) return model;

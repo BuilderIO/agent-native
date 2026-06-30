@@ -759,13 +759,13 @@ export const MODEL_SELECTOR_POPOVER_STYLE = {
 
 function friendlyModelName(model: string): string {
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
-  // Claude: claude-{tier}-{major}-{minor}[-dateYYYYMMDD] → Tier Major.Minor
+  // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD] → Tier Major[.Minor]
   const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8,})?$/,
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
-    return `${tier} ${claude[2]}.${claude[3]}`;
+    return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
   // GPT: gpt-{major}-{minor}[-suffix] or gpt-{major}.{minor}[-suffix]
   if (model.startsWith("gpt-")) {

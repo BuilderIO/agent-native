@@ -105,6 +105,7 @@ describe("agent model config catalog", () => {
 
   it("keeps the Builder catalog aligned to the gateway allow-list", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("auto");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-sonnet-5");
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-7");
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-8",
@@ -137,9 +138,10 @@ describe("agent model config catalog", () => {
     );
   });
 
-  it("includes current OpenRouter gemini entry", () => {
+  it("includes current OpenRouter curated entries", () => {
     const openrouterModels = AI_SDK_MODEL_CONFIG.openrouter
       .supportedModels as readonly string[];
+    expect(openrouterModels).toContain("anthropic/claude-sonnet-5");
     expect(openrouterModels).toContain("google/gemini-2.5-flash");
   });
 });
@@ -152,8 +154,12 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("claude-haiku-4-5-20251001")).toBe(200_000);
   });
 
-  it("returns 1M for Claude Fable 5, Sonnet 4.6, and Opus 4.x", () => {
+  it("returns 1M for Claude Fable 5, Sonnet 5/4.6, and Opus 4.x", () => {
     expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
+    expect(getContextWindowForModel("claude-sonnet-5")).toBe(1_000_000);
+    expect(getContextWindowForModel("anthropic/claude-sonnet-5")).toBe(
+      1_000_000,
+    );
     expect(getContextWindowForModel("claude-sonnet-4-6")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-opus-4-7")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-opus-4-8")).toBe(1_000_000);

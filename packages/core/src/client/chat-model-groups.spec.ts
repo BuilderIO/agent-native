@@ -12,7 +12,7 @@ describe("buildChatModelGroups", () => {
           label: "Builder.io Gateway",
           supportedModels: [
             "auto",
-            "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "gpt-5-5",
             "gemini-3-1-pro",
             "grok-code-fast",
@@ -27,7 +27,7 @@ describe("buildChatModelGroups", () => {
       {
         engine: "builder",
         label: "Claude",
-        models: ["claude-sonnet-4-6"],
+        models: ["claude-sonnet-5"],
         configured: true,
       },
       {
@@ -58,19 +58,19 @@ describe("buildChatModelGroups", () => {
         {
           name: "builder",
           label: "Builder.io Gateway",
-          supportedModels: ["claude-sonnet-4-6"],
+          supportedModels: ["claude-sonnet-5"],
           requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
         },
         {
           name: "anthropic",
           label: "Claude",
-          supportedModels: ["claude-sonnet-4-6"],
+          supportedModels: ["claude-sonnet-5"],
           requiredEnvVars: ["ANTHROPIC_API_KEY"],
         },
         {
           name: "ai-sdk:anthropic",
           label: "Claude",
-          supportedModels: ["claude-sonnet-4-6"],
+          supportedModels: ["claude-sonnet-5"],
           requiredEnvVars: ["ANTHROPIC_API_KEY"],
         },
         {
@@ -134,7 +134,7 @@ describe("buildChatModelGroups", () => {
         {
           name: "ai-sdk:anthropic",
           label: "Claude",
-          supportedModels: ["claude-sonnet-4-6"],
+          supportedModels: ["claude-sonnet-5"],
           requiredEnvVars: ["ANTHROPIC_API_KEY"],
         },
       ],
@@ -144,7 +144,7 @@ describe("buildChatModelGroups", () => {
       {
         engine: "ai-sdk:anthropic",
         label: "Claude",
-        models: ["claude-fable-5", "claude-sonnet-4-6"],
+        models: ["claude-fable-5", "claude-sonnet-5"],
         configured: false,
       },
     ]);
