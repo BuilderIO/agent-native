@@ -16,13 +16,13 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -317,6 +317,17 @@ export interface PromptDesignSystemOption {
   isDefault?: boolean;
 }
 
+function isNestedPromptPopoverTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        "[data-agent-native-composer-popover],[data-assets-picker-dialog],[data-agent-native-prompt-select]",
+      ),
+    )
+  );
+}
+
 export default function PromptPopover({
   open,
   onOpenChange,
@@ -339,7 +350,6 @@ export default function PromptPopover({
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) return;
@@ -347,68 +357,6 @@ export default function PromptPopover({
     setPickedAssets([]);
     setSelectedUploadFiles([]);
   }, [open]);
-
-  // Position the popover after render so we can measure its actual size
-  useEffect(() => {
-    if (!open || !panelRef.current) return;
-    const panel = panelRef.current;
-    const MARGIN = 12;
-
-    if (centered || !anchorRef?.current) {
-      panel.style.top = "50%";
-      panel.style.left = "50%";
-      panel.style.transform = "translate(-50%, -50%)";
-      return;
-    }
-
-    const anchor = anchorRef.current.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    let top = anchor.bottom + MARGIN;
-    if (top + panelRect.height > vh - MARGIN) {
-      top = Math.max(MARGIN, anchor.top - panelRect.height - MARGIN);
-    }
-
-    const anchorCenterX = anchor.left + anchor.width / 2;
-    let left = anchorCenterX - panelRect.width / 2;
-    if (left + panelRect.width > vw - MARGIN) {
-      left = vw - panelRect.width - MARGIN;
-    }
-    if (left < MARGIN) left = MARGIN;
-
-    panel.style.top = top + "px";
-    panel.style.left = left + "px";
-    panel.style.right = "auto";
-    panel.style.transform = "none";
-  }, [open, centered, anchorRef]);
-
-  // Close on outside click / escape
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Element | null;
-      if (target?.closest("[data-agent-native-composer-popover]")) return;
-      if (target?.closest("[data-assets-picker-dialog]")) return;
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node) &&
-        (!anchorRef?.current || !anchorRef.current.contains(e.target as Node))
-      ) {
-        onOpenChange(false);
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !assetsPickerOpen) onOpenChange(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [assetsPickerOpen, open, onOpenChange, anchorRef]);
 
   const uploadFiles = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
@@ -533,20 +481,57 @@ export default function PromptPopover({
     );
   }, []);
 
-  if (!open) return null;
+  const handlePopoverOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && assetsPickerOpen) return;
+      onOpenChange(nextOpen);
+    },
+    [assetsPickerOpen, onOpenChange],
+  );
 
-  const popover = (
-    <>
-      {centered && (
+  const hasVirtualAnchor = !centered && Boolean(anchorRef?.current);
+  const virtualAnchorRef = anchorRef as React.RefObject<{
+    getBoundingClientRect: () => DOMRect;
+  }>;
+
+  return (
+    <Popover open={open} onOpenChange={handlePopoverOpenChange}>
+      {open && centered && (
         <div
-          className="fixed inset-0 bg-black/40 z-[199]"
+          className="fixed inset-0 z-[199] bg-black/40"
           onClick={() => onOpenChange(false)}
         />
       )}
-      <div
-        ref={panelRef}
-        className="fixed z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
-        style={{ top: 0, left: 0, visibility: "visible" }}
+      {hasVirtualAnchor ? (
+        <PopoverAnchor virtualRef={virtualAnchorRef} />
+      ) : (
+        <PopoverAnchor asChild>
+          <span
+            aria-hidden="true"
+            className={
+              centered
+                ? "fixed left-1/2 top-1/2 size-px"
+                : "fixed left-3 top-3 size-px"
+            }
+          />
+        </PopoverAnchor>
+      )}
+      <PopoverContent
+        side="bottom"
+        align="center"
+        sideOffset={12}
+        collisionPadding={12}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (assetsPickerOpen) event.preventDefault();
+        }}
+        onInteractOutside={(event) => {
+          if (isNestedPromptPopoverTarget(event.target)) {
+            event.preventDefault();
+          }
+        }}
+        data-agent-native-prompt-popover
+        className="z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
         <div className="px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
@@ -588,7 +573,7 @@ export default function PromptPopover({
                   <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
                     <SelectValue placeholder={t("promptDialog.designSystem")} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent data-agent-native-prompt-select>
                     <SelectItem value="none" className="text-xs">
                       {t("promptDialog.noDesignSystem")}
                     </SelectItem>
@@ -688,11 +673,9 @@ export default function PromptPopover({
           onReady={handleAssetsPickerReady}
           onMessage={handleAssetsPickerMessage}
         />
-      </div>
-    </>
+      </PopoverContent>
+    </Popover>
   );
-
-  return createPortal(popover, document.body);
 }
 
 function PromptAttachmentMenu({

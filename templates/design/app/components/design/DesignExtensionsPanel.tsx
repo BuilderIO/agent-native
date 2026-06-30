@@ -678,14 +678,14 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
               value={figmaFileInput}
               onChange={(event) => setFigmaFileInput(event.target.value)}
               placeholder="Figma file URL or key"
-              className="h-7 text-[11px]"
+              className="h-7 text-[11px] md:!text-[11px]"
             />
             <div className="flex gap-1.5">
               <Input
                 value={figmaQueryInput}
                 onChange={(event) => setFigmaQueryInput(event.target.value)}
                 placeholder="Search components"
-                className="h-7 min-w-0 flex-1 text-[11px]"
+                className="h-7 min-w-0 flex-1 text-[11px] md:!text-[11px]"
               />
               <Button
                 type="submit"

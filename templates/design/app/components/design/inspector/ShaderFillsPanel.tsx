@@ -330,7 +330,7 @@ export function ShaderFillsPanel({
             disabled={disabled}
             placeholder={"Search" /* i18n-ignore */}
             aria-label={"Search shaders" /* i18n-ignore */}
-            className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[11px] shadow-none focus-visible:ring-0"
+            className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[11px] shadow-none focus-visible:ring-0 md:!text-[11px]"
             onChange={(event) => setSearch(event.target.value)}
           />
           {search && (

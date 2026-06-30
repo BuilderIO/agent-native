@@ -163,17 +163,14 @@ export function MotionDock({
 
   // Dock height (resizable via the top drag handle).
   const [dockHeight, setDockHeight] = useState(DEFAULT_DOCK_HEIGHT);
+  const [isResizingDock, setIsResizingDock] = useState(false);
   const resizingRef = useRef(false);
   const resizeStartRef = useRef<{ y: number; h: number } | null>(null);
 
-  const handleDockTransitionEnd = useCallback(
+  const handleDockSpaceTransitionEnd = useCallback(
     (event: ReactTransitionEvent<HTMLDivElement>) => {
       if (event.currentTarget !== event.target) return;
-      if (
-        event.propertyName !== "translate" &&
-        event.propertyName !== "transform"
-      )
-        return;
+      if (event.propertyName !== "height") return;
       if (!isOpen) onExitComplete?.();
     },
     [isOpen, onExitComplete],
@@ -291,6 +288,7 @@ export function MotionDock({
   const handleResizePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       resizingRef.current = true;
+      setIsResizingDock(true);
       resizeStartRef.current = { y: e.clientY, h: dockHeight };
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -310,6 +308,7 @@ export function MotionDock({
 
   const handleResizePointerUp = useCallback(() => {
     resizingRef.current = false;
+    setIsResizingDock(false);
     resizeStartRef.current = null;
   }, []);
 
@@ -421,18 +420,21 @@ export function MotionDock({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
-      className="design-motion-dock-space relative shrink-0 overflow-visible"
+      className={cn(
+        "design-motion-dock-space relative shrink-0 overflow-visible",
+        isResizingDock && "design-motion-dock-resizing",
+      )}
+      onTransitionEnd={handleDockSpaceTransitionEnd}
       style={{ height: isOpen ? dockHeight : 0 }}
     >
       <div
         aria-label="Motion dock"
         aria-hidden={!isOpen ? true : undefined}
-        onTransitionEnd={handleDockTransitionEnd}
         className={cn(
           "design-motion-dock absolute inset-x-0 top-0 z-40 flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background select-none",
           isOpen
-            ? "translate-y-0 border-border opacity-100"
-            : "translate-y-full border-transparent pointer-events-none",
+            ? "border-border opacity-100"
+            : "border-transparent pointer-events-none",
         )}
         style={{ height: dockHeight }}
       >
@@ -442,6 +444,7 @@ export function MotionDock({
           onPointerDown={handleResizePointerDown}
           onPointerMove={handleResizePointerMove}
           onPointerUp={handleResizePointerUp}
+          onPointerCancel={handleResizePointerUp}
         />
 
         {/* Dock toolbar */}
@@ -521,7 +524,7 @@ export function MotionDock({
                     setDurationInput(String(durationMs));
                   }
                 }}
-                className="h-5 w-16 px-1 text-[11px]"
+                className="h-5 w-16 px-1 text-[11px] md:!text-[11px]"
                 aria-label="Duration in ms"
               />
               <span className="text-[10px] text-muted-foreground">ms</span>

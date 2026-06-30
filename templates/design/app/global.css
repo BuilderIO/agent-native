@@ -333,21 +333,21 @@
   animation: none !important;
 }
 
-.design-motion-dock,
 .design-motion-dock-space {
   --design-motion-dock-duration: 200ms;
   --design-motion-dock-easing: ease-out;
+  transition-property: height;
   transition-duration: var(--design-motion-dock-duration);
   transition-timing-function: var(--design-motion-dock-easing);
 }
 
 .design-motion-dock {
-  transition-property: translate, transform, border-color;
-  will-change: translate, transform;
+  transition: border-color var(--design-motion-dock-duration)
+    var(--design-motion-dock-easing);
 }
 
-.design-motion-dock-space {
-  transition-property: height;
+.design-motion-dock-space.design-motion-dock-resizing {
+  transition-duration: 0ms;
 }
 
 .dark .design-editor-app-menu-content {

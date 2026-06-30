@@ -1085,7 +1085,7 @@ export function DesignColorPicker({
           disabled={disabled}
           aria-label={copy.hex}
           spellCheck={false}
-          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] tabular-nums uppercase"
+          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] tabular-nums uppercase md:!text-[11px]"
           onChange={(e) => {
             hexDraftRef.current = e.target.value;
             setHexDraft(e.target.value);
@@ -1362,7 +1362,7 @@ export function DesignColorPicker({
                       placeholder={"Video URL (mp4, webm)" /* i18n-ignore */}
                       aria-label={"Video URL" /* i18n-ignore */}
                       spellCheck={false}
-                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px]"
+                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] md:!text-[11px]"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();

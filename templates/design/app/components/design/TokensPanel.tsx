@@ -220,7 +220,7 @@ function TokenRow({
             if (e.key === "Escape") onCancelEdit();
           }}
           onBlur={onCommit}
-          className="h-5 w-24 px-1 py-0 text-[11px] font-mono"
+          className="h-5 w-24 px-1 py-0 text-[11px] font-mono md:!text-[11px]"
         />
       ) : (
         <button
@@ -375,7 +375,7 @@ function NewTokenPopover({ onAdd }: NewTokenPopoverProps) {
             <Input
               value={cssVar}
               onChange={(e) => setCssVar(e.target.value)}
-              className="h-6 font-mono text-[11px]"
+              className="h-6 font-mono text-[11px] md:!text-[11px]"
               placeholder="--my-token"
             />
           </div>
@@ -386,7 +386,7 @@ function NewTokenPopover({ onAdd }: NewTokenPopoverProps) {
             <Input
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              className="h-6 font-mono text-[11px]"
+              className="h-6 font-mono text-[11px] md:!text-[11px]"
               placeholder="#3B82F6"
             />
           </div>

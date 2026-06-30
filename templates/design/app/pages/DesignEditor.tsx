@@ -1411,6 +1411,35 @@ function removeAbsolutePositioningFromNodeInHtml(
   }
 }
 
+function setAbsolutePositioningForNodeInHtml(
+  content: string,
+  nodeAttrId: string,
+  point: { x: number; y: number },
+  pointerOffset?: { x: number; y: number },
+): string {
+  if (typeof window === "undefined") return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const element = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    ) as HTMLElement | null;
+    if (!element) return content;
+    element.style.position = "absolute";
+    element.style.left = `${Math.round(point.x - (pointerOffset?.x ?? 0))}px`;
+    element.style.top = `${Math.round(point.y - (pointerOffset?.y ?? 0))}px`;
+    element.style.removeProperty("right");
+    element.style.removeProperty("bottom");
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
+function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
+  const position = String(node?.style.position ?? "").toLowerCase();
+  return position === "absolute" || position === "fixed";
+}
+
 function escapeHtmlText(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -2218,6 +2247,26 @@ function layerTypeForCodeLayer(
   if (node.type === "text") return "text";
   if (node.type === "image") return "image";
   return "element";
+}
+
+function codeLayerNodeLooksLikeComponent(
+  node: CodeLayerNode | null | undefined,
+): boolean {
+  if (!node) return false;
+  if (isComponentInstance(node)) return true;
+  const tag = node.tag.toLowerCase();
+  if (
+    tag === "button" ||
+    tag === "input" ||
+    tag === "select" ||
+    tag === "textarea"
+  ) {
+    return true;
+  }
+  if (/component|card|button|control/i.test(node.layerName)) return true;
+  return node.classes.some((item) =>
+    /component|card|button|control/i.test(item),
+  );
 }
 
 function preferredCodeLayerSelector(node: CodeLayerNode): string {
@@ -7016,6 +7065,11 @@ export default function DesignEditor() {
       ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
       : undefined;
   }, [selectedCodeLayerNode]);
+  const selectedElementAlreadyComponent = useMemo(() => {
+    if (!selectedElement) return false;
+    if (selectedElement.componentName?.trim()) return true;
+    return codeLayerNodeLooksLikeComponent(selectedCodeLayerNode);
+  }, [selectedCodeLayerNode, selectedElement]);
 
   useEffect(() => {
     setShaderFillPreview(null);
@@ -9127,14 +9181,38 @@ export default function DesignEditor() {
         );
         return false;
       }
-      const movedNode =
+      const movedNodeAttrId =
+        targetNode?.dataAttributes["data-agent-native-node-id"] ??
+        details?.sourceId ??
+        elementInfo?.sourceId ??
         (patch.result.after?.nodeId
           ? patch.projection.nodes.find(
+              (node) => node.id === patch.result.after?.nodeId,
+            )?.dataAttributes["data-agent-native-node-id"]
+          : undefined);
+      const nextContent =
+        isAbsoluteCodeLayerNode(targetNode) && movedNodeAttrId
+          ? removeAbsolutePositioningFromNodeInHtml(
+              patch.content,
+              movedNodeAttrId,
+            )
+          : patch.content;
+      const nextProjection = buildCodeLayerProjection(nextContent);
+      const movedNode =
+        (movedNodeAttrId
+          ? nextProjection.nodes.find(
+              (node) =>
+                node.dataAttributes["data-agent-native-node-id"] ===
+                movedNodeAttrId,
+            )
+          : null) ??
+        (patch.result.after?.nodeId
+          ? nextProjection.nodes.find(
               (node) => node.id === patch.result.after?.nodeId,
             )
           : null) ??
         resolveCodeLayerNodeFromBridge(
-          patch.projection,
+          nextProjection,
           selector,
           details?.sourceId ??
             elementInfo?.sourceId ??
@@ -9142,7 +9220,7 @@ export default function DesignEditor() {
               ? bridgeSourceIdForCodeLayerNode(targetNode)
               : undefined),
         );
-      applyLocalContentUpdate(patch.content, { skipPreview: true });
+      applyLocalContentUpdate(nextContent, { skipPreview: true });
       if (movedNode) setSelectedLayerIdsState([movedNode.id]);
       if (elementInfo) {
         setSelectedElement({
@@ -10488,6 +10566,8 @@ export default function DesignEditor() {
       targetScreenId,
       targetAnchorNodeId,
       targetAnchorPlacement,
+      targetLocalPoint,
+      sourcePointerOffset,
     }: {
       sourceSelector: string;
       sourceNodeId?: string;
@@ -10495,6 +10575,9 @@ export default function DesignEditor() {
       targetScreenId: string;
       targetAnchorNodeId?: string;
       targetAnchorPlacement?: "before" | "after" | "inside";
+      targetCanvasPoint?: { x: number; y: number };
+      targetLocalPoint?: { x: number; y: number };
+      sourcePointerOffset?: { x: number; y: number };
     }) => {
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
@@ -10556,16 +10639,23 @@ export default function DesignEditor() {
         return;
       }
 
-      // Strip absolute positioning from the moved node in the destination so
-      // it flows naturally as a body child (mirrors handleOverviewPrimitiveReparent).
-      // Use result.movedNodeId (the final id in destHtml, which may differ from
-      // nodeAttrId when a collision triggered an id re-stamp) so the strip and
-      // re-selection always find the correct element.
+      // Hit-test anchors are emitted only for auto-layout insertion targets. If
+      // there is no anchor, preserve absolute mode and rebase left/top to the
+      // release point so screen↔board moves behave like Figma absolute layers.
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
-      const strippedDest = removeAbsolutePositioningFromNodeInHtml(
-        result.destHtml,
-        destNodeAttrId,
-      );
+      const nextDestContent = targetAnchorAttrId
+        ? removeAbsolutePositioningFromNodeInHtml(
+            result.destHtml,
+            destNodeAttrId,
+          )
+        : targetLocalPoint
+          ? setAbsolutePositioningForNodeInHtml(
+              result.destHtml,
+              destNodeAttrId,
+              targetLocalPoint,
+              sourcePointerOffset,
+            )
+          : result.destHtml;
 
       recordContentHistoryEntry({
         changes: [
@@ -10577,7 +10667,7 @@ export default function DesignEditor() {
           {
             fileId: targetScreenId,
             before: destContent,
-            after: strippedDest,
+            after: nextDestContent,
           },
         ],
       });
@@ -10586,7 +10676,7 @@ export default function DesignEditor() {
         recordHistory: false,
         refreshPreview: true,
       });
-      applyFileContentUpdate(targetScreenId, strippedDest, {
+      applyFileContentUpdate(targetScreenId, nextDestContent, {
         recordHistory: false,
         refreshPreview: true,
       });
@@ -10594,7 +10684,7 @@ export default function DesignEditor() {
       // Switch active screen to the target and select the moved node; viewMode
       // stays "overview" (no setViewMode call).
       setActiveFileId(targetScreenId);
-      const finalProjection = buildCodeLayerProjection(strippedDest);
+      const finalProjection = buildCodeLayerProjection(nextDestContent);
       const movedNodeFinal = finalProjection.nodes.find(
         (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
       );
@@ -16116,8 +16206,13 @@ ${serializedHtml}
                   filename={activeFile?.filename}
                   componentNodeId={selectedComponentNodeId}
                   sourceCapabilities={sourceCapabilities}
+                  selectedElementAlreadyComponent={
+                    selectedElementAlreadyComponent
+                  }
                   onCreateComponent={
-                    id && selectedElement ? handleCreateComponent : undefined
+                    id && selectedElement && !selectedElementAlreadyComponent
+                      ? handleCreateComponent
+                      : undefined
                   }
                   defaultComponentName={defaultComponentName}
                   inspectCode={inspectCodeData}

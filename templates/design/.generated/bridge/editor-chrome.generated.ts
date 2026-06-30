@@ -19,13 +19,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       0.05,
       Number(__EDITOR_CHROME_SCALE_Y__) || editorChromeScaleX
     );
-    (function() {
-      var chromeTransitionStyle = document.createElement("style");
+    var chromeTransitionStyle = null;
+    function ensureEditorChromeStyle() {
+      if (chromeTransitionStyle && chromeTransitionStyle.isConnected) return;
+      chromeTransitionStyle = document.createElement("style");
+      chromeTransitionStyle.setAttribute(
+        "data-agent-native-editor-chrome-style",
+        ""
+      );
       chromeTransitionStyle.textContent = '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
-    })();
+    }
+    ensureEditorChromeStyle();
+    function runtimeHeadHtmlWithoutEditorChrome() {
+      if (!document.head) return "";
+      var clone = document.head.cloneNode(true);
+      Array.prototype.slice.call(clone.querySelectorAll("[data-agent-native-editor-chrome-style]")).forEach(function(node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+      return clone.innerHTML;
+    }
     function chromeScaleX() {
       return 1 / Math.max(0.05, editorChromeScaleX);
     }
@@ -677,6 +692,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function hideSelectionOverlay() {
       selectionOverlay.style.display = "none";
+      hideSpacingOverlay();
       hideParentAutoLayoutOverlay();
       clearComponentTag();
     }
@@ -866,7 +882,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCandidates.push(activeSelector);
       }
       var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
-      if (nextHeadHtml === document.head.innerHTML && activeCandidates.length > 0) {
+      ensureEditorChromeStyle();
+      var currentHeadHtml = runtimeHeadHtmlWithoutEditorChrome();
+      if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
         var currentMatch = null;
         var nextMatch = null;
         var matchedSelector = "";
@@ -926,8 +944,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
       }
-      if (document.head.innerHTML !== nextHeadHtml) {
+      if (currentHeadHtml !== nextHeadHtml) {
         document.head.innerHTML = nextHeadHtml;
+        ensureEditorChromeStyle();
       }
       Array.prototype.slice.call(document.body.attributes).forEach(function(attribute) {
         document.body.removeAttribute(attribute.name);
@@ -1279,7 +1298,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       var lineNode = document.createElement("span");
       lineNode.setAttribute("data-agent-native-spacing-line", handle.kind);
+      lineNode.style.position = "absolute";
       lineNode.style.display = "block";
+      lineNode.style.pointerEvents = "none";
+      lineNode.style.borderRadius = "999px";
       lineNode.style.left = handle.line.x + "px";
       lineNode.style.top = handle.line.y + "px";
       lineNode.style.width = Math.max(1, handle.line.width) + "px";
@@ -1290,7 +1312,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       regionNode.setAttribute("data-agent-native-spacing-region", handle.kind);
       regionNode.setAttribute("data-orientation", handle.orientation);
       regionNode.setAttribute("data-spacing-key", handle.key);
+      regionNode.style.position = "absolute";
       regionNode.style.display = "block";
+      regionNode.style.boxSizing = "border-box";
+      regionNode.style.pointerEvents = "auto";
+      regionNode.style.backgroundSize = "6px 6px";
+      regionNode.style.cursor = handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
       regionNode.style.left = handle.region.x + "px";
       regionNode.style.top = handle.region.y + "px";
       regionNode.style.width = handle.region.width + "px";

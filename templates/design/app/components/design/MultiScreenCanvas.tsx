@@ -770,6 +770,12 @@ interface CrossScreenDragElementRect {
   height: number;
 }
 
+function isFinitePoint(value: unknown): value is Point {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Record<string, unknown>;
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
 interface CanvasLayerMarqueeCandidate {
   screenId: string;
   info: ElementInfo;
@@ -1201,6 +1207,7 @@ export function MultiScreenCanvas({
   const crossScreenDragMsgRef = useRef<{
     selector: string;
     sourceId?: string;
+    sourcePointerOffset?: Point;
   } | null>(null);
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
   /** Board-space point from the last cross-screen-drag "move" message. */
@@ -1733,6 +1740,32 @@ export function MultiScreenCanvas({
       });
     };
 
+    const getTargetLocalPoint = (
+      candidate: CrossScreenDragTarget,
+      boardPoint: Point,
+    ): Point | null => {
+      if (candidate.id === boardFileId) return boardPoint;
+      const targetScreen = screensRef.current.find(
+        (s) => s.id === candidate.id,
+      );
+      if (!targetScreen) return null;
+      const targetIframe = surfaceRef.current?.querySelector<HTMLIFrameElement>(
+        `[data-screen-iframe-id="${CSS.escape(candidate.id)}"]`,
+      );
+      const targetViewportWidth =
+        targetIframe?.clientWidth || getResolvedMetadata(targetScreen).width;
+      const targetViewportHeight =
+        targetIframe?.clientHeight || getResolvedMetadata(targetScreen).height;
+      const scaleX =
+        targetViewportWidth / Math.max(1, candidate.geometry.width);
+      const scaleY =
+        targetViewportHeight / Math.max(1, candidate.geometry.height);
+      return {
+        x: (boardPoint.x - candidate.geometry.x) * scaleX,
+        y: (boardPoint.y - candidate.geometry.y) * scaleY,
+      };
+    };
+
     const requestCrossScreenDropGuide = (
       candidate: CrossScreenDragTarget,
       boardPoint: Point,
@@ -1788,27 +1821,57 @@ export function MultiScreenCanvas({
     const finalizeCrossScreenDrop = (
       sourceScreenId: string,
       candidate: CrossScreenDragTarget | null,
-      payload: { selector: string; sourceId?: string },
+      payload: {
+        selector: string;
+        sourceId?: string;
+        sourcePointerOffset?: Point;
+      },
       lastBoardPoint: Point | null,
     ) => {
       clearCrossScreenDrag();
       crossScreenLastBoardPointRef.current = null;
       const hasIdentifier = !!(payload.selector || payload.sourceId);
-      if (!candidate || !hasIdentifier || !sourceScreenId) return;
+      if (!hasIdentifier || !sourceScreenId) return;
       if (!lastBoardPoint) return;
+      const targetCandidate =
+        candidate ??
+        (boardFileId && sourceScreenId !== boardFileId && boardFrameGeometry
+          ? { id: boardFileId, geometry: boardFrameGeometry }
+          : null);
+      if (!targetCandidate) return;
 
-      void runHitTest(candidate, lastBoardPoint).then(
+      if (targetCandidate.id === boardFileId) {
+        onCrossScreenElementDropRef.current?.({
+          sourceSelector: payload.selector,
+          sourceNodeId: payload.sourceId,
+          sourceScreenId,
+          targetScreenId: targetCandidate.id,
+          targetCanvasPoint: lastBoardPoint,
+          targetLocalPoint: lastBoardPoint,
+          sourcePointerOffset: payload.sourcePointerOffset,
+        });
+        return;
+      }
+
+      void runHitTest(targetCandidate, lastBoardPoint).then(
         ({ anchorNodeId, placement }) => {
           const targetAnchorPlacement = isCrossScreenDropPlacement(placement)
             ? placement
             : undefined;
+          const targetLocalPoint = getTargetLocalPoint(
+            targetCandidate,
+            lastBoardPoint,
+          );
           onCrossScreenElementDropRef.current?.({
             sourceSelector: payload.selector,
             sourceNodeId: payload.sourceId,
             sourceScreenId,
-            targetScreenId: candidate.id,
+            targetScreenId: targetCandidate.id,
             targetAnchorNodeId: anchorNodeId,
             targetAnchorPlacement,
+            targetCanvasPoint: lastBoardPoint,
+            targetLocalPoint: targetLocalPoint ?? undefined,
+            sourcePointerOffset: payload.sourcePointerOffset,
           });
         },
       );
@@ -1828,6 +1891,8 @@ export function MultiScreenCanvas({
         iframeY?: number;
         viewportW?: number;
         viewportH?: number;
+        elementRect?: CrossScreenDragElementRect;
+        pointerOffset?: Point;
       };
 
       if (msg.phase === "cancel") {
@@ -1856,6 +1921,9 @@ export function MultiScreenCanvas({
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
+          sourcePointerOffset: isFinitePoint(msg.pointerOffset)
+            ? msg.pointerOffset
+            : undefined,
         };
         stopParentCrossScreenDrag();
         const restorePreviewPointerEvents = mutePreviewIframePointerEvents(
@@ -1878,6 +1946,9 @@ export function MultiScreenCanvas({
           const payload = crossScreenDragMsgRef.current ?? {
             selector: msg.selector ?? "",
             sourceId: msg.sourceId,
+            sourcePointerOffset: isFinitePoint(msg.pointerOffset)
+              ? msg.pointerOffset
+              : undefined,
           };
           const lastBoardPoint = crossScreenLastBoardPointRef.current;
           finalizeCrossScreenDrop(
@@ -1924,6 +1995,9 @@ export function MultiScreenCanvas({
         crossScreenDragMsgRef.current = {
           selector: selector ?? "",
           sourceId,
+          sourcePointerOffset: isFinitePoint(msg.pointerOffset)
+            ? msg.pointerOffset
+            : (crossScreenDragMsgRef.current?.sourcePointerOffset ?? undefined),
         };
 
         const pointerInsideSourceIframe =
@@ -1988,6 +2062,9 @@ export function MultiScreenCanvas({
         const payload = crossScreenDragMsgRef.current ?? {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
+          sourcePointerOffset: isFinitePoint(msg.pointerOffset)
+            ? msg.pointerOffset
+            : undefined,
         };
         const lastBoardPoint = crossScreenLastBoardPointRef.current;
         finalizeCrossScreenDrop(
@@ -4991,30 +5068,6 @@ export function MultiScreenCanvas({
         </div>
       ) : null}
 
-      {/* Cross-screen element drag: highlight the candidate target screen frame.
-          Uses the same style as the primitiveDropTarget overlay (2px accent border
-          + 14% accent fill) so it is visually consistent. */}
-      {crossScreenTarget &&
-      !crossScreenDropGuide &&
-      !crossScreenSourceIsBoard ? (
-        <span
-          data-cross-screen-drop-target
-          className="pointer-events-none absolute z-40 rounded-sm"
-          style={{
-            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
-            left:
-              pan.x + (SURFACE_PADDING + crossScreenTarget.geometry.x) * scale,
-            top:
-              pan.y + (SURFACE_PADDING + crossScreenTarget.geometry.y) * scale,
-            width: Math.max(1, crossScreenTarget.geometry.width * scale),
-            height: Math.max(1, crossScreenTarget.geometry.height * scale),
-            border: "2px solid var(--design-editor-accent-color)",
-            background:
-              "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)",
-          }}
-        />
-      ) : null}
-
       {crossScreenDropGuide ? (
         <span
           data-cross-screen-drop-guide
@@ -5028,7 +5081,9 @@ export function MultiScreenCanvas({
       ) : null}
 
       {/* Cross-screen element drag: small ghost following the board-space cursor. */}
-      {crossScreenGhost && !crossScreenSourceIsBoard ? (
+      {crossScreenGhost &&
+      !crossScreenSourceIsBoard &&
+      !crossScreenDropGuide ? (
         <span
           data-cross-screen-drag-ghost
           className="pointer-events-none absolute z-50 rounded border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/20 shadow"
@@ -7306,17 +7361,21 @@ export function parsePrimitivesFromScreen(
       // Validity: must have non-zero size
       if (width <= 0 || height <= 0) return;
 
-      // Container check:
-      //   - Must be a div (not svg/path/circle/polygon/etc.)
-      //   - Must NOT be an ellipse (border-radius:50%)
-      //   - NOT a text primitive (but text divs could be containers in principle;
-      //     we exclude them by checking for display:inline-block autoSize pattern)
+      // Only explicit auto-layout primitives should accept drops. Plain absolute
+      // rectangles are visual layers, not flow containers; treating every div as a
+      // container made top-level rectangles disappear into each other on drag.
       const isDiv = tag === "div";
       const isEllipse =
         style.borderRadius === "50%" ||
         style.borderRadius === "50% 50% 50% 50%";
       const isTextAutoSize = style.display === "inline-block";
-      const isContainer = isDiv && !isEllipse && !isTextAutoSize;
+      const isAutoLayout =
+        style.display === "flex" ||
+        style.display === "inline-flex" ||
+        style.display === "grid" ||
+        style.display === "inline-grid";
+      const isContainer =
+        isDiv && !isEllipse && !isTextAutoSize && isAutoLayout;
 
       result.push({
         nodeId,

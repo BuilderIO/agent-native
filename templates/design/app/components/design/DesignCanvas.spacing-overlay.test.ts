@@ -41,6 +41,12 @@ describe("DesignCanvas spacing overlay bridge", () => {
 
   it("keeps spacing handles stable while their hit regions are hovered", () => {
     expect(source).toContain("var spacingOverlayRenderKey =");
+    expect(source).toContain("function ensureEditorChromeStyle");
+    expect(source).toContain("function runtimeHeadHtmlWithoutEditorChrome");
+    expect(source).toContain("data-agent-native-editor-chrome-style");
+    expect(source).toContain("ensureEditorChromeStyle();");
+    expect(source).toContain('lineNode.style.position = "absolute"');
+    expect(source).toContain('regionNode.style.position = "absolute"');
     expect(source).toContain("function handleSpacingOverlayPointerMove");
     expect(source).toContain("function scheduleSpacingHoverClear");
     expect(source).toMatch(/regionNode\.addEventListener\(\s*"pointerdown"/);

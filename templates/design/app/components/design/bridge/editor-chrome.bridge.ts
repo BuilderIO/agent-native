@@ -47,8 +47,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // Ease the constant-size selection chrome to its new size when overview zoom
   // settles (parent posts set-editor-chrome-scale), matching the canvas chrome.
   // Only chrome-scale-driven props animate; the overlay's live position is excluded.
-  (function () {
-    var chromeTransitionStyle = document.createElement("style");
+  var chromeTransitionStyle: HTMLStyleElement | null = null;
+
+  function ensureEditorChromeStyle(): void {
+    if (chromeTransitionStyle && chromeTransitionStyle.isConnected) return;
+    chromeTransitionStyle = document.createElement("style");
+    chromeTransitionStyle.setAttribute(
+      "data-agent-native-editor-chrome-style",
+      "",
+    );
     chromeTransitionStyle.textContent =
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
@@ -59,7 +66,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     (document.head || document.documentElement).appendChild(
       chromeTransitionStyle,
     );
-  })();
+  }
+
+  ensureEditorChromeStyle();
+
+  function runtimeHeadHtmlWithoutEditorChrome(): string {
+    if (!document.head) return "";
+    var clone = document.head.cloneNode(true) as HTMLElement;
+    Array.prototype.slice
+      .call(clone.querySelectorAll("[data-agent-native-editor-chrome-style]"))
+      .forEach(function (node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+    return clone.innerHTML;
+  }
 
   function chromeScaleX(): number {
     return 1 / Math.max(0.05, editorChromeScaleX);
@@ -916,6 +936,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
   function hideSelectionOverlay(): void {
     selectionOverlay.style.display = "none";
+    hideSpacingOverlay();
     hideParentAutoLayoutOverlay();
     clearComponentTag();
   }
@@ -1194,10 +1215,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
 
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
-    if (
-      nextHeadHtml === document.head.innerHTML &&
-      activeCandidates.length > 0
-    ) {
+    ensureEditorChromeStyle();
+    var currentHeadHtml = runtimeHeadHtmlWithoutEditorChrome();
+    if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
       var currentMatch = null;
       var nextMatch = null;
       var matchedSelector = "";
@@ -1273,8 +1293,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         return;
       }
     }
-    if (document.head.innerHTML !== nextHeadHtml) {
+    if (currentHeadHtml !== nextHeadHtml) {
       document.head.innerHTML = nextHeadHtml;
+      ensureEditorChromeStyle();
     }
     Array.prototype.slice.call(document.body.attributes).forEach(function (
       attribute: Attr,
@@ -1749,7 +1770,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
     var lineNode = document.createElement("span");
     lineNode.setAttribute("data-agent-native-spacing-line", handle.kind);
+    lineNode.style.position = "absolute";
     lineNode.style.display = "block";
+    lineNode.style.pointerEvents = "none";
+    lineNode.style.borderRadius = "999px";
     lineNode.style.left = handle.line.x + "px";
     lineNode.style.top = handle.line.y + "px";
     lineNode.style.width = Math.max(1, handle.line.width) + "px";
@@ -1761,7 +1785,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     regionNode.setAttribute("data-agent-native-spacing-region", handle.kind);
     regionNode.setAttribute("data-orientation", handle.orientation);
     regionNode.setAttribute("data-spacing-key", handle.key);
+    regionNode.style.position = "absolute";
     regionNode.style.display = "block";
+    regionNode.style.boxSizing = "border-box";
+    regionNode.style.pointerEvents = "auto";
+    regionNode.style.backgroundSize = "6px 6px";
+    regionNode.style.cursor =
+      handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
     regionNode.style.left = handle.region.x + "px";
     regionNode.style.top = handle.region.y + "px";
     regionNode.style.width = handle.region.width + "px";

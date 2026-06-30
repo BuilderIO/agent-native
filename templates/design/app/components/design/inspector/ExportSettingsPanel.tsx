@@ -333,7 +333,7 @@ function ExportRow({
             }
           }}
           className={cn(
-            "h-6 w-14 shrink-0 px-1.5 text-[11px] tabular-nums",
+            "h-6 w-14 shrink-0 px-1.5 text-[11px] tabular-nums md:!text-[11px]",
             controlChromeClass,
           )}
           aria-label="Scale"
@@ -393,7 +393,7 @@ function ExportRow({
         onChange={(e) => onPatchRow(row.id, { suffix: e.target.value })}
         placeholder={labels.suffix}
         className={cn(
-          "h-6 min-w-0 flex-1 px-1.5 text-[11px]",
+          "h-6 min-w-0 flex-1 px-1.5 text-[11px] md:!text-[11px]",
           controlChromeClass,
         )}
         aria-label={labels.suffix}

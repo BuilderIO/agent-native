@@ -347,7 +347,7 @@ export function ImageFillControls({
           placeholder={"Image URL" /* i18n-ignore */}
           aria-label={"Image URL" /* i18n-ignore */}
           spellCheck={false}
-          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px]"
+          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] md:!text-[11px]"
           onChange={(event) => {
             urlDraftRef.current = event.target.value;
             setUrlDraft(event.target.value);

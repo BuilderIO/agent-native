@@ -283,6 +283,8 @@ interface EditPanelProps {
    * omitted the "Create component" button is disabled.
    */
   onCreateComponent?: (name: string) => void;
+  /** True when the selected element is already represented as a component. */
+  selectedElementAlreadyComponent?: boolean;
   /** Suggested default name for the create-component dialog. */
   defaultComponentName?: string;
   /** Code-inspection data for the "Inspect code" popover. */
@@ -432,7 +434,7 @@ function PropInput({
           }
         }}
         placeholder={placeholder}
-        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
       />
     </div>
   );
@@ -1729,11 +1731,23 @@ function normalizedElementTagName(tagName: string | null | undefined): string {
 }
 
 function inspectorObjectTitle(element: ElementInfo): string {
-  const componentName = element.componentName?.trim();
+  const componentName = componentNameForElementInfo(element);
   if (componentName) return componentName;
   const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return "Text";
   return tag;
+}
+
+function componentNameForElementInfo(
+  element: ElementInfo | null | undefined,
+): string {
+  return element?.componentName?.trim() ?? "";
+}
+
+function elementIsComponentSelection(
+  element: ElementInfo | null | undefined,
+): boolean {
+  return componentNameForElementInfo(element).length > 0;
 }
 
 function displayLabel(value: string | undefined): string {
@@ -2858,7 +2872,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
 }
 
 function elementTypeIcon(element: ElementInfo) {
-  if (element.componentName?.trim()) return IconComponents;
+  if (elementIsComponentSelection(element)) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return IconTypography;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
@@ -2873,6 +2887,7 @@ function SelectionHeader({
   onCreateComponent,
   createComponentOpen = false,
   onCreateComponentOpenChange,
+  showCreateComponentAction = true,
   defaultComponentName = "Component",
   inspectCode,
 }: {
@@ -2882,6 +2897,7 @@ function SelectionHeader({
   onCreateComponent?: (name: string) => void;
   createComponentOpen?: boolean;
   onCreateComponentOpenChange?: (open: boolean) => void;
+  showCreateComponentAction?: boolean;
   defaultComponentName?: string;
   /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
   inspectCode?: InspectCodeData;
@@ -2893,7 +2909,7 @@ function SelectionHeader({
       ? `${selectedCount} selected`
       : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
-  const isComponentSelection = Boolean(element.componentName?.trim());
+  const isComponentSelection = elementIsComponentSelection(element);
 
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
@@ -2912,21 +2928,25 @@ function SelectionHeader({
       </div>
       {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
       <div className="flex shrink-0 items-center gap-0.5">
-        {onCreateComponent && onCreateComponentOpenChange ? (
-          <CreateComponentPopover
-            open={createComponentOpen}
-            onOpenChange={onCreateComponentOpenChange}
-            defaultName={defaultComponentName}
-            onSubmit={onCreateComponent}
-          />
-        ) : (
-          <SectionIconButton
-            label={"Create component" /* i18n-ignore design inspector action */}
-            disabled
-          >
-            <IconComponents className="size-3.5" />
-          </SectionIconButton>
-        )}
+        {showCreateComponentAction ? (
+          onCreateComponent && onCreateComponentOpenChange ? (
+            <CreateComponentPopover
+              open={createComponentOpen}
+              onOpenChange={onCreateComponentOpenChange}
+              defaultName={defaultComponentName}
+              onSubmit={onCreateComponent}
+            />
+          ) : (
+            <SectionIconButton
+              label={
+                "Create component" /* i18n-ignore design inspector action */
+              }
+              disabled
+            >
+              <IconComponents className="size-3.5" />
+            </SectionIconButton>
+          )
+        ) : null}
         {inspectCode ? (
           <InspectCodePopover data={inspectCode} />
         ) : (
@@ -6795,7 +6815,7 @@ export function ComponentSection({
                           e.currentTarget.blur();
                         }
                       }}
-                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
                     />
                   )}
                 </div>
@@ -6844,6 +6864,7 @@ export function EditPanel({
   componentNodeId,
   sourceCapabilities = [],
   onCreateComponent,
+  selectedElementAlreadyComponent = false,
   defaultComponentName = "Component",
   inspectCode,
 }: EditPanelProps) {
@@ -6871,8 +6892,15 @@ export function EditPanel({
     [effectiveSelectedElements],
   );
   const selectedCount = effectiveSelectedElements.length;
+  const selectionAlreadyComponent =
+    selectedCount === 1 &&
+    (selectedElementAlreadyComponent ||
+      elementIsComponentSelection(selectedElement));
   const canCreateComponent = Boolean(
-    onCreateComponent && selectedElement && selectedCount <= 1,
+    onCreateComponent &&
+    selectedElement &&
+    selectedCount <= 1 &&
+    !selectionAlreadyComponent,
   );
   const selectedElementKey = inspectorElement
     ? `${selectedCount}:${elementIdentityKey(inspectorElement)}`
@@ -6943,6 +6971,7 @@ export function EditPanel({
             }
             createComponentOpen={createComponentOpen}
             onCreateComponentOpenChange={setCreateComponentOpen}
+            showCreateComponentAction={!selectionAlreadyComponent}
             defaultComponentName={defaultComponentName}
             inspectCode={
               inspectCode && selectedElement && selectedCount <= 1
