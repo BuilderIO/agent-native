@@ -48,6 +48,31 @@ describe("withToolActivity", () => {
     expect(send).toHaveBeenCalledTimes(3);
   });
 
+  it("tags activity with the dispatched tool (actionName) when no tool is given", async () => {
+    // Regression: generate-image runs as a sub-step of generate-image-batch /
+    // rerun-generation-run, which forward their own context. With no explicit
+    // `tool`, the heartbeat must be tagged with the PARENT's actionName so it
+    // matches the real tool_start card instead of spawning an orphan
+    // "generate-image" activity card on the client.
+    const send = vi.fn();
+
+    await withToolActivity(
+      {
+        caller: "tool",
+        actionName: "generate-image-batch",
+        send,
+      },
+      { label: "Generating image." },
+      () => Promise.resolve("done"),
+    );
+
+    expect(send).toHaveBeenCalledWith({
+      type: "activity",
+      label: "Generating image.",
+      tool: "generate-image-batch",
+    });
+  });
+
   it("does not emit activity for frontend calls", async () => {
     const send = vi.fn();
 

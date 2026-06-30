@@ -435,7 +435,12 @@ export default defineAction({
         {
           label: "Generating image.",
           ongoingLabel: "Still generating image.",
-          tool: "generate-image",
+          // Intentionally no explicit `tool`: withToolActivity falls back to
+          // context.actionName, which is the ACTUAL dispatched tool. When this
+          // action is invoked directly that is "generate-image"; when it runs as
+          // a sub-step of generate-image-batch / rerun-generation-run it is the
+          // parent tool, so the activity event matches the real tool_start card
+          // instead of spawning an orphan "generate-image" activity card.
         },
         () =>
           generateWithManagedImageProvider({
@@ -508,7 +513,9 @@ export default defineAction({
         {
           label: "Saving generated image.",
           ongoingLabel: "Still saving generated image.",
-          tool: "generate-image",
+          // See above: omit `tool` so the activity is tagged with the real
+          // dispatched tool (context.actionName) rather than a hardcoded
+          // "generate-image" that orphans under batch/rerun.
         },
         () =>
           createAssetFromBuffer({
