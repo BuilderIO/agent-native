@@ -48,6 +48,7 @@ describe("code-layer projection", () => {
     expect(hero?.capabilities.map((capability) => capability.kind)).toEqual([
       "style",
       "class",
+      "responsive-class",
       "text",
     ]);
   });
@@ -110,6 +111,67 @@ describe("code-layer projection", () => {
     expect(section?.layerNameAttribute).toBe("data-agent-native-layer-name");
     expect(button?.layerName).toBe("Primary CTA");
     expect(button?.layerNameSource).toBe("semantic");
+  });
+
+  it("marks component instance nodes with componentInstance metadata", () => {
+    const html = `
+      <section class="flex gap-4">
+        <div
+          data-agent-native-component="HeroCard"
+          data-agent-native-prop-variant="primary"
+          data-agent-native-prop-size="lg"
+          data-agent-native-node-id="hero-card-1"
+          x-data="{ open: false }"
+        >Card content</div>
+        <div class="plain">No component</div>
+      </section>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const cardNode = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-component"] === "HeroCard",
+    );
+    const plainNode = projection.nodes.find((node) =>
+      node.classes.includes("plain"),
+    );
+
+    expect(cardNode).toBeTruthy();
+    expect(cardNode?.componentInstance).toBeDefined();
+    expect(cardNode?.componentInstance?.name).toBe("HeroCard");
+    expect(cardNode?.componentInstance?.nodeId).toBe(cardNode?.id);
+    expect(cardNode?.componentInstance?.selector).toBe(cardNode?.selector);
+    expect(cardNode?.componentInstance?.alpineData).toBe("{ open: false }");
+    expect(cardNode?.componentInstance?.props).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "variant", value: "primary" }),
+        expect.objectContaining({ name: "size", value: "lg" }),
+      ]),
+    );
+
+    // Plain nodes must not have componentInstance.
+    expect(plainNode?.componentInstance).toBeUndefined();
+  });
+
+  it("classifies component-annotated nodes as 'component' in the layer tree", () => {
+    const html = `
+      <main>
+        <div data-agent-native-component="NavBar">Nav</div>
+        <div class="content">Content</div>
+      </main>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const mainNode = tree[0];
+    expect(mainNode).toBeTruthy();
+    const navBar = mainNode?.children.find(
+      (child) => child.name === "Frame" || child.type === "component",
+    );
+    // The NavBar-annotated div must be classified as "component".
+    const componentChild = mainNode?.children.find(
+      (child) => child.type === "component",
+    );
+    expect(componentChild).toBeTruthy();
   });
 
   it("builds a design-editor DOM layer tree from projection parentage", () => {

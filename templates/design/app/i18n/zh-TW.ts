@@ -239,6 +239,18 @@ const messages = {
     },
   },
   designEditor: {
+    askAgent: "詢問代理",
+    tokens: {
+      title: "權杖",
+      newToken: "新增權杖",
+      cssVar: "CSS 變數",
+      value: "值",
+      add: "新增權杖",
+      refresh: "重新整理權杖",
+      empty: "尚無權杖",
+      emptyHint: "新增設計權杖以重複使用顏色、間距等。",
+      applying: "套用中…",
+    },
     generationMayHaveStopped:
       "生成可能在建立檔案前停止。請檢視代理訊息或重試。",
     generationMayHaveStoppedToast: "生成可能在建立檔案前停止。",
@@ -383,6 +395,8 @@ const messages = {
       "agent-structural-edit": "結構移動需要代理",
     },
     toasts: {
+      componentCreated: "元件已建立",
+      componentCreateFailed: "無法建立元件",
       codingHandoffError: "無法建立編碼交接",
       codingHandoffCopied: "編碼交接已複製",
       clipboardBlocked: "剪貼簿被阻止",

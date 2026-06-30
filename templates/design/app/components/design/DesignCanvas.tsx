@@ -16,6 +16,249 @@ import { DeviceFrame } from "./DeviceFrame";
 import type { ElementInfo, DeviceFrameType } from "./types";
 
 /**
+ * Allowlist check for Fusion (Builder-hosted) frame origins.
+ *
+ * Fusion frames are served cross-origin from the Builder-hosted app, so the
+ * strict `origin === parentOrigin` bridge check can never match. Before relaxing
+ * trust to window-identity only, we must confirm the message origin is actually
+ * a Builder host — the exact origin of the `fusionUrl` we were asked to render,
+ * or any `*.builder.io` host (plus the bare `builder.io`), over https. This
+ * prevents the relaxed-trust path from accepting messages from an arbitrary
+ * cross-origin frame that merely shares our iframe's window reference.
+ */
+function isAllowedFusionOrigin(
+  origin: string,
+  fusionUrl: string | undefined,
+): boolean {
+  if (!origin || origin === "null") return false;
+  let host: string;
+  let protocol: string;
+  try {
+    const parsed = new URL(origin);
+    host = parsed.hostname.toLowerCase();
+    protocol = parsed.protocol;
+  } catch {
+    return false;
+  }
+  // Only allow secure (https) Builder origins.
+  if (protocol !== "https:") return false;
+  // Exact match against the configured fusion URL's origin.
+  if (fusionUrl) {
+    try {
+      if (new URL(fusionUrl).origin === origin) return true;
+    } catch {
+      // Malformed fusionUrl — fall through to the host-family allowlist.
+    }
+  }
+  // Builder host family: builder.io and any subdomain of it.
+  return host === "builder.io" || host.endsWith(".builder.io");
+}
+
+/**
+ * Wire shape for a single motion track sent via the `motion-load-tracks`
+ * postMessage. Matches the serialisable subset of `MotionTrack` from
+ * `shared/motion-timeline.ts` without requiring an import at the UI layer.
+ */
+export interface MotionTrackWire {
+  targetNodeId: string;
+  property: string;
+  keyframes: Array<{ t: number; value: string; ease?: string }>;
+}
+
+/**
+ * Motion-preview bridge. Injected alongside the other bridge scripts so the
+ * MotionDock's scrubbing preview works in ALL editor modes without writing
+ * anything to the DB, Yjs state, or source files.
+ *
+ * Protocol (parent → iframe):
+ *
+ *   { type: 'motion-load-tracks', tracks: MotionTrackWire[] }
+ *     Load (or replace) the track list for this document. Each entry:
+ *     { targetNodeId, property, keyframes: [{ t, value, ease? }] }
+ *     where t ∈ [0, 1].  Sent whenever the active timeline changes.
+ *
+ *   { type: 'motion-preview', t, durationMs }
+ *     Seek all loaded tracks to normalised position t ∈ [0, 1] and apply
+ *     the interpolated CSS property values as inline styles on the matching
+ *     [data-agent-native-node-id="…"] elements.  Never writes to storage.
+ *
+ *   { type: 'motion-preview-clear' }
+ *     Remove all motion-preview inline-style overrides and the in-memory
+ *     track list.  Called when the dock is closed or the timeline is
+ *     discarded.
+ *
+ * Easing is deliberately simple: linear interpolation between keyframe
+ * values (CSS handles easing when the compiled CSS is actually applied;
+ * preview is a live visualisation, not a perfect recreation of the final
+ * animation).
+ */
+const MOTION_PREVIEW_BRIDGE_SCRIPT = `
+<script data-agent-native-motion-preview-bridge>
+(function() {
+  // Track list loaded by 'motion-load-tracks'.
+  var loadedTracks = [];
+  // Map of nodeId -> [property, ...] we have touched, for cleanup.
+  var touchedProps = {};
+
+  function lerp(a, b, ratio) {
+    var numA = parseFloat(a);
+    var numB = parseFloat(b);
+    if (Number.isFinite(numA) && Number.isFinite(numB)) {
+      var suffix = a.replace(/^-?[\\d.]+/, '') || b.replace(/^-?[\\d.]+/, '');
+      return (numA + (numB - numA) * ratio).toFixed(4).replace(/\\.?0+$/, '') + suffix;
+    }
+    // Non-numeric: snap to b after the midpoint.
+    return ratio < 0.5 ? a : b;
+  }
+
+  function interpolate(keyframes, t) {
+    if (!keyframes || keyframes.length === 0) return '';
+    if (keyframes.length === 1) return keyframes[0].value;
+    // Find surrounding keyframes.
+    var prev = keyframes[0];
+    var next = keyframes[keyframes.length - 1];
+    for (var i = 0; i < keyframes.length - 1; i++) {
+      if (t >= keyframes[i].t && t <= keyframes[i + 1].t) {
+        prev = keyframes[i];
+        next = keyframes[i + 1];
+        break;
+      }
+    }
+    var span = next.t - prev.t;
+    if (span <= 0) return prev.value;
+    var ratio = Math.max(0, Math.min(1, (t - prev.t) / span));
+    return lerp(prev.value, next.value, ratio);
+  }
+
+  function applyPreview(t) {
+    for (var i = 0; i < loadedTracks.length; i++) {
+      var track = loadedTracks[i];
+      var el = document.querySelector('[data-agent-native-node-id="' + track.targetNodeId + '"]');
+      if (!el) continue;
+      var value = interpolate(track.keyframes, t);
+      if (value === '') continue;
+      el.style[track.property] = value;
+      if (!touchedProps[track.targetNodeId]) touchedProps[track.targetNodeId] = [];
+      if (touchedProps[track.targetNodeId].indexOf(track.property) === -1) {
+        touchedProps[track.targetNodeId].push(track.property);
+      }
+    }
+  }
+
+  function clearPreview() {
+    var nodeIds = Object.keys(touchedProps);
+    for (var i = 0; i < nodeIds.length; i++) {
+      var el = document.querySelector('[data-agent-native-node-id="' + nodeIds[i] + '"]');
+      if (!el) continue;
+      var props = touchedProps[nodeIds[i]];
+      for (var j = 0; j < props.length; j++) {
+        el.style[props[j]] = '';
+      }
+    }
+    touchedProps = {};
+    loadedTracks = [];
+  }
+
+  window.addEventListener('message', function(e) {
+    if (e.source !== window.parent) return;
+    if (!e.data || typeof e.data.type !== 'string') return;
+    if (e.data.type === 'motion-load-tracks') {
+      loadedTracks = Array.isArray(e.data.tracks) ? e.data.tracks : [];
+      touchedProps = {};
+      return;
+    }
+    if (e.data.type === 'motion-preview') {
+      var t = Number(e.data.t);
+      if (!Number.isFinite(t)) return;
+      t = Math.max(0, Math.min(1, t));
+      applyPreview(t);
+      return;
+    }
+    if (e.data.type === 'motion-preview-clear') {
+      clearPreview();
+      return;
+    }
+  });
+})();
+</script>
+`;
+
+/**
+ * Shader-fill preview bridge.  ALWAYS injected alongside the other bridge
+ * scripts so the parent can apply a CSS gradient approximation of a shader
+ * fill to the currently-selected element **without** persisting anything.
+ *
+ * Protocol (parent → iframe):
+ *
+ *   { type: 'shader-fill-preview', selector, nodeId, css }
+ *     Apply `css` as the `background` inline style on the first element that
+ *     matches `selector` (preferred) or `[data-agent-native-node-id="nodeId"]`.
+ *     When both are absent, targets `document.body`.  Stores the previous
+ *     background value so it can be restored on clear.
+ *     Preview-only — never writes to DB, Yjs, or source files.
+ *
+ *   { type: 'shader-fill-preview-clear' }
+ *     Remove the applied background override and restore the previous value.
+ *     Called when the user discards the preview or switches selections.
+ */
+const SHADER_FILL_PREVIEW_BRIDGE_SCRIPT = `
+<script data-agent-native-shader-fill-preview-bridge>
+(function() {
+  // Track the element we patched and its original background so we can undo.
+  var patchedEl = null;
+  var originalBackground = '';
+
+  function resolveTarget(selector, nodeId) {
+    if (selector) {
+      try {
+        var hit = document.querySelector(selector);
+        if (hit) return hit;
+      } catch (_err) {}
+    }
+    if (nodeId) {
+      var byId = document.querySelector('[data-agent-native-node-id="' + nodeId.replace(/"/g, '\\\\"') + '"]');
+      if (byId) return byId;
+    }
+    return document.body;
+  }
+
+  function applyPreview(selector, nodeId, css) {
+    // Clear any prior patch first so we don't stack patches.
+    clearPreview();
+    var el = resolveTarget(selector, nodeId);
+    if (!el) return;
+    originalBackground = el.style.background || '';
+    el.style.background = css || '';
+    patchedEl = el;
+  }
+
+  function clearPreview() {
+    if (!patchedEl) return;
+    patchedEl.style.background = originalBackground;
+    patchedEl = null;
+    originalBackground = '';
+  }
+
+  window.addEventListener('message', function(e) {
+    if (e.source !== window.parent) return;
+    if (!e.data || typeof e.data.type !== 'string') return;
+    if (e.data.type === 'shader-fill-preview') {
+      var selector = typeof e.data.selector === 'string' ? e.data.selector : '';
+      var nodeId = typeof e.data.nodeId === 'string' ? e.data.nodeId : '';
+      var css = typeof e.data.css === 'string' ? e.data.css : '';
+      applyPreview(selector, nodeId, css);
+      return;
+    }
+    if (e.data.type === 'shader-fill-preview-clear') {
+      clearPreview();
+      return;
+    }
+  });
+})();
+</script>
+`;
+
+/**
  * Tweak-bridge script. ALWAYS injected so the parent's postMessage
  * (`tweak-values`) can update CSS custom properties on the iframe's :root
  * regardless of which editor mode is active. Without this the tweak panel
@@ -700,6 +943,89 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   measurementOverlay.style.cssText = 'position:fixed;inset:0;z-index:100001;display:none;pointer-events:none;color:var(--design-editor-measure-color);font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;';
   document.body.appendChild(measurementOverlay);
 
+  // Component-instance tag: a small pill that floats above the selection
+  // outline whenever the selected element carries a data-agent-native-component
+  // attribute.  Clicking it sends a 'component-source-jump' message to the
+  // parent so the editor can invoke open-component-source.
+  var componentTagOverlay = document.createElement('div');
+  componentTagOverlay.setAttribute('data-agent-native-edit-overlay', 'component-tag');
+  componentTagOverlay.style.cssText = [
+    'position:fixed',
+    'z-index:100002',
+    'display:none',
+    'pointer-events:auto',
+    'cursor:pointer',
+    'padding:2px 6px',
+    'border-radius:4px',
+    'font:11px/1.6 ui-sans-serif,system-ui,sans-serif',
+    'white-space:nowrap',
+    'user-select:none',
+    '-webkit-user-select:none',
+    'background:var(--design-editor-accent-color)',
+    'color:var(--design-editor-accent-contrast-color)',
+    'box-shadow:0 1px 4px color-mix(in srgb,var(--design-editor-accent-color) 40%,transparent)',
+    'border:1px solid color-mix(in srgb,var(--design-editor-accent-strong-color) 60%,transparent)',
+    'outline:2px solid transparent',
+    'transition:opacity 0.1s',
+  ].join(';') + ';';
+  document.body.appendChild(componentTagOverlay);
+
+  componentTagOverlay.addEventListener('click', function(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    var nodeId = componentTagOverlay.getAttribute('data-component-node-id') || '';
+    var componentName = componentTagOverlay.getAttribute('data-component-name') || '';
+    if (!nodeId || !componentName) return;
+    try {
+      window.parent.postMessage({
+        type: 'component-source-jump',
+        nodeId: nodeId,
+        componentName: componentName,
+      }, '*');
+    } catch (_err) {}
+  });
+
+  function updateComponentTag(el) {
+    if (!el) {
+      clearComponentTag();
+      return;
+    }
+    var compName = el.getAttribute && el.getAttribute('data-agent-native-component');
+    if (!compName) {
+      clearComponentTag();
+      return;
+    }
+    var nodeId = (
+      el.getAttribute('data-agent-native-node-id') ||
+      el.getAttribute('data-code-layer-id') ||
+      el.getAttribute('data-layer-id') ||
+      el.id ||
+      ''
+    );
+    componentTagOverlay.textContent = compName + ' →';
+    componentTagOverlay.setAttribute('data-component-node-id', nodeId);
+    componentTagOverlay.setAttribute('data-component-name', compName);
+
+    var rect = el.getBoundingClientRect();
+    var tagHeight = 22;
+    var tagTop = rect.top - tagHeight - 4;
+    if (tagTop < 4) tagTop = rect.top + 4;
+    componentTagOverlay.style.display = 'block';
+    componentTagOverlay.style.left = rect.left + 'px';
+    componentTagOverlay.style.top = tagTop + 'px';
+    // Accent outline on the selection overlay to distinguish component roots.
+    selectionOverlay.style.outline = '2px solid var(--design-editor-accent-strong-color)';
+    selectionOverlay.style.outlineOffset = '2px';
+  }
+
+  function clearComponentTag() {
+    componentTagOverlay.style.display = 'none';
+    componentTagOverlay.removeAttribute('data-component-node-id');
+    componentTagOverlay.removeAttribute('data-component-name');
+    selectionOverlay.style.outline = '';
+    selectionOverlay.style.outlineOffset = '';
+  }
+
 	  var selectedEl = null;
 	  var hoveredEl = null;
 	  var activeTextEditEl = null;
@@ -726,6 +1052,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     highlightOverlay.style.display = 'none';
     hideSpacingOverlay();
     hideMeasurements();
+    clearComponentTag();
   }
 
   function matchesSelectorList(el, selectors) {
@@ -1312,6 +1639,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   function positionOverlay(overlay, el) {
     if (!el || !document.documentElement.contains(el)) {
       overlay.style.display = 'none';
+      if (overlay === selectionOverlay) clearComponentTag();
       return;
     }
     // For the selection overlay, prefer the CSS box + rotation transform so
@@ -1336,6 +1664,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         overlay.style.transform = 'rotate(' + elRot + 'deg)';
         overlay.style.transformOrigin = '0 0';
         updateSpacingOverlay(el);
+        updateComponentTag(el);
         return;
       }
     }
@@ -1346,7 +1675,10 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     overlay.style.width = rect.width + 'px';
     overlay.style.height = rect.height + 'px';
     overlay.style.transform = '';
-    if (overlay === selectionOverlay) updateSpacingOverlay(el);
+    if (overlay === selectionOverlay) {
+      updateSpacingOverlay(el);
+      updateComponentTag(el);
+    }
   }
 
   function refreshOverlays() {
@@ -2861,6 +3193,41 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
+  /**
+   * The runtime source tier for this canvas.
+   *
+   * - `"inline"` (default) — HTML/Alpine `srcdoc` iframe; same-origin null
+   *   origin; all bridge scripts injected by DesignCanvas.
+   * - `"localhost"` — `src=devServerUrl`; dev server is same-origin in most
+   *   setups; bridge trust: origin must match parent or be "null".
+   * - `"fusion"` — `src=builderHostedUrl`; cross-origin Builder-hosted app;
+   *   bridge trust is relaxed to window-identity only (no origin check) so
+   *   the Builder-hosted iframe can communicate with the editor.  The sandbox
+   *   grants `allow-same-origin` so the Builder app can reach its own resources.
+   *
+   * When omitted, DesignCanvas infers the tier from the content value:
+   * a value that passes `getExternalPreviewUrl` is treated as `"localhost"`;
+   * otherwise `"inline"`.  Pass `sourceType="fusion"` explicitly when the
+   * content URL is a Builder-hosted (cross-origin) app so the bridge security
+   * model uses window-identity trust instead of same-origin trust.
+   */
+  sourceType?: "inline" | "localhost" | "fusion";
+  /**
+   * Explicit Builder-hosted app URL for fusion source rendering.
+   *
+   * When `sourceType === "fusion"` and this prop is provided, the iframe uses
+   * this URL as `src` regardless of what `content` contains.  This lets the
+   * caller hold the original inline HTML in `content` (for collab/history
+   * purposes) while pointing the canvas at the migrated Builder-hosted app.
+   *
+   * When absent and `sourceType === "fusion"`, the component falls back to
+   * the existing external-URL detection on `content` (i.e. if `content` is
+   * itself a URL it is used as-is, which is the pattern when the branch URL
+   * has been written into the design file content).
+   *
+   * For `"inline"` and `"localhost"` sources this prop is ignored.
+   */
+  fusionUrl?: string;
   zoom: number;
   onZoomChange?: (zoom: number) => void;
   deviceFrame: DeviceFrameType;
@@ -2953,6 +3320,55 @@ interface DesignCanvasProps {
    * opened in a new tab by the iframe itself and never reach this callback.
    */
   onPrototypeNavigate?: (screen: string, href: string) => void;
+  /**
+   * Motion tracks to load into the iframe's motion-preview bridge.  Sent via
+   * `motion-load-tracks` whenever this prop changes.  When cleared
+   * (`undefined` or `[]`) a `motion-preview-clear` message is sent to remove
+   * any applied preview overrides.
+   *
+   * The MotionDock sends scrub ticks as `{ type: 'motion-preview', t,
+   * durationMs }` directly from its `canvasIframeRef`.  DesignCanvas only
+   * needs the tracks so the bridge can interpolate values at each tick.
+   */
+  motionTracks?: MotionTrackWire[];
+  /**
+   * Explicit iframe width in pixels.  When provided it overrides the width
+   * derived from `deviceFrame`, enabling per-breakpoint preview (e.g. Mobile
+   * 390 / Tablet 768 / Desktop 1280 side-by-side frames in the overview).
+   * The height still comes from `deviceFrame`; `deviceFrame="none"` keeps
+   * 100% height.
+   */
+  previewWidthPx?: number;
+  /**
+   * Shader-fill CSS preview to apply to a selected element inside the iframe.
+   *
+   * When set, the canvas sends a `shader-fill-preview` bridge message that
+   * applies the CSS `background` value on the target element **without
+   * persisting anything**.  When cleared (`null` / `undefined`) a
+   * `shader-fill-preview-clear` message is sent to restore the original
+   * background.
+   *
+   * Preview-only — never writes to DB, Yjs, or source.  Part of the §6.7
+   * shader-fill PREVIEW path; the apply path remains gated until runtime
+   * rendering + source-write + diff proof are all in place.
+   */
+  shaderFillPreview?: {
+    /** CSS selector for the target element (preferred over nodeId). */
+    selector?: string;
+    /** data-agent-native-node-id value for the target element. */
+    nodeId?: string;
+    /** The CSS `background` value returned by preview-shader-fill. */
+    css: string;
+  } | null;
+  /**
+   * Called when the user clicks the component-instance source tag (the
+   * "ComponentName →" pill that floats above a selected component root).
+   * The parent should invoke `open-component-source` with these params.
+   */
+  onComponentSourceJump?: (params: {
+    nodeId: string;
+    componentName: string;
+  }) => void;
 }
 
 function getExternalPreviewUrl(content: string): string | null {
@@ -2988,6 +3404,8 @@ export interface IframeContextMenuPayload {
 export function DesignCanvas({
   content,
   contentKey,
+  sourceType,
+  fusionUrl,
   zoom,
   onZoomChange,
   deviceFrame,
@@ -3027,6 +3445,10 @@ export function DesignCanvas({
   commentContextId,
   commentContextLabel,
   onPrototypeNavigate,
+  motionTracks,
+  previewWidthPx,
+  onComponentSourceJump,
+  shaderFillPreview,
 }: DesignCanvasProps) {
   const t = useT();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -3037,10 +3459,25 @@ export function DesignCanvas({
   const [annotationPins, setAnnotationPins] = useState<CanvasPin[]>([]);
   const [pinSubmitSignal, setPinSubmitSignal] = useState(0);
   const isEmbeddedFrame = Boolean(embeddedFrame);
-  const externalPreviewUrl = useMemo(
-    () => getExternalPreviewUrl(renderedContent),
-    [renderedContent],
-  );
+  // Resolve the URL to render in the iframe:
+  // 1. When sourceType === "fusion" and fusionUrl is set, prefer the explicit
+  //    Builder-hosted URL over whatever is in `content` (which may still be the
+  //    original inline HTML).
+  // 2. Otherwise fall back to the content-based URL detection (handles the case
+  //    where the branch URL has been written into the design file content, or
+  //    where the localhost URL is the file content).
+  const externalPreviewUrl = useMemo(() => {
+    if (sourceType === "fusion" && fusionUrl) {
+      try {
+        const url = new URL(fusionUrl);
+        url.hash = "";
+        return url.toString();
+      } catch {
+        // fall through to content detection below
+      }
+    }
+    return getExternalPreviewUrl(renderedContent);
+  }, [fusionUrl, renderedContent, sourceType]);
   zoomRef.current = zoom;
 
   const queuedAnnotationPins = useMemo(
@@ -3093,6 +3530,8 @@ export function DesignCanvas({
       isEmbeddedFrame ? "true" : "false",
     );
     const bridgeToInject =
+      MOTION_PREVIEW_BRIDGE_SCRIPT +
+      SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
       TWEAK_BRIDGE_SCRIPT +
       ZOOM_BRIDGE_SCRIPT +
       NAV_BRIDGE_SCRIPT +
@@ -3123,14 +3562,27 @@ export function DesignCanvas({
   // Listen for messages from the iframe
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
-      if (
-        !isTrustedCanvasBridgeMessage({
-          source: e.source,
-          origin: e.origin,
-          iframeWindow: iframeRef.current?.contentWindow,
-          parentOrigin: window.location.origin,
-        })
-      ) {
+      const iframeWindow = iframeRef.current?.contentWindow;
+      // For fusion sources the Builder-hosted app is cross-origin, so the strict
+      // `origin === parentOrigin` check can never match. We still require window
+      // identity (the message must come from our own iframe window, not any
+      // arbitrary cross-origin frame), AND we validate the message origin
+      // against a Builder-host allowlist (the configured fusionUrl origin or the
+      // *.builder.io family) before relaxing the origin check. If the origin is
+      // not on the allowlist we keep the strict check so a hostile frame that
+      // somehow shares our window reference still can't be trusted.
+      const trusted =
+        sourceType === "fusion"
+          ? iframeWindow != null &&
+            e.source === iframeWindow &&
+            isAllowedFusionOrigin(e.origin, fusionUrl)
+          : isTrustedCanvasBridgeMessage({
+              source: e.source,
+              origin: e.origin,
+              iframeWindow,
+              parentOrigin: window.location.origin,
+            });
+      if (!trusted) {
         return;
       }
       if (!e.data || !e.data.type) return;
@@ -3294,6 +3746,16 @@ export function DesignCanvas({
         );
         return;
       }
+      if (e.data.type === "component-source-jump") {
+        // The user clicked the component-instance tag ("ComponentName →").
+        // Relay to the parent so it can invoke open-component-source.
+        const nodeId = String(e.data.nodeId || "");
+        const componentName = String(e.data.componentName || "");
+        if (nodeId && componentName) {
+          onComponentSourceJump?.({ nodeId, componentName });
+        }
+        return;
+      }
       if (e.data.type === "embedded-canvas-wheel") {
         if (!isEmbeddedFrame) return;
         const iframe = iframeRef.current;
@@ -3379,7 +3841,10 @@ export function DesignCanvas({
     onZoomChange,
     deviceFrame,
     onPrototypeNavigate,
+    onComponentSourceJump,
     isEmbeddedFrame,
+    sourceType,
+    fusionUrl,
   ]);
 
   const replayIframeEditorState = useCallback(() => {
@@ -3417,14 +3882,43 @@ export function DesignCanvas({
         : { type: "hover-element", selector: "", selectorCandidates: [] },
       "*",
     );
+    // Re-send motion tracks so the preview bridge is ready after a reload.
+    if (motionTracks && motionTracks.length > 0) {
+      iframe.contentWindow?.postMessage(
+        { type: "motion-load-tracks", tracks: motionTracks },
+        "*",
+      );
+    } else {
+      iframe.contentWindow?.postMessage({ type: "motion-preview-clear" }, "*");
+    }
+    // Re-apply the shader-fill preview after a reload so the preview survives
+    // screen switches.  Preview-only — never writes to DB, Yjs, or source.
+    if (shaderFillPreview) {
+      iframe.contentWindow?.postMessage(
+        {
+          type: "shader-fill-preview",
+          selector: shaderFillPreview.selector ?? "",
+          nodeId: shaderFillPreview.nodeId ?? "",
+          css: shaderFillPreview.css,
+        },
+        "*",
+      );
+    } else {
+      iframe.contentWindow?.postMessage(
+        { type: "shader-fill-preview-clear" },
+        "*",
+      );
+    }
   }, [
     hoveredSelector,
     hoveredSelectorCandidates,
     hiddenSelectors,
     lockedSelectors,
+    motionTracks,
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
+    shaderFillPreview,
     tweakValues,
   ]);
 
@@ -3446,6 +3940,44 @@ export function DesignCanvas({
       "*",
     );
   }, [clearSelectionRequest]);
+
+  // Sync motion tracks to the iframe bridge whenever they change.
+  // When motionTracks is empty/undefined, clear any preview overrides so the
+  // design returns to its authored state (no stale inline styles).
+  useEffect(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    if (!motionTracks || motionTracks.length === 0) {
+      win.postMessage({ type: "motion-preview-clear" }, "*");
+    } else {
+      win.postMessage(
+        { type: "motion-load-tracks", tracks: motionTracks },
+        "*",
+      );
+    }
+  }, [motionTracks]);
+
+  // Sync shader-fill preview to the iframe whenever the prop changes.
+  // When cleared (null / undefined) send a clear message so the bridge
+  // restores the original background on the previously-patched element.
+  // Preview-only — never writes to DB, Yjs, or source.
+  useEffect(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    if (!shaderFillPreview) {
+      win.postMessage({ type: "shader-fill-preview-clear" }, "*");
+    } else {
+      win.postMessage(
+        {
+          type: "shader-fill-preview",
+          selector: shaderFillPreview.selector ?? "",
+          nodeId: shaderFillPreview.nodeId ?? "",
+          css: shaderFillPreview.css,
+        },
+        "*",
+      );
+    }
+  }, [shaderFillPreview]);
 
   // Push the constant-size chrome scale into the iframe LIVE (CSS vars only) when
   // overview zoom settles. This is intentionally separate from the srcdoc build so
@@ -3473,6 +4005,61 @@ export function DesignCanvas({
     },
     [],
   );
+
+  /**
+   * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
+   * playhead position in [0, 1].  Tracks must have been loaded first via the
+   * `motionTracks` prop (or an explicit `motion-load-tracks` message).
+   * Preview-only — never writes to DB/Yjs/source.
+   */
+  const sendMotionPreview = useCallback((t: number, durationMs?: number) => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) return;
+    iframe.contentWindow.postMessage(
+      { type: "motion-preview", t: Math.max(0, Math.min(1, t)), durationMs },
+      "*",
+    );
+  }, []);
+
+  /**
+   * Clear all motion-preview inline-style overrides in the iframe and remove
+   * the in-memory track list.  Call when the Motion dock is closed.
+   */
+  const clearMotionPreview = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "motion-preview-clear" },
+      "*",
+    );
+  }, []);
+
+  /**
+   * Send a shader-fill CSS preview to the iframe.  Targets the element
+   * identified by `selector` (preferred) or `nodeId`.  Preview-only — the
+   * bridge script restores the original background on clear.
+   */
+  const sendShaderFillPreview = useCallback(
+    (selector: string, nodeId: string, css: string) => {
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
+      win.postMessage(
+        { type: "shader-fill-preview", selector, nodeId, css },
+        "*",
+      );
+    },
+    [],
+  );
+
+  /**
+   * Clear the shader-fill preview in the iframe, restoring the original
+   * background on the patched element.  Call when the preview is dismissed
+   * or when the selection changes to a different element.
+   */
+  const clearShaderFillPreview = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "shader-fill-preview-clear" },
+      "*",
+    );
+  }, []);
 
   const replacePreviewContent = useCallback(
     (nextContent: string, selector?: string | null, candidates?: string[]) => {
@@ -3515,7 +4102,15 @@ export function DesignCanvas({
     (window as any).__designCanvasSendStyle = sendStyleChange;
     (window as any).__designCanvasReplaceContent = replacePreviewContent;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
+    (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
+    (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
+    // Shader-fill preview helpers (preview-only, §6.7 gating applies to apply).
+    (window as any).__designCanvasSendShaderFillPreview = sendShaderFillPreview;
+    (window as any).__designCanvasClearShaderFillPreview =
+      clearShaderFillPreview;
     return () => {
+      // Identity-guard each delete so a stale unmounting instance never clobbers
+      // a freshly mounted instance's bridge during a remount race.
       if ((window as any).__designCanvasSendStyle === sendStyleChange) {
         delete (window as any).__designCanvasSendStyle;
       }
@@ -3529,12 +4124,38 @@ export function DesignCanvas({
       ) {
         delete (window as any).__designCanvasDeleteElement;
       }
+      if (
+        (window as any).__designCanvasSendMotionPreview === sendMotionPreview
+      ) {
+        delete (window as any).__designCanvasSendMotionPreview;
+      }
+      if (
+        (window as any).__designCanvasClearMotionPreview === clearMotionPreview
+      ) {
+        delete (window as any).__designCanvasClearMotionPreview;
+      }
+      if (
+        (window as any).__designCanvasSendShaderFillPreview ===
+        sendShaderFillPreview
+      ) {
+        delete (window as any).__designCanvasSendShaderFillPreview;
+      }
+      if (
+        (window as any).__designCanvasClearShaderFillPreview ===
+        clearShaderFillPreview
+      ) {
+        delete (window as any).__designCanvasClearShaderFillPreview;
+      }
     };
   }, [
     deleteRuntimeElement,
     registerRuntimeBridge,
     replacePreviewContent,
     sendStyleChange,
+    sendMotionPreview,
+    clearMotionPreview,
+    sendShaderFillPreview,
+    clearShaderFillPreview,
   ]);
 
   // Device dimensions match real-world devices. iframes are replaced elements
@@ -3554,6 +4175,12 @@ export function DesignCanvas({
     deviceDimensions[deviceFrame];
   const embeddedFrameFluid = embeddedFrame?.fluid === true;
 
+  // Per-breakpoint override: when previewWidthPx is set it takes priority over
+  // the deviceFrame width so the caller can render the same source at an
+  // explicit viewport width (e.g. 390 / 768 / 1280 side-by-side breakpoints).
+  const resolvedWidth =
+    previewWidthPx != null ? `${previewWidthPx}px` : iframeWidth;
+
   // Wrap the iframe in a positioned container so DrawOverlay /
   // CanvasCommentPins can absolutely-position themselves on top of the
   // iframe. The pin component anchors to `.design-canvas-iframe-wrapper`
@@ -3569,7 +4196,7 @@ export function DesignCanvas({
           ? embeddedFrameFluid
             ? "100%"
             : embeddedFrame.viewportWidth
-          : iframeWidth,
+          : resolvedWidth,
         height: embeddedFrame
           ? embeddedFrameFluid
             ? "100%"
@@ -3589,6 +4216,12 @@ export function DesignCanvas({
             : "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         }
         data-design-preview-iframe
+        data-design-source-type={
+          sourceType ??
+          (externalPreviewUrl
+            ? "localhost" // inferred — content is a URL
+            : "inline")
+        }
         className="block h-full w-full border-0 bg-transparent"
         title={t("designEditor.designPreview")}
       />

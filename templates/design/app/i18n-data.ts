@@ -244,6 +244,18 @@ const enUS = {
     },
   },
   designEditor: {
+    askAgent: "Ask agent",
+    tokens: {
+      title: "Tokens",
+      newToken: "New token",
+      cssVar: "CSS variable",
+      value: "Value",
+      add: "Add token",
+      refresh: "Refresh tokens",
+      empty: "No tokens yet",
+      emptyHint: "Add design tokens to reuse colors, spacing, and more.",
+      applying: "Applying…",
+    },
     generationMayHaveStopped:
       "Generation may have stopped before creating files. Check the agent message or try again.",
     generationMayHaveStoppedToast:
@@ -426,6 +438,8 @@ const enUS = {
       layerMoveFailed: "Could not move that layer",
       duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
+      componentCreated: "Component created",
+      componentCreateFailed: "Could not create component",
     },
     localSourceEdit: {
       bannerNotice:
