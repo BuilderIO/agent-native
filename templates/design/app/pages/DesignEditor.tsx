@@ -263,6 +263,32 @@ export function getSelectedScreenIdsForEditorState(args: {
   return activeFileId ? [activeFileId] : [];
 }
 
+function fileIdFromLayerSelectionId(
+  layerId: string,
+  fileIds: Set<string>,
+): string | null {
+  const normalized = layerId.startsWith("code:")
+    ? layerId.slice("code:".length)
+    : layerId;
+  return fileIds.has(normalized) ? normalized : null;
+}
+
+export function getOverviewScreenIdsFromLayerSelection(args: {
+  fileIds: string[];
+  layerIds: string[];
+}) {
+  const fileIds = new Set(args.fileIds);
+  const seen = new Set<string>();
+  const selectedScreenIds: string[] = [];
+  args.layerIds.forEach((layerId) => {
+    const fileId = fileIdFromLayerSelectionId(layerId, fileIds);
+    if (!fileId || seen.has(fileId)) return;
+    seen.add(fileId);
+    selectedScreenIds.push(fileId);
+  });
+  return selectedScreenIds;
+}
+
 export function getOverviewEnterTarget(args: {
   activeFileId: string | null | undefined;
   overviewSelectedScreenIds: string[];
@@ -8616,6 +8642,21 @@ ${serializedHtml}
           ? currentLayerIds.filter((layerId) => layerId !== intent.id)
           : [...currentLayerIds, intent.id];
         setSelectedLayerIdsState(additiveLayerIds);
+        if (viewModeRef.current === "overview") {
+          const fileIds = files.map((file) => file.id);
+          const selectedScreenIds = getOverviewScreenIdsFromLayerSelection({
+            fileIds,
+            layerIds: additiveLayerIds,
+          });
+          const toggledScreen =
+            getOverviewScreenIdsFromLayerSelection({
+              fileIds,
+              layerIds: [intent.id],
+            }).length > 0;
+          if (toggledScreen || selectedScreenIds.length > 0) {
+            setOverviewSelectedScreenIds(selectedScreenIds);
+          }
+        }
         setSelectedElement(null);
         focusDesignInspectorForSelection();
         setActiveTool("move");

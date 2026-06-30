@@ -29,6 +29,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -651,6 +658,24 @@ const NOISE_FALLBACK_CSS =
   "repeating-conic-gradient(#0000 0% 25%, #00000010 0% 50%) 0 0 / 6px 6px, #8a8a8a";
 const PATTERN_FALLBACK_CSS =
   "repeating-linear-gradient(45deg, #00000014 0 6px, #ffffff14 6px 12px), #9aa0a6";
+const BLEND_MODE_OPTIONS = [
+  { value: "normal", label: "Normal" },
+  { value: "multiply", label: "Multiply" },
+  { value: "screen", label: "Screen" },
+  { value: "overlay", label: "Overlay" },
+  { value: "darken", label: "Darken" },
+  { value: "lighten", label: "Lighten" },
+  { value: "color-dodge", label: "Color dodge" }, // i18n-ignore design blend mode label
+  { value: "color-burn", label: "Color burn" }, // i18n-ignore design blend mode label
+  { value: "hard-light", label: "Hard light" }, // i18n-ignore design blend mode label
+  { value: "soft-light", label: "Soft light" }, // i18n-ignore design blend mode label
+  { value: "difference", label: "Difference" },
+  { value: "exclusion", label: "Exclusion" },
+  { value: "hue", label: "Hue" },
+  { value: "saturation", label: "Saturation" },
+  { value: "color", label: "Color" },
+  { value: "luminosity", label: "Luminosity" },
+] as const;
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
@@ -662,9 +687,9 @@ export function DesignColorPicker({
   label: _label,
   opacity,
   onOpacityChange,
-  blendMode: _blendMode,
-  onBlendModeChange: _onBlendModeChange,
-  showBlendMode: _showBlendMode,
+  blendMode,
+  onBlendModeChange,
+  showBlendMode = false,
   fillRows: _fillRows,
   selectedFillId: _selectedFillId,
   onFillSelect: _onFillSelect,
@@ -693,6 +718,11 @@ export function DesignColorPicker({
   const hsv = rgbaToHsv(color);
   const hsl = rgbaToHsl(color);
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
+  const blendModeValue = BLEND_MODE_OPTIONS.some(
+    (option) => option.value === blendMode,
+  )
+    ? blendMode
+    : "normal";
 
   const [mode, setMode] = useState<DesignColorMode>("hex");
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
@@ -1502,6 +1532,39 @@ export function DesignColorPicker({
                           %
                         </span>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {showBlendMode && onBlendModeChange && (
+                  <div className="border-t border-border/70 px-3 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                        {copy.blendMode}
+                      </span>
+                      <Select
+                        value={blendModeValue}
+                        disabled={disabled}
+                        onValueChange={onBlendModeChange}
+                      >
+                        <SelectTrigger
+                          aria-label={copy.blendMode}
+                          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BLEND_MODE_OPTIONS.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              className="text-[11px]"
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 )}

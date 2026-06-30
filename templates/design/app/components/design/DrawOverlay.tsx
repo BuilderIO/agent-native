@@ -274,7 +274,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
       )}
 
       {/* Bottom toolbar */}
-      <div className="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-2xl backdrop-blur-sm">
+      <div className="absolute bottom-16 left-1/2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-2xl backdrop-blur-sm sm:bottom-20">
         {/* Color picker */}
         <div className="flex gap-1">
           {PRESET_COLORS.map((preset) => (

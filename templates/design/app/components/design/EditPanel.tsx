@@ -2975,6 +2975,8 @@ function FlexContainerControls({
   const isFlex = display.includes("flex");
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
+  const mainGapAxis =
+    flexDirection === "horizontal" ? "horizontal" : "vertical";
   // When the element is in normal flow (not flex yet), picking any flow option
   // must first turn it into a flex container; otherwise setting flex-direction
   // alone is a no-op against a block element.
@@ -3022,6 +3024,7 @@ function FlexContainerControls({
     // optional contract field consumed by AutoLayoutMatrix; harmless when the
     // matrix ignores it.
     ...({ display } as Partial<AutoLayoutMatrixValue>),
+    spaceBetween: styles.justifyContent === "space-between",
   };
 
   return (
@@ -3079,15 +3082,19 @@ function FlexContainerControls({
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
         }
         onDistribute={(axis) => {
-          const mainAxis =
-            autoLayoutValue.direction === "horizontal"
-              ? "horizontal"
-              : "vertical";
-          if (axis === mainAxis) {
+          if (axis === mainGapAxis) {
             onStyleChange("justifyContent", "space-between");
           } else if (autoLayoutValue.wrap === "wrap") {
             onStyleChange("alignContent", "space-between");
           }
+        }}
+        onGapModeChange={(gapMode, axis) => {
+          if (axis !== mainGapAxis) return;
+          ensureFlex();
+          onStyleChange(
+            "justifyContent",
+            gapMode === "auto" ? "space-between" : "flex-start",
+          );
         }}
         availableChildSizing={availableSizingForElement(element)}
         onChildSizingChange={(axis, sizing) => {

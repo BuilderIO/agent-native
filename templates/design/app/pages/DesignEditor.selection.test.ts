@@ -6,6 +6,7 @@ import {
   getOverviewCanvasZoom,
   getOverviewDisplayZoom,
   getOverviewEnterTarget,
+  getOverviewScreenIdsFromLayerSelection,
   getOverviewZoomScale,
   getSidebarCodeLayerSelectionState,
   isScreenRootElementInfo,
@@ -34,6 +35,35 @@ describe("DesignEditor overview selection state", () => {
         viewMode: "single",
       }),
     ).toEqual(["screen-active"]);
+  });
+});
+
+describe("DesignEditor overview layer selection", () => {
+  it("extracts selected screen ids from file layer rows", () => {
+    expect(
+      getOverviewScreenIdsFromLayerSelection({
+        fileIds: ["screen-a", "screen-b"],
+        layerIds: ["screen-a", "screen-b"],
+      }),
+    ).toEqual(["screen-a", "screen-b"]);
+  });
+
+  it("supports code-prefixed screen row ids and keeps selection order", () => {
+    expect(
+      getOverviewScreenIdsFromLayerSelection({
+        fileIds: ["screen-a", "screen-b"],
+        layerIds: ["code:screen-b", "screen-a", "code:screen-b"],
+      }),
+    ).toEqual(["screen-b", "screen-a"]);
+  });
+
+  it("ignores nested element layer ids when syncing screen selection", () => {
+    expect(
+      getOverviewScreenIdsFromLayerSelection({
+        fileIds: ["screen-a", "screen-b"],
+        layerIds: ["hero-title", "element:runtime", "screen-b"],
+      }),
+    ).toEqual(["screen-b"]);
   });
 });
 
