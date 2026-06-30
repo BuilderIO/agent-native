@@ -249,6 +249,7 @@ export default defineAction({
 
     let designId = args.designId;
     let createdDesign = false;
+    let publicReadOnly = false;
     if (!designId) {
       const design = await createDesignAction.run({
         title: args.title ?? `${new URL(devServerUrl).host} visual edit`,
@@ -260,6 +261,7 @@ export default defineAction({
       designId = design.id;
       createdDesign = true;
       if (args.publicReadOnly && isLoopbackUrl(devServerUrl)) {
+        publicReadOnly = true;
         await getDb()
           .update(schema.designs)
           .set({ visibility: "public" })
@@ -306,6 +308,7 @@ export default defineAction({
       designId,
       connectionId: connection.id,
       createdDesign,
+      publicReadOnly,
       devServerUrl,
       bridgeUrl: connection.bridgeUrl,
       rootPath: connection.rootPath,
