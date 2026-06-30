@@ -109,6 +109,20 @@ export interface ShareButtonProps {
     description?: ReactNode;
     onCheckedChange: (checked: boolean) => void | Promise<void>;
   };
+  /** Optional extra tabs rendered beside the default sharing/access panel. */
+  shareTabs?: {
+    shareLabel?: ReactNode;
+    defaultValue?: string;
+    tabs: Array<{
+      value: string;
+      label: ReactNode;
+      content: ReactNode;
+      disabled?: boolean;
+    }>;
+    onValueChange?: (value: string) => void;
+  };
+  /** Optional className for the popover content, useful for wider custom tabs. */
+  popoverClassName?: string;
 }
 
 type Visibility = "private" | "org" | "public";
@@ -213,6 +227,8 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
  */
 export function ShareButton(props: ShareButtonProps) {
   const [open, setOpen] = useState(false);
+  const shareTabDefaultValue = props.shareTabs?.defaultValue ?? "share";
+  const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
     null,
   );
@@ -238,7 +254,16 @@ export function ShareButton(props: ShareButtonProps) {
   const handleOpenChange = (v: boolean) => {
     setOpen(v);
     props.onOpenChange?.(v);
-    if (v && pendingVisibility === null) sharesQuery.refetch();
+    if (v) {
+      setActiveShareTab(shareTabDefaultValue);
+      props.shareTabs?.onValueChange?.(shareTabDefaultValue);
+      if (pendingVisibility === null) sharesQuery.refetch();
+    }
+  };
+
+  const handleShareTabChange = (value: string) => {
+    setActiveShareTab(value);
+    props.shareTabs?.onValueChange?.(value);
   };
 
   useEffect(() => {
@@ -322,6 +347,7 @@ export function ShareButton(props: ShareButtonProps) {
         className={cn(
           "z-[2000] w-[min(460px,92vw)] rounded-lg p-4 shadow-lg",
           SHARE_POPOVER_SURFACE,
+          props.popoverClassName,
         )}
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
@@ -331,6 +357,8 @@ export function ShareButton(props: ShareButtonProps) {
           visibilityOverride={pendingVisibility}
           onVisibilityChange={handleVisibilityChange}
           onClose={() => handleOpenChange(false)}
+          activeTab={activeShareTab}
+          onTabChange={handleShareTabChange}
         />
       </PopoverContent>
     </Popover>
@@ -505,6 +533,8 @@ function SharePanel(
     visibilityOverride: Visibility | null;
     onVisibilityChange: (visibility: Visibility) => Promise<void>;
     onClose: () => void;
+    activeTab: string;
+    onTabChange: (value: string) => void;
   },
 ) {
   const {
@@ -596,6 +626,9 @@ function SharePanel(
     Boolean(props.shareUrlPlaceholder) ||
     Boolean(props.secondaryShareUrl);
   const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
+  const extraTabs = props.shareTabs?.tabs ?? [];
+  const hasTabs = extraTabs.length > 0;
+  const shareTabLabel = props.shareTabs?.shareLabel ?? "Share link";
 
   const serverShares = data?.shares ?? [];
   const shares: Share[] = [
@@ -773,34 +806,37 @@ function SharePanel(
     ? `Share "${resourceTitle}"`
     : `Share ${resourceType}`;
 
-  if (isLoading) {
-    return (
-      <div>
+  const sharePanel = isLoading ? (
+    <div>
+      {!hasTabs ? (
         <div
           className="mb-3 truncate text-base font-semibold"
           title={titleText}
         >
           {titleText}
         </div>
-        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-        <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
-        <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
-        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-        <div className="mt-2 flex justify-end">
-          <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
-            Done
-          </button>
-        </div>
+      ) : null}
+      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
+      <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
+      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      <div className="mt-2 flex justify-end">
+        <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
+          Done
+        </button>
       </div>
-    );
-  }
-
-  return (
+    </div>
+  ) : (
     <div>
-      <div className="mb-3 truncate text-base font-semibold" title={titleText}>
-        {titleText}
-      </div>
+      {!hasTabs ? (
+        <div
+          className="mb-3 truncate text-base font-semibold"
+          title={titleText}
+        >
+          {titleText}
+        </div>
+      ) : null}
 
       {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
 
@@ -962,6 +998,55 @@ function SharePanel(
         >
           Done
         </button>
+      </div>
+    </div>
+  );
+
+  if (!hasTabs) return sharePanel;
+
+  const tabs = [
+    {
+      value: "share",
+      label: shareTabLabel,
+      content: sharePanel,
+      disabled: false,
+    },
+    ...extraTabs,
+  ];
+  const activeTab = tabs.some((tab) => tab.value === props.activeTab)
+    ? props.activeTab
+    : "share";
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        role="tablist"
+        aria-label="Share options"
+        className="flex gap-1 rounded-xl bg-muted/70 p-1"
+      >
+        {tabs.map((tab) => {
+          const active = tab.value === activeTab;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              disabled={tab.disabled}
+              onClick={() => props.onTabChange(tab.value)}
+              className={cn(
+                "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+                active &&
+                  "bg-background text-foreground shadow-sm ring-2 ring-primary",
+              )}
+            >
+              <span className="block truncate">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel">
+        {tabs.find((tab) => tab.value === activeTab)?.content}
       </div>
     </div>
   );

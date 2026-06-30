@@ -247,8 +247,40 @@ function createEditorBridgeThemeScript(vars: Record<string, string>) {
 const EDITOR_CHROME_BRIDGE_SCRIPT = `
 <script data-agent-native-editor-chrome-bridge>
 (function() {
-  var textEditingEnabled = __TEXT_EDITING_ENABLED__;
+  var readOnly = __READ_ONLY__;
+  var textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
   var scaleToolEnabled = false;
+  var editorChromeScaleX = Math.max(0.05, Number(__EDITOR_CHROME_SCALE_X__) || 1);
+  var editorChromeScaleY = Math.max(0.05, Number(__EDITOR_CHROME_SCALE_Y__) || editorChromeScaleX);
+
+  // Ease the constant-size selection chrome to its new size when overview zoom
+  // settles (parent posts set-editor-chrome-scale), matching the canvas chrome.
+  // Only chrome-scale-driven props animate; the overlay's live position is excluded.
+  (function () {
+    var chromeTransitionStyle = document.createElement('style');
+    chromeTransitionStyle.textContent =
+      '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
+      '[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}';
+    (document.head || document.documentElement).appendChild(chromeTransitionStyle);
+  })();
+
+  function chromeScaleX() {
+    return 1 / Math.max(0.05, editorChromeScaleX);
+  }
+
+  function chromeScaleY() {
+    return 1 / Math.max(0.05, editorChromeScaleY);
+  }
+
+  function chromeLineScale() {
+    return 1 / Math.max(0.05, Math.max(editorChromeScaleX, editorChromeScaleY));
+  }
+
+  function syncEditorChromeScaleVars() {
+    document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-x', String(chromeScaleX()));
+    document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-y', String(chromeScaleY()));
+    document.documentElement.style.setProperty('--agent-native-editor-chrome-line-scale', String(chromeLineScale()));
+  }
 
   function escapeIdent(value) {
     if (window.CSS && typeof window.CSS.escape === 'function') {
@@ -321,6 +353,32 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     );
   }
 
+  function isDocumentRootElement(el) {
+    return el === document.body || el === document.documentElement;
+  }
+
+  function closestStableSourceElement(el) {
+    if (!el || !el.closest) return null;
+    var stable = el.closest('[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]');
+    if (!stable || isDocumentRootElement(stable)) return null;
+    return stable;
+  }
+
+  function hasStableOwnSource(el) {
+    return !!(
+      el &&
+      !isDocumentRootElement(el) &&
+      getSourceId(el)
+    );
+  }
+
+  function selectionTargetForHit(hit) {
+    if (!hit || isDocumentRootElement(hit)) return hit;
+    if (selectedEl && hit !== selectedEl && selectedEl.contains(hit)) return hit;
+    if (hasStableOwnSource(hit)) return hit;
+    return closestStableSourceElement(hit) || hit;
+  }
+
   function freshRuntimeNodeId(prefix) {
     var random = '';
     try {
@@ -356,7 +414,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     if (stableOwnSelector) return stableOwnSelector;
 
     if (el.id) return '#' + escapeIdent(el.id);
-    var stableAncestor = el.closest('[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]');
+    var stableAncestor = closestStableSourceElement(el);
     if (stableAncestor && stableAncestor !== el) {
       var stableAncestorSelector = selectorPart(stableAncestor);
       if (stableAncestorSelector) {
@@ -379,7 +437,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       ? window.getComputedStyle(el.parentElement)
       : null;
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
-    var sourceId = getSourceId(el) || getSelector(el);
+    var sourceBacked = hasStableOwnSource(el) || !!closestStableSourceElement(el);
+    var sourceId = sourceBacked ? (getSourceId(el) || getSelector(el)) : '';
     var parentLayout = parentStyles
       ? {
           display: parentStyles.display,
@@ -392,15 +451,24 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
           position: parentStyles.position,
         }
       : undefined;
-    var capabilities = [
-      {
-        kind: 'deterministic-style-edit',
-        label: 'deterministic-style-edit',
-        confidence: 0.92,
-        reason: 'Inline style can be patched and replayed through HMR/collab.',
-      },
-    ];
-    if (el.classList && el.classList.length > 0) {
+    var capabilities = sourceBacked
+      ? [
+          {
+            kind: 'deterministic-style-edit',
+            label: 'deterministic-style-edit',
+            confidence: 0.92,
+            reason: 'Inline style can be patched and replayed through HMR/collab.',
+          },
+        ]
+      : [
+          {
+            kind: 'unsupported',
+            label: 'runtime-only-element',
+            confidence: 0.3,
+            reason: 'This runtime node is not anchored to a source code layer.',
+          },
+        ];
+    if (sourceBacked && el.classList && el.classList.length > 0) {
       capabilities.push({
         kind: 'deterministic-class-edit',
         label: 'deterministic-class-edit',
@@ -408,7 +476,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         reason: 'Class tokens are visible on the selected element.',
       });
     }
-    if (parentDisplay === 'flex' || parentDisplay === 'inline-flex' || parentDisplay === 'grid' || parentDisplay === 'inline-grid') {
+    if (sourceBacked && (parentDisplay === 'flex' || parentDisplay === 'inline-flex' || parentDisplay === 'grid' || parentDisplay === 'inline-grid')) {
       capabilities.push({
         kind: 'agent-structural-edit',
         label: 'agent-structural-edit',
@@ -433,9 +501,9 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         lineHeight: cs.lineHeight,
         letterSpacing: cs.letterSpacing,
         textAlign: cs.textAlign,
-	        display: cs.display,
-	        overflow: cs.overflow,
-	        flexDirection: cs.flexDirection,
+        display: cs.display,
+        overflow: cs.overflow,
+        flexDirection: cs.flexDirection,
         justifyContent: cs.justifyContent,
         alignItems: cs.alignItems,
         alignSelf: cs.alignSelf,
@@ -501,12 +569,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 
   var highlightOverlay = document.createElement('div');
   highlightOverlay.setAttribute('data-agent-native-edit-overlay', 'highlight');
-  highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99999;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;';
+  highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99997;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;';
   document.body.appendChild(highlightOverlay);
 
   var selectionOverlay = document.createElement('div');
   selectionOverlay.setAttribute('data-agent-native-edit-overlay', 'selection');
-  selectionOverlay.style.cssText = 'position:fixed;pointer-events:auto;z-index:99998;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;cursor:move;';
+  selectionOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99998;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;cursor:default;';
   ['n','e','s','w'].forEach(function(pos) {
     var edge = document.createElement('span');
     edge.setAttribute('data-agent-native-edge-handle', pos);
@@ -542,7 +610,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var handle = document.createElement('span');
     handle.setAttribute('data-agent-native-edit-handle', pos);
     var cursor = pos === 'n' || pos === 's' ? 'ns-resize' : pos === 'e' || pos === 'w' ? 'ew-resize' : pos === 'nw' || pos === 'se' ? 'nwse-resize' : 'nesw-resize';
-    handle.style.cssText = 'position:absolute;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:' + cursor + ';';
+    handle.style.cssText = 'position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:' + cursor + ';';
     if (pos.indexOf('n') !== -1) handle.style.top = '-4px';
     if (pos.indexOf('s') !== -1) handle.style.bottom = '-4px';
     if (pos.indexOf('w') !== -1) handle.style.left = '-4px';
@@ -595,6 +663,14 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	  var pendingStructureMove = null;
 	  var lockedSelectors = [];
 	  var hiddenSelectors = [];
+
+  function clearRuntimeSelection() {
+    selectedEl = null;
+    hoveredEl = null;
+    selectionOverlay.style.display = 'none';
+    highlightOverlay.style.display = 'none';
+    hideMeasurements();
+  }
 
   function matchesSelectorList(el, selectors) {
     if (!el || !selectors || selectors.length === 0) return false;
@@ -752,7 +828,14 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
       try {
         var match = document.querySelector(activeCandidates[i]);
-        if (match && !isLayerInteractionBlocked(match)) selectedEl = match;
+        // Skip the editor's own injected overlay chrome and re-anchor to a
+        // source-backed element. A stale positional candidate like
+        // body > div:nth-of-type(6) can otherwise re-match an overlay div
+        // (the only direct div children of body at runtime), which then has
+        // no code-layer node and fails every edit.
+        if (match && !isLayerInteractionBlocked(match) && !isOverlayElement(match)) {
+          selectedEl = selectionTargetForHit(match) || match;
+        }
       } catch (_err) {}
     }
     if (selectedEl) {
@@ -784,6 +867,49 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     paddingOverlay.style.left = left + 'px';
   }
 
+  function applyEditorChromeScale() {
+    syncEditorChromeScaleVars();
+    var sx = chromeScaleX();
+    var sy = chromeScaleY();
+    var line = chromeLineScale();
+    highlightOverlay.style.borderWidth = (1.5 * line) + 'px';
+    selectionOverlay.style.borderWidth = (1.5 * line) + 'px';
+    paddingOverlay.style.borderWidth = Math.max(1, 1 * line) + 'px';
+
+    selectionOverlay.querySelectorAll('[data-agent-native-edge-handle]').forEach(function(edge) {
+      var pos = edge.getAttribute('data-agent-native-edge-handle');
+      if (pos === 'n' || pos === 's') {
+        edge.style.height = (10 * sy) + 'px';
+        edge.style[pos === 'n' ? 'top' : 'bottom'] = (-5 * sy) + 'px';
+      }
+      if (pos === 'e' || pos === 'w') {
+        edge.style.width = (10 * sx) + 'px';
+        edge.style[pos === 'w' ? 'left' : 'right'] = (-5 * sx) + 'px';
+      }
+    });
+
+    selectionOverlay.querySelectorAll('[data-agent-native-edit-handle]').forEach(function(handle) {
+      var pos = handle.getAttribute('data-agent-native-edit-handle') || '';
+      handle.style.width = (7 * sx) + 'px';
+      handle.style.height = (7 * sy) + 'px';
+      handle.style.borderWidth = Math.max(1, 1 * line) + 'px';
+      if (pos.indexOf('n') !== -1) handle.style.top = (-4 * sy) + 'px';
+      if (pos.indexOf('s') !== -1) handle.style.bottom = (-4 * sy) + 'px';
+      if (pos.indexOf('w') !== -1) handle.style.left = (-4 * sx) + 'px';
+      if (pos.indexOf('e') !== -1) handle.style.right = (-4 * sx) + 'px';
+    });
+
+    selectionOverlay.querySelectorAll('[data-agent-native-rotate-handle]').forEach(function(handle) {
+      var pos = handle.getAttribute('data-agent-native-rotate-handle') || '';
+      handle.style.width = (18 * sx) + 'px';
+      handle.style.height = (18 * sy) + 'px';
+      if (pos.indexOf('n') !== -1) handle.style.top = (-26 * sy) + 'px';
+      if (pos.indexOf('s') !== -1) handle.style.bottom = (-26 * sy) + 'px';
+      if (pos.indexOf('w') !== -1) handle.style.left = (-26 * sx) + 'px';
+      if (pos.indexOf('e') !== -1) handle.style.right = (-26 * sx) + 'px';
+    });
+  }
+
   function positionOverlay(overlay, el) {
     if (!el || !document.documentElement.contains(el)) {
       overlay.style.display = 'none';
@@ -793,23 +919,26 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     // the handles hug the rotated element rather than its inflated AABB.
     if (overlay === selectionOverlay) {
       var elCs = window.getComputedStyle(el);
-      var elLeft = readPx(el.style.left || elCs.left);
-      var elTop = readPx(el.style.top || elCs.top);
-      var elW = readPx(el.style.width || elCs.width);
-      var elH = readPx(el.style.height || elCs.height);
+      var elLeft = readFinitePx(el.style.left || elCs.left);
+      var elTop = readFinitePx(el.style.top || elCs.top);
+      var elW = readFinitePx(el.style.width || elCs.width);
+      var elH = readFinitePx(el.style.height || elCs.height);
       var elRot = currentRotation(el);
+      var canUseLocalBox = Math.abs(elRot) > 0.01 && elLeft !== null && elTop !== null && elW !== null && elH !== null;
       // Convert element-local left/top to viewport coords by walking to the
       // nearest positioned ancestor (same reference frame as getBoundingClientRect).
-      var parentRect = (el.offsetParent || document.documentElement).getBoundingClientRect();
-      overlay.style.display = 'block';
-      overlay.style.left = (parentRect.left + elLeft) + 'px';
-      overlay.style.top = (parentRect.top + elTop) + 'px';
-      overlay.style.width = elW + 'px';
-      overlay.style.height = elH + 'px';
-      overlay.style.transform = elRot ? 'rotate(' + elRot + 'deg)' : '';
-      overlay.style.transformOrigin = '0 0';
-      updatePaddingOverlay(el);
-      return;
+      if (canUseLocalBox) {
+        var parentRect = (el.offsetParent || document.documentElement).getBoundingClientRect();
+        overlay.style.display = 'block';
+        overlay.style.left = (parentRect.left + elLeft) + 'px';
+        overlay.style.top = (parentRect.top + elTop) + 'px';
+        overlay.style.width = elW + 'px';
+        overlay.style.height = elH + 'px';
+        overlay.style.transform = 'rotate(' + elRot + 'deg)';
+        overlay.style.transformOrigin = '0 0';
+        updatePaddingOverlay(el);
+        return;
+      }
     }
     var rect = el.getBoundingClientRect();
     overlay.style.display = 'block';
@@ -817,10 +946,16 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     overlay.style.left = rect.left + 'px';
     overlay.style.width = rect.width + 'px';
     overlay.style.height = rect.height + 'px';
+    overlay.style.transform = '';
+    if (overlay === selectionOverlay) updatePaddingOverlay(el);
   }
 
   function refreshOverlays() {
-    if (hoveredEl) positionOverlay(highlightOverlay, hoveredEl);
+    if (hoveredEl && hoveredEl !== selectedEl) {
+      positionOverlay(highlightOverlay, hoveredEl);
+    } else {
+      highlightOverlay.style.display = 'none';
+    }
     if (selectedEl) positionOverlay(selectionOverlay, selectedEl);
   }
 
@@ -1067,7 +1202,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       window.parent.postMessage({ type: 'clear-selection' }, '*');
       return;
     }
-    selectedEl = target;
+    selectedEl = selectionTargetForHit(target);
     var info = getElementInfo(selectedEl);
     positionOverlay(selectionOverlay, selectedEl);
     window.parent.postMessage({ type: 'element-select', payload: info }, '*');
@@ -1079,9 +1214,9 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var target = elementFromEditorPoint(e.clientX, e.clientY);
     var info = null;
     if (target) {
-      selectedEl = target;
-      info = getElementInfo(target);
-      positionOverlay(selectionOverlay, target);
+      selectedEl = selectionTargetForHit(target);
+      info = getElementInfo(selectedEl);
+      positionOverlay(selectionOverlay, selectedEl);
       window.parent.postMessage({ type: 'element-select', payload: info }, '*');
     }
     window.parent.postMessage({
@@ -1136,6 +1271,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   function readPx(value) {
     var num = parseFloat(value);
     return Number.isFinite(num) ? num : 0;
+  }
+
+  function readFinitePx(value) {
+    if (!value || value === 'auto') return null;
+    var num = parseFloat(value);
+    return Number.isFinite(num) ? num : null;
   }
 
   function currentRotation(el) {
@@ -1602,9 +1743,16 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       if (handle.indexOf('s') !== -1) height = origin.height + dy;
       // Apply Shift / scaleToolEnabled aspect-ratio lock BEFORE the min-size
       // clamp so the ratio is computed from unclamped values (bug fix).
-      if (ev.shiftKey && handle.length === 2) {
-        if (Math.abs(dx) > Math.abs(dy)) height = width / origin.ratio;
-        else width = height * origin.ratio;
+      if (ev.shiftKey) {
+        // Shift locks aspect ratio for ALL 8 handles (corners and edges).
+        if (handle === 'e' || handle === 'w') {
+          height = width / origin.ratio;
+        } else if (handle === 'n' || handle === 's') {
+          width = height * origin.ratio;
+        } else if (handle.length === 2) {
+          if (Math.abs(dx) > Math.abs(dy)) height = width / origin.ratio;
+          else width = height * origin.ratio;
+        }
       }
       if (scaleToolEnabled) {
         // Scale tool: enforce aspect ratio on all 8 handles, not just corners.
@@ -1617,9 +1765,22 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
           else width = height * origin.ratio;
         }
       }
-      // Clamp after ratio correction.
-      width = Math.max(8, width);
-      height = Math.max(8, height);
+      // Clamp to minimum size.
+      var clampedW = Math.max(8, width);
+      var clampedH = Math.max(8, height);
+      // After clamping, re-apply the ratio if Shift or scale tool is active so
+      // the clamped dimension doesn't silently break the locked aspect ratio.
+      if (ev.shiftKey || scaleToolEnabled) {
+        if (clampedW !== width) {
+          // Width was clamped; re-derive height from the clamped width.
+          clampedH = Math.max(8, clampedW / origin.ratio);
+        } else if (clampedH !== height) {
+          // Height was clamped; re-derive width from the clamped height.
+          clampedW = Math.max(8, clampedH * origin.ratio);
+        }
+      }
+      width = clampedW;
+      height = clampedH;
       // Re-anchor the pinned edge for w/n handles after aspect-ratio lock and
       // clamping so the opposite (e/s) edge stays fixed regardless of whether
       // the dimension change was driven by raw dx/dy or by the ratio lock.
@@ -1735,6 +1896,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   document.addEventListener('keydown', function(e) {
     if (!shouldForwardDesignHotkey(e)) return;
     stopNativeInteraction(e);
+    if (e.key === 'Escape') clearRuntimeSelection();
     window.parent.postMessage({
       type: 'design-hotkey',
       key: e.key,
@@ -1788,7 +1950,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     stopNativeInteraction(e);
     var target = findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY));
     if (!target || target.nodeType !== 1) return;
-    selectedEl = target;
+    // Anchor the selection identity to the nearest source-backed element. Text
+    // editing still operates on the actual target text node, but a later
+    // style edit posts from selectedEl, so it must point at a patchable
+    // code-layer node rather than a runtime-only descendant (which would emit a
+    // brittle body > div:nth-of-type(...) selector that never resolves).
+    selectedEl = selectionTargetForHit(target) || target;
 	    var originalText = target.textContent || '';
 	    var originalHtml = target.innerHTML || '';
 	    var committed = false;
@@ -1801,6 +1968,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     setTextEditingPointerPassthrough(true);
     positionOverlay(selectionOverlay, target);
 	    window.parent.postMessage({ type: 'element-select', payload: getElementInfo(target) }, '*');
+	    window.parent.postMessage({ type: 'element-dblclick-text', payload: getElementInfo(target) }, '*');
 	    postTextEditingState(target, true);
 
     function finish(commit) {
@@ -1886,7 +2054,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       return;
     }
     if (hoveredEl && hoveredEl.closest('[data-agent-native-text-editing]')) return;
-    positionOverlay(highlightOverlay, hoveredEl);
+    if (hoveredEl === selectedEl) {
+      highlightOverlay.style.display = 'none';
+    } else {
+      positionOverlay(highlightOverlay, hoveredEl);
+    }
     if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
       showMeasurements(selectedEl, hoveredEl);
     } else {
@@ -1901,6 +2073,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     hoveredEl = null;
     highlightOverlay.style.display = 'none';
     hideMeasurements();
+    window.parent.postMessage({ type: 'element-hover', payload: null }, '*');
   }, true);
 
   window.addEventListener('keyup', function(e) {
@@ -1910,16 +2083,21 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   window.addEventListener('message', function(e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    if (e.data.type === 'set-editor-chrome-scale') {
+      // Live-update the constant-size chrome scale WITHOUT rebuilding srcdoc.
+      // Rebuilding srcdoc reloads the iframe and flashes the content white.
+      editorChromeScaleX = Math.max(0.05, Number(e.data.scaleX) || 1);
+      editorChromeScaleY = Math.max(0.05, Number(e.data.scaleY) || editorChromeScaleX);
+      applyEditorChromeScale();
+      if (selectedEl || hoveredEl) refreshOverlays();
+      return;
+    }
     if (e.data.type === 'scale-tool-mode') {
       scaleToolEnabled = !!e.data.enabled;
       return;
     }
     if (e.data.type === 'clear-selection') {
-      selectedEl = null;
-      hoveredEl = null;
-      selectionOverlay.style.display = 'none';
-      highlightOverlay.style.display = 'none';
-      hideMeasurements();
+      clearRuntimeSelection();
       return;
     }
     if (e.data.type === 'select-element') {
@@ -1953,9 +2131,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       }
       if (!target) return;
       selectedEl = target;
-      var selectedInfo = getElementInfo(target);
       positionOverlay(selectionOverlay, target);
-      window.parent.postMessage({ type: 'element-select', payload: selectedInfo }, '*');
+      if (hoveredEl === selectedEl) highlightOverlay.style.display = 'none';
       return;
     }
     if (e.data.type === 'hover-element') {
@@ -1978,7 +2155,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       }
       var hoverTarget = findRuntimeTarget(String(e.data.selector || ''), hoverCandidates);
       hoveredEl = hoverTarget;
-      if (hoveredEl && !isLayerInteractionBlocked(hoveredEl)) {
+      if (hoveredEl && !isLayerInteractionBlocked(hoveredEl) && hoveredEl !== selectedEl) {
         positionOverlay(highlightOverlay, hoveredEl);
       } else {
         highlightOverlay.style.display = 'none';
@@ -2045,6 +2222,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 
   window.addEventListener('scroll', refreshOverlays, true);
   window.addEventListener('resize', refreshOverlays);
+  applyEditorChromeScale();
 })();
 </script>
 `;
@@ -2060,12 +2238,17 @@ interface DesignCanvasProps {
     viewportHeight: number;
     displayWidth: number;
     displayHeight: number;
+    fluid?: boolean;
   };
+  editorChromeScaleX?: number;
+  editorChromeScaleY?: number;
   editMode: boolean;
   interactMode: boolean;
+  readOnly?: boolean;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo) => void;
-  onElementHover: (info: ElementInfo) => void;
+  onElementHover: (info: ElementInfo | null) => void;
+  onClearSelection?: () => void;
   onVisualStyleChange?: (
     selector: string,
     styles: Record<string, string>,
@@ -2082,6 +2265,7 @@ interface DesignCanvasProps {
     selector?: string;
     hasRange?: boolean;
   }) => void;
+  onElementDblClickText?: (info: ElementInfo) => void;
   onIframeHotkey?: (event: IframeHotkeyPayload) => void;
   onIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onVisualStructureChange?: (
@@ -2120,6 +2304,7 @@ interface DesignCanvasProps {
   lockedSelectors?: string[];
   hiddenSelectors?: string[];
   clearSelectionRequest?: number;
+  registerRuntimeBridge?: boolean;
   /** Called when the user exits pin mode. */
   onExitPinMode?: () => void;
   /** Stable id of the open design (used for pin scoping + agent prompt). */
@@ -2176,15 +2361,20 @@ export function DesignCanvas({
   onZoomChange,
   deviceFrame,
   embeddedFrame,
+  editorChromeScaleX = 1,
+  editorChromeScaleY = editorChromeScaleX,
   editMode,
   interactMode,
+  readOnly = false,
   scaleMode = false,
   clearSelectionRequest,
   onElementSelect,
   onElementHover,
+  onClearSelection,
   onVisualStyleChange,
   onTextContentChange,
   onTextEditingStateChange,
+  onElementDblClickText,
   onIframeHotkey,
   onIframeContextMenu,
   onVisualStructureChange,
@@ -2200,6 +2390,7 @@ export function DesignCanvas({
   lockedSelectors = [],
   hiddenSelectors = [],
   onExitPinMode,
+  registerRuntimeBridge = true,
   designId,
   designTitle,
   commentContextId,
@@ -2255,13 +2446,17 @@ export function DesignCanvas({
   // outside Edit mode. The editor chrome bridge is omitted only for Interact.
   const srcdoc = useMemo(() => {
     if (externalPreviewUrl) return undefined;
-    const editorChromeBridge = interactMode
-      ? ""
-      : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-          "__TEXT_EDITING_ENABLED__",
-          editMode ? "true" : "false",
-        );
+    const editorChromeBridge =
+      interactMode || readOnly
+        ? ""
+        : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+          EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+            "__READ_ONLY__",
+            readOnly ? "true" : "false",
+          )
+            .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+            .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
+            .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
     const embeddedWheelBridge = EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
       isEmbeddedFrame ? "true" : "false",
@@ -2280,11 +2475,17 @@ export function DesignCanvas({
     }
     // No body/html tags — wrap it
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${renderedContent}${bridgeToInject}</body></html>`;
+    // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
+    // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
+    // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
+    // which reloads the iframe and flashes the screen content white.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     editMode,
     externalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
+    readOnly,
     renderedContent,
   ]);
 
@@ -2302,6 +2503,10 @@ export function DesignCanvas({
         return;
       }
       if (!e.data || !e.data.type) return;
+      if (e.data.type === "clear-selection") {
+        onClearSelection?.();
+        return;
+      }
       if (e.data.type === "element-select") {
         onElementSelect(e.data.payload);
       }
@@ -2407,6 +2612,10 @@ export function DesignCanvas({
             typeof e.data.selector === "string" ? e.data.selector : undefined,
           hasRange: Boolean(e.data.hasRange),
         });
+        return;
+      }
+      if (e.data.type === "element-dblclick-text") {
+        onElementDblClickText?.(e.data.payload);
         return;
       }
       if (e.data.type === "design-hotkey") {
@@ -2527,9 +2736,11 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onElementHover,
+    onClearSelection,
     onVisualStyleChange,
     onTextContentChange,
     onTextEditingStateChange,
+    onElementDblClickText,
     onIframeHotkey,
     onIframeContextMenu,
     onVisualStructureChange,
@@ -2605,6 +2816,21 @@ export function DesignCanvas({
     );
   }, [clearSelectionRequest]);
 
+  // Push the constant-size chrome scale into the iframe LIVE (CSS vars only) when
+  // overview zoom settles. This is intentionally separate from the srcdoc build so
+  // a scale change never rebuilds srcdoc / reloads the iframe (which flashes the
+  // content white). The baked __EDITOR_CHROME_SCALE__ values cover first paint.
+  useEffect(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: "set-editor-chrome-scale",
+        scaleX: editorChromeScaleX,
+        scaleY: editorChromeScaleY,
+      },
+      "*",
+    );
+  }, [editorChromeScaleX, editorChromeScaleY]);
+
   const sendStyleChange = useCallback(
     (selector: string, property: string, value: string) => {
       const iframe = iframeRef.current;
@@ -2654,15 +2880,31 @@ export function DesignCanvas({
 
   // Expose iframe runtime mutations for the editor orchestrator.
   useEffect(() => {
+    if (!registerRuntimeBridge) return;
     (window as any).__designCanvasSendStyle = sendStyleChange;
     (window as any).__designCanvasReplaceContent = replacePreviewContent;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     return () => {
-      delete (window as any).__designCanvasSendStyle;
-      delete (window as any).__designCanvasReplaceContent;
-      delete (window as any).__designCanvasDeleteElement;
+      if ((window as any).__designCanvasSendStyle === sendStyleChange) {
+        delete (window as any).__designCanvasSendStyle;
+      }
+      if (
+        (window as any).__designCanvasReplaceContent === replacePreviewContent
+      ) {
+        delete (window as any).__designCanvasReplaceContent;
+      }
+      if (
+        (window as any).__designCanvasDeleteElement === deleteRuntimeElement
+      ) {
+        delete (window as any).__designCanvasDeleteElement;
+      }
     };
-  }, [deleteRuntimeElement, replacePreviewContent, sendStyleChange]);
+  }, [
+    deleteRuntimeElement,
+    registerRuntimeBridge,
+    replacePreviewContent,
+    sendStyleChange,
+  ]);
 
   // Device dimensions match real-world devices. iframes are replaced elements
   // with an intrinsic 300×150 size, so `aspect-ratio` + `height: auto` doesn't
@@ -2679,6 +2921,7 @@ export function DesignCanvas({
 
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
+  const embeddedFrameFluid = embeddedFrame?.fluid === true;
 
   // Wrap the iframe in a positioned container so DrawOverlay /
   // CanvasCommentPins can absolutely-position themselves on top of the
@@ -2691,9 +2934,15 @@ export function DesignCanvas({
     <div
       className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
       style={{
-        width: embeddedFrame ? embeddedFrame.viewportWidth : iframeWidth,
+        width: embeddedFrame
+          ? embeddedFrameFluid
+            ? "100%"
+            : embeddedFrame.viewportWidth
+          : iframeWidth,
         height: embeddedFrame
-          ? embeddedFrame.viewportHeight
+          ? embeddedFrameFluid
+            ? "100%"
+            : embeddedFrame.viewportHeight
           : deviceFrame === "none"
             ? "100%"
             : (iframeHeight ?? undefined),
@@ -2771,6 +3020,17 @@ export function DesignCanvas({
   );
 
   if (embeddedFrame) {
+    if (embeddedFrameFluid) {
+      return (
+        <div
+          ref={scrollContainerRef}
+          className="relative h-full w-full overflow-hidden"
+        >
+          {iframeElement}
+        </div>
+      );
+    }
+
     const scaleX =
       embeddedFrame.displayWidth / Math.max(1, embeddedFrame.viewportWidth);
     const scaleY =

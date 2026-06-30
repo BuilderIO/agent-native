@@ -80,7 +80,9 @@ export function Layout({ children }: LayoutProps) {
           <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
             <div className="flex h-full flex-1 flex-col overflow-hidden">
               <InvitationBanner />
-              <main className="flex-1 overflow-hidden">{children}</main>
+              <main className="agent-native-app-main flex-1 overflow-hidden">
+                {children}
+              </main>
             </div>
           </div>
         ) : (
@@ -103,7 +105,9 @@ export function Layout({ children }: LayoutProps) {
             <div className="flex h-full flex-1 flex-col overflow-hidden">
               {showHeader ? <Header /> : null}
               <InvitationBanner />
-              <main className="flex-1 overflow-auto">{children}</main>
+              <main className="agent-native-app-main flex-1 overflow-auto">
+                {children}
+              </main>
             </div>
           </AgentSidebar>
         )}
