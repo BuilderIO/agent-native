@@ -74,6 +74,7 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   designTitle: string | null;
   activeFileId: string | null;
   activeFilename: string | null;
+  activeFileUpdatedAt: string | null;
   activeContent: string;
   viewMode: "single" | "overview";
   zoom: number;
@@ -517,6 +518,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           kind: "design-file" as const,
           designId: context.designId || undefined,
           fileId: context.activeFileId || undefined,
+          revision: context.activeFileUpdatedAt || undefined,
           currentContent: context.activeContent,
         },
       },

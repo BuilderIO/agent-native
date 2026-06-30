@@ -15,6 +15,13 @@ let fileId: string;
 let stateId: string;
 let baseURLForActions: string;
 
+interface DesignFileRecord {
+  id: string;
+  filename: string;
+  content: string;
+  updatedAt: string | null;
+}
+
 const DEEP_FIXTURE_HTML = FIXTURE_HTML.replace(
   "    <style>",
   '    <link rel="stylesheet" href="theme.css" />\n    <style>',
@@ -152,12 +159,24 @@ async function selectedElementBackgroundImage(page: Page): Promise<string> {
     .evaluate((el) => window.getComputedStyle(el).backgroundImage);
 }
 
-async function fileContent(request: APIRequestContext): Promise<string> {
+async function fileRecord(
+  request: APIRequestContext,
+): Promise<DesignFileRecord> {
   const result = await getAction(request, "get-design", { id: designId });
   const file = (result.files ?? []).find((candidate: { id?: string }) => {
     return candidate.id === fileId;
   });
-  return file?.content ?? "";
+  if (!file) throw new Error(`File not found in get-design result: ${fileId}`);
+  return {
+    id: file.id,
+    filename: file.filename,
+    content: file.content ?? "",
+    updatedAt: file.updatedAt ?? null,
+  };
+}
+
+async function fileContent(request: APIRequestContext): Promise<string> {
+  return (await fileRecord(request)).content;
 }
 
 test.beforeAll(async ({ request }, workerInfo) => {
@@ -396,8 +415,14 @@ test("shader preview is transient while apply-shader-fill persists", async ({
   await gotoEditor(page, designId);
   await expect.poll(() => selectedElementBackgroundImage(page)).toBe("none");
 
+  const shaderSourceFile = await fileRecord(request);
+  if (!shaderSourceFile.updatedAt) {
+    throw new Error(
+      "Shader fixture file did not include an updatedAt revision",
+    );
+  }
   const shaderPendingSentinel = "<!-- shader-current-content-sentinel -->";
-  const shaderCurrentContent = (await fileContent(request)).replace(
+  const shaderCurrentContent = shaderSourceFile.content.replace(
     "</body>",
     `${shaderPendingSentinel}\n  </body>`,
   );
@@ -408,6 +433,7 @@ test("shader preview is transient while apply-shader-fill persists", async ({
       kind: "design-file",
       designId,
       fileId,
+      revision: shaderSourceFile.updatedAt,
       currentContent: shaderCurrentContent,
     },
   });
@@ -424,6 +450,47 @@ test("shader preview is transient while apply-shader-fill persists", async ({
   expect(saved).toMatch(
     /data-agent-native-node-id="e2e-alpha-button"[\s\S]*background:\s*(?:linear|radial|conic)-gradient/,
   );
+
+  const staleSourceFile = await fileRecord(request);
+  if (!staleSourceFile.updatedAt) {
+    throw new Error("Shader fixture file did not include a stale revision");
+  }
+  const staleTabSentinel = "<!-- shader-stale-tab-sentinel -->";
+  const concurrentSaveSentinel = "<!-- shader-concurrent-save-sentinel -->";
+  const staleTabContent = staleSourceFile.content.replace(
+    "</body>",
+    `${staleTabSentinel}\n  </body>`,
+  );
+  const concurrentContent = staleSourceFile.content.replace(
+    "</body>",
+    `${concurrentSaveSentinel}\n  </body>`,
+  );
+  await postAction(request, "update-file", {
+    id: fileId,
+    content: concurrentContent,
+  });
+  const conflict = await postAction(request, "apply-shader-fill", {
+    descriptor: { preset: "MeshGradient" },
+    target: { nodeId: "e2e-alpha-button" },
+    source: {
+      kind: "design-file",
+      designId,
+      fileId,
+      revision: staleSourceFile.updatedAt,
+      currentContent: staleTabContent,
+    },
+  });
+  expect(conflict).toMatchObject({
+    ok: false,
+    persisted: false,
+    conflict: true,
+  });
+  expect(conflict.error).toContain(
+    "changed since this shader fill was previewed",
+  );
+  const afterConflict = await fileContent(request);
+  expect(afterConflict).toContain(concurrentSaveSentinel);
+  expect(afterConflict).not.toContain(staleTabSentinel);
 });
 
 test("repeated motion writes replace the managed CSS block instead of duplicating", async ({
@@ -520,8 +587,21 @@ test("export actions include multi-file content across HTML, SVG, ZIP, and PDF p
   expect(svg.svg).toContain('<foreignObject width="800" height="600">');
   expect(svg.svg).toContain("Clean secondary file");
 
+  await postAction(request, "create-file", {
+    designId,
+    filename: "README.md",
+    content: "User-authored README sentinel",
+    fileType: "html",
+  });
+  await postAction(request, "create-file", {
+    designId,
+    filename: "design-data.json",
+    content: "User-authored design data sentinel",
+    fileType: "asset",
+  });
+
   const zip = await postAction(request, "export-zip", { id: designId });
-  expect(zip.fileCount).toBe(3);
+  expect(zip.fileCount).toBe(5);
   expect(Buffer.from(zip.zipBase64, "base64").subarray(0, 2).toString()).toBe(
     "PK",
   );
@@ -530,10 +610,22 @@ test("export actions include multi-file content across HTML, SVG, ZIP, and PDF p
   expect(archive.file("index.html")).toBeTruthy();
   expect(archive.file("secondary.html")).toBeTruthy();
   expect(archive.file("theme.css")).toBeTruthy();
+  expect(archive.file("README.md")).toBeTruthy();
+  expect(archive.file("design-data.json")).toBeTruthy();
+  expect(archive.file("agent-native-metadata/README.md")).toBeTruthy();
   expect(archive.file("html/index.html")).toBeNull();
   expect(await archive.file("index.html")?.async("string")).toContain(
     "theme.css",
   );
+  expect(await archive.file("README.md")?.async("string")).toContain(
+    "User-authored README sentinel",
+  );
+  expect(await archive.file("design-data.json")?.async("string")).toContain(
+    "User-authored design data sentinel",
+  );
+  expect(
+    await archive.file("agent-native-metadata/README.md")?.async("string"),
+  ).toContain("E2E Code-Native Deep Surfaces");
 
   const pdf = await getAction(request, "export-pdf", { id: designId });
   expect(pdf.exportInfo.format).toBe("pdf");

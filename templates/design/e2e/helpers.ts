@@ -43,8 +43,7 @@ function appPath(path: string): string {
     path.startsWith("/design")
   ) {
     const url = new URL(E2E_BASE_URL);
-    const suffix = path.slice("/design".length);
-    url.pathname = `${E2E_BASE_PATH}${suffix}`;
+    url.pathname = `${E2E_BASE_PATH}${path}`;
     url.search = "";
     url.hash = "";
     return url.toString();

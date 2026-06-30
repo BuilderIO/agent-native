@@ -56,6 +56,15 @@ const PRESET_NAMES = Object.keys(SHADER_PRESET_MAP) as [
   ShaderPresetName,
   ...ShaderPresetName[],
 ];
+const REVISION_CONFLICT_MESSAGE =
+  "This file changed since this shader fill was previewed. Refresh the editor and try again.";
+
+class ShaderFillRevisionConflictError extends Error {
+  constructor() {
+    super(REVISION_CONFLICT_MESSAGE);
+    this.name = "ShaderFillRevisionConflictError";
+  }
+}
 
 const descriptorSchema = z.object({
   preset: z
@@ -98,7 +107,9 @@ const sourceSchema = z
       .describe(
         "Current open editor HTML for the target file. When supplied, the " +
           "shader background is patched into this content instead of the " +
-          "last SQL snapshot so in-flight local edits are preserved.",
+          "last SQL snapshot so in-flight local edits are preserved. " +
+          "source.revision must also be supplied as the file updatedAt value " +
+          "that currentContent was based on.",
       ),
   })
   .describe(
@@ -131,6 +142,8 @@ interface ResolvedDesignFile {
   designId: string;
   filename: string;
   content: string;
+  updatedAt: string | null;
+  expectedUpdatedAt?: string;
   codeLayerSource: CodeLayerSource;
 }
 
@@ -172,6 +185,7 @@ async function resolveEditableDesignFile(source: {
       filename: schema.designFiles.filename,
       fileType: schema.designFiles.fileType,
       content: schema.designFiles.content,
+      updatedAt: schema.designFiles.updatedAt,
     })
     .from(schema.designFiles)
     .innerJoin(
@@ -202,10 +216,27 @@ async function resolveEditableDesignFile(source: {
 
   await assertAccess("design", file.designId, "editor");
 
+  if (source.currentContent !== undefined && !source.revision) {
+    throw new Error(
+      "source.revision is required when source.currentContent is provided.",
+    );
+  }
+  if (
+    source.currentContent !== undefined &&
+    source.revision &&
+    file.updatedAt &&
+    source.revision !== file.updatedAt
+  ) {
+    throw new ShaderFillRevisionConflictError();
+  }
+
   return {
     id: file.id,
     designId: file.designId,
     filename: file.filename,
+    updatedAt: file.updatedAt,
+    expectedUpdatedAt:
+      source.currentContent !== undefined ? source.revision : undefined,
     content:
       source.currentContent !== undefined
         ? source.currentContent
@@ -224,18 +255,54 @@ async function persistDesignFileEdit(file: {
   id: string;
   designId: string;
   content: string;
+  expectedUpdatedAt?: string;
 }): Promise<void> {
   await assertAccess("design", file.designId, "editor");
 
   const db = getDb();
   const now = new Date().toISOString();
 
+  if (file.expectedUpdatedAt) {
+    const [latest] = await db
+      .select({ updatedAt: schema.designFiles.updatedAt })
+      .from(schema.designFiles)
+      .where(eq(schema.designFiles.id, file.id))
+      .limit(1);
+    if (!latest) {
+      throw new Error("Design HTML file not found.");
+    }
+    if (latest.updatedAt && latest.updatedAt !== file.expectedUpdatedAt) {
+      throw new ShaderFillRevisionConflictError();
+    }
+  }
+
   await db
     .update(schema.designFiles)
     .set({ content: file.content, updatedAt: now })
-    .where(eq(schema.designFiles.id, file.id));
+    .where(
+      file.expectedUpdatedAt
+        ? and(
+            eq(schema.designFiles.id, file.id),
+            eq(schema.designFiles.updatedAt, file.expectedUpdatedAt),
+          )
+        : eq(schema.designFiles.id, file.id),
+    );
 
-  // Keep SQL as the source of truth for this atomic server write. The editor
+  if (file.expectedUpdatedAt) {
+    const [saved] = await db
+      .select({
+        content: schema.designFiles.content,
+        updatedAt: schema.designFiles.updatedAt,
+      })
+      .from(schema.designFiles)
+      .where(eq(schema.designFiles.id, file.id))
+      .limit(1);
+    if (!saved || saved.updatedAt !== now || saved.content !== file.content) {
+      throw new ShaderFillRevisionConflictError();
+    }
+  }
+
+  // Keep SQL as the source of truth for this guarded server write. The editor
   // already has the live shader preview applied; feeding a full HTML document
   // back through an existing collab text snapshot can merge against stale
   // iframe state and corrupt the saved source.
@@ -330,7 +397,25 @@ snippet (WebGL canvas / JSX component), call apply-shader.
       };
     }
 
-    const file = await resolveEditableDesignFile(source);
+    let file: ResolvedDesignFile;
+    try {
+      file = await resolveEditableDesignFile(source);
+    } catch (error) {
+      if (error instanceof ShaderFillRevisionConflictError) {
+        return {
+          ok: false,
+          persisted: false,
+          conflict: true,
+          descriptor,
+          background,
+          fallbackCss,
+          colors,
+          error: error.message,
+          note: error.message,
+        };
+      }
+      throw error;
+    }
 
     const intent: StyleEditIntent = {
       kind: "style",
@@ -356,11 +441,33 @@ snippet (WebGL canvas / JSX component), call apply-shader.
       patch.result.status === "applied" && patch.result.changed === true;
 
     if (changed) {
-      await persistDesignFileEdit({
-        id: file.id,
-        designId: file.designId,
-        content: patch.content,
-      });
+      try {
+        await persistDesignFileEdit({
+          id: file.id,
+          designId: file.designId,
+          content: patch.content,
+          expectedUpdatedAt: file.expectedUpdatedAt,
+        });
+      } catch (error) {
+        if (error instanceof ShaderFillRevisionConflictError) {
+          return {
+            ok: false,
+            persisted: false,
+            conflict: true,
+            descriptor,
+            background,
+            fallbackCss,
+            colors,
+            designId: file.designId,
+            fileId: file.id,
+            filename: file.filename,
+            result: patch.result,
+            error: error.message,
+            note: error.message,
+          };
+        }
+        throw error;
+      }
     }
 
     return {
