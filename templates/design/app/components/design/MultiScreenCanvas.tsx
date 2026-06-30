@@ -81,6 +81,7 @@ interface ScreenFile {
   height?: number;
   url?: string;
   previewUrl?: string;
+  bridgeUrl?: string;
   /**
    * When set, renders multiple side-by-side breakpoint frames (mobile-first,
    * §6.4). Each entry is a pixel width; the active breakpoint determines the
@@ -145,6 +146,7 @@ interface ScreenMetadata {
   height?: number;
   url?: string;
   previewUrl?: string;
+  bridgeUrl?: string;
 }
 
 interface DuplicateRequest {
@@ -463,12 +465,36 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
+const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-render>html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script){background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}</style>`;
+
+export function getBoardSurfaceRenderContent(html: string) {
+  if (!html) return html;
+  if (html.includes("data-agent-native-board-surface-render")) return html;
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${BOARD_SURFACE_RENDER_STYLE}</head>`);
+  }
+  if (/<body\b/i.test(html)) {
+    return html.replace(/<body\b/i, `${BOARD_SURFACE_RENDER_STYLE}<body`);
+  }
+  return `${BOARD_SURFACE_RENDER_STYLE}${html}`;
+}
+
+export function getBoardContentLayerSignature(html: string) {
+  const ids = Array.from(
+    html.matchAll(/data-agent-native-node-id\s*=\s*["']([^"']+)["']/gi),
+    (match) => match[1] ?? "",
+  ).filter(Boolean);
+  return `${ids.length}:${hashString(ids.join("\n"))}`;
+}
+
 export function getBoardContentKey(args: {
   boardFileId: string;
   boardFileContent: string;
   boardIsActive: boolean;
 }) {
-  if (args.boardIsActive) return `${args.boardFileId}:active`;
+  if (args.boardIsActive) {
+    return `${args.boardFileId}:active:${getBoardContentLayerSignature(args.boardFileContent)}`;
+  }
   return `${args.boardFileId}:${args.boardFileContent.length}:${hashString(args.boardFileContent)}`;
 }
 
@@ -1664,13 +1690,18 @@ export function MultiScreenCanvas({
           sourceId,
         };
 
-        // Pointer is inside the source iframe — let the bridge handle it.
-        if (
+        const pointerInsideSourceIframe =
           iframeX >= 0 &&
           iframeY >= 0 &&
           iframeX <= viewportW &&
-          iframeY <= viewportH
-        ) {
+          iframeY <= viewportH;
+        const sourceIsBoard = sourceScreenId === boardFileId;
+        // Regular screen iframes are finite artboards, so an in-bounds pointer
+        // means the source bridge should keep handling the drag. The board
+        // iframe is different: it spans the whole overview canvas, including
+        // every screen frame, so board-origin drags must still be checked
+        // against screen drop targets while technically "inside" the source.
+        if (pointerInsideSourceIframe && !sourceIsBoard) {
           setCrossScreenGhost(null);
           setCrossScreenTarget(null);
           crossScreenTargetRef.current = null;
@@ -4382,6 +4413,8 @@ export function MultiScreenCanvas({
               boardFileContent,
               boardIsActive,
             });
+            const boardRenderContent =
+              getBoardSurfaceRenderContent(boardFileContent);
             return (
               // Overflow-hidden wrapper so the board iframe never bleeds outside
               // its declared logical surface. z-index 0 keeps it below screen
@@ -4394,11 +4427,12 @@ export function MultiScreenCanvas({
                 })}
               >
                 <DesignCanvas
-                  content={boardFileContent}
+                  content={boardRenderContent}
                   contentKey={boardContentKey}
                   screenId={boardFileId}
                   zoom={100}
                   deviceFrame="none"
+                  boardSurface
                   transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),

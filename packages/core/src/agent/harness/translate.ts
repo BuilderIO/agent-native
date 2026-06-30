@@ -32,6 +32,9 @@ export function agentHarnessEventToAgentChatEvents(
         {
           type: "tool_done",
           tool: event.name,
+          ...(event.input !== undefined
+            ? { input: normalizeToolInput(event.input) }
+            : {}),
           result: stringifyResult(event.result),
           ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
         },

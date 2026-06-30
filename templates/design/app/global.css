@@ -330,6 +330,13 @@
   animation: none !important;
 }
 
+.design-motion-dock {
+  transition-property: translate, transform, border-color;
+  transition-duration: 200ms;
+  transition-timing-function: ease-out;
+  will-change: translate, transform;
+}
+
 .dark .design-editor-app-menu-content {
   box-shadow: 0 12px 28px rgb(0 0 0 / 0.34);
 }

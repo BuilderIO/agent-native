@@ -1,4 +1,5 @@
 import { sendToAgentChat, usePinchZoom, useT } from "@agent-native/core/client";
+import { ensureCodeLayerNodeIdsInHtml } from "@shared/code-layer";
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 
 // NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
@@ -281,6 +282,20 @@ interface DesignCanvasProps {
    * model uses window-identity trust instead of same-origin trust.
    */
   sourceType?: "inline" | "localhost" | "fusion";
+  /** Local design-connect bridge URL used to fetch editable snapshots for URL-backed localhost screens. */
+  bridgeUrl?: string;
+  /**
+   * HTML snapshot for a URL-backed localhost screen. When present, DesignCanvas
+   * renders this as editable srcdoc while the persisted design file can remain
+   * the original URL.
+   */
+  externalSnapshotHtml?: string;
+  onExternalContentSnapshot?: (snapshot: {
+    url: string;
+    html: string;
+    status?: number;
+    contentType?: string;
+  }) => void;
   /**
    * Explicit Builder-hosted app URL for fusion source rendering.
    *
@@ -309,6 +324,7 @@ interface DesignCanvasProps {
     contentOffsetX?: number;
     contentOffsetY?: number;
   };
+  boardSurface?: boolean;
   embeddedFrameBackground?: string;
   transparentBackground?: boolean;
   editorChromeScaleX?: number;
@@ -459,6 +475,36 @@ function getExternalPreviewUrl(content: string): string | null {
   }
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function addSnapshotBaseHref(html: string, href: string): string {
+  if (!html.trim()) return html;
+  if (/<base\b/i.test(html)) return html;
+  const baseTag = `<base href="${escapeHtmlAttribute(href)}">`;
+  if (/<head\b[^>]*>/i.test(html)) {
+    return html.replace(/<head\b[^>]*>/i, (match) => `${match}${baseTag}`);
+  }
+  if (/<html\b[^>]*>/i.test(html)) {
+    return html.replace(
+      /<html\b[^>]*>/i,
+      (match) => `${match}<head>${baseTag}</head>`,
+    );
+  }
+  return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
+}
+
+function snapshotEndpointUrl(bridgeUrl: string, previewUrl: string): string {
+  const endpoint = new URL("/snapshot", bridgeUrl);
+  endpoint.searchParams.set("url", previewUrl);
+  return endpoint.toString();
+}
+
 const TRANSPARENT_EMBEDDED_FRAME_STYLE =
   "<style data-agent-native-transparent-frame>html,body{background:transparent!important;}body{background-color:transparent!important;}</style>";
 
@@ -524,11 +570,15 @@ export function DesignCanvas({
   content,
   contentKey,
   sourceType,
+  bridgeUrl,
+  externalSnapshotHtml,
+  onExternalContentSnapshot,
   fusionUrl,
   zoom,
   onZoomChange,
   deviceFrame,
   embeddedFrame,
+  boardSurface = false,
   embeddedFrameBackground,
   transparentBackground = false,
   editorChromeScaleX = 1,
@@ -581,6 +631,11 @@ export function DesignCanvas({
   const [renderedContent, setRenderedContent] = useState(content);
   const [annotationPins, setAnnotationPins] = useState<CanvasPin[]>([]);
   const [pinSubmitSignal, setPinSubmitSignal] = useState(0);
+  const [fetchedExternalSnapshot, setFetchedExternalSnapshot] = useState<{
+    url: string;
+    html: string;
+  } | null>(null);
+  const onExternalContentSnapshotRef = useRef(onExternalContentSnapshot);
   const isEmbeddedFrame = Boolean(embeddedFrame);
   // Resolve the URL to render in the iframe:
   // 1. When sourceType === "fusion" and fusionUrl is set, prefer the explicit
@@ -589,7 +644,7 @@ export function DesignCanvas({
   // 2. Otherwise fall back to the content-based URL detection (handles the case
   //    where the branch URL has been written into the design file content, or
   //    where the localhost URL is the file content).
-  const externalPreviewUrl = useMemo(() => {
+  const rawExternalPreviewUrl = useMemo(() => {
     if (sourceType === "fusion" && fusionUrl) {
       try {
         const url = new URL(fusionUrl);
@@ -601,7 +656,81 @@ export function DesignCanvas({
     }
     return getExternalPreviewUrl(renderedContent);
   }, [fusionUrl, renderedContent, sourceType]);
+  const activeExternalSnapshotHtml =
+    externalSnapshotHtml ??
+    (fetchedExternalSnapshot?.url === rawExternalPreviewUrl
+      ? fetchedExternalSnapshot.html
+      : undefined);
+  const iframeRenderContent = activeExternalSnapshotHtml ?? renderedContent;
+  const externalPreviewUrl = activeExternalSnapshotHtml
+    ? null
+    : rawExternalPreviewUrl;
   zoomRef.current = zoom;
+
+  useEffect(() => {
+    onExternalContentSnapshotRef.current = onExternalContentSnapshot;
+  }, [onExternalContentSnapshot]);
+
+  useEffect(() => {
+    const previewUrl = rawExternalPreviewUrl;
+    if (
+      sourceType !== "localhost" ||
+      !bridgeUrl ||
+      !previewUrl ||
+      externalSnapshotHtml
+    ) {
+      setFetchedExternalSnapshot((current) =>
+        current?.url === previewUrl ? current : null,
+      );
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    const endpoint = snapshotEndpointUrl(bridgeUrl, previewUrl);
+    void (async () => {
+      try {
+        const response = await fetch(endpoint, {
+          method: "GET",
+          headers: { accept: "application/json" },
+          signal: controller.signal,
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          ok?: boolean;
+          url?: string;
+          html?: string;
+          status?: number;
+          contentType?: string;
+        } | null;
+        if (cancelled || !response.ok || !payload?.ok) return;
+        const sourceUrl = payload.url || previewUrl;
+        const html = addSnapshotBaseHref(payload.html ?? "", sourceUrl);
+        const stamped = ensureCodeLayerNodeIdsInHtml(html, {
+          source: {
+            kind: "remote-url",
+            sourceType: "localhost",
+            url: sourceUrl,
+            bridgeUrl,
+          },
+        }).content;
+        if (cancelled) return;
+        setFetchedExternalSnapshot({ url: previewUrl, html: stamped });
+        onExternalContentSnapshotRef.current?.({
+          url: previewUrl,
+          html: stamped,
+          status: payload.status,
+          contentType: payload.contentType,
+        });
+      } catch (error) {
+        if (!cancelled && !(error instanceof DOMException)) {
+          console.warn("[DesignCanvas] preview snapshot failed", error);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [bridgeUrl, externalSnapshotHtml, rawExternalPreviewUrl, sourceType]);
 
   const queuedAnnotationPins = useMemo(
     () =>
@@ -657,6 +786,10 @@ export function DesignCanvas({
           .replace(
             "__DESIGN_CANVAS_SCREEN_ID__",
             JSON.stringify(screenId ?? contentKey ?? ""),
+          )
+          .replace(
+            "__DESIGN_CANVAS_BOARD_SURFACE__",
+            boardSurface ? "true" : "false",
           );
     const embeddedWheelBridge = EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
@@ -680,7 +813,10 @@ export function DesignCanvas({
         embeddedFrame?.contentOffsetY ?? 0,
       ),
     ].join("");
-    const frameContent = injectEmbeddedFrameStyle(renderedContent, frameStyle);
+    const frameContent = injectEmbeddedFrameStyle(
+      iframeRenderContent,
+      frameStyle,
+    );
     if (frameContent.includes("</body>")) {
       return frameContent.replace("</body>", bridgeToInject + "</body>"); // i18n-ignore generated iframe HTML injection
     }
@@ -688,7 +824,7 @@ export function DesignCanvas({
       return frameContent.replace("</html>", bridgeToInject + "</html>"); // i18n-ignore generated iframe HTML injection
     }
     // No body/html tags — wrap it
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${renderedContent}${bridgeToInject}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
@@ -697,13 +833,14 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     editMode,
+    boardSurface,
     externalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
     embeddedFrame?.contentOffsetX,
     embeddedFrame?.contentOffsetY,
     embeddedFrameBackground,
-    renderedContent,
+    iframeRenderContent,
     transparentBackground,
   ]);
 

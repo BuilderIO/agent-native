@@ -103,6 +103,8 @@ export interface MotionDockProps {
   open?: boolean;
   /** Called when the user toggles the dock open/closed. */
   onOpenChange?: (open: boolean) => void;
+  /** Called after the close transform finishes. */
+  onExitComplete?: () => void;
   /** Called when a track is modified (add/move/delete keyframe or change value). */
   onTracksChange?: (tracks: MotionDockTrack[]) => void;
   /** Called when durationMs is edited. */
@@ -131,6 +133,7 @@ export function MotionDock({
   defaultEase = "ease",
   open: openProp,
   onOpenChange,
+  onExitComplete,
   onTracksChange,
   onDurationChange,
   canvasIframeRef,
@@ -406,11 +409,20 @@ export function MotionDock({
     <div
       aria-label="Motion dock"
       aria-hidden={!isOpen ? true : undefined}
+      onTransitionEnd={(event) => {
+        if (event.currentTarget !== event.target) return;
+        if (
+          event.propertyName !== "translate" &&
+          event.propertyName !== "transform"
+        )
+          return;
+        if (!isOpen) onExitComplete?.();
+      }}
       className={cn(
-        "relative flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background transition-[transform,border-color] duration-200 ease-out select-none will-change-transform",
+        "design-motion-dock flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background select-none",
         isOpen
-          ? "translate-y-0 border-border opacity-100"
-          : "translate-y-full border-transparent pointer-events-none",
+          ? "relative translate-y-0 border-border opacity-100"
+          : "absolute inset-x-0 bottom-0 z-40 translate-y-full border-transparent pointer-events-none",
       )}
       style={{ height: dockHeight }}
     >

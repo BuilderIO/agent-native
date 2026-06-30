@@ -23,8 +23,11 @@ import {
   IconArrowRight,
   IconBackground,
   IconBlur,
+  IconBorderCorners,
+  IconBorderRadius,
   IconBorderStyle,
   IconBrush,
+  IconCheck,
   IconCode,
   IconComponents,
   IconDeviceDesktop,
@@ -35,11 +38,10 @@ import {
   IconFlipHorizontal,
   IconFlipVertical,
   IconFrame,
+  IconGridDots,
   IconLayoutDistributeHorizontal,
   IconLayoutGrid,
   IconLoader2,
-  IconShieldCheck,
-  IconSlice,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -50,11 +52,15 @@ import {
   IconLetterSpacing,
   IconLineHeight,
   IconLink,
-  IconMaximize,
   IconMinus,
   IconPhoto,
   IconPlus,
+  IconRadiusBottomLeft,
+  IconRadiusBottomRight,
+  IconRadiusTopLeft,
+  IconRadiusTopRight,
   IconShadow,
+  IconShieldCheck,
   IconSquare,
   IconTypography,
   IconUnlink,
@@ -3022,7 +3028,6 @@ function CornerRadiusControl({
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
-  const radius = cssLengthNumber(styles.borderRadius || "0");
   const corners = {
     topLeft: cssLengthNumber(styles.borderTopLeftRadius || styles.borderRadius),
     topRight: cssLengthNumber(
@@ -3035,110 +3040,238 @@ function CornerRadiusControl({
       styles.borderBottomLeftRadius || styles.borderRadius,
     ),
   };
+  const cornersDiffer =
+    corners.topLeft !== corners.topRight ||
+    corners.topLeft !== corners.bottomRight ||
+    corners.topLeft !== corners.bottomLeft;
+  const [showIndependentCorners, setShowIndependentCorners] =
+    useState(cornersDiffer);
+  const radius = cornersDiffer
+    ? corners.topLeft
+    : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
+  const commitRadius = (value: number) => {
+    const next = `${Math.max(0, Math.round(value))}px`;
+    onStyleChange("borderRadius", next);
+    if (!showIndependentCorners) return;
+    onStyleChange("borderTopLeftRadius", next);
+    onStyleChange("borderTopRightRadius", next);
+    onStyleChange("borderBottomRightRadius", next);
+    onStyleChange("borderBottomLeftRadius", next);
+  };
+
+  useEffect(() => {
+    if (cornersDiffer) setShowIndependentCorners(true);
+  }, [cornersDiffer]);
 
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-1.5">
-      <ScrubInput
+    <>
+      <AppearanceScrubField
         label={t("editPanel.labels.cornerRadius")}
+        icon={IconBorderRadius}
         value={radius}
-        onChange={(value) =>
-          onStyleChange("borderRadius", `${Math.max(0, Math.round(value))}px`)
-        }
-        unit="px"
+        onChange={commitRadius}
         min={0}
         precision={1}
-        labelClassName="w-24"
-        inputClassName="h-6"
       />
-      <Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]"
-                aria-label={independentCornersLabel}
-              >
-                <IconMaximize className="size-3.5" />
-              </Button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{independentCornersLabel}</TooltipContent>
-        </Tooltip>
-        <PopoverContent
-          side="left"
-          align="start"
-          sideOffset={8}
-          className="w-64 p-3"
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+              showIndependentCorners &&
+                "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-accent-color)]/20 hover:text-[var(--design-editor-accent-color)]",
+            )}
+            aria-label={independentCornersLabel}
+            aria-pressed={showIndependentCorners}
+            onClick={() => setShowIndependentCorners((value) => !value)}
+          >
+            <IconBorderCorners className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{independentCornersLabel}</TooltipContent>
+      </Tooltip>
+      {showIndependentCorners ? (
+        <>
+          <AppearanceScrubField
+            label={t("editPanel.labels.topLeft")}
+            icon={IconRadiusTopLeft}
+            value={corners.topLeft}
+            onChange={(value) =>
+              onStyleChange(
+                "borderTopLeftRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <AppearanceScrubField
+            label={t("editPanel.labels.topRight")}
+            icon={IconRadiusTopRight}
+            value={corners.topRight}
+            onChange={(value) =>
+              onStyleChange(
+                "borderTopRightRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <span aria-hidden="true" />
+          <AppearanceScrubField
+            label={t("editPanel.labels.bottomLeft")}
+            icon={IconRadiusBottomLeft}
+            value={corners.bottomLeft}
+            onChange={(value) =>
+              onStyleChange(
+                "borderBottomLeftRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <AppearanceScrubField
+            label={t("editPanel.labels.bottomRight")}
+            icon={IconRadiusBottomRight}
+            value={corners.bottomRight}
+            onChange={(value) =>
+              onStyleChange(
+                "borderBottomRightRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <span aria-hidden="true" />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function AppearanceScrubField({
+  label,
+  icon,
+  value,
+  onChange,
+  mixed = false,
+  min,
+  max,
+  step,
+  unit,
+  precision,
+}: {
+  label: string;
+  icon: (props: { className?: string }) => ReactNode;
+  value: number;
+  onChange: (value: number) => void;
+  mixed?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  precision?: number;
+}) {
+  return (
+    <ScrubInput
+      label={label}
+      ariaLabel={label}
+      icon={icon}
+      value={value}
+      onChange={onChange}
+      mixed={mixed}
+      min={min}
+      max={max}
+      step={step}
+      unit={unit}
+      precision={precision}
+      className="min-w-0 gap-0"
+      labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground [&>span]:sr-only"
+      inputClassName="h-6 min-w-0 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] border-l-0 bg-[var(--design-editor-control-bg)] px-0 text-left shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+    />
+  );
+}
+
+function BlendModeMenu({
+  styles,
+  onStyleChange,
+}: {
+  styles: Record<string, string>;
+  onStyleChange: (property: string, value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const blendMode = optionValue(
+    BLEND_MODE_OPTIONS,
+    styles.mixBlendMode || "normal",
+    "normal",
+  );
+  const selectedBlendMode =
+    blendMode === "normal" && styles.isolation !== "isolate"
+      ? "pass-through"
+      : blendMode;
+  const options = [
+    {
+      value: "pass-through",
+      label: "Pass through", // i18n-ignore design blend mode label
+    },
+    ...BLEND_MODE_OPTIONS,
+  ] as const;
+  const selectBlendMode = (value: (typeof options)[number]["value"]) => {
+    if (value === "pass-through") {
+      onStyleChange("mixBlendMode", "normal");
+      onStyleChange("isolation", "auto");
+      return;
+    }
+    onStyleChange("mixBlendMode", value);
+    if (value === "normal") onStyleChange("isolation", "isolate");
+  };
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={"Blend mode" /* i18n-ignore design inspector action */}
+          aria-pressed={open}
+          className={cn(
+            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
+            open &&
+              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+          )}
         >
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-foreground">
-              {independentCornersLabel}
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <ScrubInput
-                label={t("editPanel.labels.topLeft")}
-                value={corners.topLeft}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderTopLeftRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.topRight")}
-                value={corners.topRight}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderTopRightRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.bottomLeft")}
-                value={corners.bottomLeft}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderBottomLeftRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.bottomRight")}
-                value={corners.bottomRight}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderBottomRightRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-    </div>
+          <IconDroplet className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="left"
+        align="start"
+        sideOffset={8}
+        className="z-[100010] w-48 rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[13px] text-foreground shadow-2xl"
+      >
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            className="flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-[13px] focus:bg-[var(--design-editor-control-bg)]"
+            onSelect={() => selectBlendMode(option.value)}
+          >
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              {selectedBlendMode === option.value ? (
+                <IconCheck className="size-4" />
+              ) : null}
+            </span>
+            <span>{option.label}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -5218,15 +5351,6 @@ function AppearanceProperties({
       title={t("root.commandAppearance")}
       actions={
         <>
-          {/* Opacity / blend-mode affordance — matches the design editor's pill icon */}
-          <SectionIconButton
-            label={
-              "Opacity & blend mode" /* i18n-ignore design inspector action */
-            }
-          >
-            <IconSlice className="size-3.5" />
-          </SectionIconButton>
-          {/* Visibility toggle */}
           <SectionIconToggle
             label={
               hidden
@@ -5244,18 +5368,21 @@ function AppearanceProperties({
               <IconEye className="size-3.5" />
             )}
           </SectionIconToggle>
-          {/* Styles / fill library affordance — matches the design editor's droplet icon */}
-          <SectionIconButton
-            label={"Styles" /* i18n-ignore design inspector action */}
-          >
-            <IconDroplet className="size-3.5" />
-          </SectionIconButton>
+          <BlendModeMenu styles={styles} onStyleChange={onStyleChange} />
         </>
       }
     >
-      <div className="grid grid-cols-2 gap-2">
-        <ScrubInput
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5">
+        <p className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
+          {t("editPanel.labels.opacity")}
+        </p>
+        <p className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
+          {t("editPanel.labels.cornerRadius")}
+        </p>
+        <span aria-hidden="true" />
+        <AppearanceScrubField
           label={t("editPanel.labels.opacity")}
+          icon={IconGridDots}
           value={
             isMixedValue(styles.opacity)
               ? 0
@@ -5268,36 +5395,9 @@ function AppearanceProperties({
           step={1}
           unit="%"
           precision={1}
-          labelClassName="w-0 overflow-hidden"
-          inputClassName="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none"
         />
-        {/* M9: blend mode compact — inline select next to opacity, no separate labeled row */}
-        <Select
-          value={optionValue(
-            BLEND_MODE_OPTIONS,
-            styles.mixBlendMode || "normal",
-            "normal",
-          )}
-          onValueChange={(value) => onStyleChange("mixBlendMode", value)}
-        >
-          <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {BLEND_MODE_OPTIONS.map((opt) => (
-              <SelectItem
-                key={opt.value}
-                value={opt.value}
-                className="text-[11px]"
-              >
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <CornerRadiusControl styles={styles} onStyleChange={onStyleChange} />
       </div>
-      {/* M7: use CornerRadiusControl (with independent-corners toggle) instead of bare ScrubInput */}
-      <CornerRadiusControl styles={styles} onStyleChange={onStyleChange} />
     </PanelSection>
   );
 }

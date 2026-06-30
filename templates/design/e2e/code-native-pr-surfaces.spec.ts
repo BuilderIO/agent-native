@@ -288,7 +288,11 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
             .evaluate((node) => {
               const element = node as HTMLElement;
               const style = window.getComputedStyle(element);
-              return { height: element.style.height, opacity: style.opacity };
+              return {
+                height: element.style.height,
+                opacity: style.opacity,
+                position: style.position,
+              };
             })
             .catch(() => null),
         ]);
@@ -296,7 +300,8 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
           dockCount === 1 &&
           launcherVisible &&
           dockState?.height !== "0px" &&
-          dockState?.opacity === "1"
+          dockState?.opacity === "1" &&
+          dockState?.position === "absolute"
         );
       },
       { timeout: 150, intervals: [20, 20, 20, 20, 20] },

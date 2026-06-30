@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
-  getBoardSurfaceLayerStyle,
   getBoardContentKey,
+  getBoardContentLayerSignature,
+  getBoardSurfaceLayerStyle,
+  getBoardSurfaceRenderContent,
   getCrossScreenDropGuideForHitTest,
   getPrimitiveDropTargetForPoint,
   hasBoardSurfaceContent,
@@ -97,6 +99,19 @@ describe("board surface pointer capture", () => {
     ).toBe(true);
   });
 
+  it("injects a board-only transparent surface guard", () => {
+    const html = `<!doctype html><html><head><style>body{background:white}</style></head><body><div class="page" style="background:white"><div data-agent-native-node-id="rect" style="background:#ddd"></div></div></body></html>`;
+    const result = getBoardSurfaceRenderContent(html);
+
+    expect(result).toContain("data-agent-native-board-surface-render");
+    expect(result).toContain(
+      "body>:not([data-agent-native-node-id]):not(style):not(script)",
+    );
+    expect(result).toContain(
+      `<div data-agent-native-node-id="rect" style="background:#ddd">`,
+    );
+  });
+
   it("captures only direct board edit tools", () => {
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "move" })).toBe(true);
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "scale" })).toBe(
@@ -127,20 +142,50 @@ describe("board surface pointer capture", () => {
   });
 
   it("keeps the active board iframe content key stable across local edits", () => {
+    const before = `<body><div data-agent-native-node-id="rect" style="left:1px"></div></body>`;
+    const after = `<body><div data-agent-native-node-id="rect" style="left:2px"></div></body>`;
+
     expect(
       getBoardContentKey({
         boardFileId: "board",
-        boardFileContent: "<body><div>before</div></body>",
+        boardFileContent: before,
         boardIsActive: true,
       }),
-    ).toBe("board:active");
+    ).toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: after,
+        boardIsActive: true,
+      }),
+    );
+  });
+
+  it("changes the active board iframe content key when layer ids change", () => {
     expect(
       getBoardContentKey({
         boardFileId: "board",
-        boardFileContent: "<body><div>after</div></body>",
+        boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div></body>`,
         boardIsActive: true,
       }),
-    ).toBe("board:active");
+    ).not.toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
+        boardIsActive: true,
+      }),
+    );
+    expect(
+      getBoardContentLayerSignature(
+        `<body><div data-agent-native-node-id="rect-a"></div></body>`,
+      ),
+    ).not.toBe(
+      getBoardContentLayerSignature(
+        `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
+      ),
+    );
+  });
+
+  it("keeps inactive board iframe content keys tied to full content", () => {
     expect(
       getBoardContentKey({
         boardFileId: "board",

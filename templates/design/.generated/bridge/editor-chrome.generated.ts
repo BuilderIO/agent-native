@@ -9,6 +9,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var readOnly = __READ_ONLY__;
     var textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
     var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
+    var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
     var scaleToolEnabled = false;
     var editorChromeScaleX = Math.max(
       0.05,
@@ -585,10 +586,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function makePassiveSelectionOverlay() {
       var overlay = document.createElement("div");
-      overlay.setAttribute(
-        "data-agent-native-edit-overlay",
-        "multi-selection"
-      );
+      overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
       overlay.style.cssText = "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
       document.body.appendChild(overlay);
       return overlay;
@@ -1986,6 +1984,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           type: "agent-native:cross-screen-drag",
           phase,
           screenId: designCanvasScreenId,
+          boardSurface: designCanvasBoardSurface,
           selector: getSelector(el ?? null),
           sourceId: getSourceId(el ?? null),
           iframeX: ev?.clientX ?? 0,
@@ -2415,8 +2414,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.removeEventListener(events.up, onUp, true);
         hideTransformBadge();
         if (!dragEl) return;
-        if (ev && !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) : false;
+        if (ev && !duplicatedForDrag && (outsideOnDrop || designCanvasBoardSurface)) {
           postCrossScreenDrag("end", dragEl, ev);
+        }
+        if (ev && !duplicatedForDrag && outsideOnDrop) {
           restoreSourceDragPosition();
           return;
         }

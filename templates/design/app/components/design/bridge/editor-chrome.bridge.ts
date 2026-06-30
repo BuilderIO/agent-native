@@ -12,6 +12,7 @@
  *   __EDITOR_CHROME_SCALE_X__  — number string, e.g. "1.5"
  *   __EDITOR_CHROME_SCALE_Y__  — number string, e.g. "1.5"
  *   __DESIGN_CANVAS_SCREEN_ID__ — string literal for the owning screen/file id
+ *   __DESIGN_CANVAS_BOARD_SURFACE__ — boolean literal for top-level board iframe
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -26,11 +27,13 @@ declare var __TEXT_EDITING_ENABLED__: boolean;
 declare var __EDITOR_CHROME_SCALE_X__: string;
 declare var __EDITOR_CHROME_SCALE_Y__: string;
 declare var __DESIGN_CANVAS_SCREEN_ID__: string;
+declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
 (function () {
   var readOnly = __READ_ONLY__;
   var textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
   var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
+  var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
   var scaleToolEnabled = false;
   var editorChromeScaleX = Math.max(
     0.05,
@@ -2691,6 +2694,7 @@ declare var __DESIGN_CANVAS_SCREEN_ID__: string;
         type: "agent-native:cross-screen-drag",
         phase,
         screenId: designCanvasScreenId,
+        boardSurface: designCanvasBoardSurface,
         selector: getSelector(el ?? null),
         sourceId: getSourceId(el ?? null),
         iframeX: ev?.clientX ?? 0,
@@ -3216,12 +3220,17 @@ declare var __DESIGN_CANVAS_SCREEN_ID__: string;
       document.removeEventListener(events.up, onUp, true);
       hideTransformBadge();
       if (!dragEl) return;
+      var outsideOnDrop = ev
+        ? isOutsideIframeViewport(ev.clientX, ev.clientY)
+        : false;
       if (
         ev &&
         !duplicatedForDrag &&
-        isOutsideIframeViewport(ev.clientX, ev.clientY)
+        (outsideOnDrop || designCanvasBoardSurface)
       ) {
         postCrossScreenDrag("end", dragEl, ev);
+      }
+      if (ev && !duplicatedForDrag && outsideOnDrop) {
         restoreSourceDragPosition();
         return;
       }

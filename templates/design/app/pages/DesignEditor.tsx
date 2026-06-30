@@ -273,7 +273,8 @@ const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
 const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const MOTION_DOCK_TRANSITION_MS = 200;
-const MOTION_DOCK_UNMOUNT_DELAY_MS = MOTION_DOCK_TRANSITION_MS + 120;
+const MOTION_DOCK_EXIT_SETTLE_MS = 80;
+const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS + 400;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
 const BOARD_SURFACE_SIZE = 131_072;
 /** Extensions that the localhost bridge allows to be written back to source. */
@@ -801,6 +802,13 @@ interface DesignFile {
   content: string;
   createdAt: string;
   updatedAt: string;
+}
+
+interface LiveScreenSnapshot {
+  url: string;
+  html: string;
+  status?: number;
+  contentType?: string;
 }
 
 interface DesignData {
@@ -3959,10 +3967,22 @@ export default function DesignEditor() {
       motionDockUnmountTimerRef.current = window.setTimeout(() => {
         setMotionDockMounted(false);
         motionDockUnmountTimerRef.current = null;
-      }, MOTION_DOCK_UNMOUNT_DELAY_MS);
+      }, MOTION_DOCK_EXIT_FALLBACK_MS);
     },
     [clearMotionDockUnmountTimer],
   );
+  const handleMotionDockExitComplete = useCallback(() => {
+    if (motionDockOpen) return;
+    clearMotionDockUnmountTimer();
+    if (typeof window === "undefined") {
+      setMotionDockMounted(false);
+      return;
+    }
+    motionDockUnmountTimerRef.current = window.setTimeout(() => {
+      setMotionDockMounted(false);
+      motionDockUnmountTimerRef.current = null;
+    }, MOTION_DOCK_EXIT_SETTLE_MS);
+  }, [clearMotionDockUnmountTimer, motionDockOpen]);
   useEffect(
     () => () => clearMotionDockUnmountTimer(),
     [clearMotionDockUnmountTimer],
@@ -5116,6 +5136,24 @@ export default function DesignEditor() {
       return pending ? { ...file, content: pending.content } : file;
     });
   }, [pendingLocalFileContentsSnapshot, serverFiles]);
+  const [liveScreenSnapshotsById, setLiveScreenSnapshotsById] = useState<
+    Record<string, LiveScreenSnapshot>
+  >({});
+  useEffect(() => {
+    const liveFileIds = new Set(serverFiles.map((file) => file.id));
+    setLiveScreenSnapshotsById((current) => {
+      let changed = false;
+      const next: Record<string, LiveScreenSnapshot> = {};
+      Object.entries(current).forEach(([fileId, snapshot]) => {
+        if (!liveFileIds.has(fileId)) {
+          changed = true;
+          return;
+        }
+        next[fileId] = snapshot;
+      });
+      return changed ? next : current;
+    });
+  }, [serverFiles]);
   const designDataJson = useMemo(
     () => parseDesignDataJson(design?.data),
     [design?.data],
@@ -5231,6 +5269,7 @@ export default function DesignEditor() {
           height: numberValue("height"),
           url: stringValue("url"),
           previewUrl: stringValue("previewUrl"),
+          bridgeUrl: stringValue("bridgeUrl"),
           // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
           // renders one iframe per width to the right of the primary frame.
           breakpointWidths: bpWidths,
@@ -5598,6 +5637,10 @@ export default function DesignEditor() {
         : undefined,
     [activeOverviewScreenId, overviewScreens],
   );
+  const activeScreenBridgeUrl = activeOverviewScreen?.bridgeUrl;
+  const activeScreenExternalSnapshotHtml = activeFile?.id
+    ? liveScreenSnapshotsById[activeFile.id]?.html
+    : undefined;
   const activeOverviewSourceWidth =
     deviceFrame === "none"
       ? activeOverviewScreen?.width
@@ -6714,13 +6757,52 @@ export default function DesignEditor() {
       }),
     [activeContent, activeFile?.id, fileContentById],
   );
+  const getProjectionContentForScreen = useCallback(
+    (screenId: string) =>
+      liveScreenSnapshotsById[screenId]?.html ?? getScreenContent(screenId),
+    [getScreenContent, liveScreenSnapshotsById],
+  );
+  const handleScreenExternalContentSnapshot = useCallback(
+    (screenId: string, snapshot: LiveScreenSnapshot) => {
+      setLiveScreenSnapshotsById((current) => {
+        const existing = current[screenId];
+        if (
+          existing?.url === snapshot.url &&
+          existing.html === snapshot.html &&
+          existing.status === snapshot.status &&
+          existing.contentType === snapshot.contentType
+        ) {
+          return current;
+        }
+        return { ...current, [screenId]: snapshot };
+      });
+    },
+    [],
+  );
+  const updateLiveScreenSnapshotContent = useCallback(
+    (screenId: string, html: string) => {
+      const existing = liveScreenSnapshotsById[screenId];
+      if (!existing) return false;
+      if (existing.html === html) return true;
+      setLiveScreenSnapshotsById((current) => ({
+        ...current,
+        [screenId]: { ...existing, html },
+      }));
+      return true;
+    },
+    [liveScreenSnapshotsById],
+  );
+  const activeProjectionContent =
+    activeFile?.id !== undefined
+      ? getProjectionContentForScreen(activeFile.id)
+      : activeContent;
   const pageStyles = useMemo(
     () => getBodyInlineStyles(activeContent),
     [activeContent],
   );
   const activeCodeLayerProjection = useMemo(
-    () => buildCodeLayerProjection(activeContent),
-    [activeContent],
+    () => buildCodeLayerProjection(activeProjectionContent),
+    [activeProjectionContent],
   );
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
@@ -6826,9 +6908,13 @@ export default function DesignEditor() {
   const designSourceType = useMemo(
     () =>
       normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
+      normalizeDesignSourceType(designDataJson.sourceMode as unknown) ??
       "inline",
-    [designDataJson.sourceType],
+    [designDataJson.sourceMode, designDataJson.sourceType],
   );
+  const activeCanvasSourceType =
+    normalizeDesignSourceType(activeOverviewScreen?.sourceType) ??
+    designSourceType;
   const sourceCapabilities = useMemo(() => {
     const caps = resolveSourceCapabilities(designSourceType);
     return DESIGN_CAPABILITY_NAMES.filter((name) => hasCapability(caps, name));
@@ -7043,13 +7129,13 @@ export default function DesignEditor() {
     (screenId: string) => {
       if (screenId === activeFile?.id) return activeCodeLayerProjection;
       if (!fileContentById.has(screenId)) return null;
-      return buildCodeLayerProjection(getScreenContent(screenId));
+      return buildCodeLayerProjection(getProjectionContentForScreen(screenId));
     },
     [
       activeCodeLayerProjection,
       activeFile?.id,
       fileContentById,
-      getScreenContent,
+      getProjectionContentForScreen,
     ],
   );
 
@@ -8438,7 +8524,11 @@ export default function DesignEditor() {
       // advance lastLocalContentRef.current to resolvedNextContent below, the
       // next synchronous call reads the previous call's result and the patches
       // compose. Falls back to activeContent when the ref is unset (file switch).
+      const activeLiveSnapshot = activeFile
+        ? liveScreenSnapshotsById[activeFile.id]
+        : undefined;
       const baseContent =
+        activeLiveSnapshot?.html ??
         latestActiveContentRef.current ??
         lastLocalContentRef.current ??
         activeContent;
@@ -8635,62 +8725,74 @@ export default function DesignEditor() {
             );
           })
         : null;
-      const yjsHistoryAvailable = Boolean(
-        viewModeRef.current !== "overview" &&
-        ydoc &&
-        isSynced &&
-        undoManagerRef.current,
-      );
-      if (
-        !yjsHistoryAvailable &&
-        !suppressContentHistoryRef.current &&
-        baseContent !== resolvedNextContent
-      ) {
-        const change = {
-          fileId: activeFile.id,
-          before: baseContent,
-          after: resolvedNextContent,
-        };
-        if (viewModeRef.current === "overview") {
-          recordContentHistoryEntry(change);
-        } else {
-          recordLocalContentHistoryEntry(change);
+      const liveSnapshotUpdated = activeLiveSnapshot
+        ? updateLiveScreenSnapshotContent(activeFile.id, resolvedNextContent)
+        : false;
+      if (liveSnapshotUpdated) {
+        setPatchProof((prev) =>
+          prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+        );
+        if (!runtimeStyleApplied) {
+          setContentRenderRevision((revision) => revision + 1);
         }
-      }
+      } else {
+        const yjsHistoryAvailable = Boolean(
+          viewModeRef.current !== "overview" &&
+          ydoc &&
+          isSynced &&
+          undoManagerRef.current,
+        );
+        if (
+          !yjsHistoryAvailable &&
+          !suppressContentHistoryRef.current &&
+          baseContent !== resolvedNextContent
+        ) {
+          const change = {
+            fileId: activeFile.id,
+            before: baseContent,
+            after: resolvedNextContent,
+          };
+          if (viewModeRef.current === "overview") {
+            recordContentHistoryEntry(change);
+          } else {
+            recordLocalContentHistoryEntry(change);
+          }
+        }
 
-      setCollabContent(resolvedNextContent);
-      setCollabContentFileId(activeFile.id);
-      setPatchProof((prev) =>
-        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
-      );
-      // Mark as our own write so the get-design reconcile + Yjs observe don't
-      // treat the echo as an external edit and fight the live value.
-      lastLocalContentRef.current = resolvedNextContent;
-      latestActiveContentRef.current = resolvedNextContent;
-      // Write the edit into the shared Y.Doc so other open clients see it live
-      // through Yjs (not only via the slower update-file → applyText round-trip).
-      // Single-screen edits use the active-file UndoManager. Overview edits are
-      // tracked in the global file-content stack so all screens share one order.
-      if (ydoc && isSynced) {
-        const ytext = ydoc.getText("content");
-        if (ytext.toString() !== resolvedNextContent) {
-          ydoc.transact(
-            () => {
-              ytext.delete(0, ytext.length);
-              ytext.insert(0, resolvedNextContent);
-            },
-            yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
-          );
+        setCollabContent(resolvedNextContent);
+        setCollabContentFileId(activeFile.id);
+        setPatchProof((prev) =>
+          prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+        );
+        // Mark as our own write so the get-design reconcile + Yjs observe don't
+        // treat the echo as an external edit and fight the live value.
+        lastLocalContentRef.current = resolvedNextContent;
+        latestActiveContentRef.current = resolvedNextContent;
+        // Write the edit into the shared Y.Doc so other open clients see it live
+        // through Yjs (not only via the slower update-file → applyText round-trip).
+        // Single-screen edits use the active-file UndoManager. Overview edits are
+        // tracked in the global file-content stack so all screens share one order.
+        if (ydoc && isSynced) {
+          const ytext = ydoc.getText("content");
+          if (ytext.toString() !== resolvedNextContent) {
+            ydoc.transact(
+              () => {
+                ytext.delete(0, ytext.length);
+                ytext.insert(0, resolvedNextContent);
+              },
+              yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+            );
+          }
         }
-      }
-      queueFileContentSave(activeFile.id, resolvedNextContent, {
-        syncCollab: !(ydoc && isSynced),
-      });
-      if (
-        !runtimeStyleApplied &&
-        !replacePreviewContent(resolvedNextContent, selector)
-      ) {
-        setContentRenderRevision((revision) => revision + 1);
+        queueFileContentSave(activeFile.id, resolvedNextContent, {
+          syncCollab: !(ydoc && isSynced),
+        });
+        if (
+          !runtimeStyleApplied &&
+          !replacePreviewContent(resolvedNextContent, selector)
+        ) {
+          setContentRenderRevision((revision) => revision + 1);
+        }
       }
       if (resolvedNode) setSelectedLayerIdsState([resolvedNode.id]);
       setSelectedElement((prev) => {
@@ -8718,12 +8820,14 @@ export default function DesignEditor() {
       activeFile,
       activeBreakpointWidthState,
       canEditDesign,
+      liveScreenSnapshotsById,
       queueFileContentSave,
       recordContentHistoryEntry,
       recordLocalContentHistoryEntry,
       replacePreviewContent,
       selectedElement,
       t,
+      updateLiveScreenSnapshotContent,
       ydoc,
       isSynced,
     ],
@@ -9087,7 +9191,8 @@ export default function DesignEditor() {
     ) => {
       if (!canEditDesign) return;
       if (!activeFile) return;
-      const baseContent = getFreshActiveContent();
+      const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
+      const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
       const projection = buildCodeLayerProjection(baseContent);
       const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
       const targetNode = targetInfo
@@ -9120,7 +9225,11 @@ export default function DesignEditor() {
         );
         return;
       }
-      applyLocalContentUpdate(nextContent, { skipPreview: true });
+      if (activeLiveSnapshot) {
+        updateLiveScreenSnapshotContent(activeFile.id, nextContent);
+      } else {
+        applyLocalContentUpdate(nextContent, { skipPreview: true });
+      }
       setActiveTool("text");
       setMode("edit");
       if (removedContent) {
@@ -9163,7 +9272,9 @@ export default function DesignEditor() {
       applyLocalContentUpdate,
       canEditDesign,
       getFreshActiveContent,
+      liveScreenSnapshotsById,
       t,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
@@ -9183,7 +9294,8 @@ export default function DesignEditor() {
         ([, value]) => value !== undefined,
       );
       if (entries.length === 0) return;
-      const baseContent = getScreenContent(screenId);
+      const liveSnapshot = liveScreenSnapshotsById[screenId];
+      const baseContent = liveSnapshot?.html ?? getScreenContent(screenId);
       const projection = buildCodeLayerProjection(baseContent);
       const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
       const targetNode = targetInfo
@@ -9227,6 +9339,10 @@ export default function DesignEditor() {
         );
         return;
       }
+      if (liveSnapshot) {
+        updateLiveScreenSnapshotContent(screenId, nextContent);
+        return;
+      }
       applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
     },
     [
@@ -9235,7 +9351,9 @@ export default function DesignEditor() {
       canEditDesign,
       getScreenContent,
       handleVisualStyleChange,
+      liveScreenSnapshotsById,
       t,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
@@ -12270,7 +12388,9 @@ ${serializedHtml}
     () =>
       files.map((file) => {
         const content =
-          file.id === activeFile?.id ? activeContent : (file.content ?? "");
+          file.id === activeFile?.id
+            ? activeProjectionContent
+            : getProjectionContentForScreen(file.id);
         const projection =
           file.id === activeFile?.id
             ? activeCodeLayerProjection
@@ -12289,9 +12409,10 @@ ${serializedHtml}
     [
       activeCodeLayerProjection,
       activeCodeLayerTree,
-      activeContent,
+      activeProjectionContent,
       activeFile?.id,
       files,
+      getProjectionContentForScreen,
     ],
   );
   const codeLayerModelByFileId = useMemo(
@@ -15365,6 +15486,13 @@ ${serializedHtml}
                       renderScreenContent={(screen, metadata, geometry) => {
                         const screenIsActive = screen.id === activeFile?.id;
                         const screenContent = getScreenContent(screen.id);
+                        const screenSourceType =
+                          normalizeDesignSourceType(screen.sourceType) ??
+                          metadata.source ??
+                          designSourceType;
+                        const screenBridgeUrl = screen.bridgeUrl;
+                        const screenSnapshot =
+                          liveScreenSnapshotsById[screen.id]?.html;
                         const screenContentKey = screenIsActive
                           ? [screen.id, contentRenderRevision].join(":")
                           : [
@@ -15381,7 +15509,15 @@ ${serializedHtml}
                             screenId={screen.id}
                             zoom={100}
                             deviceFrame="none"
-                            sourceType={designSourceType}
+                            sourceType={screenSourceType}
+                            bridgeUrl={screenBridgeUrl}
+                            externalSnapshotHtml={screenSnapshot}
+                            onExternalContentSnapshot={(snapshot) =>
+                              handleScreenExternalContentSnapshot(
+                                screen.id,
+                                snapshot,
+                              )
+                            }
                             fusionUrl={designFusionUrl}
                             onComponentSourceJump={handleComponentSourceJump}
                             embeddedFrame={{
@@ -15529,7 +15665,16 @@ ${serializedHtml}
                         zoom={zoom}
                         onZoomChange={setZoom}
                         deviceFrame={deviceFrame}
-                        sourceType={designSourceType}
+                        sourceType={activeCanvasSourceType}
+                        bridgeUrl={activeScreenBridgeUrl}
+                        externalSnapshotHtml={activeScreenExternalSnapshotHtml}
+                        onExternalContentSnapshot={(snapshot) => {
+                          if (!activeFile?.id) return;
+                          handleScreenExternalContentSnapshot(
+                            activeFile.id,
+                            snapshot,
+                          );
+                        }}
                         fusionUrl={designFusionUrl}
                         previewWidthPx={activeBreakpointWidthState}
                         shaderFillPreview={shaderFillPreview}
@@ -15826,6 +15971,7 @@ ${serializedHtml}
           durationMs={motionDurationMs}
           open={motionDockOpen}
           onOpenChange={setMotionDockOpenAnimated}
+          onExitComplete={handleMotionDockExitComplete}
           onTracksChange={handleMotionTracksChange}
           onDurationChange={handleMotionDurationChange}
           canvasIframeRef={canvasIframeRef}

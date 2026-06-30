@@ -402,6 +402,78 @@ function sendJson(
   res.end(`${JSON.stringify(body, null, 2)}\n`);
 }
 
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
+function resolvePreviewSnapshotUrl(
+  devServerUrl: string,
+  rawUrl: string | null,
+): string {
+  const base = normalizeHttpUrl(devServerUrl);
+  const parsed = new URL(rawUrl?.trim() || "/", `${base}/`);
+  parsed.hash = "";
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Snapshot URL must use http(s).");
+  }
+  if (!sameOrigin(parsed.toString(), base)) {
+    throw new Error("Snapshot URL must stay on the connected dev server.");
+  }
+  return parsed.toString();
+}
+
+async function fetchPreviewSnapshot(
+  devServerUrl: string,
+  targetUrl: string,
+  redirects = 0,
+): Promise<{
+  url: string;
+  status: number;
+  contentType: string;
+  html: string;
+}> {
+  if (redirects > 5) {
+    throw new Error("Too many redirects while fetching preview snapshot.");
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(targetUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal: controller.signal,
+      headers: {
+        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+      },
+    });
+    const location = response.headers.get("location");
+    if (location && response.status >= 300 && response.status < 400) {
+      const redirected = new URL(location, targetUrl);
+      redirected.hash = "";
+      if (!sameOrigin(redirected.toString(), devServerUrl)) {
+        throw new Error("Snapshot redirect left the connected dev server.");
+      }
+      return fetchPreviewSnapshot(
+        devServerUrl,
+        redirected.toString(),
+        redirects + 1,
+      );
+    }
+    return {
+      url: response.url || targetUrl,
+      status: response.status,
+      contentType: response.headers.get("content-type") ?? "",
+      html: await response.text(),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /** Read the full request body as a UTF-8 string. */
 async function readRequestBody(req: IncomingMessage): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -512,6 +584,40 @@ export async function startDesignConnectBridge(
       }
       if (pathname === "/health") {
         sendJson(res, 200, { ok: true, source: manifest.source });
+        return;
+      }
+      if (pathname === "/snapshot") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { ok: false, error: "method not allowed" });
+          return;
+        }
+        void (async () => {
+          try {
+            const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+            const targetUrl = resolvePreviewSnapshotUrl(
+              manifest.devServerUrl,
+              requestUrl.searchParams.get("url") ??
+                requestUrl.searchParams.get("path"),
+            );
+            const snapshot = await fetchPreviewSnapshot(
+              manifest.devServerUrl,
+              targetUrl,
+            );
+            sendJson(res, snapshot.status >= 400 ? snapshot.status : 200, {
+              ok: snapshot.status < 400,
+              source: manifest.source,
+              url: snapshot.url,
+              status: snapshot.status,
+              contentType: snapshot.contentType,
+              html: snapshot.html,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 400, {
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
         return;
       }
 
