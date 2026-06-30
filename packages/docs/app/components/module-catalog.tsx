@@ -44,6 +44,12 @@ export const agentNativeModules: AgentNativeModule[] = [
     icon: IconDatabase,
   },
   {
+    name: "DB admin",
+    description:
+      "Agent-readable schemas, query surfaces, migrations, and admin tools without a custom back office.",
+    icon: IconDatabase,
+  },
+  {
     name: "Auth and governance",
     description:
       "Login, organizations, multi-tenancy, permissions, approvals, and policy hooks.",

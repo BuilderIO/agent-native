@@ -493,7 +493,7 @@ function ActionSurfaceSection({
             <Link
               data-an-prefetch="render"
               to={localizedPath("/docs/actions")}
-              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-85 hover:no-underline"
+              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
               onClick={() =>
                 trackEvent("click cta", {
                   label: "see_actions",

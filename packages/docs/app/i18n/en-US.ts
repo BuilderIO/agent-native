@@ -1250,7 +1250,7 @@ const enUS = {
         },
         hostedContent: {
           title: "Hosted application content",
-          body: "Content you create or upload in hosted Agent-Native templates, such as recordings, transcripts, documents, comments, tasks, prompts, agent responses, files, and configuration.",
+          body: "Content you create or upload in hosted Agent-Native apps, such as recordings, transcripts, documents, comments, tasks, prompts, agent responses, files, and configuration.",
         },
         integrations: {
           title: "Connected integration data",
