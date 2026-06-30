@@ -265,6 +265,7 @@ function buildGuidance(options: {
   query: string | undefined;
   structuredFilters: boolean;
   truncated: boolean;
+  hasMore: boolean;
   total: number;
   returned: number;
   offset: number;
@@ -291,8 +292,11 @@ function buildGuidance(options: {
   }
 
   if (options.truncated) {
+    const more = options.hasMore
+      ? `Fetch the next page with offset ${options.offset + options.returned}.`
+      : "This is the last page of the cohort.";
     guidance.push(
-      `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}, offset ${options.offset}). This is a partial slice — do NOT treat it as the full cohort. Use total for counts/aggregates, page through with offset, or narrow the filters. For exhaustive cohort analysis use provider-api-request with provider = hubspot and stageAs.`,
+      `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}, offset ${options.offset}). This is a partial slice — do NOT treat it as the full cohort. Use total for counts/aggregates. ${more} Narrow the filters or, for exhaustive cohort analysis, use provider-api-request with provider = hubspot and stageAs.`,
     );
   }
 
@@ -463,11 +467,15 @@ export default defineAction({
     // which overruns the extension iframe bridge and the agent context. We
     // keep `total` as the true matched count and signal partial slices via
     // `truncated` so callers never mistake a page for the full cohort.
+    // `truncated` means "this response is only part of the cohort" (returned <
+    // total) and stays true on the LAST page of a paginated read too; pagination
+    // (is there a next page) is reported separately via `hasMore` / `nextOffset`.
     const matchedTotal = matchedDeals.length;
     const deals = trimmedQuery
       ? matchedDeals
       : matchedDeals.slice(offset, offset + limit);
-    const truncated = !trimmedQuery && matchedTotal > offset + deals.length;
+    const truncated = !trimmedQuery && deals.length < matchedTotal;
+    const hasMore = !trimmedQuery && offset + deals.length < matchedTotal;
 
     return {
       deals,
@@ -484,12 +492,14 @@ export default defineAction({
             limit,
             offset,
             truncated,
-            nextOffset: truncated ? offset + deals.length : null,
+            hasMore,
+            nextOffset: hasMore ? offset + deals.length : null,
           }),
       guidance: buildGuidance({
         query: trimmedQuery,
         structuredFilters,
         truncated,
+        hasMore,
         total: matchedTotal,
         returned: deals.length,
         offset,

@@ -256,18 +256,34 @@ describe("hubspot-deals action", () => {
     expect(result.count).toBe(10);
     expect(result.total).toBe(30);
     expect(result.truncated).toBe(true);
+    expect(result.hasMore).toBe(true);
     expect(result.nextOffset).toBe(10);
     expect(result.guidance).toContain("partial slice");
 
+    // Last page: still only a slice of the cohort (count < total), so
+    // `truncated` stays true even though there is no next page.
     const page3 = (await hubspotDeals.run({
       closedStatus: "lost",
       limit: 10,
       offset: 20,
     })) as Record<string, any>;
     expect(page3.deals).toHaveLength(10);
+    expect(page3.count).toBe(10);
     expect(page3.total).toBe(30);
-    expect(page3.truncated).toBe(false);
+    expect(page3.truncated).toBe(true);
+    expect(page3.hasMore).toBe(false);
     expect(page3.nextOffset).toBe(null);
+
+    // Whole cohort in one page: not a partial slice.
+    const full = (await hubspotDeals.run({
+      closedStatus: "lost",
+      limit: 50,
+    })) as Record<string, any>;
+    expect(full.count).toBe(30);
+    expect(full.total).toBe(30);
+    expect(full.truncated).toBe(false);
+    expect(full.hasMore).toBe(false);
+    expect(full.nextOffset).toBe(null);
   });
 
   it("rejects impossible closed date filter boundaries", async () => {
