@@ -4441,6 +4441,7 @@ export default function DesignEditor() {
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
   const canEditDesignRef = useRef(canEditDesign);
   const pendingLocalFileContentsRef = useRef<
     Map<
@@ -13770,7 +13771,7 @@ ${serializedHtml}
             </PopoverContent>
           </Popover>
 
-          {isSignedIn ? (
+          {canRenderAuthenticatedShare ? (
             <ShareButton
               resourceType="design"
               resourceId={id}
@@ -14193,7 +14194,7 @@ ${serializedHtml}
               />
             )}
 
-            {!embedded && isSignedIn ? (
+            {!embedded && canRenderAuthenticatedShare ? (
               <ShareButton
                 resourceType="design"
                 resourceId={id}
@@ -15007,18 +15008,43 @@ ${serializedHtml}
                 </div>
               </div>
             ) : (
-              <div className="flex flex-1 items-center justify-center">
-                <div className="text-center">
+              <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-10">
+                <div className="flex w-full max-w-md flex-col items-center text-center">
                   {generating || pendingGenerationActive ? (
                     <>
-                      <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
+                      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] shadow-[0_18px_50px_-34px_rgba(0,0,0,0.8)]">
+                        <Spinner className="size-5 text-foreground/40" />
+                      </div>
                       <p className="text-sm text-muted-foreground">
                         {t("designEditor.generating")}
                       </p>
                     </>
                   ) : (
                     <>
-                      <p className="mb-3 text-sm text-muted-foreground">
+                      <div
+                        aria-hidden="true"
+                        className="mb-5 w-full max-w-sm rounded-xl border border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] p-3 shadow-[0_22px_65px_-42px_rgba(0,0,0,0.85)]"
+                      >
+                        <div className="flex h-7 items-center justify-between border-b border-[var(--design-editor-panel-divider-color)] px-1 pb-2">
+                          <div className="flex gap-1.5">
+                            <span className="size-2 rounded-full bg-foreground/12" />
+                            <span className="size-2 rounded-full bg-foreground/10" />
+                            <span className="size-2 rounded-full bg-foreground/8" />
+                          </div>
+                          <span className="h-2 w-16 rounded bg-foreground/8" />
+                        </div>
+                        <div className="space-y-3 pt-4">
+                          <span className="block h-5 w-2/3 rounded bg-foreground/9" />
+                          <span className="block h-4 w-1/2 rounded bg-foreground/7" />
+                          <div className="grid grid-cols-3 gap-2 pt-2">
+                            <span className="h-12 rounded-md bg-foreground/7" />
+                            <span className="h-12 rounded-md bg-foreground/7" />
+                            <span className="h-12 rounded-md bg-foreground/7" />
+                          </div>
+                          <span className="block h-20 rounded-lg bg-foreground/7" />
+                        </div>
+                      </div>
+                      <p className="mb-3 text-sm font-medium text-foreground/85">
                         {generationIssue ?? t("designEditor.noFiles")}
                       </p>
                       {retryablePrompt ? (
@@ -15030,7 +15056,7 @@ ${serializedHtml}
                         {retryablePrompt ? (
                           <Button
                             size="sm"
-                            className="cursor-pointer"
+                            className="h-8 cursor-pointer rounded-md"
                             onClick={handleRetryGeneration}
                           >
                             <IconRefresh className="h-3.5 w-3.5" />
@@ -15041,7 +15067,7 @@ ${serializedHtml}
                           ref={generateBtnRef}
                           variant={retryablePrompt ? "ghost" : "outline"}
                           size="sm"
-                          className="cursor-pointer"
+                          className="h-8 cursor-pointer rounded-md"
                           onClick={() => {
                             setRetryablePrompt(null);
                             handlePromptOpenChange(true);

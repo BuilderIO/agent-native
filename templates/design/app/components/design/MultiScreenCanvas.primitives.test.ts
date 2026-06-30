@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   getBoardContentKey,
+  getCrossScreenDropGuideForHitTest,
   getPrimitiveDropTargetForPoint,
   hasBoardSurfaceContent,
   ParsedScreenPrimitive,
@@ -197,6 +198,39 @@ describe("primitiveLocalToBoardRect", () => {
         height: 0,
       }),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getCrossScreenDropGuideForHitTest
+// ---------------------------------------------------------------------------
+describe("getCrossScreenDropGuideForHitTest", () => {
+  it("converts target iframe hit-test rects to board-space drop guides", () => {
+    const result = getCrossScreenDropGuideForHitTest({
+      hit: {
+        placement: "after",
+        axis: "x",
+        anchorRect: { left: 160, top: 80, width: 40, height: 120 },
+      },
+      targetGeometry: makeGeom(100, 200, 320, 640),
+      targetMetadata: { width: 640, height: 1280 },
+    });
+
+    expect(result).toEqual({
+      placement: "after",
+      axis: "x",
+      boardRect: { x: 180, y: 240, width: 20, height: 60 },
+    });
+  });
+
+  it("returns null when a hit-test response has no anchor rect", () => {
+    expect(
+      getCrossScreenDropGuideForHitTest({
+        hit: { placement: "inside", axis: "y" },
+        targetGeometry: makeGeom(0, 0, 320, 640),
+        targetMetadata: { width: 320, height: 640 },
+      }),
+    ).toBeNull();
   });
 });
 

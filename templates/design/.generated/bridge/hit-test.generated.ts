@@ -138,9 +138,9 @@ export const hitTestBridgeScript: string = `"use strict";
           clientY
         );
         if (!edgePlacement) {
-          return { anchor: hit, placement: "inside" };
+          return { anchor: hit, placement: "inside", axis: parentFlowAxis(hit) };
         }
-        return { anchor: hit, placement: edgePlacement };
+        return { anchor: hit, placement: edgePlacement, axis: edgeAxis };
       }
       var hitParent = hit.parentElement;
       if (hitParent) {
@@ -150,11 +150,12 @@ export const hitTestBridgeScript: string = `"use strict";
         var hitPointer = hitAxis === "x" ? clientX : clientY;
         return {
           anchor: hit,
-          placement: hitPointer < hitCenter ? "before" : "after"
+          placement: hitPointer < hitCenter ? "before" : "after",
+          axis: hitAxis
         };
       }
       if (hit === document.body || !hit.parentElement) {
-        return { anchor: document.body, placement: "inside" };
+        return { anchor: document.body, placement: "inside", axis: "y" };
       }
       return null;
     }
@@ -168,13 +169,22 @@ export const hitTestBridgeScript: string = `"use strict";
       var result = resolveHitTarget(x, y);
       var anchorNodeId = result ? getNodeId(result.anchor) : "";
       var placement = result ? result.placement : "inside";
+      var axis = result ? result.axis : "y";
+      var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
       try {
         window.parent.postMessage(
           {
             type: "agent-native:hit-test-result",
             correlationId,
             anchorNodeId,
-            placement
+            placement,
+            axis,
+            anchorRect: anchorRect ? {
+              left: anchorRect.left,
+              top: anchorRect.top,
+              width: anchorRect.width,
+              height: anchorRect.height
+            } : void 0
           },
           "*"
         );

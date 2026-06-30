@@ -4269,6 +4269,7 @@ function PositionLayoutProperties({
               ? "center"
               : "top",
   };
+  const [constraintsExpanded, setConstraintsExpanded] = useState(false);
 
   const handleConstraintsChange = useCallback(
     (value: ConstraintsValue) => {
@@ -4448,43 +4449,39 @@ function PositionLayoutProperties({
             inputClassName="h-6"
             onChange={(v) => onStyleChange("top", `${Math.round(v)}px`)}
           />
-          <Popover>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={
-                      "Constraints" /* i18n-ignore design inspector action */
-                    }
-                    className={cn(
-                      "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors",
-                      "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                      "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                      "data-[state=open]:bg-[var(--design-editor-selection-color)] data-[state=open]:text-[var(--design-editor-accent-color)]",
-                    )}
-                  >
-                    <ConstraintsPreview value={constraintsValue} />
-                  </button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Constraints" /* i18n-ignore design inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
-            <PopoverContent
-              align="end"
-              side="bottom"
-              sideOffset={6}
-              className="z-[260] w-64 rounded-lg border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-3 shadow-xl"
-            >
-              <ConstraintsWidget
-                value={constraintsValue}
-                onChange={handleConstraintsChange}
-              />
-            </PopoverContent>
-          </Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={
+                  "Constraints" /* i18n-ignore design inspector action */
+                }
+                aria-pressed={constraintsExpanded}
+                onClick={() => setConstraintsExpanded((expanded) => !expanded)}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md transition-colors",
+                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  constraintsExpanded
+                    ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                    : "text-muted-foreground",
+                )}
+              >
+                <ConstraintsPreview value={constraintsValue} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {"Constraints" /* i18n-ignore design inspector tooltip */}
+            </TooltipContent>
+          </Tooltip>
         </div>
+        {constraintsExpanded ? (
+          <ConstraintsWidget
+            value={constraintsValue}
+            onChange={handleConstraintsChange}
+            className="pt-1"
+          />
+        ) : null}
       </div>
 
       <div className="space-y-1.5">

@@ -521,6 +521,127 @@ export interface Point {
   y: number;
 }
 
+export type CrossScreenDropPlacement = "before" | "after" | "inside";
+export type CrossScreenDropAxis = "x" | "y";
+
+export interface CrossScreenHitTestAnchorRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface CrossScreenHitTestResult {
+  anchorNodeId?: string;
+  placement?: CrossScreenDropPlacement;
+  axis?: CrossScreenDropAxis;
+  anchorRect?: CrossScreenHitTestAnchorRect;
+}
+
+export interface CrossScreenDropGuide {
+  placement: CrossScreenDropPlacement;
+  axis: CrossScreenDropAxis;
+  boardRect: FrameGeometry;
+}
+
+function isCrossScreenDropPlacement(
+  value: unknown,
+): value is CrossScreenDropPlacement {
+  return value === "before" || value === "after" || value === "inside";
+}
+
+function isCrossScreenDropAxis(value: unknown): value is CrossScreenDropAxis {
+  return value === "x" || value === "y";
+}
+
+function isCrossScreenHitTestAnchorRect(
+  value: unknown,
+): value is CrossScreenHitTestAnchorRect {
+  if (!value || typeof value !== "object") return false;
+  const rect = value as Record<string, unknown>;
+  return (
+    Number.isFinite(rect.left) &&
+    Number.isFinite(rect.top) &&
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height)
+  );
+}
+
+export function getCrossScreenDropGuideForHitTest(args: {
+  hit: CrossScreenHitTestResult;
+  targetGeometry: FrameGeometry;
+  targetMetadata: { width: number; height: number };
+}): CrossScreenDropGuide | null {
+  const rect = args.hit.anchorRect;
+  if (!rect) return null;
+  const placement = args.hit.placement ?? "inside";
+  const axis = args.hit.axis ?? "y";
+  const scaleX =
+    args.targetGeometry.width / Math.max(1, args.targetMetadata.width);
+  const scaleY =
+    args.targetGeometry.height / Math.max(1, args.targetMetadata.height);
+  return {
+    placement,
+    axis,
+    boardRect: {
+      x: args.targetGeometry.x + rect.left * scaleX,
+      y: args.targetGeometry.y + rect.top * scaleY,
+      width: Math.max(1, rect.width * scaleX),
+      height: Math.max(1, rect.height * scaleY),
+    },
+  };
+}
+
+export function getCrossScreenDropGuideStyle(args: {
+  guide: CrossScreenDropGuide;
+  pan: Point;
+  scale: number;
+}): CSSProperties {
+  const { boardRect, placement, axis } = args.guide;
+  const left = args.pan.x + (SURFACE_PADDING + boardRect.x) * args.scale;
+  const top = args.pan.y + (SURFACE_PADDING + boardRect.y) * args.scale;
+  const width = Math.max(1, boardRect.width * args.scale);
+  const height = Math.max(1, boardRect.height * args.scale);
+
+  if (placement === "inside") {
+    return {
+      left,
+      top,
+      width,
+      height,
+      border: "2px solid var(--design-editor-accent-color)",
+      background:
+        "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)",
+      borderRadius: 2,
+      boxShadow: "none",
+    };
+  }
+
+  if (axis === "x") {
+    const x = placement === "before" ? left : left + width;
+    return {
+      left: x - 1,
+      top,
+      width: 2,
+      height: Math.max(8, height),
+      background: "var(--design-editor-accent-color)",
+      borderRadius: 999,
+      boxShadow: "0 0 0 1px var(--design-editor-accent-color)",
+    };
+  }
+
+  const y = placement === "before" ? top : top + height;
+  return {
+    left,
+    top: y - 1,
+    width: Math.max(8, width),
+    height: 2,
+    background: "var(--design-editor-accent-color)",
+    borderRadius: 999,
+    boxShadow: "0 0 0 1px var(--design-editor-accent-color)",
+  };
+}
+
 export type DraftPrimitiveKind =
   | "frame"
   | "rectangle"
@@ -846,8 +967,11 @@ export function MultiScreenCanvas({
     useState<CrossScreenDragGhost | null>(null);
   const [crossScreenTarget, setCrossScreenTarget] =
     useState<CrossScreenDragTarget | null>(null);
+  const [crossScreenDropGuide, setCrossScreenDropGuide] =
+    useState<CrossScreenDropGuide | null>(null);
   /** Ref kept in sync with state so the message handler can read without closures. */
   const crossScreenTargetRef = useRef<CrossScreenDragTarget | null>(null);
+  const crossScreenHitTestSeqRef = useRef(0);
   /** The most-recent drag message payload — kept for use in the "end" handler. */
   const crossScreenDragMsgRef = useRef<{
     selector: string;
@@ -1263,11 +1387,109 @@ export function MultiScreenCanvas({
   useEffect(() => {
     if (!onCrossScreenElementDrop) return;
 
+    const clearCrossScreenDropGuide = () => {
+      crossScreenHitTestSeqRef.current += 1;
+      setCrossScreenDropGuide(null);
+    };
+
     const clearCrossScreenDrag = () => {
       setCrossScreenGhost(null);
       setCrossScreenTarget(null);
+      clearCrossScreenDropGuide();
       crossScreenTargetRef.current = null;
       crossScreenDragMsgRef.current = null;
+    };
+
+    const runHitTest = (
+      candidate: CrossScreenDragTarget,
+      boardPoint: Point,
+    ): Promise<CrossScreenHitTestResult> => {
+      const targetScreen = screensRef.current.find(
+        (s) => s.id === candidate.id,
+      );
+      if (!targetScreen) return Promise.resolve({});
+      const targetGeometry = candidate.geometry;
+      const targetMetadata = getResolvedMetadata(targetScreen);
+      const scaleX = targetMetadata.width / Math.max(1, targetGeometry.width);
+      const scaleY = targetMetadata.height / Math.max(1, targetGeometry.height);
+      const localX = (boardPoint.x - targetGeometry.x) * scaleX;
+      const localY = (boardPoint.y - targetGeometry.y) * scaleY;
+
+      const targetIframe = surfaceRef.current?.querySelector<HTMLIFrameElement>(
+        `[data-screen-iframe-id="${CSS.escape(candidate.id)}"]`,
+      );
+      const targetContentWindow = targetIframe?.contentWindow;
+      if (!targetContentWindow) return Promise.resolve({});
+
+      const correlationId = `hit-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 6)}`;
+
+      return new Promise((resolve) => {
+        const timer = window.setTimeout(() => {
+          window.removeEventListener("message", hitListener);
+          resolve({});
+        }, 50);
+
+        const hitListener = (ev: MessageEvent) => {
+          if (
+            !ev.data ||
+            ev.data.type !== "agent-native:hit-test-result" ||
+            ev.data.correlationId !== correlationId
+          )
+            return;
+          window.clearTimeout(timer);
+          window.removeEventListener("message", hitListener);
+          resolve({
+            anchorNodeId:
+              typeof ev.data.anchorNodeId === "string"
+                ? ev.data.anchorNodeId
+                : undefined,
+            placement: isCrossScreenDropPlacement(ev.data.placement)
+              ? ev.data.placement
+              : undefined,
+            axis: isCrossScreenDropAxis(ev.data.axis)
+              ? ev.data.axis
+              : undefined,
+            anchorRect: isCrossScreenHitTestAnchorRect(ev.data.anchorRect)
+              ? ev.data.anchorRect
+              : undefined,
+          });
+        };
+        window.addEventListener("message", hitListener);
+
+        targetContentWindow.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId,
+            x: localX,
+            y: localY,
+          },
+          "*",
+        );
+      });
+    };
+
+    const requestCrossScreenDropGuide = (
+      candidate: CrossScreenDragTarget,
+      boardPoint: Point,
+    ) => {
+      const requestSeq = ++crossScreenHitTestSeqRef.current;
+      void runHitTest(candidate, boardPoint).then((hit) => {
+        if (crossScreenHitTestSeqRef.current !== requestSeq) return;
+        if (crossScreenTargetRef.current?.id !== candidate.id) return;
+        const targetScreen = screensRef.current.find(
+          (s) => s.id === candidate.id,
+        );
+        const guide = targetScreen
+          ? getCrossScreenDropGuideForHitTest({
+              hit,
+              targetGeometry: candidate.geometry,
+              targetMetadata: getResolvedMetadata(targetScreen),
+            })
+          : null;
+        setCrossScreenDropGuide(guide);
+      });
     };
 
     const handleMessage = (event: MessageEvent) => {
@@ -1374,9 +1596,11 @@ export function MultiScreenCanvas({
           const nextTarget = { id: target.id, geometry: target.geometry };
           crossScreenTargetRef.current = nextTarget;
           setCrossScreenTarget(nextTarget);
+          requestCrossScreenDropGuide(nextTarget, boardPoint);
         } else {
           crossScreenTargetRef.current = null;
           setCrossScreenTarget(null);
+          clearCrossScreenDropGuide();
         }
         return;
       }
@@ -1400,83 +1624,24 @@ export function MultiScreenCanvas({
         // moveNodeBetweenDocuments would fail with a generic error toast.
         const hasIdentifier = !!(payload.selector || payload.sourceId);
         if (candidate && hasIdentifier && sourceScreenId) {
-          // Translate the board-space drop point to the target iframe's local
-          // coordinate space, then run a lightweight hit-test (postMessage +
-          // 50 ms timeout) to find the deepest container at the drop site.
-          const runHitTest = (): Promise<{
-            anchorNodeId?: string;
-            placement?: "before" | "after" | "inside";
-          }> => {
-            if (!lastBoardPoint) return Promise.resolve({});
-            const targetScreen = screensRef.current.find(
-              (s) => s.id === candidate.id,
-            );
-            if (!targetScreen) return Promise.resolve({});
-            const targetGeometry = candidate.geometry;
-            const targetMetadata = getResolvedMetadata(targetScreen);
-            // Board → target iframe local coords
-            const scaleX =
-              targetMetadata.width / Math.max(1, targetGeometry.width);
-            const scaleY =
-              targetMetadata.height / Math.max(1, targetGeometry.height);
-            const localX = (lastBoardPoint.x - targetGeometry.x) * scaleX;
-            const localY = (lastBoardPoint.y - targetGeometry.y) * scaleY;
-
-            const targetIframe =
-              surfaceRef.current?.querySelector<HTMLIFrameElement>(
-                `[data-screen-iframe-id="${CSS.escape(candidate.id)}"]`,
-              );
-            const targetContentWindow = targetIframe?.contentWindow;
-            if (!targetContentWindow) return Promise.resolve({});
-
-            const correlationId = `hit-${Date.now()}-${Math.random()
-              .toString(36)
-              .slice(2, 6)}`;
-
-            return new Promise((resolve) => {
-              const timer = window.setTimeout(() => {
-                window.removeEventListener("message", hitListener);
-                resolve({});
-              }, 50);
-
-              const hitListener = (ev: MessageEvent) => {
-                if (
-                  !ev.data ||
-                  ev.data.type !== "agent-native:hit-test-result" ||
-                  ev.data.correlationId !== correlationId
-                )
-                  return;
-                window.clearTimeout(timer);
-                window.removeEventListener("message", hitListener);
-                resolve({
-                  anchorNodeId: ev.data.anchorNodeId ?? undefined,
-                  placement: ev.data.placement ?? undefined,
-                });
-              };
-              window.addEventListener("message", hitListener);
-
-              targetContentWindow.postMessage(
-                {
-                  type: "agent-native:hit-test",
-                  correlationId,
-                  x: localX,
-                  y: localY,
-                },
-                "*",
-              );
-            });
-          };
-
-          void runHitTest().then(({ anchorNodeId, placement }) => {
-            onCrossScreenElementDropRef.current?.({
-              sourceSelector: payload.selector,
-              sourceNodeId: payload.sourceId,
-              sourceScreenId,
-              targetScreenId: candidate.id,
-              targetAnchorNodeId: anchorNodeId,
-              targetAnchorPlacement: placement,
-            });
-          });
+          if (!lastBoardPoint) return;
+          void runHitTest(candidate, lastBoardPoint).then(
+            ({ anchorNodeId, placement }) => {
+              const targetAnchorPlacement = isCrossScreenDropPlacement(
+                placement,
+              )
+                ? placement
+                : undefined;
+              onCrossScreenElementDropRef.current?.({
+                sourceSelector: payload.selector,
+                sourceNodeId: payload.sourceId,
+                sourceScreenId,
+                targetScreenId: candidate.id,
+                targetAnchorNodeId: anchorNodeId,
+                targetAnchorPlacement,
+              });
+            },
+          );
         }
       }
     };
@@ -4284,7 +4449,7 @@ export function MultiScreenCanvas({
       {/* Cross-screen element drag: highlight the candidate target screen frame.
           Uses the same style as the primitiveDropTarget overlay (2px accent border
           + 14% accent fill) so it is visually consistent. */}
-      {crossScreenTarget ? (
+      {crossScreenTarget && !crossScreenDropGuide ? (
         <span
           data-cross-screen-drop-target
           className="pointer-events-none absolute z-40 rounded-sm"
@@ -4300,6 +4465,18 @@ export function MultiScreenCanvas({
             background:
               "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)",
           }}
+        />
+      ) : null}
+
+      {crossScreenDropGuide ? (
+        <span
+          data-cross-screen-drop-guide
+          className="pointer-events-none absolute z-50 rounded-sm shadow-[0_0_0_1px_var(--design-editor-accent-contrast-color)]"
+          style={getCrossScreenDropGuideStyle({
+            guide: crossScreenDropGuide,
+            pan,
+            scale,
+          })}
         />
       ) : null}
 

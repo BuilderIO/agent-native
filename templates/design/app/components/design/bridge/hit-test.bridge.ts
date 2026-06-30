@@ -9,7 +9,9 @@
  *
  * Reply (iframe → window.parent):
  *   { type: 'agent-native:hit-test-result', correlationId: string,
- *     anchorNodeId: string, placement: 'before'|'after'|'inside' }
+ *     anchorNodeId: string, placement: 'before'|'after'|'inside',
+ *     axis: 'x'|'y',
+ *     anchorRect: { left: number, top: number, width: number, height: number } }
  *
  * Reads DOM only — no mutations, no event interception. The container-drop and
  * placement logic is intentionally kept in sync with the corresponding helpers
@@ -202,7 +204,7 @@
   function resolveHitTarget(
     clientX: number,
     clientY: number,
-  ): { anchor: Element; placement: string } | null {
+  ): { anchor: Element; placement: string; axis: string } | null {
     var hit = elementFromEditorPoint(clientX, clientY);
     if (!hit || hit === document.documentElement) return null;
 
@@ -218,9 +220,9 @@
         clientY,
       );
       if (!edgePlacement) {
-        return { anchor: hit, placement: "inside" };
+        return { anchor: hit, placement: "inside", axis: parentFlowAxis(hit) };
       }
-      return { anchor: hit, placement: edgePlacement };
+      return { anchor: hit, placement: edgePlacement, axis: edgeAxis };
     }
 
     // Non-container: use sibling before/after placement.
@@ -236,12 +238,13 @@
       return {
         anchor: hit,
         placement: hitPointer < hitCenter ? "before" : "after",
+        axis: hitAxis,
       };
     }
 
     // Fallback: body-level, treat as inside.
     if (hit === document.body || !hit.parentElement) {
-      return { anchor: document.body, placement: "inside" };
+      return { anchor: document.body, placement: "inside", axis: "y" };
     }
 
     return null;
@@ -257,6 +260,8 @@
     var result = resolveHitTarget(x, y);
     var anchorNodeId: string = result ? getNodeId(result.anchor) : "";
     var placement: string = result ? result.placement : "inside";
+    var axis: string = result ? result.axis : "y";
+    var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
     try {
       (window.parent as Window).postMessage(
         {
@@ -264,6 +269,15 @@
           correlationId: correlationId,
           anchorNodeId: anchorNodeId,
           placement: placement,
+          axis: axis,
+          anchorRect: anchorRect
+            ? {
+                left: anchorRect.left,
+                top: anchorRect.top,
+                width: anchorRect.width,
+                height: anchorRect.height,
+              }
+            : undefined,
         },
         "*",
       );

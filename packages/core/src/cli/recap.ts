@@ -1995,7 +1995,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
 
   lines.push(`Here's a [visual recap](${safeUrl}) of what changed:`);
   lines.push("");
-  lines.push(`<a href="${safeUrl}">`);
   lines.push(`<picture>`);
   if (lightImageUrl && darkImageUrl) {
     lines.push(
@@ -2004,7 +2003,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   }
   lines.push(`  <img alt="Visual recap" src="${fallbackImageUrl}">`);
   lines.push(`</picture>`);
-  lines.push(`</a>`);
   lines.push("");
   lines.push(`**Open the [full interactive recap](${safeUrl})**`);
   if (env.DIFF_HUGE === "true") {

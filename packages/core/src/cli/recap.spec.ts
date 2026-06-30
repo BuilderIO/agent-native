@@ -879,7 +879,7 @@ describe("recap prompt builder", () => {
 });
 
 describe("recap comment body", () => {
-  it("embeds an inline screenshot picture + link and a plan-id marker on success", () => {
+  it("embeds an inline screenshot picture without link chrome and a plan-id marker on success", () => {
     const token = "a".repeat(64);
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
@@ -887,9 +887,7 @@ describe("recap comment body", () => {
       RECAP_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
-    expect(body).toContain(
-      `<a href="https://plan.agent-native.com/recaps/plan-abc123">`,
-    );
+    expect(body).not.toContain(`<a href=`);
     expect(body).toContain("<picture>");
     expect(body).toContain(
       `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png">`,
@@ -920,9 +918,7 @@ describe("recap comment body", () => {
       RECAP_DARK_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
-    expect(body).toContain(
-      `<a href="https://plan.agent-native.com/recaps/plan-abc123">`,
-    );
+    expect(body).not.toContain(`<a href=`);
     expect(body).toContain("<picture>");
     expect(body).toContain(
       `<source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">`,

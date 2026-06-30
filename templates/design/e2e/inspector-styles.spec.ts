@@ -288,12 +288,22 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   const constraintsTrigger = page.getByRole("button", {
     name: "Constraints",
   });
+  const horizontalConstraints = page.getByRole("combobox", {
+    name: "Horizontal",
+  });
+  const verticalConstraints = page.getByRole("combobox", { name: "Vertical" });
   await expect(constraintsTrigger).toBeVisible();
+  await expect(constraintsTrigger).toHaveAttribute("aria-pressed", "false");
+  await expect(horizontalConstraints).toBeHidden();
+
   await constraintsTrigger.click();
-  await expect(
-    page.getByRole("combobox", { name: "Horizontal" }),
-  ).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Vertical" })).toBeVisible();
+  await expect(constraintsTrigger).toHaveAttribute("aria-pressed", "true");
+  await expect(horizontalConstraints).toBeVisible();
+  await expect(verticalConstraints).toBeVisible();
+
+  await constraintsTrigger.click();
+  await expect(constraintsTrigger).toHaveAttribute("aria-pressed", "false");
+  await expect(horizontalConstraints).toBeHidden();
 });
 
 test("export rows add, remove, and reset when selection changes", async ({

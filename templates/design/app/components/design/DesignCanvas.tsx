@@ -166,7 +166,9 @@ ${navBridgeScript}
  *
  * Reply (iframe → window.parent):
  *   { type: 'agent-native:hit-test-result', correlationId: string,
- *     anchorNodeId: string, placement: 'before'|'after'|'inside' }
+ *     anchorNodeId: string, placement: 'before'|'after'|'inside',
+ *     axis: 'x'|'y',
+ *     anchorRect: { left: number, top: number, width: number, height: number } }
  *
  * Reads DOM only — no mutations, no event interception. The container-drop and
  * placement logic is intentionally kept in sync with the corresponding helpers
