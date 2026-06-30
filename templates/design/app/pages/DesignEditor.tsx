@@ -1482,8 +1482,8 @@ function appendCanvasPrimitiveToHtml(
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
     const geometry = primitive.geometry;
-    const left = Math.max(0, Math.round(geometry.x));
-    const top = Math.max(0, Math.round(geometry.y));
+    const left = Math.round(geometry.x);
+    const top = Math.round(geometry.y);
     const width = Math.max(1, Math.round(geometry.width));
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
@@ -5109,9 +5109,10 @@ export default function DesignEditor() {
   // it at the canvas-safe maximum instead of clipping it to the screen union.
   const boardFrameGeometry = useMemo((): FrameGeometry | undefined => {
     if (!boardFileId) return undefined;
+    const origin = -BOARD_SURFACE_SIZE / 2;
     return {
-      x: 0,
-      y: 0,
+      x: origin,
+      y: origin,
       width: BOARD_SURFACE_SIZE,
       height: BOARD_SURFACE_SIZE,
     };

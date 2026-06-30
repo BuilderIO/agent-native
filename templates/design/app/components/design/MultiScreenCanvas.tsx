@@ -3927,8 +3927,8 @@ export function MultiScreenCanvas({
                 className="[&_.design-canvas-iframe-wrapper]:shadow-none [&_.design-canvas-iframe-wrapper]:ring-0"
                 style={{
                   position: "absolute",
-                  left: SURFACE_PADDING,
-                  top: SURFACE_PADDING,
+                  left: SURFACE_PADDING + boardGeo.x,
+                  top: SURFACE_PADDING + boardGeo.y,
                   width: boardW,
                   height: boardH,
                   overflow: "hidden",
@@ -3950,6 +3950,8 @@ export function MultiScreenCanvas({
                     displayWidth: Math.max(1, Math.round(boardW)),
                     displayHeight: Math.max(1, Math.round(boardH)),
                     fluid: true,
+                    contentOffsetX: -boardGeo.x,
+                    contentOffsetY: -boardGeo.y,
                   }}
                   editorChromeScaleX={canvasZoom / 100}
                   editorChromeScaleY={canvasZoom / 100}
