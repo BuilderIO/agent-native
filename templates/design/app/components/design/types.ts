@@ -36,6 +36,15 @@ export interface ElementInfo {
   confidence?: number;
 }
 
+export interface ElementSelectionIntent {
+  additive?: boolean;
+  range?: boolean;
+  source?: "pointer" | "keyboard" | "marquee";
+  shiftKey?: boolean;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+}
+
 export type DeviceFrameType = "none" | "desktop" | "tablet" | "mobile";
 
 export const DEVICE_FRAME_VIEWPORTS = {

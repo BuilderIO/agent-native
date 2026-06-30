@@ -2299,25 +2299,32 @@ audio.media-block__content {
 
 /* ===== Collaboration cursors ===== */
 .notion-editor .collaboration-cursor__selection {
-  background-color: hsl(210 100% 52% / 0.14) !important;
+  background-color: currentColor !important;
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  opacity: 0.16;
 }
 
-.collaboration-cursor__caret {
+.notion-editor .collaboration-cursor__caret {
   border-left: 2px solid;
   border-color: currentColor;
+  display: inline;
   margin-left: -1px;
   margin-right: -1px;
   position: relative;
   word-break: normal;
   pointer-events: none;
+  line-height: 1;
 }
-.collaboration-cursor__label {
+.notion-editor .collaboration-cursor__label {
   position: absolute;
   top: -1.4em;
   left: -1px;
+  display: inline-block;
+  max-width: min(180px, 50vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 11px;
   font-weight: 600;
   line-height: 1;

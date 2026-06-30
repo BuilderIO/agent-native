@@ -16,6 +16,7 @@ interface DesignFileRecord {
   id: string;
   filename: string;
   content: string;
+  fileType?: string;
 }
 
 interface TextPrimitiveSummary {
@@ -126,7 +127,7 @@ test.afterEach(async ({ page }) => {
 });
 
 function toolButton(page: Page, name: string): Locator {
-  return page.getByRole("button", { name, exact: true });
+  return page.locator(`button[aria-label="${name}"]`).first();
 }
 
 function selectedLayerRow(page: Page): Locator {
@@ -187,6 +188,7 @@ async function designFiles(page: Page): Promise<DesignFileRecord[]> {
     id: String(file.id ?? ""),
     filename: String(file.filename ?? ""),
     content: String(file.content ?? ""),
+    fileType: typeof file.fileType === "string" ? file.fileType : undefined,
   }));
 }
 
@@ -196,6 +198,97 @@ async function fileContent(page: Page, filename: string): Promise<string> {
   );
   if (!file) throw new Error(`File not found: ${filename}`);
   return file.content;
+}
+
+async function designData(page: Page): Promise<Record<string, any>> {
+  const result = await getAction(page.request, "get-design", { id: designId });
+  if (typeof result.data !== "string") return {};
+  return JSON.parse(result.data || "{}");
+}
+
+function htmlScreenFiles(files: DesignFileRecord[]): DesignFileRecord[] {
+  return files.filter(
+    (file) => file.fileType === "html" && file.filename !== "__board__.html",
+  );
+}
+
+async function primitiveCount(
+  page: Page,
+  filename: string,
+  kind: string,
+): Promise<number> {
+  const content = await fileContent(page, filename);
+  return page.evaluate(
+    ({ html, primitiveKind }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return doc.querySelectorAll(`[data-an-primitive="${primitiveKind}"]`)
+        .length;
+    },
+    { html: content, primitiveKind: kind },
+  );
+}
+
+async function primitiveNodeIds(
+  page: Page,
+  filename: string,
+  kind: string,
+): Promise<string[]> {
+  const content = await fileContent(page, filename);
+  return page.evaluate(
+    ({ html, primitiveKind }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return Array.from(
+        doc.querySelectorAll<HTMLElement>(
+          `[data-an-primitive="${primitiveKind}"]`,
+        ),
+      )
+        .map((element) => element.dataset.agentNativeNodeId ?? "")
+        .filter(Boolean);
+    },
+    { html: content, primitiveKind: kind },
+  );
+}
+
+async function primitiveLeftPositions(
+  page: Page,
+  filename: string,
+  kind: string,
+): Promise<number[]> {
+  const content = await fileContent(page, filename);
+  return page.evaluate(
+    ({ html, primitiveKind }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return Array.from(
+        doc.querySelectorAll<HTMLElement>(
+          `[data-an-primitive="${primitiveKind}"]`,
+        ),
+      )
+        .map((element) => Number.parseFloat(element.style.left))
+        .filter((value) => Number.isFinite(value));
+    },
+    { html: content, primitiveKind: kind },
+  );
+}
+
+async function dragInEmptyCanvasLeftOf(
+  page: Page,
+  shellName: string,
+  options?: { width?: number; height?: number; topOffset?: number },
+): Promise<void> {
+  const card = screenShell(page, shellName).locator("[data-screen-card]");
+  const cardBox = await card.boundingBox();
+  if (!cardBox) throw new Error(`no ${shellName} screen card box`);
+
+  const width = options?.width ?? 96;
+  const height = options?.height ?? 96;
+  const start = {
+    x: cardBox.x - 12,
+    y: cardBox.y + (options?.topOffset ?? 120),
+  };
+  await dragBetween(page, start, {
+    x: start.x - width,
+    y: start.y + height,
+  });
 }
 
 async function textPrimitiveSummaries(
@@ -342,6 +435,7 @@ async function replaceActiveText(page: Page, text: string): Promise<void> {
   await page.keyboard.press(selectAllShortcut);
   await page.keyboard.type(text);
   await page.keyboard.press("Enter");
+  await page.waitForTimeout(150);
 }
 
 async function insertTextByClick(
@@ -392,6 +486,40 @@ async function insertTextByDrag(
 
 function countOccurrences(content: string, text: string): number {
   return content.split(text).length - 1;
+}
+
+async function pressPrimaryShortcut(
+  page: Page,
+  key: string,
+  options: { shift?: boolean } = {},
+): Promise<void> {
+  await page.evaluate(
+    ({ key, primary, shift }) => {
+      const isLetter = /^[a-z]$/i.test(key);
+      const eventKey = isLetter
+        ? shift
+          ? key.toUpperCase()
+          : key.toLowerCase()
+        : key;
+      const eventInit: KeyboardEventInit = {
+        key: eventKey,
+        code: isLetter ? `Key${key.toUpperCase()}` : key,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        metaKey: primary === "Meta",
+        ctrlKey: primary === "Control",
+        shiftKey: shift,
+      };
+      window.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+      window.dispatchEvent(new KeyboardEvent("keyup", eventInit));
+    },
+    {
+      key,
+      primary: process.platform === "darwin" ? "Meta" : "Control",
+      shift: options.shift ?? false,
+    },
+  );
 }
 
 async function vectorPrimitiveSummaries(
@@ -498,6 +626,20 @@ async function screenIframeViewportSize(shell: Locator): Promise<{
     width: (element as HTMLIFrameElement).clientWidth,
     height: (element as HTMLIFrameElement).clientHeight,
   }));
+}
+
+async function primitiveViewportBox(
+  shell: Locator,
+  nodeId: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const iframe = shell.locator("iframe[data-design-preview-iframe]").first();
+  await expect(iframe).toBeVisible();
+  const box = await iframe
+    .contentFrame()
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .boundingBox();
+  if (!box) throw new Error(`primitive not found: ${nodeId}`);
+  return box;
 }
 
 function expectCloseToFrameSize(
@@ -688,6 +830,7 @@ test("copy and paste duplicates selected text", async ({ page }) => {
   const text = `Copied text ${Date.now()}`;
   await insertTextByClick(page, screenShell(page), text);
   await waitForTextPrimitive(page, "index.html", text);
+  await selectedLayerRow(page).click();
 
   const copyShortcut = process.platform === "darwin" ? "Meta+C" : "Control+C";
   const pasteShortcut = process.platform === "darwin" ? "Meta+V" : "Control+V";
@@ -722,6 +865,97 @@ test("rectangle insertion keeps the new primitive selected", async ({
   await restoreHome(page);
 });
 
+test("dragging a rectangle between screens moves it across files", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const homeShell = screenShell(page, "Home");
+  const aboutShell = screenShell(page, "About");
+  const homeCard = homeShell.locator("[data-screen-card]");
+  const aboutCard = aboutShell.locator("[data-screen-card]");
+  const homeCardBox = await homeCard.boundingBox();
+  const aboutCardBox = await aboutCard.boundingBox();
+  if (!homeCardBox || !aboutCardBox) throw new Error("missing screen card box");
+
+  const homeIdsBefore = await primitiveNodeIds(page, "index.html", "rectangle");
+  const aboutIdsBefore = await primitiveNodeIds(
+    page,
+    "about.html",
+    "rectangle",
+  );
+  const drawStart = {
+    x: homeCardBox.x + homeCardBox.width * 0.1,
+    y: homeCardBox.y + homeCardBox.height * 0.06,
+  };
+  const drawEnd = {
+    x: homeCardBox.x + homeCardBox.width * 0.2,
+    y: homeCardBox.y + homeCardBox.height * 0.14,
+  };
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: drawStart,
+    end: drawEnd,
+  });
+  await expect
+    .poll(() => primitiveNodeIds(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toHaveLength(homeIdsBefore.length + 1);
+  const homeIdsAfterCreate = await primitiveNodeIds(
+    page,
+    "index.html",
+    "rectangle",
+  );
+  const movedId = homeIdsAfterCreate.find((id) => !homeIdsBefore.includes(id));
+  if (!movedId) throw new Error("new rectangle id was not found");
+  const movedBox = await primitiveViewportBox(homeShell, movedId);
+
+  await dragBetween(
+    page,
+    {
+      x: movedBox.x + movedBox.width / 2,
+      y: movedBox.y + movedBox.height / 2,
+    },
+    {
+      x: aboutCardBox.x + aboutCardBox.width * 0.38,
+      y: aboutCardBox.y + aboutCardBox.height * 0.16,
+    },
+  );
+
+  await expect
+    .poll(
+      async () => {
+        const homeIds = await primitiveNodeIds(page, "index.html", "rectangle");
+        const aboutIds = await primitiveNodeIds(
+          page,
+          "about.html",
+          "rectangle",
+        );
+        return {
+          aboutHasMoved: aboutIds.includes(movedId),
+          aboutCount: aboutIds.length,
+          homeHasMoved: homeIds.includes(movedId),
+          homeCount: homeIds.length,
+        };
+      },
+      { timeout: 20_000 },
+    )
+    .toEqual({
+      aboutHasMoved: true,
+      aboutCount: aboutIdsBefore.length + 1,
+      homeHasMoved: false,
+      homeCount: homeIdsBefore.length,
+    });
+});
+
 test("frame insertion creates a new screen and can return to Home", async ({
   page,
 }) => {
@@ -753,6 +987,95 @@ test("frame insertion creates a new screen and can return to Home", async ({
   );
   await expect(selectedLayerRow(page)).toContainText("Screen 2");
   await restoreHome(page);
+});
+
+test("frame drawn left of the first screen creates a new screen", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const filesBeforeFrame = await designFiles(page);
+  const screenCountBeforeFrame = htmlScreenFiles(filesBeforeFrame).length;
+
+  await toolButton(page, "Frame").click();
+  await expect(toolButton(page, "Frame")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await dragInEmptyCanvasLeftOf(page, "Home", { width: 112, height: 132 });
+
+  await expect(toolButton(page, "Move")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect
+    .poll(async () => htmlScreenFiles(await designFiles(page)).length, {
+      timeout: 20_000,
+    })
+    .toBe(screenCountBeforeFrame + 1);
+
+  const filesAfterFrame = await designFiles(page);
+  const newScreen = htmlScreenFiles(filesAfterFrame).find(
+    (file) => !filesBeforeFrame.some((before) => before.id === file.id),
+  );
+  if (!newScreen) throw new Error("new screen file was not created");
+
+  const frameData = await designData(page);
+  const newFrameGeometry = frameData.canvasFrames?.[newScreen.id];
+  expect(newFrameGeometry?.x).toBeLessThan(0);
+});
+
+test("rectangle drawn left of the first screen persists on the board", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const boardRectanglesBefore = await primitiveCount(
+    page,
+    "__board__.html",
+    "rectangle",
+  );
+
+  await toolButton(page, "Rectangle").click();
+  await expect(toolButton(page, "Rectangle")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await dragInEmptyCanvasLeftOf(page, "Home", {
+    width: 84,
+    height: 76,
+    topOffset: 300,
+  });
+
+  await expect
+    .poll(() => primitiveCount(page, "__board__.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(boardRectanglesBefore + 1);
+  await expect
+    .poll(async () => {
+      const positions = await primitiveLeftPositions(
+        page,
+        "__board__.html",
+        "rectangle",
+      );
+      return Math.min(...positions);
+    })
+    .toBeLessThan(0);
 });
 
 test("pen escape cancels the in-progress path and enter commits vector art", async ({
@@ -789,6 +1112,78 @@ test("pen escape cancels the in-progress path and enter commits vector art", asy
   await expect(selectedLayerRow(page)).toContainText("Vector");
 
   await restoreHome(page);
+});
+
+test("primary undo removes active pen segments without undoing committed vectors", async ({
+  page,
+}) => {
+  const card = await homeScreenCard(page);
+  const cardBox = await card.boundingBox();
+  if (!cardBox) throw new Error("no home screen card box");
+
+  await toolButton(page, "Pen").click();
+  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
+  await page.waitForTimeout(150);
+
+  await page.mouse.click(
+    cardBox.x + cardBox.width * 0.26,
+    cardBox.y + cardBox.height * 0.3,
+  );
+  await page.mouse.click(
+    cardBox.x + cardBox.width * 0.42,
+    cardBox.y + cardBox.height * 0.38,
+  );
+  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
+  await expect(selectedLayerRow(page)).toContainText("Vector");
+
+  const committedVector = await waitForVectorPrimitive(
+    page,
+    "index.html",
+    /\bL\b/,
+  );
+
+  await page.mouse.click(
+    cardBox.x + cardBox.width * 0.52,
+    cardBox.y + cardBox.height * 0.32,
+  );
+  await page.mouse.click(
+    cardBox.x + cardBox.width * 0.72,
+    cardBox.y + cardBox.height * 0.48,
+  );
+  await page.mouse.click(
+    cardBox.x + cardBox.width * 0.62,
+    cardBox.y + cardBox.height * 0.64,
+  );
+  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
+  await expect(page.locator("[data-pen-anchor]")).toHaveCount(3);
+
+  const undoShortcut = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
+  await page.keyboard.press(undoShortcut);
+  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
+  await expect(page.locator("[data-pen-anchor]")).toHaveCount(2);
+  await page.waitForTimeout(500);
+
+  const vectorsAfterSegmentUndo = await vectorPrimitiveSummaries(
+    page,
+    "index.html",
+  );
+  expect(vectorsAfterSegmentUndo).toHaveLength(1);
+  expect(vectorsAfterSegmentUndo[0]?.d).toBe(committedVector.d);
+
+  await page.keyboard.press(undoShortcut);
+  await expect(page.locator("[data-pen-anchor]")).toHaveCount(1);
+  await page.keyboard.press(undoShortcut);
+  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
+  await page.waitForTimeout(500);
+
+  const vectorsAfterClearingPath = await vectorPrimitiveSummaries(
+    page,
+    "index.html",
+  );
+  expect(vectorsAfterClearingPath).toHaveLength(1);
+  expect(vectorsAfterClearingPath[0]?.d).toBe(committedVector.d);
 });
 
 test("pen Bezier vector stays visible and persists through reload", async ({
@@ -905,6 +1300,362 @@ test("dragging the Home screen shell moves it", async ({ page }) => {
   if (!movedBack) throw new Error("no restored shell box");
   expect(Math.abs(movedBack.x - before.x)).toBeLessThan(6);
   expect(Math.abs(movedBack.y - before.y)).toBeLessThan(6);
+});
+
+test("overview undo and redo stay global across screen content and canvas geometry", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const homeShell = screenShell(page, "Home");
+  const beforeMove = await homeShell.boundingBox();
+  if (!beforeMove) throw new Error("no home shell before move");
+  const aboutShell = screenShell(page, "About");
+  const aboutCard = aboutShell.locator("[data-screen-card]");
+  const aboutCardBox = await aboutCard.boundingBox();
+  if (!aboutCardBox) throw new Error("no about card box");
+  const homeCard = homeShell.locator("[data-screen-card]");
+  const homeCardBox = await homeCard.boundingBox();
+  if (!homeCardBox) throw new Error("no home card box");
+  const homeRectanglesBefore = await primitiveCount(
+    page,
+    "index.html",
+    "rectangle",
+  );
+  const aboutRectanglesBefore = await primitiveCount(
+    page,
+    "about.html",
+    "rectangle",
+  );
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: homeCardBox.x + homeCardBox.width * 0.16,
+      y: homeCardBox.y + homeCardBox.height * 0.18,
+    },
+    end: {
+      x: homeCardBox.x + homeCardBox.width * 0.32,
+      y: homeCardBox.y + homeCardBox.height * 0.3,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore + 1);
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.18,
+      y: aboutCardBox.y + aboutCardBox.height * 0.2,
+    },
+    end: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.34,
+      y: aboutCardBox.y + aboutCardBox.height * 0.32,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore + 1);
+
+  await dragBetween(
+    page,
+    { x: beforeMove.x + beforeMove.width * 0.34, y: beforeMove.y + 12 },
+    {
+      x: beforeMove.x + beforeMove.width * 0.34 + 72,
+      y: beforeMove.y + 12 + 32,
+    },
+  );
+  const moved = await homeShell.boundingBox();
+  if (!moved) throw new Error("no moved home shell");
+  expect(moved.x).toBeGreaterThan(beforeMove.x + 20);
+
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(async () => {
+      const current = await homeShell.boundingBox();
+      return current
+        ? Math.abs(current.x - beforeMove.x)
+        : Number.POSITIVE_INFINITY;
+    })
+    .toBeLessThan(6);
+  expect(await primitiveCount(page, "index.html", "rectangle")).toBe(
+    homeRectanglesBefore + 1,
+  );
+  expect(await primitiveCount(page, "about.html", "rectangle")).toBe(
+    aboutRectanglesBefore + 1,
+  );
+
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore);
+  expect(await primitiveCount(page, "index.html", "rectangle")).toBe(
+    homeRectanglesBefore + 1,
+  );
+
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore);
+
+  await pressPrimaryShortcut(page, "z", { shift: true });
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore + 1);
+  await pressPrimaryShortcut(page, "z", { shift: true });
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore + 1);
+  await pressPrimaryShortcut(page, "z", { shift: true });
+  await expect
+    .poll(async () => {
+      const current = await homeShell.boundingBox();
+      return current ? current.x - beforeMove.x : 0;
+    })
+    .toBeGreaterThan(20);
+});
+
+test("single-screen undo does not consume overview history", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const aboutShell = screenShell(page, "About");
+  const aboutCard = aboutShell.locator("[data-screen-card]");
+  const aboutCardBox = await aboutCard.boundingBox();
+  if (!aboutCardBox) throw new Error("no about card box");
+  const aboutRectanglesBefore = await primitiveCount(
+    page,
+    "about.html",
+    "rectangle",
+  );
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.12,
+      y: aboutCardBox.y + aboutCardBox.height * 0.12,
+    },
+    end: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.22,
+      y: aboutCardBox.y + aboutCardBox.height * 0.22,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore + 1);
+
+  const sidebar = page.locator("aside").first();
+  const allScreens = sidebar.getByRole("button", { name: "All screens" });
+  const homeScreen = sidebar
+    .getByRole("button", { name: "Home", exact: true })
+    .first();
+  await homeScreen.click();
+  await expect(homeScreen).toHaveAttribute("aria-current", "page");
+
+  await pressPrimaryShortcut(page, "z");
+  await page.waitForTimeout(300);
+  expect(await primitiveCount(page, "about.html", "rectangle")).toBe(
+    aboutRectanglesBefore + 1,
+  );
+
+  await allScreens.click();
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(screenShell(page, "About")).toBeVisible();
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore);
+});
+
+test("overview undo skips deleted screen content history", async ({ page }) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const aboutFile = (await designFiles(page)).find(
+    (file) => file.filename === "about.html",
+  );
+  if (!aboutFile) throw new Error("about.html was not created");
+
+  const homeShell = screenShell(page, "Home");
+  const aboutShell = screenShell(page, "About");
+  const homeCardBox = await homeShell
+    .locator("[data-screen-card]")
+    .boundingBox();
+  const aboutCardBox = await aboutShell
+    .locator("[data-screen-card]")
+    .boundingBox();
+  if (!homeCardBox || !aboutCardBox) throw new Error("missing screen card box");
+  const homeRectanglesBefore = await primitiveCount(
+    page,
+    "index.html",
+    "rectangle",
+  );
+  const aboutRectanglesBefore = await primitiveCount(
+    page,
+    "about.html",
+    "rectangle",
+  );
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: homeCardBox.x + homeCardBox.width * 0.16,
+      y: homeCardBox.y + homeCardBox.height * 0.18,
+    },
+    end: {
+      x: homeCardBox.x + homeCardBox.width * 0.3,
+      y: homeCardBox.y + homeCardBox.height * 0.3,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore + 1);
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.16,
+      y: aboutCardBox.y + aboutCardBox.height * 0.18,
+    },
+    end: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.3,
+      y: aboutCardBox.y + aboutCardBox.height * 0.3,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore + 1);
+
+  const aboutBox = await aboutShell.boundingBox();
+  if (!aboutBox) throw new Error("no about shell box");
+  await page.mouse.click(aboutBox.x + aboutBox.width * 0.3, aboutBox.y + 12);
+  await page.keyboard.press("Delete");
+  await expect
+    .poll(
+      async () =>
+        htmlScreenFiles(await designFiles(page)).some(
+          (file) => file.id === aboutFile.id,
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(false);
+
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore);
+  expect(
+    htmlScreenFiles(await designFiles(page)).some(
+      (file) => file.id === aboutFile.id,
+    ),
+  ).toBe(false);
+});
+
+test("overview undo does not restore ghost geometry for deleted screens", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const aboutFile = (await designFiles(page)).find(
+    (file) => file.filename === "about.html",
+  );
+  if (!aboutFile) throw new Error("about.html was not created");
+
+  const aboutShell = screenShell(page, "About");
+  const aboutBoxBeforeMove = await aboutShell.boundingBox();
+  if (!aboutBoxBeforeMove) throw new Error("no about shell before move");
+  await dragBetween(
+    page,
+    {
+      x: aboutBoxBeforeMove.x + aboutBoxBeforeMove.width * 0.34,
+      y: aboutBoxBeforeMove.y + 12,
+    },
+    {
+      x: aboutBoxBeforeMove.x + aboutBoxBeforeMove.width * 0.34 + 80,
+      y: aboutBoxBeforeMove.y + 12 + 36,
+    },
+  );
+  const movedAboutBox = await aboutShell.boundingBox();
+  if (!movedAboutBox) throw new Error("no moved about shell box");
+  expect(movedAboutBox.x).toBeGreaterThan(aboutBoxBeforeMove.x + 20);
+
+  const aboutBox = await aboutShell.boundingBox();
+  if (!aboutBox) throw new Error("no about shell box");
+  await page.mouse.click(aboutBox.x + aboutBox.width * 0.3, aboutBox.y + 12);
+  await page.keyboard.press("Delete");
+
+  await expect
+    .poll(
+      async () =>
+        htmlScreenFiles(await designFiles(page)).some(
+          (file) => file.id === aboutFile.id,
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(false);
+
+  await pressPrimaryShortcut(page, "z");
+  await page.waitForTimeout(300);
+
+  const dataAfterUndo = await designData(page);
+  expect(
+    Boolean(
+      dataAfterUndo.canvasFrames &&
+      typeof dataAfterUndo.canvasFrames === "object" &&
+      dataAfterUndo.canvasFrames[aboutFile.id],
+    ),
+  ).toBe(false);
+  expect(
+    htmlScreenFiles(await designFiles(page)).some(
+      (file) => file.id === aboutFile.id,
+    ),
+  ).toBe(false);
 });
 
 test("Escape cancels an in-progress overview screen drag", async ({ page }) => {

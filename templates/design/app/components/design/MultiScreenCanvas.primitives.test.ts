@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  getBoardSurfaceLayerStyle,
   getBoardContentKey,
   getCrossScreenDropGuideForHitTest,
   getPrimitiveDropTargetForPoint,
@@ -72,6 +73,16 @@ beforeEach(() => {
 });
 
 describe("board surface pointer capture", () => {
+  it("keeps the oversized board layer transparent", () => {
+    const style = getBoardSurfaceLayerStyle({
+      geometry: makeGeom(-65536, -65536, 131072, 131072),
+      interactive: true,
+    });
+
+    expect(style.background).toBe("transparent");
+    expect(style.pointerEvents).toBe("auto");
+  });
+
   it("treats empty board documents as having no surface content", () => {
     expect(
       hasBoardSurfaceContent(

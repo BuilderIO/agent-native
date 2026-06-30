@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useComments } from "@/hooks/use-comments";
+import { useProcessBuilderBodyHydration } from "@/hooks/use-content-database";
 import {
   useDocument,
   useDocuments,
@@ -85,14 +86,18 @@ function adoptConfirmedSaveWatermarks({
   savedAt: string;
   title: string;
   content: string;
-  updates: Record<string, string>;
+  updates: {
+    title?: string;
+    content?: string;
+    icon?: string | null;
+  };
   lastSavedTitleRef: MutableRefObject<FieldSaveWatermark>;
   lastSavedContentRef: MutableRefObject<ContentSaveWatermark>;
 }) {
   if (updates.title !== undefined) {
     lastSavedTitleRef.current = { title, updatedAt: savedAt };
   } else if (
-    updates.content !== undefined &&
+    (updates.content !== undefined || updates.icon !== undefined) &&
     saved?.title === lastSavedTitleRef.current.title
   ) {
     lastSavedTitleRef.current = {
@@ -103,7 +108,7 @@ function adoptConfirmedSaveWatermarks({
   if (updates.content !== undefined) {
     lastSavedContentRef.current = { content, updatedAt: savedAt };
   } else if (
-    updates.title !== undefined &&
+    (updates.title !== undefined || updates.icon !== undefined) &&
     saved?.content === lastSavedContentRef.current.content
   ) {
     lastSavedContentRef.current = {
@@ -326,6 +331,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const t = useT();
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
+  const processBuilderBodies = useProcessBuilderBodyHydration(
+    document.databaseMembership?.databaseDocumentId ?? documentId,
+  );
   const canEdit = document.canEdit ?? true;
   const canEditRef = useRef(canEdit);
   canEditRef.current = canEdit;
@@ -358,6 +366,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     string | null
   >(document.updatedAt ?? null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promotedBuilderBodyRef = useRef<string | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
@@ -388,6 +397,26 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     },
     [t],
   );
+
+  useEffect(() => {
+    const membership = document.databaseMembership;
+    const hydration = membership?.bodyHydration;
+    if (
+      !membership?.sourceId ||
+      !hydration ||
+      (hydration.status !== "pending" && hydration.status !== "error")
+    ) {
+      return;
+    }
+    const promotionKey = `${membership.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
+    if (promotedBuilderBodyRef.current === promotionKey) return;
+    promotedBuilderBodyRef.current = promotionKey;
+    processBuilderBodies.mutate({
+      sourceId: membership.sourceId,
+      documentId,
+      limit: 1,
+    });
+  }, [document.databaseMembership, documentId, processBuilderBodies.mutate]);
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1160,7 +1189,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           }
                           onSelect={(emoji) => {
                             void (async () => {
-                              await persistDocumentUpdates({ icon: emoji });
+                              const saved = await persistDocumentUpdates({
+                                icon: emoji,
+                              });
+                              adoptConfirmedSaveWatermarks({
+                                saved,
+                                savedAt:
+                                  saved?.updatedAt ?? new Date().toISOString(),
+                                title: localTitleRef.current,
+                                content: localContentRef.current,
+                                updates: { icon: emoji },
+                                lastSavedTitleRef,
+                                lastSavedContentRef,
+                              });
                             })().catch(handleBackgroundSaveError);
                           }}
                         />

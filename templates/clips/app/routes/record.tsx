@@ -7,7 +7,11 @@ import {
 } from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
-import { chunkUploadUrl } from "@shared/recording-core";
+import {
+  chunkUploadUrl,
+  pickMimeType,
+  type UploadMode,
+} from "@shared/recording-core";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -95,6 +99,7 @@ import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
 import {
   RecorderEngine,
+  canUseTimeslicedRecorderChunks,
   NO_MIC_DEVICE_ID,
   type DisplaySurface,
   type RecorderFinalizeResult,
@@ -567,6 +572,7 @@ interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
   abortUrl: string;
+  uploadMode?: UploadMode;
 }
 
 function PreRecordPanelSkeleton() {
@@ -1194,6 +1200,8 @@ export default function RecordRoute() {
               visibility: reportContext ? "org" : "public",
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
+              mimeType: pickMimeType() || undefined,
+              requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
             }),
           },
         );
@@ -1213,10 +1221,12 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl: string;
+            uploadMode?: UploadMode;
           };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          uploadMode?: UploadMode;
         };
         const info = created.result ?? (created as PendingRecording);
         if (!info?.id) {
@@ -1244,6 +1254,7 @@ export default function RecordRoute() {
           recordingId: info.id,
           uploadUrl: uploadChunkUrl,
           abortUrl,
+          uploadMode: info.uploadMode,
         });
         await saveBugReportContextRef.current(info.id);
 

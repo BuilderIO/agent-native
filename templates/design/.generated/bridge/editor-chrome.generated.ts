@@ -8,6 +8,7 @@ export const editorChromeBridgeScript: string = `"use strict";
   (function() {
     var readOnly = __READ_ONLY__;
     var textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
+    var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
     var scaleToolEnabled = false;
     var editorChromeScaleX = Math.max(
       0.05,
@@ -1909,6 +1910,32 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (cs.position === "absolute" || cs.position === "fixed") return false;
       return true;
     }
+    function isOutsideIframeViewport(clientX, clientY) {
+      return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
+    }
+    function postCrossScreenDrag(phase, el, ev) {
+      if (phase === "cancel") {
+        window.parent.postMessage(
+          { type: "agent-native:cross-screen-drag", phase: "cancel" },
+          "*"
+        );
+        return;
+      }
+      window.parent.postMessage(
+        {
+          type: "agent-native:cross-screen-drag",
+          phase,
+          screenId: designCanvasScreenId,
+          selector: getSelector(el ?? null),
+          sourceId: getSourceId(el ?? null),
+          iframeX: ev?.clientX ?? 0,
+          iframeY: ev?.clientY ?? 0,
+          viewportW: window.innerWidth,
+          viewportH: window.innerHeight
+        },
+        "*"
+      );
+    }
     var BRIDGE_CONTAINER_TAGS = [
       "div",
       "section",
@@ -2290,6 +2317,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       ensurePositionable(selectedEl);
       var cs = window.getComputedStyle(selectedEl);
+      var originalInlinePosition = selectedEl.style.position;
+      var originalInlineLeft = selectedEl.style.left;
+      var originalInlineTop = selectedEl.style.top;
       var originLeft = readPx(selectedEl.style.left || cs.left);
       var originTop = readPx(selectedEl.style.top || cs.top);
       var startX = e.clientX;
@@ -2297,6 +2327,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragEl = selectedEl;
       var moved = false;
       var DRAG_THRESHOLD = 3;
+      if (!duplicatedForDrag) {
+        postCrossScreenDrag("start", dragEl, e);
+      }
       function onMove(ev) {
         if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
           moved = true;
@@ -2305,18 +2338,37 @@ export const editorChromeBridgeScript: string = `"use strict";
         var nextTop = originTop + ev.clientY - startY;
         dragEl.style.left = Math.round(nextLeft) + "px";
         dragEl.style.top = Math.round(nextTop) + "px";
-        showTransformBadge(
-          "X " + Math.round(nextLeft) + "  Y " + Math.round(nextTop),
-          ev.clientX,
-          ev.clientY
-        );
+        if (!duplicatedForDrag) {
+          postCrossScreenDrag("move", dragEl, ev);
+        }
+        if (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+          showTransformBadge("Move layer", ev.clientX, ev.clientY);
+        } else {
+          showTransformBadge(
+            "X " + Math.round(nextLeft) + "  Y " + Math.round(nextTop),
+            ev.clientX,
+            ev.clientY
+          );
+        }
         refreshOverlays();
       }
-      function onUp() {
+      function restoreSourceDragPosition() {
+        dragEl.style.position = originalInlinePosition;
+        dragEl.style.left = originalInlineLeft;
+        dragEl.style.top = originalInlineTop;
+        selectedEl = originalSelectedEl;
+        positionOverlay(selectionOverlay, selectedEl);
+      }
+      function onUp(ev) {
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
         hideTransformBadge();
         if (!dragEl) return;
+        if (ev && !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+          postCrossScreenDrag("end", dragEl, ev);
+          restoreSourceDragPosition();
+          return;
+        }
         if (duplicatedForDrag && !moved) {
           if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
           selectedEl = originalSelectedEl;
@@ -2343,6 +2395,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             "*"
           );
+          postCrossScreenDrag("cancel");
         }
       }
       document.addEventListener(events.move, onMove, true);
@@ -2525,6 +2578,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         pendingShieldDrag.onUp,
         true
       );
+      if (pendingShieldDrag.pointerId !== void 0 && shieldOverlay.releasePointerCapture) {
+        try {
+          shieldOverlay.releasePointerCapture(pendingShieldDrag.pointerId);
+        } catch (_err) {
+        }
+      }
       pendingShieldDrag = null;
     }
     function beginPotentialShieldDrag(e) {
@@ -2538,6 +2597,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       var clickTarget = selectionTargetForHit(hit);
       if (!dragTarget || dragTarget === document.body || dragTarget === document.documentElement || isLayerInteractionBlocked(dragTarget)) {
         return;
+      }
+      if (e.pointerId !== void 0 && shieldOverlay.setPointerCapture && !e.altKey) {
+        try {
+          shieldOverlay.setPointerCapture(e.pointerId);
+        } catch (_err) {
+        }
+      }
+      if (!e.altKey) {
+        postCrossScreenDrag("start", dragTarget, e);
       }
       var startX = e.clientX;
       var startY = e.clientY;
@@ -2561,6 +2629,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       function onUp(ev) {
         clearPendingShieldDrag();
         if (didStartDrag) return;
+        if (!e.altKey) {
+          postCrossScreenDrag("cancel");
+        }
         if (ev) stopNativeInteraction(ev);
         selectTarget(clickTarget || dragTarget);
         suppressNextShieldClickBriefly();
@@ -2570,7 +2641,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         move: events.move,
         up: events.up,
         onMove,
-        onUp
+        onUp,
+        pointerId: e.pointerId
       };
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);

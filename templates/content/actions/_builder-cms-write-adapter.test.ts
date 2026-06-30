@@ -682,11 +682,74 @@ describe("Builder CMS write adapter plan", () => {
     expect(plan.payload.request.body).not.toHaveProperty("published");
   });
 
-  it("keeps body diffs and empty field operations blocked", () => {
+  it("prepares converted body diffs as Builder blocks without field operations", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
       changeSet: {
         ...approvedChangeSet(),
+        kind: "body_update",
+        fieldChanges: [],
+        bodyChange: {
+          summary: "Body changed",
+          currentExcerpt: "Old",
+          proposedExcerpt: "New",
+          currentHash: "old-hash",
+          proposedHash: "new-hash",
+          proposedContent: "New",
+          proposedBlocksJson: JSON.stringify([
+            {
+              "@type": "@builder.io/sdk:Element",
+              component: {
+                name: "Text",
+                options: {
+                  text: "New",
+                },
+              },
+            },
+          ]),
+          sidecarsJson: "{}",
+          warnings: [],
+        },
+      },
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        request: {
+          body: {
+            data: {
+              blocks: [
+                {
+                  "@type": "@builder.io/sdk:Element",
+                  component: {
+                    name: "Text",
+                    options: {
+                      text: "New",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+        safety: {
+          blockers: [],
+          checks: expect.arrayContaining([
+            "Includes converted Builder body blocks.",
+          ]),
+        },
+      },
+    });
+  });
+
+  it("blocks body diffs that have not produced Builder blocks", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: {
+        ...approvedChangeSet(),
+        kind: "body_update",
         fieldChanges: [],
         bodyChange: {
           summary: "Body changed",
@@ -701,10 +764,9 @@ describe("Builder CMS write adapter plan", () => {
       state: "blocked",
       payload: {
         safety: {
-          blockers: [
-            "No field operations are available for this Builder change.",
-            "Builder body diffs are not executable in this slice.",
-          ],
+          blockers: expect.arrayContaining([
+            "Builder body diff could not be converted to Builder blocks.",
+          ]),
         },
       },
     });

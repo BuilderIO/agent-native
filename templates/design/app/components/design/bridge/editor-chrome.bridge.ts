@@ -11,6 +11,7 @@
  *   __TEXT_EDITING_ENABLED__   — boolean literal "true"/"false"
  *   __EDITOR_CHROME_SCALE_X__  — number string, e.g. "1.5"
  *   __EDITOR_CHROME_SCALE_Y__  — number string, e.g. "1.5"
+ *   __DESIGN_CANVAS_SCREEN_ID__ — string literal for the owning screen/file id
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -24,10 +25,12 @@ declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
 declare var __EDITOR_CHROME_SCALE_X__: string;
 declare var __EDITOR_CHROME_SCALE_Y__: string;
+declare var __DESIGN_CANVAS_SCREEN_ID__: string;
 
 (function () {
   var readOnly = __READ_ONLY__;
   var textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
+  var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
   var scaleToolEnabled = false;
   var editorChromeScaleX = Math.max(
     0.05,
@@ -456,6 +459,65 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     };
   }
 
+  function selectionIntentFromEvent(e): {
+    additive: boolean;
+    range: boolean;
+    source: "pointer";
+    shiftKey: boolean;
+    metaKey: boolean;
+    ctrlKey: boolean;
+  } {
+    var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    return {
+      additive: additive,
+      range: Boolean(e && e.shiftKey),
+      source: "pointer",
+      shiftKey: Boolean(e && e.shiftKey),
+      metaKey: Boolean(e && e.metaKey),
+      ctrlKey: Boolean(e && e.ctrlKey),
+    };
+  }
+
+  function postElementSelect(el: Element, e?: MouseEvent): void {
+    var message: {
+      type: string;
+      payload: unknown;
+      intent?: ReturnType<typeof selectionIntentFromEvent>;
+    } = {
+      type: "element-select",
+      payload: getElementInfo(el),
+    };
+    if (e) message.intent = selectionIntentFromEvent(e);
+    (window.parent as Window).postMessage(message, "*");
+  }
+
+  function collectSelectableElementInfos(): unknown[] {
+    var nodes = Array.prototype.slice.call(
+      document.querySelectorAll(
+        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]",
+      ),
+    ) as Element[];
+    var seen = new Set<Element>();
+    var infos: unknown[] = [];
+    nodes.forEach(function (node) {
+      var target = selectionTargetForHit(node);
+      if (
+        !target ||
+        isDocumentRootElement(target) ||
+        isOverlayElement(target) ||
+        isLayerInteractionBlocked(target) ||
+        seen.has(target)
+      ) {
+        return;
+      }
+      var rect = target.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      seen.add(target);
+      infos.push(getElementInfo(target));
+    });
+    return infos;
+  }
+
   var shieldOverlay = document.createElement("div");
   shieldOverlay.setAttribute("data-agent-native-edit-overlay", "shield");
   shieldOverlay.style.cssText =
@@ -672,6 +734,8 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
 
   var selectedEl: Element | null = null;
   var hoveredEl: Element | null = null;
+  var passiveSelectionEls: Element[] = [];
+  var passiveSelectionOverlays: HTMLElement[] = [];
   var activeTextEditEl: HTMLElement | null = null;
   var textEditPointerState: {
     shield: string;
@@ -726,6 +790,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
   function clearRuntimeSelection(): void {
     selectedEl = null;
     hoveredEl = null;
+    setPassiveSelectionElements([]);
     selectedSpacingHovered = false;
     hoveredSpacingHandleKey = "";
     spacingDrag = null;
@@ -734,6 +799,42 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     hideSpacingOverlay();
     hideMeasurements();
     clearComponentTag();
+  }
+
+  function removePassiveSelectionOverlays(): void {
+    passiveSelectionOverlays.forEach(function (overlay) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    });
+    passiveSelectionOverlays = [];
+  }
+
+  function makePassiveSelectionOverlay(): HTMLElement {
+    var overlay = document.createElement("div");
+    overlay.setAttribute(
+      "data-agent-native-edit-overlay",
+      "multi-selection",
+    );
+    overlay.style.cssText =
+      "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function setPassiveSelectionElements(elements: Element[]): void {
+    passiveSelectionEls = elements.filter(function (el, index, all) {
+      return (
+        el &&
+        el !== selectedEl &&
+        document.documentElement.contains(el) &&
+        all.indexOf(el) === index
+      );
+    });
+    removePassiveSelectionOverlays();
+    passiveSelectionEls.forEach(function (el) {
+      var overlay = makePassiveSelectionOverlay();
+      passiveSelectionOverlays.push(overlay);
+      positionOverlay(overlay, el);
+    });
   }
 
   function matchesSelectorList(
@@ -920,10 +1021,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
         hoveredEl = null;
         if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
           positionOverlay(selectionOverlay, selectedEl);
-          (window.parent as Window).postMessage(
-            { type: "element-select", payload: getElementInfo(selectedEl) },
-            "*",
-          );
+          postElementSelect(selectedEl);
         } else {
           selectionOverlay.style.display = "none";
         }
@@ -973,10 +1071,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     }
     if (selectedEl) {
       positionOverlay(selectionOverlay, selectedEl);
-      (window.parent as Window).postMessage(
-        { type: "element-select", payload: getElementInfo(selectedEl) },
-        "*",
-      );
+      postElementSelect(selectedEl);
     } else {
       selectionOverlay.style.display = "none";
     }
@@ -1694,6 +1789,10 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       highlightOverlay.style.display = "none";
     }
     if (selectedEl) positionOverlay(selectionOverlay, selectedEl);
+    passiveSelectionEls.forEach(function (el, index) {
+      var overlay = passiveSelectionOverlays[index];
+      if (overlay) positionOverlay(overlay, el);
+    });
   }
 
   function hideMeasurements(): void {
@@ -2125,12 +2224,8 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       clearComponentTag();
       return;
     }
-    var info = getElementInfo(selectedEl);
     positionOverlay(selectionOverlay, selectedEl);
-    (window.parent as Window).postMessage(
-      { type: "element-select", payload: info },
-      "*",
-    );
+    postElementSelect(selectedEl, e);
   }
 
   function suppressNextShieldClickBriefly() {
@@ -2157,10 +2252,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
         info = getElementInfo(selectedEl);
         positionOverlay(selectionOverlay, selectedEl);
-        (window.parent as Window).postMessage(
-          { type: "element-select", payload: info },
-          "*",
-        );
+        postElementSelect(selectedEl, e);
       } else {
         selectedEl = null;
         selectionOverlay.style.display = "none";
@@ -2576,6 +2668,43 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     return true;
   }
 
+  function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
+    return (
+      clientX < 0 ||
+      clientY < 0 ||
+      clientX > window.innerWidth ||
+      clientY > window.innerHeight
+    );
+  }
+
+  function postCrossScreenDrag(
+    phase: "start" | "move" | "end" | "cancel",
+    el?: Element | null,
+    ev?: { clientX?: number; clientY?: number } | null,
+  ): void {
+    if (phase === "cancel") {
+      (window.parent as Window).postMessage(
+        { type: "agent-native:cross-screen-drag", phase: "cancel" },
+        "*",
+      );
+      return;
+    }
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:cross-screen-drag",
+        phase,
+        screenId: designCanvasScreenId,
+        selector: getSelector(el ?? null),
+        sourceId: getSourceId(el ?? null),
+        iframeX: ev?.clientX ?? 0,
+        iframeY: ev?.clientY ?? 0,
+        viewportW: window.innerWidth,
+        viewportH: window.innerHeight,
+      },
+      "*",
+    );
+  }
+
   // keep in sync with EditPanel.tsx CONTAINER_TAGS/LEAF_TAGS (~line 1679)
   var BRIDGE_CONTAINER_TAGS = [
     "div",
@@ -2873,10 +3002,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       selectedEl = clone;
       duplicatedForDrag = true;
       positionOverlay(selectionOverlay, selectedEl);
-      (window.parent as Window).postMessage(
-        { type: "element-select", payload: getElementInfo(selectedEl) },
-        "*",
-      );
+      postElementSelect(selectedEl, e);
     }
     if (isFlowReorderCandidate(selectedEl)) {
       // Snapshot the element being reordered so a concurrent select-element or
@@ -2948,10 +3074,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
             reorderEl.parentElement.removeChild(reorderEl);
           selectedEl = originalSelectedEl;
           positionOverlay(selectionOverlay, selectedEl);
-          (window.parent as Window).postMessage(
-            { type: "element-select", payload: getElementInfo(selectedEl) },
-            "*",
-          );
+          postElementSelect(selectedEl);
         }
       }
       function onReorderKeyDown(ev) {
@@ -3007,10 +3130,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
               reorderEl.parentElement.removeChild(reorderEl);
             selectedEl = originalSelectedEl;
             positionOverlay(selectionOverlay, selectedEl);
-            (window.parent as Window).postMessage(
-              { type: "element-select", payload: getElementInfo(selectedEl) },
-              "*",
-            );
+            postElementSelect(selectedEl);
           }
           return;
         }
@@ -3043,6 +3163,9 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     }
     ensurePositionable(selectedEl);
     var cs = window.getComputedStyle(selectedEl);
+    var originalInlinePosition = (selectedEl as HTMLElement).style.position;
+    var originalInlineLeft = (selectedEl as HTMLElement).style.left;
+    var originalInlineTop = (selectedEl as HTMLElement).style.top;
     var originLeft = readPx((selectedEl as HTMLElement).style.left || cs.left);
     var originTop = readPx(selectedEl.style.top || cs.top);
     var startX = e.clientX;
@@ -3053,6 +3176,9 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     var dragEl = selectedEl;
     var moved = false;
     var DRAG_THRESHOLD = 3;
+    if (!duplicatedForDrag) {
+      postCrossScreenDrag("start", dragEl, e);
+    }
     function onMove(ev) {
       if (
         !moved &&
@@ -3064,27 +3190,50 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       var nextTop = originTop + ev.clientY - startY;
       (dragEl as HTMLElement).style.left = Math.round(nextLeft) + "px";
       (dragEl as HTMLElement).style.top = Math.round(nextTop) + "px";
-      showTransformBadge(
-        "X " + Math.round(nextLeft) + "  Y " + Math.round(nextTop),
-        ev.clientX,
-        ev.clientY,
-      );
+      if (!duplicatedForDrag) {
+        postCrossScreenDrag("move", dragEl, ev);
+      }
+      if (
+        !duplicatedForDrag &&
+        isOutsideIframeViewport(ev.clientX, ev.clientY)
+      ) {
+        showTransformBadge("Move layer", ev.clientX, ev.clientY);
+      } else {
+        showTransformBadge(
+          "X " + Math.round(nextLeft) + "  Y " + Math.round(nextTop),
+          ev.clientX,
+          ev.clientY,
+        );
+      }
       refreshOverlays();
     }
-    function onUp() {
+    function restoreSourceDragPosition(): void {
+      (dragEl as HTMLElement).style.position = originalInlinePosition;
+      (dragEl as HTMLElement).style.left = originalInlineLeft;
+      (dragEl as HTMLElement).style.top = originalInlineTop;
+      selectedEl = originalSelectedEl;
+      positionOverlay(selectionOverlay, selectedEl);
+    }
+    function onUp(ev) {
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       hideTransformBadge();
       if (!dragEl) return;
+      if (
+        ev &&
+        !duplicatedForDrag &&
+        isOutsideIframeViewport(ev.clientX, ev.clientY)
+      ) {
+        postCrossScreenDrag("end", dragEl, ev);
+        restoreSourceDragPosition();
+        return;
+      }
       if (duplicatedForDrag && !moved) {
         // Alt-click with no real drag — remove the premature clone and restore the original selection.
         if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
         selectedEl = originalSelectedEl;
         positionOverlay(selectionOverlay, selectedEl);
-        (window.parent as Window).postMessage(
-          { type: "element-select", payload: getElementInfo(selectedEl) },
-          "*",
-        );
+        postElementSelect(selectedEl);
         return;
       }
       if (duplicatedForDrag) {
@@ -3103,6 +3252,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
           },
           "*",
         );
+        postCrossScreenDrag("cancel");
       }
     }
     document.addEventListener(events.move, onMove, true);
@@ -3317,6 +3467,14 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       pendingShieldDrag.onUp,
       true,
     );
+    if (
+      pendingShieldDrag.pointerId !== undefined &&
+      shieldOverlay.releasePointerCapture
+    ) {
+      try {
+        shieldOverlay.releasePointerCapture(pendingShieldDrag.pointerId);
+      } catch (_err) {}
+    }
     pendingShieldDrag = null;
   }
 
@@ -3342,30 +3500,42 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     ) {
       return;
     }
+    if (
+      e.pointerId !== undefined &&
+      shieldOverlay.setPointerCapture &&
+      !e.altKey
+    ) {
+      try {
+        shieldOverlay.setPointerCapture(e.pointerId);
+      } catch (_err) {}
+    }
+    if (!e.altKey) {
+      postCrossScreenDrag("start", dragTarget, e);
+    }
     var startX = e.clientX;
     var startY = e.clientY;
     var didStartDrag = false;
-    function selectTarget(target) {
+    function selectTarget(target, ev?: MouseEvent) {
       selectedEl = target;
       positionOverlay(selectionOverlay, selectedEl);
-      (window.parent as Window).postMessage(
-        { type: "element-select", payload: getElementInfo(selectedEl) },
-        "*",
-      );
+      postElementSelect(selectedEl, ev);
     }
     function onMove(ev) {
       if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
       clearPendingShieldDrag();
       didStartDrag = true;
-      selectTarget(dragTarget);
+      selectTarget(dragTarget, ev);
       suppressNextShieldClickBriefly();
       startMove(ev);
     }
     function onUp(ev) {
       clearPendingShieldDrag();
       if (didStartDrag) return;
+      if (!e.altKey) {
+        postCrossScreenDrag("cancel");
+      }
       if (ev) stopNativeInteraction(ev);
-      selectTarget(clickTarget || dragTarget);
+      selectTarget(clickTarget || dragTarget, ev);
       suppressNextShieldClickBriefly();
     }
     clearPendingShieldDrag();
@@ -3374,6 +3544,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       up: events.up,
       onMove: onMove,
       onUp: onUp,
+      pointerId: e.pointerId,
     };
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
@@ -3545,10 +3716,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     target.style.borderColor = "transparent";
     setTextEditingPointerPassthrough(true);
     updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-    (window.parent as Window).postMessage(
-      { type: "element-select", payload: getElementInfo(target) },
-      "*",
-    );
+    postElementSelect(target, e);
     (window.parent as Window).postMessage(
       { type: "element-dblclick-text", payload: getElementInfo(target) },
       "*",
@@ -3963,10 +4131,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
           applyRuntimeReorder(move.el, move.target);
           selectedEl = move.el;
           positionOverlay(selectionOverlay, selectedEl);
-          (window.parent as Window).postMessage(
-            { type: "element-select", payload: getElementInfo(selectedEl) },
-            "*",
-          );
+          postElementSelect(selectedEl);
         }
       } else {
         // Revert the optimistic reorder to its pre-drag position.
@@ -3983,10 +4148,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
           );
           selectedEl = move.el;
           positionOverlay(selectionOverlay, selectedEl);
-          (window.parent as Window).postMessage(
-            { type: "element-select", payload: getElementInfo(selectedEl) },
-            "*",
-          );
+          postElementSelect(selectedEl);
         }
       }
       return;

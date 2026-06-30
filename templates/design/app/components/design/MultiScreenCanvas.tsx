@@ -90,18 +90,6 @@ interface ScreenFile {
   activeBreakpointWidth?: number;
 }
 
-const FALLBACK_BOARD_IFRAME_BACKGROUND = "hsl(0 0% 10%)";
-
-function readDesignEditorCanvasBackground(target?: Element | null): string {
-  if (typeof window === "undefined") return FALLBACK_BOARD_IFRAME_BACKGROUND;
-  const source = target ?? document.documentElement;
-  return (
-    getComputedStyle(source)
-      .getPropertyValue("--design-editor-canvas-bg")
-      .trim() || FALLBACK_BOARD_IFRAME_BACKGROUND
-  );
-}
-
 type ScreenSourceType = "localhost" | "fusion" | "inline";
 type ScreenPreviewState = "live" | "snapshot" | "preview";
 export type MultiScreenCanvasTool =
@@ -440,6 +428,23 @@ export function shouldBoardSurfaceCapturePointerEvents(args: {
   if (args.gestureActive) return false;
   const tool = normalizeCanvasTool(args.tool);
   return tool === "move" || tool === "scale";
+}
+
+export function getBoardSurfaceLayerStyle(args: {
+  geometry: FrameGeometry;
+  interactive: boolean;
+}): CSSProperties {
+  return {
+    position: "absolute",
+    left: SURFACE_PADDING + args.geometry.x,
+    top: SURFACE_PADDING + args.geometry.y,
+    width: args.geometry.width,
+    height: args.geometry.height,
+    overflow: "hidden",
+    pointerEvents: args.interactive ? "auto" : "none",
+    background: "transparent",
+    zIndex: 0,
+  };
 }
 
 export function hasBoardSurfaceContent(html: string | undefined) {
@@ -879,9 +884,6 @@ export function MultiScreenCanvas({
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const [boardIframeBackground, setBoardIframeBackground] = useState(
-    readDesignEditorCanvasBackground,
-  );
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
@@ -930,28 +932,6 @@ export function MultiScreenCanvas({
   const primitiveDropTargetRef = useRef<PrimitiveDropTarget | null>(null);
   const onPrimitiveReparentRef = useRef(onPrimitiveReparent);
 
-  useEffect(() => {
-    const updateBoardIframeBackground = () => {
-      setBoardIframeBackground(
-        readDesignEditorCanvasBackground(surfaceRef.current),
-      );
-    };
-    updateBoardIframeBackground();
-    if (typeof MutationObserver === "undefined") return undefined;
-    const observer = new MutationObserver(updateBoardIframeBackground);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class", "style"],
-    });
-    if (document.body) {
-      observer.observe(document.body, {
-        attributes: true,
-        attributeFilter: ["class", "style"],
-      });
-    }
-    return () => observer.disconnect();
-  }, []);
-
   // Cross-screen element drag state — driven by postMessage from the source iframe.
   interface CrossScreenDragGhost {
     /** Board-space point where the ghost is shown (follows the cursor). */
@@ -977,6 +957,7 @@ export function MultiScreenCanvas({
     selector: string;
     sourceId?: string;
   } | null>(null);
+  const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
   /** Board-space point from the last cross-screen-drag "move" message. */
   const crossScreenLastBoardPointRef = useRef<{ x: number; y: number } | null>(
     null,
@@ -1392,7 +1373,13 @@ export function MultiScreenCanvas({
       setCrossScreenDropGuide(null);
     };
 
+    const stopParentCrossScreenDrag = () => {
+      crossScreenParentDragCleanupRef.current?.();
+      crossScreenParentDragCleanupRef.current = null;
+    };
+
     const clearCrossScreenDrag = () => {
+      stopParentCrossScreenDrag();
       setCrossScreenGhost(null);
       setCrossScreenTarget(null);
       clearCrossScreenDropGuide();
@@ -1409,17 +1396,19 @@ export function MultiScreenCanvas({
       );
       if (!targetScreen) return Promise.resolve({});
       const targetGeometry = candidate.geometry;
-      const targetMetadata = getResolvedMetadata(targetScreen);
-      const scaleX = targetMetadata.width / Math.max(1, targetGeometry.width);
-      const scaleY = targetMetadata.height / Math.max(1, targetGeometry.height);
-      const localX = (boardPoint.x - targetGeometry.x) * scaleX;
-      const localY = (boardPoint.y - targetGeometry.y) * scaleY;
-
       const targetIframe = surfaceRef.current?.querySelector<HTMLIFrameElement>(
         `[data-screen-iframe-id="${CSS.escape(candidate.id)}"]`,
       );
       const targetContentWindow = targetIframe?.contentWindow;
       if (!targetContentWindow) return Promise.resolve({});
+      const targetViewportWidth =
+        targetIframe.clientWidth || getResolvedMetadata(targetScreen).width;
+      const targetViewportHeight =
+        targetIframe.clientHeight || getResolvedMetadata(targetScreen).height;
+      const scaleX = targetViewportWidth / Math.max(1, targetGeometry.width);
+      const scaleY = targetViewportHeight / Math.max(1, targetGeometry.height);
+      const localX = (boardPoint.x - targetGeometry.x) * scaleX;
+      const localY = (boardPoint.y - targetGeometry.y) * scaleY;
 
       const correlationId = `hit-${Date.now()}-${Math.random()
         .toString(36)
@@ -1436,8 +1425,9 @@ export function MultiScreenCanvas({
             !ev.data ||
             ev.data.type !== "agent-native:hit-test-result" ||
             ev.data.correlationId !== correlationId
-          )
+          ) {
             return;
+          }
           window.clearTimeout(timer);
           window.removeEventListener("message", hitListener);
           resolve({
@@ -1492,13 +1482,62 @@ export function MultiScreenCanvas({
       });
     };
 
+    const updateCrossScreenTargetFromBoardPoint = (
+      boardPoint: Point,
+      sourceScreenId: string,
+    ) => {
+      crossScreenLastBoardPointRef.current = boardPoint;
+      setCrossScreenGhost({ boardX: boardPoint.x, boardY: boardPoint.y });
+      const target = getFrameEntryAtPoint(boardPoint);
+      if (target && target.id !== sourceScreenId) {
+        const nextTarget = { id: target.id, geometry: target.geometry };
+        crossScreenTargetRef.current = nextTarget;
+        setCrossScreenTarget(nextTarget);
+        requestCrossScreenDropGuide(nextTarget, boardPoint);
+      } else {
+        crossScreenTargetRef.current = null;
+        setCrossScreenTarget(null);
+        clearCrossScreenDropGuide();
+      }
+    };
+
+    const finalizeCrossScreenDrop = (
+      sourceScreenId: string,
+      candidate: CrossScreenDragTarget | null,
+      payload: { selector: string; sourceId?: string },
+      lastBoardPoint: Point | null,
+    ) => {
+      clearCrossScreenDrag();
+      crossScreenLastBoardPointRef.current = null;
+      const hasIdentifier = !!(payload.selector || payload.sourceId);
+      if (!candidate || !hasIdentifier || !sourceScreenId) return;
+      if (!lastBoardPoint) return;
+
+      void runHitTest(candidate, lastBoardPoint).then(
+        ({ anchorNodeId, placement }) => {
+          const targetAnchorPlacement = isCrossScreenDropPlacement(placement)
+            ? placement
+            : undefined;
+          onCrossScreenElementDropRef.current?.({
+            sourceSelector: payload.selector,
+            sourceNodeId: payload.sourceId,
+            sourceScreenId,
+            targetScreenId: candidate.id,
+            targetAnchorNodeId: anchorNodeId,
+            targetAnchorPlacement,
+          });
+        },
+      );
+    };
+
     const handleMessage = (event: MessageEvent) => {
       if (!event.data || event.data.type !== "agent-native:cross-screen-drag") {
         return;
       }
       const msg = event.data as {
         type: string;
-        phase: "move" | "end" | "cancel";
+        phase: "start" | "move" | "end" | "cancel";
+        screenId?: string;
         selector?: string;
         sourceId?: string;
         iframeX?: number;
@@ -1512,15 +1551,75 @@ export function MultiScreenCanvas({
         return;
       }
 
-      // The drag originates from the active screen (only the active screen has
-      // a live interactive iframe posting these messages).
-      const sourceScreenId = activeId;
+      // Prefer the iframe-supplied source id. In overview, activeId can point
+      // at a different screen than the layer currently being dragged.
+      const sourceScreenId =
+        msg.screenId &&
+        (msg.screenId === boardFileId || frameGeometryRef.current[msg.screenId])
+          ? msg.screenId
+          : activeId;
       if (!sourceScreenId) {
         // Always clear visual state (ghost + highlight) when we have no active
         // screen to attribute the drag to — regardless of the phase. Without
         // this, a "move" message arriving after activeId became null would leave
         // stale ghost/target state visible on the canvas.
         clearCrossScreenDrag();
+        return;
+      }
+
+      if (msg.phase === "start") {
+        crossScreenDragMsgRef.current = {
+          selector: msg.selector ?? "",
+          sourceId: msg.sourceId,
+        };
+        stopParentCrossScreenDrag();
+        const restorePreviewPointerEvents = mutePreviewIframePointerEvents(
+          surfaceRef.current,
+        );
+        let didCleanup = false;
+        const activateParentDrag = (ev: MouseEvent) => {
+          ev.preventDefault();
+          updateCrossScreenTargetFromBoardPoint(
+            getCanvasPoint(ev.clientX, ev.clientY),
+            sourceScreenId,
+          );
+        };
+        const handleParentMouseMove = (ev: MouseEvent) => {
+          activateParentDrag(ev);
+        };
+        const handleParentMouseUp = (ev: MouseEvent) => {
+          activateParentDrag(ev);
+          const candidate = crossScreenTargetRef.current;
+          const payload = crossScreenDragMsgRef.current ?? {
+            selector: msg.selector ?? "",
+            sourceId: msg.sourceId,
+          };
+          const lastBoardPoint = crossScreenLastBoardPointRef.current;
+          finalizeCrossScreenDrop(
+            sourceScreenId,
+            candidate,
+            payload,
+            lastBoardPoint,
+          );
+        };
+        const handleParentWindowBlur = () => {
+          clearCrossScreenDrag();
+        };
+        const cleanup = () => {
+          if (didCleanup) return;
+          didCleanup = true;
+          window.removeEventListener("mousemove", handleParentMouseMove, true);
+          window.removeEventListener("mouseup", handleParentMouseUp, true);
+          window.removeEventListener("blur", handleParentWindowBlur, true);
+          restorePreviewPointerEvents();
+          if (crossScreenParentDragCleanupRef.current === cleanup) {
+            crossScreenParentDragCleanupRef.current = null;
+          }
+        };
+        crossScreenParentDragCleanupRef.current = cleanup;
+        window.addEventListener("mousemove", handleParentMouseMove, true);
+        window.addEventListener("mouseup", handleParentMouseUp, true);
+        window.addEventListener("blur", handleParentWindowBlur, true);
         return;
       }
 
@@ -1549,14 +1648,17 @@ export function MultiScreenCanvas({
           iframeX <= viewportW &&
           iframeY <= viewportH
         ) {
-          clearCrossScreenDrag();
+          setCrossScreenGhost(null);
+          setCrossScreenTarget(null);
+          crossScreenTargetRef.current = null;
+          crossScreenLastBoardPointRef.current = null;
+          clearCrossScreenDropGuide();
           return;
         }
 
-        // Translate iframe coords → board coords using source frame geometry.
-        // Board math mirrors primitiveLocalToBoardRect:
-        //   boardX = frame.x + iframeX * (frame.width / metadata.width)
-        //   boardY = frame.y + iframeY * (frame.height / metadata.height)
+        // Translate iframe coords → board coords using the live embedded
+        // viewport from the bridge. In overview, the iframe viewport may be the
+        // frame geometry rather than the screen metadata width.
 
         let boardX: number;
         let boardY: number;
@@ -1575,33 +1677,13 @@ export function MultiScreenCanvas({
             clearCrossScreenDrag();
             return;
           }
-          const sourceMetadata = getResolvedMetadata(sourceScreen);
-          const scaleX =
-            sourceGeometry.width / Math.max(1, sourceMetadata.width);
-          const scaleY =
-            sourceGeometry.height / Math.max(1, sourceMetadata.height);
+          const scaleX = sourceGeometry.width / Math.max(1, viewportW);
+          const scaleY = sourceGeometry.height / Math.max(1, viewportH);
           boardX = sourceGeometry.x + iframeX * scaleX;
           boardY = sourceGeometry.y + iframeY * scaleY;
         }
         const boardPoint = { x: boardX, y: boardY };
-
-        // Remember the latest board-space position for use in the "end" handler.
-        crossScreenLastBoardPointRef.current = boardPoint;
-
-        setCrossScreenGhost({ boardX, boardY });
-
-        // Find which screen frame the board point falls in.
-        const target = getFrameEntryAtPoint(boardPoint);
-        if (target && target.id !== sourceScreenId) {
-          const nextTarget = { id: target.id, geometry: target.geometry };
-          crossScreenTargetRef.current = nextTarget;
-          setCrossScreenTarget(nextTarget);
-          requestCrossScreenDropGuide(nextTarget, boardPoint);
-        } else {
-          crossScreenTargetRef.current = null;
-          setCrossScreenTarget(null);
-          clearCrossScreenDropGuide();
-        }
+        updateCrossScreenTargetFromBoardPoint(boardPoint, sourceScreenId);
         return;
       }
 
@@ -1616,38 +1698,18 @@ export function MultiScreenCanvas({
           sourceId: msg.sourceId,
         };
         const lastBoardPoint = crossScreenLastBoardPointRef.current;
-        clearCrossScreenDrag();
-        crossScreenLastBoardPointRef.current = null;
-        // Guard: require at least one stable identifier (selector or sourceId)
-        // so the drop handler in DesignEditor can resolve the node. An empty
-        // selector AND a missing sourceId would produce nodeAttrId="" and
-        // moveNodeBetweenDocuments would fail with a generic error toast.
-        const hasIdentifier = !!(payload.selector || payload.sourceId);
-        if (candidate && hasIdentifier && sourceScreenId) {
-          if (!lastBoardPoint) return;
-          void runHitTest(candidate, lastBoardPoint).then(
-            ({ anchorNodeId, placement }) => {
-              const targetAnchorPlacement = isCrossScreenDropPlacement(
-                placement,
-              )
-                ? placement
-                : undefined;
-              onCrossScreenElementDropRef.current?.({
-                sourceSelector: payload.selector,
-                sourceNodeId: payload.sourceId,
-                sourceScreenId,
-                targetScreenId: candidate.id,
-                targetAnchorNodeId: anchorNodeId,
-                targetAnchorPlacement,
-              });
-            },
-          );
-        }
+        finalizeCrossScreenDrop(
+          sourceScreenId,
+          candidate,
+          payload,
+          lastBoardPoint,
+        );
       }
     };
 
     window.addEventListener("message", handleMessage);
     return () => {
+      stopParentCrossScreenDrag();
       window.removeEventListener("message", handleMessage);
     };
   }, [
@@ -1655,6 +1717,7 @@ export function MultiScreenCanvas({
     boardFileId,
     boardFrameGeometry,
     getFrameEntryAtPoint,
+    getCanvasPoint,
     getResolvedMetadata,
     onCrossScreenElementDrop,
   ]);
@@ -2224,6 +2287,7 @@ export function MultiScreenCanvas({
   }, [frameGeometry, retryPersistedDraftPrimitives, screens]);
 
   const clearActivePenPath = useCallback(() => {
+    activePenPathRef.current = null;
     setActivePenPath(null);
     setPenGesturePreview(null);
     setPenPointer(null);
@@ -2248,6 +2312,25 @@ export function MultiScreenCanvas({
     },
     [clearActivePenPath, commitDraftPrimitive, onActiveToolChange, toolProps],
   );
+
+  const undoActivePenPathSegment = useCallback(() => {
+    const path = activePenPathRef.current;
+    if (!path) return false;
+
+    const remainingNodes = path.nodes.slice(0, -1);
+    if (remainingNodes.length === 0) {
+      clearActivePenPath();
+      return true;
+    }
+
+    const nextPath: PenPath = { nodes: remainingNodes, closed: false };
+    activePenPathRef.current = nextPath;
+    setActivePenPath(nextPath);
+    setPenGesturePreview(null);
+    setPenPointer(null);
+    setPenCloseHover(false);
+    return true;
+  }, [clearActivePenPath]);
 
   const getPenAnchorPoint = useCallback(
     (
@@ -3899,14 +3982,20 @@ export function MultiScreenCanvas({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const path = activePenPathRef.current;
-      if (
-        !path ||
-        event.metaKey ||
-        event.ctrlKey ||
-        isEditableHotkeyTarget(event.target)
-      ) {
+      if (!path || isEditableHotkeyTarget(event.target)) {
         return;
       }
+
+      const primaryKey = event.metaKey || event.ctrlKey;
+      if (primaryKey && !event.shiftKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        undoActivePenPathSegment();
+        return;
+      }
+
+      if (primaryKey) return;
 
       if (event.key === "Enter") {
         event.preventDefault();
@@ -3928,14 +4017,7 @@ export function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        const remainingNodes = path.nodes.slice(0, -1);
-        if (remainingNodes.length === 0) {
-          clearActivePenPath();
-          return;
-        }
-        setActivePenPath({ nodes: remainingNodes, closed: false });
-        setPenPointer(null);
-        setPenCloseHover(false);
+        undoActivePenPathSegment();
       }
     };
 
@@ -3943,7 +4025,7 @@ export function MultiScreenCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [clearActivePenPath, finishPenPath]);
+  }, [clearActivePenPath, finishPenPath, undoActivePenPathSegment]);
 
   useEffect(() => {
     const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
@@ -4136,25 +4218,16 @@ export function MultiScreenCanvas({
               // iframes (which have their own stacking context above this).
               <div
                 className="[&_.design-canvas-iframe-wrapper]:shadow-none [&_.design-canvas-iframe-wrapper]:ring-0"
-                style={{
-                  position: "absolute",
-                  left: SURFACE_PADDING + boardGeo.x,
-                  top: SURFACE_PADDING + boardGeo.y,
-                  width: boardW,
-                  height: boardH,
-                  overflow: "hidden",
-                  pointerEvents: boardSurfaceInteractive ? "auto" : "none",
-                  background: boardIframeBackground,
-                  // Board sits behind all screen iframes.
-                  zIndex: 0,
-                }}
+                style={getBoardSurfaceLayerStyle({
+                  geometry: boardGeo,
+                  interactive: boardSurfaceInteractive,
+                })}
               >
                 <DesignCanvas
                   content={boardFileContent}
                   contentKey={boardContentKey}
                   zoom={100}
                   deviceFrame="none"
-                  embeddedFrameBackground={boardIframeBackground}
                   transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
