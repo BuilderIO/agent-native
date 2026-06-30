@@ -631,7 +631,7 @@ export default function DispatchTemplate() {
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
-            to="/templates"
+            to="/apps"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             {t("templateLanding.dispatch.s054")}

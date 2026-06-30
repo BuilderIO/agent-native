@@ -30,7 +30,7 @@ function findTemplate(slug: string | undefined) {
 
 export function loader({ params }: LoaderFunctionArgs) {
   if (params.slug === "videos") {
-    throw redirect("/templates/video", 301);
+    throw redirect("/apps/video", 301);
   }
   if (!findTemplate(params.slug)) {
     throw new Response("Not Found", { status: 404 });
@@ -49,7 +49,7 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
     enUS.templates[template.slug as keyof typeof enUS.templates];
   return withTemplateSocialImage(
     [
-      { title: `Agent-Native ${template.name} Template` },
+      { title: `Agent-Native ${template.name} App` },
       {
         name: "description",
         content: templateCopy.description,
@@ -136,7 +136,7 @@ export default function GenericTemplatePage() {
       <main className="mx-auto max-w-[900px] px-6 py-20">
         <Link
           data-an-prefetch="render"
-          to="/templates"
+          to="/apps"
           className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
         >
           <IconArrowLeft size={16} />

@@ -200,11 +200,6 @@ export function useNavigationState(enabled = true) {
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
         state.designId = params.id;
-      } else if (
-        pathname.startsWith("/templates") ||
-        pathname.startsWith("/examples")
-      ) {
-        state.view = "templates";
       } else if (pathname.startsWith("/settings")) {
         state.view = "settings";
       }
@@ -221,8 +216,6 @@ export function useNavigationState(enabled = true) {
       }
       if (cmd.view === "present" && cmd.designId)
         return `/present/${cmd.designId}`;
-      if (cmd.view === "templates" || cmd.view === "examples")
-        return "/templates";
       if (cmd.view === "settings") return "/settings";
       return "/";
     },

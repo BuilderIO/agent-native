@@ -62,9 +62,6 @@ export default function VisualEditPage() {
                     : t("visualEdit.saveCta")}
                 </a>
               </Button>
-              <Button asChild variant="ghost" size="lg">
-                <Link to="/templates">{t("visualEdit.templatesCta")}</Link>
-              </Button>
             </div>
           </div>
 

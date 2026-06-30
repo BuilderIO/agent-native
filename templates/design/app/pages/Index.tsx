@@ -37,7 +37,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -112,10 +111,8 @@ export default function Index() {
   const designs = designsData?.designs ?? [];
 
   const filtered = search
-    ? designs.filter(
-        (d) =>
-          d.title.toLowerCase().includes(search.toLowerCase()) ||
-          d.projectType.toLowerCase().includes(search.toLowerCase()),
+    ? designs.filter((d) =>
+        d.title.toLowerCase().includes(search.toLowerCase()),
       )
     : designs;
   const selectedDesignCount = selectedDesignIds.size;
@@ -379,14 +376,6 @@ export default function Index() {
     });
   }, [renameId, renameDraft, queryClient, updateMutation]);
 
-  const projectTypeBadge = (type: ProjectType) => {
-    return (
-      <Badge variant="secondary" className="text-[10px] font-medium">
-        {type === "prototype" ? t("home.prototype") : t("home.other")}
-      </Badge>
-    );
-  };
-
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return "";
     const d = new Date(dateStr);
@@ -522,7 +511,6 @@ export default function Index() {
                         <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
                           {design.title}
                         </h3>
-                        {projectTypeBadge(design.projectType)}
                       </div>
                       <div className="text-xs text-muted-foreground/70">
                         {formatDate(design.updatedAt || design.createdAt)}

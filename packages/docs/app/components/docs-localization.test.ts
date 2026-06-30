@@ -35,8 +35,8 @@ describe("localized docs fallback", () => {
       },
     });
 
-    expect(resolveLayoutLocale("/templates")).toBe("en-US");
-    expect(resolveLayoutLocale("/ar-SA/templates")).toBe("ar-SA");
+    expect(resolveLayoutLocale("/apps")).toBe("en-US");
+    expect(resolveLayoutLocale("/ar-SA/apps")).toBe("ar-SA");
   });
 
   it("keeps docs routes canonical to the URL locale", () => {
@@ -148,7 +148,7 @@ describe("localized docs fallback", () => {
     expect(docsMarkdownPathForPath("/fr-FR/docs/durable-background-runs")).toBe(
       "/docs/durable-background-runs.md",
     );
-    expect(docsMarkdownPathForPath("/templates")).toBeNull();
+    expect(docsMarkdownPathForPath("/apps")).toBeNull();
   });
 
   it("hydrates route locale messages from the server for prefixed docs paths", async () => {

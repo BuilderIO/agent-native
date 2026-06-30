@@ -61,8 +61,7 @@ export function Layout({ children }: LayoutProps) {
   // Bind chat to the currently-open design. Same pattern as slides — the
   // route is `/design/:id` for the editor and `/present/:id` for preview
   // (which we already short-circuit as BARE). Anywhere else (list,
-  // design-systems, settings, templates) leaves scope null so general
-  // chats keep working.
+  // design-systems, settings) leaves scope null so general chats keep working.
   const designScope = useMemo(() => {
     const match = location.pathname.match(/^\/design\/([^/]+)/);
     const designId = match?.[1];

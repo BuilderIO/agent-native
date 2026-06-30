@@ -562,11 +562,11 @@ export default function HomepageNew() {
           </div>
           <div className="mt-10 flex justify-center">
             <ArrowLink
-              to={localizedPath("/templates")}
+              to={localizedPath("/apps")}
               location="homepage_new_example_apps"
               variant="secondary"
             >
-              View current template gallery
+              View current app gallery
             </ArrowLink>
           </div>
         </div>

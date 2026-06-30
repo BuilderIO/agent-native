@@ -312,7 +312,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 export function TemplateCard({ template }: { template: Template }) {
   const { locale } = useLocale();
   const t = useT();
-  const templatePath = sitePathForLocale(`/templates/${template.slug}`, locale);
+  const templatePath = sitePathForLocale(`/apps/${template.slug}`, locale);
   const replaces = t(`templates.${template.slug}.replaces`);
   const description = t(`templates.${template.slug}.description`);
 

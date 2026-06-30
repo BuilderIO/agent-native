@@ -167,17 +167,6 @@
   container: agent-native-main / inline-size;
 }
 
-.agent-layout-main-surface::before,
-.agent-sidebar-main-surface::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  pointer-events: none;
-  border-radius: inherit;
-  box-shadow: var(--agent-native-raised-outline);
-}
-
 .agent-layout-shell
   :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
   > :first-child
