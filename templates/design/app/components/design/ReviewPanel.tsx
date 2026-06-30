@@ -349,7 +349,6 @@ function A11ySection({
   loading,
   auditedAt,
   auditError,
-  onRunAudit,
   onFindingClick,
   fixSource,
   onFixApplied,
@@ -358,7 +357,6 @@ function A11ySection({
   loading?: boolean;
   auditedAt?: string | null;
   auditError?: string | null;
-  onRunAudit?: () => void;
   onFindingClick?: (finding: A11yFinding) => void;
   fixSource?: ReviewFixSource;
   onFixApplied?: (finding: A11yFinding, result?: ReviewFixResult) => void;
@@ -429,24 +427,6 @@ function A11ySection({
             </div>
           ) : null}
         </div>
-
-        {onRunAudit && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={loading}
-            onClick={onRunAudit}
-            className="h-6 gap-1 rounded-md px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
-          >
-            {loading ? (
-              <IconRefresh className="size-3 animate-spin" />
-            ) : (
-              <IconRefresh className="size-3" />
-            )}
-            {loading ? "Running…" : "Run"}
-          </Button>
-        )}
       </div>
 
       <div className="py-1">
@@ -692,7 +672,6 @@ export function ReviewPanel({
   auditLoading,
   auditedAt,
   auditError,
-  onRunAudit,
   visualDiff = [],
   versionOptions = [],
   baseVersionId,
@@ -723,7 +702,6 @@ export function ReviewPanel({
         loading={auditLoading}
         auditedAt={auditedAt}
         auditError={auditError}
-        onRunAudit={onRunAudit}
         onFindingClick={onFindingClick}
         fixSource={fixSource}
         onFixApplied={onFixApplied}
