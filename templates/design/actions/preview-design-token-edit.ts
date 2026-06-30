@@ -3,7 +3,11 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { resolveTweaksToCssVars } from "../shared/resolve-tweaks.js";
+import {
+  isSafeCssTokenValue,
+  isSafeCssVarName,
+  resolveTweaksToCssVars,
+} from "../shared/resolve-tweaks.js";
 
 // ---------------------------------------------------------------------------
 // Token-edit patch schema
@@ -11,9 +15,22 @@ import { resolveTweaksToCssVars } from "../shared/resolve-tweaks.js";
 
 const tokenEditSchema = z.object({
   /** The CSS custom property to update, e.g. "--primary-color". */
-  cssVar: z.string().startsWith("--").describe("CSS custom property to edit"),
+  cssVar: z
+    .string()
+    .startsWith("--")
+    .refine(
+      isSafeCssVarName,
+      "cssVar must be a valid CSS custom property name (-- followed by letters, digits, hyphens, or underscores).",
+    )
+    .describe("CSS custom property to edit"),
   /** New value string, e.g. "#3B82F6" or "0.75rem". */
-  value: z.string().describe("New value for the token"),
+  value: z
+    .string()
+    .refine(
+      isSafeCssTokenValue,
+      'Token value may not contain ";", "{", "}", "<", ">", CSS comments, or control characters.',
+    )
+    .describe("New value for the token"),
 });
 
 // ---------------------------------------------------------------------------

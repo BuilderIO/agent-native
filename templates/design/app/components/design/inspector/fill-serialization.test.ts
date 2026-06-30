@@ -7,6 +7,7 @@ import {
 } from "./GradientEditor";
 import {
   imageFillToCss,
+  mergeImageFitDraft,
   parseImageFillCss,
   type ImageFillValue,
 } from "./ImageFillControls";
@@ -146,6 +147,16 @@ describe("image fill serialization", () => {
 
   it("returns transparent for empty url", () => {
     expect(imageFillToCss({ url: "", fit: "fill" })).toBe("transparent");
+  });
+
+  it("preserves an uncommitted URL draft when the fit mode changes", () => {
+    expect(
+      mergeImageFitDraft(
+        { url: "https://x.test/old.png", fit: "fill" },
+        " https://x.test/new.png ",
+        "fit",
+      ),
+    ).toEqual({ url: "https://x.test/new.png", fit: "fit" });
   });
 });
 

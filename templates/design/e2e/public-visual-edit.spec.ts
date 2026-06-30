@@ -84,7 +84,7 @@ test.describe.serial("public visual edit", () => {
       "/visual-edit",
       (page) =>
         page.getByRole("link", { name: /sign up free to save/i }).first(),
-      "/?intent=save",
+      "/visual-edit?intent=save",
     );
   });
 

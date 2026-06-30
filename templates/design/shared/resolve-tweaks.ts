@@ -36,27 +36,47 @@ export type TweakSelections = Record<string, string | number | boolean>;
  */
 const CSS_CUSTOM_PROPERTY_NAME = /^--[-_a-zA-Z0-9]+$/;
 
+export function isSafeCssVarName(value: string): boolean {
+  return CSS_CUSTOM_PROPERTY_NAME.test(value);
+}
+
+export function isSafeCssTokenValue(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= 300 &&
+    !/[;{}<>]/.test(value) &&
+    !/\/\*/.test(value) &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
+}
+
 export function resolveTweaksToCssVars(
   tweaks: TweakDefinition[],
   selections: TweakSelections,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const t of tweaks) {
-    if (!t.cssVar) continue;
+    if (!t.cssVar || !isSafeCssVarName(t.cssVar)) continue;
     const v = selections[t.id] ?? t.defaultValue;
-    out[t.cssVar] = stringifyCssVarValue(t.cssVar, v, t.unit);
+    const resolved = stringifyCssVarValue(t.cssVar, v, t.unit);
+    if (isSafeCssTokenValue(resolved)) {
+      out[t.cssVar] = resolved;
+    }
   }
 
   for (const [key, value] of Object.entries(selections)) {
     if (!isDirectCssVarSelectionKey(key)) continue;
-    out[key] = stringifyCssVarValue(key, value);
+    const resolved = stringifyCssVarValue(key, value);
+    if (isSafeCssTokenValue(resolved)) {
+      out[key] = resolved;
+    }
   }
 
   return out;
 }
 
 export function isDirectCssVarSelectionKey(key: string): boolean {
-  return CSS_CUSTOM_PROPERTY_NAME.test(key);
+  return isSafeCssVarName(key);
 }
 
 function stringifyCssVarValue(
@@ -84,8 +104,11 @@ export function renderResolvedRootBlock(
   resolvedCssVars: Record<string, string>,
 ): string {
   const entries = Object.entries(resolvedCssVars);
-  if (entries.length === 0) return "";
-  const decls = entries
+  const safeEntries = entries.filter(
+    ([name, value]) => isSafeCssVarName(name) && isSafeCssTokenValue(value),
+  );
+  if (safeEntries.length === 0) return "";
+  const decls = safeEntries
     .map(([name, value]) => `  ${name}: ${value};`)
     .join("\n");
   return `:root {\n${decls}\n}`;

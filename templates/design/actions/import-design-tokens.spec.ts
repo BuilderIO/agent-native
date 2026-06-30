@@ -181,4 +181,50 @@ Primary color: #f97316
       ]),
     );
   });
+
+  it("skips unsafe token values while importing safe ones", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `
+:root {
+  --color-safe: #123456;
+}
+Bad color: red; color: black
+Bad radius: 12px} body { color: red
+`,
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--color-safe",
+          value: "#123456",
+        }),
+      ]),
+    );
+    expect(result.tokens).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          value: expect.stringContaining("color: black"),
+        }),
+        expect.objectContaining({
+          value: expect.stringContaining("body"),
+        }),
+      ]),
+    );
+
+    const persisted = JSON.parse(
+      (mockSet.mock.calls[0]?.[0] as { data: string }).data,
+    ) as {
+      tweakSelections: Record<string, string>;
+    };
+    expect(persisted.tweakSelections["--color-safe"]).toBe("#123456");
+    expect(Object.values(persisted.tweakSelections)).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("color: black"),
+        expect.stringContaining("body"),
+      ]),
+    );
+  });
 });

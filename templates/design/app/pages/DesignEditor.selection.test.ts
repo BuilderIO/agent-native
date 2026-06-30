@@ -6,6 +6,7 @@ import {
   findMovedCodeLayerNodeInProjection,
   getFreshActiveFileContent,
   getFreshScreenContent,
+  getContentHistoryChanges,
   getDesignEditorShareUrl,
   getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
@@ -683,6 +684,20 @@ describe("DesignEditor undo order helpers", () => {
         "content",
       ),
     ).toEqual(["geometry", "file-content", "geometry"]);
+  });
+
+  it("keeps grouped file-content history changes together", () => {
+    expect(
+      getContentHistoryChanges({
+        changes: [
+          { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+          { fileId: "screen-b", before: "<b>old</b>", after: "<b>new</b>" },
+        ],
+      }),
+    ).toEqual([
+      { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+      { fileId: "screen-b", before: "<b>old</b>", after: "<b>new</b>" },
+    ]);
   });
 });
 

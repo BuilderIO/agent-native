@@ -10,7 +10,11 @@ import {
   INLINE_DEFAULT_CAPABILITIES,
   hasCapability,
 } from "../shared/design-source-capabilities.js";
-import { resolveTweaksToCssVars } from "../shared/resolve-tweaks.js";
+import {
+  isSafeCssTokenValue,
+  isSafeCssVarName,
+  resolveTweaksToCssVars,
+} from "../shared/resolve-tweaks.js";
 
 // ---------------------------------------------------------------------------
 // Token-edit patch schema (mirrors preview-design-token-edit)
@@ -23,17 +27,20 @@ const tokenEditSchema = z.object({
     .startsWith("--")
     // The token name is spliced raw into a `:root { … }` rule, so constrain it
     // to a safe CSS custom-property ident (leading "--" plus ident chars only).
-    .regex(
-      /^--[-_a-zA-Z0-9]+$/,
+    .refine(
+      isSafeCssVarName,
       "cssVar must be a valid CSS custom property name (-- followed by letters, digits, hyphens, or underscores).",
     )
     .describe("CSS custom property to edit"),
   /** New value string, e.g. "#3B82F6" or "0.75rem". */
   value: z
     .string()
-    // The value is spliced raw into the `:root { … }` block; reject characters
-    // that could terminate the rule (`}`) or break out of a `<style>` (`<`).
-    .refine((v) => !/[}<]/.test(v), 'Token value may not contain "}" or "<".')
+    // The value is rendered into CSS custom-property declarations; reject
+    // declaration terminators and style-tag breakout characters.
+    .refine(
+      isSafeCssTokenValue,
+      'Token value may not contain ";", "{", "}", "<", ">", CSS comments, or control characters.',
+    )
     .describe("New value for the token"),
 });
 

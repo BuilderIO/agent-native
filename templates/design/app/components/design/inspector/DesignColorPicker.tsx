@@ -755,6 +755,7 @@ export function DesignColorPicker({
 
   const [mode, setMode] = useState<DesignColorMode>("hex");
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
+  const hexDraftRef = useRef(hexDraft);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
@@ -814,7 +815,9 @@ export function DesignColorPicker({
     : null;
 
   useEffect(() => {
-    setHexDraft(toDisplayHex(color));
+    const nextHex = toDisplayHex(color);
+    hexDraftRef.current = nextHex;
+    setHexDraft(nextHex);
   }, [color.r, color.g, color.b]);
 
   // The local override (the user's explicit paint-type click) persists for the
@@ -863,17 +866,20 @@ export function DesignColorPicker({
   };
 
   const commitHex = () => {
-    const parsed = parseCssColor(`#${hexDraft.replace(/^#/, "")}`);
+    const currentDraft = hexDraftRef.current;
+    const parsed = parseCssColor(`#${currentDraft.replace(/^#/, "")}`);
     if (!parsed) {
-      setHexDraft(toDisplayHex(activeGradient ? fieldColor : color));
+      const reverted = toDisplayHex(activeGradient ? fieldColor : color);
+      hexDraftRef.current = reverted;
+      setHexDraft(reverted);
       return;
     }
     if (activeGradient) {
-      const hexIncludesAlpha = hasHexAlpha(hexDraft);
+      const hexIncludesAlpha = hasHexAlpha(currentDraft);
       emitStopColor(hexIncludesAlpha ? parsed : { ...parsed, a: fieldColor.a });
       return;
     }
-    const hexIncludesAlpha = hasHexAlpha(hexDraft);
+    const hexIncludesAlpha = hasHexAlpha(currentDraft);
     const nextOpacity = hexIncludesAlpha
       ? alphaToOpacity(parsed.a)
       : effectiveOpacity;
@@ -1080,7 +1086,10 @@ export function DesignColorPicker({
           aria-label={copy.hex}
           spellCheck={false}
           className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] tabular-nums uppercase"
-          onChange={(e) => setHexDraft(e.target.value)}
+          onChange={(e) => {
+            hexDraftRef.current = e.target.value;
+            setHexDraft(e.target.value);
+          }}
           onFocus={(e) => e.target.select()}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -1090,7 +1099,9 @@ export function DesignColorPicker({
               e.currentTarget.blur();
             }
             if (e.key === "Escape") {
-              setHexDraft(toDisplayHex(color));
+              const reverted = toDisplayHex(color);
+              hexDraftRef.current = reverted;
+              setHexDraft(reverted);
               skipNextHexBlurCommitRef.current = true;
               e.currentTarget.blur();
             }
@@ -1978,16 +1989,21 @@ function ScrubbyNumberInput({
   compact?: boolean;
 }) {
   const [draft, setDraft] = useState<string>(() => String(value));
+  const draftRef = useRef(draft);
   const skipBlurRef = useRef(false);
 
   useEffect(() => {
-    setDraft(String(value));
+    const nextDraft = String(value);
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
   }, [value]);
 
   const commit = () => {
-    const parsed = Number(draft);
+    const parsed = Number(draftRef.current);
     if (!Number.isFinite(parsed)) {
-      setDraft(String(value));
+      const reverted = String(value);
+      draftRef.current = reverted;
+      setDraft(reverted);
       return;
     }
     onChange(clamp(parsed, min, max));
@@ -2007,7 +2023,10 @@ function ScrubbyNumberInput({
         compact && "border-0 shadow-none focus-visible:ring-0",
         className,
       )}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        draftRef.current = e.target.value;
+        setDraft(e.target.value);
+      }}
       onFocus={(e) => e.target.select()}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
@@ -2017,21 +2036,23 @@ function ScrubbyNumberInput({
           e.currentTarget.blur();
         }
         if (e.key === "Escape") {
-          setDraft(String(value));
+          const reverted = String(value);
+          draftRef.current = reverted;
+          setDraft(reverted);
           skipBlurRef.current = true;
           e.currentTarget.blur();
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
           const step = e.shiftKey ? 10 : 1;
-          const parsed = Number(draft);
+          const parsed = Number(draftRef.current);
           const base = Number.isFinite(parsed) ? parsed : value;
           onChange(clamp(base + step, min, max));
         }
         if (e.key === "ArrowDown") {
           e.preventDefault();
           const step = e.shiftKey ? 10 : 1;
-          const parsed = Number(draft);
+          const parsed = Number(draftRef.current);
           const base = Number.isFinite(parsed) ? parsed : value;
           onChange(clamp(base - step, min, max));
         }

@@ -139,7 +139,10 @@ describe("Calendar Google auth-url handler", () => {
   });
 
   it("uses Calendar API credentials when a signed-in user connects Google Calendar", async () => {
-    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-123",
+    });
 
     const result = await getGoogleAuthUrl(createEvent() as any);
 
@@ -147,6 +150,7 @@ describe("Calendar Google auth-url handler", () => {
       expect.objectContaining({
         addAccount: true,
         owner: "owner@example.com",
+        orgId: "org-123",
       }),
     );
     expect(mocks.getAuthUrl).toHaveBeenCalledWith(
@@ -154,6 +158,7 @@ describe("Calendar Google auth-url handler", () => {
       "https://calendar.agent-native.com/_agent-native/google/callback",
       "encoded-state",
       "owner@example.com",
+      "org-123",
     );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
