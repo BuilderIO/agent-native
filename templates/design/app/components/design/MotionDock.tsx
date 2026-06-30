@@ -82,6 +82,8 @@ export interface MotionDockTrack extends MotionTrack {
 export interface MotionDockProps {
   /** Tracks to display. Each track maps to one layer row. */
   tracks: MotionDockTrack[];
+  /** Currently selected canvas layer, used to create the first motion track. */
+  selectedLayer?: { nodeId: string; label: string } | null;
   /** Total animation duration in milliseconds. */
   durationMs: number;
   /** Default easing applied to keyframes that omit ease. */
@@ -112,6 +114,7 @@ export interface MotionDockProps {
 
 export function MotionDock({
   tracks,
+  selectedLayer,
   durationMs,
   defaultEase = "ease",
   open: openProp,
@@ -151,6 +154,14 @@ export function MotionDock({
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
     () => new Set(tracks.map((t) => t.targetNodeId)),
   );
+
+  useEffect(() => {
+    setExpandedNodeIds((current) => {
+      const next = new Set(current);
+      for (const track of tracks) next.add(track.targetNodeId);
+      return next.size === current.size ? current : next;
+    });
+  }, [tracks]);
 
   // Ruler / track area ref for pointer math.
   const trackAreaRef = useRef<HTMLDivElement>(null);
@@ -307,6 +318,34 @@ export function MotionDock({
     [defaultEase, playhead, updateTrack],
   );
 
+  const addTrackForSelectedLayer = useCallback(() => {
+    if (!selectedLayer || !onTracksChange) return;
+    const property = tracks.some(
+      (track) =>
+        track.targetNodeId === selectedLayer.nodeId &&
+        track.property === "opacity",
+    )
+      ? "transform"
+      : "opacity";
+    const valueAtStart = property === "transform" ? "translateY(12px)" : "0";
+    const valueAtEnd = property === "transform" ? "translateY(0)" : "1";
+    const nextTrack: MotionDockTrack = {
+      targetNodeId: selectedLayer.nodeId,
+      label: selectedLayer.label,
+      property,
+      keyframes: [
+        { t: 0, value: valueAtStart, ease: defaultEase },
+        { t: 1, value: valueAtEnd, ease: defaultEase },
+      ],
+    };
+    onTracksChange([...tracks, nextTrack]);
+    setExpandedNodeIds((current) => {
+      const next = new Set(current);
+      next.add(selectedLayer.nodeId);
+      return next;
+    });
+  }, [defaultEase, onTracksChange, selectedLayer, tracks]);
+
   const deleteKeyframe = useCallback(
     (track: MotionDockTrack, kf: MotionKeyframe) => {
       updateTrack(track.targetNodeId, track.property, (tr) => ({
@@ -351,6 +390,7 @@ export function MotionDock({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
+      aria-label="Motion dock"
       className={cn(
         "flex flex-col border-t border-border bg-background transition-all duration-150 select-none",
         isOpen ? "" : "h-8",
@@ -482,6 +522,28 @@ export function MotionDock({
                 <TooltipContent side="top">Auto-keyframe</TooltipContent>
               </Tooltip>
 
+              {/* Add track for current selection */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 shrink-0"
+                    disabled={!selectedLayer}
+                    onClick={addTrackForSelectedLayer}
+                    aria-label="Add motion track"
+                  >
+                    <IconPlus className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {selectedLayer
+                    ? "Add motion track"
+                    : "Select a layer to add motion"}
+                </TooltipContent>
+              </Tooltip>
+
               {/* Write to CSS */}
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -528,8 +590,19 @@ export function MotionDock({
               <div className="flex flex-col items-center justify-center flex-1 gap-2 text-center px-4 py-6">
                 <IconKey className="size-4 text-muted-foreground/40" />
                 <p className="text-[11px] text-muted-foreground/70 leading-snug">
-                  Select an element and add a keyframe to begin.
+                  Select an element and add a motion track to begin.
                 </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-6 gap-1 px-2 text-[11px]"
+                  disabled={!selectedLayer}
+                  onClick={addTrackForSelectedLayer}
+                >
+                  <IconPlus className="size-3" />
+                  Add track
+                </Button>
               </div>
             ) : (
               layers.map((layer) => (

@@ -11,6 +11,7 @@ import {
   rgbaToHex,
   withColorOpacity,
 } from "@shared/color-utils";
+import { propNameToDataAttribute } from "@shared/component-model";
 import {
   IconAlignCenter,
   IconAlignJustified,
@@ -60,6 +61,7 @@ import {
   IconUnlink,
   IconVector,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -174,6 +176,8 @@ interface EditPanelProps {
   // -------------------------------------------------------------------------
   /** The active design's id — required to mount Tokens / States / Review. */
   designId?: string;
+  /** The active design file's id — scopes component read/write actions. */
+  activeFileId?: string;
   /**
    * Called after a token edit is applied so the parent can push the resolved
    * CSS-var map into the iframe via the tweak-values postMessage.
@@ -5175,8 +5179,10 @@ function MakeItRealCard({
  * typed here; the action may return additional fields.
  */
 interface ComponentDetailsResult {
+  nodeId: string;
   name: string;
   sourceType: string;
+  instance?: { selector?: string; nodeId?: string };
   observedProps: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
@@ -5204,20 +5210,108 @@ interface ComponentDetailsResult {
  */
 function ComponentSection({
   designId,
+  fileId,
   nodeId,
   sourceCapabilities = [],
 }: {
   designId: string;
+  fileId?: string;
   nodeId: string;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
 }) {
-  const { data, isLoading, error } = useActionQuery<ComponentDetailsResult>(
-    "get-component-details",
-    { designId, nodeId },
-  );
+  const { data, isLoading, error, refetch } =
+    useActionQuery<ComponentDetailsResult>(
+      "get-component-details",
+      {
+        designId,
+        nodeId,
+        ...(fileId ? { fileId } : {}),
+      },
+      { refetchOnMount: "always" },
+    );
 
   const openSourceMutation = useActionMutation("open-component-source");
+  const applyPropMutation = useActionMutation("apply-component-prop-edit");
+  const queryClient = useQueryClient();
+  const [optimisticProps, setOptimisticProps] = useState<
+    Record<string, string>
+  >({});
+  const [liveProps, setLiveProps] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setOptimisticProps({});
+    setLiveProps({});
+  }, [designId, nodeId]);
+
+  const readLiveComponentProps = useCallback(() => {
+    if (typeof document === "undefined") return;
+    if (!data) return;
+
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    const doc = iframe?.contentDocument;
+    if (!doc) return;
+
+    let element: Element | null = null;
+    const selector = data.instance?.selector;
+    if (selector) {
+      try {
+        element = doc.querySelector(selector);
+      } catch {
+        element = null;
+      }
+    }
+    element ??= doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+    );
+    if (!element) return;
+
+    const next: Record<string, string> = {};
+    for (const groupName of Object.keys(data.persistedVariants)) {
+      const value = element.getAttribute(propNameToDataAttribute(groupName));
+      if (value !== null) next[groupName] = value;
+    }
+    setLiveProps(next);
+  }, [data, nodeId]);
+
+  const postComponentPropPreview = useCallback(
+    (attribute: string, value: string) => {
+      if (typeof document === "undefined") return;
+
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      iframe?.contentWindow?.postMessage(
+        {
+          type: "style-change",
+          selector: data?.instance?.selector ?? "",
+          nodeId: data?.instance?.nodeId ?? nodeId,
+          attributeOverrides: { [attribute]: value },
+        },
+        "*",
+      );
+    },
+    [data?.instance?.nodeId, data?.instance?.selector, nodeId],
+  );
+
+  useEffect(() => {
+    readLiveComponentProps();
+    const timeout = window.setTimeout(readLiveComponentProps, 250);
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        (event.data as { type?: unknown } | null)?.type === "element-select"
+      ) {
+        window.setTimeout(readLiveComponentProps, 0);
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [readLiveComponentProps]);
 
   // While loading, show a compact skeleton that matches the section width.
   if (isLoading) {
@@ -5290,7 +5384,11 @@ function ComponentSection({
                 "Edit component source" /* i18n-ignore design inspector action */
               }
               onClick={() => {
-                openSourceMutation.mutate({ designId, nodeId });
+                openSourceMutation.mutate({
+                  designId,
+                  nodeId,
+                  ...(fileId ? { fileId } : {}),
+                });
               }}
             >
               <IconExternalLink className="size-3.5" />
@@ -5351,15 +5449,75 @@ function ComponentSection({
                 </Label>
                 <Select
                   value={
+                    optimisticProps[groupName] ??
+                    liveProps[groupName] ??
                     observedProps.find((p) => p.name === groupName)?.value ??
                     options[0] ??
                     ""
                   }
-                  onValueChange={() => {
-                    // Preview-only on Alpine; real-app writes go through
-                    // apply-component-prop-edit (wired when capability lands).
+                  onValueChange={(value) => {
+                    const attribute = propNameToDataAttribute(groupName);
+                    setOptimisticProps((prev) => ({
+                      ...prev,
+                      [groupName]: value,
+                    }));
+                    applyPropMutation.mutate(
+                      {
+                        designId,
+                        nodeId,
+                        ...(fileId ? { fileId } : {}),
+                        edit: {
+                          kind: "attribute",
+                          attribute,
+                          value,
+                        },
+                      },
+                      {
+                        onSuccess: () => {
+                          postComponentPropPreview(attribute, value);
+                          queryClient.setQueriesData<ComponentDetailsResult>(
+                            { queryKey: ["action", "get-component-details"] },
+                            (current) => {
+                              if (
+                                current?.nodeId !== nodeId ||
+                                current.name !== name
+                              ) {
+                                return current;
+                              }
+                              const nextObserved = [
+                                ...current.observedProps.filter(
+                                  (prop) => prop.name !== groupName,
+                                ),
+                                { name: groupName, value },
+                              ];
+                              return {
+                                ...current,
+                                observedProps: nextObserved,
+                                instance: current.instance
+                                  ? {
+                                      ...current.instance,
+                                      props: nextObserved,
+                                    }
+                                  : current.instance,
+                              };
+                            },
+                          );
+                          void refetch();
+                        },
+                        onError: () => {
+                          setOptimisticProps((prev) => {
+                            const next = { ...prev };
+                            delete next[groupName];
+                            return next;
+                          });
+                          void refetch();
+                        },
+                      },
+                    );
                   }}
-                  disabled={!capabilities.canEditProps}
+                  disabled={
+                    !capabilities.canEditProps || applyPropMutation.isPending
+                  }
                 >
                   <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
                     <SelectValue />
@@ -5407,6 +5565,7 @@ export function EditPanel({
   exporting = false,
   readOnly = false,
   designId,
+  activeFileId,
   onTokensApplied,
   statesPanelProps,
   reviewPanelProps,
@@ -5468,6 +5627,7 @@ export function EditPanel({
   // over-scroll bounce, could briefly un-shield the canvas and allow a stray
   // pointer event to deselect the selected canvas element (R3 regression).
   const scrolledRecentlyRef = useRef(false);
+  const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (readOnly) {
@@ -5547,7 +5707,14 @@ export function EditPanel({
 
           <div
             className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            onWheelCapture={() => {
+              userScrollIntentRef.current = true;
+            }}
+            onTouchMoveCapture={() => {
+              userScrollIntentRef.current = true;
+            }}
             onScroll={() => {
+              if (!userScrollIntentRef.current) return;
               // Mark that a scroll just happened so the click that some
               // browsers fire at the end of a scroll gesture (or after an
               // overscroll/rubber-band bounce) is suppressed. Crucially this
@@ -5562,6 +5729,7 @@ export function EditPanel({
               }
               scrollTimerRef.current = setTimeout(() => {
                 scrolledRecentlyRef.current = false;
+                userScrollIntentRef.current = false;
                 scrollTimerRef.current = null;
               }, 300);
             }}
@@ -5573,6 +5741,7 @@ export function EditPanel({
               // browsers generate after a touch-scroll ends.
               if (!scrolledRecentlyRef.current) return;
               scrolledRecentlyRef.current = false;
+              userScrollIntentRef.current = false;
               if (scrollTimerRef.current !== null) {
                 clearTimeout(scrollTimerRef.current);
                 scrollTimerRef.current = null;
@@ -5614,6 +5783,7 @@ export function EditPanel({
             {designId && componentNodeId && (
               <ComponentSection
                 designId={designId}
+                fileId={activeFileId}
                 nodeId={componentNodeId}
                 sourceCapabilities={sourceCapabilities}
               />

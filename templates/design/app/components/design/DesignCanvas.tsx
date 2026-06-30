@@ -99,6 +99,8 @@ const MOTION_PREVIEW_BRIDGE_SCRIPT = `
   var loadedTracks = [];
   // Map of nodeId -> [property, ...] we have touched, for cleanup.
   var touchedProps = {};
+  // Map of nodeId -> property -> original inline style value.
+  var originalInlineValues = {};
 
   function lerp(a, b, ratio) {
     var numA = parseFloat(a);
@@ -137,6 +139,10 @@ const MOTION_PREVIEW_BRIDGE_SCRIPT = `
       if (!el) continue;
       var value = interpolate(track.keyframes, t);
       if (value === '') continue;
+      if (!originalInlineValues[track.targetNodeId]) originalInlineValues[track.targetNodeId] = {};
+      if (!(track.property in originalInlineValues[track.targetNodeId])) {
+        originalInlineValues[track.targetNodeId][track.property] = el.style[track.property] || '';
+      }
       el.style[track.property] = value;
       if (!touchedProps[track.targetNodeId]) touchedProps[track.targetNodeId] = [];
       if (touchedProps[track.targetNodeId].indexOf(track.property) === -1) {
@@ -152,10 +158,14 @@ const MOTION_PREVIEW_BRIDGE_SCRIPT = `
       if (!el) continue;
       var props = touchedProps[nodeIds[i]];
       for (var j = 0; j < props.length; j++) {
-        el.style[props[j]] = '';
+        var originals = originalInlineValues[nodeIds[i]] || {};
+        el.style[props[j]] = Object.prototype.hasOwnProperty.call(originals, props[j])
+          ? originals[props[j]]
+          : '';
       }
     }
     touchedProps = {};
+    originalInlineValues = {};
     loadedTracks = [];
   }
 
@@ -163,8 +173,8 @@ const MOTION_PREVIEW_BRIDGE_SCRIPT = `
     if (e.source !== window.parent) return;
     if (!e.data || typeof e.data.type !== 'string') return;
     if (e.data.type === 'motion-load-tracks') {
+      clearPreview();
       loadedTracks = Array.isArray(e.data.tracks) ? e.data.tracks : [];
-      touchedProps = {};
       return;
     }
     if (e.data.type === 'motion-preview') {
@@ -1024,6 +1034,10 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   }
 
   function isLayerInteractionBlocked(el) {
+    if (!el) return false;
+    if (el.closest && el.closest('[data-agent-native-locked="true"], [data-agent-native-hidden="true"]')) {
+      return true;
+    }
     return matchesSelectorList(el, lockedSelectors) || matchesSelectorList(el, hiddenSelectors);
   }
 
@@ -1539,6 +1553,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       return;
     }
     selectedEl = selectionTargetForHit(target);
+    if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
+      selectedEl = null;
+      selectionOverlay.style.display = 'none';
+      clearComponentTag();
+      return;
+    }
     var info = getElementInfo(selectedEl);
     positionOverlay(selectionOverlay, selectedEl);
     window.parent.postMessage({ type: 'element-select', payload: info }, '*');
@@ -1551,9 +1571,15 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var info = null;
     if (target) {
       selectedEl = selectionTargetForHit(target);
-      info = getElementInfo(selectedEl);
-      positionOverlay(selectionOverlay, selectedEl);
-      window.parent.postMessage({ type: 'element-select', payload: info }, '*');
+      if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
+        info = getElementInfo(selectedEl);
+        positionOverlay(selectionOverlay, selectedEl);
+        window.parent.postMessage({ type: 'element-select', payload: info }, '*');
+      } else {
+        selectedEl = null;
+        selectionOverlay.style.display = 'none';
+        clearComponentTag();
+      }
     }
     window.parent.postMessage({
       type: 'element-contextmenu',
@@ -1701,6 +1727,21 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	    return !!(ancestorEl && (ancestorEl === el || el.contains(ancestorEl)));
 	  }
 
+	  function normalizeCssPropertyName(property) {
+	    var prop = String(property || '').trim();
+	    if (!prop) return '';
+	    if (prop.indexOf('--') === 0) return prop;
+	    return prop.replace(/([A-Z])/g, '-$1').toLowerCase();
+	  }
+
+	  function applyInlineStyleProperty(el, property, value) {
+	    if (!el || !property) return false;
+	    var cssProperty = normalizeCssPropertyName(property);
+	    if (!cssProperty) return false;
+	    el.style.setProperty(cssProperty, String(value));
+	    return true;
+	  }
+
 	  function applyTextRangeStyle(property, value) {
 	    if (!activeTextEditEl || !property) return false;
 	    var selection = window.getSelection && window.getSelection();
@@ -1708,7 +1749,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	    if (!selectionBelongsToElement(selection, activeTextEditEl)) return false;
 	    var range = selection.getRangeAt(0);
 	    var span = document.createElement('span');
-	    span.style[property] = value;
+	    applyInlineStyleProperty(span, property, value);
 	    if (!span.getAttribute('style')) return false;
 	    try {
 	      range.surroundContents(span);
@@ -2221,6 +2262,17 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     shieldOverlay.addEventListener(type, stopNativeInteraction, true);
   });
 
+  function stopBlockedLayerInteraction(e) {
+    if (isOverlayElement(e.target)) return;
+    var target = e.target && e.target.nodeType === 1 ? e.target : null;
+    if (!target || !isLayerInteractionBlocked(target)) return;
+    stopNativeInteraction(e);
+  }
+
+  ['pointerdown','pointerup','mousedown','mouseup','click','auxclick'].forEach(function(type) {
+    document.addEventListener(type, stopBlockedLayerInteraction, true);
+  });
+
   shieldOverlay.addEventListener('click', selectElementAtEvent, true);
   shieldOverlay.addEventListener('contextmenu', openContextMenuAtEvent, true);
   selectionOverlay.addEventListener('contextmenu', openContextMenuAtEvent, true);
@@ -2419,6 +2471,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   window.addEventListener('message', function(e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    if (e.data.payload && typeof e.data.payload === 'object') {
+      Object.keys(e.data.payload).forEach(function(key) {
+        if (e.data[key] === undefined) e.data[key] = e.data.payload[key];
+      });
+    }
     if (e.data.type === 'set-editor-chrome-scale') {
       // Live-update the constant-size chrome scale WITHOUT rebuilding srcdoc.
       // Rebuilding srcdoc reloads the iframe and flashes the content white.
@@ -2505,6 +2562,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       if (selectedEl && isLayerInteractionBlocked(selectedEl)) {
         selectedEl = null;
         selectionOverlay.style.display = 'none';
+        clearComponentTag();
       }
       if (hoveredEl && isLayerInteractionBlocked(hoveredEl)) {
         hoveredEl = null;
@@ -2547,13 +2605,63 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	    var sel = e.data.selector;
 	    var prop = e.data.property;
 	    var val = e.data.value;
-	    var el = sel ? document.querySelector(sel) : null;
-	    if (activeTextEditEl && el === activeTextEditEl && applyTextRangeStyle(prop, val)) {
+	    var candidatesForStyle = Array.isArray(e.data.selectorCandidates) ? e.data.selectorCandidates : [];
+	    if (sel && candidatesForStyle.indexOf(String(sel)) === -1) candidatesForStyle.push(String(sel));
+	    if (e.data.nodeId) {
+	      candidatesForStyle.push('[data-agent-native-node-id="' + String(e.data.nodeId).replace(/"/g, '\\\\"') + '"]');
+	    }
+	    var el = findRuntimeTarget(String(sel || ''), candidatesForStyle);
+	    if (prop && activeTextEditEl && el === activeTextEditEl && applyTextRangeStyle(prop, val)) {
 	      postTextContentChange(activeTextEditEl, activeTextEditEl.textContent || '', activeTextEditEl.innerHTML || '');
 	      refreshOverlays();
 	      return;
 	    }
-	    if (el) el.style[prop] = val;
+	    if (!el) return;
+	    var didPatchDom = false;
+	    var attributeOverrides = e.data.attributeOverrides;
+	    if (attributeOverrides && typeof attributeOverrides === 'object' && !Array.isArray(attributeOverrides)) {
+	      Object.keys(attributeOverrides).forEach(function(name) {
+	        if (!/^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/i.test(name)) return;
+	        var nextValue = attributeOverrides[name];
+	        if (nextValue === null || nextValue === undefined || nextValue === false) {
+	          el.removeAttribute(name);
+	        } else {
+	          el.setAttribute(name, String(nextValue));
+	        }
+	        didPatchDom = true;
+	      });
+	    }
+	    var classEdit = e.data.classEdit;
+	    if (classEdit && typeof classEdit === 'object') {
+	      var currentClass = (el.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean);
+	      var nextClass = currentClass.slice();
+	      if (classEdit.operation === 'replace' && classEdit.from && classEdit.to) {
+	        var replaced = false;
+	        nextClass = currentClass.map(function(token) {
+	          if (token === classEdit.from) {
+	            replaced = true;
+	            return String(classEdit.to);
+	          }
+	          return token;
+	        });
+	        if (!replaced && nextClass.indexOf(String(classEdit.to)) === -1) nextClass.push(String(classEdit.to));
+	        didPatchDom = true;
+	      } else if (classEdit.operation === 'add' && classEdit.className) {
+	        if (nextClass.indexOf(String(classEdit.className)) === -1) nextClass.push(String(classEdit.className));
+	        didPatchDom = true;
+	      } else if (classEdit.operation === 'remove' && classEdit.className) {
+	        nextClass = currentClass.filter(function(token) { return token !== String(classEdit.className); });
+	        didPatchDom = true;
+	      }
+	      if (didPatchDom) el.setAttribute('class', nextClass.join(' '));
+	    }
+	    if (prop && typeof prop === 'string') {
+	      applyInlineStyleProperty(el, prop, val);
+	      didPatchDom = true;
+	    }
+	    if (didPatchDom) {
+	      refreshOverlays();
+	    }
 	  });
 
   window.addEventListener('scroll', refreshOverlays, true);
@@ -2887,17 +2995,16 @@ export function DesignCanvas({
   // outside Edit mode. The editor chrome bridge is omitted only for Interact.
   const srcdoc = useMemo(() => {
     if (externalPreviewUrl) return undefined;
-    const editorChromeBridge =
-      interactMode || readOnly
-        ? ""
-        : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-          EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-            "__READ_ONLY__",
-            readOnly ? "true" : "false",
-          )
-            .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-            .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
-            .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
+    const editorChromeBridge = interactMode
+      ? ""
+      : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+          "__READ_ONLY__",
+          readOnly ? "true" : "false",
+        )
+          .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+          .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
+          .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
     const embeddedWheelBridge = EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
       isEmbeddedFrame ? "true" : "false",
@@ -3368,11 +3475,23 @@ export function DesignCanvas({
   }, [editorChromeScaleX, editorChromeScaleY]);
 
   const sendStyleChange = useCallback(
-    (selector: string, property: string, value: string) => {
+    (
+      selector: string,
+      property: string,
+      value: string,
+      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+    ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return;
       iframe.contentWindow.postMessage(
-        { type: "style-change", selector, property, value },
+        {
+          type: "style-change",
+          selector,
+          property,
+          value,
+          selectorCandidates: options?.selectorCandidates ?? [],
+          nodeId: options?.nodeId ?? "",
+        },
         "*",
       );
     },

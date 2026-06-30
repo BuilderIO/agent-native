@@ -315,7 +315,7 @@ test("deeply nested layer rows keep a clickable hit target", async ({
   expect(box).toBeTruthy();
   expect(box!.width).toBeGreaterThanOrEqual(44);
 
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await deepLayer.click();
   await expect(
     page.locator('[role="treeitem"][aria-selected="true"]'),
   ).toContainText("Deep Layer Button");

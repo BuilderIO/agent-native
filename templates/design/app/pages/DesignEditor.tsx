@@ -49,6 +49,7 @@ import {
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
 import { componentNameFor, isComponentInstance } from "@shared/component-model";
+import type { A11yFinding } from "@shared/design-review";
 import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
@@ -58,7 +59,7 @@ import {
   resolveTweaksToCssVars,
   type TweakSelections,
 } from "@shared/resolve-tweaks";
-import { widthToPrefix } from "@shared/responsive-classes";
+import { utilityStem, widthToPrefix } from "@shared/responsive-classes";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import {
   IconArrowLeft,
@@ -863,6 +864,113 @@ function applyInlineStylesToHtml(
   } catch {
     return null;
   }
+}
+
+const CSS_PROPERTY_UTILITY_STEMS: Record<string, string[]> = {
+  color: ["text-color"],
+  "background-color": ["background-color"],
+  background: ["background-color", "background-image"],
+  "font-size": ["font-size"],
+  "font-weight": ["font-weight"],
+  "font-family": ["font-family"],
+  "text-align": ["text-align"],
+  display: ["display"],
+  position: ["position"],
+  width: ["w"],
+  height: ["h"],
+  opacity: ["opacity"],
+  "border-radius": ["rounded"],
+  padding: ["p"],
+  "padding-left": ["px", "pl"],
+  "padding-right": ["px", "pr"],
+  "padding-top": ["py", "pt"],
+  "padding-bottom": ["py", "pb"],
+  margin: ["m"],
+  "margin-left": ["mx", "ml"],
+  "margin-right": ["mx", "mr"],
+  "margin-top": ["my", "mt"],
+  "margin-bottom": ["my", "mb"],
+  gap: ["gap"],
+  "column-gap": ["gap-x"],
+  "row-gap": ["gap-y"],
+};
+
+const DEFAULT_STATES_PANEL_BREAKPOINTS = [
+  { id: "bp-mobile", label: "Mobile", widthPx: 390 },
+  { id: "bp-tablet", label: "Tablet", widthPx: 768 },
+  { id: "bp-desktop", label: "Desktop", widthPx: 1280 },
+] as const;
+
+function normalizeCssPropertyName(property: string): string {
+  return property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+function looksLikeTailwindUtility(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  if (/[;{}]/.test(trimmed) || /\/\*/.test(trimmed)) return false;
+  if (/^(?:#|rgb\(|rgba\(|hsl\(|hsla\(|var\(|calc\()/i.test(trimmed)) {
+    return false;
+  }
+  if (trimmed.includes(":")) return false;
+  return /^[!-]?[a-z0-9][a-z0-9[\]()./%_-]*$/i.test(trimmed);
+}
+
+function responsiveUtilityMatchesStyleProperty(
+  property: string,
+  value: string,
+): boolean {
+  if (!looksLikeTailwindUtility(value)) return false;
+  const normalizedProperty = normalizeCssPropertyName(property);
+  const stem = utilityStem(value.trim());
+  const allowed = CSS_PROPERTY_UTILITY_STEMS[normalizedProperty];
+  return allowed ? allowed.includes(stem) : stem === normalizedProperty;
+}
+
+interface DesignStatePreviewRow {
+  captureData?: Record<string, unknown> | null;
+  fixtureData?: Record<string, unknown> | null;
+}
+
+const STATE_PREVIEW_HTML_KEYS = [
+  "domHtml",
+  "domSnapshot",
+  "documentHtml",
+  "html",
+  "content",
+  "markup",
+] as const;
+
+function looksLikePreviewHtml(value: string): boolean {
+  return /<!doctype|<html\b|<body\b|<[a-zA-Z][\s>]/i.test(value);
+}
+
+function findStatePreviewHtml(value: unknown, depth = 0): string | null {
+  if (typeof value === "string") {
+    return looksLikePreviewHtml(value) ? value : null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 2)
+    return null;
+  const record = value as Record<string, unknown>;
+  for (const key of STATE_PREVIEW_HTML_KEYS) {
+    const hit = findStatePreviewHtml(record[key], depth + 1);
+    if (hit) return hit;
+  }
+  for (const entry of Object.values(record)) {
+    const hit = findStatePreviewHtml(entry, depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function designStatePreviewHtml(
+  row: DesignStatePreviewRow | undefined,
+): string | null {
+  if (!row) return null;
+  return (
+    findStatePreviewHtml(row.captureData) ??
+    findStatePreviewHtml(row.fixtureData)
+  );
 }
 
 function escapeHtmlAttributeValue(value: string): string {
@@ -2652,6 +2760,11 @@ function buildAuthoritativeTweakSelections(
         ? persistedSelections[tweak.id]
         : tweak.defaultValue;
   }
+  for (const [key, value] of Object.entries(persistedSelections)) {
+    if (/^--[-_a-zA-Z0-9]+$/.test(key)) {
+      selections[key] = value;
+    }
+  }
   return selections;
 }
 
@@ -2868,6 +2981,9 @@ export default function DesignEditor() {
   const [hiddenLayerIds, setHiddenLayerIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const layerStateOverridesRef = useRef<
+    Map<string, { hidden?: boolean; locked?: boolean }>
+  >(new Map());
   const [overviewSelectAllRequest, setOverviewSelectAllRequest] = useState(0);
   const [overviewClearSelectionRequest, setOverviewClearSelectionRequest] =
     useState(0);
@@ -2887,6 +3003,11 @@ export default function DesignEditor() {
   const [motionDockOpen, setMotionDockOpen] = useState(false);
   const [motionTracks, setMotionTracks] = useState<MotionDockTrack[]>([]);
   const [motionDurationMs, setMotionDurationMs] = useState(1000);
+  const [shaderFillPreview, setShaderFillPreview] = useState<{
+    selector?: string;
+    nodeId?: string;
+    css: string;
+  } | null>(null);
 
   // ── Breakpoint preview state (§6.4) ─────────────────────────────────────────
   // Active breakpoint width for the current design (pixels). Controls which
@@ -2898,6 +3019,10 @@ export default function DesignEditor() {
   // ── Design state selection (§6.4 / §8) ───────────────────────────────────────
   // null = Default (live) view; a string id = one of the design_state rows.
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
+  const [reviewFindings, setReviewFindings] = useState<A11yFinding[]>([]);
+  const [reviewAuditLoading, setReviewAuditLoading] = useState(false);
+  const [reviewAuditedAt, setReviewAuditedAt] = useState<string | null>(null);
+  const [reviewAuditError, setReviewAuditError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isBuilderDesignEmbed) return;
@@ -4911,6 +5036,51 @@ export default function DesignEditor() {
     [],
   );
 
+  const handleRunDesignAudit = useCallback(async () => {
+    if (!id || !activeFile?.id) return;
+    setReviewAuditLoading(true);
+    setReviewAuditError(null);
+    try {
+      const result = await callAction<{
+        findings: A11yFinding[];
+        auditedAt: string;
+      }>("run-design-audit", {
+        designId: id,
+        fileId: activeFile.id,
+      } as any);
+      setReviewFindings(Array.isArray(result.findings) ? result.findings : []);
+      setReviewAuditedAt(result.auditedAt ?? new Date().toISOString());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to run design audit";
+      setReviewAuditError(message);
+      toast.error(message);
+    } finally {
+      setReviewAuditLoading(false);
+    }
+  }, [activeFile?.id, id]);
+
+  const handleReviewFindingClick = useCallback(
+    (finding: A11yFinding) => {
+      const selector =
+        finding.selector ??
+        (finding.nodeId
+          ? `[data-agent-native-node-id="${finding.nodeId.replace(/"/g, '\\"')}"]`
+          : null);
+      if (!selector) return;
+      canvasIframeRef.current?.contentWindow?.postMessage(
+        {
+          type: "select-element",
+          selector,
+          nodeId: finding.nodeId ?? undefined,
+        },
+        "*",
+      );
+      if (finding.nodeId) setSelectedLayerIdsState([finding.nodeId]);
+    },
+    [canvasIframeRef],
+  );
+
   // Broadcast pointer position (normalized to canvas container) and
   // selected element selector so peers can see where the user is working.
   const handleCanvasPointerMove = useCallback(
@@ -5067,6 +5237,21 @@ export default function DesignEditor() {
     );
   }, [activeCodeLayerProjection, selectedElement]);
   const selectedElementLayerId = selectedCodeLayerNode?.id ?? null;
+  const selectedMotionLayer = useMemo(() => {
+    if (!selectedCodeLayerNode) return null;
+    const fallbackLabel =
+      selectedElement?.textContent?.replace(/\s+/g, " ").trim() ||
+      selectedElement?.tagName.toLowerCase() ||
+      "Layer";
+    return {
+      nodeId: bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode),
+      label: selectedCodeLayerNode.layerName || fallbackLabel,
+    };
+  }, [
+    selectedCodeLayerNode,
+    selectedElement?.tagName,
+    selectedElement?.textContent,
+  ]);
   const selectedCanvasSelectorCandidates = useMemo(() => {
     if (selectedCodeLayerNode) {
       return codeLayerSelectorAliases(selectedCodeLayerNode);
@@ -5074,6 +5259,45 @@ export default function DesignEditor() {
     return selectedElement?.selector ? [selectedElement.selector] : [];
   }, [selectedCodeLayerNode, selectedElement?.selector]);
   const selectedCanvasSelector = selectedCanvasSelectorCandidates[0] ?? null;
+
+  const handleDesignStateSelect = useCallback(
+    (stateId: string | null, row?: DesignStatePreviewRow) => {
+      setSelectedStateId(stateId);
+      const win = canvasIframeRef.current?.contentWindow;
+      if (!win) return;
+
+      if (stateId === null) {
+        win.postMessage(
+          {
+            type: "replace-document-content",
+            content: activeContent,
+            selectedSelector: selectedCanvasSelector ?? "",
+            selectorCandidates: selectedCanvasSelectorCandidates,
+          },
+          "*",
+        );
+        return;
+      }
+
+      const html = designStatePreviewHtml(row);
+      if (!html) return;
+      win.postMessage(
+        {
+          type: "replace-document-content",
+          content: html,
+          selectedSelector: selectedCanvasSelector ?? "",
+          selectorCandidates: selectedCanvasSelectorCandidates,
+        },
+        "*",
+      );
+    },
+    [
+      activeContent,
+      canvasIframeRef,
+      selectedCanvasSelector,
+      selectedCanvasSelectorCandidates,
+    ],
+  );
 
   // ── Inspector header quick actions (Create component / Inspect code) ───────
   // Resolve the design-level source type + capability map so the inspector can
@@ -5123,9 +5347,13 @@ export default function DesignEditor() {
   const selectedComponentNodeId = useMemo(() => {
     if (!selectedCodeLayerNode) return undefined;
     return isComponentInstance(selectedCodeLayerNode)
-      ? selectedCodeLayerNode.id
+      ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
       : undefined;
   }, [selectedCodeLayerNode]);
+
+  useEffect(() => {
+    setShaderFillPreview(null);
+  }, [activeFile?.id, selectedElement?.selector, selectedElement?.sourceId]);
 
   // A friendly default name for the create-component dialog, derived from the
   // selected element's layer name / tag.
@@ -5448,16 +5676,18 @@ export default function DesignEditor() {
 
   const handlePrimitiveCreated = useCallback(
     (screenId: string, nodeId: string) => {
-      pendingOverviewScreenSelectionRef.current = null;
-      viewModeRef.current = "single";
-      setActiveFileId(screenId);
-      setSelectedElement(null);
-      setHoveredElement(null);
-      setSelectedLayerIdsState([nodeId]);
-      setOverviewSelectedScreenIds([]);
-      setActiveTool("move");
-      setMode("edit");
-      setViewMode("single");
+      window.requestAnimationFrame(() => {
+        pendingOverviewScreenSelectionRef.current = null;
+        viewModeRef.current = "single";
+        setActiveFileId(screenId);
+        setSelectedElement(null);
+        setHoveredElement(null);
+        setSelectedLayerIdsState([nodeId]);
+        setOverviewSelectedScreenIds([]);
+        setActiveTool("move");
+        setMode("edit");
+        setViewMode("single");
+      });
     },
     [],
   );
@@ -5865,6 +6095,15 @@ export default function DesignEditor() {
       mode,
       activeTool,
       tweakValues: tweakSelections,
+      onShaderFillPreview: (_descriptor, css) => {
+        setShaderFillPreview({
+          selector: selectedElement?.selector ?? undefined,
+          nodeId:
+            selectedElement?.sourceId ?? selectedCodeLayerNode?.id ?? undefined,
+          css,
+        });
+      },
+      onShaderFillPreviewClear: () => setShaderFillPreview(null),
     }),
     [
       activeFile?.filename,
@@ -5877,6 +6116,7 @@ export default function DesignEditor() {
       mode,
       overviewSelectedScreenIds,
       selectedElement,
+      selectedCodeLayerNode?.id,
       selectedScreenIds,
       tweakSelections,
       viewMode,
@@ -6168,8 +6408,19 @@ export default function DesignEditor() {
       });
       const sendStyleChange = (window as any).__designCanvasSendStyle;
       if (!options.runtimeApplied && typeof sendStyleChange === "function") {
+        const selectorCandidates = targetNode
+          ? codeLayerSelectorAliases(targetNode)
+          : selector
+            ? [selector]
+            : [];
+        const nodeId = targetNode
+          ? bridgeSourceIdForCodeLayerNode(targetNode)
+          : targetInfo?.sourceId;
         entries.forEach(([property, value]) => {
-          sendStyleChange(selector, property, value);
+          sendStyleChange(selector, property, value, {
+            selectorCandidates,
+            nodeId,
+          });
         });
       }
 
@@ -6205,16 +6456,19 @@ export default function DesignEditor() {
           if (current.failed) return current;
           // Try responsive-class path first when appropriate.
           if (hasResponsiveCapability && activeBreakpointPrefix) {
-            const rcPatch = applyVisualEdit(current.content, {
-              kind: "responsive-class",
-              target: targetNode ? { nodeId: targetNode.id } : { selector },
-              prefix: activeBreakpointPrefix,
-              operation: "replace",
-              utility: value,
-              stem: property,
-            });
-            if (rcPatch.result.status === "applied") {
-              return { content: rcPatch.content, failed: null };
+            const utility = value.trim();
+            if (responsiveUtilityMatchesStyleProperty(property, utility)) {
+              const rcPatch = applyVisualEdit(current.content, {
+                kind: "responsive-class",
+                target: targetNode ? { nodeId: targetNode.id } : { selector },
+                prefix: activeBreakpointPrefix,
+                operation: "replace",
+                utility,
+                stem: utilityStem(utility),
+              });
+              if (rcPatch.result.status === "applied") {
+                return { content: rcPatch.content, failed: null };
+              }
             }
             // Responsive-class path didn't apply (e.g. value is a raw CSS value,
             // not a Tailwind utility); fall through to the inline-style path.
@@ -6347,7 +6601,10 @@ export default function DesignEditor() {
       ) {
         const sendStyleChange = (window as any).__designCanvasSendStyle;
         if (typeof sendStyleChange === "function") {
-          sendStyleChange(selector, property, value);
+          sendStyleChange(selector, property, value, {
+            selectorCandidates: selectedCanvasSelectorCandidates,
+            nodeId: selectedElement?.sourceId,
+          });
           return;
         }
       }
@@ -6356,6 +6613,8 @@ export default function DesignEditor() {
     [
       commitVisualStyles,
       selectedElement?.selector,
+      selectedElement?.sourceId,
+      selectedCanvasSelectorCandidates,
       textEditingState.active,
       textEditingState.hasRange,
       textEditingState.selector,
@@ -8697,13 +8956,28 @@ ${serializedHtml}
         )
         .map((node) => node.id),
     );
+    const allLayerIds = new Set([
+      ...fileIds,
+      ...allCodeLayerNodes.map((node) => node.id),
+    ]);
     const reconcile = (
       current: Set<string>,
       sourceIds: Set<string>,
+      kind: "hidden" | "locked",
     ): Set<string> => {
       const next = new Set(sourceIds);
       current.forEach((id) => {
         if (fileIds.has(id)) next.add(id);
+      });
+      layerStateOverridesRef.current.forEach((override, id) => {
+        if (!allLayerIds.has(id)) {
+          layerStateOverridesRef.current.delete(id);
+          return;
+        }
+        const value = override[kind];
+        if (value === undefined) return;
+        if (value) next.add(id);
+        else next.delete(id);
       });
       if (
         next.size === current.size &&
@@ -8714,8 +8988,12 @@ ${serializedHtml}
       return next;
     };
 
-    setLockedLayerIds((current) => reconcile(current, lockedFromSource));
-    setHiddenLayerIds((current) => reconcile(current, hiddenFromSource));
+    setLockedLayerIds((current) =>
+      reconcile(current, lockedFromSource, "locked"),
+    );
+    setHiddenLayerIds((current) =>
+      reconcile(current, hiddenFromSource, "hidden"),
+    );
   }, [codeLayerModelsByFile, files]);
   const lockedLayerSelectors = useMemo(() => {
     const selectors = Array.from(lockedLayerIds)
@@ -8967,7 +9245,11 @@ ${serializedHtml}
     const match = statesPanelBreakpoints.find(
       (bp) => bp.widthPx === activeBreakpointWidthState,
     );
-    return match?.id ?? "auto";
+    if (match) return match.id;
+    const defaultMatch = DEFAULT_STATES_PANEL_BREAKPOINTS.find(
+      (bp) => bp.widthPx === activeBreakpointWidthState,
+    );
+    return defaultMatch?.id ?? "auto";
   }, [activeBreakpointWidthState, statesPanelBreakpoints]);
 
   const handleOpenDesignPreview = useCallback(() => {
@@ -9270,6 +9552,10 @@ ${serializedHtml}
   const handleToggleLayerLocked = useCallback(
     (layerId: string, locked: boolean) => {
       if (!canEditDesign) return;
+      layerStateOverridesRef.current.set(layerId, {
+        ...layerStateOverridesRef.current.get(layerId),
+        locked,
+      });
       const applyLockedState = () => {
         setLockedLayerIds((current) => {
           const next = new Set(current);
@@ -9284,23 +9570,28 @@ ${serializedHtml}
       }
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
-      if (!owner || !node) return;
+      if (!owner || !node) {
+        applyLockedState();
+        return;
+      }
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
         owner.fileId === activeFile?.id
           ? activeContent
           : (sourceFile?.content ?? "");
-      if (!sourceContent) return;
-      const nextContent = setCodeLayerAttributeInHtml(
-        sourceContent,
-        node,
-        "data-agent-native-locked",
-        locked ? "true" : null,
-      );
-      if (!nextContent || nextContent === sourceContent) return;
-      applyFileContentUpdate(owner.fileId, nextContent, {
-        refreshPreview: false,
-      });
+      if (sourceContent) {
+        const nextContent = setCodeLayerAttributeInHtml(
+          sourceContent,
+          node,
+          "data-agent-native-locked",
+          locked ? "true" : null,
+        );
+        if (nextContent && nextContent !== sourceContent) {
+          applyFileContentUpdate(owner.fileId, nextContent, {
+            refreshPreview: false,
+          });
+        }
+      }
       applyLockedState();
     },
     [
@@ -9316,6 +9607,10 @@ ${serializedHtml}
   const handleToggleLayerHidden = useCallback(
     (layerId: string, hidden: boolean) => {
       if (!canEditDesign) return;
+      layerStateOverridesRef.current.set(layerId, {
+        ...layerStateOverridesRef.current.get(layerId),
+        hidden,
+      });
       const applyHiddenState = () => {
         setHiddenLayerIds((current) => {
           const next = new Set(current);
@@ -9330,23 +9625,28 @@ ${serializedHtml}
       }
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
-      if (!owner || !node) return;
+      if (!owner || !node) {
+        applyHiddenState();
+        return;
+      }
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
         owner.fileId === activeFile?.id
           ? activeContent
           : (sourceFile?.content ?? "");
-      if (!sourceContent) return;
-      const nextContent = setCodeLayerAttributeInHtml(
-        sourceContent,
-        node,
-        "data-agent-native-hidden",
-        hidden ? "true" : null,
-      );
-      if (!nextContent || nextContent === sourceContent) return;
-      applyFileContentUpdate(owner.fileId, nextContent, {
-        refreshPreview: false,
-      });
+      if (sourceContent) {
+        const nextContent = setCodeLayerAttributeInHtml(
+          sourceContent,
+          node,
+          "data-agent-native-hidden",
+          hidden ? "true" : null,
+        );
+        if (nextContent && nextContent !== sourceContent) {
+          applyFileContentUpdate(owner.fileId, nextContent, {
+            refreshPreview: false,
+          });
+        }
+      }
       applyHiddenState();
     },
     [
@@ -10676,6 +10976,7 @@ ${serializedHtml}
                       sourceType={designSourceType}
                       fusionUrl={designFusionUrl}
                       previewWidthPx={activeBreakpointWidthState}
+                      shaderFillPreview={shaderFillPreview}
                       onComponentSourceJump={handleComponentSourceJump}
                       // TODO: thread motionTracks / shaderFillPreview live-preview
                       // props once the canvas-side live preview state is plumbed
@@ -10846,6 +11147,50 @@ ${serializedHtml}
                   tweakValues={tweakSelections}
                   extensionContext={designExtensionContext}
                   readOnly={initialGenerationReadOnly}
+                  onTokensApplied={(resolvedCssVars) => {
+                    if (!canEditDesign || !id) return;
+                    setTweakSelections((prev) => ({
+                      ...prev,
+                      ...resolvedCssVars,
+                    }));
+                    queryClient.setQueryData(
+                      ["action", "get-design", { id }],
+                      (old: any) => {
+                        if (!old || typeof old !== "object") return old;
+                        let currentData: Record<string, unknown> = {};
+                        if (typeof old.data === "string" && old.data) {
+                          try {
+                            const parsed = JSON.parse(old.data);
+                            if (
+                              parsed &&
+                              typeof parsed === "object" &&
+                              !Array.isArray(parsed)
+                            ) {
+                              currentData = parsed;
+                            }
+                          } catch {
+                            currentData = {};
+                          }
+                        }
+                        const currentSelections =
+                          currentData.tweakSelections &&
+                          typeof currentData.tweakSelections === "object" &&
+                          !Array.isArray(currentData.tweakSelections)
+                            ? currentData.tweakSelections
+                            : {};
+                        return {
+                          ...old,
+                          data: JSON.stringify({
+                            ...currentData,
+                            tweakSelections: {
+                              ...currentSelections,
+                              ...resolvedCssVars,
+                            },
+                          }),
+                        };
+                      },
+                    );
+                  }}
                   onTweakChange={(tweakId, value) =>
                     setTweakSelections((prev) => {
                       if (!canEditDesign) return prev;
@@ -10860,6 +11205,7 @@ ${serializedHtml}
                   onExport={handleInspectorExport}
                   exporting={pngExporting || svgExporting}
                   designId={id}
+                  activeFileId={activeFile?.id}
                   componentNodeId={selectedComponentNodeId}
                   sourceCapabilities={sourceCapabilities}
                   onCreateComponent={
@@ -10875,9 +11221,7 @@ ${serializedHtml}
                           activeStateId: selectedStateId,
                           activeBreakpointId: statesPanelActiveBreakpointId,
                           breakpoints: statesPanelBreakpoints,
-                          onStateSelect: (stateId) => {
-                            setSelectedStateId(stateId);
-                          },
+                          onStateSelect: handleDesignStateSelect,
                           onBreakpointSelect: (breakpointId) => {
                             // "auto" = clear the active breakpoint (overview).
                             if (breakpointId === "auto") {
@@ -10890,9 +11234,13 @@ ${serializedHtml}
                               }
                               return;
                             }
-                            const bp = statesPanelBreakpoints.find(
-                              (b) => b.id === breakpointId,
-                            );
+                            const bp =
+                              statesPanelBreakpoints.find(
+                                (b) => b.id === breakpointId,
+                              ) ??
+                              DEFAULT_STATES_PANEL_BREAKPOINTS.find(
+                                (b) => b.id === breakpointId,
+                              );
                             if (!bp) return;
                             setActiveBreakpointWidthState(bp.widthPx);
                             if (id) {
@@ -10909,6 +11257,18 @@ ${serializedHtml}
                               setViewMode("overview");
                             }
                           },
+                        }
+                      : undefined
+                  }
+                  reviewPanelProps={
+                    id
+                      ? {
+                          findings: reviewFindings,
+                          auditLoading: reviewAuditLoading,
+                          auditedAt: reviewAuditedAt,
+                          auditError: reviewAuditError,
+                          onRunAudit: handleRunDesignAudit,
+                          onFindingClick: handleReviewFindingClick,
                         }
                       : undefined
                   }
@@ -10929,6 +11289,7 @@ ${serializedHtml}
       {!embedded && activeFile ? (
         <MotionDock
           tracks={motionTracks}
+          selectedLayer={selectedMotionLayer}
           durationMs={motionDurationMs}
           open={motionDockOpen}
           onOpenChange={setMotionDockOpen}

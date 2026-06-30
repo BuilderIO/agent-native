@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { createClient } from "@libsql/client";
 import { chromium, type FullConfig } from "@playwright/test";
 
 /**
@@ -19,6 +20,12 @@ const AUTH_DIR = path.join(import.meta.dirname, ".auth");
 const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
+const E2E_DATABASE_URL = `file:${path.join(
+  import.meta.dirname,
+  "..",
+  "data",
+  "e2e.db",
+)}`;
 
 /**
  * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
@@ -31,6 +38,12 @@ export const FIXTURE_HTML = `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>E2E Fixture</title>
+    <style>
+      :root {
+        --e2e-accent-color: #6366f1;
+        --e2e-radius: 14px;
+      }
+    </style>
   </head>
   <body style="margin:0;font-family:system-ui,sans-serif;background:#0f1115;color:#f4f4f5">
     <main style="max-width:720px;margin:0 auto;padding:48px 32px;display:flex;flex-direction:column;gap:24px">
@@ -38,8 +51,25 @@ export const FIXTURE_HTML = `<!doctype html>
       <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">First fixture paragraph for selection tests.</p>
       <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>
       <div style="display:flex;flex-direction:row;gap:16px">
-        <button style="padding:14px 28px;border-radius:10px;border:0;background:#6366f1;color:#fff;font-size:16px">Alpha Button</button>
-        <button style="padding:14px 28px;border-radius:10px;border:0;background:#22c55e;color:#06240f;font-size:16px">Beta Button</button>
+        <button data-agent-native-node-id="e2e-alpha-button" data-agent-native-layer-name="Alpha Button" style="padding:14px 28px;border-radius:10px;border:0;background:#6366f1;color:#fff;font-size:16px">Alpha Button</button>
+        <button data-agent-native-node-id="e2e-beta-button" data-agent-native-layer-name="Beta Button" style="padding:14px 28px;border-radius:10px;border:0;background:#22c55e;color:#06240f;font-size:16px">Beta Button</button>
+      </div>
+      <button
+        data-agent-native-node-id="e2e-component-button"
+        data-agent-native-layer-name="E2E Component Button"
+        data-agent-native-component="E2EButton"
+        data-agent-native-prop-variant="primary"
+        data-agent-native-prop-size="md"
+        style="align-self:flex-start;padding:14px 28px;border-radius:var(--e2e-radius);border:0;background:var(--e2e-accent-color);color:#fff;font-size:16px"
+      >Variant CTA</button>
+      <div
+        data-agent-native-node-id="e2e-token-sample"
+        data-agent-native-layer-name="E2E Token Sample"
+        style="padding:18px 20px;border-radius:var(--e2e-radius);background:var(--e2e-accent-color);color:#fff;font-weight:700"
+      >Token swatch sample</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <img data-agent-native-node-id="e2e-audit-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" style="width:32px;height:32px;border-radius:8px;background:#27272a" />
+        <input data-agent-native-node-id="e2e-audit-input" placeholder="Email" style="height:32px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#fff;padding:0 10px" />
       </div>
       <div style="padding:8px;border:1px solid #27272a;border-radius:12px">
         <div style="padding:8px;border:1px solid #3f3f46;border-radius:10px">
@@ -74,6 +104,63 @@ async function postAction(
     );
   }
   return res.json();
+}
+
+function componentIndexId(designId: string, name: string): string {
+  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+}
+
+export async function seedComponentVariantMetadata(
+  designId: string,
+): Promise<void> {
+  const client = createClient({ url: E2E_DATABASE_URL });
+  const name = "E2EButton";
+  const now = new Date().toISOString();
+  const variants = JSON.stringify({
+    variant: ["primary", "secondary", "ghost"],
+    size: ["sm", "md", "lg"],
+  });
+  const props = JSON.stringify([
+    { name: "variant", type: "primary | secondary | ghost" },
+    { name: "size", type: "sm | md | lg" },
+  ]);
+
+  try {
+    const result = await client.execute({
+      sql: `
+        UPDATE component_index
+        SET variants = ?, props = ?, file_path = ?, export_name = ?, updated_at = ?
+        WHERE design_id = ? AND name = ?
+      `,
+      args: [variants, props, "index.html", name, now, designId, name],
+    });
+
+    if (result.rowsAffected > 0) return;
+
+    await client.execute({
+      sql: `
+        INSERT INTO component_index (
+          id, design_id, name, file_path, export_name, props, variants,
+          runtime_selectors, owner_email, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        componentIndexId(designId, name),
+        designId,
+        name,
+        "index.html",
+        name,
+        props,
+        variants,
+        JSON.stringify(['[data-agent-native-node-id="e2e-component-button"]']),
+        E2E_EMAIL,
+        now,
+        now,
+      ],
+    });
+  } finally {
+    client.close();
+  }
 }
 
 export default async function globalSetup(config: FullConfig) {
@@ -148,6 +235,10 @@ export default async function globalSetup(config: FullConfig) {
       content: FIXTURE_HTML,
       fileType: "html",
     });
+    await postAction(context.request, baseURL, "index-components", {
+      designId,
+    });
+    await seedComponentVariantMetadata(designId);
 
     await writeFile(SEED_PATH, JSON.stringify({ designId }, null, 2));
     // eslint-disable-next-line no-console

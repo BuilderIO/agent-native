@@ -353,7 +353,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
-  http: { method: "GET" },
+  http: { method: "POST" },
   run: async ({ designId, fileId, filename }) => {
     const db = getDb();
 

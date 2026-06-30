@@ -1,35 +1,21 @@
 /**
  * motion-compiler.spec.ts
  *
- * Regression tests for the motion compiler and the property-validation guard
- * in apply-motion-edit.
+ * Regression tests for the motion compiler and its CSS validation guards.
  *
  * Issue 1 regression: track.property was not validated, allowing CSS injection.
- * The assertSafeCssProperty helper (defined in apply-motion-edit.ts and
- * tested here in isolation) must reject any property string that could break
- * out of a CSS declaration or <style> block context.
+ * The assertSafeMotionCssProperty helper must reject any property string that
+ * could break out of a CSS declaration or <style> block context.
  */
 
 import { describe, expect, it } from "vitest";
 
-import { compile } from "./motion-compiler";
+import {
+  assertSafeMotionCssProperty,
+  assertSafeMotionCssToken,
+  compile,
+} from "./motion-compiler";
 import type { MotionTimeline } from "./motion-timeline";
-
-// ─── assertSafeCssProperty — inline mirror for unit testing ──────────────────
-//
-// The real implementation lives in apply-motion-edit.ts (server action).
-// We mirror the pure validation logic here so we can unit-test it without
-// spinning up the full action runtime.
-
-function assertSafeCssProperty(property: string, field: string): string {
-  if (!/^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(property)) {
-    throw new Error(
-      `Invalid ${field}: "${property}" is not a valid CSS property identifier. ` +
-        "Only ASCII letters, digits, hyphens, and an optional leading hyphen are allowed.",
-    );
-  }
-  return property;
-}
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -77,16 +63,18 @@ describe("assertSafeCssProperty — allowlist validation", () => {
       "line-height",
     ];
     for (const prop of valid) {
-      expect(() => assertSafeCssProperty(prop, "track.property")).not.toThrow();
+      expect(() =>
+        assertSafeMotionCssProperty(prop, "track.property"),
+      ).not.toThrow();
     }
   });
 
   it("accepts vendor-prefixed properties (leading hyphen)", () => {
     expect(() =>
-      assertSafeCssProperty("-webkit-transform", "track.property"),
+      assertSafeMotionCssProperty("-webkit-transform", "track.property"),
     ).not.toThrow();
     expect(() =>
-      assertSafeCssProperty("-moz-transform", "track.property"),
+      assertSafeMotionCssProperty("-moz-transform", "track.property"),
     ).not.toThrow();
   });
 
@@ -95,56 +83,96 @@ describe("assertSafeCssProperty — allowlist validation", () => {
     //   color:red} body{display:none: <value>;
     // breaking out of the @keyframes block.
     expect(() =>
-      assertSafeCssProperty("color:red} body{display:none", "track.property"),
+      assertSafeMotionCssProperty(
+        "color:red} body{display:none",
+        "track.property",
+      ),
     ).toThrow(/not a valid CSS property identifier/);
   });
 
   it("REJECTS property containing semicolon", () => {
     expect(() =>
-      assertSafeCssProperty("opacity;color", "track.property"),
+      assertSafeMotionCssProperty("opacity;color", "track.property"),
     ).toThrow(/not a valid CSS property identifier/);
   });
 
   it("REJECTS property containing opening brace", () => {
     expect(() =>
-      assertSafeCssProperty("opacity{color:red}", "track.property"),
+      assertSafeMotionCssProperty("opacity{color:red}", "track.property"),
     ).toThrow(/not a valid CSS property identifier/);
   });
 
   it("REJECTS property containing closing brace", () => {
     expect(() =>
-      assertSafeCssProperty("opacity}body{color:red", "track.property"),
+      assertSafeMotionCssProperty("opacity}body{color:red", "track.property"),
     ).toThrow(/not a valid CSS property identifier/);
   });
 
   it("REJECTS property containing whitespace", () => {
     expect(() =>
-      assertSafeCssProperty("opacity color", "track.property"),
+      assertSafeMotionCssProperty("opacity color", "track.property"),
     ).toThrow(/not a valid CSS property identifier/);
   });
 
   it("REJECTS property containing angle bracket (style-tag breakout)", () => {
     expect(() =>
-      assertSafeCssProperty("opacity</style><script>", "track.property"),
+      assertSafeMotionCssProperty("opacity</style><script>", "track.property"),
     ).toThrow(/not a valid CSS property identifier/);
   });
 
   it("REJECTS property containing slash", () => {
     expect(() =>
-      assertSafeCssProperty("opacity/color", "track.property"),
+      assertSafeMotionCssProperty("opacity/color", "track.property"),
     ).toThrow(/not a valid CSS property identifier/);
   });
 
   it("REJECTS empty string", () => {
-    expect(() => assertSafeCssProperty("", "track.property")).toThrow(
+    expect(() => assertSafeMotionCssProperty("", "track.property")).toThrow(
       /not a valid CSS property identifier/,
     );
   });
 
   it("REJECTS property starting with digit", () => {
-    expect(() => assertSafeCssProperty("1opacity", "track.property")).toThrow(
-      /not a valid CSS property identifier/,
-    );
+    expect(() =>
+      assertSafeMotionCssProperty("1opacity", "track.property"),
+    ).toThrow(/not a valid CSS property identifier/);
+  });
+});
+
+// ─── Value/easing validation ─────────────────────────────────────────────────
+
+describe("assertSafeMotionCssToken — CSS injection validation", () => {
+  it("accepts common motion values and easing functions", () => {
+    for (const value of [
+      "0",
+      "1",
+      "translateY(8px)",
+      "scale(1.05)",
+      "calc(100% - 8px)",
+      "var(--motion-distance)",
+      "cubic-bezier(0.4, 0, 0.2, 1)",
+      "steps(4, end)",
+    ]) {
+      expect(() =>
+        assertSafeMotionCssToken(value, "motion value"),
+      ).not.toThrow();
+    }
+  });
+
+  it("rejects declaration, rule, comment, URL, and style breakouts", () => {
+    for (const value of [
+      "0; body { display: none }",
+      "0 } body { display: none",
+      "/* hidden */ 0",
+      "0 */ body { display: none",
+      "url(javascript:alert(1))",
+      "url (https://example.test/a.png)",
+      "</style><script>alert(1)</script>",
+    ]) {
+      expect(() => assertSafeMotionCssToken(value, "motion value")).toThrow(
+        /not allowed in motion CSS values/,
+      );
+    }
   });
 });
 
@@ -174,5 +202,58 @@ describe("compile — property is emitted safely", () => {
   it("compile includes reduced-motion block", () => {
     const { css } = compile(makeTimeline("opacity"));
     expect(css).toContain("prefers-reduced-motion");
+  });
+
+  it("coalesces same-target tracks into one comma-separated animation rule", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.durationMs = 1000;
+    timeline.tracks = [
+      {
+        targetNodeId: "node1",
+        property: "transform",
+        keyframes: [
+          { t: 0, value: "translateY(8px)", ease: "ease-out" },
+          { t: 1, value: "translateY(0)" },
+        ],
+      },
+      {
+        targetNodeId: "node1",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const ruleMatches = css.match(
+      /\[data-agent-native-node-id="node1"\]\s*\{/g,
+    );
+
+    expect(ruleMatches).toHaveLength(1);
+    expect(css).toContain(
+      "animation-name: an-motion-node1--opacity, an-motion-node1--transform;",
+    );
+    expect(css).toContain("animation-duration: 1s, 1s;");
+    expect(css).toContain("animation-timing-function: ease, ease-out;");
+    expect(css).toContain("animation-fill-mode: both, both;");
+  });
+
+  it("rejects unsafe keyframe values and easing while compiling", () => {
+    const unsafeValue = makeTimeline("opacity");
+    unsafeValue.tracks[0].keyframes[0].value = "0; body { display: none }";
+
+    expect(() => compile(unsafeValue)).toThrow(/Invalid keyframe value/);
+
+    const unsafeEase = makeTimeline("opacity");
+    unsafeEase.tracks[0].keyframes[0].ease = "ease /* inject */";
+
+    expect(() => compile(unsafeEase)).toThrow(/Invalid keyframe ease/);
+
+    const unsafeDefaultEase = makeTimeline("opacity");
+    unsafeDefaultEase.defaultEase = "url(javascript:alert(1))";
+
+    expect(() => compile(unsafeDefaultEase)).toThrow(/Invalid defaultEase/);
   });
 });

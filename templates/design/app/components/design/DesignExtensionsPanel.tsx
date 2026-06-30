@@ -14,6 +14,7 @@ import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
+import type { ShaderDescriptor } from "@shared/shader-presets";
 import {
   IconExternalLink,
   IconLock,
@@ -85,6 +86,8 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   mode: string;
   activeTool: string;
   tweakValues: Record<string, string | number | boolean>;
+  onShaderFillPreview?: (descriptor: ShaderDescriptor, css: string) => void;
+  onShaderFillPreviewClear?: () => void;
 }
 
 interface DesignExtensionsPanelProps {
@@ -465,6 +468,10 @@ interface ShaderFillsExtPanelProps {
 
 function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   const [showShaders, setShowShaders] = useState(false);
+  const closeShaders = () => {
+    context.onShaderFillPreviewClear?.();
+    setShowShaders(false);
+  };
 
   if (!showShaders) {
     return (
@@ -499,14 +506,10 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
 
   return (
     <ShaderFillsPanel
-      onApply={(_descriptor, _css) => {
-        // Preview-only: the ShaderFillsPanel already fires apply-shader (the
-        // planning/codegen action) for agent context.  We don't call
-        // apply-shader-fill here — it is gated and would return NOT_YET_AVAILABLE.
-        // The "Apply" button inside ShaderFillsPanel fires apply-shader which
-        // gives the agent the JSX/HTML snippet to use with edit-design.
+      onApply={(descriptor, css) => {
+        context.onShaderFillPreview?.(descriptor, css);
       }}
-      onBack={() => setShowShaders(false)}
+      onBack={closeShaders}
       applyContext={{
         designId: context.designId || undefined,
         fileId: context.activeFileId || undefined,

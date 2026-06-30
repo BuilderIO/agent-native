@@ -58,6 +58,8 @@ interface DesignStateRow {
   breakpoint: DesignStateBreakpoint;
   sourceRef?: string | null;
   route?: string | null;
+  fixtureData?: Record<string, unknown> | null;
+  captureData?: Record<string, unknown> | null;
   previewRef?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -76,7 +78,7 @@ export interface StatesPanelProps {
   breakpoints: Array<{ id: string; label: string; widthPx: number }>;
   /** Whether the design's source supports live captures. */
   canCapture?: boolean;
-  onStateSelect: (stateId: string | null) => void;
+  onStateSelect: (stateId: string | null, row?: DesignStateRow) => void;
   onBreakpointSelect: (breakpointId: string) => void;
   onAddBreakpoint?: () => void;
   onCapture?: () => void;
@@ -455,7 +457,7 @@ export function StatesPanel({
                 key={row.id}
                 row={row}
                 isActive={activeStateId === row.id}
-                onSelect={() => onStateSelect(row.id)}
+                onSelect={() => onStateSelect(row.id, row)}
                 onDelete={() => handleDeleteState(row.id)}
               />
             ))}

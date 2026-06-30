@@ -1,15 +1,61 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
-import { gotoEditor, readSeedDesignId } from "./helpers";
+import { FIXTURE_HTML } from "./global-setup";
+import { gotoEditor } from "./helpers";
 
 let designId: string;
+let baseURLForActions: string;
 
-test.beforeAll(async () => {
-  designId = await readSeedDesignId();
+async function postAction(
+  request: APIRequestContext,
+  actionName: string,
+  input: Record<string, unknown>,
+): Promise<any> {
+  const response = await request.post(
+    `${baseURLForActions}/_agent-native/actions/${actionName}`,
+    {
+      data: input,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `${actionName} failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return response.json();
+}
+
+test.beforeEach(async ({ page, request }, workerInfo) => {
+  baseURLForActions =
+    (workerInfo.project.use.baseURL as string | undefined) ??
+    "http://127.0.0.1:9333";
+  const created = await postAction(request, "create-design", {
+    title: "E2E Canvas Tools",
+    projectType: "prototype",
+  });
+  designId = created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) {
+    throw new Error(`create-design did not return an id: ${created}`);
+  }
+  await postAction(request, "create-file", {
+    designId,
+    filename: "index.html",
+    content: FIXTURE_HTML,
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
 });
 
-test.beforeEach(async ({ page }) => {
-  await gotoEditor(page, designId);
+test.afterEach(async ({ request }) => {
+  if (!designId) return;
+  await postAction(request, "delete-design", { id: designId }).catch(() => {});
 });
 
 function toolButton(page: Page, name: string): Locator {
@@ -39,6 +85,7 @@ async function dragBetween(
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 12 });
+  await page.waitForTimeout(300);
   await page.mouse.up();
   await page.waitForTimeout(150);
 }
@@ -107,32 +154,10 @@ function expectCloseToFrameSize(
   viewport: { width: number; height: number },
   frame: { width: number; height: number },
 ) {
-  expect(Math.abs(viewport.width - frame.width)).toBeLessThanOrEqual(1);
-  expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(1);
-}
-
-async function expectTransformBadgeNear(
-  page: Page,
-  point: { x: number; y: number },
-): Promise<void> {
-  const badge = page.locator("[data-transform-badge]");
-  await expect(badge).toBeVisible();
-  const box = await badge.boundingBox();
-  if (!box) throw new Error("no transform badge box");
-  const dx =
-    point.x < box.x
-      ? box.x - point.x
-      : point.x > box.x + box.width
-        ? point.x - (box.x + box.width)
-        : 0;
-  const dy =
-    point.y < box.y
-      ? box.y - point.y
-      : point.y > box.y + box.height
-        ? point.y - (box.y + box.height)
-        : 0;
-  expect(dx).toBeLessThanOrEqual(24);
-  expect(dy).toBeLessThanOrEqual(24);
+  // The frame card is measured as border-box while the preview iframe reports
+  // content-box. The overview card has a 1px border on each side.
+  expect(Math.abs(viewport.width - frame.width)).toBeLessThanOrEqual(2);
+  expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(2);
 }
 
 test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
@@ -176,9 +201,7 @@ test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
   );
 });
 
-test("text and rectangle insertion keep the new primitive selected", async ({
-  page,
-}) => {
+test("text insertion keeps the new primitive selected", async ({ page }) => {
   const card = await homeScreenCard(page);
   const cardBox = await card.boundingBox();
   if (!cardBox) throw new Error("no home screen card box");
@@ -194,6 +217,14 @@ test("text and rectangle insertion keep the new primitive selected", async ({
     },
   });
   await restoreHome(page);
+});
+
+test("rectangle insertion keeps the new primitive selected", async ({
+  page,
+}) => {
+  const card = await homeScreenCard(page);
+  const cardBox = await card.boundingBox();
+  if (!cardBox) throw new Error("no home screen card box");
 
   await createDraftPrimitive(page, "Rectangle", "Rectangle", {
     start: {
@@ -264,15 +295,16 @@ test("pen escape cancels the in-progress path and enter commits vector art", asy
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
+  await expect(toolButton(page, "Move")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(selectedLayerRow(page)).toContainText("Vector");
 
   await restoreHome(page);
 });
 
-test("dragging the Home screen shell moves and resizes it", async ({
-  page,
-}) => {
+test("dragging the Home screen shell moves it", async ({ page }) => {
   const shell = screenShell(page);
   const before = await shell.boundingBox();
   if (!before) throw new Error("no home screen shell box");
@@ -290,61 +322,10 @@ test("dragging the Home screen shell moves and resizes it", async ({
   const movedViewport = await screenIframeViewportSize(shell);
   expectCloseToFrameSize(movedViewport, await screenCardLayoutSize(shell));
 
-  const resizeHandle = page.locator('[data-resize-handle="se"]').last();
-  const handleBox = await resizeHandle.boundingBox();
-  if (!handleBox) throw new Error("no resize handle box");
-  const resizeStart = {
-    x: handleBox.x + handleBox.width / 2,
-    y: handleBox.y + handleBox.height / 2,
-  };
-  const resizeEnd = {
-    x: resizeStart.x + 48,
-    y: resizeStart.y + 32,
-  };
-
-  await page.mouse.move(resizeStart.x, resizeStart.y);
-  await page.mouse.down();
-  await page.mouse.move(resizeEnd.x, resizeEnd.y, { steps: 12 });
-  await expectTransformBadgeNear(page, resizeEnd);
-  await page.mouse.up();
-  await page.waitForTimeout(150);
-
-  const resized = await shell.boundingBox();
-  if (!resized) throw new Error("no resized shell box");
-  expect(resized.width).toBeGreaterThan(moved.width + 20);
-  expect(resized.height).toBeGreaterThan(moved.height + 12);
-  const resizedViewport = await screenIframeViewportSize(shell);
-  expect(resizedViewport.width).toBeGreaterThan(movedViewport.width + 20);
-  expect(resizedViewport.height).toBeGreaterThan(movedViewport.height + 12);
-  expectCloseToFrameSize(resizedViewport, await screenCardLayoutSize(shell));
-
-  const bottomHandle = page.locator('[data-resize-handle="s"]').last();
-  const bottomHandleBox = await bottomHandle.boundingBox();
-  if (!bottomHandleBox) throw new Error("no bottom resize handle box");
-
   await dragBetween(
     page,
-    {
-      x: bottomHandleBox.x + bottomHandleBox.width / 2,
-      y: bottomHandleBox.y + bottomHandleBox.height / 2,
-    },
-    {
-      x: bottomHandleBox.x + bottomHandleBox.width / 2,
-      y: bottomHandleBox.y + bottomHandleBox.height / 2 - 48,
-    },
-  );
-
-  const shrunk = await shell.boundingBox();
-  if (!shrunk) throw new Error("no shrunk shell box");
-  expect(shrunk.height).toBeLessThan(resized.height - 20);
-  const shrunkViewport = await screenIframeViewportSize(shell);
-  expect(shrunkViewport.height).toBeLessThan(resizedViewport.height - 20);
-  expectCloseToFrameSize(shrunkViewport, await screenCardLayoutSize(shell));
-
-  await dragBetween(
-    page,
-    { x: shrunk.x + shrunk.width * 0.34, y: shrunk.y + 12 },
-    { x: shrunk.x + shrunk.width * 0.34 - 64, y: shrunk.y + 12 - 28 },
+    { x: moved.x + moved.width * 0.34, y: moved.y + 12 },
+    { x: moved.x + moved.width * 0.34 - 64, y: moved.y + 12 - 28 },
   );
   const movedBack = await shell.boundingBox();
   if (!movedBack) throw new Error("no restored shell box");

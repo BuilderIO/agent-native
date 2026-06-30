@@ -2,8 +2,8 @@
  * preview-shader-fill — preview-only action.
  *
  * Returns the CSS mesh-gradient approximation for a shader fill so the caller
- * can apply it to the selected node via the bridge (`tweak-values` /
- * `style-change` messages) **without persisting anything**.
+ * can apply it to the selected node via the `shader-fill-preview` bridge
+ * message **without persisting anything**.
  *
  * Deliberately lightweight:
  * - No DB access.
@@ -84,11 +84,11 @@ export default defineAction({
 Preview a CSS mesh-gradient shader fill on the selected design node without persisting anything.
 
 Returns:
-- previewCss   — a CSS \`background\` value for the live preview (inject via bridge style-change or tweak-values).
+- previewCss   — a CSS \`background\` value for the live preview (inject via the shader-fill-preview bridge message).
 - fallbackCss  — a simpler static CSS \`background\` for export / PDF / SSR contexts.
 - fallbackBlock — a complete CSS rule block (selector + fallback background) ready to embed.
 - descriptor   — the resolved and validated ShaderDescriptor.
-- bridgeMessage — a ready-to-use JSON bridge payload for the iframe style-change message.
+- bridgeMessage — a ready-to-use JSON bridge payload for the iframe shader-fill-preview message.
 
 Call this before apply-shader-fill.  The preview is purely CSS — no WebGL, no canvas, no writes.
 
@@ -139,14 +139,12 @@ support; it has no effect on the static CSS preview output today.
     const fallbackBlock = buildShaderFillFallbackBlock(selector, descriptor);
 
     // Build a ready-to-post bridge payload for the iframe.
-    // The `style-change` message type is already handled by DesignCanvas.tsx.
+    // The `shader-fill-preview` message type is handled by DesignCanvas.tsx.
     const bridgeMessage = {
-      type: "style-change",
-      nodeId: target?.nodeId ?? null,
+      type: "shader-fill-preview",
       selector: target?.selector ?? null,
-      styles: {
-        background: previewCss,
-      },
+      nodeId: target?.nodeId ?? null,
+      css: previewCss,
       // Metadata so the client can attach a "preview only" badge.
       _preview: true,
       _source: "shader-fill",
@@ -167,7 +165,7 @@ support; it has no effect on the static CSS preview output today.
       JSON.stringify(bridgeMessage, null, 2),
       ``,
       `Apply steps:`,
-      `1. Inject the previewCss via a bridge "style-change" message (no write, no persist).`,
+      `1. Inject the previewCss via a bridge "shader-fill-preview" message (no write, no persist).`,
       `2. If the user approves, call apply-shader-fill — but note that action is currently GATED`,
       `   and will return a clear not-yet-available result until runtime rendering +`,
       `   source-write + diff proof are all in place.`,
