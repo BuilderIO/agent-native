@@ -114,7 +114,7 @@ export function appPath(path: string): string {
 }
 
 export function designFrame(page: Page): FrameLocator {
-  return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first().contentFrame();
+  return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).last().contentFrame();
 }
 
 async function selectableNodeByText(
@@ -158,9 +158,16 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
   await expect(
     page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first(),
   ).toBeVisible();
-  await expect(
-    designFrame(page).locator('[data-agent-native-edit-overlay="shield"]'),
-  ).toBeVisible({ timeout: 10_000 });
+  const overviewChromeVisible = await page
+    .getByRole("button", { name: "Full view", exact: true })
+    .first()
+    .isVisible()
+    .catch(() => false);
+  if (!overviewChromeVisible) {
+    await expect(
+      designFrame(page).locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeVisible({ timeout: 10_000 });
+  }
   // Wait for the iframe bridge to stamp at least one selectable node.
   await expect
     .poll(
@@ -171,11 +178,6 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
       { timeout: 20_000 },
     )
     .toBeGreaterThan(0);
-  const overviewChromeVisible = await page
-    .getByRole("button", { name: "Full view", exact: true })
-    .first()
-    .isVisible()
-    .catch(() => false);
   if (overviewChromeVisible) {
     await expect(page.locator("[data-screen-shell]").first()).toBeVisible({
       timeout: 10_000,
@@ -214,7 +216,7 @@ export async function enterDirectMode(page: Page): Promise<void> {
         (
           await page
             .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
-            .first()
+            .last()
             .boundingBox()
         )?.width ?? 0,
       { timeout: 10_000 },
@@ -301,7 +303,7 @@ async function dispatchShieldClickByText(
   if (!rect) throw new Error(`unable to dispatch selection for "${text}"`);
   const frameRect = await page
     .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
-    .first()
+    .last()
     .boundingBox();
   if (!frameRect) throw new Error("unable to locate design iframe");
   await designFrame(page)

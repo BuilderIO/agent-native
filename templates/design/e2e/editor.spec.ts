@@ -41,6 +41,49 @@ test("editor renders the toolbar and the design iframe content", async ({
   expect(nodeCount).toBeGreaterThanOrEqual(5);
 });
 
+test("share dialog uses compact editor panel chrome", async ({
+  page,
+}, testInfo) => {
+  await page
+    .getByRole("button", { name: /^share$/i })
+    .first()
+    .click();
+
+  const shareOptions = page.getByRole("tablist", { name: "Share options" });
+  await expect(shareOptions).toBeVisible();
+
+  const tabListBox = await shareOptions.boundingBox();
+  expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    340,
+  );
+  expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    28,
+  );
+
+  const sendTab = page.getByRole("tab", { name: "Send to agent" });
+  const sendTabBox = await sendTab.boundingBox();
+  expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    26,
+  );
+
+  await sendTab.click();
+  await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy agent prompt" }),
+  ).toBeVisible();
+
+  const popover = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: shareOptions })
+    .first();
+  const popoverBox = await popover.boundingBox();
+  expect(popoverBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    650,
+  );
+
+  await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
+});
+
 test("screen overview resizes previews from the device selector", async ({
   page,
 }) => {

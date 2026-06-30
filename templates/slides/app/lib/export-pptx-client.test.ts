@@ -1,5 +1,5 @@
-import JSZip from "jszip";
 // @vitest-environment happy-dom
+import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -118,11 +118,27 @@ describe("exportDeckAsPptx", () => {
       fileName: "Quarterly-Review.pptx",
       height: 7.5,
       skipDownload: true,
-      svgAsVector: true,
+      svgAsVector: false,
       width: 13.33,
     });
     expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled();
+  });
+
+  it("replaces inline SVGs before passing DOM to the native exporter", async () => {
+    setRenderedSlide(
+      '<svg width="120" height="80" viewBox="0 0 120 80" aria-label="chart"><rect width="120" height="80" fill="#2563eb" /></svg>',
+    );
+
+    await exportDeckAsPptx("SVG Deck", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    expect(target.querySelector("svg")).toBeNull();
+    const image = target.querySelector("img");
+    expect(image?.src).toMatch(/^data:image\/(png|svg\+xml)/);
+    expect(image?.style.width).toBe("120px");
+    expect(image?.style.height).toBe("80px");
   });
 
   it("passes custom aspect-ratio dimensions to the native exporter", async () => {

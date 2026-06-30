@@ -217,6 +217,101 @@ function createUnscaledExportClone(
   };
 }
 
+function svgDataUrl(svg: SVGSVGElement) {
+  const copy = svg.cloneNode(true) as SVGSVGElement;
+  if (!copy.getAttribute("xmlns")) {
+    copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  }
+  const serialized = new XMLSerializer().serializeToString(copy);
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
+}
+
+async function rasterizeSvgElement(
+  svg: SVGSVGElement,
+  width: number,
+  height: number,
+) {
+  const fallback = svgDataUrl(svg);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx || typeof Image === "undefined") return fallback;
+
+  const scale = Math.max(2, window.devicePixelRatio || 1);
+  canvas.width = Math.max(1, Math.ceil(width * scale));
+  canvas.height = Math.max(1, Math.ceil(height * scale));
+
+  const image = new Image();
+  const loaded = new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("Could not rasterize SVG"));
+  });
+  image.src = fallback;
+
+  try {
+    await loaded;
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/png");
+  } catch {
+    return fallback;
+  }
+}
+
+async function replaceInlineSvgsWithImages(root: HTMLElement) {
+  const svgs = Array.from(root.querySelectorAll<SVGSVGElement>("svg"));
+  for (const svg of svgs) {
+    const rect = svg.getBoundingClientRect();
+    const viewBox = svg.viewBox?.baseVal;
+    const width =
+      rect.width || Number(svg.getAttribute("width")) || viewBox?.width || 1;
+    const height =
+      rect.height || Number(svg.getAttribute("height")) || viewBox?.height || 1;
+    const dataUrl = await rasterizeSvgElement(svg, width, height);
+    const img = document.createElement("img");
+    const style = window.getComputedStyle(svg);
+    img.src = dataUrl;
+    img.alt = svg.getAttribute("aria-label") ?? "";
+    Object.assign(img.style, {
+      alignSelf: style.alignSelf,
+      display: style.display === "inline" ? "inline-block" : style.display,
+      flex: style.flex,
+      height: `${height}px`,
+      justifySelf: style.justifySelf,
+      left: style.left,
+      marginBottom: style.marginBottom,
+      marginLeft: style.marginLeft,
+      marginRight: style.marginRight,
+      marginTop: style.marginTop,
+      objectFit: "contain",
+      opacity: style.opacity,
+      position: style.position,
+      right: style.right,
+      top: style.top,
+      transform: style.transform === "none" ? "" : style.transform,
+      width: `${width}px`,
+      zIndex: style.zIndex,
+    });
+    svg.replaceWith(img);
+  }
+}
+
+function widenNoWrapTextElements(root: HTMLElement) {
+  const elements = Array.from(root.querySelectorAll<HTMLElement>("*"));
+  for (const element of elements) {
+    if (!element.textContent?.trim()) continue;
+    if (element.querySelector("img,svg,video,canvas")) continue;
+    const style = window.getComputedStyle(element);
+    if (style.whiteSpace !== "nowrap" && style.whiteSpace !== "pre") continue;
+    const rect = element.getBoundingClientRect();
+    if (!rect.width || !rect.height) continue;
+    const buffer = Math.max(24, rect.width * 0.25);
+    element.style.boxSizing = "border-box";
+    if (style.display === "inline") {
+      element.style.display = "inline-block";
+    }
+    element.style.width = `${Math.ceil(rect.width + buffer)}px`;
+  }
+}
+
 export async function exportDeckAsPptx(
   deckTitle: string,
   slides: PptxExportSlide[],
@@ -243,6 +338,8 @@ export async function exportDeckAsPptx(
         height: dims.height,
       });
       exportClones.push(clone);
+      widenNoWrapTextElements(clone.element);
+      await replaceInlineSvgsWithImages(clone.element);
       await preloadImagesWithCors(clone.element);
     }
 
@@ -253,7 +350,7 @@ export async function exportDeckAsPptx(
         fileName: safePptxName(deckTitle),
         height: dims.pptxInches.h,
         skipDownload: true,
-        svgAsVector: true,
+        svgAsVector: false,
         width: dims.pptxInches.w,
       },
     );

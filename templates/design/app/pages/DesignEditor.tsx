@@ -11041,11 +11041,11 @@ ${serializedHtml}
         ? "Preparing agent prompt..."
         : codingHandoffPreviewFallback);
   const shareExportTab = (
-    <div className="space-y-5">
-      <div className="text-sm font-semibold text-muted-foreground">
+    <div className="space-y-3">
+      <div className="text-[11px] font-semibold uppercase text-muted-foreground">
         {"Format" /* i18n-ignore share export section label */}
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
         {shareExportOptions.map((option) => {
           const selected = option.value === shareExportFormat;
           const ExportIcon = option.Icon;
@@ -11055,45 +11055,47 @@ ${serializedHtml}
               type="button"
               onClick={() => setShareExportFormat(option.value)}
               className={cn(
-                "relative min-h-32 rounded-xl border bg-background p-4 text-left transition-colors hover:bg-accent/35",
+                "relative flex min-h-[76px] items-start gap-2.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-2.5 text-left transition-colors hover:bg-[var(--design-editor-panel-raised-bg)]",
                 selected
-                  ? "border-primary bg-primary/5 ring-1 ring-primary"
-                  : "border-border",
+                  ? "bg-[var(--design-editor-panel-raised-bg)] ring-1 ring-[var(--design-editor-accent-color)]"
+                  : "",
               )}
             >
-              <span className="mb-5 inline-flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                <ExportIcon className="size-5" strokeWidth={1.75} />
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--design-editor-panel-raised-bg)] text-muted-foreground">
+                <ExportIcon className="size-3.5" strokeWidth={1.75} />
               </span>
-              <span className="block text-base font-semibold text-foreground">
-                {option.title}{" "}
-                <span className="text-sm font-medium text-muted-foreground">
-                  {option.extension}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-semibold text-foreground">
+                  {option.title}{" "}
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    {option.extension}
+                  </span>
                 </span>
-              </span>
-              <span className="mt-1 block text-sm leading-5 text-muted-foreground">
-                {option.description}
+                <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                  {option.description}
+                </span>
               </span>
               <span
                 aria-hidden
                 className={cn(
-                  "absolute right-4 top-4 inline-flex size-6 items-center justify-center rounded-full border",
+                  "absolute right-2.5 top-2.5 inline-flex size-4 items-center justify-center rounded-full border",
                   selected
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-background",
+                    ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)] text-[var(--design-editor-accent-contrast-color)]"
+                    : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)]",
                 )}
               >
-                {selected ? <IconCheck className="size-4" /> : null}
+                {selected ? <IconCheck className="size-3" /> : null}
               </span>
             </button>
           );
         })}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
         <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">
+          <div className="text-[12px] font-medium text-foreground">
             {selectedShareExportOption.title}
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div className="text-[11px] text-muted-foreground">
             {selectedShareExportOption.description}
           </div>
         </div>
@@ -11101,34 +11103,34 @@ ${serializedHtml}
           type="button"
           onClick={selectedShareExportOption.onDownload}
           disabled={selectedShareExportOption.disabled}
-          className="h-10 gap-2 rounded-lg px-4"
+          className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
         >
-          <IconDownload className="size-4" />
+          <IconDownload className="size-3.5" />
           {"Download" /* i18n-ignore share export action */}
         </Button>
       </div>
     </div>
   );
   const shareSendToTab = (
-    <div className="space-y-5">
-      <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950 shadow-sm">
-        <div className="flex h-11 items-center border-b border-neutral-800 px-4">
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-md border border-neutral-800 bg-neutral-950 shadow-sm">
+        <div className="flex h-8 items-center border-b border-neutral-800 px-3">
           <div className="flex items-center gap-2">
-            <span className="size-3 rounded-full bg-red-500" />
-            <span className="size-3 rounded-full bg-yellow-400" />
-            <span className="size-3 rounded-full bg-green-500" />
+            <span className="size-2.5 rounded-full bg-red-500" />
+            <span className="size-2.5 rounded-full bg-yellow-400" />
+            <span className="size-2.5 rounded-full bg-green-500" />
           </div>
-          <div className="min-w-0 flex-1 truncate text-center text-sm font-medium text-neutral-400">
+          <div className="min-w-0 flex-1 truncate text-center text-[12px] font-medium text-neutral-400">
             {"Your agent" /* i18n-ignore terminal title */}
           </div>
-          <IconTerminal2 className="size-4 text-neutral-500" />
+          <IconTerminal2 className="size-3.5 text-neutral-500" />
         </div>
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words px-5 py-4 font-mono text-sm leading-6 text-neutral-100">
+        <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words px-3 py-3 font-mono text-[12px] leading-5 text-neutral-100">
           {`> ${codingHandoffPreviewText}`}
         </pre>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           onClick={handleSendToPrimaryAction}
@@ -11137,12 +11139,12 @@ ${serializedHtml}
               ? !activeFile || codingHandoffLoading
               : codingHandoffLoading
           }
-          className="h-10 gap-2 rounded-lg px-4"
+          className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
         >
           {downloadZipInstead ? (
-            <IconArchive className="size-4" />
+            <IconArchive className="size-3.5" />
           ) : (
-            <IconClipboard className="size-4" />
+            <IconClipboard className="size-3.5" />
           )}
           {
             downloadZipInstead
@@ -11152,20 +11154,20 @@ ${serializedHtml}
         </Button>
       </div>
 
-      <div className="space-y-4">
-        <div className="flex items-start gap-3">
+      <div className="space-y-3">
+        <div className="flex items-start gap-2.5">
           <Checkbox
             checked={downloadZipInstead}
             onCheckedChange={(checked) =>
               setDownloadZipInstead(checked === true)
             }
-            className="mt-1"
+            className="mt-0.5"
           />
           <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">
+            <div className="text-[12px] font-medium text-foreground">
               {"Download zip instead" /* i18n-ignore share send option */}
             </div>
-            <div className="mt-0.5 text-sm leading-5 text-muted-foreground">
+            <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
               {
                 "For agents without the Design connector, drop the bundle into your agent's chat manually." /* i18n-ignore share send option description */
               }
@@ -11173,8 +11175,8 @@ ${serializedHtml}
           </div>
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">
+        <div className="space-y-1.5">
+          <label className="text-[12px] font-medium text-foreground">
             {
               "Give the agent more detail on what to implement" /* i18n-ignore share send detail label */
             }{" "}
@@ -11186,12 +11188,17 @@ ${serializedHtml}
             value={codingHandoffDetail}
             onChange={(event) => setCodingHandoffDetail(event.target.value)}
             placeholder={activeFile?.filename ?? "Add implementation notes..."}
-            className="min-h-24 resize-none rounded-lg bg-background"
+            className="min-h-20 resize-none rounded-md bg-[var(--design-editor-control-bg)] text-[12px]"
           />
         </div>
       </div>
     </div>
   );
+  const designSharePopoverClassName =
+    "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
+    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-0.5 [&_[role=tablist]]:rounded-none [&_[role=tablist]]:bg-transparent [&_[role=tablist]]:p-0 " +
+    "[&_[role=tab]]:!h-6 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-2 [&_[role=tab]]:text-[11px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
+    "[&_[role=tab]:hover]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab]:hover]:text-foreground [&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:ring-0";
   const designShareTabs = {
     shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
@@ -13174,7 +13181,7 @@ ${serializedHtml}
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
               shareTabs={designShareTabs}
-              popoverClassName="z-[100010] w-[min(860px,92vw)] p-6"
+              popoverClassName={designSharePopoverClassName}
               triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
             />
           ) : (
@@ -13598,7 +13605,7 @@ ${serializedHtml}
                   "designEditor.shareEditorLinkDescription",
                 )}
                 shareTabs={designShareTabs}
-                popoverClassName="z-[100010] w-[min(860px,92vw)] p-6"
+                popoverClassName={designSharePopoverClassName}
                 triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
               />
             ) : !embedded ? (
