@@ -136,9 +136,11 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
 
   // Motion Presets
   "design.motion-presets:preview": {
-    action: "preview-motion-frame",
+    action: "get-motion-timeline",
     paramHint:
-      "Call preview-motion-frame with { designId, timelineId, playheadMs } to scrub without writing.",
+      "Motion preview is a client-side postMessage bridge operation, not a server action. " +
+      "To inspect an existing timeline before committing, call get-motion-timeline with { designId }. " +
+      "To trigger a live scrub preview in the editor iframe, send a `motion-preview` postMessage from the extension UI.",
     readOnly: true,
   },
   "design.motion-presets:apply": {

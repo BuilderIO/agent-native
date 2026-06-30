@@ -104,6 +104,29 @@ function assertSafeCssToken(value: string, field: string): string {
 }
 
 /**
+ * Validate that a CSS property name is a safe CSS identifier.
+ *
+ * Accepts standard and vendor-prefixed property names (e.g. "opacity",
+ * "transform", "-webkit-transform") and nothing else.  Rejects any string
+ * containing `:`, `;`, `{`, `}`, `<`, `/`, whitespace, or other characters
+ * that could break out of a CSS declaration or `<style>` block context when
+ * the property is interpolated as `${property}: ${value};` inside
+ * `@keyframes`.
+ *
+ * Uses the strict CSS ident regex `^-?[a-zA-Z][a-zA-Z0-9-]*$` which covers
+ * every real animatable CSS property while blocking injection payloads.
+ */
+function assertSafeCssProperty(property: string, field: string): string {
+  if (!/^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(property)) {
+    throw new Error(
+      `Invalid ${field}: "${property}" is not a valid CSS property identifier. ` +
+        "Only ASCII letters, digits, hyphens, and an optional leading hyphen are allowed.",
+    );
+  }
+  return property;
+}
+
+/**
  * Inject or replace the managed `<style data-agent-native-motion>` block in
  * the HTML content.  Inserts before `</head>` when not already present.
  */
@@ -298,9 +321,11 @@ export default defineAction({
     // ── 2. Compile tracks → CSS ─────────────────────────────────────────────
     const typedTracks = tracks as MotionTrack[];
 
-    // Reject CSS-injection vectors in caller-supplied keyframe values and
-    // easing strings before they are compiled into the managed <style> block.
+    // Reject CSS-injection vectors in caller-supplied track properties,
+    // keyframe values, and easing strings before they are compiled into the
+    // managed <style> block.
     for (const track of typedTracks) {
+      assertSafeCssProperty(track.property, "track.property");
       for (const kf of track.keyframes) {
         assertSafeCssToken(kf.value, "keyframe value");
         if (kf.ease !== undefined) {
@@ -363,12 +388,12 @@ export default defineAction({
       insertOrgId = getRequestOrgId() ?? null;
     }
 
-    // ── 5. Persist the patched HTML content FIRST (Yjs/collab + SQL) ─────────
-    // Content is written before the row so a partial failure can't leave a
-    // motion_timeline row pointing at HTML that was never updated (drift).
-    await persistFileContent(fileId, designId, patchedContent, now);
-
-    // ── 6. Persist the motion_timeline row SECOND (atomic SQL portion) ──────
+    // ── 5. Persist the motion_timeline row FIRST (atomic SQL portion) ───────
+    // The timeline row is written before the HTML so that a failure in the
+    // HTML/collab write step cannot leave the design content mutated without a
+    // corresponding row.  The reverse (HTML first) was a false atomicity
+    // guarantee: if the row write failed after the HTML write, the managed
+    // <style> block would be permanently out of sync with the DB state.
     await db.transaction(async (tx) => {
       if (timelineId) {
         await tx
@@ -399,6 +424,12 @@ export default defineAction({
         });
       }
     });
+
+    // ── 6. Persist the patched HTML content SECOND (Yjs/collab + SQL) ───────
+    // Written after the row so a collab/SQL failure here leaves the timeline row
+    // accurate (correct tracks + hash) and the stale HTML can be recompiled on
+    // the next apply-motion-edit call via compiledHash drift detection.
+    await persistFileContent(fileId, designId, patchedContent, now);
 
     return {
       timelineId: resolvedTimelineId,

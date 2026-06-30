@@ -18,7 +18,7 @@
 import { defineAction } from "@agent-native/core";
 import { getText, hasCollabState } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -79,14 +79,14 @@ export default defineAction({
         "Specific design file id. Defaults to the primary index.html when omitted.",
       ),
   }),
-  readOnly: true,
-  http: { method: "GET" },
+  readOnly: false,
+  http: { method: "POST" },
   run: async ({ designId, fileId }) => {
     const db = getDb();
 
     // ── Access check ────────────────────────────────────────────────────────
-    const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    // This action writes component_index rows — require editor access.
+    const access = await assertAccess("design", designId, "editor");
 
     // ── Source type + capability check ──────────────────────────────────────
     let rawSourceType: unknown = "inline";

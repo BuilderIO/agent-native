@@ -9,6 +9,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  CAPTURE_DATA_MAX_BYTES,
+  sanitizeCaptureData,
+} from "../shared/capture-sanitize.js";
 
 export default defineAction({
   description:
@@ -92,6 +96,42 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
+    // Sanitise captured DOM/markup (stored-XSS guard) and enforce a size cap so
+    // a single row can't bloat the DB or the shareable content it feeds.
+    const sanitizedCaptureData = captureData
+      ? sanitizeCaptureData(captureData)
+      : null;
+    const captureDataJson = sanitizedCaptureData
+      ? JSON.stringify(sanitizedCaptureData)
+      : null;
+    if (
+      captureDataJson !== null &&
+      Buffer.byteLength(captureDataJson, "utf8") > CAPTURE_DATA_MAX_BYTES
+    ) {
+      throw new Error(
+        `captureData exceeds the ${Math.round(
+          CAPTURE_DATA_MAX_BYTES / 1024,
+        )}KB limit. Use a smaller DOM snapshot or trim the payload.`,
+      );
+    }
+
+    const sanitizedFixtureData = fixtureData
+      ? sanitizeCaptureData(fixtureData)
+      : null;
+    const fixtureDataJson = sanitizedFixtureData
+      ? JSON.stringify(sanitizedFixtureData)
+      : null;
+    if (
+      fixtureDataJson !== null &&
+      Buffer.byteLength(fixtureDataJson, "utf8") > CAPTURE_DATA_MAX_BYTES
+    ) {
+      throw new Error(
+        `fixtureData exceeds the ${Math.round(
+          CAPTURE_DATA_MAX_BYTES / 1024,
+        )}KB limit. Trim the payload before creating this fixture.`,
+      );
+    }
+
     await db.insert(schema.designState).values({
       id,
       designId,
@@ -100,8 +140,8 @@ export default defineAction({
       kind,
       breakpoint,
       route: route ?? null,
-      fixtureData: fixtureData ? JSON.stringify(fixtureData) : null,
-      captureData: captureData ? JSON.stringify(captureData) : null,
+      fixtureData: fixtureDataJson,
+      captureData: captureDataJson,
       previewRef: previewRef ?? null,
       createdAt: now,
       updatedAt: now,

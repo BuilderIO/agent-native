@@ -245,7 +245,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     ],
     actions: [
       "get-motion-timeline",
-      "preview-motion-frame",
       "apply-motion-edit",
       "remove-motion-timeline",
     ],

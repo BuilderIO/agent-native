@@ -130,11 +130,21 @@ export default defineAction({
     // 2. Overlay tokens from the linked Brand Kit / design system
     // ------------------------------------------------------------------
     if (design.designSystemId) {
-      const [dsRow] = await db
-        .select({ data: schema.designSystems.data })
-        .from(schema.designSystems)
-        .where(eq(schema.designSystems.id, design.designSystemId))
-        .limit(1);
+      // Design systems are their own access boundary (same pattern as
+      // get-design-system.ts). A user who can read the design but has no
+      // access to the linked design system must NOT receive its tokens.
+      const dsAccess = await resolveAccess(
+        "design-system",
+        design.designSystemId,
+      );
+
+      const [dsRow] = dsAccess
+        ? await db
+            .select({ data: schema.designSystems.data })
+            .from(schema.designSystems)
+            .where(eq(schema.designSystems.id, design.designSystemId))
+            .limit(1)
+        : [];
 
       if (dsRow?.data) {
         try {

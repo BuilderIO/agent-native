@@ -36,7 +36,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
+import {
+  resolveSourceCapabilities,
+  resolveFusionCapabilities,
+} from "../shared/capability-resolver.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { normalizeDesignSourceType } from "../shared/source-mode.js";
 
@@ -126,10 +129,23 @@ export default defineAction({
     const designData = parseDesignData(resource.data);
     const sourceType =
       normalizeDesignSourceType(designData["sourceType"]) ?? "inline";
-    const caps = resolveSourceCapabilities(sourceType);
+
+    // For fusion sources, resolve the Builder connection status first so that
+    // resolveFusionCapabilities returns the CONNECTED map (with branch/deploy
+    // available) when Builder is actually wired up.  For inline/localhost the
+    // generic resolver is sufficient — those sources never have branch.
+    const builderEnabled =
+      sourceType === "fusion"
+        ? await resolveIsBuilderBranchingEnabled()
+        : false;
+    const caps =
+      sourceType === "fusion"
+        ? resolveFusionCapabilities(builderEnabled)
+        : resolveSourceCapabilities(sourceType);
 
     if (!hasCapability(caps, "branch")) {
       // Inline or localhost designs don't support branching.  Return a CTA.
+      // For a disconnected fusion source the connect-builder CTA applies.
       const isFusion = sourceType === "fusion";
       return {
         designId,
@@ -146,22 +162,9 @@ export default defineAction({
       };
     }
 
-    // ── Builder connection check ─────────────────────────────────────────────
-    const builderEnabled = await resolveIsBuilderBranchingEnabled();
-    if (!builderEnabled) {
-      return {
-        designId,
-        sourceType,
-        ctaRequired: true,
-        ctaKind: "connect-builder" as const,
-        ctaMessage:
-          "Builder.io is not connected. Connect Builder to create branches, " +
-          "run cloud agents, and deploy previews. " +
-          "Use the 'Connect Builder' card in the editor to start.",
-        branch: null,
-        versionId: null,
-      };
-    }
+    // At this point sourceType === "fusion" and builderEnabled === true,
+    // so no separate Builder gate is needed — the capability check above
+    // already required a connected Builder to set branch=available.
 
     // ── Snapshot the current design state before branching ──────────────────
     // Fetch all files so the snapshot captures the full pre-branch state.
