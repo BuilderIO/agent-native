@@ -2173,8 +2173,6 @@ function toolCallCacheKey(toolName: string, input: unknown): string {
 
 const INTERRUPTED_TOOL_LEDGER_POLL_MS =
   process.env.NODE_ENV === "test" ? 0 : 2_000;
-const INTERRUPTED_TOOL_LEDGER_MAX_WAIT_MS =
-  process.env.NODE_ENV === "test" ? 1 : 5 * 60_000;
 
 async function waitForInterruptedToolLedgerEntry(opts: {
   threadId: string;
@@ -2185,10 +2183,17 @@ async function waitForInterruptedToolLedgerEntry(opts: {
   send: (event: AgentChatEvent) => void;
 }): Promise<string | null> {
   const pollMs = INTERRUPTED_TOOL_LEDGER_POLL_MS;
-  const maxWaitMs = Math.max(
-    0,
-    Math.min(opts.timeoutMs, INTERRUPTED_TOOL_LEDGER_MAX_WAIT_MS),
-  );
+  // Wait up to the tool's OWN declared timeout — the abandoned zombie can keep
+  // running that long (e.g. a 12-minute image generation, whose provider keeps
+  // generating after the run aborts), and giving up early re-runs the same
+  // write tool while the original is still in flight, duplicating work and
+  // double-charging. A flat sub-tool-timeout cap (previously 5 min) silently
+  // truncated long tools. The run's AbortSignal still bounds this to the run's
+  // remaining budget: when the run is cut off, the poll returns null and the
+  // re-dispatch hits the already-aborted signal instead of launching a real
+  // second call, so the wait never outlives the run.
+  const maxWaitMs =
+    process.env.NODE_ENV === "test" ? 1 : Math.max(0, opts.timeoutMs);
   const maxPolls =
     process.env.NODE_ENV === "test"
       ? 3

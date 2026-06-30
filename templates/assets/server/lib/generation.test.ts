@@ -683,6 +683,37 @@ describe("resolveImageModelForRequest", () => {
       }),
     ).toBe("gemini-3.1-flash-image");
   });
+
+  it("does not let the composer default override a preset's saved model", () => {
+    // Sticky composer default differs from the tagged preset's saved model;
+    // the preset must win.
+    expect(
+      resolveImageModelForRequest({
+        imageModelDefault: "gemini-3.1-flash-image",
+        presetModel: "gemini-3-pro-image",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
+
+  it("does not let the composer default override a tier-derived model", () => {
+    // A `best` tier request must resolve to Pro even when the composer default
+    // is Flash.
+    expect(
+      resolveImageModelForRequest({
+        imageModelDefault: "gemini-3.1-flash-image",
+        explicitTier: "best",
+        resolvedTier: "best",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
+
+  it("still uses the composer default when nothing more specific applies", () => {
+    expect(
+      resolveImageModelForRequest({
+        imageModelDefault: "gemini-3-pro-image",
+      }),
+    ).toBe("gemini-3-pro-image");
+  });
 });
 
 describe("compareReferenceCandidates", () => {

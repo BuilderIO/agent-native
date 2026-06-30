@@ -825,11 +825,18 @@ export function resolveImageModelForRequest(input: {
       ? "gemini-3-pro-image"
       : undefined;
 
+  // Precedence: explicit per-request model (handled above) > embedded-text
+  // upgrade > the tier-derived model (an explicit or preset-derived tier) >
+  // the preset's saved model > the sticky composer default > the floor. The
+  // composer default ranks LAST of the real signals: it is a global stored
+  // preference, so it must not silently defeat a tagged preset's model or a
+  // tier-only request (the preset/tier "own" the model unless the caller
+  // explicitly overrides them).
   return (
     textAccurateModel ??
-    input.imageModelDefault ??
     resolveModelForTier(input.resolvedTier, input.category) ??
     input.presetModel ??
+    input.imageModelDefault ??
     "gemini-3.1-flash-image"
   );
 }
