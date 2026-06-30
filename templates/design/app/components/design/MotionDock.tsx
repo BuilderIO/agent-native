@@ -167,10 +167,10 @@ export function MotionDock({
   const resizingRef = useRef(false);
   const resizeStartRef = useRef<{ y: number; h: number } | null>(null);
 
-  const handleDockSpaceTransitionEnd = useCallback(
+  const handleDockTransitionEnd = useCallback(
     (event: ReactTransitionEvent<HTMLDivElement>) => {
       if (event.currentTarget !== event.target) return;
-      if (event.propertyName !== "height") return;
+      if (event.propertyName !== "transform") return;
       if (!isOpen) onExitComplete?.();
     },
     [isOpen, onExitComplete],
@@ -424,17 +424,17 @@ export function MotionDock({
         "design-motion-dock-space relative shrink-0 overflow-visible",
         isResizingDock && "design-motion-dock-resizing",
       )}
-      onTransitionEnd={handleDockSpaceTransitionEnd}
       style={{ height: isOpen ? dockHeight : 0 }}
     >
       <div
         aria-label="Motion dock"
         aria-hidden={!isOpen ? true : undefined}
+        onTransitionEnd={handleDockTransitionEnd}
         className={cn(
-          "design-motion-dock absolute inset-x-0 top-0 z-40 flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background select-none",
+          "design-motion-dock absolute inset-x-0 bottom-0 z-40 flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background select-none",
           isOpen
-            ? "border-border opacity-100"
-            : "border-transparent pointer-events-none",
+            ? "translate-y-0 border-border opacity-100"
+            : "translate-y-full border-transparent pointer-events-none",
         )}
         style={{ height: dockHeight }}
       >

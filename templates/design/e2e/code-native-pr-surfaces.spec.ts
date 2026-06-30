@@ -3,6 +3,7 @@ import {
   test,
   type APIRequestContext,
   type Page,
+  type Response,
 } from "@playwright/test";
 
 import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
@@ -80,7 +81,7 @@ async function waitForAction(
   page: Page,
   actionName: string,
   trigger: () => Promise<void>,
-): Promise<void> {
+): Promise<Response> {
   const responsePromise = page.waitForResponse(
     (response) =>
       response.url().includes(`/_agent-native/actions/${actionName}`) &&
@@ -93,6 +94,7 @@ async function waitForAction(
     response.ok(),
     `${actionName} failed: ${response.status()} ${await response.text()}`,
   ).toBe(true);
+  return response;
 }
 
 async function selectedComponentVariant(page: Page): Promise<string | null> {
@@ -321,11 +323,22 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     .getByRole("button", { name: "Add track", exact: true })
     .last()
     .click();
-  await waitForAction(page, "apply-motion-edit", async () => {
-    await page
-      .getByRole("menuitem", { name: "Fade (opacity)", exact: true })
-      .click();
-  });
+  const motionResponse = await waitForAction(
+    page,
+    "apply-motion-edit",
+    async () => {
+      await page
+        .getByRole("menuitem", { name: "Fade (opacity)", exact: true })
+        .click();
+    },
+  );
+  const motionRequestBody = JSON.parse(
+    motionResponse.request().postData() ?? "{}",
+  ) as Record<string, unknown>;
+  expect(motionRequestBody.includeContent).toBe(false);
+  expect(
+    ((await motionResponse.json()) as Record<string, unknown>).patchedContent,
+  ).toBeUndefined();
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();

@@ -31,6 +31,7 @@ import {
   assertSafeMotionCssProperty,
   assertSafeMotionCssToken,
   compile,
+  injectManagedMotionCss,
 } from "../shared/motion-compiler.js";
 import type { MotionTrack } from "../shared/motion-timeline.js";
 
@@ -69,55 +70,12 @@ const trackSchema = z.object({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const MOTION_STYLE_OPEN = "<style data-agent-native-motion>";
-const MOTION_STYLE_CLOSE = "</style>";
-
-/**
- * Bounded, case-insensitive matcher for any HTML `</style>` end tag
- * (`</style >`, `</STYLE>`, …). Used to locate the close of the managed block
- * without a naive `indexOf("</style>")` that would miss case/whitespace
- * variants — and to detect any `</style` sequence smuggled into compiled CSS.
- */
-const STYLE_CLOSE_RE = /<\s*\/\s*style\b[^>]*>/i;
-
-/**
- * Inject or replace the managed `<style data-agent-native-motion>` block in
- * the HTML content.  Inserts before `</head>` when not already present.
- */
-function injectMotionStyle(html: string, css: string): string {
-  const open = MOTION_STYLE_OPEN;
-  const close = MOTION_STYLE_CLOSE;
-  const openIdx = html.indexOf(open);
-
-  if (openIdx !== -1) {
-    // Find the matching closing tag after the open tag using a bounded regex
-    // (tolerates `</style >`, `</STYLE>`, etc.) instead of a literal indexOf.
-    const after = html.slice(openIdx + open.length);
-    const closeMatch = STYLE_CLOSE_RE.exec(after);
-    if (closeMatch) {
-      const closeIdx = openIdx + open.length + closeMatch.index;
-      // Replace the existing block.
-      return (
-        html.slice(0, openIdx) + open + "\n" + css + "\n" + html.slice(closeIdx)
-      );
-    }
-  }
-
-  // Not found — insert before </head> or, if there is no <head>, at the top.
-  const headClose = html.lastIndexOf("</head>");
-  const block = `${open}\n${css}\n${close}`;
-  if (headClose !== -1) {
-    return html.slice(0, headClose) + block + "\n" + html.slice(headClose);
-  }
-  return block + "\n" + html;
-}
-
 async function persistFileContent(
   fileId: string,
   designId: string,
   content: string,
   now: string,
-): Promise<void> {
+): Promise<string> {
   const db = getDb();
   await db
     .update(schema.designFiles)
@@ -134,6 +92,8 @@ async function persistFileContent(
     .update(schema.designs)
     .set({ updatedAt: now })
     .where(eq(schema.designs.id, designId));
+
+  return now;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -296,7 +256,7 @@ export default defineAction({
     });
 
     // ── 3. Inject the managed CSS block into the HTML ───────────────────────
-    const patchedContent = injectMotionStyle(currentContent, css);
+    const patchedContent = injectManagedMotionCss(currentContent, css);
     const bytesBefore = currentContent.length;
     const bytesAfter = patchedContent.length;
 
@@ -392,7 +352,12 @@ export default defineAction({
     // Written after the row so a SQL failure here leaves the timeline row
     // accurate (correct tracks + hash) and the stale HTML can be recompiled on
     // the next apply-motion-edit call via compiledHash drift detection.
-    await persistFileContent(fileId, designId, patchedContent, now);
+    const updatedAt = await persistFileContent(
+      fileId,
+      designId,
+      patchedContent,
+      now,
+    );
 
     return {
       timelineId: resolvedTimelineId,
@@ -401,6 +366,7 @@ export default defineAction({
       sourceRef: resolvedSourceRef,
       trackCount: typedTracks.length,
       compiledHash: hash,
+      updatedAt,
       bytesBefore,
       bytesAfter,
       bytesDelta: bytesAfter - bytesBefore,

@@ -15,6 +15,7 @@ import {
   assertSafeMotionCssToken,
   compile,
   extractManagedMotionCss,
+  injectManagedMotionCss,
   parse,
 } from "./motion-compiler";
 import type { MotionTimeline } from "./motion-timeline";
@@ -261,6 +262,31 @@ describe("compile — property is emitted safely", () => {
 });
 
 describe("parse — managed style fallback", () => {
+  it("injects and replaces the managed style block with tolerant close tags", () => {
+    const first = injectManagedMotionCss(
+      "<html><head></head><body><button>Hi</button></body></html>",
+      ".one { opacity: 1; }",
+    );
+
+    expect(first).toContain(
+      "<style data-agent-native-motion>\n.one { opacity: 1; }\n</style>",
+    );
+    expect(first.indexOf("<style data-agent-native-motion>")).toBeLessThan(
+      first.indexOf("</head>"),
+    );
+
+    const replaced = injectManagedMotionCss(
+      first.replace("</style>", "</STYLE >"),
+      ".two { opacity: 0; }",
+    );
+
+    expect(replaced).toContain(".two { opacity: 0; }");
+    expect(replaced).not.toContain(".one { opacity: 1; }");
+    expect(
+      replaced.match(/<style data-agent-native-motion>/g) ?? [],
+    ).toHaveLength(1);
+  });
+
   it("recovers editable tracks from a managed motion style block", () => {
     const timeline = makeTimeline("opacity");
     timeline.tracks[0].targetNodeId = "alpha-button";

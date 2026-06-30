@@ -57,6 +57,10 @@ import {
   hasCapability,
 } from "@shared/design-source-capabilities";
 import { shouldUseLiveFileContent } from "@shared/html-content";
+import {
+  compile as compileMotionTimeline,
+  injectManagedMotionCss,
+} from "@shared/motion-compiler";
 import type { MotionTrack } from "@shared/motion-timeline";
 import {
   resolveTweaksToCssVars,
@@ -3835,15 +3839,29 @@ export default function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const initialEditorUrlRef = useRef<{
+    designId: string | undefined;
+    searchParams: URLSearchParams;
+  } | null>(null);
+  if (
+    !initialEditorUrlRef.current ||
+    initialEditorUrlRef.current.designId !== id
+  ) {
+    initialEditorUrlRef.current = {
+      designId: id,
+      searchParams: new URLSearchParams(location.search),
+    };
+  }
+  const initialSearchParams = initialEditorUrlRef.current.searchParams;
+  const initialRouteScreenTarget =
+    initialSearchParams.get("screen") ??
+    initialSearchParams.get("fileId") ??
+    initialSearchParams.get("filename");
+  const initialRouteSelectionId = initialSearchParams.get("selection") || null;
   const searchParams = useMemo(
     () => new URLSearchParams(location.search),
     [location.search],
   );
-  const routeScreenTarget =
-    searchParams.get("screen") ??
-    searchParams.get("fileId") ??
-    searchParams.get("filename");
-  const routeSelectionId = searchParams.get("selection") || null;
   const postAuthIntent = useMemo<PostAuthDesignIntent | null>(() => {
     const value = searchParams.get("intent");
     return value === "save" || value === "share" ? value : null;
@@ -3902,6 +3920,8 @@ export default function DesignEditor() {
     useState<InspectorTab>("design");
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel>("file");
+  const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
+  const initialUrlSelectionHydratedForIdRef = useRef<string | null>(null);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(256);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
@@ -5900,10 +5920,20 @@ export default function DesignEditor() {
 
   useEffect(() => {
     if (!id) return;
-    const command = designEditorCommandFromSearchParams(id, searchParams);
-    if (!command) return;
-    applyDesignEditorCommand(command);
-  }, [applyDesignEditorCommand, id, searchParams]);
+    if (initialSearchCommandAppliedForIdRef.current === id) return;
+    const command = designEditorCommandFromSearchParams(
+      id,
+      initialSearchParams,
+    );
+    if (!command) {
+      initialSearchCommandAppliedForIdRef.current = id;
+      return;
+    }
+    const applied = applyDesignEditorCommand(command);
+    if (applied) {
+      initialSearchCommandAppliedForIdRef.current = id;
+    }
+  }, [applyDesignEditorCommand, id, initialSearchParams]);
 
   useEffect(() => {
     if (!id) return;
@@ -7545,27 +7575,47 @@ export default function DesignEditor() {
     motionAutosaveTimerRef.current = window.setTimeout(() => {
       motionAutosaveTimerRef.current = null;
       if (motionAutosaveRevisionRef.current !== revisionAtSchedule) return;
+      const tracksForSave = motionTracks.map(
+        ({ label: _label, ...track }) => track,
+      );
+      const currentContent = getFreshActiveFileContent({
+        activeContent,
+        latestContent: latestActiveContentRef.current,
+        lastLocalContent: lastLocalContentRef.current,
+      });
+      const localMotionCss = compileMotionTimeline({
+        id: motionTimelineId ?? "",
+        designId: id,
+        sourceRef: activeFile.id,
+        filePath: null,
+        tracks: tracksForSave,
+        durationMs: motionDurationMs,
+        defaultEase: "ease",
+        compiledHash: null,
+        createdAt: "",
+        updatedAt: "",
+      }).css;
+      const localPatchedContent = injectManagedMotionCss(
+        currentContent,
+        localMotionCss,
+      );
       applyMotionEdit(
         {
           designId: id,
           fileId: activeFile.id,
           timelineId: motionTimelineId ?? undefined,
           sourceRef: activeFile.id,
-          tracks: motionTracks.map(({ label: _label, ...track }) => track),
+          tracks: tracksForSave,
           durationMs: motionDurationMs,
-          currentContent: getFreshActiveFileContent({
-            activeContent,
-            latestContent: latestActiveContentRef.current,
-            lastLocalContent: lastLocalContentRef.current,
-          }),
-          includeContent: true,
+          currentContent,
+          includeContent: false,
         },
         {
           onSuccess: (result) => {
             const response = result as {
               fileId?: unknown;
               timelineId?: unknown;
-              patchedContent?: unknown;
+              updatedAt?: unknown;
             };
             if (typeof response.timelineId === "string") {
               setMotionTimelineId(response.timelineId);
@@ -7577,10 +7627,14 @@ export default function DesignEditor() {
             }
             if (
               typeof response.fileId === "string" &&
-              typeof response.patchedContent === "string"
+              response.fileId === activeFile.id
             ) {
-              applyFileContentUpdate(response.fileId, response.patchedContent, {
-                refreshPreview: response.fileId === activeFile.id,
+              applyFileContentUpdate(response.fileId, localPatchedContent, {
+                refreshPreview: true,
+                persist: false,
+                ...(typeof response.updatedAt === "string"
+                  ? { updatedAt: response.updatedAt }
+                  : {}),
               });
             }
             void queryClient.invalidateQueries({
@@ -12875,19 +12929,32 @@ ${serializedHtml}
   }, [selectedLayerIds]);
 
   useEffect(() => {
-    if (!routeSelectionId) return;
-    const owner = codeLayerOwnerByNodeId.get(routeSelectionId);
+    if (!id) return;
+    if (initialUrlSelectionHydratedForIdRef.current === id) return;
+    if (!initialRouteSelectionId) {
+      initialUrlSelectionHydratedForIdRef.current = id;
+      return;
+    }
+    if (
+      selectedUrlSelectionId &&
+      selectedUrlSelectionId !== initialRouteSelectionId
+    ) {
+      initialUrlSelectionHydratedForIdRef.current = id;
+      return;
+    }
+    const owner = codeLayerOwnerByNodeId.get(initialRouteSelectionId);
     if (!owner) return;
     const selectionBlocked =
       effectiveCodeLayerState.lockedIds.has(owner.fileId) ||
       effectiveCodeLayerState.hiddenIds.has(owner.fileId) ||
-      effectiveCodeLayerState.lockedIds.has(routeSelectionId) ||
-      effectiveCodeLayerState.hiddenIds.has(routeSelectionId);
+      effectiveCodeLayerState.lockedIds.has(initialRouteSelectionId) ||
+      effectiveCodeLayerState.hiddenIds.has(initialRouteSelectionId);
     if (
       activeFileId === owner.fileId &&
-      selectedLayerIds.includes(routeSelectionId) &&
-      (selectionBlocked || selectedElementLayerId === routeSelectionId)
+      selectedLayerIds.includes(initialRouteSelectionId) &&
+      (selectionBlocked || selectedElementLayerId === initialRouteSelectionId)
     ) {
+      initialUrlSelectionHydratedForIdRef.current = id;
       return;
     }
 
@@ -12896,7 +12963,7 @@ ${serializedHtml}
     clearPendingOverviewLayerSelectionTimer();
     setCreatedOverviewLayerSelection(null);
     setActiveFileId(owner.fileId);
-    setSelectedLayerIdsState([routeSelectionId]);
+    setSelectedLayerIdsState([initialRouteSelectionId]);
     if (viewModeRef.current === "overview") {
       setOverviewSelectedScreenIds([]);
     }
@@ -12910,29 +12977,33 @@ ${serializedHtml}
     if (!selectionBlocked) {
       focusDesignInspectorForSelection();
     }
+    initialUrlSelectionHydratedForIdRef.current = id;
   }, [
     activeFileId,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeId,
     effectiveCodeLayerState,
     focusDesignInspectorForSelection,
-    routeSelectionId,
+    id,
+    initialRouteSelectionId,
     selectedElementLayerId,
     selectedLayerIds,
+    selectedUrlSelectionId,
   ]);
 
   useEffect(() => {
     if (!id || files.length === 0) return;
     if (
-      routeScreenTarget &&
-      !findDesignFileByScreenTarget(files, routeScreenTarget) &&
+      initialRouteScreenTarget &&
+      !findDesignFileByScreenTarget(files, initialRouteScreenTarget) &&
       !activeFileId
     ) {
       return;
     }
-    const preserveUnresolvedRouteSelection = Boolean(
-      routeSelectionId &&
-      routeSelectionId !== selectedUrlSelectionId &&
+    const preserveInitialRouteSelection = Boolean(
+      initialRouteSelectionId &&
+      initialUrlSelectionHydratedForIdRef.current !== id &&
+      initialRouteSelectionId !== selectedUrlSelectionId &&
       codeLayerOwnerByNodeId.size === 0,
     );
     const nextSearch = getDesignEditorStateUrlSearch({
@@ -12941,7 +13012,7 @@ ${serializedHtml}
       screenId: activeFile?.id ?? activeFileId,
       selectionId:
         selectedUrlSelectionId ??
-        (preserveUnresolvedRouteSelection ? routeSelectionId : null),
+        (preserveInitialRouteSelection ? initialRouteSelectionId : null),
       zoom,
     });
     if (nextSearch === location.search) return;
@@ -12963,8 +13034,8 @@ ${serializedHtml}
     location.pathname,
     location.search,
     navigate,
-    routeScreenTarget,
-    routeSelectionId,
+    initialRouteScreenTarget,
+    initialRouteSelectionId,
     selectedUrlSelectionId,
     viewMode,
     zoom,
