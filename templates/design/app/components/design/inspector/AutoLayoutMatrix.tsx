@@ -147,6 +147,7 @@ export interface AutoLayoutMatrixProps {
   onPaddingLinkedChange: (linked: boolean) => void;
   onClipContentChange?: (clipContent: boolean) => void;
   onDistribute?: (axis: DistributionAxis) => void;
+  onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
   onChildSizingChange: (
     axis: AutoLayoutSizingAxis,
     sizing: AutoLayoutSizing,
@@ -246,6 +247,7 @@ export function AutoLayoutMatrix({
   onPaddingLinkedChange,
   onClipContentChange,
   onDistribute,
+  onGapModeChange,
   onChildSizingChange,
   onChildMinMaxChange,
   onApplyVariable,
@@ -455,6 +457,7 @@ export function AutoLayoutMatrix({
                 value={value.gap}
                 onGapChange={onGapChange}
                 onDistribute={onDistribute}
+                onGapModeChange={onGapModeChange}
                 label={copy.gap}
                 disabled={disabled}
                 direction={value.direction}
@@ -858,6 +861,7 @@ function GapField({
   value,
   onGapChange,
   onDistribute,
+  onGapModeChange,
   label,
   disabled,
   direction,
@@ -866,6 +870,7 @@ function GapField({
   value: number;
   onGapChange: (gap: number) => void;
   onDistribute?: (axis: DistributionAxis) => void;
+  onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
   label: string;
   disabled: boolean;
   direction: AutoLayoutDirection;
@@ -928,16 +933,20 @@ function GapField({
               <DropdownMenuCheckboxItem
                 checked={gapMode !== "auto"}
                 className="text-[12px]"
-                onSelect={() => {
-                  /* Fixed gap: keep current numeric value (already numeric). */
-                }}
+                onSelect={() => onGapModeChange?.("fixed", direction)}
               >
                 {"Fixed" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
                 checked={gapMode === "auto"}
                 className="text-[12px]"
-                onSelect={() => onDistribute(direction)}
+                onSelect={() => {
+                  if (onGapModeChange) {
+                    onGapModeChange("auto", direction);
+                    return;
+                  }
+                  onDistribute?.(direction);
+                }}
               >
                 {"Auto" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
@@ -1227,9 +1236,9 @@ export function SizingField({
               tooltipLabel={`${axis} size`}
               icon={null}
               value={Math.round(resolvedSize ?? 0)}
-              onChange={(next) => onSizeChange!(Math.max(1, Math.round(next)))}
+              onChange={(next) => onSizeChange!(Math.max(0, Math.round(next)))}
               unit="px"
-              min={1}
+              min={0}
               step={1}
               precision={0}
               disabled={disabled}

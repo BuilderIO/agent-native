@@ -909,7 +909,8 @@ function LayerRow({
   const selectable = node.selectable !== false;
   const lockable = node.lockable !== false && Boolean(onToggleLocked);
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
-  const draggable = selectable && Boolean(onMoveLayer);
+  const dragEligible = selectable && !node.locked && !node.hidden;
+  const draggable = dragEligible && Boolean(onMoveLayer);
   const canDropInside = layerCanDropInside(node, hasChildren);
   const activeDrop =
     dropIndicator?.targetId === node.id ? dropIndicator.placement : null;
@@ -1061,7 +1062,7 @@ function LayerRow({
   };
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!onMoveLayer || !selectable) return;
+    if (!onMoveLayer || !dragEligible) return;
     // dataTransfer.getData() always returns "" during dragover per spec.
     // Read from the module-level activeDragState set in handleDragStart instead.
     if (!activeDragState) return;
@@ -1084,7 +1085,7 @@ function LayerRow({
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!onMoveLayer || !selectable) {
+    if (!onMoveLayer || !dragEligible) {
       onDropIndicatorChange(null);
       return;
     }

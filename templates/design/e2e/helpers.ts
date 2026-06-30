@@ -25,8 +25,10 @@ export async function readSeedDesignId(): Promise<string> {
   return designId;
 }
 
+const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
+
 export function designFrame(page: Page): FrameLocator {
-  return page.frameLocator("iframe[data-design-preview-iframe]");
+  return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first().contentFrame();
 }
 
 /** Open the editor for a design and wait for the toolbar + iframe to be ready. */
@@ -40,7 +42,7 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
 
 async function waitForDesignBridgeReady(page: Page): Promise<void> {
   await expect(
-    page.locator("iframe[data-design-preview-iframe]"),
+    page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first(),
   ).toBeVisible();
   await expect(
     designFrame(page).locator('[data-agent-native-edit-overlay="shield"]'),
@@ -71,8 +73,12 @@ export async function enterDirectMode(page: Page): Promise<void> {
   await expect
     .poll(
       async () =>
-        (await page.locator("iframe[data-design-preview-iframe]").boundingBox())
-          ?.width ?? 0,
+        (
+          await page
+            .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
+            .first()
+            .boundingBox()
+        )?.width ?? 0,
       { timeout: 10_000 },
     )
     .toBeGreaterThan(600);

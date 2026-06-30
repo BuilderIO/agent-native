@@ -121,4 +121,60 @@ describe("apply-visual-edit", () => {
     expect(mocks.applyVisualEdit).not.toHaveBeenCalled();
     expect(mocks.assertAccess).not.toHaveBeenCalled();
   });
+
+  it("allows fileId-only edits against non-index design files", async () => {
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      {
+        id: "file_details",
+        designId: "design_123",
+        filename: "details.html",
+        fileType: "html",
+        content: "<main>Details</main>",
+      },
+    ]);
+    mocks.applyVisualEdit.mockReturnValueOnce({
+      result: { status: "applied", changed: false },
+      projection: { nodes: [] },
+      content: "<main>Updated details</main>",
+    });
+
+    await expect(
+      action.run({
+        source: {
+          kind: "design-file",
+          fileId: "file_details",
+        },
+        intent: {
+          kind: "style",
+          target: { selector: "main" },
+          property: "color",
+          value: "red",
+        },
+      }),
+    ).resolves.toMatchObject({
+      designId: "design_123",
+      fileId: "file_details",
+      filename: "details.html",
+      persisted: false,
+    });
+
+    expect(mocks.applyVisualEdit).toHaveBeenCalledWith(
+      "<main>Details</main>",
+      expect.any(Object),
+      {
+        source: {
+          kind: "design-file",
+          designId: "design_123",
+          fileId: "file_details",
+          filename: "details.html",
+          revision: undefined,
+        },
+      },
+    );
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design_123",
+      "editor",
+    );
+  });
 });

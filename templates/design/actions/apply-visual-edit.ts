@@ -39,7 +39,7 @@ const sourceSchema = z.preprocess(
         .default("design-file"),
       designId: z.string().optional(),
       fileId: z.string().optional(),
-      filename: z.string().optional().default("index.html"),
+      filename: z.string().optional(),
       path: z.string().optional(),
       url: z.string().optional(),
       revision: z.string().optional(),
@@ -183,7 +183,7 @@ async function resolveEditableDesignFile(
       `source.designId "${source.designId}" does not match file "${file.id}"`,
     );
   }
-  if (source.filename && file.filename !== source.filename) {
+  if (!source.fileId && source.filename && file.filename !== source.filename) {
     throw new Error(
       `source.filename "${source.filename}" does not match file "${file.id}"`,
     );
