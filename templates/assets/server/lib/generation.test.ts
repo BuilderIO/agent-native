@@ -663,6 +663,26 @@ describe("resolveImageModelForRequest", () => {
       }),
     ).toBe("gemini-3.1-flash-image");
   });
+
+  it("does not let embedded-text routing override a preset's saved model", () => {
+    expect(
+      resolveImageModelForRequest({
+        presetModel: "gemini-3.1-flash-image",
+        embeddedText: "Bean & Brew",
+      }),
+    ).toBe("gemini-3.1-flash-image");
+  });
+
+  it("does not let embedded-text routing override a preset-derived tier", () => {
+    // A preset that resolves to a `fast` tier (no explicit tier on the request)
+    // must keep its Flash model even when embedded text is requested.
+    expect(
+      resolveImageModelForRequest({
+        resolvedTier: "fast",
+        embeddedText: "Bean & Brew",
+      }),
+    ).toBe("gemini-3.1-flash-image");
+  });
 });
 
 describe("compareReferenceCandidates", () => {

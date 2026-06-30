@@ -3502,6 +3502,16 @@ export async function runAgentLoop(opts: {
         | import("../mcp-client/app-result.js").AgentMcpAppPayload
         | undefined;
       try {
+        // The run may have been aborted while we waited above for an
+        // interrupted tool's ledger result (the wait can poll for minutes).
+        // Re-check before invoking the action: starting it now would spawn a
+        // fresh zombie execution — a duplicate side effect / double charge —
+        // which the ledger-recovery path exists to prevent. The Promise.race
+        // "Run aborted" leg below only rejects AFTER the action is invoked, so
+        // it cannot guard this. Throw here instead, handled like any abort.
+        if (signal.aborted) {
+          throw new Error("Run aborted");
+        }
         const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
         const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
         const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;

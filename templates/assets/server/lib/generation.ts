@@ -811,10 +811,17 @@ export function resolveImageModelForRequest(input: {
 }): ImageModel {
   if (input.explicitModel) return input.explicitModel;
 
-  // Exact embedded text is materially better on Gemini Pro. Only auto-upgrade
-  // when the caller did not pin a model or tier for this request.
+  // Exact embedded text is materially better on Gemini Pro, so upgrade to it by
+  // default for text requests — but never override a model or tier the caller
+  // or a tagged preset already chose (presets "own" model/tier per the action
+  // docs). Only auto-upgrade when there is no tier (explicit or preset-derived)
+  // and no preset model in play; this still upgrades a bare text request over
+  // the composer default.
   const textAccurateModel: ImageModel | undefined =
-    input.embeddedText?.trim() && !input.explicitTier
+    input.embeddedText?.trim() &&
+    !input.explicitTier &&
+    !input.resolvedTier &&
+    !input.presetModel
       ? "gemini-3-pro-image"
       : undefined;
 
