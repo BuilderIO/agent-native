@@ -26,6 +26,7 @@ import {
   ContentBlockMarkdownEditor,
 } from "./ContentBlockMarkdown";
 import { inlineDatabaseBlock } from "./InlineDatabaseBlock";
+import { sourceComponentBlock } from "./SourceComponentBlock";
 
 /**
  * Content's BROWSER block registry. Registers the same structured-block library
@@ -58,6 +59,7 @@ registerLibraryBlocks(contentBlockRegistry, {
 for (const block of builderDocsBlocks) {
   contentBlockRegistry.register(block);
 }
+contentBlockRegistry.register(sourceComponentBlock);
 contentBlockRegistry.register(inlineDatabaseBlock);
 
 type ContentBlockRenderContext = BlockRenderContext & {

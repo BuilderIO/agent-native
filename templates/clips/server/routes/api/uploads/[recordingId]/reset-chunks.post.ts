@@ -44,6 +44,7 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
+import { deleteResumableSession } from "../../../../lib/resumable-session.js";
 
 interface CompressionMeta {
   originalBytes?: number;
@@ -112,6 +113,9 @@ export default defineEventHandler(async (event: H3Event) => {
     const cleared = await deleteAppStateByPrefix(
       `recording-chunks-${recordingId}-`,
     );
+    // Clear any stale resumable session so a buffered retry does not
+    // accidentally route through handleResumableChunk with stale offsets.
+    await deleteResumableSession(recordingId).catch(() => {});
 
     // Reset the per-recording upload progress so the UI poller sees the
     // re-upload restart from 0 and doesn't briefly show "100% then

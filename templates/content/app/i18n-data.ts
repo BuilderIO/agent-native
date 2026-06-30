@@ -28,6 +28,11 @@ const databaseMessages = {
   builderSpace: "Builder space",
   builderUpdateFailed: "Builder update failed",
   builderWriteModeWasNotChanged: "Builder write mode was not changed",
+  builderBodiesReadyLocally: "Builder article bodies are ready locally.",
+  builderBodiesQueued: "{{count}} queued",
+  builderBodySync: "Body sync",
+  builderBodySyncFailed: "{{count}} failed",
+  builderBodiesHydrated: "{{hydrated}} of {{total}} bodies hydrated",
   checkingForMatchingFields: "Checking for matching fields...",
   checkingHowTheseRecordsMatch: "Checking how these records match...",
   chooseFields: "Choose fields",
@@ -213,6 +218,7 @@ const databaseMessages = {
     "Recommended when this collection describes existing rows.",
   removeThisSource: "Remove this source",
   renameView: "Rename view",
+  resume: "Resume",
   retry: "Retry",
   reviewBeforeTheyReachBuilder: "Review before they reach Builder.",
   reviewDiff: "Review diff",
@@ -2298,6 +2304,14 @@ const enUS = {
       open: "Open",
       pathMissing: "Reference path missing",
       selfReference: "This reference points to the current document.",
+    },
+    sourceComponent: {
+      defaultTitle: "Source component",
+      noPreviewRows: "No preview rows",
+      previewAvailable: "Preview available",
+      previewTruncated: "Preview truncated",
+      previewUnavailable: "Preview unavailable",
+      needsAttention: "Needs attention",
     },
     media: editorMediaMessages,
     properties: editorPropertiesMessages,
@@ -7378,6 +7392,8 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["zh-CN"],
       ...databaseExactEnglishMessagesByLocale["zh-CN"],
+      builderBodiesReadyLocally: "Builder 文章正文已在本地准备就绪。",
+      builderBodySync: "正文同步",
     },
     localFiles: localFilesMessagesByLocale["zh-CN"],
     root: {
@@ -7430,6 +7446,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["zh-CN"],
+      sourceComponent: {
+        defaultTitle: "源组件",
+        noPreviewRows: "没有预览行",
+        previewAvailable: "可预览",
+        previewTruncated: "预览已截断",
+        previewUnavailable: "无法预览",
+        needsAttention: "需要注意",
+      },
       bold: "加粗",
       italic: "斜体",
       strikethrough: "删除线",
@@ -7491,6 +7515,9 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["es-ES"],
       ...databaseExactEnglishMessagesByLocale["es-ES"],
+      builderBodiesReadyLocally:
+        "Los cuerpos de los artículos de Builder están listos localmente.",
+      builderBodySync: "Sincronización del cuerpo",
     },
     localFiles: localFilesMessagesByLocale["es-ES"],
     root: {
@@ -7551,6 +7578,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["es-ES"],
+      sourceComponent: {
+        defaultTitle: "Componente de origen",
+        noPreviewRows: "No hay filas de vista previa",
+        previewAvailable: "Vista previa disponible",
+        previewTruncated: "Vista previa truncada",
+        previewUnavailable: "Vista previa no disponible",
+        needsAttention: "Requiere atención",
+      },
       bold: "Negrita",
       italic: "Cursiva",
       strikethrough: "Tachado",
@@ -7614,6 +7649,9 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["fr-FR"],
       ...databaseExactEnglishMessagesByLocale["fr-FR"],
+      builderBodiesReadyLocally:
+        "Les corps d’articles Builder sont prêts localement.",
+      builderBodySync: "Synchronisation du corps",
     },
     localFiles: localFilesMessagesByLocale["fr-FR"],
     root: {
@@ -7677,6 +7715,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["fr-FR"],
+      sourceComponent: {
+        defaultTitle: "Composant source",
+        noPreviewRows: "Aucune ligne d’aperçu",
+        previewAvailable: "Aperçu disponible",
+        previewTruncated: "Aperçu tronqué",
+        previewUnavailable: "Aperçu indisponible",
+        needsAttention: "Attention requise",
+      },
       bold: "Gras",
       italic: "Italique",
       strikethrough: "Barré",
@@ -7740,6 +7786,8 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["de-DE"],
       ...databaseExactEnglishMessagesByLocale["de-DE"],
+      builderBodiesReadyLocally: "Builder-Artikelinhalte sind lokal bereit.",
+      builderBodySync: "Inhaltssynchronisierung",
     },
     localFiles: localFilesMessagesByLocale["de-DE"],
     root: {
@@ -7803,6 +7851,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["de-DE"],
+      sourceComponent: {
+        defaultTitle: "Quellkomponente",
+        noPreviewRows: "Keine Vorschauzeilen",
+        previewAvailable: "Vorschau verfügbar",
+        previewTruncated: "Vorschau gekürzt",
+        previewUnavailable: "Vorschau nicht verfügbar",
+        needsAttention: "Aufmerksamkeit erforderlich",
+      },
       bold: "Fett",
       italic: "Kursiv",
       strikethrough: "Durchgestrichen",
@@ -7866,6 +7922,9 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["ja-JP"],
       ...databaseExactEnglishMessagesByLocale["ja-JP"],
+      builderBodiesReadyLocally:
+        "Builder の記事本文はローカルで準備できています。",
+      builderBodySync: "本文同期",
     },
     localFiles: localFilesMessagesByLocale["ja-JP"],
     root: {
@@ -7926,6 +7985,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["ja-JP"],
+      sourceComponent: {
+        defaultTitle: "ソースコンポーネント",
+        noPreviewRows: "プレビュー行はありません",
+        previewAvailable: "プレビュー可能",
+        previewTruncated: "プレビューは切り詰められました",
+        previewUnavailable: "プレビューできません",
+        needsAttention: "確認が必要",
+      },
       bold: "太字",
       italic: "斜体",
       strikethrough: "取り消し線",
@@ -7988,6 +8055,8 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["ko-KR"],
       ...databaseExactEnglishMessagesByLocale["ko-KR"],
+      builderBodiesReadyLocally: "Builder 문서 본문이 로컬에서 준비되었습니다.",
+      builderBodySync: "본문 동기화",
     },
     localFiles: localFilesMessagesByLocale["ko-KR"],
     root: {
@@ -8042,6 +8111,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["ko-KR"],
+      sourceComponent: {
+        defaultTitle: "소스 컴포넌트",
+        noPreviewRows: "미리보기 행 없음",
+        previewAvailable: "미리보기 가능",
+        previewTruncated: "미리보기 잘림",
+        previewUnavailable: "미리보기 불가",
+        needsAttention: "주의 필요",
+      },
       bold: "굵게",
       italic: "기울임",
       strikethrough: "취소선",
@@ -8103,6 +8180,9 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["pt-BR"],
       ...databaseExactEnglishMessagesByLocale["pt-BR"],
+      builderBodiesReadyLocally:
+        "Os corpos dos artigos do Builder estão prontos localmente.",
+      builderBodySync: "Sincronização do corpo",
     },
     localFiles: localFilesMessagesByLocale["pt-BR"],
     root: {
@@ -8166,6 +8246,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["pt-BR"],
+      sourceComponent: {
+        defaultTitle: "Componente de origem",
+        noPreviewRows: "Sem linhas de prévia",
+        previewAvailable: "Prévia disponível",
+        previewTruncated: "Prévia truncada",
+        previewUnavailable: "Prévia indisponível",
+        needsAttention: "Requer atenção",
+      },
       bold: "Negrito",
       italic: "Itálico",
       strikethrough: "Tachado",
@@ -8228,6 +8316,8 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["hi-IN"],
       ...databaseExactEnglishMessagesByLocale["hi-IN"],
+      builderBodiesReadyLocally: "Builder लेखों की बॉडी स्थानीय रूप से तैयार है।",
+      builderBodySync: "बॉडी सिंक",
     },
     localFiles: localFilesMessagesByLocale["hi-IN"],
     root: {
@@ -8281,6 +8371,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["hi-IN"],
+      sourceComponent: {
+        defaultTitle: "स्रोत कंपोनेंट",
+        noPreviewRows: "कोई पूर्वावलोकन पंक्ति नहीं",
+        previewAvailable: "पूर्वावलोकन उपलब्ध है",
+        previewTruncated: "पूर्वावलोकन छोटा किया गया",
+        previewUnavailable: "पूर्वावलोकन उपलब्ध नहीं",
+        needsAttention: "ध्यान चाहिए",
+      },
       bold: "बोल्ड",
       italic: "इटैलिक",
       strikethrough: "स्ट्राइकथ्रू",
@@ -8342,6 +8440,8 @@ export const messagesByLocale = {
     database: {
       ...databaseMessagesByLocale["ar-SA"],
       ...databaseExactEnglishMessagesByLocale["ar-SA"],
+      builderBodiesReadyLocally: "أصبحت نصوص مقالات Builder جاهزة محليًا.",
+      builderBodySync: "مزامنة النص",
     },
     localFiles: localFilesMessagesByLocale["ar-SA"],
     root: {
@@ -8399,6 +8499,14 @@ export const messagesByLocale = {
     },
     editor: {
       ...editorMessagesByLocale["ar-SA"],
+      sourceComponent: {
+        defaultTitle: "مكوّن المصدر",
+        noPreviewRows: "لا توجد صفوف معاينة",
+        previewAvailable: "المعاينة متاحة",
+        previewTruncated: "تم اقتطاع المعاينة",
+        previewUnavailable: "المعاينة غير متاحة",
+        needsAttention: "يحتاج إلى انتباه",
+      },
       bold: "غامق",
       italic: "مائل",
       strikethrough: "يتوسطه خط",
