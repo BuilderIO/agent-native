@@ -199,6 +199,14 @@ export default defineAction({
       .optional()
       .default(false)
       .describe("Include the full patched HTML in the response (large)."),
+    currentContent: z
+      .string()
+      .optional()
+      .describe(
+        "Current open editor HTML for the target file. When supplied, the " +
+          "managed motion CSS is patched into this content instead of the " +
+          "last SQL snapshot so in-flight local edits are preserved.",
+      ),
   }),
   run: async ({
     designId,
@@ -209,6 +217,7 @@ export default defineAction({
     durationMs,
     defaultEase,
     includeContent,
+    currentContent: currentContentInput,
   }) => {
     await assertAccess("design", designId, "editor");
 
@@ -250,7 +259,10 @@ export default defineAction({
     }
 
     const fileId = file.id;
-    const currentContent = file.content ?? "";
+    const currentContent =
+      currentContentInput !== undefined
+        ? currentContentInput
+        : (file.content ?? "");
 
     // ── 2. Compile tracks → CSS ─────────────────────────────────────────────
     const typedTracks = tracks as MotionTrack[];

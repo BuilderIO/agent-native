@@ -92,6 +92,14 @@ const sourceSchema = z
     fileId: z.string().optional(),
     filename: z.string().optional(),
     revision: z.string().optional(),
+    currentContent: z
+      .string()
+      .optional()
+      .describe(
+        "Current open editor HTML for the target file. When supplied, the " +
+          "shader background is patched into this content instead of the " +
+          "last SQL snapshot so in-flight local edits are preserved.",
+      ),
   })
   .describe(
     "Design source. Only kind=design-file (HTML) is persisted. Provide " +
@@ -136,6 +144,7 @@ async function resolveEditableDesignFile(source: {
   fileId?: string;
   filename?: string;
   revision?: string;
+  currentContent?: string;
 }): Promise<ResolvedDesignFile> {
   if (!source.fileId && !source.designId) {
     throw new Error(
@@ -197,7 +206,10 @@ async function resolveEditableDesignFile(source: {
     id: file.id,
     designId: file.designId,
     filename: file.filename,
-    content: file.content ?? "",
+    content:
+      source.currentContent !== undefined
+        ? source.currentContent
+        : (file.content ?? ""),
     codeLayerSource: {
       kind: "design-file",
       designId: file.designId,
@@ -362,6 +374,7 @@ snippet (WebGL canvas / JSX component), call apply-shader.
       fileId: file.id,
       filename: file.filename,
       result: patch.result,
+      patchedContent: patch.content,
       bytesBefore: file.content.length,
       bytesAfter: patch.content.length,
       note: changed

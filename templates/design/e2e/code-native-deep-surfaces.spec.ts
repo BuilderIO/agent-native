@@ -396,10 +396,20 @@ test("shader preview is transient while apply-shader-fill persists", async ({
   await gotoEditor(page, designId);
   await expect.poll(() => selectedElementBackgroundImage(page)).toBe("none");
 
+  const shaderPendingSentinel = "<!-- shader-current-content-sentinel -->";
+  const shaderCurrentContent = (await fileContent(request)).replace(
+    "</body>",
+    `${shaderPendingSentinel}\n  </body>`,
+  );
   const applied = await postAction(request, "apply-shader-fill", {
     descriptor: { preset: "MeshGradient" },
     target: { nodeId: "e2e-alpha-button" },
-    source: { kind: "design-file", designId, fileId },
+    source: {
+      kind: "design-file",
+      designId,
+      fileId,
+      currentContent: shaderCurrentContent,
+    },
   });
   expect(applied.ok).toBe(true);
   expect(applied.persisted).toBe(true);
@@ -410,6 +420,7 @@ test("shader preview is transient while apply-shader-fill persists", async ({
     .toMatch(/(?:linear|radial|conic)-gradient/);
   const saved = await fileContent(request);
   expect(saved.trimStart().startsWith("<!doctype html>")).toBe(true);
+  expect(saved).toContain(shaderPendingSentinel);
   expect(saved).toMatch(
     /data-agent-native-node-id="e2e-alpha-button"[\s\S]*background:\s*(?:linear|radial|conic)-gradient/,
   );
@@ -419,9 +430,15 @@ test("repeated motion writes replace the managed CSS block instead of duplicatin
   page,
   request,
 }) => {
+  const motionPendingSentinel = "<!-- motion-current-content-sentinel -->";
+  const motionCurrentContent = (await fileContent(request)).replace(
+    "</body>",
+    `${motionPendingSentinel}\n  </body>`,
+  );
   const first = await postAction(request, "apply-motion-edit", {
     designId,
     fileId,
+    currentContent: motionCurrentContent,
     tracks: [
       {
         targetNodeId: "e2e-alpha-button",
@@ -441,6 +458,7 @@ test("repeated motion writes replace the managed CSS block instead of duplicatin
     designId,
     fileId,
     timelineId: first.timelineId,
+    currentContent: await fileContent(request),
     tracks: [
       {
         targetNodeId: "e2e-alpha-button",
@@ -466,6 +484,7 @@ test("repeated motion writes replace the managed CSS block instead of duplicatin
   expect(second.patchedContent).not.toContain(
     "an-motion-e2e-alpha-button--opacity",
   );
+  expect(second.patchedContent).toContain(motionPendingSentinel);
 
   await gotoEditor(page, designId);
   await expect

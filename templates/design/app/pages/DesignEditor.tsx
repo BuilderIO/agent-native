@@ -6644,6 +6644,7 @@ export default function DesignEditor() {
       designTitle: design?.title ?? null,
       activeFileId: activeFile?.id ?? null,
       activeFilename: activeFile?.filename ?? null,
+      activeContent,
       viewMode,
       zoom,
       screens: files.map((file) => ({
@@ -6665,12 +6666,20 @@ export default function DesignEditor() {
         });
       },
       onShaderFillPreviewClear: () => setShaderFillPreview(null),
+      onShaderFillApplied: (fileId, content) => {
+        applyFileContentUpdate(fileId, content, {
+          refreshPreview: fileId === activeFile?.id,
+          persist: false,
+        });
+      },
     }),
     [
+      activeContent,
       activeFile?.filename,
       activeFile?.fileType,
       activeFile?.id,
       activeTool,
+      applyFileContentUpdate,
       design?.title,
       files,
       id,
@@ -12649,6 +12658,11 @@ ${serializedHtml}
                 fileId: activeFile.id,
                 tracks: tracks.map(({ label: _label, ...t }) => t),
                 durationMs,
+                currentContent: getFreshActiveFileContent({
+                  activeContent,
+                  latestContent: latestActiveContentRef.current,
+                  lastLocalContent: lastLocalContentRef.current,
+                }),
                 includeContent: true,
               },
               {

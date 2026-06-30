@@ -74,6 +74,7 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   designTitle: string | null;
   activeFileId: string | null;
   activeFilename: string | null;
+  activeContent: string;
   viewMode: "single" | "overview";
   zoom: number;
   screens: Array<{
@@ -88,6 +89,7 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   tweakValues: Record<string, string | number | boolean>;
   onShaderFillPreview?: (descriptor: ShaderDescriptor, css: string) => void;
   onShaderFillPreviewClear?: () => void;
+  onShaderFillApplied?: (fileId: string, content: string) => void;
 }
 
 interface DesignExtensionsPanelProps {
@@ -515,12 +517,25 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           kind: "design-file" as const,
           designId: context.designId || undefined,
           fileId: context.activeFileId || undefined,
+          currentContent: context.activeContent,
         },
       },
       {
         onSuccess: (res) => {
-          const r = res as { persisted?: boolean } | undefined;
+          const r = res as
+            | {
+                fileId?: unknown;
+                patchedContent?: unknown;
+                persisted?: boolean;
+              }
+            | undefined;
           if (r?.persisted) {
+            if (
+              typeof r.fileId === "string" &&
+              typeof r.patchedContent === "string"
+            ) {
+              context.onShaderFillApplied?.(r.fileId, r.patchedContent);
+            }
             toast.success("Shader fill applied to the selected element.");
           } else {
             toast.message("Shader fill previewed — nothing was written.");
