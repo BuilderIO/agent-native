@@ -10897,6 +10897,7 @@ ${serializedHtml}
                   exporting={pngExporting || svgExporting}
                   designId={id}
                   componentNodeId={selectedComponentNodeId}
+                  componentFileId={activeFileId ?? undefined}
                   sourceCapabilities={sourceCapabilities}
                   onCreateComponent={
                     id && selectedElement ? handleCreateComponent : undefined

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  alpineDataValueLiteral,
+  canRebuildAlpineDataLosslessly,
   isBooleanPropValue,
   openingTagOf,
   parseAlpineDataObject,
+  replaceAlpineDataKeyValue,
   serializeAlpineDataObject,
   truncateOpeningTag,
 } from "./EditPanel";
@@ -121,6 +124,151 @@ describe("serializeAlpineDataObject", () => {
 
   it("produces an empty object literal for no keys", () => {
     expect(serializeAlpineDataObject({})).toBe("{}");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// alpineDataValueLiteral — single value formatting
+// ---------------------------------------------------------------------------
+
+describe("alpineDataValueLiteral", () => {
+  it("single-quotes string values and escapes single quotes", () => {
+    expect(alpineDataValueLiteral("outline")).toBe(`'outline'`);
+    expect(alpineDataValueLiteral("it's")).toBe(`'it\\'s'`);
+  });
+
+  it("leaves booleans and numbers bare", () => {
+    expect(alpineDataValueLiteral("true")).toBe("true");
+    expect(alpineDataValueLiteral("false")).toBe("false");
+    expect(alpineDataValueLiteral("3")).toBe("3");
+    expect(alpineDataValueLiteral("-1.5")).toBe("-1.5");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// replaceAlpineDataKeyValue — NON-LOSSY single-key x-data edit (Bug 1)
+// ---------------------------------------------------------------------------
+
+describe("replaceAlpineDataKeyValue", () => {
+  it("edits one key while preserving a sibling method byte-for-byte", () => {
+    // The headline regression: editing `open` must NOT drop `toggle()`.
+    const original = `{ open: false, toggle() { this.open = !this.open } }`;
+    const out = replaceAlpineDataKeyValue(original, "open", "true");
+    expect(out).toBe(`{ open: true, toggle() { this.open = !this.open } }`);
+    // The method body survives intact.
+    expect(out).toContain("toggle() { this.open = !this.open }");
+  });
+
+  it("edits a string value and keeps a trailing method", () => {
+    const original = `{ variant: 'solid', render() { return this.variant } }`;
+    expect(replaceAlpineDataKeyValue(original, "variant", "outline")).toBe(
+      `{ variant: 'outline', render() { return this.variant } }`,
+    );
+  });
+
+  it("preserves escaped quotes inside other string values", () => {
+    const original = `{ label: 'a', note: 'it\\'s fine' }`;
+    expect(replaceAlpineDataKeyValue(original, "label", "b")).toBe(
+      `{ label: 'b', note: 'it\\'s fine' }`,
+    );
+  });
+
+  it("does not match a key that lives inside another string value", () => {
+    // `open` appears inside the `note` string; only the real key is edited.
+    const original = `{ note: 'open the door', open: false }`;
+    expect(replaceAlpineDataKeyValue(original, "open", "true")).toBe(
+      `{ note: 'open the door', open: true }`,
+    );
+  });
+
+  it("handles quoted keys", () => {
+    const original = `{ "size": 'lg', 'tone': 'muted' }`;
+    expect(replaceAlpineDataKeyValue(original, "size", "sm")).toBe(
+      `{ "size": 'sm', 'tone': 'muted' }`,
+    );
+  });
+
+  it("preserves a nested object sibling", () => {
+    const original = `{ open: false, meta: { a: 1, b: 2 } }`;
+    expect(replaceAlpineDataKeyValue(original, "open", "true")).toBe(
+      `{ open: true, meta: { a: 1, b: 2 } }`,
+    );
+  });
+
+  it("does not match a nested key with the same name", () => {
+    // The top-level `open` is edited; the nested `meta.open` is untouched.
+    const original = `{ open: false, meta: { open: true } }`;
+    expect(replaceAlpineDataKeyValue(original, "open", "true")).toBe(
+      `{ open: true, meta: { open: true } }`,
+    );
+  });
+
+  it("returns null when the key is absent (caller decides fallback)", () => {
+    expect(
+      replaceAlpineDataKeyValue(`{ open: false }`, "variant", "outline"),
+    ).toBeNull();
+  });
+
+  it("returns null when the value is an expression, not a simple literal", () => {
+    // We must not mangle a computed value — fail safe.
+    expect(
+      replaceAlpineDataKeyValue(
+        `{ open: someFn(), variant: 'solid' }`,
+        "open",
+        "true",
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for non-object / empty input", () => {
+    expect(replaceAlpineDataKeyValue("", "open", "true")).toBeNull();
+    expect(replaceAlpineDataKeyValue(undefined, "open", "true")).toBeNull();
+    expect(replaceAlpineDataKeyValue("open", "open", "true")).toBeNull();
+  });
+
+  it("does not match a key that is a prefix of a longer identifier", () => {
+    const original = `{ openState: 'a', other: 'b' }`;
+    // Editing `open` (which is only a prefix of `openState`) finds nothing.
+    expect(replaceAlpineDataKeyValue(original, "open", "x")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canRebuildAlpineDataLosslessly — fallback gate
+// ---------------------------------------------------------------------------
+
+describe("canRebuildAlpineDataLosslessly", () => {
+  it("allows rebuild for an empty / absent literal", () => {
+    expect(canRebuildAlpineDataLosslessly("")).toBe(true);
+    expect(canRebuildAlpineDataLosslessly(undefined)).toBe(true);
+    expect(canRebuildAlpineDataLosslessly("{}")).toBe(true);
+    expect(canRebuildAlpineDataLosslessly("{ }")).toBe(true);
+  });
+
+  it("allows rebuild for a flat simple object", () => {
+    expect(
+      canRebuildAlpineDataLosslessly(`{ variant: 'solid', open: false }`),
+    ).toBe(true);
+  });
+
+  it("forbids rebuild when a method is present", () => {
+    expect(
+      canRebuildAlpineDataLosslessly(
+        `{ open: false, toggle() { this.open = !this.open } }`,
+      ),
+    ).toBe(false);
+  });
+
+  it("forbids rebuild when a nested object is present", () => {
+    expect(
+      canRebuildAlpineDataLosslessly(`{ open: false, meta: { a: 1 } }`),
+    ).toBe(false);
+  });
+
+  it("forbids rebuild when a value is an expression", () => {
+    expect(canRebuildAlpineDataLosslessly(`{ open: false, x: someFn() }`)).toBe(
+      false,
+    );
   });
 });
 
