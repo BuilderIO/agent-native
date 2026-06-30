@@ -2,6 +2,7 @@ import {
   PromptComposer,
   agentNativePath,
   sendToAgentChat,
+  useActionMutation,
   useChangeVersions,
   useT,
   type PromptComposerProps,
@@ -9,13 +10,21 @@ import {
 } from "@agent-native/core/client";
 import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
+  EmbeddedApp,
+  type EmbeddedAppRef,
+} from "@agent-native/core/embedding/react";
+import {
   IconExternalLink,
+  IconLock,
+  IconPalette,
+  IconPhoto,
+  IconPlayerPlay,
   IconPlus,
   IconPuzzle,
   IconSparkles,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -32,9 +41,12 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { ShaderFillsPanel } from "./inspector/ShaderFillsPanel";
 import type { ElementInfo } from "./types";
 
 export const DESIGN_EDITOR_EXTENSION_SLOT_ID = "design.editor.inspector";
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 interface SlotInstall {
   installId: string;
@@ -80,6 +92,55 @@ interface DesignExtensionsPanelProps {
 }
 
 type PromptComposerSubmitHandler = PromptComposerProps["onSubmit"];
+
+// ─── First-party extension ids ───────────────────────────────────────────────
+
+type FirstPartyExtId =
+  | "design.asset-library"
+  | "design.shader-fills"
+  | "design.token-auditor"
+  | "design.motion-presets";
+
+// ─── Assets picker types (mirrors PromptDialog) ───────────────────────────
+
+const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+
+interface PickedAssetPayload {
+  url?: unknown;
+  previewUrl?: unknown;
+  downloadUrl?: unknown;
+  embedUrl?: unknown;
+  altText?: unknown;
+  title?: unknown;
+  assetId?: unknown;
+  mimeType?: unknown;
+}
+
+function assetsPickerUrl(): string {
+  return (
+    (typeof import.meta !== "undefined" &&
+      (import.meta as { env?: Record<string, string> }).env
+        ?.VITE_AGENT_NATIVE_ASSETS_PICKER_URL) ||
+    DEFAULT_ASSETS_PICKER_URL
+  );
+}
+
+function pickedAssetString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function pickedAssetImageSource(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as PickedAssetPayload;
+  return (
+    pickedAssetString(p.url) ??
+    pickedAssetString(p.previewUrl) ??
+    pickedAssetString(p.downloadUrl) ??
+    pickedAssetString(p.embedUrl)
+  );
+}
+
+// ─── Build extension create context ──────────────────────────────────────────
 
 function buildExtensionCreateContext(
   prompt: string,
@@ -131,6 +192,8 @@ function buildExtensionCreateContext(
   ].join("\n");
 }
 
+// ─── Hooks ───────────────────────────────────────────────────────────────────
+
 function useSlotInstalls(slotId: string) {
   const versions = useChangeVersions(["action"]);
   return useQuery<SlotInstall[]>({
@@ -165,6 +228,401 @@ function useAvailableExtensions(slotId: string) {
   });
 }
 
+// ─── First-party extension rows ───────────────────────────────────────────────
+
+interface FirstPartyRowProps {
+  id: FirstPartyExtId;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  badge?: React.ReactNode;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
+
+function FirstPartyExtRow({
+  label,
+  description,
+  icon,
+  badge,
+  isOpen,
+  onToggle,
+  children,
+}: FirstPartyRowProps) {
+  return (
+    <div className="overflow-hidden rounded border border-border bg-background">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-accent/50 active:bg-accent"
+      >
+        <span className="flex size-6 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+          {icon}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[11px] font-medium text-foreground">
+            {label}
+          </span>
+          <span className="block truncate text-[10px] leading-tight text-muted-foreground">
+            {description}
+          </span>
+        </span>
+        {badge}
+      </button>
+      {isOpen && <div className="border-t border-border/60">{children}</div>}
+    </div>
+  );
+}
+
+// ─── Gated badge ─────────────────────────────────────────────────────────────
+
+function GatedBadge() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-amber-600 dark:text-amber-400">
+          <IconLock className="size-2.5" />
+          Preview
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="left" className="max-w-48 text-[11px]">
+        Apply is gated until runtime rendering, source-write path, CSS fallback,
+        and diff proof are all in place.
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// ─── Asset Library panel ──────────────────────────────────────────────────────
+
+interface AssetLibraryPanelProps {
+  context: DesignExtensionSlotContext;
+}
+
+function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
+  const t = useT();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerReady, setPickerReady] = useState(false);
+  const insertAsset = useActionMutation("insert-asset");
+
+  useEffect(() => {
+    if (pickerOpen) setPickerReady(false);
+  }, [pickerOpen]);
+
+  const handleReady = useCallback(
+    (_payload: unknown, _event: MessageEvent, ref: EmbeddedAppRef) => {
+      setPickerReady(true);
+      ref.postMessage("configure", {});
+    },
+    [],
+  );
+
+  const handleMessage = useCallback(
+    (name: string, payload: unknown) => {
+      if (name === "close") {
+        setPickerOpen(false);
+        return;
+      }
+      if (name !== "chooseImage" && name !== "chooseAsset") return;
+
+      const url = pickedAssetImageSource(payload);
+      if (!url) {
+        toast.error("No image URL returned from Assets picker.");
+        return;
+      }
+
+      const p = payload as PickedAssetPayload;
+      const title = pickedAssetString(p.title) ?? undefined;
+      const altText = pickedAssetString(p.altText) ?? undefined;
+      const assetId = pickedAssetString(p.assetId) ?? undefined;
+      const mimeType = pickedAssetString(p.mimeType) ?? "";
+      const mediaType = mimeType.startsWith("video/") ? "video" : "image";
+
+      insertAsset.mutate(
+        {
+          assetUrl: url,
+          assetId,
+          title,
+          altText,
+          mediaType: mediaType as "image" | "video",
+          designId: context.designId || undefined,
+          fileId: context.activeFileId || undefined,
+        },
+        {
+          onSuccess: () => {
+            toast.success("Asset inserted into design.");
+          },
+          onError: () => {
+            toast.error("Failed to insert asset.");
+          },
+        },
+      );
+
+      setPickerOpen(false);
+    },
+    [context.designId, context.activeFileId, insertAsset],
+  );
+
+  const handleAskAgent = () => {
+    sendToAgentChat({
+      message:
+        "Open the Assets picker so I can choose an image to insert into the design.",
+      context: [
+        `Design id: ${context.designId}`,
+        context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
+        context.selectedElement?.selector
+          ? `Selected element selector: ${context.selectedElement.selector}`
+          : null,
+        "Call insert-asset with the chosen URL after the user picks from the Assets picker.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      submit: true,
+      openSidebar: true,
+    });
+  };
+
+  return (
+    <div className="p-2.5">
+      <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
+        Browse and insert generated or uploaded images into the active design
+        screen. Inserts near the selected element when one is active.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+          disabled={insertAsset.isPending || !context.activeFileId}
+          onClick={() => setPickerOpen(true)}
+        >
+          <IconPhoto className="size-3" />
+          {insertAsset.isPending ? "Inserting…" : "Browse Assets"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+          onClick={handleAskAgent}
+        >
+          <IconSparkles className="size-3" />
+          {t("designEditor.askAgent") || "Ask agent"}
+        </Button>
+      </div>
+      {!context.activeFileId && (
+        <p className="mt-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+          Open a design screen first to insert assets.
+        </p>
+      )}
+
+      {/* Assets picker overlay */}
+      {pickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div
+            data-assets-picker-overlay
+            className="relative flex h-[min(86vh,760px)] w-[min(96vw,1040px)] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+          >
+            <div className="flex h-10 shrink-0 items-center border-b border-border px-4">
+              <span className="flex-1 text-sm font-medium">Assets Library</span>
+              <button
+                type="button"
+                aria-label="Close picker"
+                onClick={() => setPickerOpen(false)}
+                className="flex size-7 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                ×
+              </button>
+            </div>
+            <div className="relative min-h-0 flex-1">
+              {!pickerReady && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Skeleton className="h-full w-full rounded-none" />
+                </div>
+              )}
+              <EmbeddedApp
+                url={assetsPickerUrl()}
+                title="Assets picker"
+                onReady={handleReady}
+                onMessage={handleMessage}
+                className="h-full w-full"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Shader Fills panel ───────────────────────────────────────────────────────
+
+interface ShaderFillsExtPanelProps {
+  context: DesignExtensionSlotContext;
+}
+
+function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
+  const [showShaders, setShowShaders] = useState(false);
+
+  if (!showShaders) {
+    return (
+      <div className="p-2.5">
+        <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
+          GPU shader fill presets — MeshGradient, GrainGradient, Voronoi,
+          Metaballs, Warp, GodRays, Dithering, PaperTexture. Preview as a CSS
+          gradient without writing anything.
+        </p>
+        <div className="mb-2 flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5">
+          <IconLock className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+            <strong>Apply is gated.</strong> Preview is safe; persist to design
+            stays disabled until runtime rendering, source-write path, CSS
+            fallback, and diff proof are all in place.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+            onClick={() => setShowShaders(true)}
+          >
+            <IconSparkles className="size-3" />
+            Browse Shaders
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ShaderFillsPanel
+      onApply={(_descriptor, _css) => {
+        // Preview-only: the ShaderFillsPanel already fires apply-shader (the
+        // planning/codegen action) for agent context.  We don't call
+        // apply-shader-fill here — it is gated and would return NOT_YET_AVAILABLE.
+        // The "Apply" button inside ShaderFillsPanel fires apply-shader which
+        // gives the agent the JSX/HTML snippet to use with edit-design.
+      }}
+      onBack={() => setShowShaders(false)}
+      applyContext={{
+        designId: context.designId || undefined,
+        fileId: context.activeFileId || undefined,
+        nodeId: context.selectedElement?.sourceId ?? undefined,
+        selector: context.selectedElement?.selector ?? undefined,
+      }}
+    />
+  );
+}
+
+// ─── Token Auditor panel ─────────────────────────────────────────────────────
+
+interface TokenAuditorPanelProps {
+  context: DesignExtensionSlotContext;
+}
+
+function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
+  const t = useT();
+
+  const handleAskAgent = () => {
+    sendToAgentChat({
+      message:
+        "Run a token audit on the active design: index CSS custom properties, surface any hard-coded colours that should be tokens, flag clashes, and suggest fixes.",
+      context: [
+        `Design id: ${context.designId}`,
+        context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
+        "Call index-design-tokens to parse CSS vars, then preview-design-token-edit for suggested changes.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      submit: true,
+      openSidebar: true,
+    });
+  };
+
+  return (
+    <div className="p-2.5">
+      <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
+        Index CSS custom property usage across the active design, surface
+        hard-coded colours that should be tokens, and flag clashes.
+      </p>
+      <div className="mb-1.5 text-[10px] text-muted-foreground">
+        Token reads and tweaks are available for all source types. Source
+        write-back (globals.css / tailwind.config) is gated on bridge hardening.
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+          onClick={handleAskAgent}
+        >
+          <IconSparkles className="size-3" />
+          {t("designEditor.askAgent") || "Ask agent"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Motion Presets panel ─────────────────────────────────────────────────────
+
+interface MotionPresetsPanelProps {
+  context: DesignExtensionSlotContext;
+}
+
+function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
+  const t = useT();
+
+  const handleAskAgent = () => {
+    sendToAgentChat({
+      message:
+        "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to write the keyframes atomically.",
+      context: [
+        `Design id: ${context.designId}`,
+        context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
+        context.selectedElement
+          ? `Selected element: ${JSON.stringify({ selector: context.selectedElement.selector, sourceId: context.selectedElement.sourceId }, null, 2)}`
+          : "No element selected — ask the user to click an element first.",
+        "Call get-motion-timeline to check for an existing timeline, then preview-motion-frame first, then apply-motion-edit for the atomic write.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      submit: true,
+      openSidebar: true,
+    });
+  };
+
+  return (
+    <div className="p-2.5">
+      <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
+        One-click animation presets — fade-in, slide-up, pulse, bounce, spin —
+        applied to the selected element via the motion timeline.
+      </p>
+      {!context.selectedElement && (
+        <p className="mb-1.5 text-[10px] text-muted-foreground">
+          Select an element on the canvas first, then ask the agent to apply a
+          motion preset.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+          onClick={handleAskAgent}
+        >
+          <IconSparkles className="size-3" />
+          {t("designEditor.askAgent") || "Ask agent"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main panel ──────────────────────────────────────────────────────────────
+
 export function DesignExtensionsPanel({
   context,
   className,
@@ -173,6 +631,9 @@ export function DesignExtensionsPanel({
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [openFirstParty, setOpenFirstParty] = useState<FirstPartyExtId | null>(
+    null,
+  );
   const slotId = DESIGN_EDITOR_EXTENSION_SLOT_ID;
   const { data: installs = [], isLoading } = useSlotInstalls(slotId);
   const { data: available = [] } = useAvailableExtensions(slotId);
@@ -183,6 +644,10 @@ export function DesignExtensionsPanel({
   const installable = available.filter(
     (extension) => !installedIds.has(extension.extensionId),
   );
+
+  const toggleFirstParty = (id: FirstPartyExtId) => {
+    setOpenFirstParty((prev) => (prev === id ? null : id));
+  };
 
   const submitCreatePrompt: PromptComposerSubmitHandler = (
     text: string,
@@ -232,6 +697,46 @@ export function DesignExtensionsPanel({
     }
   };
 
+  // First-party extension row config
+  const firstPartyRows: Array<{
+    id: FirstPartyExtId;
+    label: string;
+    description: string;
+    icon: React.ReactNode;
+    badge?: React.ReactNode;
+    panel: React.ReactNode;
+  }> = [
+    {
+      id: "design.asset-library",
+      label: "Asset Library",
+      description: "Browse & insert assets into the active screen",
+      icon: <IconPhoto className="size-3.5" />,
+      panel: <AssetLibraryPanel context={context} />,
+    },
+    {
+      id: "design.shader-fills",
+      label: "Shader Fills",
+      description: "GPU shader fill presets — preview only",
+      icon: <IconSparkles className="size-3.5" />,
+      badge: <GatedBadge />,
+      panel: <ShaderFillsExtPanel context={context} />,
+    },
+    {
+      id: "design.token-auditor",
+      label: "Token Auditor",
+      description: "Audit CSS token usage, flag clashes",
+      icon: <IconPalette className="size-3.5" />,
+      panel: <TokenAuditorPanel context={context} />,
+    },
+    {
+      id: "design.motion-presets",
+      label: "Motion Presets",
+      description: "One-click animation presets for elements",
+      icon: <IconPlayerPlay className="size-3.5" />,
+      panel: <MotionPresetsPanel context={context} />,
+    },
+  ];
+
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
       {/* Section header — 32 px tall, matches PanelSection / design inspector headers */}
@@ -261,54 +766,47 @@ export function DesignExtensionsPanel({
       </div>
 
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-2 pt-1.5">
+        {/* ── First-party built-in extensions ──────────────────────────── */}
+        <div className="mb-3 space-y-1">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Built-in
+          </p>
+          {firstPartyRows.map((row) => (
+            <FirstPartyExtRow
+              key={row.id}
+              id={row.id}
+              label={row.label}
+              description={row.description}
+              icon={row.icon}
+              badge={row.badge}
+              isOpen={openFirstParty === row.id}
+              onToggle={() => toggleFirstParty(row.id)}
+            >
+              {row.panel}
+            </FirstPartyExtRow>
+          ))}
+        </div>
+
+        {/* ── Agent help text ───────────────────────────────────────────── */}
+        <div className="mb-3 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1.5">
+          <IconSparkles className="mt-0.5 size-3 shrink-0 text-muted-foreground/70" />
+          <p className="text-[10px] leading-snug text-muted-foreground">
+            The agent can insert assets, preview shader fills, audit tokens, and
+            apply motion presets. Ask in the chat sidebar for help.
+          </p>
+        </div>
+
+        {/* ── User-installed extensions ──────────────────────────────────── */}
         {isLoading ? (
           <div className="space-y-1.5">
             <Skeleton className="h-24 rounded" />
             <Skeleton className="h-32 rounded" />
           </div>
-        ) : installs.length === 0 ? (
-          /* Empty state — compact, matches TweaksPanel empty style */
-          <div className="flex flex-col items-center gap-2 py-6 text-center">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-muted/60">
-              <IconPuzzle className="size-4 text-muted-foreground/70" />
-            </div>
-            <div>
-              <p className="text-[11px] font-medium text-foreground">
-                {t("designEditor.extensionsEmptyTitle")}
-              </p>
-              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                {t("designEditor.extensionsEmptyDescription")}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-1.5">
-              <Button
-                type="button"
-                size="sm"
-                className="h-6 cursor-pointer px-2.5 text-[11px]"
-                onClick={() => setCreateOpen(true)}
-              >
-                <IconPlus className="size-3" />
-                {t("designEditor.addExtension")}
-              </Button>
-              <Button
-                asChild
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-6 cursor-pointer px-2.5 text-[11px]"
-              >
-                <a
-                  href="https://www.agent-native.com/docs/extensions"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t("designEditor.extensionsDocs")}
-                </a>
-              </Button>
-            </div>
-          </div>
-        ) : (
+        ) : installs.length > 0 ? (
           <div className="space-y-1.5">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Installed
+            </p>
             {installs.map((install) => (
               <EmbeddedExtension
                 key={install.installId}
@@ -320,8 +818,33 @@ export function DesignExtensionsPanel({
               />
             ))}
           </div>
+        ) : (
+          /* Empty state for user extensions — compact */
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <div className="flex size-7 items-center justify-center rounded-lg bg-muted/60">
+              <IconPuzzle className="size-3.5 text-muted-foreground/70" />
+            </div>
+            <div>
+              <p className="text-[11px] font-medium text-foreground">
+                {t("designEditor.extensionsEmptyTitle")}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+                {t("designEditor.extensionsEmptyDescription")}
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              className="h-6 cursor-pointer px-2.5 text-[11px]"
+              onClick={() => setCreateOpen(true)}
+            >
+              <IconPlus className="size-3" />
+              {t("designEditor.addExtension")}
+            </Button>
+          </div>
         )}
 
+        {/* ── Available (installable) extensions ────────────────────────── */}
         {installable.length > 0 ? (
           <div className="mt-3 border-t border-border/60 pt-1.5">
             <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -357,6 +880,8 @@ export function DesignExtensionsPanel({
     </div>
   );
 }
+
+// ─── Create extension popover ─────────────────────────────────────────────────
 
 function CreateExtensionPopover({
   open,

@@ -422,6 +422,8 @@ const enUS = {
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
       saveCopyError: "Could not save a copy of this design",
+      componentCreated: "Component created",
+      componentCreateFailed: "Could not create component",
     },
   },
   layersPanel: {

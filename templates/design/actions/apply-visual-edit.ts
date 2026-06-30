@@ -15,11 +15,113 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   applyVisualEdit,
+  type ClassEditIntent,
   type CodeLayerSource,
   type EditIntent,
 } from "../shared/code-layer.js";
+import type { TailwindBreakpointPrefix } from "../shared/design-state.js";
+import { utilityStem, widthToPrefix } from "../shared/responsive-classes.js";
 
 type VisualEditActionSource = CodeLayerSource & { html?: string };
+
+/** Tailwind responsive prefix values accepted by the action. */
+const TAILWIND_PREFIXES = ["base", "sm", "md", "lg", "xl", "2xl"] as const;
+
+/**
+ * Resolve the active breakpoint prefix for a class edit.
+ *
+ * - If `activeBreakpoint` is provided it is used directly.
+ * - If only `activeFrameWidthPx` is provided the prefix is derived via `widthToPrefix`.
+ * - If neither is provided the result is `null` (= no breakpoint scoping; global
+ *   class edit, current backward-compatible behaviour).
+ */
+function resolveActivePrefix(
+  activeBreakpoint?: TailwindBreakpointPrefix | null,
+  activeFrameWidthPx?: number | null,
+): TailwindBreakpointPrefix | null {
+  if (activeBreakpoint != null) return activeBreakpoint;
+  if (activeFrameWidthPx != null) return widthToPrefix(activeFrameWidthPx);
+  return null;
+}
+
+/**
+ * Derive a CSS-property key from a Tailwind class token for use in
+ * `responsive-class` `"remove"` operations (e.g. `"text-lg"` → `"font-size"`).
+ *
+ * Delegates to the shared `utilityStem` so the key matches EXACTLY what
+ * `setPropertyClass`/`removePropertyClass` compute internally — a divergent
+ * local heuristic would make breakpoint-scoped removes silently miss (and, with
+ * the old first-segment heuristic, nuke unrelated utilities like `text-center`).
+ */
+function stemFromToken(token: string): string {
+  // Strip any responsive prefix (e.g. "md:text-sm" → "text-sm").
+  const prefixMatch = /^(?:2xl|xl|lg|md|sm):/.exec(token);
+  const utility = prefixMatch ? token.slice(prefixMatch[0].length) : token;
+  return utilityStem(utility);
+}
+
+/**
+ * Convert a global `ClassEditIntent` into the equivalent `EditIntent` scoped to
+ * the given breakpoint prefix.
+ *
+ * - `"add"` and `"replace"` become `"responsive-class"` edits that write /
+ *   replace the utility at the target prefix.
+ * - `"remove"` becomes a `"responsive-class"` remove that strips the utility
+ *   stem at the target prefix.
+ * - `"set"` has no direct per-breakpoint analog (it replaces the whole class
+ *   list) and is passed through unchanged so existing behaviour is preserved.
+ *
+ * When `prefix` is `"base"`, the intent is returned unchanged because
+ * `setPropertyClass(className, "base", utility)` is equivalent to a
+ * global unprefixed add/replace and the existing `"class"` path already
+ * handles it correctly.
+ */
+function scopeClassIntentToBreakpoint(
+  intent: ClassEditIntent,
+  prefix: TailwindBreakpointPrefix,
+): EditIntent {
+  if (prefix === "base") return intent;
+
+  if (intent.operation === "add") {
+    const tokens =
+      intent.classNames ?? (intent.className ? [intent.className] : []);
+    if (tokens.length !== 1 || !tokens[0]) return intent;
+    return {
+      kind: "responsive-class",
+      target: intent.target,
+      prefix,
+      operation: "add",
+      utility: tokens[0],
+    };
+  }
+
+  if (intent.operation === "replace") {
+    if (!intent.to) return intent;
+    return {
+      kind: "responsive-class",
+      target: intent.target,
+      prefix,
+      operation: "replace",
+      utility: intent.to,
+    };
+  }
+
+  if (intent.operation === "remove") {
+    const tokens =
+      intent.classNames ?? (intent.className ? [intent.className] : []);
+    if (tokens.length !== 1 || !tokens[0]) return intent;
+    return {
+      kind: "responsive-class",
+      target: intent.target,
+      prefix,
+      operation: "remove",
+      stem: stemFromToken(tokens[0]),
+    };
+  }
+
+  // "set" — no per-breakpoint analog; fall back to global class edit.
+  return intent;
+}
 
 function parseJsonString(value: unknown): unknown {
   if (typeof value !== "string") return value;
@@ -221,7 +323,8 @@ async function persistDesignFileEdit(file: {
 export default defineAction({
   description:
     "Apply one deterministic visual edit to a code-backed HTML design layer. " +
-    "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files; escalates ambiguous or structural edits with PatchResult statuses.",
+    "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files; escalates ambiguous or structural edits with PatchResult statuses. " +
+    "Pass activeBreakpoint (or activeFrameWidthPx) to scope a class edit to a specific Tailwind responsive prefix; omit for global (backward-compatible) behaviour.",
   schema: z.object({
     source: sourceSchema.describe(
       "Edit source. Use kind=design-file with designId/filename or fileId to persist into SQL; kind=inline-html with html for a preview-only patch.",
@@ -234,10 +337,46 @@ export default defineAction({
       .optional()
       .default(false)
       .describe("Include patched HTML content in the response."),
+    activeBreakpoint: z
+      .enum(TAILWIND_PREFIXES)
+      .optional()
+      .nullable()
+      .describe(
+        "Active canvas breakpoint prefix. When set and the intent is a 'class' edit, the change is written as a breakpoint-scoped Tailwind class (e.g. 'md:text-lg') instead of a global class. 'base' writes an unprefixed class (same as omitting this field). Takes priority over activeFrameWidthPx.",
+      ),
+    activeFrameWidthPx: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .nullable()
+      .describe(
+        "Canvas frame width in pixels. When activeBreakpoint is not set, this is used to derive the Tailwind responsive prefix (via widthToPrefix) and scope class edits accordingly. Ignored when activeBreakpoint is provided.",
+      ),
   }),
-  run: async ({ source, intent, includeContent }) => {
+  run: async ({
+    source,
+    intent,
+    includeContent,
+    activeBreakpoint,
+    activeFrameWidthPx,
+  }) => {
     const actionSource = source as VisualEditActionSource;
-    const editIntent = intent as EditIntent;
+    let editIntent = intent as EditIntent;
+
+    // Breakpoint scoping: when the caller specifies an active breakpoint (or
+    // frame width) and the intent is a plain `"class"` edit, convert it to a
+    // `"responsive-class"` edit scoped to the appropriate Tailwind prefix.
+    // All other intent kinds (style, textContent, moveNode, responsive-class)
+    // are passed through unchanged — the caller either already supplied the
+    // correct prefix (responsive-class) or does not need one (the others).
+    const activePrefix = resolveActivePrefix(
+      activeBreakpoint,
+      activeFrameWidthPx,
+    );
+    if (activePrefix !== null && editIntent.kind === "class") {
+      editIntent = scopeClassIntentToBreakpoint(editIntent, activePrefix);
+    }
 
     if (actionSource.kind === "inline-html") {
       const codeLayerSource: CodeLayerSource = {

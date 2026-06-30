@@ -1,4 +1,8 @@
-import { useT } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
 import {
   alphaToOpacity,
@@ -14,13 +18,15 @@ import {
   IconAlignRight,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
+  IconArrowRight,
   IconBackground,
   IconBlur,
   IconBorderStyle,
   IconBrush,
-  IconChevronDown,
   IconCode,
   IconComponents,
+  IconDeviceDesktop,
+  IconExternalLink,
   IconDroplet,
   IconEye,
   IconEyeOff,
@@ -29,6 +35,8 @@ import {
   IconFrame,
   IconLayoutDistributeHorizontal,
   IconLayoutGrid,
+  IconLoader2,
+  IconShieldCheck,
   IconSlice,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
@@ -54,6 +62,14 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -107,10 +123,22 @@ import {
   type DesignGradientType,
 } from "./inspector";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
+import { ReviewPanel } from "./ReviewPanel";
+import type { ReviewPanelProps } from "./ReviewPanel";
+import { StatesPanel } from "./StatesPanel";
+import type { StatesPanelProps } from "./StatesPanel";
+import { TokensPanel } from "./TokensPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
 export type InspectorTab = "design" | "tweaks" | "extensions";
+
+/**
+ * Sub-tab within the Tweaks area: "tokens" = TokensPanel face (CSS-var
+ * editing through the Tweaks loop); "tweaks" = raw TweakDefinition controls.
+ * Defaults to "tokens" when a designId is provided, otherwise "tweaks".
+ */
+type TweaksSubTab = "tokens" | "tweaks";
 
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
@@ -129,6 +157,73 @@ interface EditPanelProps {
   onStylesChange?: (styles: Record<string, string>) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
+  // -------------------------------------------------------------------------
+  // Design Studio panels (§6.2, §6.4, §6.5)
+  // Pass `designId` to unlock Tokens, States, and Review sections.
+  // -------------------------------------------------------------------------
+  /** The active design's id — required to mount Tokens / States / Review. */
+  designId?: string;
+  /**
+   * Called after a token edit is applied so the parent can push the resolved
+   * CSS-var map into the iframe via the tweak-values postMessage.
+   */
+  onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
+  /** Props forwarded to the StatesPanel (§6.4). Requires `designId`. */
+  statesPanelProps?: Omit<StatesPanelProps, "designId">;
+  /** Props forwarded to the ReviewPanel (§6.5). */
+  reviewPanelProps?: Omit<ReviewPanelProps, "className">;
+  // -------------------------------------------------------------------------
+  // Component section (§6.1)
+  // When a component instance is selected, pass its node id here to unlock
+  // the contextual Component section at the top of the Design tab.
+  // -------------------------------------------------------------------------
+  /**
+   * The `data-agent-native-node-id` of the currently-selected component root
+   * element.  When provided (along with `designId`), a Component section is
+   * shown at the top of the Design tab with name, source path, prop controls,
+   * and an Edit component action.
+   */
+  componentNodeId?: string;
+  /**
+   * Source capabilities for the current design.  Used to gate the Edit
+   * component / jump-to-source affordances.  When absent all writes default
+   * to disabled (inline / Alpine tier behaviour).
+   */
+  sourceCapabilities?: string[];
+  // -------------------------------------------------------------------------
+  // Selection header quick actions ("Create component" + "Inspect code")
+  // -------------------------------------------------------------------------
+  /**
+   * Promote the current selection into a reusable component. Receives the
+   * (already-normalized-by-the-action) component name the user typed. When
+   * omitted the "Create component" button is disabled.
+   */
+  onCreateComponent?: (name: string) => void;
+  /** Suggested default name for the create-component dialog. */
+  defaultComponentName?: string;
+  /** Code-inspection data for the "Inspect code" popover. */
+  inspectCode?: InspectCodeData;
+}
+
+/**
+ * Data backing the "Inspect code" popover. The parent resolves the selected
+ * node's HTML and (for real-app sources) its source file location.
+ */
+export interface InspectCodeData {
+  /** Outer HTML of the selected element (inline / Alpine source). */
+  html?: string | null;
+  /**
+   * Resolved source file for real-app sources (localhost / fusion), when the
+   * resolveNodeToFile capability is available.
+   */
+  sourceLocation?: {
+    /** Absolute path on disk — used to build the vscode:// deep link. */
+    absolutePath: string;
+    line?: number;
+    column?: number;
+    /** Optional snippet to show above the Open-in-VS-Code button. */
+    snippet?: string;
+  } | null;
 }
 
 /**
@@ -1715,6 +1810,206 @@ function commitElementSizing(
   commitStylePatch(patch, onStyleChange, onStylesChange);
 }
 
+/**
+ * Small modal that prompts for a component name, then promotes the current
+ * selection into a reusable component via `onSubmit`.
+ */
+function CreateComponentDialog({
+  open,
+  onOpenChange,
+  defaultName,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  defaultName: string;
+  onSubmit: (name: string) => void;
+}) {
+  const [name, setName] = useState(defaultName);
+
+  // Reset the field to the freshest default each time the dialog opens.
+  useEffect(() => {
+    if (open) setName(defaultName);
+  }, [open, defaultName]);
+
+  const commit = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            {"Create component" /* i18n-ignore design inspector action */}
+          </DialogTitle>
+          <DialogDescription>
+            {
+              "Name this element so it becomes a reusable component. The agent can then extract props and replace repeated instances." /* i18n-ignore design inspector copy */
+            }
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label
+            htmlFor="create-component-name"
+            className="text-[11px] font-medium text-muted-foreground"
+          >
+            {"Component name" /* i18n-ignore design inspector label */}
+          </Label>
+          <Input
+            id="create-component-name"
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+              }
+            }}
+            placeholder={
+              "PrimaryButton" /* i18n-ignore design inspector placeholder */
+            }
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+          >
+            {"Cancel" /* i18n-ignore design inspector action */}
+          </Button>
+          <Button type="button" onClick={commit} disabled={!name.trim()}>
+            {"Create" /* i18n-ignore design inspector action */}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Build a `vscode://file/...` deep link for an absolute path + position. */
+function vscodeDeepLink(
+  absolutePath: string,
+  line?: number,
+  column?: number,
+): string {
+  const base = `vscode://file/${absolutePath}`;
+  if (line == null) return base;
+  return column == null ? `${base}:${line}` : `${base}:${line}:${column}`;
+}
+
+/**
+ * Popover anchored to the "Inspect code" button showing the selected node's
+ * code.  Inline/Alpine sources show the element's outer HTML with a Copy
+ * button; real-app sources additionally render an "Open in VS Code" button.
+ *
+ * TODO: replace the read-only <pre> with an inline Monaco editor for richer
+ * (editable) code inspection once the editor bundle is wired into the inspector.
+ */
+function InspectCodePopover({
+  trigger,
+  data,
+}: {
+  trigger: ReactNode;
+  data: InspectCodeData;
+}) {
+  const [copied, setCopied] = useState(false);
+  const html = data.html ?? "";
+  const source = data.sourceLocation ?? null;
+  const snippet = source?.snippet || html;
+
+  const handleCopy = () => {
+    if (!snippet) return;
+    void navigator.clipboard
+      ?.writeText(snippet)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {
+        /* clipboard may be unavailable; ignore */
+      });
+  };
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent align="end" className="w-80 space-y-2 p-2 text-[11px]">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+            {"Inspect code" /* i18n-ignore design inspector label */}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={handleCopy}
+            disabled={!snippet}
+          >
+            {
+              copied
+                ? "Copied" /* i18n-ignore design inspector action */
+                : "Copy" /* i18n-ignore design inspector action */
+            }
+          </Button>
+        </div>
+
+        {source && (
+          <div
+            className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
+            title={source.absolutePath}
+          >
+            <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
+            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+              {source.absolutePath}
+              {source.line != null ? `:${source.line}` : ""}
+            </span>
+          </div>
+        )}
+
+        {snippet ? (
+          <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
+            <code>{snippet}</code>
+          </pre>
+        ) : (
+          <p className="px-1 py-2 text-muted-foreground">
+            {
+              "No source available for this element." /* i18n-ignore design inspector empty */
+            }
+          </p>
+        )}
+
+        {source && (
+          <a
+            href={vscodeDeepLink(
+              source.absolutePath,
+              source.line,
+              source.column,
+            )}
+            className="block"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-full gap-1.5 text-[11px]"
+            >
+              <IconExternalLink className="size-3.5" />
+              {"Open in VS Code" /* i18n-ignore design inspector action */}
+            </Button>
+          </a>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function elementTypeIcon(element: ElementInfo) {
   const tag = element.tagName || "element";
   if (TEXT_TAGS.has(tag)) return IconTypography;
@@ -1724,35 +2019,55 @@ function elementTypeIcon(element: ElementInfo) {
   return IconFrame;
 }
 
-function SelectionHeader({ element }: { element: ElementInfo | null }) {
+function SelectionHeader({
+  element,
+  onCreateComponent,
+  inspectCodePopover,
+}: {
+  element: ElementInfo | null;
+  /** Promote the current selection into a reusable component. Omit/undefined to disable. */
+  onCreateComponent?: () => void;
+  /**
+   * Render prop for the "Inspect code" affordance. Receives the trigger button
+   * so the parent can anchor a Popover to it; returns the full popover element.
+   * When omitted the button renders disabled.
+   */
+  inspectCodePopover?: (trigger: ReactNode) => ReactNode;
+}) {
   if (!element) return null;
 
   const title = inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
 
+  const inspectTrigger = (
+    <SectionIconButton
+      label={"Inspect code" /* i18n-ignore design inspector action */}
+      disabled={!inspectCodePopover}
+    >
+      <IconCode className="size-3.5" />
+    </SectionIconButton>
+  );
+
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-      {/* M3 · Node-type label + rename/type dropdown affordance (▾) */}
-      <button
-        type="button"
-        className="flex min-w-0 items-center gap-1.5 bg-transparent text-left text-[13px] font-semibold text-foreground"
-      >
+      {/* Node-type label. Rename lives in the layers panel and device sizing
+          lives elsewhere, so this is a plain non-interactive label. */}
+      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
         <TypeIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">{title}</span>
-        <IconChevronDown className="size-2.5 shrink-0 text-muted-foreground" />
-      </button>
-      {/* M3 · Right-aligned quick actions: create-component + dev inspect (</>) */}
+      </div>
+      {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
       <div className="flex shrink-0 items-center gap-0.5">
         <SectionIconButton
           label={"Create component" /* i18n-ignore design inspector action */}
+          disabled={!onCreateComponent}
+          onClick={onCreateComponent}
         >
           <IconComponents className="size-3.5" />
         </SectionIconButton>
-        <SectionIconButton
-          label={"Inspect code" /* i18n-ignore design inspector action */}
-        >
-          <IconCode className="size-3.5" />
-        </SectionIconButton>
+        {inspectCodePopover
+          ? inspectCodePopover(inspectTrigger)
+          : inspectTrigger}
       </div>
     </div>
   );
@@ -4357,6 +4672,423 @@ const TEXT_TAGS = new Set([
   "li",
 ]);
 
+// ─── Make it real — inline upgrade card (§3, §6.6) ──────────────────────────
+
+/**
+ * Payload shape returned by `connect-builder-app`.  Only the fields used by
+ * the card UI are typed here; the action may return additional fields.
+ */
+interface ConnectBuilderAppResult {
+  connected: boolean;
+  builderEnabled: boolean;
+  connectUrl: string;
+  appHost: string;
+  branchProjectId?: string;
+  cta: {
+    kind: "connect-builder" | "configure-project";
+    label: string;
+    description: string;
+    primaryAction: string;
+    connectUrl: string;
+  } | null;
+  message: string;
+}
+
+/**
+ * Inline "Make it real" upgrade card.
+ *
+ * Rendered wherever a real-app-only control is reached on an inline design
+ * (Component source jump, token write-back, live captures, etc.).  Queries
+ * `connect-builder-app` to determine the current connection state, then
+ * offers the appropriate CTA:
+ *
+ *   - Not connected → "Connect Builder.io" button (opens connectUrl)
+ *   - Connected, no project → "Open Builder settings" (configure project ID)
+ *   - Fully enabled → "Make it real" button (calls migrate-inline-design-to-app)
+ *
+ * The card is progressively disclosed: it only mounts when a gated control is
+ * actually reached, so it never appears for users who are already on a real-app
+ * source (`localhost` / `fusion`) or whose `sourceCapabilities` already include
+ * the needed capability.
+ *
+ * Matches the design-editor panel chrome: dashed-border, accent tint, small
+ * text at 10px — same idiom as the existing `ctaRequired` block in
+ * ComponentSection.
+ */
+function MakeItRealCard({
+  designId,
+  featureLabel,
+}: {
+  /** The active design id — required to call connect-builder-app. */
+  designId: string;
+  /**
+   * Short human-readable label for the gated feature (e.g. "token write-back",
+   * "component source jump", "live captures"). Shown in the card body so the
+   * user understands exactly what they're unlocking.
+   */
+  featureLabel: string;
+}) {
+  const { data, isLoading } = useActionQuery<ConnectBuilderAppResult>(
+    "connect-builder-app",
+    { designId },
+  );
+
+  const migrateMutation = useActionMutation("migrate-inline-design-to-app");
+
+  // While fetching status, show a muted placeholder that matches the card
+  // height so the inspector doesn't jump when the data arrives.
+  if (isLoading || !data) {
+    return (
+      <div className="rounded-md border border-dashed border-[var(--design-editor-accent-color)]/20 bg-[var(--design-editor-accent-color)]/3 px-2.5 py-2">
+        <div className="h-3 w-32 animate-pulse rounded bg-muted/40" />
+      </div>
+    );
+  }
+
+  // Determine which CTA to show.
+  const cta = data.cta;
+
+  // Already fully enabled — no CTA needed (caller should already have gated
+  // this component away, but guard here for safety).
+  if (!cta) return null;
+
+  const isPending = migrateMutation.isPending;
+  const migrateError = migrateMutation.error;
+
+  // "Make it real" primary action: open the connect URL or migrate.
+  const handlePrimary = () => {
+    if (cta.kind === "connect-builder") {
+      // Open the Builder OAuth connect flow in a new tab.  The user completes
+      // it there and comes back; the card will re-query on next render.
+      window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (cta.kind === "configure-project") {
+      window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+  };
+
+  const handleMigrate = () => {
+    migrateMutation.mutate({ designId });
+  };
+
+  // Migration result — show branch link.
+  const migrateResult = migrateMutation.data as
+    | {
+        status: "processing";
+        branchName?: string;
+        url?: string;
+        message?: string;
+      }
+    | undefined;
+
+  if (migrateResult?.status === "processing" && migrateResult.url) {
+    return (
+      <div className="rounded-md border border-[var(--design-editor-accent-color)]/30 bg-[var(--design-editor-accent-color)]/8 px-2.5 py-2 space-y-1.5">
+        <p className="text-[10px] font-semibold text-[var(--design-editor-accent-color)]">
+          {"Builder is working on it" /* i18n-ignore make-it-real card */}
+        </p>
+        <p className="text-[10px] leading-snug text-muted-foreground">
+          {migrateResult.message ??
+            `Branch "${migrateResult.branchName}" is being generated.`}
+        </p>
+        <a
+          href={migrateResult.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-[var(--design-editor-accent-color)] hover:underline"
+        >
+          {"Open in Builder" /* i18n-ignore make-it-real card */}
+          <IconExternalLink className="size-2.5" />
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-dashed border-[var(--design-editor-accent-color)]/30 bg-[var(--design-editor-accent-color)]/5 px-2.5 py-2 space-y-1.5">
+      {/* Header */}
+      <p className="text-[10px] font-semibold text-foreground">
+        {"Make this a real app" /* i18n-ignore make-it-real card */}
+      </p>
+
+      {/* Body */}
+      <p className="text-[10px] leading-snug text-muted-foreground">
+        {cta.description}
+        {featureLabel ? (
+          <>
+            {" "}
+            <span className="italic">{featureLabel}</span>
+            {" requires a real-app source."}
+          </>
+        ) : null}
+      </p>
+
+      {/* Error */}
+      {migrateError ? (
+        <p className="text-[10px] text-destructive">
+          {migrateError instanceof Error
+            ? migrateError.message
+            : "Migration failed. Please try again."}
+        </p>
+      ) : null}
+
+      {/* Actions */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <button
+          type="button"
+          onClick={handlePrimary}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium bg-[var(--design-editor-accent-color)] text-white hover:opacity-90 transition-opacity"
+        >
+          {cta.primaryAction}
+          <IconArrowRight className="size-2.5" />
+        </button>
+
+        {/* When Builder is fully connected, also offer direct migration */}
+        {data.connected && data.builderEnabled && (
+          <button
+            type="button"
+            onClick={handleMigrate}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 rounded border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:cursor-wait disabled:opacity-60"
+          >
+            {isPending ? (
+              <>
+                <IconLoader2 className="size-2.5 animate-spin" />
+                {"Migrating…" /* i18n-ignore make-it-real card */}
+              </>
+            ) : (
+              <>{"Generate React app" /* i18n-ignore make-it-real card */}</>
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Component section (§6.1) ─────────────────────────────────────────────────
+
+/**
+ * Shape returned by `get-component-details`.  Only the fields the UI needs are
+ * typed here; the action may return additional fields.
+ */
+interface ComponentDetailsResult {
+  name: string;
+  sourceType: string;
+  observedProps: Array<{ name: string; value: string }>;
+  persistedVariants: Record<string, string[]>;
+  sourceLocation?: { filePath: string; exportName?: string } | null;
+  capabilities: {
+    canResolveToFile: boolean;
+    hasFullIndex: boolean;
+    canEditProps: boolean;
+    ctaRequired: boolean;
+    ctaMessage?: string;
+  };
+}
+
+/**
+ * Contextual COMPONENT section rendered inside the Design tab when the
+ * selected element is a component instance (carries
+ * `data-agent-native-component`).
+ *
+ * Shows: component name, source path (when capability available), observed
+ * prop values, variant/size/state controls from `get-component-details`, and
+ * an "Edit component source" action.  Real-app features are gated by the
+ * capabilities returned by the action; Alpine gets a lightweight read-only
+ * view plus a Connect-Builder CTA.
+ *
+ * Matches the workbench artboard spec in DESIGN-STUDIO-PLAN.md §6.1.
+ */
+function ComponentSection({
+  designId,
+  nodeId,
+  sourceCapabilities = [],
+}: {
+  designId: string;
+  nodeId: string;
+  /** Capability names advertised by the current source. */
+  sourceCapabilities?: string[];
+}) {
+  const { data, isLoading, error } = useActionQuery<ComponentDetailsResult>(
+    "get-component-details",
+    { designId, nodeId },
+  );
+
+  const openSourceMutation = useActionMutation("open-component-source");
+
+  // While loading, show a compact skeleton that matches the section width.
+  if (isLoading) {
+    return (
+      <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
+        <div className="flex min-h-9 items-center gap-2 px-3">
+          <div className="h-3 w-24 animate-pulse rounded bg-muted/50" />
+        </div>
+        <div className="space-y-1.5 px-3 pb-3 pt-0.5">
+          <div className="h-5 w-full animate-pulse rounded bg-muted/40" />
+          <div className="h-5 w-3/4 animate-pulse rounded bg-muted/40" />
+        </div>
+      </section>
+    );
+  }
+
+  // Hard error (node not found, no access, etc.) — collapse silently so
+  // the rest of the inspector is not disrupted.
+  if (error || !data) return null;
+
+  const {
+    name,
+    sourceLocation,
+    observedProps,
+    persistedVariants,
+    capabilities,
+  } = data;
+
+  // ── Variant groups (from persistedVariants for real-app, or a single
+  //    "x-data" pseudo-group for Alpine).
+  const variantGroups = Object.entries(persistedVariants);
+  const hasVariants = variantGroups.length > 0;
+
+  // ── Capability gates ──
+  const canJumpToSource =
+    capabilities.canResolveToFile &&
+    Boolean(sourceLocation?.filePath) &&
+    sourceCapabilities.includes("resolveNodeToFile");
+
+  // ── Source chip text ──
+  const sourceChip = sourceLocation?.exportName
+    ? `${sourceLocation.exportName} — ${sourceLocation.filePath}`
+    : (sourceLocation?.filePath ?? null);
+
+  return (
+    <section
+      className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0"
+      data-testid="component-section"
+    >
+      {/* ── Section header ── */}
+      <div className="flex min-h-9 items-center gap-2 px-3">
+        {/* Accent diamond matching the workbench artboard component rows */}
+        <span
+          className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-accent-color)]"
+          aria-hidden="true"
+        />
+        <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
+          {name}
+        </h3>
+        {/* Jump-to-source action */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!canJumpToSource}
+              aria-label={
+                "Edit component source" /* i18n-ignore design inspector action */
+              }
+              onClick={() => {
+                openSourceMutation.mutate({ designId, nodeId });
+              }}
+            >
+              <IconExternalLink className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {
+              canJumpToSource
+                ? "Edit component source" /* i18n-ignore design inspector action */
+                : (capabilities.ctaMessage ??
+                  "Connect Builder to jump to component source") /* i18n-ignore design inspector tooltip */
+            }
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="space-y-1.5 px-3 pb-3 pt-0.5 text-[11px]">
+        {/* Source path chip */}
+        {sourceChip && (
+          <div
+            className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
+            title={sourceChip}
+          >
+            <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
+            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+              {sourceChip}
+            </span>
+          </div>
+        )}
+
+        {/* Observed props (attribute-level, Alpine + real-app) */}
+        {observedProps.length > 0 && (
+          <div className="space-y-1">
+            {observedProps.map((prop) => (
+              <div key={prop.name} className="flex items-center gap-1.5">
+                <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground">
+                  {prop.name}
+                </Label>
+                <span className="min-w-0 flex-1 truncate rounded bg-[var(--design-editor-control-bg)] px-1.5 py-0.5 text-[11px] text-foreground">
+                  {prop.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Variant controls (real-app tier: persistedVariants from component_index) */}
+        {hasVariants && (
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+              {"Variants" /* i18n-ignore design inspector label */}
+            </p>
+            {variantGroups.map(([groupName, options]) => (
+              <div key={groupName} className="flex items-center gap-1.5">
+                <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground capitalize">
+                  {groupName}
+                </Label>
+                <Select
+                  value={
+                    observedProps.find((p) => p.name === groupName)?.value ??
+                    options[0] ??
+                    ""
+                  }
+                  onValueChange={() => {
+                    // Preview-only on Alpine; real-app writes go through
+                    // apply-component-prop-edit (wired when capability lands).
+                  }}
+                  disabled={!capabilities.canEditProps}
+                >
+                  <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((opt) => (
+                      <SelectItem key={opt} value={opt} className="text-[11px]">
+                        {opt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Connect-Builder CTA (inline, only when real-app features are gated) */}
+        {capabilities.ctaRequired && (
+          <MakeItRealCard
+            designId={designId}
+            featureLabel="component source jump and full prop controls"
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function EditPanel({
   selectedElement,
   pageStyles = {},
@@ -4373,12 +5105,29 @@ export function EditPanel({
   onStylesChange,
   onExport,
   exporting = false,
+  designId,
+  onTokensApplied,
+  statesPanelProps,
+  reviewPanelProps,
+  componentNodeId,
+  sourceCapabilities = [],
+  onCreateComponent,
+  defaultComponentName = "Component",
+  inspectCode,
 }: EditPanelProps) {
   const t = useT();
+  const [createComponentOpen, setCreateComponentOpen] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
     DEFAULT_EXPORT_SETTINGS,
   );
   const [showExportPreview, setShowExportPreview] = useState(false);
+  // Sub-tab within the Tweaks area: "tokens" (TokensPanel face) or "tweaks"
+  // (raw TweakDefinition controls). Always default to the existing "tweaks"
+  // controls so opening Tweaks lands on the user's TweakDefinition controls
+  // (and the + affordance) rather than auto-firing token indexing. "Tokens"
+  // remains available as a sub-tab the user can click when designId is set.
+  const [tweaksSubTab, setTweaksSubTab] = useState<TweaksSubTab>("tweaks");
+
   const selectedElementKey = selectedElement
     ? elementIdentityKey(selectedElement)
     : "none";
@@ -4394,6 +5143,16 @@ export function EditPanel({
       onTweakChange?.(tweakId, value);
     },
     [onTweakChange],
+  );
+  // The "Add Tweaks" (+) flow lives only on the "tweaks" sub-tab. Switch to it
+  // before opening the prompt so the + button and the newly added control are
+  // visible (avoids leaving the user on the Tokens sub-tab where + isn't shown).
+  const handleRequestTweaks = useCallback(
+    (anchor: HTMLElement) => {
+      setTweaksSubTab("tweaks");
+      onRequestTweaks?.(anchor);
+    },
+    [onRequestTweaks],
   );
 
   useEffect(() => {
@@ -4417,9 +5176,41 @@ export function EditPanel({
 
       {activeTab === "design" ? (
         <>
-          <SelectionHeader element={selectedElement} />
+          <SelectionHeader
+            element={selectedElement}
+            onCreateComponent={
+              onCreateComponent && selectedElement
+                ? () => setCreateComponentOpen(true)
+                : undefined
+            }
+            inspectCodePopover={
+              inspectCode && selectedElement
+                ? (trigger) => (
+                    <InspectCodePopover trigger={trigger} data={inspectCode} />
+                  )
+                : undefined
+            }
+          />
+          {onCreateComponent && (
+            <CreateComponentDialog
+              open={createComponentOpen}
+              onOpenChange={setCreateComponentOpen}
+              defaultName={defaultComponentName}
+              onSubmit={onCreateComponent}
+            />
+          )}
 
           <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {/* §6.1 Component section — shown at the top when a component
+                instance is selected. Requires designId + componentNodeId. */}
+            {designId && componentNodeId && (
+              <ComponentSection
+                designId={designId}
+                nodeId={componentNodeId}
+                sourceCapabilities={sourceCapabilities}
+              />
+            )}
+
             {!selectedElement && (
               <PageProperties
                 styles={pageStyles}
@@ -4507,40 +5298,212 @@ export function EditPanel({
                 ) : null}
               </PanelSection>
             ) : null}
+
+            {/* §6.4 States & Responsive — contextual section in Design tab.
+                Collapsed by default so existing Design content is not buried.
+                Only mounts when designId is provided so there is something to
+                load; without it the panel would fire an action with no id. */}
+            {designId && statesPanelProps ? (
+              <PanelSection
+                title={"States" /* i18n-ignore design inspector section */}
+                defaultCollapsed
+                actions={
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                        aria-label={
+                          "Breakpoints & states" /* i18n-ignore design inspector action */
+                        }
+                      >
+                        <IconDeviceDesktop className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {
+                        "Breakpoints & states" /* i18n-ignore design inspector action */
+                      }
+                    </TooltipContent>
+                  </Tooltip>
+                }
+              >
+                <StatesPanel designId={designId} {...statesPanelProps} />
+                {/* §6.4 / §6.6 — live captures (real running-app data, route
+                    props, API responses) are a real-app capability. When
+                    canCapture is false (inline source) surface a compact
+                    "Make it real" CTA so the user knows it's one step away. */}
+                {!statesPanelProps.canCapture && (
+                  <MakeItRealCard
+                    designId={designId}
+                    featureLabel="live data captures and real-app states"
+                  />
+                )}
+              </PanelSection>
+            ) : null}
+
+            {/* §6.5 Review — contextual section in Design tab.
+                Collapsed by default. Renders when reviewPanelProps is provided,
+                no designId check needed since ReviewPanel is statically fed. */}
+            {reviewPanelProps ? (
+              <PanelSection
+                title={"Review" /* i18n-ignore design inspector section */}
+                defaultCollapsed
+                actions={
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                        aria-label={
+                          "Accessibility & visual diff" /* i18n-ignore design inspector action */
+                        }
+                      >
+                        <IconShieldCheck className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {
+                        "Accessibility & visual diff" /* i18n-ignore design inspector action */
+                      }
+                    </TooltipContent>
+                  </Tooltip>
+                }
+              >
+                {/* ReviewPanel manages its own scroll; no extra wrapper needed. */}
+                <ReviewPanel {...reviewPanelProps} />
+              </PanelSection>
+            ) : null}
           </div>
         </>
       ) : activeTab === "tweaks" ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-            <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-              {t("designEditor.tweaks")}
-            </h3>
-            {onRequestTweaks ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-                    aria-label={t("designEditor.addTweaks")}
-                    onClick={(event) => onRequestTweaks(event.currentTarget)}
-                  >
-                    <IconPlus className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("designEditor.addTweaks")}</TooltipContent>
-              </Tooltip>
-            ) : null}
-          </div>
+          {/* Tweaks tab header: when designId is present show a Tokens | Tweaks
+              sub-tab switcher so the TokensPanel is the first-class face of
+              this area per §6.2. When there is no designId only the raw tweaks
+              title is shown (original behaviour). */}
+          {designId ? (
+            <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border/90 px-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-6 rounded-md px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground",
+                  tweaksSubTab === "tokens" &&
+                    "bg-[var(--design-editor-panel-raised-bg)] text-foreground",
+                )}
+                onClick={() => setTweaksSubTab("tokens")}
+              >
+                <IconPalette className="mr-1 size-3" />
+                {"Tokens" /* i18n-ignore design inspector sub-tab */}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-6 rounded-md px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground",
+                  tweaksSubTab === "tweaks" &&
+                    "bg-[var(--design-editor-panel-raised-bg)] text-foreground",
+                )}
+                onClick={() => setTweaksSubTab("tweaks")}
+              >
+                {t("designEditor.tweaks")}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
+              <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+                {t("designEditor.tweaks")}
+              </h3>
+              {onRequestTweaks ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label={t("designEditor.addTweaks")}
+                      onClick={(event) =>
+                        handleRequestTweaks(event.currentTarget)
+                      }
+                    >
+                      <IconPlus className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("designEditor.addTweaks")}</TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
+          )}
+
           <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <TweaksPanelContent
-              tweaks={tweaks}
-              values={tweakValues}
-              onChange={handleTweakChange}
-              onRequestTweaks={onRequestTweaks}
-              className="px-3 py-3"
-            />
+            {designId && tweaksSubTab === "tokens" ? (
+              /* §6.2 Tokens face — first-class view of the Tweaks area.
+                 TokensPanel calls apply-design-token-edit which routes through
+                 the Tweaks loop (designs.data.tweakSelections persist). */
+              <>
+                <TokensPanel
+                  designId={designId}
+                  onTokensApplied={onTokensApplied}
+                />
+                {/* §5 / §6.6 — token write-back to source is a real-app
+                    capability. On inline sources (sourceCapabilities lacks
+                    "writeFile") show a compact "Make it real" CTA after the
+                    token list so the user knows write-back is one step away. */}
+                {!sourceCapabilities.includes("writeFile") && (
+                  <div className="px-3 pb-3 pt-1">
+                    <MakeItRealCard
+                      designId={designId}
+                      featureLabel="token write-back to source files"
+                    />
+                  </div>
+                )}
+              </>
+            ) : (
+              /* Raw TweakDefinition controls — shown when no designId, or when
+                 the user switches to the Tweaks sub-tab. */
+              <>
+                {designId && onRequestTweaks ? (
+                  /* When in sub-tab mode, show the add-tweaks action in the
+                     scrollable content area above the raw controls. */
+                  <div className="flex items-center justify-end px-3 pt-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                          aria-label={t("designEditor.addTweaks")}
+                          onClick={(event) =>
+                            handleRequestTweaks(event.currentTarget)
+                          }
+                        >
+                          <IconPlus className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("designEditor.addTweaks")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                ) : null}
+                <TweaksPanelContent
+                  tweaks={tweaks}
+                  values={tweakValues}
+                  onChange={handleTweakChange}
+                  onRequestTweaks={!designId ? handleRequestTweaks : undefined}
+                  className="px-3 py-3"
+                />
+              </>
+            )}
           </div>
         </div>
       ) : extensionContext ? (

@@ -35,6 +35,7 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import { resolveSourceCapabilities } from "@shared/capability-resolver";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
@@ -44,11 +45,18 @@ import {
   type CodeLayerNode,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
+import { componentNameFor, isComponentInstance } from "@shared/component-model";
+import {
+  DESIGN_CAPABILITY_NAMES,
+  hasCapability,
+} from "@shared/design-source-capabilities";
 import { shouldUseLiveFileContent } from "@shared/html-content";
 import {
   resolveTweaksToCssVars,
   type TweakSelections,
 } from "@shared/resolve-tweaks";
+import { widthToPrefix } from "@shared/responsive-classes";
+import { normalizeDesignSourceType } from "@shared/source-mode";
 import {
   IconArrowLeft,
   IconArrowUpRight,
@@ -90,6 +98,9 @@ import {
   IconFileExport,
   IconPlayerPlay,
   IconDeviceFloppy,
+  IconRocket,
+  IconExternalLink,
+  IconCircleCheck,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -117,7 +128,11 @@ import {
 } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import type { DesignExtensionSlotContext } from "@/components/design/DesignExtensionsPanel";
-import { EditPanel, type InspectorTab } from "@/components/design/EditPanel";
+import {
+  EditPanel,
+  type InspectCodeData,
+  type InspectorTab,
+} from "@/components/design/EditPanel";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import {
   LayersPanel,
@@ -125,6 +140,10 @@ import {
   type LayersPanelMoveIntent,
   type LayersPanelNode,
 } from "@/components/design/LayersPanel";
+import {
+  MotionDock,
+  type MotionDockTrack,
+} from "@/components/design/MotionDock";
 import {
   MultiScreenCanvas,
   type CanvasPrimitiveInsert,
@@ -138,6 +157,14 @@ import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2327,6 +2354,24 @@ export default function DesignEditor() {
   const spaceHandPreviousToolRef = useRef<DesignTool | null>(null);
   const hasSelectedElement = Boolean(selectedElement);
 
+  // ── Motion dock state (§6.3) ────────────────────────────────────────────────
+  // The MotionDock is mounted below the canvas and shown when motionDockOpen.
+  // Tracks and durationMs are local state; "Write to CSS" calls applyMotionEdit.
+  const [motionDockOpen, setMotionDockOpen] = useState(false);
+  const [motionTracks, setMotionTracks] = useState<MotionDockTrack[]>([]);
+  const [motionDurationMs, setMotionDurationMs] = useState(1000);
+
+  // ── Breakpoint preview state (§6.4) ─────────────────────────────────────────
+  // Active breakpoint width for the current design (pixels). Controls which
+  // side-by-side frame is focused. undefined = no frame selected (overview mode).
+  const [activeBreakpointWidthState, setActiveBreakpointWidthState] = useState<
+    number | undefined
+  >(undefined);
+
+  // ── Design state selection (§6.4 / §8) ───────────────────────────────────────
+  // null = Default (live) view; a string id = one of the design_state rows.
+  const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isBuilderDesignEmbed) return;
     // Announce ready to Builder. The trusted origin is not yet known at this
@@ -2847,6 +2892,45 @@ export default function DesignEditor() {
   );
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
+  const applyMotionEditMutation = useActionMutation("apply-motion-edit");
+  // §6.4 breakpoint mutations — wired to MultiScreenCanvas + affordance
+  const addBreakpointMutation = useActionMutation("add-breakpoint");
+  const setActiveBreakpointMutation = useActionMutation(
+    "set-active-breakpoint",
+  );
+
+  // §6.1 — promote a selection into a reusable component instance.
+  const createComponentMutation = useActionMutation("create-component");
+  // §6.1 — jump to a component instance's source (selects the root + navigates).
+  const openComponentSourceMutation = useActionMutation(
+    "open-component-source",
+  );
+
+  // §6.6 — "Make it real" migration flow (migrate-inline-design-to-app).
+  // The mutation stays unconditional; the dialog gates on isSignedIn.
+  const migrateMutation = useActionMutation("migrate-inline-design-to-app");
+
+  // Dialog open/close state for the "Make this a real app" flow.
+  const [makeRealDialogOpen, setMakeRealDialogOpen] = useState(false);
+
+  // Result payload returned by migrate-inline-design-to-app on success.
+  // `null` = not yet migrated; populated once the Builder agent accepts the job.
+  const [migrationResult, setMigrationResult] = useState<{
+    branchName?: string;
+    url?: string;
+    versionId?: string;
+    seedFileCount?: number;
+    status?: string;
+    projectId?: string;
+    cta?: {
+      kind: string;
+      label: string;
+      description: string;
+      connectUrl?: string;
+      primaryAction: string;
+    };
+  } | null>(null);
+
   const [, setPatchProof] = useState<PatchProofState | null>(null);
   const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
     {},
@@ -3267,6 +3351,61 @@ export default function DesignEditor() {
     },
     [syncUndoRedoState],
   );
+
+  // §6.6 — "Make this a real app" handler.
+  // Opens the dialog; actual migration fires when the user confirms.
+  const handleOpenMakeReal = useCallback(() => {
+    setMigrationResult(null);
+    setMakeRealDialogOpen(true);
+  }, []);
+
+  // Fires when the user clicks "Start migration" in the dialog.
+  // Calls migrate-inline-design-to-app, then on success flips sourceType to
+  // "fusion" in the design data blob so gated panels light up.
+  const handleConfirmMakeReal = useCallback(async () => {
+    if (!id) return;
+    try {
+      const result = await migrateMutation.mutateAsync({ designId: id } as any);
+      const r = result as any;
+      setMigrationResult({
+        branchName: r?.branchName,
+        url: r?.url,
+        versionId: r?.versionId,
+        seedFileCount: r?.seedFileCount,
+        status: r?.status,
+        projectId: r?.projectId,
+        cta: r?.cta,
+      });
+
+      // When the Builder agent accepted the job (status = "processing"),
+      // flip the design data to sourceType "fusion" so capability-gated
+      // panels (branches, deploy) light up on refresh.
+      if (r?.status === "processing" && r?.url) {
+        const nextData = {
+          ...designDataJsonRef.current,
+          sourceType: "fusion",
+          fusionBranchName: r.branchName,
+          fusionUrl: r.url,
+          fusionProjectId: r.projectId,
+        };
+        updateDesignMutation.mutate(
+          { id, data: JSON.stringify(nextData) } as any,
+          {
+            onSuccess: () => {
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
+            },
+          },
+        );
+      } else if (r?.status === "not-configured") {
+        // Builder not connected — leave dialog open to show the CTA.
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Migration failed";
+      toast.error(message);
+    }
+  }, [id, migrateMutation, updateDesignMutation, queryClient]);
 
   generationOutputReadyRef.current = files.length > 0 || !!pendingVariants;
 
@@ -4023,6 +4162,22 @@ export default function DesignEditor() {
   const canvasContextMenuRef = useRef<CanvasContextMenuHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
+  // Live handle to the active DesignCanvas preview iframe. DesignCanvas owns the
+  // <iframe> internally (tagged data-design-preview-iframe) and does not forward
+  // its ref, so we resolve the element lazily from the DOM at read time. The
+  // MotionDock reads `.current` only when scrubbing, so this always returns the
+  // currently-mounted iframe even after content swaps recreate the element.
+  const canvasIframeRef = useMemo<React.RefObject<HTMLIFrameElement | null>>(
+    () => ({
+      get current() {
+        return document.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+      },
+    }),
+    [],
+  );
+
   // Broadcast pointer position (normalized to canvas container) and
   // selected element selector so peers can see where the user is working.
   const handleCanvasPointerMove = useCallback(
@@ -4140,6 +4295,141 @@ export default function DesignEditor() {
     return selectedElement?.selector ? [selectedElement.selector] : [];
   }, [selectedCodeLayerNode, selectedElement?.selector]);
   const selectedCanvasSelector = selectedCanvasSelectorCandidates[0] ?? null;
+
+  // ── Inspector header quick actions (Create component / Inspect code) ───────
+  // Resolve the design-level source type + capability map so the inspector can
+  // gate the real-app affordances (jump-to-source, prop write-back).
+  const designSourceType = useMemo(
+    () =>
+      normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
+      "inline",
+    [designDataJson.sourceType],
+  );
+  const sourceCapabilities = useMemo(() => {
+    const caps = resolveSourceCapabilities(designSourceType);
+    return DESIGN_CAPABILITY_NAMES.filter((name) => hasCapability(caps, name));
+  }, [designSourceType]);
+
+  // Builder-hosted preview URL for fusion-source designs, written into the
+  // design data blob by the "Make it real" migration. Threaded into DesignCanvas
+  // so the fusion preview renders (and so the bridge trust check can validate
+  // the frame's origin against it).
+  const designFusionUrl = useMemo(() => {
+    const raw = (designDataJson as { fusionUrl?: unknown }).fusionUrl;
+    return typeof raw === "string" && raw ? raw : undefined;
+  }, [designDataJson]);
+
+  // §6.1 — open a component instance's source. open-component-source selects the
+  // component root in the editor and emits a navigate app-state; for real-app
+  // (localhost / fusion) sources it also resolves the external file location.
+  const handleComponentSourceJump = useCallback(
+    ({ nodeId }: { nodeId: string; componentName: string }) => {
+      if (!id || !nodeId) return;
+      openComponentSourceMutation.mutate(
+        { designId: id, nodeId, fileId: activeFileId ?? undefined } as any,
+        {
+          onError: () => {
+            toast.error(
+              "Could not open component source" /* i18n-ignore edge-case jump failure */,
+            );
+          },
+        },
+      );
+    },
+    [id, activeFileId, openComponentSourceMutation],
+  );
+
+  // The selected node id, when it already is a recognised component instance —
+  // unlocks the contextual Component section at the top of the Design tab.
+  const selectedComponentNodeId = useMemo(() => {
+    if (!selectedCodeLayerNode) return undefined;
+    return isComponentInstance(selectedCodeLayerNode)
+      ? selectedCodeLayerNode.id
+      : undefined;
+  }, [selectedCodeLayerNode]);
+
+  // A friendly default name for the create-component dialog, derived from the
+  // selected element's layer name / tag.
+  const defaultComponentName = useMemo(() => {
+    if (selectedCodeLayerNode?.layerName)
+      return selectedCodeLayerNode.layerName;
+    if (selectedElement?.tagName) {
+      const tag = selectedElement.tagName;
+      return tag.charAt(0).toUpperCase() + tag.slice(1);
+    }
+    return "Component";
+  }, [selectedCodeLayerNode?.layerName, selectedElement?.tagName]);
+
+  // Outer HTML of the selection — backs the inline/Alpine "Inspect code" view.
+  const selectedElementOuterHtml = useMemo(() => {
+    if (!selectedElement?.selector) return null;
+    return (
+      selectedElement.htmlContent ??
+      getElementOuterHtml(activeContent, selectedElement.selector)
+    );
+  }, [activeContent, selectedElement?.selector, selectedElement?.htmlContent]);
+
+  const inspectCodeData = useMemo<InspectCodeData | undefined>(() => {
+    if (!selectedElement) return undefined;
+    // Inline/Alpine: the design HTML is the source — show the element's HTML.
+    // Real-app source resolution (vscode:// deep link) requires the
+    // resolveNodeToFile bridge op, which is wired through open-component-source
+    // when an external file path is available; until that round-trip is hooked
+    // up here the popover shows the projected HTML for all source types.
+    return { html: selectedElementOuterHtml, sourceLocation: null };
+  }, [selectedElement, selectedElementOuterHtml]);
+
+  const handleCreateComponent = useCallback(
+    (name: string) => {
+      if (!id || !selectedElement) return;
+      const nodeId = selectedElementLayerId ?? undefined;
+      const selector = selectedCanvasSelector ?? selectedElement.selector;
+      createComponentMutation.mutate(
+        { designId: id, nodeId, selector, name } as any,
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+            toast.success(t("designEditor.toasts.componentCreated"));
+          },
+          onError: () => {
+            toast.error(t("designEditor.toasts.componentCreateFailed"));
+          },
+        },
+      );
+
+      // Follow-up: ask the Design agent to extract props and replace repeated
+      // instances with this component. The deterministic annotate above is the
+      // core; this is an enhancement that runs in the agent chat.
+      sendToAgentChat({
+        message: `Extract props for the "${name}" component and replace repeated instances on this design with it.`,
+        context: [
+          `Design id: "${id}".`,
+          selectedElement.selector
+            ? `Component root selector: ${selectedElement.selector}.`
+            : "",
+          nodeId ? `Component root node id: ${nodeId}.` : "",
+          `The element was just annotated with data-agent-native-component="${name}".`,
+          "Call view-screen first, then use get-code-layer-projection to find repeated instances, and apply-visual-edit / apply-component-prop-edit to converge them on this component with data-agent-native-prop-* props.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        submit: true,
+        openSidebar: true,
+      });
+    },
+    [
+      id,
+      selectedElement,
+      selectedElementLayerId,
+      selectedCanvasSelector,
+      createComponentMutation,
+      queryClient,
+      t,
+    ],
+  );
+
   const hoveredCodeLayerNode = useMemo(() => {
     if (!hoveredElement) return null;
     return resolveCodeLayerNodeFromBridge(
@@ -4548,6 +4838,58 @@ export default function DesignEditor() {
       mode,
       activeTool,
       inspectorTab: activeInspectorTab,
+      // §8 DesignNavigationState additions — dock + breakpoint context
+      dock: { kind: "motion" as const, open: motionDockOpen },
+      motion: {
+        previewing: false,
+        playheadMs: 0,
+        timelineId: undefined as string | undefined,
+        selectedTrackId: undefined as string | undefined,
+        selectedKeyframeId: undefined as string | undefined,
+      },
+      // §8 breakpoint fields — "auto" = no specific breakpoint focused.
+      breakpoint: (activeBreakpointWidthState != null
+        ? activeBreakpointWidthState < 500
+          ? "mobile"
+          : activeBreakpointWidthState < 1024
+            ? "tablet"
+            : "desktop"
+        : "auto") as "auto" | "mobile" | "tablet" | "desktop",
+      activeBreakpointId: (() => {
+        if (activeBreakpointWidthState == null) return undefined;
+        try {
+          const raw = (designDataJson as Record<string, unknown>)
+            ?.breakpointSet;
+          if (
+            raw &&
+            typeof raw === "object" &&
+            Array.isArray((raw as Record<string, unknown>).breakpoints)
+          ) {
+            const bps = (
+              raw as { breakpoints: Array<{ id: string; widthPx: number }> }
+            ).breakpoints;
+            return bps.find((b) => b.widthPx === activeBreakpointWidthState)
+              ?.id;
+          }
+        } catch {
+          // ignore
+        }
+        return undefined;
+      })(),
+      breakpointSetId: (() => {
+        try {
+          const raw = (designDataJson as Record<string, unknown>)
+            ?.breakpointSet;
+          if (raw && typeof raw === "object") {
+            return (raw as Record<string, unknown>).id as string | undefined;
+          }
+        } catch {
+          // ignore
+        }
+        return undefined;
+      })(),
+      // §8 — active design state (null = Default / live view)
+      selectedStateId,
     };
     (window as any).__designSelection = selection;
     const persistedSelection = {
@@ -4563,6 +4905,12 @@ export default function DesignEditor() {
       mode: selection.mode,
       activeTool: selection.activeTool,
       inspectorTab: selection.inspectorTab,
+      dock: selection.dock,
+      motion: selection.motion,
+      breakpoint: selection.breakpoint,
+      activeBreakpointId: selection.activeBreakpointId,
+      breakpointSetId: selection.breakpointSetId,
+      selectedStateId: selection.selectedStateId,
       ownerId: designSelectionOwnerIdRef.current,
     };
     const persistedKey = JSON.stringify(persistedSelection);
@@ -4598,6 +4946,10 @@ export default function DesignEditor() {
     activeInspectorTab,
     viewMode,
     zoom,
+    motionDockOpen,
+    activeBreakpointWidthState,
+    designDataJson,
+    selectedStateId,
   ]);
 
   useEffect(() => {
@@ -4800,12 +5152,48 @@ export default function DesignEditor() {
         selector,
         options.elementInfo?.sourceId ?? selectedElement?.sourceId,
       );
+      // §6.4 — Breakpoint-scoped class editing.
+      // When an active non-base breakpoint frame is set, attempt to route class
+      // edits through `kind: "responsive-class"` so the write targets only that
+      // breakpoint prefix (e.g. "md:text-lg" instead of "text-lg").  This fires
+      // when the element has a `responsive-class` EditCapability, which signals
+      // that its values come from Tailwind class tokens and can carry a prefix.
+      // Falls back to `kind: "style"` (inline attribute) for any entry that
+      // fails the responsive path (e.g. raw CSS values with no Tailwind utility).
+      const activeBreakpointPrefix =
+        activeBreakpointWidthState != null
+          ? widthToPrefix(activeBreakpointWidthState)
+          : null;
+      // `responsive-class` is a code-layer EditCapability kind not yet reflected
+      // in the ElementInfo type union (types.ts); cast to string for the check.
+      const hasResponsiveCapability =
+        activeBreakpointPrefix != null &&
+        activeBreakpointPrefix !== "base" &&
+        selectedElement?.editCapabilities?.some(
+          (cap) => (cap.kind as string) === "responsive-class",
+        );
       const stylePatch = entries.reduce<{
         content: string;
         failed: string | null;
       }>(
         (current, [property, value]) => {
           if (current.failed) return current;
+          // Try responsive-class path first when appropriate.
+          if (hasResponsiveCapability && activeBreakpointPrefix) {
+            const rcPatch = applyVisualEdit(current.content, {
+              kind: "responsive-class",
+              target: targetNode ? { nodeId: targetNode.id } : { selector },
+              prefix: activeBreakpointPrefix,
+              operation: "replace",
+              utility: value,
+              stem: property,
+            });
+            if (rcPatch.result.status === "applied") {
+              return { content: rcPatch.content, failed: null };
+            }
+            // Responsive-class path didn't apply (e.g. value is a raw CSS value,
+            // not a Tailwind utility); fall through to the inline-style path.
+          }
           const patch = applyVisualEdit(current.content, {
             kind: "style",
             target: targetNode ? { nodeId: targetNode.id } : { selector },
@@ -4912,6 +5300,7 @@ export default function DesignEditor() {
     [
       activeContent,
       activeFile,
+      activeBreakpointWidthState,
       queueFileContentSave,
       selectedElement,
       t,
@@ -6615,6 +7004,38 @@ ${serializedHtml}
       designDataJson,
       "screenMetadata",
     );
+    // §6.4 — breakpoint set stored in designs.data.breakpointSet as a
+    // BreakpointSet { id, breakpoints: BreakpointDefinition[] }.
+    // Each BreakpointDefinition has { id, label, widthPx, prefix }.
+    const breakpointSet = (() => {
+      try {
+        const raw = (designDataJson as Record<string, unknown>)?.breakpointSet;
+        if (
+          raw &&
+          typeof raw === "object" &&
+          !Array.isArray(raw) &&
+          Array.isArray((raw as Record<string, unknown>).breakpoints)
+        ) {
+          return raw as {
+            id: string;
+            breakpoints: Array<{
+              id: string;
+              widthPx: number;
+              label?: string;
+              prefix?: string;
+            }>;
+          };
+        }
+      } catch {
+        // ignore
+      }
+      return undefined;
+    })();
+    const bpWidths =
+      breakpointSet && breakpointSet.breakpoints.length > 0
+        ? breakpointSet.breakpoints.map((bp) => bp.widthPx)
+        : undefined;
+
     return files.map((file) => {
       const metadata = getDesignDataRecord(metadataByFileId, file.id);
       const stringValue = (key: string) =>
@@ -6639,9 +7060,19 @@ ${serializedHtml}
         height: numberValue("height"),
         url: stringValue("url"),
         previewUrl: stringValue("previewUrl"),
+        // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
+        // renders one iframe per width to the right of the primary frame.
+        breakpointWidths: bpWidths,
+        // Active breakpoint width tracked in component state; shared across all
+        // screens (a design has one active breakpoint set at a time in v1).
+        activeBreakpointWidth: bpWidths?.includes(
+          activeBreakpointWidthState ?? -1,
+        )
+          ? activeBreakpointWidthState
+          : undefined,
       };
     });
-  }, [designDataJson, files]);
+  }, [designDataJson, files, activeBreakpointWidthState]);
 
   const activeScreenPreviewUrl = useMemo(() => {
     if (builderPreviewUrl) return builderPreviewUrl;
@@ -6652,6 +7083,55 @@ ${serializedHtml}
       externalPreviewUrlForContent(activeContent)
     );
   }, [activeContent, activeFile?.id, builderPreviewUrl, overviewScreens]);
+
+  // §6.4 / §8 — Breakpoints list for the StatesPanel, derived from
+  // designs.data.breakpointSet. Returns a stable empty array when none are set.
+  const statesPanelBreakpoints = useMemo<
+    Array<{ id: string; label: string; widthPx: number }>
+  >(() => {
+    try {
+      const raw = (designDataJson as Record<string, unknown>)?.breakpointSet;
+      if (
+        raw &&
+        typeof raw === "object" &&
+        !Array.isArray(raw) &&
+        Array.isArray((raw as Record<string, unknown>).breakpoints)
+      ) {
+        const bps = (
+          raw as {
+            breakpoints: Array<{
+              id: string;
+              widthPx: number;
+              label?: string;
+            }>;
+          }
+        ).breakpoints;
+        return bps.map((bp) => ({
+          id: bp.id,
+          widthPx: bp.widthPx,
+          label:
+            bp.label ??
+            (bp.widthPx >= 1024
+              ? "Desktop"
+              : bp.widthPx >= 600
+                ? "Tablet"
+                : "Mobile"),
+        }));
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  }, [designDataJson]);
+
+  // Active breakpoint id for the StatesPanel — "auto" when no frame is focused.
+  const statesPanelActiveBreakpointId = useMemo<string>(() => {
+    if (activeBreakpointWidthState == null) return "auto";
+    const match = statesPanelBreakpoints.find(
+      (bp) => bp.widthPx === activeBreakpointWidthState,
+    );
+    return match?.id ?? "auto";
+  }, [activeBreakpointWidthState, statesPanelBreakpoints]);
 
   const handleOpenDesignPreview = useCallback(() => {
     if (activeScreenPreviewUrl) {
@@ -7189,6 +7669,19 @@ ${serializedHtml}
             ? t("designEditor.stopPinningComments")
             : t("designEditor.pinComment")}
         </DropdownMenuItem>
+        {isSignedIn && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                handleOpenMakeReal();
+              }}
+            >
+              <IconRocket className="mr-2 h-4 w-4" />
+              {"Make this a real app" /* i18n-ignore */}
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -7331,6 +7824,28 @@ ${serializedHtml}
             </TooltipTrigger>
             <TooltipContent>{t("designEditor.designPreview")}</TooltipContent>
           </Tooltip>
+
+          {/* §6.6 — "Make this a real app" shortcut button (signed-in only).
+              Surfaces the migration CTA without requiring the project menu. */}
+          {isSignedIn && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={handleOpenMakeReal}
+                  disabled={migrateMutation.isPending}
+                  aria-label={"Make this a real app" /* i18n-ignore */}
+                >
+                  <IconRocket className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {"Make this a real app" /* i18n-ignore */}
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           {isSignedIn ? (
             <ShareButton
@@ -7523,6 +8038,19 @@ ${serializedHtml}
                   ? t("designEditor.stopPinningComments")
                   : t("designEditor.pinComment")}
               </DropdownMenuItem>
+              {isSignedIn && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      handleOpenMakeReal();
+                    }}
+                  >
+                    <IconRocket className="mr-2 h-4 w-4" />
+                    {"Make this a real app" /* i18n-ignore */}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           {titleEditing ? (
@@ -7985,6 +8513,60 @@ ${serializedHtml}
                     onZoomToEdit={enterSingleScreen}
                     zoomToEditThreshold={OVERVIEW_EDIT_ZOOM_THRESHOLD}
                     onDuplicate={handleDuplicateScreen}
+                    onAddBreakpoint={(screenId, widthPx) => {
+                      if (!id) return;
+                      // Optimistically update design data via add-breakpoint
+                      // action (§6.4). The action stores into designs.data.breakpointSet.
+                      const breakpointLabel =
+                        widthPx <= 480
+                          ? "Mobile"
+                          : widthPx <= 1024
+                            ? "Tablet"
+                            : "Desktop";
+                      void addBreakpointMutation.mutateAsync({
+                        designId: id,
+                        label: breakpointLabel,
+                        widthPx,
+                      });
+                    }}
+                    onActiveBreakpointChange={(_screenId, widthPx) => {
+                      // Update local display state immediately (optimistic).
+                      setActiveBreakpointWidthState(widthPx);
+                      if (!id) return;
+                      // Look up the breakpoint id for widthPx from the stored set.
+                      const bpSet = (() => {
+                        try {
+                          const raw = (
+                            designDataJson as Record<string, unknown>
+                          )?.breakpointSet;
+                          if (
+                            raw &&
+                            typeof raw === "object" &&
+                            Array.isArray(
+                              (raw as Record<string, unknown>).breakpoints,
+                            )
+                          ) {
+                            return raw as {
+                              breakpoints: Array<{
+                                id: string;
+                                widthPx: number;
+                              }>;
+                            };
+                          }
+                        } catch {
+                          // ignore
+                        }
+                        return null;
+                      })();
+                      const bp = bpSet?.breakpoints.find(
+                        (b) => b.widthPx === widthPx,
+                      );
+                      void setActiveBreakpointMutation.mutateAsync({
+                        designId: id,
+                        breakpointId:
+                          widthPx !== undefined && bp ? bp.id : "auto",
+                      });
+                    }}
                     renderScreenContent={(screen, metadata, geometry) =>
                       screen.id === activeFile?.id ? (
                         <DesignCanvas
@@ -7992,6 +8574,9 @@ ${serializedHtml}
                           contentKey={`${activeFile.id}:${contentRenderRevision}`}
                           zoom={100}
                           deviceFrame="none"
+                          sourceType={designSourceType}
+                          fusionUrl={designFusionUrl}
+                          onComponentSourceJump={handleComponentSourceJump}
                           embeddedFrame={{
                             viewportWidth: metadata.width,
                             viewportHeight: metadata.height,
@@ -8040,6 +8625,14 @@ ${serializedHtml}
                       zoom={zoom}
                       onZoomChange={setZoom}
                       deviceFrame={deviceFrame}
+                      sourceType={designSourceType}
+                      fusionUrl={designFusionUrl}
+                      previewWidthPx={activeBreakpointWidthState}
+                      onComponentSourceJump={handleComponentSourceJump}
+                      // TODO: thread motionTracks / shaderFillPreview live-preview
+                      // props once the canvas-side live preview state is plumbed
+                      // here (non-trivial new state; MotionDock already drives
+                      // motion-preview directly via canvasIframeRef for now).
                       editMode={mode === "edit"}
                       interactMode={mode === "interact"}
                       scaleMode={activeTool === "scale"}
@@ -8206,6 +8799,59 @@ ${serializedHtml}
                   onStylesChange={handleStylesChange}
                   onExport={handleInspectorExport}
                   exporting={pngExporting || svgExporting}
+                  designId={id}
+                  componentNodeId={selectedComponentNodeId}
+                  sourceCapabilities={sourceCapabilities}
+                  onCreateComponent={
+                    id && selectedElement ? handleCreateComponent : undefined
+                  }
+                  defaultComponentName={defaultComponentName}
+                  inspectCode={inspectCodeData}
+                  statesPanelProps={
+                    id
+                      ? {
+                          // §6.4 / §8 — active state and breakpoint wired into
+                          // the StatesPanel so selection is agent-visible.
+                          activeStateId: selectedStateId,
+                          activeBreakpointId: statesPanelActiveBreakpointId,
+                          breakpoints: statesPanelBreakpoints,
+                          onStateSelect: (stateId) => {
+                            setSelectedStateId(stateId);
+                          },
+                          onBreakpointSelect: (breakpointId) => {
+                            // "auto" = clear the active breakpoint (overview).
+                            if (breakpointId === "auto") {
+                              setActiveBreakpointWidthState(undefined);
+                              if (id) {
+                                void setActiveBreakpointMutation.mutateAsync({
+                                  designId: id,
+                                  breakpointId: "auto",
+                                });
+                              }
+                              return;
+                            }
+                            const bp = statesPanelBreakpoints.find(
+                              (b) => b.id === breakpointId,
+                            );
+                            if (!bp) return;
+                            setActiveBreakpointWidthState(bp.widthPx);
+                            if (id) {
+                              void setActiveBreakpointMutation.mutateAsync({
+                                designId: id,
+                                breakpointId,
+                              });
+                            }
+                          },
+                          onAddBreakpoint: () => {
+                            // Delegate to the MultiScreenCanvas affordance by
+                            // navigating to overview where the "+" button lives.
+                            if (viewMode !== "overview") {
+                              setViewMode("overview");
+                            }
+                          },
+                        }
+                      : undefined
+                  }
                 />
               </div>
             ) : (
@@ -8214,6 +8860,33 @@ ${serializedHtml}
           </div>
         ) : null}
       </div>
+
+      {/* Motion dock (§6.3) — collapsible bottom dock; visible when activeFile
+          is open and the user has opened it. Canvas remains visible above.
+          Preview-only scrubbing fires a motion-preview postMessage to the
+          canvas iframe (via canvasIframeRef); "Write to CSS" fires
+          apply-motion-edit. */}
+      {!embedded && activeFile ? (
+        <MotionDock
+          tracks={motionTracks}
+          durationMs={motionDurationMs}
+          open={motionDockOpen}
+          onOpenChange={setMotionDockOpen}
+          onTracksChange={setMotionTracks}
+          onDurationChange={setMotionDurationMs}
+          canvasIframeRef={canvasIframeRef}
+          onApply={(tracks, durationMs) => {
+            if (!id) return;
+            applyMotionEditMutation.mutate({
+              designId: id,
+              fileId: activeFile.id,
+              tracks: tracks.map(({ label: _label, ...t }) => t),
+              durationMs,
+            });
+          }}
+          applying={applyMotionEditMutation.isPending}
+        />
+      ) : null}
 
       <PromptPopover
         open={showPrompt}
@@ -8298,6 +8971,183 @@ ${serializedHtml}
         onSubmit={handleTweakPromptSubmit}
         anchorRef={tweakPromptAnchorRef}
       />
+
+      {/* §6.6 — "Make this a real app" dialog.
+          Three states:
+          1. Idle — confirm prompt with description of what will happen.
+          2. Migrating — spinner while the Builder cloud agent accepts the job.
+          3. Success — branchName + url; sourceType already flipped to fusion.
+          4. Not-configured — CTA to connect Builder.io.
+      */}
+      <Dialog
+        open={makeRealDialogOpen}
+        onOpenChange={(open) => {
+          if (!migrateMutation.isPending) setMakeRealDialogOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {/* Not-configured: Builder not connected or no project ID */}
+          {migrationResult?.status === "not-configured" &&
+          migrationResult.cta ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <IconRocket className="size-5 text-muted-foreground" />
+                  {migrationResult.cta.label}
+                </DialogTitle>
+                <DialogDescription>
+                  {migrationResult.cta.description}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={() => setMakeRealDialogOpen(false)}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                {migrationResult.cta.connectUrl ? (
+                  <Button asChild className="cursor-pointer">
+                    <a
+                      href={migrationResult.cta.connectUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {migrationResult.cta.primaryAction}
+                      <IconExternalLink className="ml-1.5 size-3.5" />
+                    </a>
+                  </Button>
+                ) : null}
+              </DialogFooter>
+            </>
+          ) : migrationResult?.status === "processing" ? (
+            /* Success: Builder accepted the migration job */
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <IconCircleCheck className="size-5 text-green-500" />
+                  {"Migration started" /* i18n-ignore */}
+                </DialogTitle>
+                <DialogDescription>
+                  {
+                    "Builder is generating a React app branch from your design. The original inline design is preserved and recoverable." /* i18n-ignore */
+                  }
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                {migrationResult.branchName && (
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">
+                      {"Branch: " /* i18n-ignore */}
+                    </span>
+                    <span className="font-mono font-medium">
+                      {migrationResult.branchName}
+                    </span>
+                  </div>
+                )}
+                {migrationResult.url && (
+                  <a
+                    href={migrationResult.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-sm text-[var(--design-editor-accent-color)] hover:underline"
+                  >
+                    {"Open in Builder" /* i18n-ignore */}
+                    <IconExternalLink className="size-3.5" />
+                  </a>
+                )}
+                {migrationResult.seedFileCount !== undefined && (
+                  <p className="text-xs text-muted-foreground">
+                    {
+                      `${migrationResult.seedFileCount} design file${migrationResult.seedFileCount === 1 ? "" : "s"} included in migration seed.` /* i18n-ignore */
+                    }
+                  </p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  onClick={() => setMakeRealDialogOpen(false)}
+                  className="cursor-pointer"
+                >
+                  {"Done" /* i18n-ignore */}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            /* Idle or migrating */
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <IconRocket className="size-5" />
+                  {"Make this a real app" /* i18n-ignore */}
+                </DialogTitle>
+                <DialogDescription>
+                  {
+                    "Connect Builder.io to convert this design into a React + Tailwind app with real components, props, branches, and deploys. Your current inline design is preserved as a snapshot you can restore at any time." /* i18n-ignore */
+                  }
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2 py-1 text-sm text-muted-foreground">
+                <p>{"What happens:" /* i18n-ignore */}</p>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>
+                    {
+                      "Your design HTML and tokens are sent to the Builder cloud agent" /* i18n-ignore */
+                    }
+                  </li>
+                  <li>
+                    {
+                      "A React + Tailwind branch is generated in Builder" /* i18n-ignore */
+                    }
+                  </li>
+                  <li>
+                    {
+                      "The editor switches to fusion source mode — gated panels light up" /* i18n-ignore */
+                    }
+                  </li>
+                  <li>
+                    {
+                      "The original inline design is saved as a restorable snapshot" /* i18n-ignore */
+                    }
+                  </li>
+                </ul>
+                <p className="pt-1 text-xs">
+                  {
+                    "Requires Builder.io to be connected with a branch project configured." /* i18n-ignore */
+                  }
+                </p>
+              </div>
+              <DialogFooter className="flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={() => setMakeRealDialogOpen(false)}
+                  disabled={migrateMutation.isPending}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void handleConfirmMakeReal()}
+                  disabled={migrateMutation.isPending}
+                  className="cursor-pointer"
+                >
+                  {
+                    migrateMutation.isPending ? (
+                      <>
+                        <Spinner className="mr-2 size-3.5" />
+                        {"Starting migration…" /* i18n-ignore */}
+                      </>
+                    ) : (
+                      "Start migration"
+                    ) /* i18n-ignore */
+                  }
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

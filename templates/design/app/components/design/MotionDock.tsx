@@ -1,0 +1,902 @@
+/**
+ * MotionDock — bottom motion timeline dock for the Design Studio (§6.3).
+ *
+ * Matches the motion artboard at
+ * https://plan.agent-native.com/plans/plan-88dc4a09fb0c46bc:
+ * - Full-width collapsible dock beneath the canvas.
+ * - Left sidebar: animated layer rows with property sub-rows.
+ * - Center: time ruler + diamond keyframes on a track grid.
+ * - Playhead: draggable; scrubbing sends a preview-only `motion-preview`
+ *   postMessage to the canvas iframe — NEVER writes to DB.
+ * - Top toolbar: play/pause, duration input, auto-keyframe toggle, Write to CSS.
+ *
+ * Write to CSS calls the parent's `onApply` prop, which should invoke
+ * `apply-motion-edit` through `useActionMutation`.
+ *
+ * All times are normalised to [0, 1] internally; the ruler maps them to px.
+ */
+
+import type {
+  MotionTrack,
+  MotionKeyframe,
+  MotionEase,
+} from "@shared/motion-timeline";
+import {
+  IconPlayerPlay,
+  IconPlayerPause,
+  IconPlayerStop,
+  IconDiamond,
+  IconChevronDown,
+  IconChevronRight,
+  IconKey,
+  IconPlus,
+  IconTrash,
+  IconCode,
+  IconRefresh,
+  IconBolt,
+} from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const RULER_HEIGHT = 24; // px
+const ROW_HEIGHT = 32; // px
+const LAYER_SIDEBAR_WIDTH = 200; // px
+const PLAYHEAD_WIDTH = 2; // px
+const MIN_DOCK_HEIGHT = 160; // px
+const DEFAULT_DOCK_HEIGHT = 280; // px
+
+/** Named easing presets for the keyframe editor. */
+const EASE_PRESETS: { label: string; value: MotionEase }[] = [
+  { label: "Linear", value: "linear" },
+  { label: "Ease", value: "ease" },
+  { label: "Ease In", value: "ease-in" },
+  { label: "Ease Out", value: "ease-out" },
+  { label: "Ease In/Out", value: "ease-in-out" },
+  { label: "Spring", value: "cubic-bezier(0.34,1.56,0.64,1)" },
+];
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface MotionDockTrack extends MotionTrack {
+  /** Human-readable label derived from data-agent-native-layer-name or nodeId. */
+  label: string;
+}
+
+export interface MotionDockProps {
+  /** Tracks to display. Each track maps to one layer row. */
+  tracks: MotionDockTrack[];
+  /** Total animation duration in milliseconds. */
+  durationMs: number;
+  /** Default easing applied to keyframes that omit ease. */
+  defaultEase?: MotionEase;
+  /** Controlled open state. */
+  open?: boolean;
+  /** Called when the user toggles the dock open/closed. */
+  onOpenChange?: (open: boolean) => void;
+  /** Called when a track is modified (add/move/delete keyframe or change value). */
+  onTracksChange?: (tracks: MotionDockTrack[]) => void;
+  /** Called when durationMs is edited. */
+  onDurationChange?: (ms: number) => void;
+  /**
+   * Called when "Write to CSS" is clicked. The parent should call
+   * `apply-motion-edit` via useActionMutation.
+   */
+  onApply?: (tracks: MotionDockTrack[], durationMs: number) => void;
+  /**
+   * Reference to the canvas iframe element. Used to send preview postMessages.
+   * If not provided, preview messages are skipped (no crash).
+   */
+  canvasIframeRef?: React.RefObject<HTMLIFrameElement | null>;
+  /** Whether the parent apply mutation is in flight. */
+  applying?: boolean;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function MotionDock({
+  tracks,
+  durationMs,
+  defaultEase = "ease",
+  open: openProp,
+  onOpenChange,
+  onTracksChange,
+  onDurationChange,
+  onApply,
+  canvasIframeRef,
+  applying = false,
+}: MotionDockProps) {
+  // Controlled / uncontrolled open state.
+  const [openInternal, setOpenInternal] = useState(false);
+  const isOpen = openProp !== undefined ? openProp : openInternal;
+  const setOpen = useCallback(
+    (v: boolean) => {
+      setOpenInternal(v);
+      onOpenChange?.(v);
+    },
+    [onOpenChange],
+  );
+
+  // Playhead position: normalised [0, 1].
+  const [playhead, setPlayhead] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const playRafRef = useRef<number | null>(null);
+  const playStartRef = useRef<{ wallMs: number; startT: number } | null>(null);
+
+  // Auto-keyframe mode: clicking the canvas at a time scrubs without writing.
+  const [autoKeyframe, setAutoKeyframe] = useState(false);
+
+  // Dock height (resizable via the top drag handle).
+  const [dockHeight, setDockHeight] = useState(DEFAULT_DOCK_HEIGHT);
+  const resizingRef = useRef(false);
+  const resizeStartRef = useRef<{ y: number; h: number } | null>(null);
+
+  // Expanded layers in the sidebar.
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
+    () => new Set(tracks.map((t) => t.targetNodeId)),
+  );
+
+  // Ruler / track area ref for pointer math.
+  const trackAreaRef = useRef<HTMLDivElement>(null);
+
+  // Local duration input state.
+  const [durationInput, setDurationInput] = useState(String(durationMs));
+  useEffect(() => {
+    setDurationInput(String(durationMs));
+  }, [durationMs]);
+
+  // ── Preview postMessage ──────────────────────────────────────────────────
+  const sendPreview = useCallback(
+    (t: number) => {
+      const iframe = canvasIframeRef?.current;
+      if (!iframe?.contentWindow) return;
+      try {
+        iframe.contentWindow.postMessage(
+          { type: "motion-preview", t, durationMs },
+          "*",
+        );
+      } catch {
+        // Best-effort preview; never throw.
+      }
+    },
+    [canvasIframeRef, durationMs],
+  );
+
+  // ── Playback ─────────────────────────────────────────────────────────────
+  const stopPlayback = useCallback(() => {
+    if (playRafRef.current !== null) {
+      cancelAnimationFrame(playRafRef.current);
+      playRafRef.current = null;
+    }
+    playStartRef.current = null;
+    setPlaying(false);
+  }, []);
+
+  const startPlayback = useCallback(() => {
+    stopPlayback();
+    const startT = playhead >= 1 ? 0 : playhead;
+    playStartRef.current = { wallMs: performance.now(), startT };
+    setPlaying(true);
+
+    const tick = (now: number) => {
+      if (!playStartRef.current) return;
+      const elapsed = now - playStartRef.current.wallMs;
+      const t = Math.min(1, playStartRef.current.startT + elapsed / durationMs);
+      setPlayhead(t);
+      sendPreview(t);
+      if (t < 1) {
+        playRafRef.current = requestAnimationFrame(tick);
+      } else {
+        stopPlayback();
+      }
+    };
+    playRafRef.current = requestAnimationFrame(tick);
+  }, [durationMs, playhead, sendPreview, stopPlayback]);
+
+  useEffect(() => {
+    return () => {
+      if (playRafRef.current !== null) cancelAnimationFrame(playRafRef.current);
+    };
+  }, []);
+
+  // ── Playhead drag ─────────────────────────────────────────────────────────
+  const isDraggingPlayhead = useRef(false);
+
+  const handleRulerPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!trackAreaRef.current) return;
+      isDraggingPlayhead.current = true;
+      stopPlayback();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      const rect = trackAreaRef.current.getBoundingClientRect();
+      const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      setPlayhead(t);
+      sendPreview(t);
+    },
+    [sendPreview, stopPlayback],
+  );
+
+  const handleRulerPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isDraggingPlayhead.current || !trackAreaRef.current) return;
+      const rect = trackAreaRef.current.getBoundingClientRect();
+      const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      setPlayhead(t);
+      sendPreview(t);
+    },
+    [sendPreview],
+  );
+
+  const handleRulerPointerUp = useCallback(() => {
+    isDraggingPlayhead.current = false;
+  }, []);
+
+  // ── Dock resize drag ─────────────────────────────────────────────────────
+  const handleResizePointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      resizingRef.current = true;
+      resizeStartRef.current = { y: e.clientY, h: dockHeight };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [dockHeight],
+  );
+
+  const handleResizePointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!resizingRef.current || !resizeStartRef.current) return;
+      const delta = resizeStartRef.current.y - e.clientY;
+      setDockHeight(
+        Math.max(MIN_DOCK_HEIGHT, resizeStartRef.current.h + delta),
+      );
+    },
+    [],
+  );
+
+  const handleResizePointerUp = useCallback(() => {
+    resizingRef.current = false;
+    resizeStartRef.current = null;
+  }, []);
+
+  // ── Keyframe helpers ─────────────────────────────────────────────────────
+  const updateTrack = useCallback(
+    (
+      nodeId: string,
+      property: string,
+      updater: (track: MotionDockTrack) => MotionDockTrack,
+    ) => {
+      if (!onTracksChange) return;
+      onTracksChange(
+        tracks.map((tr) =>
+          tr.targetNodeId === nodeId && tr.property === property
+            ? updater(tr)
+            : tr,
+        ),
+      );
+    },
+    [tracks, onTracksChange],
+  );
+
+  const addKeyframe = useCallback(
+    (track: MotionDockTrack) => {
+      const newKf: MotionKeyframe = {
+        t: playhead,
+        value: "0",
+        ease: defaultEase,
+      };
+      updateTrack(track.targetNodeId, track.property, (tr) => ({
+        ...tr,
+        keyframes: [...tr.keyframes, newKf].sort((a, b) => a.t - b.t),
+      }));
+    },
+    [defaultEase, playhead, updateTrack],
+  );
+
+  const deleteKeyframe = useCallback(
+    (track: MotionDockTrack, kf: MotionKeyframe) => {
+      updateTrack(track.targetNodeId, track.property, (tr) => ({
+        ...tr,
+        keyframes: tr.keyframes.filter((k) => k !== kf),
+      }));
+    },
+    [updateTrack],
+  );
+
+  // ── Ruler tick marks ──────────────────────────────────────────────────────
+  function rulerTicks(): { t: number; label: string }[] {
+    const count = 10;
+    return Array.from({ length: count + 1 }, (_, i) => {
+      const t = i / count;
+      const ms = Math.round(t * durationMs);
+      const s = (ms / 1000).toFixed(1);
+      return { t, label: `${s}s` };
+    });
+  }
+
+  // ── Group tracks by layer (nodeId) ────────────────────────────────────────
+  type LayerGroup = {
+    nodeId: string;
+    label: string;
+    tracks: MotionDockTrack[];
+  };
+  const layers: LayerGroup[] = tracks.reduce<LayerGroup[]>((acc, track) => {
+    const existing = acc.find((g) => g.nodeId === track.targetNodeId);
+    if (existing) {
+      existing.tracks.push(track);
+    } else {
+      acc.push({
+        nodeId: track.targetNodeId,
+        label: track.label,
+        tracks: [track],
+      });
+    }
+    return acc;
+  }, []);
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div
+      className={cn(
+        "flex flex-col border-t border-border bg-background transition-all duration-150 select-none",
+        isOpen ? "" : "h-8",
+      )}
+      style={isOpen ? { height: dockHeight } : undefined}
+    >
+      {/* Resize handle */}
+      {isOpen && (
+        <div
+          className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-10"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+        />
+      )}
+
+      {/* Dock toolbar */}
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border px-2">
+        {/* Collapse toggle */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-6 shrink-0"
+          onClick={() => setOpen(!isOpen)}
+          aria-label={isOpen ? "Collapse motion dock" : "Expand motion dock"}
+        >
+          {isOpen ? (
+            <IconChevronDown className="size-3.5" />
+          ) : (
+            <IconChevronRight className="size-3.5" />
+          )}
+        </Button>
+
+        <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase mr-1">
+          Motion
+        </span>
+
+        {isOpen && (
+          <>
+            {/* Play / Pause */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 shrink-0"
+                  onClick={playing ? stopPlayback : startPlayback}
+                  aria-label={playing ? "Pause" : "Play"}
+                >
+                  {playing ? (
+                    <IconPlayerPause className="size-3.5" />
+                  ) : (
+                    <IconPlayerPlay className="size-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {playing ? "Pause" : "Play"}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Stop / reset */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 shrink-0"
+                  onClick={() => {
+                    stopPlayback();
+                    setPlayhead(0);
+                    sendPreview(0);
+                  }}
+                  aria-label="Reset playhead"
+                >
+                  <IconPlayerStop className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Reset</TooltipContent>
+            </Tooltip>
+
+            {/* Duration */}
+            <div className="flex items-center gap-1 ml-1">
+              <span className="text-[10px] text-muted-foreground">
+                Duration
+              </span>
+              <Input
+                type="number"
+                min={50}
+                step={50}
+                value={durationInput}
+                onChange={(e) => setDurationInput(e.target.value)}
+                onBlur={() => {
+                  const ms = parseInt(durationInput, 10);
+                  if (!isNaN(ms) && ms >= 50) {
+                    onDurationChange?.(ms);
+                  } else {
+                    setDurationInput(String(durationMs));
+                  }
+                }}
+                className="h-5 w-16 px-1 text-[11px]"
+                aria-label="Duration in ms"
+              />
+              <span className="text-[10px] text-muted-foreground">ms</span>
+            </div>
+
+            <div className="ml-auto flex items-center gap-1">
+              {/* Auto-keyframe toggle */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant={autoKeyframe ? "secondary" : "ghost"}
+                    size="icon"
+                    className={cn(
+                      "size-6 shrink-0",
+                      autoKeyframe && "text-primary",
+                    )}
+                    onClick={() => setAutoKeyframe((v) => !v)}
+                    aria-label="Toggle auto-keyframe"
+                    aria-pressed={autoKeyframe}
+                  >
+                    <IconBolt className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Auto-keyframe</TooltipContent>
+              </Tooltip>
+
+              {/* Write to CSS */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-6 px-2.5 text-[11px] gap-1"
+                    disabled={applying || tracks.length === 0}
+                    onClick={() => onApply?.(tracks, durationMs)}
+                  >
+                    {applying ? (
+                      <IconRefresh className="size-3 animate-spin" />
+                    ) : (
+                      <IconCode className="size-3" />
+                    )}
+                    Write to CSS
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  Compile timeline → managed &lt;style
+                  data-agent-native-motion&gt; block
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Dock body */}
+      {isOpen && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Layer sidebar */}
+          <div
+            className="flex flex-col shrink-0 border-r border-border overflow-y-auto"
+            style={{ width: LAYER_SIDEBAR_WIDTH }}
+          >
+            {/* Ruler spacer */}
+            <div
+              style={{ height: RULER_HEIGHT }}
+              className="border-b border-border"
+            />
+
+            {layers.length === 0 ? (
+              <div className="flex flex-col items-center justify-center flex-1 gap-2 text-center px-4 py-6">
+                <IconKey className="size-4 text-muted-foreground/40" />
+                <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                  Select an element and add a keyframe to begin.
+                </p>
+              </div>
+            ) : (
+              layers.map((layer) => (
+                <LayerGroup
+                  key={layer.nodeId}
+                  layer={layer}
+                  expanded={expandedNodeIds.has(layer.nodeId)}
+                  onToggleExpand={() =>
+                    setExpandedNodeIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(layer.nodeId)) next.delete(layer.nodeId);
+                      else next.add(layer.nodeId);
+                      return next;
+                    })
+                  }
+                  onAddKeyframe={(track) => addKeyframe(track)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Timeline / track area */}
+          <div className="flex flex-col flex-1 overflow-hidden">
+            {/* Ruler + playhead drag */}
+            <div
+              ref={trackAreaRef}
+              className="relative shrink-0 border-b border-border cursor-col-resize"
+              style={{ height: RULER_HEIGHT }}
+              onPointerDown={handleRulerPointerDown}
+              onPointerMove={handleRulerPointerMove}
+              onPointerUp={handleRulerPointerUp}
+            >
+              {/* Tick marks */}
+              {rulerTicks().map(({ t, label }) => (
+                <div
+                  key={t}
+                  className="absolute top-0 flex flex-col items-center pointer-events-none"
+                  style={{ left: `${t * 100}%`, transform: "translateX(-50%)" }}
+                >
+                  <span className="text-[9px] text-muted-foreground/60 leading-none mt-1">
+                    {label}
+                  </span>
+                  <div className="w-px h-2 bg-border mt-0.5" />
+                </div>
+              ))}
+
+              {/* Playhead */}
+              <PlayheadLine t={playhead} height={RULER_HEIGHT} inRuler />
+            </div>
+
+            {/* Track rows with keyframe diamonds */}
+            <div className="relative flex-1 overflow-y-auto">
+              {layers.map((layer) => (
+                <LayerTrackRows
+                  key={layer.nodeId}
+                  layer={layer}
+                  expanded={expandedNodeIds.has(layer.nodeId)}
+                  playhead={playhead}
+                  onDeleteKeyframe={deleteKeyframe}
+                  onMoveKeyframe={(track, kf, newT) => {
+                    updateTrack(track.targetNodeId, track.property, (tr) => ({
+                      ...tr,
+                      keyframes: tr.keyframes.map((k) =>
+                        k === kf ? { ...k, t: newT } : k,
+                      ),
+                    }));
+                  }}
+                />
+              ))}
+
+              {/* Playhead across track rows */}
+              <PlayheadLine
+                t={playhead}
+                height={layers.reduce(
+                  (sum, layer) =>
+                    sum +
+                    ROW_HEIGHT +
+                    (expandedNodeIds.has(layer.nodeId)
+                      ? layer.tracks.length * ROW_HEIGHT
+                      : 0),
+                  0,
+                )}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+interface PlayheadLineProps {
+  t: number;
+  height: number;
+  inRuler?: boolean;
+}
+
+function PlayheadLine({ t, height, inRuler }: PlayheadLineProps) {
+  return (
+    <div
+      className={cn(
+        "absolute top-0 pointer-events-none z-10",
+        inRuler ? "bg-primary/80" : "bg-primary/60",
+      )}
+      style={{
+        left: `${t * 100}%`,
+        width: PLAYHEAD_WIDTH,
+        height,
+        transform: "translateX(-50%)",
+      }}
+    >
+      {inRuler && (
+        <div className="absolute -top-0 left-1/2 -translate-x-1/2 size-2 rounded-sm bg-primary" />
+      )}
+    </div>
+  );
+}
+
+interface LayerGroupProps {
+  layer: { nodeId: string; label: string; tracks: MotionDockTrack[] };
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onAddKeyframe: (track: MotionDockTrack) => void;
+}
+
+function LayerGroup({
+  layer,
+  expanded,
+  onToggleExpand,
+  onAddKeyframe,
+}: LayerGroupProps) {
+  return (
+    <>
+      {/* Layer header row */}
+      <div
+        className="flex items-center gap-1 px-2 hover:bg-accent/40 cursor-pointer"
+        style={{ height: ROW_HEIGHT }}
+        onClick={onToggleExpand}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") onToggleExpand();
+        }}
+        aria-expanded={expanded}
+      >
+        <span className="shrink-0 text-muted-foreground">
+          {expanded ? (
+            <IconChevronDown className="size-3" />
+          ) : (
+            <IconChevronRight className="size-3" />
+          )}
+        </span>
+        <span
+          className="flex-1 truncate text-[11px] font-medium"
+          title={layer.label}
+        >
+          {layer.label}
+        </span>
+      </div>
+
+      {/* Property sub-rows */}
+      {expanded &&
+        layer.tracks.map((track) => (
+          <div
+            key={`${track.targetNodeId}-${track.property}`}
+            className="group flex items-center gap-1 pl-5 pr-2 hover:bg-accent/20"
+            style={{ height: ROW_HEIGHT }}
+          >
+            <IconDiamond className="size-2.5 shrink-0 text-primary/70" />
+            <span className="flex-1 truncate text-[10px] text-muted-foreground">
+              {track.property}
+            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-5 shrink-0 opacity-0 group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddKeyframe(track);
+                  }}
+                  aria-label="Add keyframe"
+                >
+                  <IconPlus className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                Add keyframe at playhead
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        ))}
+    </>
+  );
+}
+
+interface LayerTrackRowsProps {
+  layer: { nodeId: string; label: string; tracks: MotionDockTrack[] };
+  expanded: boolean;
+  playhead: number;
+  onDeleteKeyframe: (track: MotionDockTrack, kf: MotionKeyframe) => void;
+  onMoveKeyframe: (
+    track: MotionDockTrack,
+    kf: MotionKeyframe,
+    newT: number,
+  ) => void;
+}
+
+function LayerTrackRows({
+  layer,
+  expanded,
+  playhead: _playhead,
+  onDeleteKeyframe,
+  onMoveKeyframe,
+}: LayerTrackRowsProps) {
+  return (
+    <>
+      {/* Layer header spacer row */}
+      <div
+        className="relative border-b border-border/40"
+        style={{ height: ROW_HEIGHT }}
+      />
+
+      {/* Property track rows */}
+      {expanded &&
+        layer.tracks.map((track) => (
+          <TrackRow
+            key={`${track.targetNodeId}-${track.property}`}
+            track={track}
+            onDeleteKeyframe={(kf) => onDeleteKeyframe(track, kf)}
+            onMoveKeyframe={(kf, newT) => onMoveKeyframe(track, kf, newT)}
+          />
+        ))}
+    </>
+  );
+}
+
+interface TrackRowProps {
+  track: MotionDockTrack;
+  onDeleteKeyframe: (kf: MotionKeyframe) => void;
+  onMoveKeyframe: (kf: MotionKeyframe, newT: number) => void;
+}
+
+function TrackRow({ track, onDeleteKeyframe, onMoveKeyframe }: TrackRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<{
+    kf: MotionKeyframe;
+    startX: number;
+    startT: number;
+  } | null>(null);
+
+  const handleDiamondPointerDown = useCallback(
+    (e: ReactPointerEvent<SVGSVGElement>, kf: MotionKeyframe) => {
+      e.stopPropagation();
+      dragging.current = { kf, startX: e.clientX, startT: kf.t };
+      (e.target as Element).setPointerCapture(e.pointerId);
+    },
+    [],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!dragging.current || !rowRef.current) return;
+      const rect = rowRef.current.getBoundingClientRect();
+      const dx = e.clientX - dragging.current.startX;
+      const dt = dx / rect.width;
+      const newT = Math.max(0, Math.min(1, dragging.current.startT + dt));
+      onMoveKeyframe(dragging.current.kf, newT);
+    },
+    [onMoveKeyframe],
+  );
+
+  const handlePointerUp = useCallback(() => {
+    dragging.current = null;
+  }, []);
+
+  return (
+    <div
+      ref={rowRef}
+      className="relative border-b border-border/30"
+      style={{ height: ROW_HEIGHT }}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+    >
+      {/* Track baseline */}
+      <div className="absolute inset-y-1/2 left-0 right-0 h-px bg-border/50" />
+
+      {/* Keyframe diamonds */}
+      {track.keyframes.map((kf, i) => (
+        <KeyframeDiamond
+          key={i}
+          kf={kf}
+          onPointerDown={(e) => handleDiamondPointerDown(e, kf)}
+          onDelete={() => onDeleteKeyframe(kf)}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface KeyframeDiamondProps {
+  kf: MotionKeyframe;
+  onPointerDown: (e: ReactPointerEvent<SVGSVGElement>) => void;
+  onDelete: () => void;
+}
+
+function KeyframeDiamond({
+  kf,
+  onPointerDown,
+  onDelete,
+}: KeyframeDiamondProps) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <div
+      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 group"
+      style={{ left: `${kf.t * 100}%` }}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <svg
+            width={10}
+            height={10}
+            viewBox="0 0 10 10"
+            className="cursor-grab active:cursor-grabbing"
+            onPointerDown={onPointerDown}
+            onPointerEnter={() => setHovered(true)}
+            onPointerLeave={() => setHovered(false)}
+            aria-label={`Keyframe at ${Math.round(kf.t * 100)}%`}
+          >
+            <rect
+              x={1}
+              y={1}
+              width={8}
+              height={8}
+              rx={1}
+              transform="rotate(45 5 5)"
+              className={cn(
+                "transition-colors",
+                hovered
+                  ? "fill-primary stroke-primary-foreground"
+                  : "fill-primary/70 stroke-primary/30",
+              )}
+              strokeWidth={1}
+            />
+          </svg>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className="flex items-center gap-1 text-[10px]"
+        >
+          <span>
+            {Math.round(kf.t * 100)}% — {kf.value}
+          </span>
+          <button
+            type="button"
+            className="ml-1 text-destructive hover:text-destructive/80"
+            onClick={onDelete}
+            aria-label="Delete keyframe"
+          >
+            <IconTrash className="size-3" />
+          </button>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
