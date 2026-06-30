@@ -1,6 +1,7 @@
-import { Link } from "react-router";
+import { useActionQuery, useT } from "@agent-native/core/client";
 import { IconArrowUpRight, IconPhoto } from "@tabler/icons-react";
-import { useActionQuery } from "@agent-native/core/client";
+import { Link } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -18,6 +19,7 @@ type DraftAsset = {
 const RECENT_DRAFTS_LIMIT = 5;
 
 export function RecentDraftsSection() {
+  const t = useT();
   const { data, isLoading } = useActionQuery("list-draft-assets", {
     limit: RECENT_DRAFTS_LIMIT,
   });
@@ -28,10 +30,12 @@ export function RecentDraftsSection() {
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-foreground">Recent Drafts</h2>
+        <h2 className="text-sm font-semibold text-foreground">
+          {t("library.recentDrafts")}
+        </h2>
         <Button asChild variant="outline" size="sm">
           <Link to="/library?tab=drafts">
-            View all drafts
+            {t("library.viewAllDrafts")}
             <IconArrowUpRight size={15} className="ml-1.5" />
           </Link>
         </Button>
@@ -46,7 +50,7 @@ export function RecentDraftsSection() {
               <Link
                 key={draft.id}
                 to={`/asset/${encodeURIComponent(draft.id)}`}
-                title={draft.title || draft.prompt || "Draft asset"}
+                title={draft.title || draft.prompt || t("library.draftAsset")}
                 className="group block overflow-hidden rounded-lg border border-border bg-card shadow-sm transition hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="aspect-square bg-muted">
@@ -60,6 +64,7 @@ export function RecentDraftsSection() {
 }
 
 function DraftThumbnail({ draft }: { draft: DraftAsset }) {
+  const t = useT();
   const isVideo =
     draft.mediaType === "video" || draft.mimeType?.startsWith("video/");
   const source = draft.thumbnailUrl ?? draft.previewUrl ?? draft.url ?? "";
@@ -87,7 +92,7 @@ function DraftThumbnail({ draft }: { draft: DraftAsset }) {
   return (
     <img
       src={source}
-      alt={draft.title ?? draft.prompt ?? "Draft asset"}
+      alt={draft.title ?? draft.prompt ?? t("library.draftAsset")}
       loading="lazy"
       className="h-full w-full object-cover transition group-hover:scale-[1.02]"
     />

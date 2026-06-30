@@ -830,6 +830,9 @@ const enUS = {
     allLibraries: "All libraries",
     noDrafts: "No drafts yet.",
     noMatchingDrafts: "No matching drafts.",
+    recentDrafts: "Recent Drafts",
+    viewAllDrafts: "View all drafts",
+    draftAsset: "Draft asset",
     noReusableAssets:
       "No reusable assets yet. Select a kit to upload references or generate assets.",
     noNewAssetsUploaded: "No new assets were uploaded.",
@@ -1707,8 +1710,7 @@ const brandKitDetailHiIN = {
   dismissFailedSlotsDescription:
     "पैनल से प्रत्येक विफल स्लॉट को हटा देता है। सफल उम्मीदवार रुके रहते हैं.",
   dismissFailed: "ख़ारिज करना विफल रहा",
-  dismissSlotDescription:
-    "इस असफल स्लॉट को लाइव उम्मीदवारों के पैनल से हटा देता है।",
+  dismissSlotDescription: "इस असफल स्लॉट को लाइव उम्मीदवारों के पैनल से हटा देता है।",
   dismissThisCandidate: "इस उम्मीदवार को बर्खास्त करें?",
   dismissThisSlot: "इस स्लॉट को ख़ारिज करें?",
   dismissedCandidate: "बर्खास्त उम्मीदवार.",
@@ -1734,8 +1736,7 @@ const brandKitDetailHiIN = {
     "मूल चैट थ्रेड के बिना किसी उम्मीदवार को जारी रखने के लिए डिजाइनरों के लिए साझा संदर्भ।",
   handoffSessions: "हैंडऑफ़ सत्र",
   imageCandidates: "छवि उम्मीदवार",
-  imagePromptPlaceholder:
-    "कोल्ड-स्टार्ट विलंबता के बारे में एक लेख के लिए ब्लॉग हीरो",
+  imagePromptPlaceholder: "कोल्ड-स्टार्ट विलंबता के बारे में एक लेख के लिए ब्लॉग हीरो",
   libraryEyebrow:
     "इस फ़िल्टर किए गए दृश्य में संपत्तियाँ सहेजी गईं। उन्हें चिन्हित करें जो भावी पीढ़ियों का मार्गदर्शन करें।",
   liveCandidatesActions: "लाइव उम्मीदवारों के कार्य",
@@ -1750,8 +1751,7 @@ const brandKitDetailHiIN = {
   newGenerationPresetDescription:
     "बार-बार छवि कार्य के लिए आउटपुट स्वरूप, पहलू अनुपात और पाठ नियमों को सहेजें।",
   newGenerationPreset: "नई पीढ़ी पूर्व निर्धारित",
-  noAssetsMatchDescription:
-    "सभी संपत्तियाँ, एक अलग फ़ोल्डर, या एक विस्तृत खोज आज़माएँ।",
+  noAssetsMatchDescription: "सभी संपत्तियाँ, एक अलग फ़ोल्डर, या एक विस्तृत खोज आज़माएँ।",
   noAssetsMatch: "कोई भी संपत्ति इस दृश्य से मेल नहीं खाती",
   noAssetsToShow: "दिखाने के लिए कोई संपत्ति नहीं.",
   noFeedbackYet: "अभी तक कोई प्रतिक्रिया नहीं।",
@@ -1769,8 +1769,7 @@ const brandKitDetailHiIN = {
   openChat: "चैट खोलें",
   previewUnavailable: "पूर्वावलोकन अनुपलब्ध",
   privateCopyCreated: "निजी ब्रांड किट की प्रतिलिपि बनाई गई",
-  processingPreviews:
-    "पूर्वावलोकन संसाधित करना और उन्हें ब्रांड किट में सहेजना।",
+  processingPreviews: "पूर्वावलोकन संसाधित करना और उन्हें ब्रांड किट में सहेजना।",
   promptTemplate: "शीघ्र टेम्पलेट",
   readyCandidate: "तैयार उम्मीदवार",
   referencesEyebrow: "Assets वर्तमान में पीढ़ी संदर्भ के लिए चिह्नित है।",
@@ -1793,8 +1792,7 @@ const brandKitDetailHiIN = {
     "सर्वर अभी भी इन परिसंपत्तियों को सहेजना समाप्त कर सकता है। हम इस ब्रांड किट की जाँच करते रहेंगे।",
   uploadTakingLonger: "अपलोड में अपेक्षा से अधिक समय लग रहा है.",
   videoCandidate: "वीडियो उम्मीदवार",
-  videoPromptPlaceholder:
-    "धीमे कैमरा पुश-इन के साथ आठ सेकंड का उत्पाद प्रकट होता है",
+  videoPromptPlaceholder: "धीमे कैमरा पुश-इन के साथ आठ सेकंड का उत्पाद प्रकट होता है",
   viewDetails: "विवरण देखें",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
@@ -2771,6 +2769,12 @@ export const messagesByLocale = {
   "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     library: {
+      allLibraries: "所有库",
+      noDrafts: "暂无草稿。",
+      noMatchingDrafts: "没有匹配的草稿。",
+      recentDrafts: "最近草稿",
+      viewAllDrafts: "查看所有草稿",
+      draftAsset: "草稿资产",
       addAssets: "添加资产",
       addAssetsDescription:
         "上传源素材或生成候选项，然后只将应指导未来生成的资产标记为参考。",
@@ -3509,6 +3513,12 @@ export const messagesByLocale = {
   }),
   "es-ES": mergeMessages({
     library: {
+      allLibraries: "Todas las bibliotecas",
+      noDrafts: "Aún no hay borradores.",
+      noMatchingDrafts: "No hay borradores coincidentes.",
+      recentDrafts: "Borradores recientes",
+      viewAllDrafts: "Ver todos los borradores",
+      draftAsset: "Borrador",
       addAssets: "Agregar activos",
       addAssetsDescription:
         "Cargue material fuente o genere candidatos, luego marque solo los activos que deberían guiar a las generaciones futuras como referencias.",
@@ -3972,6 +3982,12 @@ export const messagesByLocale = {
   }),
   "fr-FR": mergeMessages({
     library: {
+      allLibraries: "Toutes les bibliothèques",
+      noDrafts: "Aucun brouillon pour l'instant.",
+      noMatchingDrafts: "Aucun brouillon correspondant.",
+      recentDrafts: "Brouillons récents",
+      viewAllDrafts: "Voir tous les brouillons",
+      draftAsset: "Brouillon",
       addAssets: "Ajouter des éléments",
       addAssetsDescription:
         "Téléchargez le matériel source ou générez des candidats, puis marquez uniquement les atouts qui devraient guider les générations futures comme références.",
@@ -4413,6 +4429,12 @@ export const messagesByLocale = {
   }),
   "de-DE": mergeMessages({
     library: {
+      allLibraries: "Alle Bibliotheken",
+      noDrafts: "Noch keine Entwürfe.",
+      noMatchingDrafts: "Keine passenden Entwürfe.",
+      recentDrafts: "Letzte Entwürfe",
+      viewAllDrafts: "Alle Entwürfe anzeigen",
+      draftAsset: "Entwurf",
       addAssets: "Assets hinzufügen",
       addAssetsDescription:
         "Laden Sie Quellmaterial hoch oder generieren Sie Kandidaten und markieren Sie dann nur die Assets, die künftigen Generationen als Referenz dienen sollen.",
@@ -4762,6 +4784,12 @@ export const messagesByLocale = {
   }),
   "ja-JP": mergeMessages({
     library: {
+      allLibraries: "すべてのライブラリ",
+      noDrafts: "下書きはまだありません。",
+      noMatchingDrafts: "一致する下書きはありません。",
+      recentDrafts: "最近の下書き",
+      viewAllDrafts: "すべての下書きを表示",
+      draftAsset: "下書きアセット",
       addAssets: "アセットの追加",
       addAssetsDescription:
         "ソース素材をアップロードするか候補を生成し、将来の世代を導く必要がある資産のみを参照としてマークします。",
@@ -5101,6 +5129,12 @@ export const messagesByLocale = {
   }),
   "ko-KR": mergeMessages({
     library: {
+      allLibraries: "모든 라이브러리",
+      noDrafts: "아직 초안이 없습니다.",
+      noMatchingDrafts: "일치하는 초안이 없습니다.",
+      recentDrafts: "최근 초안",
+      viewAllDrafts: "모든 초안 보기",
+      draftAsset: "초안 자산",
       addAssets: "자산 추가",
       addAssetsDescription:
         "원본 자료를 업로드하거나 후보를 생성한 후, 미래 세대를 이끌어야 할 자산만 참고 자료로 표시하세요.",
@@ -5439,6 +5473,12 @@ export const messagesByLocale = {
   }),
   "pt-BR": mergeMessages({
     library: {
+      allLibraries: "Todas as bibliotecas",
+      noDrafts: "Ainda não há rascunhos.",
+      noMatchingDrafts: "Nenhum rascunho correspondente.",
+      recentDrafts: "Rascunhos recentes",
+      viewAllDrafts: "Ver todos os rascunhos",
+      draftAsset: "Rascunho",
       addAssets: "Adicionar recursos",
       addAssetsDescription:
         "Carregue o material de origem ou gere candidatos e marque apenas os ativos que devem orientar as gerações futuras como referências.",
@@ -5879,6 +5919,12 @@ export const messagesByLocale = {
   }),
   "hi-IN": mergeMessages({
     library: {
+      allLibraries: "सभी लाइब्रेरी",
+      noDrafts: "अभी तक कोई ड्राफ़्ट नहीं।",
+      noMatchingDrafts: "कोई मिलान वाला ड्राफ़्ट नहीं।",
+      recentDrafts: "हाल के ड्राफ़्ट",
+      viewAllDrafts: "सभी ड्राफ़्ट देखें",
+      draftAsset: "ड्राफ़्ट एसेट",
       addAssets: "संपत्तियां जोड़ें",
       addAssetsDescription:
         "स्रोत सामग्री अपलोड करें या उम्मीदवार तैयार करें, फिर केवल उन संपत्तियों को चिह्नित करें जो भविष्य की पीढ़ियों को संदर्भ के रूप में मार्गदर्शन करें।",
@@ -6017,8 +6063,7 @@ export const messagesByLocale = {
       referenceCount: "{{count}} references",
       referencesEyebrow: "Assets वर्तमान में पीढ़ी संदर्भ के लिए चिह्नित है।",
       removeFromReferences: "सन्दर्भों से हटाएँ",
-      runHasNoGeneratedAssets:
-        "इस रन के पास सौंपने के लिए उत्पन्न संपत्ति नहीं है।",
+      runHasNoGeneratedAssets: "इस रन के पास सौंपने के लिए उत्पन्न संपत्ति नहीं है।",
       saveTo: "इसमें सहेजें...",
       savedGeneratedAsset: "जनित संपत्ति सहेजी गई।",
       savedToLibrary: "लाइब्रेरी में सहेजा गया।",
@@ -6099,8 +6144,7 @@ export const messagesByLocale = {
         "S3, R2, Spaces, Tigris, MinIO या कोई compatible provider उपयोग करें.",
       available: "उपलब्ध",
       connecting: "कनेक्ट हो रहा है",
-      noManualOptions:
-        "इस item के लिए कोई manual setup options उपलब्ध नहीं हैं.",
+      noManualOptions: "इस item के लिए कोई manual setup options उपलब्ध नहीं हैं.",
       builderManaged: "Builder managed image generation संभाल रहा है.",
       providerConfigured: "{{providers}} configured.",
 
@@ -6140,8 +6184,7 @@ export const messagesByLocale = {
       modelBestQuality: "सर्वश्रेष्ठ गुणवत्ता",
       modelFast: "तेज़",
       emptyState: "Assets से पूछें कि क्या बनाना है।",
-      composerPlaceholder:
-        "एसेट का वर्णन करें - + से images या text context जोड़ें",
+      composerPlaceholder: "एसेट का वर्णन करें - + से images या text context जोड़ें",
       heroTitle: "हम कौन सा एसेट बनाएं?",
       heroDescription:
         "hero image, product reveal, reference edit या खोजने की दिशा से शुरू करें।",
@@ -6218,6 +6261,12 @@ export const messagesByLocale = {
   }),
   "ar-SA": mergeMessages({
     library: {
+      allLibraries: "جميع المكتبات",
+      noDrafts: "لا توجد مسودات بعد.",
+      noMatchingDrafts: "لا توجد مسودات مطابقة.",
+      recentDrafts: "المسودات الأخيرة",
+      viewAllDrafts: "عرض جميع المسودات",
+      draftAsset: "مسودة",
       addAssets: "أضف الأصول",
       addAssetsDescription:
         "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",
@@ -6330,8 +6379,7 @@ export const messagesByLocale = {
       nextImage: "الصورة التالية",
       noAssetsInLibrary: "لا توجد أصول {{mediaLabel}} في هذه المكتبة بعد.",
       noAssetsMatchView: "لا توجد أصول تطابق طريقة العرض هذه",
-      noAssetsMatchViewBody:
-        "جرّب جميع الأصول أو مجلدًا مختلفًا أو بحثًا أوسع.",
+      noAssetsMatchViewBody: "جرّب جميع الأصول أو مجلدًا مختلفًا أو بحثًا أوسع.",
       noAssetsToShow: "لا توجد أصول لعرضها.",
       noBrandKit: "لا توجد مجموعة علامة تجارية",
       noKitsMatch: "لا توجد مجموعات تطابق بحثك.",
@@ -6353,8 +6401,7 @@ export const messagesByLocale = {
         "جارٍ إعداد مكتبة صور للمرشحات المنشأة...",
       previousImage: "الصورة السابقة",
       primaryKitActions: "إجراءات المجموعة الأساسية",
-      privateBrandKitCopyCreated:
-        "تم إنشاء نسخة مجموعة العلامة التجارية الخاصة",
+      privateBrandKitCopyCreated: "تم إنشاء نسخة مجموعة العلامة التجارية الخاصة",
       readyCandidate: "مرشح جاهز",
       readyToSave: "جاهز للحفظ",
       referencesEyebrow: "تم وضع علامة Assets حاليًا كمرجع للجيل.",
@@ -6442,8 +6489,7 @@ export const messagesByLocale = {
       saveSettings: "حفظ الإعدادات",
       setupDescription: "أساسيان: التوليد والتخزين الدائم.",
       setupTitle: "إعداد Assets",
-      storageNeedsSetup:
-        "أضف مساحة تخزين متوافقة مع S3 لأصول الإنتاج والصادرات.",
+      storageNeedsSetup: "أضف مساحة تخزين متوافقة مع S3 لأصول الإنتاج والصادرات.",
       storageReady:
         "تتمتع النسخ الأصلية والصور المصغرة ومقاطع الفيديو والصادرات بمكانة متينة.",
     },
