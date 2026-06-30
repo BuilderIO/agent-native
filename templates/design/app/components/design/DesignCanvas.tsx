@@ -300,6 +300,8 @@ interface DesignCanvasProps {
     displayWidth: number;
     displayHeight: number;
     fluid?: boolean;
+    contentOffsetX?: number;
+    contentOffsetY?: number;
   };
   transparentBackground?: boolean;
   editorChromeScaleX?: number;
@@ -452,20 +454,20 @@ function getExternalPreviewUrl(content: string): string | null {
 const TRANSPARENT_EMBEDDED_FRAME_STYLE =
   "<style data-agent-native-transparent-frame>html,body{background:transparent!important;}body{background-color:transparent!important;}</style>";
 
-function injectTransparentEmbeddedFrameStyle(content: string): string {
+function embeddedContentOffsetStyle(x: number, y: number): string {
+  if (x === 0 && y === 0) return "";
+  return `<style data-agent-native-content-offset>[data-agent-native-node-id]{translate:${Math.round(x)}px ${Math.round(y)}px;}</style>`;
+}
+
+function injectEmbeddedFrameStyle(content: string, style: string): string {
+  if (!style) return content;
   if (/<\/head>/i.test(content)) {
-    return content.replace(
-      /<\/head>/i,
-      `${TRANSPARENT_EMBEDDED_FRAME_STYLE}</head>`,
-    );
+    return content.replace(/<\/head>/i, `${style}</head>`);
   }
   if (/<body\b/i.test(content)) {
-    return content.replace(
-      /<body\b/i,
-      `${TRANSPARENT_EMBEDDED_FRAME_STYLE}<body`,
-    );
+    return content.replace(/<body\b/i, `${style}<body`);
   }
-  return `${TRANSPARENT_EMBEDDED_FRAME_STYLE}${content}`;
+  return `${style}${content}`;
 }
 
 export interface IframeHotkeyPayload {
@@ -630,9 +632,14 @@ export function DesignCanvas({
       NAV_BRIDGE_SCRIPT +
       embeddedWheelBridge +
       editorChromeBridge;
-    const frameContent = transparentBackground
-      ? injectTransparentEmbeddedFrameStyle(renderedContent)
-      : renderedContent;
+    const frameStyle = [
+      transparentBackground ? TRANSPARENT_EMBEDDED_FRAME_STYLE : "",
+      embeddedContentOffsetStyle(
+        embeddedFrame?.contentOffsetX ?? 0,
+        embeddedFrame?.contentOffsetY ?? 0,
+      ),
+    ].join("");
+    const frameContent = injectEmbeddedFrameStyle(renderedContent, frameStyle);
     if (frameContent.includes("</body>")) {
       return frameContent.replace("</body>", bridgeToInject + "</body>"); // i18n-ignore generated iframe HTML injection
     }
@@ -640,7 +647,7 @@ export function DesignCanvas({
       return frameContent.replace("</html>", bridgeToInject + "</html>"); // i18n-ignore generated iframe HTML injection
     }
     // No body/html tags — wrap it
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${transparentBackground ? TRANSPARENT_EMBEDDED_FRAME_STYLE : ""}</head><body>${renderedContent}${bridgeToInject}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${renderedContent}${bridgeToInject}</body></html>`;
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
@@ -652,6 +659,8 @@ export function DesignCanvas({
     externalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
+    embeddedFrame?.contentOffsetX,
+    embeddedFrame?.contentOffsetY,
     renderedContent,
     transparentBackground,
   ]);
