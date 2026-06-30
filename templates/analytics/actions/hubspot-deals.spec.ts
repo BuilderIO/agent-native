@@ -286,6 +286,47 @@ describe("hubspot-deals action", () => {
     expect(full.nextOffset).toBe(null);
   });
 
+  it("bounds an unfiltered (no query, no filters) call too", async () => {
+    const deals = Array.from({ length: 40 }, (_, index) => ({
+      id: `deal-${index}`,
+      properties: {
+        dealname: `Deal ${index}`,
+        dealstage: "open",
+        amount: "1000",
+        closedate: null,
+        pipeline: "enterprise-new-business",
+        hubspot_owner_id: "owner-1",
+        createdate: "2025-12-01T00:00:00Z",
+        hs_lastmodifieddate: "2026-05-01T00:00:00Z",
+      },
+    }));
+    getAllDeals.mockResolvedValue(deals);
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [
+          {
+            id: "open",
+            label: "Discovery",
+            displayOrder: 1,
+            metadata: { probability: "0.3" },
+          },
+        ],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({ "owner-1": "Alice Seller" });
+
+    const result = (await hubspotDeals.run({})) as Record<string, any>;
+
+    expect(searchHubSpotObjects).not.toHaveBeenCalled();
+    expect(result.count).toBe(25);
+    expect(result.total).toBe(40);
+    expect(result.truncated).toBe(true);
+    expect(result.hasMore).toBe(true);
+    expect(result.nextOffset).toBe(25);
+  });
+
   it("rejects impossible closed date filter boundaries", async () => {
     await expect(
       hubspotDeals.run({

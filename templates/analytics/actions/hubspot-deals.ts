@@ -462,9 +462,12 @@ export default defineAction({
       });
 
     // The full-text query path is already bounded by HubSpot's own `limit`.
-    // The structured-filter path scans the whole visible deal set, so bound
-    // the returned cohort here: a full enriched cohort can be multiple MB,
-    // which overruns the extension iframe bridge and the agent context. We
+    // EVERY non-query call (with or without structured filters) scans the whole
+    // visible deal set, so bound the returned cohort here. This is deliberately
+    // NOT gated on `structuredFilters`: the unfiltered `hubspot-deals({})` call
+    // is the LARGEST payload of all (every visible deal), so it must be bounded
+    // too — a full enriched cohort can be multiple MB, which overruns the
+    // extension iframe bridge and the agent context. We
     // keep `total` as the true matched count and signal partial slices via
     // `truncated` so callers never mistake a page for the full cohort.
     // `truncated` means "this response is only part of the cohort" (returned <
