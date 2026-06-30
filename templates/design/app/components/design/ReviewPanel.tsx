@@ -63,6 +63,12 @@ export interface ReviewFixSource {
   filename?: string;
 }
 
+export interface ReviewFixResult {
+  applied?: boolean;
+  fileId?: string;
+  patchedContent?: string;
+}
+
 /** Per-finding state for the optimistic Fix flow. */
 type FixStatus = "idle" | "pending" | "fixed" | "error";
 
@@ -116,7 +122,7 @@ export interface ReviewPanelProps {
    * Called after a fix is successfully applied — e.g. to refetch the audit so
    * the resolved finding drops out of the list.  The applied finding is passed.
    */
-  onFixApplied?: (finding: A11yFinding) => void;
+  onFixApplied?: (finding: A11yFinding, result?: ReviewFixResult) => void;
   className?: string;
 }
 
@@ -186,7 +192,7 @@ function FindingRow({
   finding: A11yFinding;
   onClick?: (finding: A11yFinding) => void;
   fixSource?: ReviewFixSource;
-  onFixApplied?: (finding: A11yFinding) => void;
+  onFixApplied?: (finding: A11yFinding, result?: ReviewFixResult) => void;
 }) {
   const cfg = SEVERITY_CONFIG[finding.severity];
   const Icon = cfg.icon;
@@ -213,6 +219,7 @@ function FindingRow({
         designId: fixSource?.designId,
         fileId: fixSource?.fileId,
         filename: fixSource?.filename,
+        includeContent: true,
         finding: {
           id: finding.id,
           severity: finding.severity,
@@ -224,10 +231,10 @@ function FindingRow({
           wcag: finding.wcag,
           fixAvailable: finding.fixAvailable,
         },
-      })) as { applied?: boolean } | undefined;
+      })) as ReviewFixResult | undefined;
       if (res?.applied) {
         setFixStatus("fixed");
-        onFixApplied?.(finding);
+        onFixApplied?.(finding, res);
       } else {
         // The engine could not apply it (e.g. selector no longer resolves).
         setFixStatus("error");
@@ -374,7 +381,7 @@ function A11ySection({
   onRunAudit?: () => void;
   onFindingClick?: (finding: A11yFinding) => void;
   fixSource?: ReviewFixSource;
-  onFixApplied?: (finding: A11yFinding) => void;
+  onFixApplied?: (finding: A11yFinding, result?: ReviewFixResult) => void;
 }) {
   const errors = findings.filter((f) => f.severity === "error");
   const warnings = findings.filter((f) => f.severity === "warning");

@@ -11,6 +11,7 @@ import {
   rgbaToHex,
   withColorOpacity,
 } from "@shared/color-utils";
+import { propNameToDataAttribute } from "@shared/component-model";
 import {
   IconAlignCenter,
   IconAlignJustified,
@@ -186,6 +187,11 @@ interface EditPanelProps {
   // -------------------------------------------------------------------------
   /** The active design's id — required to mount Tokens / States / Review. */
   designId?: string;
+  /**
+   * Called after a component prop edit returns the patched source so the parent
+   * editor can sync local/Yjs content instead of waiting for query invalidation.
+   */
+  onComponentPropApplied?: (fileId: string, content: string) => void;
   /**
    * Called after a token edit is applied so the parent can push the resolved
    * CSS-var map into the iframe via the tweak-values postMessage.
@@ -5372,6 +5378,7 @@ function MakeItRealCard({
  * typed here; the action may return additional fields.
  */
 interface ComponentDetailsResult {
+  nodeId: string;
   name: string;
   sourceType: string;
   observedProps: Array<{ name: string; value: string }>;
@@ -5407,30 +5414,55 @@ interface ComponentDetailsResult {
  */
 function ComponentSection({
   designId,
+  fileId,
   nodeId,
+  onComponentPropApplied,
   sourceCapabilities = [],
 }: {
   designId: string;
+  fileId?: string;
   nodeId: string;
+  onComponentPropApplied?: (fileId: string, content: string) => void;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
 }) {
   const queryClient = useQueryClient();
-  const detailsKey = ["action", "get-component-details", { designId, nodeId }];
+  const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
+  const detailsKey = ["action", "get-component-details", detailsParams];
 
-  const { data, isLoading, error } = useActionQuery<ComponentDetailsResult>(
-    "get-component-details",
-    { designId, nodeId },
-  );
+  const { data, isLoading, error, refetch } =
+    useActionQuery<ComponentDetailsResult>(
+      "get-component-details",
+      detailsParams,
+      { refetchOnMount: "always" },
+    );
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
 
-  // Persist a single prop change through apply-component-prop-edit. The canvas
-  // re-renders from the freshly written design content (get-design refetch),
-  // so no postMessage into the iframe is needed. The get-component-details
-  // cache is optimistically patched so the control reflects the new value
-  // immediately, then reconciled with the server on settle.
+  const postComponentPropPreview = useCallback(
+    (attribute: string, value: string) => {
+      if (typeof document === "undefined") return;
+
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      iframe?.contentWindow?.postMessage(
+        {
+          type: "style-change",
+          selector: data?.instance?.selector ?? "",
+          nodeId: data?.instance?.nodeId ?? nodeId,
+          attributeOverrides: { [attribute]: value },
+        },
+        "*",
+      );
+    },
+    [data?.instance?.nodeId, data?.instance?.selector, nodeId],
+  );
+
+  // Persist a single prop change through apply-component-prop-edit. Attribute
+  // props also preview immediately in the iframe so the selected component
+  // changes without waiting for the write/refetch round-trip.
   const persistPropEdit = (
     edit:
       | { kind: "alpineData"; value: string }
@@ -5440,19 +5472,50 @@ function ComponentSection({
     queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
       prev ? optimistic(prev) : prev,
     );
+    if (edit.kind === "attribute") {
+      postComponentPropPreview(edit.attribute, edit.value);
+    }
     applyPropMutation.mutate(
-      { designId, nodeId, edit },
+      { designId, nodeId, ...(fileId ? { fileId } : {}), edit },
       {
+        onSuccess: (result) => {
+          const response = result as {
+            content?: unknown;
+            fileId?: unknown;
+          };
+          if (
+            typeof response.fileId === "string" &&
+            typeof response.content === "string"
+          ) {
+            onComponentPropApplied?.(response.fileId, response.content);
+          }
+        },
         onSettled: () => {
-          // Re-render the canvas from the new content and re-read the props.
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
           void queryClient.invalidateQueries({ queryKey: detailsKey });
+          void refetch();
         },
       },
     );
   };
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        (event.data as { type?: unknown } | null)?.type === "element-select"
+      ) {
+        void refetch();
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [refetch]);
 
   // While loading, show a compact skeleton that matches the section width.
   if (isLoading) {
@@ -5491,7 +5554,7 @@ function ComponentSection({
   // Real-app sources keep the deeper source-prop controls gated as-is, so for
   // non-inline sources the controls are read-only here.
   const isInline = sourceType === "inline";
-  const editingEnabled = isInline; // gated; real-app stays read-only for now
+  const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   // Each editable row: name + current value + how it persists + its options.
@@ -5562,12 +5625,10 @@ function ComponentSection({
         ),
       }));
     } else {
-      // camelCase prop name → data-agent-native-prop-<kebab>
-      const kebab = row.name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
       persistPropEdit(
         {
           kind: "attribute",
-          attribute: `data-agent-native-prop-${kebab}`,
+          attribute: propNameToDataAttribute(row.name),
           value: nextValue,
         },
         (prev) => {
@@ -5624,7 +5685,11 @@ function ComponentSection({
                 "Edit component source" /* i18n-ignore design inspector action */
               }
               onClick={() => {
-                openSourceMutation.mutate({ designId, nodeId });
+                openSourceMutation.mutate({
+                  designId,
+                  nodeId,
+                  ...(fileId ? { fileId } : {}),
+                });
               }}
             >
               <IconExternalLink className="size-3.5" />
@@ -5667,6 +5732,7 @@ function ComponentSection({
             {rows.map((row) => {
               const hasOptions = (row.options?.length ?? 0) > 0;
               const isBoolean = !hasOptions && isBooleanPropValue(row.value);
+              const disabled = !editingEnabled || applyPropMutation.isPending;
               return (
                 <div key={row.name} className="flex items-center gap-1.5">
                   <Label className="w-[64px] shrink-0 truncate text-[11px] font-medium capitalize text-muted-foreground">
@@ -5677,7 +5743,7 @@ function ComponentSection({
                     <Select
                       value={row.value || row.options![0] || ""}
                       onValueChange={(v) => commitProp(row, v)}
-                      disabled={!editingEnabled}
+                      disabled={disabled}
                     >
                       <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
                         <SelectValue />
@@ -5702,7 +5768,7 @@ function ComponentSection({
                         onCheckedChange={(checked) =>
                           commitProp(row, checked ? "true" : "false")
                         }
-                        disabled={!editingEnabled}
+                        disabled={disabled}
                         className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
                         aria-label={
                           row.name /* i18n-ignore dynamic prop name */
@@ -5714,7 +5780,7 @@ function ComponentSection({
                     <Input
                       defaultValue={row.value}
                       key={`${row.name}:${row.value}`}
-                      disabled={!editingEnabled}
+                      disabled={disabled}
                       onBlur={(e) => commitProp(row, e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
@@ -5764,6 +5830,7 @@ export function EditPanel({
   fileId,
   filename,
   designId,
+  onComponentPropApplied,
   onTokensApplied,
   statesPanelProps,
   reviewPanelProps,
@@ -5825,6 +5892,7 @@ export function EditPanel({
   // over-scroll bounce, could briefly un-shield the canvas and allow a stray
   // pointer event to deselect the selected canvas element (R3 regression).
   const scrolledRecentlyRef = useRef(false);
+  const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (readOnly) {
@@ -5904,7 +5972,14 @@ export function EditPanel({
 
           <div
             className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            onWheelCapture={() => {
+              userScrollIntentRef.current = true;
+            }}
+            onTouchMoveCapture={() => {
+              userScrollIntentRef.current = true;
+            }}
             onScroll={() => {
+              if (!userScrollIntentRef.current) return;
               // Mark that a scroll just happened so the click that some
               // browsers fire at the end of a scroll gesture (or after an
               // overscroll/rubber-band bounce) is suppressed. Crucially this
@@ -5919,6 +5994,7 @@ export function EditPanel({
               }
               scrollTimerRef.current = setTimeout(() => {
                 scrolledRecentlyRef.current = false;
+                userScrollIntentRef.current = false;
                 scrollTimerRef.current = null;
               }, 300);
             }}
@@ -5930,6 +6006,7 @@ export function EditPanel({
               // browsers generate after a touch-scroll ends.
               if (!scrolledRecentlyRef.current) return;
               scrolledRecentlyRef.current = false;
+              userScrollIntentRef.current = false;
               if (scrollTimerRef.current !== null) {
                 clearTimeout(scrollTimerRef.current);
                 scrollTimerRef.current = null;
@@ -5971,7 +6048,9 @@ export function EditPanel({
             {designId && componentNodeId && (
               <ComponentSection
                 designId={designId}
+                fileId={fileId}
                 nodeId={componentNodeId}
+                onComponentPropApplied={onComponentPropApplied}
                 sourceCapabilities={sourceCapabilities}
               />
             )}

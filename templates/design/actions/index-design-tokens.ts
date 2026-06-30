@@ -7,7 +7,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import type { DesignSystemData } from "../shared/api.js";
-import { resolveTweaksToCssVars } from "../shared/resolve-tweaks.js";
+import {
+  isDirectCssVarSelectionKey,
+  resolveTweaksToCssVars,
+} from "../shared/resolve-tweaks.js";
 
 // ---------------------------------------------------------------------------
 // Token type classification
@@ -224,9 +227,10 @@ export default defineAction({
       tweaks as TweakDef[],
       tweakSelections,
     );
-    const tweakCssVars = new Set(
-      tweaks.map((t) => t.cssVar).filter(Boolean) as string[],
-    );
+    const tweakCssVars = new Set([
+      ...(tweaks.map((t) => t.cssVar).filter(Boolean) as string[]),
+      ...Object.keys(tweakSelections).filter(isDirectCssVarSelectionKey),
+    ]);
     for (const [cssVar, value] of Object.entries(resolvedOverrides)) {
       rawTokens.set(cssVar, { value, source: "Tweaks" });
     }

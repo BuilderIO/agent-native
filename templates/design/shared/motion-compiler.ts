@@ -47,6 +47,7 @@ export interface CompileResult {
  */
 export function compile(timeline: MotionTimeline): CompileResult {
   const { tracks, durationMs, defaultEase } = timeline;
+  assertSafeMotionCssToken(defaultEase, "defaultEase");
 
   if (!tracks || tracks.length === 0) {
     const css = reducedMotionBlock([]);
@@ -55,7 +56,15 @@ export function compile(timeline: MotionTimeline): CompileResult {
 
   const animNames: string[] = [];
   const kfBlocks: string[] = [];
-  const ruleBlocks: string[] = [];
+  const rulesByTarget = new Map<
+    string,
+    {
+      names: string[];
+      durations: string[];
+      timings: string[];
+      fillModes: string[];
+    }
+  >();
 
   // Sort tracks for determinism: targetNodeId ASC, property ASC.
   const sorted = [...tracks].sort((a, b) => {
@@ -66,6 +75,7 @@ export function compile(timeline: MotionTimeline): CompileResult {
   for (const track of sorted) {
     const { targetNodeId, property, keyframes } = track;
     if (!keyframes || keyframes.length === 0) continue;
+    assertSafeMotionCssProperty(property, "track.property");
 
     const name = animationName(targetNodeId, property);
     animNames.push(name);
@@ -73,15 +83,31 @@ export function compile(timeline: MotionTimeline): CompileResult {
 
     const dur = formatDuration(durationMs);
     const ease = keyframes[0]?.ease ?? defaultEase;
-    ruleBlocks.push(
-      `[data-agent-native-node-id="${escAttr(targetNodeId)}"] {\n` +
-        `  animation-name: ${name};\n` +
-        `  animation-duration: ${dur};\n` +
-        `  animation-timing-function: ${ease};\n` +
-        `  animation-fill-mode: both;\n` +
+    assertSafeMotionCssToken(ease, "track ease");
+    const targetRule = rulesByTarget.get(targetNodeId) ?? {
+      names: [],
+      durations: [],
+      timings: [],
+      fillModes: [],
+    };
+    targetRule.names.push(name);
+    targetRule.durations.push(dur);
+    targetRule.timings.push(ease);
+    targetRule.fillModes.push("both");
+    rulesByTarget.set(targetNodeId, targetRule);
+  }
+
+  const ruleBlocks = [...rulesByTarget.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(
+      ([targetNodeId, rule]) =>
+        `[data-agent-native-node-id="${escAttr(targetNodeId)}"] {\n` +
+        `  animation-name: ${rule.names.join(", ")};\n` +
+        `  animation-duration: ${rule.durations.join(", ")};\n` +
+        `  animation-timing-function: ${rule.timings.join(", ")};\n` +
+        `  animation-fill-mode: ${rule.fillModes.join(", ")};\n` +
         `}`,
     );
-  }
 
   const css = [...kfBlocks, ...ruleBlocks, reducedMotionBlock(animNames)].join(
     "\n\n",
@@ -129,7 +155,50 @@ export function hashCss(css: string): string {
   return djb2(css);
 }
 
+/**
+ * Reject caller-supplied CSS declaration values before interpolation into the
+ * managed motion stylesheet. Motion values still allow useful CSS functions
+ * such as `translateY(...)`, `calc(...)`, `cubic-bezier(...)`, and `var(...)`,
+ * but block declaration/rule/style breakouts and remote-resource hooks.
+ */
+export function assertSafeMotionCssToken(value: string, field: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`Invalid ${field}: expected a CSS string value.`);
+  }
+  if (value.trim().length === 0) {
+    throw new Error(`Invalid ${field}: motion CSS values cannot be empty.`);
+  }
+  if (CSS_TOKEN_CONTROL_RE.test(value) || CSS_TOKEN_BREAKOUT_RE.test(value)) {
+    throw new Error(
+      `Invalid ${field}: semicolons, braces, comments, angle brackets, control characters, and url(...) are not allowed in motion CSS values.`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Validate that a CSS property name is a safe CSS identifier.
+ *
+ * Accepts standard and vendor-prefixed property names (e.g. "opacity",
+ * "transform", "-webkit-transform") and nothing else.
+ */
+export function assertSafeMotionCssProperty(
+  property: string,
+  field: string,
+): string {
+  if (!/^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(property)) {
+    throw new Error(
+      `Invalid ${field}: "${property}" is not a valid CSS property identifier. ` +
+        "Only ASCII letters, digits, hyphens, and an optional leading hyphen are allowed.",
+    );
+  }
+  return property;
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+const CSS_TOKEN_BREAKOUT_RE = /[;{}<>]|\/\*|\*\/|\burl\s*\(/i;
+const CSS_TOKEN_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
 /**
  * Build a deterministic CSS animation name from a node id and CSS property.
@@ -169,6 +238,8 @@ function keyframesBlock(
   const stops = sorted.map((kf) => {
     const pct = formatPercent(kf.t);
     const ease = kf.ease ?? defaultEase;
+    assertSafeMotionCssToken(kf.value, "keyframe value");
+    assertSafeMotionCssToken(ease, "keyframe ease");
     return (
       `  ${pct} {\n` +
       `    ${property}: ${kf.value};\n` +

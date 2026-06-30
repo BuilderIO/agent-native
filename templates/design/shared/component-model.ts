@@ -40,6 +40,22 @@ export interface ComponentPropValue {
   value: string;
 }
 
+/**
+ * Convert a JavaScript/React prop name to the `data-agent-native-prop-*`
+ * attribute name used in rendered HTML.
+ *
+ * HTML attribute names are lower-cased by parsers, so camelCase must be written
+ * as kebab-case to round-trip through {@link extractProps}.
+ */
+export function propNameToDataAttribute(propName: string): string {
+  const suffix = propName
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/[\s_]+/g, "-")
+    .toLowerCase();
+  return `${COMPONENT_PROP_PREFIX}${suffix}`;
+}
+
 // ─── Component instance ───────────────────────────────────────────────────────
 
 /**
@@ -116,6 +132,25 @@ export function componentNameFor(node: CodeLayerNode): string | null {
   const raw = node.dataAttributes[COMPONENT_NAME_ATTR];
   if (typeof raw !== "string" || !raw.trim()) return null;
   return raw.trim();
+}
+
+/**
+ * Match a selected component handle against both generated code-layer ids and
+ * durable runtime/source ids stamped into the rendered DOM.
+ */
+export function componentNodeIdMatches(
+  node: CodeLayerNode,
+  nodeId: string,
+): boolean {
+  return (
+    node.id === nodeId ||
+    node.dataAttributes["data-agent-native-node-id"] === nodeId ||
+    node.dataAttributes["data-code-layer-id"] === nodeId ||
+    node.dataAttributes["data-layer-id"] === nodeId ||
+    node.dataAttributes["data-builder-id"] === nodeId ||
+    node.dataAttributes["data-loc"] === nodeId ||
+    node.attributes.id === nodeId
+  );
 }
 
 /**

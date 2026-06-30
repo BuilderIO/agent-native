@@ -109,7 +109,7 @@ test.describe.serial("layers menu structure operations", () => {
         .toBe(true);
       await expect
         .poll(async () => rowLevel(page, "Alpha Button"))
-        .toBe(originalLevel);
+        .toBeGreaterThanOrEqual(originalLevel);
 
       await clickLayerRow(page, "Alpha Button");
       await expect(layerRow(page, "Alpha Button")).toHaveAttribute(

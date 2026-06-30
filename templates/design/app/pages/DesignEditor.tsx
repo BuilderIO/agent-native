@@ -51,6 +51,7 @@ import {
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
 import { componentNameFor, isComponentInstance } from "@shared/component-model";
+import type { A11yFinding } from "@shared/design-review";
 import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
@@ -60,7 +61,7 @@ import {
   resolveTweaksToCssVars,
   type TweakSelections,
 } from "@shared/resolve-tweaks";
-import { widthToPrefix } from "@shared/responsive-classes";
+import { utilityStem, widthToPrefix } from "@shared/responsive-classes";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import {
   IconArrowLeft,
@@ -222,8 +223,6 @@ import {
 } from "@/lib/pending-generation";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
-
-import type { A11yFinding } from "../../shared/design-review.js";
 
 const TAB_ID = generateTabId();
 
@@ -963,6 +962,113 @@ function applyInlineStylesToHtml(
   } catch {
     return null;
   }
+}
+
+const CSS_PROPERTY_UTILITY_STEMS: Record<string, string[]> = {
+  color: ["text-color"],
+  "background-color": ["background-color"],
+  background: ["background-color", "background-image"],
+  "font-size": ["font-size"],
+  "font-weight": ["font-weight"],
+  "font-family": ["font-family"],
+  "text-align": ["text-align"],
+  display: ["display"],
+  position: ["position"],
+  width: ["w"],
+  height: ["h"],
+  opacity: ["opacity"],
+  "border-radius": ["rounded"],
+  padding: ["p"],
+  "padding-left": ["px", "pl"],
+  "padding-right": ["px", "pr"],
+  "padding-top": ["py", "pt"],
+  "padding-bottom": ["py", "pb"],
+  margin: ["m"],
+  "margin-left": ["mx", "ml"],
+  "margin-right": ["mx", "mr"],
+  "margin-top": ["my", "mt"],
+  "margin-bottom": ["my", "mb"],
+  gap: ["gap"],
+  "column-gap": ["gap-x"],
+  "row-gap": ["gap-y"],
+};
+
+const DEFAULT_STATES_PANEL_BREAKPOINTS = [
+  { id: "bp-mobile", label: "Mobile", widthPx: 390 },
+  { id: "bp-tablet", label: "Tablet", widthPx: 768 },
+  { id: "bp-desktop", label: "Desktop", widthPx: 1280 },
+] as const;
+
+function normalizeCssPropertyName(property: string): string {
+  return property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+function looksLikeTailwindUtility(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  if (/[;{}]/.test(trimmed) || /\/\*/.test(trimmed)) return false;
+  if (/^(?:#|rgb\(|rgba\(|hsl\(|hsla\(|var\(|calc\()/i.test(trimmed)) {
+    return false;
+  }
+  if (trimmed.includes(":")) return false;
+  return /^[!-]?[a-z0-9][a-z0-9[\]()./%_-]*$/i.test(trimmed);
+}
+
+function responsiveUtilityMatchesStyleProperty(
+  property: string,
+  value: string,
+): boolean {
+  if (!looksLikeTailwindUtility(value)) return false;
+  const normalizedProperty = normalizeCssPropertyName(property);
+  const stem = utilityStem(value.trim());
+  const allowed = CSS_PROPERTY_UTILITY_STEMS[normalizedProperty];
+  return allowed ? allowed.includes(stem) : stem === normalizedProperty;
+}
+
+interface DesignStatePreviewRow {
+  captureData?: Record<string, unknown> | null;
+  fixtureData?: Record<string, unknown> | null;
+}
+
+const STATE_PREVIEW_HTML_KEYS = [
+  "domHtml",
+  "domSnapshot",
+  "documentHtml",
+  "html",
+  "content",
+  "markup",
+] as const;
+
+function looksLikePreviewHtml(value: string): boolean {
+  return /<!doctype|<html\b|<body\b|<[a-zA-Z][\s>]/i.test(value);
+}
+
+function findStatePreviewHtml(value: unknown, depth = 0): string | null {
+  if (typeof value === "string") {
+    return looksLikePreviewHtml(value) ? value : null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 2)
+    return null;
+  const record = value as Record<string, unknown>;
+  for (const key of STATE_PREVIEW_HTML_KEYS) {
+    const hit = findStatePreviewHtml(record[key], depth + 1);
+    if (hit) return hit;
+  }
+  for (const entry of Object.values(record)) {
+    const hit = findStatePreviewHtml(entry, depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function designStatePreviewHtml(
+  row: DesignStatePreviewRow | undefined,
+): string | null {
+  if (!row) return null;
+  return (
+    findStatePreviewHtml(row.captureData) ??
+    findStatePreviewHtml(row.fixtureData)
+  );
 }
 
 function escapeHtmlAttributeValue(value: string): string {
@@ -2875,6 +2981,11 @@ function buildAuthoritativeTweakSelections(
         ? persistedSelections[tweak.id]
         : tweak.defaultValue;
   }
+  for (const [key, value] of Object.entries(persistedSelections)) {
+    if (/^--[-_a-zA-Z0-9]+$/.test(key)) {
+      selections[key] = value;
+    }
+  }
   return selections;
 }
 
@@ -3091,6 +3202,9 @@ export default function DesignEditor() {
   const [hiddenLayerIds, setHiddenLayerIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const layerStateOverridesRef = useRef<
+    Map<string, { hidden?: boolean; locked?: boolean }>
+  >(new Map());
   const [overviewSelectAllRequest, setOverviewSelectAllRequest] = useState(0);
   const [overviewClearSelectionRequest, setOverviewClearSelectionRequest] =
     useState(0);
@@ -3110,6 +3224,11 @@ export default function DesignEditor() {
   const [motionDockOpen, setMotionDockOpen] = useState(false);
   const [motionTracks, setMotionTracks] = useState<MotionDockTrack[]>([]);
   const [motionDurationMs, setMotionDurationMs] = useState(1000);
+  const [shaderFillPreview, setShaderFillPreview] = useState<{
+    selector?: string;
+    nodeId?: string;
+    css: string;
+  } | null>(null);
 
   // ── Breakpoint preview state (§6.4) ─────────────────────────────────────────
   // Active breakpoint width for the current design (pixels). Controls which
@@ -3121,6 +3240,11 @@ export default function DesignEditor() {
   // ── Design state selection (§6.4 / §8) ───────────────────────────────────────
   // null = Default (live) view; a string id = one of the design_state rows.
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
+  const [reviewFileId, setReviewFileId] = useState<string | null>(null);
+  const [reviewFindings, setReviewFindings] = useState<A11yFinding[]>([]);
+  const [reviewAuditLoading, setReviewAuditLoading] = useState(false);
+  const [reviewAuditedAt, setReviewAuditedAt] = useState<string | null>(null);
+  const [reviewAuditError, setReviewAuditError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isBuilderDesignEmbed) return;
@@ -4485,69 +4609,20 @@ export default function DesignEditor() {
   }, [files, activeFileId]);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+  useEffect(() => {
+    if (!reviewFileId || reviewFileId === activeFile?.id) return;
+    setReviewFileId(null);
+    setReviewFindings([]);
+    setReviewAuditedAt(null);
+    setReviewAuditError(null);
+    setReviewAuditLoading(false);
+  }, [activeFile?.id, reviewFileId]);
+
   const initialGenerationReadOnly = shouldLockInspectorForInitialGeneration({
     fileCount: files.length,
     generating,
     pendingGenerationActive,
   });
-
-  // §6.5 Review panel — lazy, on-demand accessibility audit for the active
-  // file. The audit walks the file's rendered HTML, so it must never run on
-  // editor load: it is gated behind `auditRequested` (flipped by the panel's
-  // "Run" button) and reset whenever the active file changes so each file is
-  // audited explicitly. The ReviewPanel itself owns the apply-a11y-fix mutation
-  // behind its inline "Fix" button; we just supply the active design source and
-  // refetch on apply so a resolved finding drops out of the list.
-  const [auditRequested, setAuditRequested] = useState(false);
-  useEffect(() => {
-    setAuditRequested(false);
-  }, [activeFile?.id]);
-
-  const auditQuery = useActionQuery<{
-    auditedAt: string;
-    findings: A11yFinding[];
-  }>(
-    "run-design-audit",
-    { designId: id ?? "", fileId: activeFile?.id },
-    {
-      enabled: auditRequested && !!id && !!activeFile?.id,
-      refetchOnWindowFocus: false,
-    },
-  );
-
-  const reviewPanelProps = useMemo<
-    Omit<ReviewPanelProps, "className"> | undefined
-  >(() => {
-    if (!id || !activeFile) return undefined;
-    const audit = auditRequested ? auditQuery.data : undefined;
-    return {
-      findings: audit?.findings ?? [],
-      auditLoading: auditRequested && auditQuery.isFetching,
-      auditedAt: audit?.auditedAt ?? null,
-      auditError:
-        auditRequested && auditQuery.isError
-          ? auditQuery.error?.message ||
-            "Audit failed. Try again." /* i18n-ignore design review fallback */
-          : null,
-      onRunAudit: () => {
-        // First run flips the gate (the query auto-fetches); later runs refetch.
-        if (auditRequested) {
-          void auditQuery.refetch();
-        } else {
-          setAuditRequested(true);
-        }
-      },
-      fixSource: {
-        designId: id,
-        fileId: activeFile.id,
-        filename: activeFile.filename,
-      },
-      onFixApplied: () => {
-        // Re-run the audit so the resolved finding drops out of the list.
-        void auditQuery.refetch();
-      },
-    };
-  }, [id, activeFile, auditRequested, auditQuery]);
 
   const selectedScreenIds = useMemo(
     () =>
@@ -5355,6 +5430,56 @@ export default function DesignEditor() {
     [],
   );
 
+  const handleRunDesignAudit = useCallback(async () => {
+    if (!id || !activeFile?.id) return;
+    const auditFileId = activeFile.id;
+    setReviewFileId(auditFileId);
+    setReviewAuditLoading(true);
+    setReviewAuditError(null);
+    try {
+      const result = await callAction<{
+        findings: A11yFinding[];
+        auditedAt: string;
+      }>("run-design-audit", {
+        designId: id,
+        fileId: auditFileId,
+      } as any);
+      setReviewFileId(auditFileId);
+      setReviewFindings(Array.isArray(result.findings) ? result.findings : []);
+      setReviewAuditedAt(result.auditedAt ?? new Date().toISOString());
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : t("designEditor.toasts.auditRunFailed");
+      setReviewAuditError(message);
+      toast.error(message);
+    } finally {
+      setReviewAuditLoading(false);
+    }
+  }, [activeFile?.id, id, t]);
+
+  const handleReviewFindingClick = useCallback(
+    (finding: A11yFinding) => {
+      const selector =
+        finding.selector ??
+        (finding.nodeId
+          ? `[data-agent-native-node-id="${finding.nodeId.replace(/"/g, '\\"')}"]`
+          : null);
+      if (!selector) return;
+      canvasIframeRef.current?.contentWindow?.postMessage(
+        {
+          type: "select-element",
+          selector,
+          nodeId: finding.nodeId ?? undefined,
+        },
+        "*",
+      );
+      if (finding.nodeId) setSelectedLayerIdsState([finding.nodeId]);
+    },
+    [canvasIframeRef],
+  );
+
   // Broadcast pointer position (normalized to canvas container) and
   // selected element selector so peers can see where the user is working.
   const handleCanvasPointerMove = useCallback(
@@ -5533,6 +5658,38 @@ export default function DesignEditor() {
   }, [selectedCodeLayerNode, selectedElement?.selector]);
   const selectedCanvasSelector = selectedCanvasSelectorCandidates[0] ?? null;
 
+  const handleDesignStateSelect = useCallback(
+    (stateId: string | null, row?: DesignStatePreviewRow) => {
+      setSelectedStateId(stateId);
+      const win = canvasIframeRef.current?.contentWindow;
+      if (!win) return;
+
+      if (stateId === null) {
+        win.postMessage(
+          {
+            type: "replace-document-content",
+            content: activeContent,
+            forceFullDocument: true,
+          },
+          "*",
+        );
+        return;
+      }
+
+      const html = designStatePreviewHtml(row);
+      if (!html) return;
+      win.postMessage(
+        {
+          type: "replace-document-content",
+          content: html,
+          forceFullDocument: true,
+        },
+        "*",
+      );
+    },
+    [activeContent, canvasIframeRef],
+  );
+
   // ── Inspector header quick actions (Create component / Inspect code) ───────
   // Resolve the design-level source type + capability map so the inspector can
   // gate the real-app affordances (jump-to-source, prop write-back).
@@ -5581,9 +5738,13 @@ export default function DesignEditor() {
   const selectedComponentNodeId = useMemo(() => {
     if (!selectedCodeLayerNode) return undefined;
     return isComponentInstance(selectedCodeLayerNode)
-      ? selectedCodeLayerNode.id
+      ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
       : undefined;
   }, [selectedCodeLayerNode]);
+
+  useEffect(() => {
+    setShaderFillPreview(null);
+  }, [activeFile?.id, selectedElement?.selector, selectedElement?.sourceId]);
 
   // A friendly default name for the create-component dialog, derived from the
   // selected element's layer name / tag.
@@ -5913,6 +6074,68 @@ export default function DesignEditor() {
       saveFileContent,
     ],
   );
+
+  const handleComponentPropApplied = useCallback(
+    (fileId: string, nextContent: string) => {
+      applyFileContentUpdate(fileId, nextContent, {
+        refreshPreview: fileId === activeFile?.id,
+      });
+    },
+    [activeFile?.id, applyFileContentUpdate],
+  );
+
+  const handleReviewFixApplied = useCallback(
+    (
+      _finding: A11yFinding,
+      result?: { fileId?: string; patchedContent?: string },
+    ) => {
+      setReviewFindings((prev) =>
+        prev.filter((finding) => finding.id !== _finding.id),
+      );
+      if (
+        typeof result?.fileId === "string" &&
+        typeof result.patchedContent === "string"
+      ) {
+        applyFileContentUpdate(result.fileId, result.patchedContent, {
+          refreshPreview: result.fileId === activeFile?.id,
+        });
+      }
+      void handleRunDesignAudit();
+    },
+    [activeFile?.id, applyFileContentUpdate, handleRunDesignAudit],
+  );
+
+  const resolvedReviewPanelProps = useMemo<
+    Omit<ReviewPanelProps, "className"> | undefined
+  >(() => {
+    if (!id || !activeFile) return undefined;
+    const reviewMatchesActiveFile = reviewFileId === activeFile.id;
+    return {
+      findings: reviewMatchesActiveFile ? reviewFindings : [],
+      auditLoading: reviewMatchesActiveFile ? reviewAuditLoading : false,
+      auditedAt: reviewMatchesActiveFile ? reviewAuditedAt : null,
+      auditError: reviewMatchesActiveFile ? reviewAuditError : null,
+      onRunAudit: handleRunDesignAudit,
+      onFindingClick: handleReviewFindingClick,
+      fixSource: {
+        designId: id,
+        fileId: activeFile.id,
+        filename: activeFile.filename,
+      },
+      onFixApplied: handleReviewFixApplied,
+    };
+  }, [
+    activeFile,
+    handleReviewFindingClick,
+    handleReviewFixApplied,
+    handleRunDesignAudit,
+    id,
+    reviewAuditError,
+    reviewAuditLoading,
+    reviewAuditedAt,
+    reviewFileId,
+    reviewFindings,
+  ]);
 
   const handleCreatePrimitive = useCallback(
     (screenId: string, primitive: CanvasPrimitiveInsert) => {
@@ -6406,6 +6629,15 @@ export default function DesignEditor() {
       mode,
       activeTool,
       tweakValues: tweakSelections,
+      onShaderFillPreview: (_descriptor, css) => {
+        setShaderFillPreview({
+          selector: selectedElement?.selector ?? undefined,
+          nodeId:
+            selectedElement?.sourceId ?? selectedCodeLayerNode?.id ?? undefined,
+          css,
+        });
+      },
+      onShaderFillPreviewClear: () => setShaderFillPreview(null),
     }),
     [
       activeFile?.filename,
@@ -6418,6 +6650,7 @@ export default function DesignEditor() {
       mode,
       overviewSelectedScreenIds,
       selectedElement,
+      selectedCodeLayerNode?.id,
       selectedScreenIds,
       tweakSelections,
       viewMode,
@@ -6712,8 +6945,19 @@ export default function DesignEditor() {
       });
       const sendStyleChange = (window as any).__designCanvasSendStyle;
       if (!options.runtimeApplied && typeof sendStyleChange === "function") {
+        const selectorCandidates = targetNode
+          ? codeLayerSelectorAliases(targetNode)
+          : selector
+            ? [selector]
+            : [];
+        const nodeId = targetNode
+          ? bridgeSourceIdForCodeLayerNode(targetNode)
+          : targetInfo?.sourceId;
         entries.forEach(([property, value]) => {
-          sendStyleChange(selector, property, value);
+          sendStyleChange(selector, property, value, {
+            selectorCandidates,
+            nodeId,
+          });
         });
       }
 
@@ -6749,16 +6993,19 @@ export default function DesignEditor() {
           if (current.failed) return current;
           // Try responsive-class path first when appropriate.
           if (hasResponsiveCapability && activeBreakpointPrefix) {
-            const rcPatch = applyVisualEdit(current.content, {
-              kind: "responsive-class",
-              target: targetNode ? { nodeId: targetNode.id } : { selector },
-              prefix: activeBreakpointPrefix,
-              operation: "replace",
-              utility: value,
-              stem: property,
-            });
-            if (rcPatch.result.status === "applied") {
-              return { content: rcPatch.content, failed: null };
+            const utility = value.trim();
+            if (responsiveUtilityMatchesStyleProperty(property, utility)) {
+              const rcPatch = applyVisualEdit(current.content, {
+                kind: "responsive-class",
+                target: targetNode ? { nodeId: targetNode.id } : { selector },
+                prefix: activeBreakpointPrefix,
+                operation: "replace",
+                utility,
+                stem: utilityStem(utility),
+              });
+              if (rcPatch.result.status === "applied") {
+                return { content: rcPatch.content, failed: null };
+              }
             }
             // Responsive-class path didn't apply (e.g. value is a raw CSS value,
             // not a Tailwind utility); fall through to the inline-style path.
@@ -6892,7 +7139,10 @@ export default function DesignEditor() {
       ) {
         const sendStyleChange = (window as any).__designCanvasSendStyle;
         if (typeof sendStyleChange === "function") {
-          sendStyleChange(selector, property, value);
+          sendStyleChange(selector, property, value, {
+            selectorCandidates: selectedCanvasSelectorCandidates,
+            nodeId: selectedElement?.sourceId,
+          });
           return;
         }
       }
@@ -6901,6 +7151,8 @@ export default function DesignEditor() {
     [
       commitVisualStyles,
       selectedElement?.selector,
+      selectedElement?.sourceId,
+      selectedCanvasSelectorCandidates,
       textEditingState.active,
       textEditingState.hasRange,
       textEditingState.selector,
@@ -9833,13 +10085,28 @@ ${serializedHtml}
         )
         .map((node) => node.id),
     );
+    const allLayerIds = new Set([
+      ...fileIds,
+      ...allCodeLayerNodes.map((node) => node.id),
+    ]);
     const reconcile = (
       current: Set<string>,
       sourceIds: Set<string>,
+      kind: "hidden" | "locked",
     ): Set<string> => {
       const next = new Set(sourceIds);
       current.forEach((id) => {
         if (fileIds.has(id)) next.add(id);
+      });
+      layerStateOverridesRef.current.forEach((override, id) => {
+        if (!allLayerIds.has(id)) {
+          layerStateOverridesRef.current.delete(id);
+          return;
+        }
+        const value = override[kind];
+        if (value === undefined) return;
+        if (value) next.add(id);
+        else next.delete(id);
       });
       if (
         next.size === current.size &&
@@ -9850,8 +10117,12 @@ ${serializedHtml}
       return next;
     };
 
-    setLockedLayerIds((current) => reconcile(current, lockedFromSource));
-    setHiddenLayerIds((current) => reconcile(current, hiddenFromSource));
+    setLockedLayerIds((current) =>
+      reconcile(current, lockedFromSource, "locked"),
+    );
+    setHiddenLayerIds((current) =>
+      reconcile(current, hiddenFromSource, "hidden"),
+    );
   }, [codeLayerModelsByFile, files]);
   const lockedLayerSelectors = useMemo(() => {
     const selectors = Array.from(lockedLayerIds)
@@ -10103,7 +10374,11 @@ ${serializedHtml}
     const match = statesPanelBreakpoints.find(
       (bp) => bp.widthPx === activeBreakpointWidthState,
     );
-    return match?.id ?? "auto";
+    if (match) return match.id;
+    const defaultMatch = DEFAULT_STATES_PANEL_BREAKPOINTS.find(
+      (bp) => bp.widthPx === activeBreakpointWidthState,
+    );
+    return defaultMatch?.id ?? "auto";
   }, [activeBreakpointWidthState, statesPanelBreakpoints]);
 
   const handleOpenDesignPreview = useCallback(() => {
@@ -10584,6 +10859,10 @@ ${serializedHtml}
   const handleToggleLayerLocked = useCallback(
     (layerId: string, locked: boolean) => {
       if (!canEditDesign) return;
+      layerStateOverridesRef.current.set(layerId, {
+        ...layerStateOverridesRef.current.get(layerId),
+        locked,
+      });
       const applyLockedState = () => {
         setLockedLayerIds((current) => {
           const next = new Set(current);
@@ -10598,23 +10877,28 @@ ${serializedHtml}
       }
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
-      if (!owner || !node) return;
+      if (!owner || !node) {
+        applyLockedState();
+        return;
+      }
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
         owner.fileId === activeFile?.id
           ? getFreshActiveContent()
           : (sourceFile?.content ?? "");
-      if (!sourceContent) return;
-      const nextContent = setCodeLayerAttributeInHtml(
-        sourceContent,
-        node,
-        "data-agent-native-locked",
-        locked ? "true" : null,
-      );
-      if (!nextContent || nextContent === sourceContent) return;
-      applyFileContentUpdate(owner.fileId, nextContent, {
-        refreshPreview: false,
-      });
+      if (sourceContent) {
+        const nextContent = setCodeLayerAttributeInHtml(
+          sourceContent,
+          node,
+          "data-agent-native-locked",
+          locked ? "true" : null,
+        );
+        if (nextContent && nextContent !== sourceContent) {
+          applyFileContentUpdate(owner.fileId, nextContent, {
+            refreshPreview: false,
+          });
+        }
+      }
       applyLockedState();
     },
     [
@@ -10630,6 +10914,10 @@ ${serializedHtml}
   const handleToggleLayerHidden = useCallback(
     (layerId: string, hidden: boolean) => {
       if (!canEditDesign) return;
+      layerStateOverridesRef.current.set(layerId, {
+        ...layerStateOverridesRef.current.get(layerId),
+        hidden,
+      });
       const applyHiddenState = () => {
         setHiddenLayerIds((current) => {
           const next = new Set(current);
@@ -10644,23 +10932,28 @@ ${serializedHtml}
       }
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
-      if (!owner || !node) return;
+      if (!owner || !node) {
+        applyHiddenState();
+        return;
+      }
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
         owner.fileId === activeFile?.id
           ? getFreshActiveContent()
           : (sourceFile?.content ?? "");
-      if (!sourceContent) return;
-      const nextContent = setCodeLayerAttributeInHtml(
-        sourceContent,
-        node,
-        "data-agent-native-hidden",
-        hidden ? "true" : null,
-      );
-      if (!nextContent || nextContent === sourceContent) return;
-      applyFileContentUpdate(owner.fileId, nextContent, {
-        refreshPreview: false,
-      });
+      if (sourceContent) {
+        const nextContent = setCodeLayerAttributeInHtml(
+          sourceContent,
+          node,
+          "data-agent-native-hidden",
+          hidden ? "true" : null,
+        );
+        if (nextContent && nextContent !== sourceContent) {
+          applyFileContentUpdate(owner.fileId, nextContent, {
+            refreshPreview: false,
+          });
+        }
+      }
       applyHiddenState();
     },
     [
@@ -12011,11 +12304,8 @@ ${serializedHtml}
                         sourceType={designSourceType}
                         fusionUrl={designFusionUrl}
                         previewWidthPx={activeBreakpointWidthState}
+                        shaderFillPreview={shaderFillPreview}
                         onComponentSourceJump={handleComponentSourceJump}
-                        // TODO: thread motionTracks / shaderFillPreview live-preview
-                        // props once the canvas-side live preview state is plumbed
-                        // here (non-trivial new state; MotionDock already drives
-                        // motion-preview directly via canvasIframeRef for now).
                         motionTracks={motionTracksWire}
                         editMode={mode === "edit"}
                         interactMode={mode === "interact"}
@@ -12183,6 +12473,51 @@ ${serializedHtml}
                   tweakValues={tweakSelections}
                   extensionContext={designExtensionContext}
                   readOnly={initialGenerationReadOnly}
+                  onComponentPropApplied={handleComponentPropApplied}
+                  onTokensApplied={(resolvedCssVars) => {
+                    if (!canEditDesign || !id) return;
+                    setTweakSelections((prev) => ({
+                      ...prev,
+                      ...resolvedCssVars,
+                    }));
+                    queryClient.setQueryData(
+                      ["action", "get-design", { id }],
+                      (old: any) => {
+                        if (!old || typeof old !== "object") return old;
+                        let currentData: Record<string, unknown> = {};
+                        if (typeof old.data === "string" && old.data) {
+                          try {
+                            const parsed = JSON.parse(old.data);
+                            if (
+                              parsed &&
+                              typeof parsed === "object" &&
+                              !Array.isArray(parsed)
+                            ) {
+                              currentData = parsed;
+                            }
+                          } catch {
+                            currentData = {};
+                          }
+                        }
+                        const currentSelections =
+                          currentData.tweakSelections &&
+                          typeof currentData.tweakSelections === "object" &&
+                          !Array.isArray(currentData.tweakSelections)
+                            ? currentData.tweakSelections
+                            : {};
+                        return {
+                          ...old,
+                          data: JSON.stringify({
+                            ...currentData,
+                            tweakSelections: {
+                              ...currentSelections,
+                              ...resolvedCssVars,
+                            },
+                          }),
+                        };
+                      },
+                    );
+                  }}
                   onTweakChange={(tweakId, value) =>
                     setTweakSelections((prev) => {
                       if (!canEditDesign) return prev;
@@ -12215,9 +12550,7 @@ ${serializedHtml}
                           activeStateId: selectedStateId,
                           activeBreakpointId: statesPanelActiveBreakpointId,
                           breakpoints: statesPanelBreakpoints,
-                          onStateSelect: (stateId) => {
-                            setSelectedStateId(stateId);
-                          },
+                          onStateSelect: handleDesignStateSelect,
                           onBreakpointSelect: (breakpointId) => {
                             // "auto" = clear the active breakpoint (overview).
                             if (breakpointId === "auto") {
@@ -12230,9 +12563,13 @@ ${serializedHtml}
                               }
                               return;
                             }
-                            const bp = statesPanelBreakpoints.find(
-                              (b) => b.id === breakpointId,
-                            );
+                            const bp =
+                              statesPanelBreakpoints.find(
+                                (b) => b.id === breakpointId,
+                              ) ??
+                              DEFAULT_STATES_PANEL_BREAKPOINTS.find(
+                                (b) => b.id === breakpointId,
+                              );
                             if (!bp) return;
                             setActiveBreakpointWidthState(bp.widthPx);
                             if (id) {
@@ -12252,7 +12589,7 @@ ${serializedHtml}
                         }
                       : undefined
                   }
-                  reviewPanelProps={reviewPanelProps}
+                  reviewPanelProps={resolvedReviewPanelProps}
                 />
               </div>
             ) : (
@@ -12279,12 +12616,33 @@ ${serializedHtml}
           selectedTarget={motionSelectedTarget}
           onApply={(tracks, durationMs) => {
             if (!id) return;
-            applyMotionEditMutation.mutate({
-              designId: id,
-              fileId: activeFile.id,
-              tracks: tracks.map(({ label: _label, ...t }) => t),
-              durationMs,
-            });
+            applyMotionEditMutation.mutate(
+              {
+                designId: id,
+                fileId: activeFile.id,
+                tracks: tracks.map(({ label: _label, ...t }) => t),
+                durationMs,
+                includeContent: true,
+              },
+              {
+                onSuccess: (result) => {
+                  const response = result as {
+                    fileId?: unknown;
+                    patchedContent?: unknown;
+                  };
+                  if (
+                    typeof response.fileId === "string" &&
+                    typeof response.patchedContent === "string"
+                  ) {
+                    applyFileContentUpdate(
+                      response.fileId,
+                      response.patchedContent,
+                      { refreshPreview: response.fileId === activeFile.id },
+                    );
+                  }
+                },
+              },
+            );
           }}
           applying={applyMotionEditMutation.isPending}
         />

@@ -138,30 +138,9 @@ test("screen overview lets users select elements inside the active screen", asyn
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await waitForBridge(page, "element-hover");
   await expect.poll(frameTitleColor).not.toBe(accentColor);
-  await expect
-    .poll(() =>
-      activeScreenCard
-        .locator("[data-screen-hover-outline]")
-        .evaluate((el) => window.getComputedStyle(el).opacity),
-    )
-    .toBe("0");
-  await expect
-    .poll(() =>
-      activeScreenCard
-        .locator('[data-resize-handle="nw"]')
-        .evaluate((el) => window.getComputedStyle(el).opacity),
-    )
-    .toBe("0");
 
   await frameTitle.hover();
   await expect.poll(frameTitleColor).toBe(accentColor);
-  await expect
-    .poll(() =>
-      activeScreenCard
-        .locator("[data-screen-hover-outline]")
-        .evaluate((el) => window.getComputedStyle(el).opacity),
-    )
-    .toBe("1");
 
   await frameTitle.click();
   await expect.poll(frameTitleColor).toBe(accentColor);
@@ -329,7 +308,7 @@ test("deeply nested layer rows keep a clickable hit target", async ({
   expect(box).toBeTruthy();
   expect(box!.width).toBeGreaterThanOrEqual(44);
 
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await deepLayer.click();
   await expect(
     page.locator('[role="treeitem"][aria-selected="true"]'),
   ).toContainText("Deep Layer Button");

@@ -4377,7 +4377,7 @@ const Screen = memo(function Screen({
           )}
           {creationToolActive ? (
             <span
-              className="absolute inset-0 z-20 cursor-crosshair"
+              className="pointer-events-auto absolute inset-0 z-20 cursor-crosshair"
               aria-hidden="true"
             />
           ) : null}

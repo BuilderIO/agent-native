@@ -438,6 +438,7 @@ const enUS = {
       layerMoveFailed: "Could not move that layer",
       duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
+      auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
     },
@@ -8912,6 +8913,7 @@ const designPublicShareOverrides = {
       shareEditorLinkDescription: "有權限的任何人都能在編輯器中開啟這個設計。",
       toasts: {
         saveCopyError: "無法儲存這個設計的副本",
+        auditRunFailed: "無法執行設計稽核",
       },
     },
     visualEdit: {
@@ -8941,6 +8943,7 @@ const designPublicShareOverrides = {
         "有访问权限的任何人都可以在编辑器中打开此设计。",
       toasts: {
         saveCopyError: "无法保存此设计的副本",
+        auditRunFailed: "无法运行设计审核",
       },
     },
     visualEdit: {
@@ -8970,6 +8973,7 @@ const designPublicShareOverrides = {
         "Cualquier persona con acceso puede abrir este diseño en el editor.",
       toasts: {
         saveCopyError: "No se pudo guardar una copia de este diseño",
+        auditRunFailed: "No se pudo ejecutar la auditoria de diseno",
       },
     },
     visualEdit: {
@@ -8999,6 +9003,7 @@ const designPublicShareOverrides = {
         "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
       toasts: {
         saveCopyError: "Impossible d'enregistrer une copie de ce design",
+        auditRunFailed: "Impossible d'executer l'audit de design",
       },
     },
     visualEdit: {
@@ -9029,6 +9034,7 @@ const designPublicShareOverrides = {
       toasts: {
         saveCopyError:
           "Eine Kopie dieses Designs konnte nicht gespeichert werden",
+        auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
       },
     },
     visualEdit: {
@@ -9058,6 +9064,7 @@ const designPublicShareOverrides = {
         "アクセス権のある人は、このデザインをエディターで開けます。",
       toasts: {
         saveCopyError: "このデザインのコピーを保存できませんでした",
+        auditRunFailed: "デザイン監査を実行できませんでした",
       },
     },
     visualEdit: {
@@ -9087,6 +9094,7 @@ const designPublicShareOverrides = {
         "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
       toasts: {
         saveCopyError: "이 디자인의 사본을 저장할 수 없습니다",
+        auditRunFailed: "디자인 감사를 실행할 수 없습니다",
       },
     },
     visualEdit: {
@@ -9116,6 +9124,7 @@ const designPublicShareOverrides = {
         "Qualquer pessoa com acesso pode abrir este design no editor.",
       toasts: {
         saveCopyError: "Nao foi possivel salvar uma copia deste design",
+        auditRunFailed: "Nao foi possivel executar a auditoria de design",
       },
     },
     visualEdit: {
@@ -9145,6 +9154,7 @@ const designPublicShareOverrides = {
         "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
       toasts: {
         saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
+        auditRunFailed: "design audit चलाया नहीं जा सका",
       },
     },
     visualEdit: {
@@ -9174,6 +9184,7 @@ const designPublicShareOverrides = {
         "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
       toasts: {
         saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
+        auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       },
     },
     visualEdit: {

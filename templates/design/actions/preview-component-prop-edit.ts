@@ -32,7 +32,11 @@ import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerSource } from "../shared/code-layer.js";
-import { componentNameFor, extractProps } from "../shared/component-model.js";
+import {
+  componentNameFor,
+  componentNodeIdMatches,
+  extractProps,
+} from "../shared/component-model.js";
 import { normalizeDesignSourceType } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,7 +66,15 @@ async function liveContent(
 export interface ComponentPropPreviewMessage {
   /** Matches the existing parent→iframe postMessage type vocabulary. */
   type: "style-change" | "replace-document-content" | "select-element";
-  payload: Record<string, unknown>;
+  selector?: string;
+  nodeId?: string;
+  attributeOverrides?: Record<string, string>;
+  classEdit?: {
+    kind: "class";
+    operation: "replace";
+    from: string;
+    to: string;
+  };
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -156,7 +168,9 @@ export default defineAction({
       source: codeLayerSource,
     });
 
-    const node = projection.nodes.find((n) => n.id === nodeId);
+    const node = projection.nodes.find((n) =>
+      componentNodeIdMatches(n, nodeId),
+    );
     if (!node) {
       throw new Error(
         `Node "${nodeId}" not found. Run get-code-layer-projection to list current ids.`,
@@ -182,35 +196,29 @@ export default defineAction({
       // attribute without a full HTML replace.
       messages.push({
         type: "style-change",
-        payload: {
-          selector: node.selector,
-          nodeId,
-          attributeOverrides: { "x-data": edit.value },
-        },
+        selector: node.selector,
+        nodeId,
+        attributeOverrides: { "x-data": edit.value },
       });
     } else if (edit.kind === "attribute") {
       messages.push({
         type: "style-change",
-        payload: {
-          selector: node.selector,
-          nodeId,
-          attributeOverrides: { [edit.attribute]: edit.value },
-        },
+        selector: node.selector,
+        nodeId,
+        attributeOverrides: { [edit.attribute]: edit.value },
       });
     } else if (edit.kind === "classReplace") {
       // Communicate as a responsive-class intent so the bridge applies it via
       // the existing deterministic class-patch path.
       messages.push({
         type: "style-change",
-        payload: {
-          selector: node.selector,
-          nodeId,
-          classEdit: {
-            kind: "class",
-            operation: "replace",
-            from: edit.from,
-            to: edit.to,
-          },
+        selector: node.selector,
+        nodeId,
+        classEdit: {
+          kind: "class",
+          operation: "replace",
+          from: edit.from,
+          to: edit.to,
         },
       });
     }
@@ -218,10 +226,8 @@ export default defineAction({
     // Also emit a select-element message so the canvas highlights the node.
     messages.push({
       type: "select-element",
-      payload: {
-        selector: node.selector,
-        nodeId,
-      },
+      selector: node.selector,
+      nodeId,
     });
 
     const sourceType =

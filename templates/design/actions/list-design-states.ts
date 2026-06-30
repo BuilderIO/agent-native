@@ -6,6 +6,18 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
+function parseJsonRecord(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export default defineAction({
   description:
     "List all design states, fixtures, and captures for a design. " +
@@ -52,6 +64,8 @@ export default defineAction({
         kind: schema.designState.kind,
         breakpoint: schema.designState.breakpoint,
         route: schema.designState.route,
+        fixtureData: schema.designState.fixtureData,
+        captureData: schema.designState.captureData,
         previewRef: schema.designState.previewRef,
         createdAt: schema.designState.createdAt,
         updatedAt: schema.designState.updatedAt,
@@ -66,7 +80,11 @@ export default defineAction({
 
     return {
       count: rows.length,
-      states: rows,
+      states: rows.map((row) => ({
+        ...row,
+        fixtureData: parseJsonRecord(row.fixtureData),
+        captureData: parseJsonRecord(row.captureData),
+      })),
     };
   },
 });

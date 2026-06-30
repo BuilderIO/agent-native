@@ -182,18 +182,21 @@ function TokenRow({
       )}
 
       {/* Friendly name */}
-      <span
-        className="flex-1 cursor-pointer truncate text-[11px] text-foreground"
+      <button
+        type="button"
+        className="min-w-0 flex-1 cursor-pointer truncate bg-transparent p-0 text-left text-[11px] text-foreground"
         onClick={onStartEdit}
+        aria-label={`Edit ${token.name}`}
         title={token.name}
       >
         {token.name}
-      </span>
+      </button>
 
       {/* Value / edit input */}
       {editing ? (
         <Input
           ref={inputRef}
+          aria-label={`Token value for ${token.name}`}
           value={editDraft}
           onChange={(e) => onDraftChange(e.target.value)}
           onKeyDown={(e) => {
@@ -204,20 +207,22 @@ function TokenRow({
           className="h-5 w-24 px-1 py-0 text-[11px] font-mono"
         />
       ) : (
-        <span
-          className="max-w-[6rem] cursor-pointer truncate text-right font-mono text-[10px] text-muted-foreground hover:text-foreground"
+        <button
+          type="button"
+          className="max-w-[6rem] cursor-pointer truncate bg-transparent p-0 text-right font-mono text-[10px] text-muted-foreground hover:text-foreground"
           title={token.value}
+          aria-label={`Edit value for ${token.name}`}
           onClick={onStartEdit}
         >
           {token.value}
-        </span>
+        </button>
       )}
 
       {/* CSS var chip (hidden when editing, visible on hover) */}
       {!editing && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="hidden cursor-default select-all rounded bg-muted px-1 py-0 font-mono text-[9px] text-muted-foreground/70 group-hover:inline">
+            <span className="pointer-events-none hidden max-w-[5.5rem] shrink-0 cursor-default select-all truncate rounded bg-muted px-1 py-0 font-mono text-[9px] text-muted-foreground/70 group-hover:inline-block">
               {token.cssVar}
             </span>
           </TooltipTrigger>
@@ -231,7 +236,7 @@ function TokenRow({
       {!editing && (
         <Badge
           variant="outline"
-          className="hidden h-4 cursor-default px-1 py-0 text-[9px] text-muted-foreground/60 group-hover:flex"
+          className="pointer-events-none hidden h-4 shrink-0 cursor-default px-1 py-0 text-[9px] text-muted-foreground/60 group-hover:flex"
         >
           {token.source}
         </Badge>

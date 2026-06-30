@@ -4,6 +4,7 @@
  * Unit tests for the helpers extracted from apply-motion-edit.ts.
  *
  * Issue 1 regression: assertSafeCssProperty rejects malicious track.property.
+ * Issue 3 regression: motion values/easing reject CSS injection payloads.
  * Issue 2 regression: motion_timeline row is persisted BEFORE HTML content so
  *   a failure in the HTML write step cannot leave design content mutated with
  *   no corresponding row.
@@ -15,21 +16,10 @@
 
 import { describe, expect, it } from "vitest";
 
-// ─── Issue 1: Property validation ────────────────────────────────────────────
-//
-// Mirror of the assertSafeCssProperty guard that lives in apply-motion-edit.ts.
-// (Cannot import directly because the action file imports server-side modules
-// that are not available in the vitest environment.)
-
-function assertSafeCssProperty(property: string, field: string): string {
-  if (!/^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(property)) {
-    throw new Error(
-      `Invalid ${field}: "${property}" is not a valid CSS property identifier. ` +
-        "Only ASCII letters, digits, hyphens, and an optional leading hyphen are allowed.",
-    );
-  }
-  return property;
-}
+import {
+  assertSafeMotionCssProperty,
+  assertSafeMotionCssToken,
+} from "../shared/motion-compiler.js";
 
 describe("assertSafeCssProperty (Issue 1 — CSS injection via track.property)", () => {
   it("FAILS before fix: injection payload containing colon is accepted — MUST throw after fix", () => {
@@ -38,29 +28,34 @@ describe("assertSafeCssProperty (Issue 1 — CSS injection via track.property)",
     // inside the @keyframes block, producing:
     //   color:red} body{display:none: 0%;
     expect(() =>
-      assertSafeCssProperty("color:red} body{display:none", "track.property"),
+      assertSafeMotionCssProperty(
+        "color:red} body{display:none",
+        "track.property",
+      ),
     ).toThrow();
   });
 
   it("rejects property with semicolon", () => {
     expect(() =>
-      assertSafeCssProperty("opacity;x", "track.property"),
+      assertSafeMotionCssProperty("opacity;x", "track.property"),
     ).toThrow();
   });
 
   it("rejects property with curly braces", () => {
-    expect(() => assertSafeCssProperty("a{b}c", "track.property")).toThrow();
+    expect(() =>
+      assertSafeMotionCssProperty("a{b}c", "track.property"),
+    ).toThrow();
   });
 
   it("rejects property with whitespace", () => {
     expect(() =>
-      assertSafeCssProperty("opacity transform", "track.property"),
+      assertSafeMotionCssProperty("opacity transform", "track.property"),
     ).toThrow();
   });
 
   it("rejects property with angle bracket / style-tag breakout", () => {
     expect(() =>
-      assertSafeCssProperty("x</style>", "track.property"),
+      assertSafeMotionCssProperty("x</style>", "track.property"),
     ).toThrow();
   });
 
@@ -72,7 +67,41 @@ describe("assertSafeCssProperty (Issue 1 — CSS injection via track.property)",
       "background-color",
       "-webkit-transform",
     ]) {
-      expect(() => assertSafeCssProperty(p, "track.property")).not.toThrow();
+      expect(() =>
+        assertSafeMotionCssProperty(p, "track.property"),
+      ).not.toThrow();
+    }
+  });
+});
+
+describe("assertSafeMotionCssToken (Issue 3 — CSS injection via values/easing)", () => {
+  it("accepts common motion values and easing tokens", () => {
+    for (const value of [
+      "0",
+      "1",
+      "translateY(8px)",
+      "scale(1.05)",
+      "cubic-bezier(0.4, 0, 0.2, 1)",
+      "steps(4, end)",
+    ]) {
+      expect(() =>
+        assertSafeMotionCssToken(value, "motion value"),
+      ).not.toThrow();
+    }
+  });
+
+  it("rejects semicolons, braces, comments, url(), angle brackets, and control chars", () => {
+    for (const value of [
+      "0; body { display: none }",
+      "0 } body { display: none",
+      "/* hidden */ 0",
+      "url(javascript:alert(1))",
+      "</style><script>alert(1)</script>",
+      "ease\nbody { display: none }",
+    ]) {
+      expect(() => assertSafeMotionCssToken(value, "motion value")).toThrow(
+        /not allowed in motion CSS values/,
+      );
     }
   });
 });

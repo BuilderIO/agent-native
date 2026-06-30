@@ -135,4 +135,40 @@ describe("index-design-tokens design-system access boundary", () => {
     expect(colorToken).toBeDefined();
     expect(colorToken?.value).toBe("#ff0000");
   });
+
+  it("includes raw CSS vars persisted in tweakSelections", async () => {
+    const glow = "0 0 24px rgba(14, 165, 233, 0.4)";
+    const fakeDesign = {
+      id: "design_1",
+      data: JSON.stringify({
+        tweakSelections: {
+          "--shadow-glow": glow,
+        },
+      }),
+      designSystemId: null,
+    };
+
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: fakeDesign,
+    });
+
+    mockFrom.mockReturnValue({
+      where: () => Promise.resolve([]),
+    });
+
+    const result = await action.run({ designId: "design_1" });
+    const token = result.tokens.find(
+      (t: { cssVar: string }) => t.cssVar === "--shadow-glow",
+    );
+
+    expect(token).toMatchObject({
+      cssVar: "--shadow-glow",
+      isTweakOverride: true,
+      name: "Shadow Glow",
+      source: "Tweaks",
+      type: "shadow",
+      value: glow,
+    });
+  });
 });
