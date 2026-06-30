@@ -21,6 +21,12 @@ import type {
   MotionTrack,
   MotionKeyframe,
   MotionEase,
+  MotionPropertyPreset,
+} from "@shared/motion-timeline";
+import {
+  MOTION_PROPERTY_PRESETS,
+  createMotionTrackFromPreset,
+  hasTrackFor,
 } from "@shared/motion-timeline";
 import {
   IconPlayerPlay,
@@ -29,12 +35,12 @@ import {
   IconDiamond,
   IconChevronDown,
   IconChevronRight,
-  IconKey,
   IconPlus,
   IconTrash,
   IconCode,
   IconRefresh,
   IconBolt,
+  IconLayersSubtract,
 } from "@tabler/icons-react";
 import {
   useCallback,
@@ -45,6 +51,14 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -106,6 +120,13 @@ export interface MotionDockProps {
   canvasIframeRef?: React.RefObject<HTMLIFrameElement | null>;
   /** Whether the parent apply mutation is in flight. */
   applying?: boolean;
+  /**
+   * The currently-selected canvas element, if any. Required to create the FIRST
+   * track for a layer: the picker animates this node's
+   * `data-agent-native-node-id`. `null` when nothing is selected — the create
+   * affordance is then disabled with a hint to select an element.
+   */
+  selectedTarget?: { nodeId: string; label: string } | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -121,6 +142,7 @@ export function MotionDock({
   onApply,
   canvasIframeRef,
   applying = false,
+  selectedTarget = null,
 }: MotionDockProps) {
   // Controlled / uncontrolled open state.
   const [openInternal, setOpenInternal] = useState(false);
@@ -307,6 +329,36 @@ export function MotionDock({
     [defaultEase, playhead, updateTrack],
   );
 
+  // ── Create a brand-new track (the "first track" path) ──────────────────────
+  // This is the entry point that turns the dock from a dead end into a working
+  // editor: with an element selected and no track yet, the user picks a property
+  // preset and we seed a two-keyframe track. Once at least one track exists,
+  // "Write to CSS" enables. Idempotent per (nodeId, property) — picking the same
+  // property twice just re-expands the existing track instead of duplicating.
+  const createTrack = useCallback(
+    (preset: MotionPropertyPreset) => {
+      if (!onTracksChange || !selectedTarget) return;
+      const { nodeId, label } = selectedTarget;
+
+      // Always expand the target layer so the new track row is visible.
+      setExpandedNodeIds((prev) => {
+        const next = new Set(prev);
+        next.add(nodeId);
+        return next;
+      });
+
+      if (hasTrackFor(tracks, nodeId, preset.property)) {
+        // Track already exists — do not duplicate; the expand above surfaces it.
+        return;
+      }
+
+      const seeded = createMotionTrackFromPreset(nodeId, preset, defaultEase);
+      const newTrack: MotionDockTrack = { ...seeded, label };
+      onTracksChange([...tracks, newTrack]);
+    },
+    [defaultEase, onTracksChange, selectedTarget, tracks],
+  );
+
   const deleteKeyframe = useCallback(
     (track: MotionDockTrack, kf: MotionKeyframe) => {
       updateTrack(track.targetNodeId, track.property, (tr) => ({
@@ -460,6 +512,14 @@ export function MotionDock({
               <span className="text-[10px] text-muted-foreground">ms</span>
             </div>
 
+            {/* Add track — the "create first track" entry point. */}
+            <div className="ml-2">
+              <AddTrackMenu
+                selectedTarget={selectedTarget}
+                onCreateTrack={createTrack}
+              />
+            </div>
+
             <div className="ml-auto flex items-center gap-1">
               {/* Auto-keyframe toggle */}
               <Tooltip>
@@ -525,11 +585,29 @@ export function MotionDock({
             />
 
             {layers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center flex-1 gap-2 text-center px-4 py-6">
-                <IconKey className="size-4 text-muted-foreground/40" />
-                <p className="text-[11px] text-muted-foreground/70 leading-snug">
-                  Select an element and add a keyframe to begin.
-                </p>
+              <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-4 py-6">
+                <IconLayersSubtract className="size-5 text-muted-foreground/40" />
+                {selectedTarget ? (
+                  <>
+                    <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                      Animate{" "}
+                      <span className="font-medium text-foreground/80">
+                        {selectedTarget.label}
+                      </span>
+                      . Pick a property to add the first track.
+                    </p>
+                    <AddTrackMenu
+                      selectedTarget={selectedTarget}
+                      onCreateTrack={createTrack}
+                      variant="cta"
+                    />
+                  </>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                    Select an element on the canvas, then add a track to animate
+                    it.
+                  </p>
+                )}
               </div>
             ) : (
               layers.map((layer) => (
@@ -622,6 +700,87 @@ export function MotionDock({
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
+
+interface AddTrackMenuProps {
+  selectedTarget: { nodeId: string; label: string } | null;
+  onCreateTrack: (preset: MotionPropertyPreset) => void;
+  /** "toolbar" (compact button) or "cta" (prominent empty-state button). */
+  variant?: "toolbar" | "cta";
+}
+
+/**
+ * Property-preset dropdown that creates a new motion track for the selected
+ * element. Disabled (with a hint) when nothing is selected, which is the only
+ * state where a first track cannot be created.
+ */
+function AddTrackMenu({
+  selectedTarget,
+  onCreateTrack,
+  variant = "toolbar",
+}: AddTrackMenuProps) {
+  const disabled = !selectedTarget;
+  const trigger =
+    variant === "cta" ? (
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        className="h-7 gap-1 text-[11px]"
+        disabled={disabled}
+      >
+        <IconPlus className="size-3.5" />
+        Add track
+      </Button>
+    ) : (
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="h-6 gap-1 px-2 text-[11px]"
+        disabled={disabled}
+      >
+        <IconPlus className="size-3.5" />
+        Add track
+      </Button>
+    );
+
+  // When disabled, render a tooltip-wrapped static button instead of a menu so
+  // the user learns they need a selection first.
+  if (disabled) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex">{trigger}</span>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          Select an element on the canvas first
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuLabel className="truncate text-[10px] text-muted-foreground">
+          Animate “{selectedTarget.label}”
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {MOTION_PROPERTY_PRESETS.map((preset) => (
+          <DropdownMenuItem
+            key={`${preset.property}-${preset.label}`}
+            className="text-[12px]"
+            onSelect={() => onCreateTrack(preset)}
+          >
+            <IconDiamond className="size-3 text-primary/70" />
+            {preset.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 interface PlayheadLineProps {
   t: number;

@@ -70,3 +70,124 @@ export interface MotionTimeline {
   createdAt: string;
   updatedAt: string;
 }
+
+// ─── Animatable-property catalog + track factory ──────────────────────────────
+//
+// Shared by the MotionDock UI (the "add a track" picker) and unit tests. These
+// are pure helpers so the first-track-creation flow can be tested without
+// mounting React. They power the "create the FIRST track" path: a freshly
+// selected element has no tracks, so the dock seeds a default track from one of
+// these presets and the keyframes below.
+
+/**
+ * One animatable-property preset offered when creating a brand-new track.
+ * `from`/`to` seed the two default keyframes so the track is immediately
+ * compilable and previewable (a track with < 1 keyframe is rejected by
+ * `apply-motion-edit`).
+ */
+export interface MotionPropertyPreset {
+  /** CSS property animated by the track (e.g. "opacity", "transform"). */
+  property: string;
+  /** Human-readable label for the picker (e.g. "Opacity", "Slide up"). */
+  label: string;
+  /** Value at t = 0. */
+  from: string;
+  /** Value at t = 1. */
+  to: string;
+}
+
+/**
+ * Built-in property presets for the "add a track" picker. Ordered most-common
+ * first. Every preset is a valid CSS identifier accepted by
+ * `assertSafeCssProperty` and yields two safe keyframe values.
+ */
+export const MOTION_PROPERTY_PRESETS: MotionPropertyPreset[] = [
+  { property: "opacity", label: "Fade (opacity)", from: "0", to: "1" },
+  {
+    property: "transform",
+    label: "Slide up (translateY)",
+    from: "translateY(16px)",
+    to: "translateY(0px)",
+  },
+  {
+    property: "transform",
+    label: "Scale (zoom in)",
+    from: "scale(0.8)",
+    to: "scale(1)",
+  },
+  {
+    property: "filter",
+    label: "Blur in",
+    from: "blur(8px)",
+    to: "blur(0px)",
+  },
+  {
+    property: "color",
+    label: "Color",
+    from: "#000000",
+    to: "#000000",
+  },
+  {
+    property: "background-color",
+    label: "Background color",
+    from: "#ffffff",
+    to: "#ffffff",
+  },
+];
+
+/**
+ * Build a brand-new {@link MotionTrack} for a target node + property, seeded
+ * with two keyframes (start/end) so it is immediately valid for both the live
+ * preview bridge and the `apply-motion-edit` "Write to CSS" commit. Used by the
+ * MotionDock "create first track" path.
+ *
+ * When `preset` is omitted, a neutral 0 → 1 opacity-style pair is used so the
+ * track still compiles; callers normally pass a {@link MotionPropertyPreset}.
+ */
+export function createMotionTrack(
+  targetNodeId: string,
+  property: string,
+  options: { from?: string; to?: string; ease?: MotionEase } = {},
+): MotionTrack {
+  const from = options.from ?? "0";
+  const to = options.to ?? "1";
+  return {
+    targetNodeId,
+    property,
+    keyframes: [
+      { t: 0, value: from, ...(options.ease ? { ease: options.ease } : {}) },
+      { t: 1, value: to, ...(options.ease ? { ease: options.ease } : {}) },
+    ],
+  };
+}
+
+/**
+ * Build a track from a {@link MotionPropertyPreset}. Thin wrapper over
+ * {@link createMotionTrack} that forwards the preset's seed values.
+ */
+export function createMotionTrackFromPreset(
+  targetNodeId: string,
+  preset: MotionPropertyPreset,
+  ease?: MotionEase,
+): MotionTrack {
+  return createMotionTrack(targetNodeId, preset.property, {
+    from: preset.from,
+    to: preset.to,
+    ease,
+  });
+}
+
+/**
+ * Return `true` when a track for the given (targetNodeId, property) pair already
+ * exists in `tracks`. The dock uses this to decide between "create a new track"
+ * and "add a keyframe to the existing track" so a property is never duplicated.
+ */
+export function hasTrackFor(
+  tracks: MotionTrack[],
+  targetNodeId: string,
+  property: string,
+): boolean {
+  return tracks.some(
+    (t) => t.targetNodeId === targetNodeId && t.property === property,
+  );
+}

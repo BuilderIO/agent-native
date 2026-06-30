@@ -6,6 +6,30 @@ right spot plus copy-pasteable code to insert or replace.
 
 Do NOT rely on line numbers — they drift. Use the search strings instead.
 
+## Status: shader fills are user-reachable and applyable
+
+The **Shader Fills** card in `DesignExtensionsPanel.tsx` (inspector slot
+`design.editor.inspector`) is the live entry point: open it, **Browse Shaders**,
+pick a preset, tune it with `ShaderControls`, and the iframe previews the fill as
+a CSS gradient (`preview-shader-fill`). With an element selected on the canvas, the
+card's **Apply fill** button persists that fill via the `apply-shader-fill` action.
+
+`apply-shader-fill` is **no longer gated** — it is SAFETY-gated, not Builder-gated:
+
+- It asserts **editor** access on the target design (`accessFilter` read +
+  `assertAccess("design", id, "editor")`) before any write.
+- It only persists **HTML design-file** sources. localhost / fusion / inline-html
+  sources return the preview value and write nothing.
+- It writes a single inline-style `background` onto the target node through the
+  deterministic HTML editor (`applyVisualEdit`, the same persist path as
+  `apply-visual-edit`), reusing the strict CSS-colour allowlist from
+  `shared/shader-fill.ts` so `descriptor.colors` can never inject CSS.
+
+Sections (a), (b), (d), and (f) below remain optional ways to surface shaders in
+*other* inspector seams (the colour picker fill type, the effects panel, the
+artboard WebGL bridge, design-system tokens) and are not required for the
+card-based apply path that ships today.
+
 ---
 
 ## (a) DesignColorPicker.tsx — Add `"shader"` fill type
@@ -351,20 +375,17 @@ if (fill.type === "shader") {
 
 ---
 
-## (e) Changelog entry (DEFERRED)
+## (e) Changelog entry
 
-The shader feature is not yet user-reachable — it still needs all seam files wired.
-Do NOT add a changelog entry yet.
-
-Once the seam files are integrated and the feature is accessible from the UI (a user
-can apply a shader fill from the fill picker or add a shader effect from the effects
-panel), run:
+The shader-fills card is now user-reachable and the apply path persists, so a
+user-facing changelog entry is warranted. From the `templates/design/` directory:
 
 ```bash
-agent-native changelog add "Add GPU shader fills and effects — 8 presets (MeshGradient, GrainGradient, Voronoi, Metaballs, Warp, GodRays, Dithering, PaperTexture) with live preview and agent-tunable params" --type added
+agent-native changelog add "Add GPU shader fills — 8 presets (MeshGradient, GrainGradient, Voronoi, Metaballs, Warp, GodRays, Dithering, PaperTexture) with live preview and one-click apply to the selected element" --type added
 ```
 
-from the `templates/design/` directory.
+(The effects-panel surface from section (b) is still optional; scope the changelog
+line to what actually ships.)
 
 ---
 
@@ -407,14 +428,23 @@ shader token picker.
 
 ## Integration Checklist
 
+Shipped (card-based preview + apply path):
+
+- [x] `DesignExtensionsPanel.tsx` — Shader Fills card opens `ShaderFillsPanel`
+- [x] `DesignExtensionsPanel.tsx` — "Apply fill" persists via `apply-shader-fill`
+- [x] `actions/apply-shader-fill.ts` — persists fill as CSS background (editor-gated)
+- [x] `actions/preview-shader-fill.ts` — preview-only CSS (unchanged)
+- [x] `actions/apply-shader.ts` exists (planning/codegen snippet)
+- [x] `actions/get-shader.ts` exists
+
+Optional follow-ups (other inspector seams):
+
 - [ ] `DesignColorPicker.tsx` — `DesignFillType` includes `"shader"`
 - [ ] `DesignColorPicker.tsx` — `DesignPaintType` includes `"shader"`
 - [ ] `DesignColorPicker.tsx` — shader button renders in paint-type row
 - [ ] `DesignColorPicker.tsx` — `ShaderControls` renders when `paintType === "shader"`
 - [ ] `EditPanel.tsx` — `ShaderEffectRow` renders in `EffectsProperties`
 - [ ] `EditPanel.tsx` — "Add Shader" option in effects dropdown
-- [ ] `actions/apply-shader.ts` exists
-- [ ] `actions/get-shader.ts` exists
 - [ ] `DesignCanvas.tsx` — shader bridge script injected into artboard
 - [ ] `DesignCanvas.tsx` — `data-shader` attribute serialized for shader fills
-- [ ] Changelog entry added (after feature is user-reachable)
+- [ ] Changelog entry added (see section (e))

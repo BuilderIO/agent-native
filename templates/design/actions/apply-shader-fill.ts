@@ -1,42 +1,56 @@
 /**
- * apply-shader-fill — GATED apply action.
+ * apply-shader-fill — PERSISTING apply action.
  *
- * This action is PREVIEW-FIRST per DESIGN-STUDIO-PLAN.md §6.7 + §14:
+ * Writes the chosen shader fill onto a design element as a CSS `background`,
+ * the same gradient the preview renders. This is the deliberate commit step
+ * after `preview-shader-fill`; preview stays non-persisting.
  *
- *   "Shaders: preview-first; apply/export of a shader stays DISABLED/gated
- *    until runtime rendering + a real source-write path + a generated CSS
- *    fallback + diff proof all exist."
+ * Safety model (this action is SAFETY-gated, not Builder-gated):
+ * - Editor access is asserted on the target design before any write
+ *   (`accessFilter` on the read + `assertAccess("design", id, "editor")`).
+ * - Only HTML design-file sources are writable — the deterministic HTML editor
+ *   (`applyVisualEdit`) is the single mutation seam, exactly like
+ *   `apply-visual-edit`. localhost / fusion / inline-html sources are NOT
+ *   written; the caller gets the preview + an explanation instead.
+ * - The persisted value is a CSS `background` produced by
+ *   `buildShaderFillBackground`, which runs every colour through the same strict
+ *   CSS-colour allowlist that `preview-shader-fill` uses (`shader-fill.ts`), so a
+ *   `descriptor.colors` payload can never inject CSS into the source.
+ * - The descriptor is validated against the preset manifest first, so callers
+ *   get clear errors before any round-trip.
  *
- * The apply path is safe to call today but will return a clear
- * NOT_YET_AVAILABLE result with an exact checklist of the missing conditions.
- * It NEVER silently writes when gated — the caller always gets explicit
- * feedback.
+ * The write reuses the canonical persist path (Yjs/collab + SQL via
+ * agentEnterDocument / applyText / seedFromText), so collaborators and the agent
+ * stay in sync. The edit is a single inline-style `style.background` change on
+ * the resolved node — no structural inserts, no new owned rows.
  *
- * Safety conditions that must ALL be true before writes are enabled:
- *
- *   1. RUNTIME_RENDERING — a WebGL shader canvas mounts and renders correctly
- *      in the iframe (verified by a bridge captureSnapshot round-trip).
- *   2. SOURCE_WRITE_PATH — the source write bridge (`writeFile` / `applyEdit`)
- *      is available for this design's sourceType (currently `planned` for all
- *      tiers).
- *   3. CSS_FALLBACK — a generated static CSS fallback is embedded alongside
- *      the shader canvas so designs degrade gracefully in export/SSR.
- *   4. DIFF_PROOF — the action can produce a before/after diff of the source
- *      change so the edit is reviewable and rollback-able.
- *
- * When all conditions hold, the action delegates to `apply-shader` (the
- * existing planning action) for the actual snippet generation, then writes
- * through the collab / Yjs path (same as `apply-visual-edit`).
- *
- * Plan reference: DESIGN-STUDIO-PLAN.md §6.7, §7, §14.
+ * Plan reference: DESIGN-STUDIO-PLAN.md §6.7 + §7 (shader fill apply).
  */
 
 import { defineAction } from "@agent-native/core";
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+  applyText,
+  getText,
+  hasCollabState,
+  seedFromText,
+} from "@agent-native/core/collab";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
 import {
-  generateShaderFillPreviewCss,
+  applyVisualEdit,
+  type CodeLayerSource,
+  type StyleEditIntent,
+} from "../shared/code-layer.js";
+import {
+  buildShaderFillBackground,
   generateShaderFillFallbackCss,
+  generateShaderFillPreviewCss,
 } from "../shared/shader-fill.js";
 import {
   SHADER_PRESET_MAP,
@@ -44,100 +58,6 @@ import {
   type ShaderPresetName,
   validateDescriptor,
 } from "../shared/shader-presets.js";
-
-// ─── Safety gate ─────────────────────────────────────────────────────────────
-
-/**
- * All conditions that must hold before an apply write is allowed.
- * Each entry has a `met` flag and a human-readable `reason` explaining what
- * is still missing and (where possible) what would unlock it.
- */
-interface SafetyCondition {
-  id: string;
-  label: string;
-  met: boolean;
-  reason: string;
-  /** Rough work estimate to unlock this condition. */
-  effort: "days" | "weeks" | "unknown";
-}
-
-/**
- * Evaluate the safety conditions for a given sourceType.
- *
- * In the current phase (6, shaders/plugins/assets) NONE of the write
- * conditions are met for any source type.  The checks are structured so
- * that future implementers can flip individual conditions to `true` as the
- * corresponding work lands, without changing the surrounding gate logic.
- */
-function evaluateSafetyConditions(
-  sourceType: "inline" | "localhost" | "fusion",
-): SafetyCondition[] {
-  return [
-    {
-      id: "RUNTIME_RENDERING",
-      label: "Runtime WebGL rendering verified",
-      // Not yet verified: requires a captureSnapshot bridge round-trip that
-      // confirms the <canvas data-shader=...> element mounted + rendered.
-      // The bridge captureSnapshot op IS available for inline; the verification
-      // tooling to confirm WebGL canvas presence is not yet built.
-      met: false,
-      reason:
-        "The iframe captureSnapshot round-trip that verifies a WebGL shader canvas " +
-        "has mounted and rendered is not yet implemented.  Until it is, we cannot " +
-        "confirm the runtime renders the shader correctly before persisting.",
-      effort: "days",
-    },
-    {
-      id: "SOURCE_WRITE_PATH",
-      label: "Source write bridge available",
-      // `writeFile` / `applyEdit` are `planned` for all source types today.
-      // Inline uses the Yjs/collab path for HTML changes (apply-visual-edit
-      // style), which is available — but a shader-specific structural insert
-      // (adding a <canvas> or JSX component) needs the deterministic
-      // replace-document-content path AND validation that position/parenting
-      // is correct, which is not yet built for shader elements specifically.
-      met: false,
-      reason:
-        sourceType === "fusion"
-          ? "Source writes (`writeFile` / `applyEdit`) are `planned` for fusion sources. " +
-            "Connect Builder and complete bridge hardening to unlock."
-          : sourceType === "localhost"
-            ? "Source writes (`applyEdit` / `writeFile`) are `planned` for localhost. " +
-              "Bridge hardening is required before structural source inserts are safe."
-            : "Structural HTML insert for a shader <canvas> element via the " +
-              "replace-document-content path is not yet validated for shader-fill " +
-              "placement (parent positioning, z-index, collab round-trip).",
-      effort: "days",
-    },
-    {
-      id: "CSS_FALLBACK",
-      label: "Generated CSS fallback embedded alongside shader",
-      // The fallback CSS generator exists (shader-fill.ts) but the action that
-      // writes the fallback <style> block into the document alongside the
-      // <canvas> element is not yet implemented.
-      met: false,
-      reason:
-        "The CSS fallback generator (`generateShaderFillFallbackCss`) is ready, " +
-        "but the write step that embeds the fallback <style> block adjacent to the " +
-        "shader <canvas> element has not been implemented.  This must ship together " +
-        "with the canvas insert so designs degrade gracefully in export/PDF/SSR.",
-      effort: "days",
-    },
-    {
-      id: "DIFF_PROOF",
-      label: "Before/after diff produced and returned to caller",
-      // apply-visual-edit produces a diff summary; shader-fill needs the same
-      // treatment — comparing the document before and after the canvas+fallback
-      // insertion.  Not yet wired for this code path.
-      met: false,
-      reason:
-        "The diff/rollback proof (bytes before/after, changed selectors, rollback " +
-        "snapshot) is not yet produced for the shader-fill write path.  Without " +
-        "this the edit cannot be reviewed or rolled back safely.",
-      effort: "days",
-    },
-  ];
-}
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -147,82 +67,239 @@ const PRESET_NAMES = Object.keys(SHADER_PRESET_MAP) as [
 ];
 
 const descriptorSchema = z.object({
-  preset: z.enum(PRESET_NAMES),
+  preset: z
+    .enum(PRESET_NAMES)
+    .describe("Shader preset name. One of: " + PRESET_NAMES.join(", ")),
   params: z
     .record(z.string(), z.union([z.number(), z.boolean(), z.string()]))
     .optional()
-    .default({}),
-  colors: z.array(z.string()).optional(),
+    .default({})
+    .describe("Shader-specific params. Merged with preset defaults."),
+  colors: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Colour palette override. Falls back to preset defaults. Every colour " +
+        "is validated against a strict CSS-colour allowlist before it is " +
+        "written; unsafe entries are neutralised, never injected.",
+    ),
   speed: z.number().optional(),
   frame: z.number().optional(),
   fit: z.enum(["none", "contain", "cover"]).optional(),
   scale: z.number().optional(),
-  rotation: z.number().optional(),
+  rotation: z.number().optional().describe("Rotation in radians."),
   offsetX: z.number().optional(),
   offsetY: z.number().optional(),
 });
+
+const sourceSchema = z
+  .object({
+    kind: z
+      .enum(["design-file", "inline-html", "localhost", "fusion"])
+      .default("design-file"),
+    designId: z.string().optional(),
+    fileId: z.string().optional(),
+    filename: z.string().optional(),
+    revision: z.string().optional(),
+  })
+  .describe(
+    "Design source. Only kind=design-file (HTML) is persisted. Provide " +
+      "designId (and optional filename) or fileId.",
+  );
+
+const targetSchema = z
+  .object({
+    nodeId: z.string().optional(),
+    selector: z.string().optional(),
+  })
+  .superRefine((target, ctx) => {
+    if (!target.nodeId && !target.selector) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["nodeId"],
+        message: "target.nodeId or target.selector is required",
+      });
+    }
+  })
+  .describe(
+    "Target element by nodeId (data-agent-native-node-id) or selector.",
+  );
+
+// ─── Persist helpers (mirrors apply-visual-edit.ts) ───────────────────────────
+
+interface ResolvedDesignFile {
+  id: string;
+  designId: string;
+  filename: string;
+  content: string;
+  codeLayerSource: CodeLayerSource;
+}
+
+async function liveContent(
+  fileId: string,
+  storedContent: string,
+): Promise<string> {
+  try {
+    if (await hasCollabState(fileId)) {
+      const live = await getText(fileId, "content");
+      if (typeof live === "string") return live;
+    }
+  } catch {
+    // Collab reads are best-effort; SQL content remains the fallback.
+  }
+  return storedContent;
+}
+
+/**
+ * Resolve the target HTML design file with an access-scoped read, then assert
+ * editor access. Mirrors `resolveEditableDesignFile` in apply-visual-edit.ts so
+ * the shader-fill write goes through the exact same ownership gate.
+ */
+async function resolveEditableDesignFile(source: {
+  designId?: string;
+  fileId?: string;
+  filename?: string;
+  revision?: string;
+}): Promise<ResolvedDesignFile> {
+  if (!source.fileId && !source.designId) {
+    throw new Error(
+      "source.designId or source.fileId is required for design-file.",
+    );
+  }
+
+  const db = getDb();
+  const conditions = [
+    accessFilter(schema.designs, schema.designShares),
+    source.fileId
+      ? eq(schema.designFiles.id, source.fileId)
+      : eq(schema.designFiles.designId, source.designId ?? ""),
+  ];
+  if (!source.fileId) {
+    conditions.push(
+      eq(schema.designFiles.filename, source.filename ?? "index.html"),
+    );
+  }
+
+  const [file] = await db
+    .select({
+      id: schema.designFiles.id,
+      designId: schema.designFiles.designId,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      content: schema.designFiles.content,
+    })
+    .from(schema.designFiles)
+    .innerJoin(
+      schema.designs,
+      eq(schema.designFiles.designId, schema.designs.id),
+    )
+    .where(and(...conditions))
+    .limit(1);
+
+  if (!file) {
+    throw new Error("Design HTML file not found.");
+  }
+  if (file.fileType !== "html") {
+    throw new Error(
+      "Shader fills can only be persisted onto HTML design files for now.",
+    );
+  }
+  if (source.designId && file.designId !== source.designId) {
+    throw new Error(
+      `source.designId "${source.designId}" does not match file "${file.id}"`,
+    );
+  }
+  if (!source.fileId && source.filename && file.filename !== source.filename) {
+    throw new Error(
+      `source.filename "${source.filename}" does not match file "${file.id}"`,
+    );
+  }
+
+  await assertAccess("design", file.designId, "editor");
+
+  return {
+    id: file.id,
+    designId: file.designId,
+    filename: file.filename,
+    content: await liveContent(file.id, file.content ?? ""),
+    codeLayerSource: {
+      kind: "design-file",
+      designId: file.designId,
+      fileId: file.id,
+      filename: file.filename,
+      revision: source.revision,
+    },
+  };
+}
+
+async function persistDesignFileEdit(file: {
+  id: string;
+  designId: string;
+  content: string;
+}): Promise<void> {
+  await assertAccess("design", file.designId, "editor");
+
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  agentEnterDocument(file.id);
+  try {
+    await db
+      .update(schema.designFiles)
+      .set({ content: file.content, updatedAt: now })
+      .where(eq(schema.designFiles.id, file.id));
+
+    if (await hasCollabState(file.id)) {
+      await applyText(file.id, file.content, "content", "agent");
+    } else {
+      await seedFromText(file.id, file.content);
+    }
+
+    // guard:allow-unscoped — editor access on this design is asserted above
+    // (and again at the top of this helper); this only bumps the addressed
+    // design row's updatedAt.
+    await db
+      .update(schema.designs)
+      .set({ updatedAt: now })
+      .where(eq(schema.designs.id, file.designId));
+  } finally {
+    agentLeaveDocument(file.id);
+  }
+}
 
 // ─── Action ──────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description: `
-Apply a shader fill to a design element.
+Persist a shader fill onto a design element as a CSS \`background\`.
 
-IMPORTANT — THIS ACTION IS CURRENTLY GATED.
+This is the commit step after preview-shader-fill. It writes the same gradient
+the preview renders onto the target element's inline style.background, using the
+deterministic HTML editor (the same persist path as apply-visual-edit).
 
-Per DESIGN-STUDIO-PLAN.md §6.7: "apply/export of a shader stays DISABLED/gated
-until runtime rendering + a real source-write path + a generated CSS fallback +
-diff proof all exist."
+Gating: editor access on the target design is asserted before any write. Only
+HTML design-file sources are persisted; localhost / fusion / inline-html sources
+return the preview CSS plus an explanation and write nothing. Every colour is
+validated against the shared CSS-colour allowlist before it is written, so a
+descriptor.colors payload can never inject CSS into the source.
 
-Calling this action today will ALWAYS return { ok: false, gated: true } with a
-checklist of the conditions that must be met before writes are enabled.  It will
-never write, never persist, and never imply the write happened.
+Returns:
+- persisted     — true only when the source HTML was actually changed and saved.
+- background    — the CSS \`background\` value written (or that would be written).
+- fallbackCss   — a simpler static CSS background for export / PDF / SSR.
+- descriptor    — the resolved and validated ShaderDescriptor.
+- result        — the deterministic edit PatchResult (status, target, message).
+- bytesBefore / bytesAfter — proof-of-change for the persisted file.
 
-To actually preview a shader fill visually, call preview-shader-fill instead.
-To generate the code snippet for a manual source edit, call apply-shader instead.
+To preview without writing, call preview-shader-fill. To get a manual-edit code
+snippet (WebGL canvas / JSX component), call apply-shader.
   `.trim(),
   schema: z.object({
-    descriptor: descriptorSchema.describe("Shader preset + params to apply."),
-    target: z
-      .object({
-        nodeId: z.string().optional(),
-        selector: z.string().optional(),
-      })
-      .optional()
-      .describe("Target element by nodeId or CSS selector."),
-    source: z
-      .object({
-        kind: z.enum(["design-file", "inline-html"]).default("design-file"),
-        designId: z.string().optional(),
-        fileId: z.string().optional(),
-      })
-      .optional()
-      .describe("Design source context."),
-    surface: z
-      .enum(["fill", "effect"])
-      .default("fill")
-      .describe(
-        "fill: shader sits behind content (z-index 0). effect: composites over content (z-index 2, pointer-events none).",
-      ),
-    // Safety override — only respected when ALL conditions are independently
-    // verified by the caller.  The server still validates.
-    _forceApply: z
-      .boolean()
-      .optional()
-      .describe(
-        "Internal: bypass the safety gate.  Only valid when all safety conditions are met.  " +
-          "The server re-evaluates conditions regardless of this flag.",
-      ),
+    descriptor: descriptorSchema.describe("Shader preset + params to persist."),
+    target: targetSchema,
+    source: sourceSchema,
   }),
-  // readOnly: true because this action never writes in the current phase.
-  // When the gate is lifted this will change to false.
-  readOnly: true,
-  run: async ({
-    descriptor: rawDescriptor,
-    target: _target,
-    source,
-    _forceApply,
-  }) => {
+  run: async ({ descriptor: rawDescriptor, target, source }) => {
     const descriptor: ShaderDescriptor = {
       preset: rawDescriptor.preset as ShaderPresetName,
       params: rawDescriptor.params ?? {},
@@ -236,95 +313,92 @@ To generate the code snippet for a manual source edit, call apply-shader instead
       offsetY: rawDescriptor.offsetY,
     };
 
-    // Validate the descriptor regardless of gate status.
+    // Validate against the preset manifest before any write so the caller gets
+    // clear errors without a wasted DB / collab round-trip.
     const validation = validateDescriptor(descriptor);
     if (!validation.valid) {
       return {
         ok: false,
-        gated: false,
+        persisted: false,
         errors: validation.errors,
-        hint: "Fix the descriptor errors first.  Call get-shader to see the full preset catalog.",
+        descriptor,
+        hint: "Fix the descriptor errors and retry. Call get-shader to see the full preset catalog.",
       };
     }
 
-    // Determine source type — default to inline (most permissive) when unknown.
-    const sourceKind = source?.kind ?? "design-file";
-    const sourceType: "inline" | "localhost" | "fusion" =
-      sourceKind === "inline-html" ? "inline" : "inline";
+    // Resolve the CSS `background` to write. Every colour is run through the
+    // strict CSS-colour allowlist here (same path preview-shader-fill uses).
+    const { background, colors } = buildShaderFillBackground(descriptor);
+    const fallbackCss = generateShaderFillFallbackCss(descriptor);
 
-    // Evaluate safety conditions.
-    const conditions = evaluateSafetyConditions(sourceType);
-    const allMet = conditions.every((c) => c.met);
-
-    // The server-side gate: even if _forceApply is set by the caller, all
-    // conditions must be met.  This prevents accidental writes from callers
-    // that incorrectly set the flag.
-    if (!allMet) {
-      const unmet = conditions.filter((c) => !c.met);
-
-      // Still provide the preview CSS so the caller can at least show something.
-      const previewCss = generateShaderFillPreviewCss(descriptor);
-      const fallbackCss = generateShaderFillFallbackCss(descriptor);
-
+    // Only HTML design-file sources are persisted. Everything else gets the
+    // preview value plus an explanation and writes nothing — the deterministic
+    // HTML editor is the single safe mutation seam.
+    if (source.kind !== "design-file") {
       return {
-        ok: false,
-        gated: true,
-        status: "NOT_YET_AVAILABLE",
-        message:
-          "apply-shader-fill is gated until all safety conditions are met. " +
-          "No data was written.  Use preview-shader-fill to see a CSS preview, " +
-          "or apply-shader to get a manual-edit code snippet.",
-        conditions,
-        unmetConditions: unmet.map((c) => ({
-          id: c.id,
-          label: c.label,
-          reason: c.reason,
-          effort: c.effort,
-        })),
-        // Provide the preview anyway so the caller has something useful.
-        previewCss,
+        ok: true,
+        persisted: false,
+        descriptor,
+        background: generateShaderFillPreviewCss(descriptor),
         fallbackCss,
-        alternativeActions: [
-          {
-            action: "preview-shader-fill",
-            description:
-              "Preview the shader fill as a CSS gradient on the target element (no write, no persist).",
-          },
-          {
-            action: "apply-shader",
-            description:
-              "Generate the JSX/HTML code snippet for a manual source edit (no automatic write).",
-          },
-          {
-            action: "get-shader",
-            description: "Browse the full shader preset catalog.",
-          },
-        ],
+        colors,
+        note:
+          `Shader fills are only persisted onto HTML design-file sources. ` +
+          `Source kind "${source.kind}" was not written. Inject the returned ` +
+          `background via the bridge for a live preview, or call apply-shader ` +
+          `for a manual-edit code snippet.`,
       };
     }
 
-    // ── All conditions met ──────────────────────────────────────────────────
-    // This block is unreachable in the current phase (all conditions return
-    // met: false).  It is scaffolded here so the implementation path is clear
-    // for the engineer who lifts the gate.
-    //
-    // When this block becomes reachable:
-    // 1. Resolve the design file (see insert-asset.ts for the pattern).
-    // 2. Build the bridge mount: buildBridgeMount(descriptor, surface) from
-    //    the existing apply-shader.ts helper.
-    // 3. Write the <canvas data-shader=...> element into the document via
-    //    the replace-document-content path (same as apply-visual-edit.ts).
-    // 4. Write the CSS fallback <style> block alongside it.
-    // 5. Produce a diff summary and compiledHash (same as apply-motion-edit.ts).
-    // 6. Return { ok: true, ...diff }.
+    const file = await resolveEditableDesignFile(source);
+
+    const intent: StyleEditIntent = {
+      kind: "style",
+      target: { nodeId: target.nodeId, selector: target.selector },
+      property: "background",
+      value: background,
+    };
+
+    const patch = applyVisualEdit(file.content, intent, {
+      source: file.codeLayerSource,
+    });
+
+    if (patch.result.target) {
+      agentUpdateSelection(file.id, {
+        selection: patch.result.target.selector,
+        nodeId: patch.result.target.nodeId,
+        editingFile: file.filename,
+        designId: file.designId,
+      });
+    }
+
+    const changed =
+      patch.result.status === "applied" && patch.result.changed === true;
+
+    if (changed) {
+      await persistDesignFileEdit({
+        id: file.id,
+        designId: file.designId,
+        content: patch.content,
+      });
+    }
 
     return {
-      ok: false,
-      gated: true,
-      status: "IMPLEMENTATION_INCOMPLETE",
-      message:
-        "All safety conditions evaluated as met, but the write implementation " +
-        "is not yet complete.  This should not be reachable in the current phase.",
+      ok: patch.result.status === "applied",
+      persisted: changed,
+      descriptor,
+      background,
+      fallbackCss,
+      colors,
+      designId: file.designId,
+      fileId: file.id,
+      filename: file.filename,
+      result: patch.result,
+      bytesBefore: file.content.length,
+      bytesAfter: patch.content.length,
+      note: changed
+        ? "Shader fill persisted as the element's CSS background."
+        : "No change was written — the deterministic editor could not apply the edit. See result for details.",
     };
   },
 });

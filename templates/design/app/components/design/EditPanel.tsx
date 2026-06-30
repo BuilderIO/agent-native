@@ -60,6 +60,7 @@ import {
   IconUnlink,
   IconVector,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -98,6 +99,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -2040,6 +2042,110 @@ function vscodeDeepLink(
 }
 
 /**
+ * Extract the *opening tag* from an element's outer HTML for an at-a-glance
+ * summary (e.g. `<main class="hero" data-x="y">`). Self-closing tags keep
+ * their `/>`. Returns `null` when no tag can be parsed.
+ *
+ * Pure — exported for tests.
+ */
+export function openingTagOf(html: string | null | undefined): string | null {
+  if (!html) return null;
+  const trimmed = html.trimStart();
+  // Match the first `<tag ...>` (greedy up to the first unquoted `>`), allowing
+  // quoted attribute values to contain `>`.
+  const match = /^<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>])*?)\/?>/.exec(
+    trimmed,
+  );
+  if (!match) return null;
+  return match[0];
+}
+
+/**
+ * Collapse long attribute values in an opening tag so the at-a-glance summary
+ * stays readable. Values longer than `max` chars are truncated with an
+ * ellipsis (the surrounding quotes are preserved).
+ *
+ * Pure — exported for tests.
+ */
+export function truncateOpeningTag(openTag: string, max = 32): string {
+  return openTag.replace(
+    /("|')((?:\\.|(?!\1)[^\\])*)\1/g,
+    (full, quote, value) => {
+      if (typeof value !== "string" || value.length <= max) return full;
+      return `${quote}${value.slice(0, max - 1)}…${quote}`;
+    },
+  );
+}
+
+/**
+ * Parse the top-level `key: value` pairs from an Alpine `x-data` object literal
+ * (e.g. `{ variant: 'outline', size: 'lg', disabled: false }`).
+ *
+ * Best-effort: only handles a flat object of simple string / boolean / number
+ * literals — exactly the shape used for component variant + state props. Nested
+ * objects, methods, and computed expressions are ignored. Returns `null` when
+ * the value is not a recognizable flat object literal.
+ *
+ * Pure — exported for tests.
+ */
+export function parseAlpineDataObject(
+  xData: string | null | undefined,
+): Record<string, string> | null {
+  if (!xData) return null;
+  const trimmed = xData.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  const inner = trimmed.slice(1, -1).trim();
+  if (!inner) return {};
+
+  const out: Record<string, string> = {};
+  // Split on top-level commas only (no nesting / quotes inside values here).
+  const pairRe =
+    /(?:^|,)\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_$][\w$]*))\s*:\s*('[^']*'|"[^"]*"|true|false|-?\d+(?:\.\d+)?)/g;
+  let m: RegExpExecArray | null;
+  let matched = false;
+  while ((m = pairRe.exec(inner)) !== null) {
+    matched = true;
+    const key = m[1] ?? m[2] ?? m[3];
+    let raw = m[4]!;
+    // Unwrap quotes for string literals; keep booleans / numbers verbatim.
+    if (
+      (raw.startsWith("'") && raw.endsWith("'")) ||
+      (raw.startsWith('"') && raw.endsWith('"'))
+    ) {
+      raw = raw.slice(1, -1);
+    }
+    if (key) out[key] = raw;
+  }
+  // If there was content but nothing parsed, the shape is too complex to edit
+  // safely — bail so the caller falls back to attribute-based prop edits.
+  if (!matched) return null;
+  return out;
+}
+
+/**
+ * Re-serialize a flat Alpine data object back into an `x-data` literal,
+ * preserving boolean / number literals unquoted and single-quoting strings.
+ *
+ * Pure — exported for tests.
+ */
+export function serializeAlpineDataObject(obj: Record<string, string>): string {
+  const parts = Object.entries(obj).map(([key, value]) => {
+    const isBoolean = value === "true" || value === "false";
+    const isNumber = /^-?\d+(\.\d+)?$/.test(value);
+    const literal =
+      isBoolean || isNumber ? value : `'${value.replace(/'/g, "\\'")}'`;
+    return `${key}: ${literal}`;
+  });
+  return parts.length ? `{ ${parts.join(", ")} }` : "{}";
+}
+
+/** A boolean-ish prop value (`"true"` / `"false"`), case-insensitive. */
+export function isBooleanPropValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v === "true" || v === "false";
+}
+
+/**
  * Popover anchored to the "Inspect code" button showing the selected node's
  * code.  Inline/Alpine sources show the element's outer HTML with a Copy
  * button; real-app sources additionally render an "Open in VS Code" button.
@@ -2058,6 +2164,11 @@ function InspectCodePopover({
   const html = data.html ?? "";
   const source = data.sourceLocation ?? null;
   const snippet = source?.snippet || html;
+  // At-a-glance opening tag (tag name + attributes), truncated for readability.
+  const openingTag = (() => {
+    const raw = openingTagOf(html);
+    return raw ? truncateOpeningTag(raw) : null;
+  })();
 
   const handleCopy = () => {
     if (!snippet) return;
@@ -2095,6 +2206,16 @@ function InspectCodePopover({
             }
           </Button>
         </div>
+
+        {/* At-a-glance opening tag (tag name + attributes) above the full HTML. */}
+        {openingTag && (
+          <code
+            className="block truncate rounded bg-[var(--design-editor-control-bg)] px-2 py-1 font-mono text-[10px] text-foreground"
+            title={openingTag}
+          >
+            {openingTag}
+          </code>
+        )}
 
         {source && (
           <div
@@ -5180,6 +5301,12 @@ interface ComponentDetailsResult {
   observedProps: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
+  /** Component instance shape, including the Alpine `x-data` expression. */
+  instance?: {
+    alpineData?: string | null;
+    nodeId?: string;
+    selector?: string;
+  } | null;
   capabilities: {
     canResolveToFile: boolean;
     hasFullIndex: boolean;
@@ -5212,12 +5339,44 @@ function ComponentSection({
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
 }) {
+  const queryClient = useQueryClient();
+  const detailsKey = ["action", "get-component-details", { designId, nodeId }];
+
   const { data, isLoading, error } = useActionQuery<ComponentDetailsResult>(
     "get-component-details",
     { designId, nodeId },
   );
 
   const openSourceMutation = useActionMutation("open-component-source");
+  const applyPropMutation = useActionMutation("apply-component-prop-edit");
+
+  // Persist a single prop change through apply-component-prop-edit. The canvas
+  // re-renders from the freshly written design content (get-design refetch),
+  // so no postMessage into the iframe is needed. The get-component-details
+  // cache is optimistically patched so the control reflects the new value
+  // immediately, then reconciled with the server on settle.
+  const persistPropEdit = (
+    edit:
+      | { kind: "alpineData"; value: string }
+      | { kind: "attribute"; attribute: string; value: string },
+    optimistic: (prev: ComponentDetailsResult) => ComponentDetailsResult,
+  ) => {
+    queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
+      prev ? optimistic(prev) : prev,
+    );
+    applyPropMutation.mutate(
+      { designId, nodeId, edit },
+      {
+        onSettled: () => {
+          // Re-render the canvas from the new content and re-read the props.
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
+          void queryClient.invalidateQueries({ queryKey: detailsKey });
+        },
+      },
+    );
+  };
 
   // While loading, show a compact skeleton that matches the section width.
   if (isLoading) {
@@ -5240,16 +5399,115 @@ function ComponentSection({
 
   const {
     name,
+    sourceType,
     sourceLocation,
     observedProps,
     persistedVariants,
+    instance,
     capabilities,
   } = data;
 
-  // ── Variant groups (from persistedVariants for real-app, or a single
-  //    "x-data" pseudo-group for Alpine).
-  const variantGroups = Object.entries(persistedVariants);
-  const hasVariants = variantGroups.length > 0;
+  // ── Editable prop model ───────────────────────────────────────────────────
+  // Inline/Alpine designs persist through apply-component-prop-edit. Two write
+  // surfaces:
+  //   • x-data keys      → kind "alpineData" (rewrites the whole object)
+  //   • data-prop-* attrs → kind "attribute"  (data-agent-native-prop-<kebab>)
+  // Real-app sources keep the deeper source-prop controls gated as-is, so for
+  // non-inline sources the controls are read-only here.
+  const isInline = sourceType === "inline";
+  const editingEnabled = isInline; // gated; real-app stays read-only for now
+  const alpineData = parseAlpineDataObject(instance?.alpineData);
+
+  // Each editable row: name + current value + how it persists + its options.
+  type PropRow = {
+    name: string;
+    value: string;
+    /** Variant/enum options when the prop is a known group. */
+    options?: string[];
+    /** Persist surface for this prop. */
+    surface: "alpineData" | "attribute";
+  };
+
+  const rows: PropRow[] = [];
+  const seen = new Set<string>();
+
+  // 1) Alpine x-data keys come first — they drive the live variant/state.
+  if (alpineData) {
+    for (const [key, value] of Object.entries(alpineData)) {
+      rows.push({
+        name: key,
+        value,
+        options: persistedVariants[key],
+        surface: "alpineData",
+      });
+      seen.add(key);
+    }
+  }
+
+  // 2) data-agent-native-prop-* attributes not already covered by x-data.
+  for (const prop of observedProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 3) persistedVariant groups with no observed value yet (default to first).
+  for (const [group, options] of Object.entries(persistedVariants)) {
+    if (seen.has(group)) continue;
+    rows.push({
+      name: group,
+      value: options[0] ?? "",
+      options,
+      surface: alpineData ? "alpineData" : "attribute",
+    });
+    seen.add(group);
+  }
+
+  const hasRows = rows.length > 0;
+
+  // Build the apply-component-prop-edit payload + optimistic cache patch for a
+  // single prop change.
+  const commitProp = (row: PropRow, nextValue: string) => {
+    if (!editingEnabled || nextValue === row.value) return;
+
+    if (row.surface === "alpineData") {
+      const nextData = { ...(alpineData ?? {}), [row.name]: nextValue };
+      const serialized = serializeAlpineDataObject(nextData);
+      persistPropEdit({ kind: "alpineData", value: serialized }, (prev) => ({
+        ...prev,
+        instance: { ...(prev.instance ?? {}), alpineData: serialized },
+        observedProps: prev.observedProps.map((p) =>
+          p.name === row.name ? { ...p, value: nextValue } : p,
+        ),
+      }));
+    } else {
+      // camelCase prop name → data-agent-native-prop-<kebab>
+      const kebab = row.name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+      persistPropEdit(
+        {
+          kind: "attribute",
+          attribute: `data-agent-native-prop-${kebab}`,
+          value: nextValue,
+        },
+        (prev) => {
+          const exists = prev.observedProps.some((p) => p.name === row.name);
+          return {
+            ...prev,
+            observedProps: exists
+              ? prev.observedProps.map((p) =>
+                  p.name === row.name ? { ...p, value: nextValue } : p,
+                )
+              : [...prev.observedProps, { name: row.name, value: nextValue }],
+          };
+        },
+      );
+    }
+  };
 
   // ── Capability gates ──
   const canJumpToSource =
@@ -5322,58 +5580,78 @@ function ComponentSection({
           </div>
         )}
 
-        {/* Observed props (attribute-level, Alpine + real-app) */}
-        {observedProps.length > 0 && (
-          <div className="space-y-1">
-            {observedProps.map((prop) => (
-              <div key={prop.name} className="flex items-center gap-1.5">
-                <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground">
-                  {prop.name}
-                </Label>
-                <span className="min-w-0 flex-1 truncate rounded bg-[var(--design-editor-control-bg)] px-1.5 py-0.5 text-[11px] text-foreground">
-                  {prop.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Variant controls (real-app tier: persistedVariants from component_index) */}
-        {hasVariants && (
+        {/* Typed prop controls. Inline/Alpine designs are editable and persist
+            through apply-component-prop-edit; real-app sources are read-only
+            until the deeper source-prop controls land. */}
+        {hasRows && (
           <div className="space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-              {"Variants" /* i18n-ignore design inspector label */}
+              {"Props" /* i18n-ignore design inspector label */}
             </p>
-            {variantGroups.map(([groupName, options]) => (
-              <div key={groupName} className="flex items-center gap-1.5">
-                <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground capitalize">
-                  {groupName}
-                </Label>
-                <Select
-                  value={
-                    observedProps.find((p) => p.name === groupName)?.value ??
-                    options[0] ??
-                    ""
-                  }
-                  onValueChange={() => {
-                    // Preview-only on Alpine; real-app writes go through
-                    // apply-component-prop-edit (wired when capability lands).
-                  }}
-                  disabled={!capabilities.canEditProps}
-                >
-                  <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {options.map((opt) => (
-                      <SelectItem key={opt} value={opt} className="text-[11px]">
-                        {opt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
+            {rows.map((row) => {
+              const hasOptions = (row.options?.length ?? 0) > 0;
+              const isBoolean = !hasOptions && isBooleanPropValue(row.value);
+              return (
+                <div key={row.name} className="flex items-center gap-1.5">
+                  <Label className="w-[64px] shrink-0 truncate text-[11px] font-medium capitalize text-muted-foreground">
+                    {row.name}
+                  </Label>
+                  {hasOptions ? (
+                    // Dropdown for variant / enum groups.
+                    <Select
+                      value={row.value || row.options![0] || ""}
+                      onValueChange={(v) => commitProp(row, v)}
+                      disabled={!editingEnabled}
+                    >
+                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {row.options!.map((opt) => (
+                          <SelectItem
+                            key={opt}
+                            value={opt}
+                            className="text-[11px]"
+                          >
+                            {opt}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : isBoolean ? (
+                    // Toggle for boolean props.
+                    <div className="flex min-w-0 flex-1 items-center">
+                      <Switch
+                        checked={row.value.trim().toLowerCase() === "true"}
+                        onCheckedChange={(checked) =>
+                          commitProp(row, checked ? "true" : "false")
+                        }
+                        disabled={!editingEnabled}
+                        className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
+                        aria-label={
+                          row.name /* i18n-ignore dynamic prop name */
+                        }
+                      />
+                    </div>
+                  ) : (
+                    // Text input for string props (e.g. a label).
+                    <Input
+                      defaultValue={row.value}
+                      key={`${row.name}:${row.value}`}
+                      disabled={!editingEnabled}
+                      onBlur={(e) => commitProp(row, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

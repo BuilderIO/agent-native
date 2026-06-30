@@ -55,6 +55,65 @@ import { normalizeDesignSourceType } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Escape an attribute value for safe inclusion inside a double-quoted HTML
+ * attribute. Mirrors the escaping used by the deterministic patcher.
+ */
+export function escapeAttributeValue(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Set (or replace) a single attribute on the *opening tag* of a component
+ * root, using the node's source span. Pure — no DB / IO — so it can be unit
+ * tested directly.
+ *
+ * - When the attribute already exists on the open tag its value is replaced.
+ * - Otherwise the attribute is inserted just before the closing `>` / `/>`.
+ *
+ * Returns the rewritten full HTML and a `changed` flag (false when the span is
+ * missing or the rewrite produced an identical open tag).
+ */
+export function applyRootAttributeEdit(
+  html: string,
+  source: { openStart: number; openEnd: number } | null | undefined,
+  attrName: string,
+  attrValue: string,
+): { content: string; changed: boolean } {
+  if (!source) return { content: html, changed: false };
+
+  const openTag = html.slice(source.openStart, source.openEnd);
+  // Replace an existing attribute if present, otherwise insert before the
+  // closing `>` or `/>`.
+  const attrRe = new RegExp(
+    `(\\s${attrName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s>"']+)`,
+    "i",
+  );
+  const escaped = escapeAttributeValue(attrValue);
+
+  let newOpenTag: string;
+  if (attrRe.test(openTag)) {
+    newOpenTag = openTag.replace(attrRe, `$1"${escaped}"`);
+  } else {
+    const insertOffset = openTag.endsWith("/>")
+      ? openTag.length - 2
+      : openTag.length - 1;
+    newOpenTag = `${openTag.slice(0, insertOffset)} ${attrName}="${escaped}"${openTag.slice(insertOffset)}`;
+  }
+
+  if (newOpenTag === openTag) return { content: html, changed: false };
+
+  return {
+    content:
+      html.slice(0, source.openStart) + newOpenTag + html.slice(source.openEnd),
+    changed: true,
+  };
+}
+
 async function liveContent(
   fileId: string,
   storedContent: string,
@@ -321,40 +380,14 @@ export default defineAction({
 
     if (edit.kind === "alpineData" || edit.kind === "attribute") {
       const attrName = edit.kind === "alpineData" ? "x-data" : edit.attribute;
-      const attrValue = edit.value;
-      const src = node.source;
-
-      if (src) {
-        const openTag = html.slice(src.openStart, src.openEnd);
-        // Replace existing attribute if present, otherwise insert before the
-        // closing `>` or `/>`.
-        const attrRe = new RegExp(
-          `(\\s${attrName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s>"']+)`,
-          "i",
-        );
-        const escaped = attrValue
-          .replace(/&/g, "&amp;")
-          .replace(/"/g, "&quot;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-
-        let newOpenTag: string;
-        if (attrRe.test(openTag)) {
-          newOpenTag = openTag.replace(attrRe, `$1"${escaped}"`);
-        } else {
-          // Insert before closing `>` or `/>`.
-          const insertOffset = openTag.endsWith("/>")
-            ? openTag.length - 2
-            : openTag.length - 1;
-          newOpenTag = `${openTag.slice(0, insertOffset)} ${attrName}="${escaped}"${openTag.slice(insertOffset)}`;
-        }
-
-        if (newOpenTag !== openTag) {
-          patchedContent =
-            html.slice(0, src.openStart) + newOpenTag + html.slice(src.openEnd);
-          changed = true;
-        }
-      }
+      const result = applyRootAttributeEdit(
+        html,
+        node.source,
+        attrName,
+        edit.value,
+      );
+      patchedContent = result.content;
+      changed = result.changed;
     } else if (edit.kind === "classReplace") {
       // Use the deterministic patcher for class edits.
       const patch = applyVisualEdit(html, intent, { source: codeLayerSource });
