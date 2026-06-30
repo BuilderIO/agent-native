@@ -1202,6 +1202,7 @@ export function MultiScreenCanvas({
     (
       handleMouseMove: (ev: MouseEvent) => void,
       handleMouseUp: (ev: MouseEvent) => void,
+      handleCancel?: () => void,
     ) => {
       dragCleanup.current?.();
       const restorePreviewPointerEvents = mutePreviewIframePointerEvents(
@@ -1218,8 +1219,13 @@ export function MultiScreenCanvas({
         ev.preventDefault();
         handleMouseUp(ev);
       };
-      const cleanupOnBlur = () =>
+      const cleanupOnBlur = () => {
+        if (handleCancel) {
+          handleCancel();
+          return;
+        }
         handleMouseUp(lastMouseEvent ?? new MouseEvent("mouseup"));
+      };
       dragCleanup.current = () => {
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
@@ -1784,7 +1790,18 @@ export function MultiScreenCanvas({
         finishDrag();
       };
 
-      installDragListeners(handleMouseMove, handleMouseUp);
+      const cancelPenGesture = () => {
+        const state = dragState.current;
+        if (state?.type === "pen-node") {
+          setActivePenPath(state.pathBefore);
+        }
+        setPenGesturePreview(null);
+        setPenPointer(null);
+        setPenCloseHover(false);
+        finishDrag();
+      };
+
+      installDragListeners(handleMouseMove, handleMouseUp, cancelPenGesture);
     },
     [
       finishDrag,
@@ -4109,12 +4126,17 @@ const Screen = memo(function Screen({
     (directlyHovered || isDirectlyHovered) &&
     !creationToolActive &&
     !canvasGestureActive;
+  const suppressFrameChromeForChild =
+    hasHoveredChild && !directlyHovered && !isDirectlyHovered;
   const emphasized = isSelected || frameDirectlyHovered;
   const fullViewVisible = emphasized || showFullView;
   const activeOrEmphasized = isActive || emphasized;
   const selectionOutlined = isSelected && !groupSelected;
   const showHoverChrome =
-    frameDirectlyHovered && !isSelected && !groupSelected && !hasHoveredChild;
+    frameDirectlyHovered &&
+    !isSelected &&
+    !groupSelected &&
+    !suppressFrameChromeForChild;
   const screenContentInteractive =
     Boolean(screenContent) &&
     !penActive &&
@@ -4338,10 +4360,7 @@ const Screen = memo(function Screen({
         <span
           data-screen-content
           className={cn(
-            "relative block h-full w-full overflow-hidden rounded-lg border bg-white shadow-2xl transition-colors",
-            showHoverChrome
-              ? "border-[var(--design-editor-accent-color)]"
-              : "border-border",
+            "relative block h-full w-full overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-inset ring-border transition-colors",
           )}
           style={{ pointerEvents: screenContentInteractive ? "auto" : "none" }}
         >
@@ -4388,6 +4407,18 @@ const Screen = memo(function Screen({
               aria-hidden="true"
             />
           ) : null}
+          <span
+            data-screen-hover-outline
+            className={cn(
+              "pointer-events-none absolute inset-0 z-10 rounded-[3px] border border-[var(--design-editor-accent-color)] transition-opacity",
+              showHoverChrome ? "opacity-100" : "opacity-0",
+            )}
+            style={{
+              borderWidth: 1.5 * chromeScale,
+              transition: getChromeBorderTransition(chromeSettling),
+            }}
+            aria-hidden="true"
+          />
           <span className="pointer-events-none absolute inset-0 rounded-[7px] border border-black/5" />
         </span>
         <ResizeHandles

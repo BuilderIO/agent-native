@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { expect, type Page, type FrameLocator } from "@playwright/test";
 
+import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
+
 /**
  * Helpers for driving the Design visual editor in real Chrome.
  *
@@ -22,6 +24,61 @@ export async function readSeedDesignId(): Promise<string> {
   const raw = await readFile(seedPath, "utf8");
   const { designId } = JSON.parse(raw) as { designId: string };
   if (!designId) throw new Error("no seeded designId - global-setup failed");
+  return designId;
+}
+
+function e2eBaseUrl(page: Page): string {
+  const currentUrl = page.url();
+  if (currentUrl && currentUrl !== "about:blank") {
+    return new URL(currentUrl).origin;
+  }
+  return (
+    process.env.E2E_BASE_URL ??
+    `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`
+  );
+}
+
+async function postAction(
+  page: Page,
+  name: string,
+  input: Record<string, unknown>,
+): Promise<any> {
+  const res = await page.request.post(
+    `${e2eBaseUrl(page)}/_agent-native/actions/${name}`,
+    {
+      data: input,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  if (!res.ok()) {
+    throw new Error(
+      `action ${name} failed: ${res.status()} ${await res.text()}`,
+    );
+  }
+  return res.json();
+}
+
+export async function createFixtureDesign(
+  page: Page,
+  title = SEED_TITLE,
+): Promise<string> {
+  const created = await postAction(page, "create-design", {
+    title,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) {
+    throw new Error(
+      `create-design did not return an id: ${JSON.stringify(created)}`,
+    );
+  }
+  await postAction(page, "create-file", {
+    designId,
+    filename: "index.html",
+    content: FIXTURE_HTML,
+    fileType: "html",
+  });
   return designId;
 }
 

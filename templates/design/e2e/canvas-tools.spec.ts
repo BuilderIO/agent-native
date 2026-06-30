@@ -53,6 +53,8 @@ test.beforeEach(async ({ page, request }, workerInfo) => {
   await gotoEditor(page, designId);
 });
 
+test.use({ viewport: { width: 1440, height: 1000 } });
+
 test.afterEach(async ({ request }) => {
   if (!designId) return;
   await postAction(request, "delete-design", { id: designId }).catch(() => {});

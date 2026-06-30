@@ -459,6 +459,13 @@ export function getLayerMoveIterationOrder<T>(
   return placement === "after" ? [...orderedIds].reverse() : [...orderedIds];
 }
 
+export function removeUndoRedoOrderKind<T extends string>(
+  order: readonly T[],
+  kind: T,
+): T[] {
+  return order.filter((entry) => entry !== kind);
+}
+
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
   return typeof update === "function" ? update(current) : update;
 }
@@ -2188,27 +2195,42 @@ function codeLayerPatchMessage(
     : message;
 }
 
-function elementInfoExistsInContent(
+export function refreshElementInfoFromContent(
   content: string,
   info: ElementInfo | null,
-): boolean {
-  if (!info) return false;
+): ElementInfo | null {
+  if (!info) return null;
   const projection = buildCodeLayerProjection(content);
-  if (
+  const node =
+    resolveCodeLayerNodeFromElementInfo(projection, info) ??
     resolveCodeLayerNodeFromBridge(
       projection,
       info.selector,
       info.sourceId ?? info.id,
-    )
-  ) {
-    return true;
+    );
+  if (node) {
+    const sourceInfo = elementInfoFromCodeLayerNode(node);
+    return {
+      ...canonicalElementInfoForCodeLayerNode(info, node),
+      computedStyles: sourceInfo.computedStyles,
+      textContent: sourceInfo.textContent,
+      isFlexChild: sourceInfo.isFlexChild,
+      isFlexContainer: sourceInfo.isFlexContainer,
+      parentDisplay: sourceInfo.parentDisplay,
+    };
   }
-  if (!info.selector || typeof window === "undefined") return false;
+  if (!info.selector || typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    return Boolean(queryUniqueSelector(doc, info.selector));
+    const element = queryUniqueSelector(doc, info.selector);
+    if (!element) return null;
+    return {
+      ...info,
+      computedStyles: parseInlineStyleAttribute(element.getAttribute("style")),
+      textContent: element.textContent?.slice(0, 200) ?? info.textContent,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -2298,6 +2320,41 @@ function findCodeLayerNodeInProjection(
       (node.textSnippet ?? "") === (previousNode.textSnippet ?? ""),
   );
   return fallbackMatches.length === 1 ? (fallbackMatches[0] ?? null) : null;
+}
+
+export function findMovedCodeLayerNodeInProjection(
+  projection: CodeLayerProjection,
+  previousNode: CodeLayerNode,
+  movedNodeId?: string | null,
+): CodeLayerNode | null {
+  if (movedNodeId) {
+    const movedMatch = projection.nodes.find(
+      (node) =>
+        node.id === movedNodeId ||
+        node.dataAttributes["data-agent-native-node-id"] === movedNodeId ||
+        node.dataAttributes["data-code-layer-id"] === movedNodeId ||
+        node.dataAttributes["data-layer-id"] === movedNodeId ||
+        node.dataAttributes["data-builder-id"] === movedNodeId ||
+        node.dataAttributes["data-loc"] === movedNodeId ||
+        node.attributes.id === movedNodeId,
+    );
+    if (movedMatch) return movedMatch;
+  }
+  return findCodeLayerNodeInProjection(projection, previousNode);
+}
+
+export function parseInlineStyleAttribute(
+  style: string | null | undefined,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const declaration of (style ?? "").split(";")) {
+    const separator = declaration.indexOf(":");
+    if (separator <= 0) continue;
+    const property = declaration.slice(0, separator).trim();
+    const value = declaration.slice(separator + 1).trim();
+    if (property && value) result[property] = value;
+  }
+  return result;
 }
 
 function AgentNativeMenuMark({ className }: { className?: string }) {
@@ -3393,6 +3450,23 @@ export default function DesignEditor() {
         geometryRedoStackRef.current.length > 0,
     );
   }, []);
+  const recordContentHistoryEntry = useCallback(
+    (entry: ContentHistoryEntry) => {
+      if (entry.before === entry.after) return;
+      contentUndoStackRef.current = [
+        ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        entry,
+      ];
+      contentRedoStackRef.current = [];
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "content",
+      ];
+      redoOrderRef.current = [];
+      syncUndoRedoState();
+    },
+    [syncUndoRedoState],
+  );
   const clearLocalUndoRedoStacks = useCallback(() => {
     contentUndoStackRef.current = [];
     contentRedoStackRef.current = [];
@@ -4436,6 +4510,8 @@ export default function DesignEditor() {
         },
       ];
       geometryRedoStackRef.current = [];
+      contentRedoStackRef.current = [];
+      undoManagerRef.current?.clear(false, true);
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "geometry",
@@ -5213,11 +5289,11 @@ export default function DesignEditor() {
       if (!isLocalEdit) {
         setSelectedElement((prev) => {
           if (!prev) return prev;
-          return elementInfoExistsInContent(next, prev) ? prev : null;
+          return refreshElementInfoFromContent(next, prev);
         });
         setHoveredElement((prev) => {
           if (!prev) return prev;
-          return elementInfoExistsInContent(next, prev) ? prev : null;
+          return refreshElementInfoFromContent(next, prev);
         });
       }
     };
@@ -5235,6 +5311,14 @@ export default function DesignEditor() {
     if (!ydoc || !isSynced) {
       undoManagerRef.current?.destroy();
       undoManagerRef.current = null;
+      historyOrderRef.current = removeUndoRedoOrderKind(
+        historyOrderRef.current,
+        "content",
+      );
+      redoOrderRef.current = removeUndoRedoOrderKind(
+        redoOrderRef.current,
+        "content",
+      );
       syncUndoRedoState();
       return;
     }
@@ -5268,6 +5352,14 @@ export default function DesignEditor() {
       um.off("stack-cleared", syncState);
       um.destroy();
       undoManagerRef.current = null;
+      historyOrderRef.current = removeUndoRedoOrderKind(
+        historyOrderRef.current,
+        "content",
+      );
+      redoOrderRef.current = removeUndoRedoOrderKind(
+        redoOrderRef.current,
+        "content",
+      );
       syncUndoRedoState();
     };
   }, [ydoc, isSynced, syncUndoRedoState]);
@@ -5962,21 +6054,11 @@ export default function DesignEditor() {
         !yjsHistoryAvailable &&
         previousContent !== nextContent
       ) {
-        contentUndoStackRef.current = [
-          ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-          {
-            fileId: activeFile.id,
-            before: previousContent,
-            after: nextContent,
-          },
-        ];
-        contentRedoStackRef.current = [];
-        historyOrderRef.current = [
-          ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-          "content",
-        ];
-        redoOrderRef.current = [];
-        syncUndoRedoState();
+        recordContentHistoryEntry({
+          fileId: activeFile.id,
+          before: previousContent,
+          after: nextContent,
+        });
       }
       if (options.updatedAt) {
         clearPendingLocalFileContent(activeFile.id);
@@ -6057,6 +6139,7 @@ export default function DesignEditor() {
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
+      recordContentHistoryEntry,
       syncUndoRedoState,
       ydoc,
     ],
@@ -6224,6 +6307,11 @@ export default function DesignEditor() {
       if (targetFile.id === activeFile?.id) {
         applyLocalContentUpdate(nextContent, { immediateSave: true });
       } else {
+        recordContentHistoryEntry({
+          fileId: targetFile.id,
+          before: baseContent,
+          after: nextContent,
+        });
         queryClient.setQueryData(
           ["action", "get-design", { id }],
           (old: any) => {
@@ -6258,6 +6346,7 @@ export default function DesignEditor() {
       id,
       isSynced,
       queryClient,
+      recordContentHistoryEntry,
       saveFileContent,
       t,
       ydoc,
@@ -7014,7 +7103,9 @@ export default function DesignEditor() {
         createdAt: Date.now(),
       });
       const sendStyleChange = (window as any).__designCanvasSendStyle;
-      if (!options.runtimeApplied && typeof sendStyleChange === "function") {
+      const runtimeStyleApplied =
+        !options.runtimeApplied && typeof sendStyleChange === "function";
+      if (runtimeStyleApplied) {
         const selectorCandidates = targetNode
           ? codeLayerSelectorAliases(targetNode)
           : selector
@@ -7165,6 +7256,12 @@ export default function DesignEditor() {
       queueFileContentSave(activeFile.id, resolvedNextContent, {
         syncCollab: !(ydoc && isSynced),
       });
+      if (
+        !runtimeStyleApplied &&
+        !replacePreviewContent(resolvedNextContent, selector)
+      ) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
       if (resolvedNode) setSelectedLayerIdsState([resolvedNode.id]);
       setSelectedElement((prev) => {
         if (options.elementInfo) return options.elementInfo;
@@ -7192,6 +7289,7 @@ export default function DesignEditor() {
       activeBreakpointWidthState,
       canEditDesign,
       queueFileContentSave,
+      replacePreviewContent,
       selectedElement,
       t,
       ydoc,
@@ -7655,6 +7753,28 @@ export default function DesignEditor() {
         return false;
       }
       applyFileContentUpdate(screenId, patch.content, { skipPreview: true });
+      const movedNode =
+        (patch.result.after?.nodeId
+          ? patch.projection.nodes.find(
+              (node) => node.id === patch.result.after?.nodeId,
+            )
+          : null) ??
+        resolveCodeLayerNodeFromBridge(
+          patch.projection,
+          selector,
+          details?.sourceId ??
+            elementInfo?.sourceId ??
+            (targetNode
+              ? bridgeSourceIdForCodeLayerNode(targetNode)
+              : undefined),
+        );
+      if (movedNode) {
+        setActiveFileId(screenId);
+        setSelectedLayerIdsState([movedNode.id]);
+        setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
+      } else {
+        setSelectedElement(null);
+      }
       return true;
     },
     [
@@ -8672,11 +8792,11 @@ export default function DesignEditor() {
           // Clear stale selection if the undo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
-            return elementInfoExistsInContent(next, prev) ? prev : null;
+            return refreshElementInfoFromContent(next, prev);
           });
           setHoveredElement((prev) => {
             if (!prev) return prev;
-            return elementInfoExistsInContent(next, prev) ? prev : null;
+            return refreshElementInfoFromContent(next, prev);
           });
         }
         redoOrderRef.current = [
@@ -8686,9 +8806,16 @@ export default function DesignEditor() {
         return true;
       }
 
-      if (!activeFile) return false;
-      const entry = contentUndoStackRef.current.pop();
-      if (!entry || entry.fileId !== activeFile.id) return false;
+      const entry =
+        contentUndoStackRef.current[contentUndoStackRef.current.length - 1];
+      if (!entry) return false;
+      if (
+        entry.fileId !== activeFile?.id &&
+        !files.some((file) => file.id === entry.fileId)
+      ) {
+        return false;
+      }
+      contentUndoStackRef.current.pop();
       contentRedoStackRef.current = [
         ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         entry,
@@ -8699,21 +8826,29 @@ export default function DesignEditor() {
       ];
       suppressContentHistoryRef.current = true;
       try {
-        applyLocalContentUpdate(entry.before, {
-          refreshPreview: false,
-          immediateSave: true,
-        });
+        if (entry.fileId === activeFile?.id) {
+          applyLocalContentUpdate(entry.before, {
+            refreshPreview: false,
+            immediateSave: true,
+          });
+        } else {
+          applyFileContentUpdate(entry.fileId, entry.before, {
+            refreshPreview: false,
+          });
+        }
       } finally {
         suppressContentHistoryRef.current = false;
       }
-      setSelectedElement((prev) => {
-        if (!prev) return prev;
-        return elementInfoExistsInContent(entry.before, prev) ? prev : null;
-      });
-      setHoveredElement((prev) => {
-        if (!prev) return prev;
-        return elementInfoExistsInContent(entry.before, prev) ? prev : null;
-      });
+      if (entry.fileId === activeFile?.id) {
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(entry.before, prev);
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(entry.before, prev);
+        });
+      }
       return true;
     };
     const undoGeometry = () => {
@@ -8749,8 +8884,10 @@ export default function DesignEditor() {
   }, [
     ydoc,
     activeFile,
+    applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign,
+    files,
     isSynced,
     markPendingLocalFileContent,
     queueFileContentSave,
@@ -8782,11 +8919,11 @@ export default function DesignEditor() {
           // Clear stale selection if the redo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
-            return elementInfoExistsInContent(next, prev) ? prev : null;
+            return refreshElementInfoFromContent(next, prev);
           });
           setHoveredElement((prev) => {
             if (!prev) return prev;
-            return elementInfoExistsInContent(next, prev) ? prev : null;
+            return refreshElementInfoFromContent(next, prev);
           });
         }
         historyOrderRef.current = [
@@ -8796,9 +8933,16 @@ export default function DesignEditor() {
         return true;
       }
 
-      if (!activeFile) return false;
-      const entry = contentRedoStackRef.current.pop();
-      if (!entry || entry.fileId !== activeFile.id) return false;
+      const entry =
+        contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
+      if (!entry) return false;
+      if (
+        entry.fileId !== activeFile?.id &&
+        !files.some((file) => file.id === entry.fileId)
+      ) {
+        return false;
+      }
+      contentRedoStackRef.current.pop();
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         entry,
@@ -8809,21 +8953,29 @@ export default function DesignEditor() {
       ];
       suppressContentHistoryRef.current = true;
       try {
-        applyLocalContentUpdate(entry.after, {
-          refreshPreview: false,
-          immediateSave: true,
-        });
+        if (entry.fileId === activeFile?.id) {
+          applyLocalContentUpdate(entry.after, {
+            refreshPreview: false,
+            immediateSave: true,
+          });
+        } else {
+          applyFileContentUpdate(entry.fileId, entry.after, {
+            refreshPreview: false,
+          });
+        }
       } finally {
         suppressContentHistoryRef.current = false;
       }
-      setSelectedElement((prev) => {
-        if (!prev) return prev;
-        return elementInfoExistsInContent(entry.after, prev) ? prev : null;
-      });
-      setHoveredElement((prev) => {
-        if (!prev) return prev;
-        return elementInfoExistsInContent(entry.after, prev) ? prev : null;
-      });
+      if (entry.fileId === activeFile?.id) {
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(entry.after, prev);
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(entry.after, prev);
+        });
+      }
       return true;
     };
     const redoGeometry = () => {
@@ -8859,8 +9011,10 @@ export default function DesignEditor() {
   }, [
     ydoc,
     activeFile,
+    applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign,
+    files,
     isSynced,
     markPendingLocalFileContent,
     queueFileContentSave,
@@ -10644,7 +10798,11 @@ ${serializedHtml}
       // Group by source file so multiple nodes from the same source are
       // applied sequentially against the running source content.
       const sourceContentMap = new Map<string, string>();
-      for (const { draggedId, sourceFileId } of crossFileDrags) {
+      const movedNodeIdByDraggedId = new Map<string, string>();
+      for (const { draggedId, sourceFileId } of getLayerMoveIterationOrder(
+        crossFileDrags,
+        intent.placement,
+      )) {
         const srcFile = files.find((f) => f.id === sourceFileId);
         if (!srcFile) continue;
         const currentSourceContent = getLayerMoveSourceContent({
@@ -10687,6 +10845,7 @@ ${serializedHtml}
         }
         sourceContentMap.set(sourceFileId, result.sourceHtml);
         nextDestContent = result.destHtml;
+        movedNodeIdByDraggedId.set(draggedId, result.movedNodeId ?? nodeAttrId);
         moved = true;
       }
 
@@ -10700,12 +10859,16 @@ ${serializedHtml}
         ? buildCodeLayerTree(finalDestProjection)
         : [];
       const movedNodesAfterMove = movedIdOrder
-        .map((draggedId) => movedNodeSnapshots.get(draggedId))
-        .map((node) =>
-          node && finalDestProjection
-            ? findCodeLayerNodeInProjection(finalDestProjection, node)
-            : null,
-        )
+        .map((draggedId) => {
+          const node = movedNodeSnapshots.get(draggedId);
+          return node && finalDestProjection
+            ? findMovedCodeLayerNodeInProjection(
+                finalDestProjection,
+                node,
+                movedNodeIdByDraggedId.get(draggedId),
+              )
+            : null;
+        })
         .filter((node): node is CodeLayerNode => Boolean(node));
 
       if (movedNodesAfterMove.length > 0) {
@@ -10793,14 +10956,7 @@ ${serializedHtml}
             fileIds,
             layerIds: additiveLayerIds,
           });
-          const toggledScreen =
-            getOverviewScreenIdsFromLayerSelection({
-              fileIds,
-              layerIds: [intent.id],
-            }).length > 0;
-          if (toggledScreen || selectedScreenIds.length > 0) {
-            setOverviewSelectedScreenIds(selectedScreenIds);
-          }
+          setOverviewSelectedScreenIds(selectedScreenIds);
         }
         setSelectedElement(null);
         focusDesignInspectorForSelection();

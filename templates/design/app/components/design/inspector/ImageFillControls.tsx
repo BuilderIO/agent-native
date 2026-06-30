@@ -98,8 +98,8 @@ export function imageFillToBackgroundStyles(
       backgroundPosition: "center",
     };
   }
-  const safeUrl = url.replace(/["')]/g, encodeURIComponent);
-  const backgroundImage = `url("${safeUrl}")`;
+  const safeUrl = escapeForQuotedUrl(url);
+  const backgroundImage = `url("${safeUrl}") ${imageFitMarker(value.fit)}`;
   switch (value.fit) {
     case "fit":
       return {

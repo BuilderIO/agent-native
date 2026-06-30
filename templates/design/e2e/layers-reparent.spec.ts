@@ -1,23 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import {
+  createFixtureDesign,
   designFrame,
   enterDirectMode,
   gotoEditor,
   installBridge,
-  readSeedDesignId,
   selectByText,
   waitForBridge,
 } from "./helpers";
 
 let designId: string;
 
-test.beforeAll(async () => {
-  designId = await readSeedDesignId();
-});
-
 test.describe.serial("layers menu structure operations", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    designId = await createFixtureDesign(page, `E2E Layers ${testInfo.title}`);
     await gotoEditor(page, designId);
     await openLayerSearch(page, "Button");
   });
@@ -89,6 +86,7 @@ test.describe.serial("layers menu structure operations", () => {
     await openLayerSearch(page, "");
     const originalLevel = await rowLevel(page, "Alpha Button");
     await expandLayerRow(page, "Section");
+    const sectionLevel = await rowLevel(page, "Section");
     await expect(layerRow(page, "Fixture Card Title")).toBeVisible();
 
     try {
@@ -109,7 +107,7 @@ test.describe.serial("layers menu structure operations", () => {
         .toBe(true);
       await expect
         .poll(async () => rowLevel(page, "Alpha Button"))
-        .toBeGreaterThanOrEqual(originalLevel);
+        .toBe(sectionLevel + 1);
 
       await clickLayerRow(page, "Alpha Button");
       await expect(layerRow(page, "Alpha Button")).toHaveAttribute(

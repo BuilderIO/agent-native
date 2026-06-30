@@ -1038,7 +1038,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	  var hoveredEl = null;
 	  var activeTextEditEl = null;
 	  var textEditPointerState = null;
-	  var pendingStructureMove = null;
+	  var pendingStructureMoves = {};
   var pendingShieldDrag = null;
   var suppressNextShieldClick = false;
   var suppressNextShieldClickTimer = null;
@@ -2461,7 +2461,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	  function postVisualStructureChange(el, target, origin) {
 	    if (!el || !target || !target.anchor) return;
 	    var requestId = 'move-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-	    pendingStructureMove = { requestId: requestId, el: el, target: target, origin: origin || null };
+	    pendingStructureMoves[requestId] = { requestId: requestId, el: el, target: target, origin: origin || null };
 	    window.parent.postMessage({
 	      type: 'visual-structure-change',
 	      requestId: requestId,
@@ -2693,6 +2693,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     if (isLayerInteractionBlocked(selectedEl)) return;
     e.preventDefault();
     e.stopPropagation();
+    var events = dragEventNames(e);
     ensurePositionable(selectedEl);
     var cs = window.getComputedStyle(selectedEl);
     // Bug fix: use CSS width/height (not getBoundingClientRect) for the resize
@@ -2801,8 +2802,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       refreshOverlays();
     }
     function onUp() {
-      document.removeEventListener('mousemove', onMove, true);
-      document.removeEventListener('mouseup', onUp, true);
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
       hideTransformBadge();
       if (!resizeEl) return;
       window.parent.postMessage({
@@ -2818,8 +2819,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         payload: getElementInfo(resizeEl),
       }, '*');
     }
-    document.addEventListener('mousemove', onMove, true);
-    document.addEventListener('mouseup', onUp, true);
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
   }
 
   function startRotate(e) {
@@ -2827,6 +2828,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     if (isLayerInteractionBlocked(selectedEl)) return;
     e.preventDefault();
     e.stopPropagation();
+    var events = dragEventNames(e);
     // getBoundingClientRect is correct here — we only need the element center
     // for angle math, and the element's visual position is what we want.
     var rect = selectedEl.getBoundingClientRect();
@@ -2847,8 +2849,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       refreshOverlays();
     }
     function onUp() {
-      document.removeEventListener('mousemove', onMove, true);
-      document.removeEventListener('mouseup', onUp, true);
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
       hideTransformBadge();
       if (!rotateEl) return;
       window.parent.postMessage({
@@ -2858,8 +2860,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         payload: getElementInfo(rotateEl),
       }, '*');
     }
-    document.addEventListener('mousemove', onMove, true);
-    document.addEventListener('mouseup', onUp, true);
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
   }
 
   function clearPendingShieldDrag() {
@@ -3080,7 +3082,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     function onKeyDown(ev) {
       if (ev.key === 'Escape') {
         ev.preventDefault();
-        finish(true);
+        finish(false);
         target.blur();
         return;
       }
@@ -3278,9 +3280,9 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	      return;
 	    }
 	    if (e.data.type === 'visual-structure-ack') {
-	      if (!pendingStructureMove || e.data.requestId !== pendingStructureMove.requestId) return;
-	      var move = pendingStructureMove;
-	      pendingStructureMove = null;
+	      var move = pendingStructureMoves[e.data.requestId];
+	      if (!move) return;
+	      delete pendingStructureMoves[e.data.requestId];
 	      if (e.data.applied) {
 	        if (move.el && move.el.isConnected) {
 	          applyRuntimeReorder(move.el, move.target);

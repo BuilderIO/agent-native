@@ -6,6 +6,7 @@ import {
   parseGradientCss,
 } from "./GradientEditor";
 import {
+  imageFillToBackgroundStyles,
   imageFillToCss,
   parseImageFillCss,
   type ImageFillValue,
@@ -107,6 +108,16 @@ describe("image fill serialization", () => {
     expect(fill).toContain("cover");
     expect(parseImageFillCss(crop)?.fit).toBe("crop");
     expect(parseImageFillCss(fill)?.fit).toBe("fill");
+  });
+
+  it("preserves fit markers in longhand background styles", () => {
+    const styles = imageFillToBackgroundStyles({
+      url: "https://x.test/a.png",
+      fit: "crop",
+    });
+
+    expect(styles.backgroundImage).toContain("agent-native-image-fit:crop");
+    expect(parseImageFillCss(styles.backgroundImage)?.fit).toBe("crop");
   });
 
   it("returns transparent for empty url", () => {

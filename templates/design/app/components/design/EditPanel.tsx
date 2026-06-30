@@ -2688,15 +2688,19 @@ function SectionIconButton({
   label,
   onClick,
   children,
+  activateOnPointerDown = false,
   disabled = false,
   className,
 }: {
   label: string;
   onClick?: () => void;
   children: ReactNode;
+  activateOnPointerDown?: boolean;
   disabled?: boolean;
   className?: string;
 }) {
+  const pointerActivatedRef = useRef(false);
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2709,7 +2713,22 @@ function SectionIconButton({
             className,
           )}
           disabled={disabled}
-          onClick={onClick}
+          onPointerDown={(event) => {
+            if (!activateOnPointerDown || disabled || event.button !== 0) {
+              return;
+            }
+            pointerActivatedRef.current = true;
+            event.preventDefault();
+            event.stopPropagation();
+            onClick?.();
+          }}
+          onClick={() => {
+            if (pointerActivatedRef.current) {
+              pointerActivatedRef.current = false;
+              return;
+            }
+            onClick?.();
+          }}
           aria-label={label}
         >
           {children}
@@ -4679,6 +4698,7 @@ function FillProperties({
                     : t("editPanel.labels.hideLayer")
                 }
                 onClick={handleFillVisibilityToggle}
+                activateOnPointerDown
               >
                 {isHidden ? (
                   <IconEyeOff className="size-3.5" />

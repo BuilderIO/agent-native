@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
+  findMovedCodeLayerNodeInProjection,
   getFreshActiveFileContent,
   getFreshScreenContent,
   getDesignEditorShareUrl,
@@ -14,6 +15,9 @@ import {
   getOverviewEnterTarget,
   getOverviewScreenIdsFromLayerSelection,
   getOverviewZoomScale,
+  parseInlineStyleAttribute,
+  refreshElementInfoFromContent,
+  removeUndoRedoOrderKind,
   getSidebarCodeLayerSelectionState,
   isScreenRootElementInfo,
   resolveCodeLayerNodeFromElementInfo,
@@ -71,6 +75,15 @@ describe("DesignEditor overview layer selection", () => {
         layerIds: ["hero-title", "element:runtime", "screen-b"],
       }),
     ).toEqual(["screen-b"]);
+  });
+
+  it("returns an empty overview selection when only nested layers remain selected", () => {
+    expect(
+      getOverviewScreenIdsFromLayerSelection({
+        fileIds: ["screen-a", "screen-b"],
+        layerIds: ["hero-title", "element:runtime"],
+      }),
+    ).toEqual([]);
   });
 });
 
@@ -307,6 +320,27 @@ describe("DesignEditor layer move source snapshots", () => {
     ]);
   });
 
+  it("resolves cross-file moved nodes by remapped destination ids first", () => {
+    const previousProjection = buildCodeLayerProjection(
+      `<main><section data-agent-native-node-id="shared">Card</section></main>`,
+    );
+    const nextProjection = buildCodeLayerProjection(
+      `<main><section data-agent-native-node-id="moved-shared">Card</section></main>`,
+    );
+    const previousNode = previousProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+
+    expect(previousNode).toBeTruthy();
+    expect(
+      findMovedCodeLayerNodeInProjection(
+        nextProjection,
+        previousNode!,
+        "moved-shared",
+      )?.dataAttributes["data-agent-native-node-id"],
+    ).toBe("moved-shared");
+  });
+
   it("uses the fresh active snapshot when resolving overview screen content", () => {
     const fileContentById = new Map([
       ["active", "stale persisted active"],
@@ -500,6 +534,68 @@ describe("DesignEditor element canonicalization", () => {
     });
 
     expect(node).toBeNull();
+  });
+
+  it("refreshes selected element styles from current source content", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: [],
+      computedStyles: { color: "red" },
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Hero",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section data-agent-native-node-id="hero" style="color: blue; background-color: yellow">Hero</section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.computedStyles.color).toBe("blue");
+    expect(refreshed?.computedStyles["background-color"]).toBe("yellow");
+  });
+
+  it("does not retain stale computed styles after the source style is removed", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: [],
+      computedStyles: { color: "red" },
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Hero",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section data-agent-native-node-id="hero">Hero</section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.computedStyles.color).toBeUndefined();
+  });
+
+  it("parses inline style declarations without carrying stale properties", () => {
+    expect(parseInlineStyleAttribute(" color : red ; width: 20px; ")).toEqual({
+      color: "red",
+      width: "20px",
+    });
+    expect(parseInlineStyleAttribute("")).toEqual({});
+  });
+});
+
+describe("DesignEditor undo order helpers", () => {
+  it("removes stale content entries without disturbing geometry entries", () => {
+    expect(
+      removeUndoRedoOrderKind(
+        ["content", "geometry", "content", "geometry"],
+        "content",
+      ),
+    ).toEqual(["geometry", "geometry"]);
   });
 });
 
