@@ -12,6 +12,36 @@ import { toast } from "sonner";
 
 import { useRestoreContentDatabase } from "./use-content-database";
 
+const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
+
+export function mergeDocumentIntoDocumentCache(
+  old: unknown,
+  document: Document,
+) {
+  return old && typeof old === "object" ? { ...old, ...document } : document;
+}
+
+export function mergeDocumentIntoListDocumentsCache(
+  old: unknown,
+  document: Document,
+) {
+  if (Array.isArray(old)) {
+    return old.map((item: Document) =>
+      item.id === document.id ? { ...item, ...document } : item,
+    );
+  }
+
+  if (!old || typeof old !== "object") return old;
+  const cached = old as { documents?: unknown };
+  if (!Array.isArray(cached.documents)) return old;
+
+  const nextDocuments = cached.documents.map((item: Document) =>
+    item.id === document.id ? { ...item, ...document } : item,
+  );
+
+  return { ...(old as object), documents: nextDocuments };
+}
+
 export function useDocuments() {
   return useActionQuery<Document[]>("list-documents", undefined, {
     select: (data: any) => {
@@ -42,6 +72,13 @@ export function useUpdateDocument() {
     DocumentUpdateRequest & { id: string }
   >("update-document", {
     onSuccess: (data, variables) => {
+      queryClient.setQueryData(
+        ["action", "get-document", { id: variables.id }],
+        (old: unknown) => mergeDocumentIntoDocumentCache(old, data),
+      );
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
+        mergeDocumentIntoListDocumentsCache(old, data),
+      );
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: variables.id }],
       });
