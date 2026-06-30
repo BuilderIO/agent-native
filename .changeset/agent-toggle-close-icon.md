@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-The agent toggle button now shows a close (X) icon and closes the agent chat when the panel is open, instead of always showing the chat icon.
+Add a close (X) button to the left of the Chat tab in the agent pane header that closes the agent chat. The button used to open the agent is unchanged.

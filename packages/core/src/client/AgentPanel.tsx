@@ -85,8 +85,6 @@ import {
   getInitialAgentSidebarOpen,
   setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
-  SIDEBAR_STATE_CHANGE_EVENT,
-  type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -971,6 +969,22 @@ function AgentPanelInner({
     (activeMode: PanelMode) => (
       <TooltipProvider delayDuration={200}>
         <div className="flex shrink-0 items-center gap-1">
+          {onCollapse && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onCollapse}
+                  aria-label={t("agentPanel.collapseSidebar")}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <IconX size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("agentPanel.collapseSidebar")}</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -1037,7 +1051,7 @@ function AgentPanelInner({
         </div>
       </TooltipProvider>
     ),
-    [codeAccessEnabled, codeUnavailableDescription, showCliMode, t],
+    [codeAccessEnabled, codeUnavailableDescription, onCollapse, showCliMode, t],
   );
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -3029,43 +3043,25 @@ export function focusAgentChat() {
  * Dispatches a custom event that AgentSidebar listens for.
  */
 export function AgentToggleButton({ className }: { className?: string }) {
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
-        .detail;
-      if (detail && typeof detail.open === "boolean") setOpen(detail.open);
-    };
-    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
-    return () =>
-      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
-  }, []);
-  const label = open ? "Close agent" : "Toggle agent";
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            aria-label={label}
+            aria-label="Toggle agent"
             onClick={() =>
-              window.dispatchEvent(
-                new Event(open ? "agent-panel:close" : "agent-panel:toggle"),
-              )
+              window.dispatchEvent(new Event("agent-panel:toggle"))
             }
             className={cn(
               "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               className,
             )}
           >
-            {open ? (
-              <IconX size={20} aria-hidden />
-            ) : (
-              <IconMessageDots size={20} aria-hidden />
-            )}
+            <IconMessageDots size={20} aria-hidden />
           </button>
         </TooltipTrigger>
-        <TooltipContent>{label}</TooltipContent>
+        <TooltipContent>Toggle agent</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
