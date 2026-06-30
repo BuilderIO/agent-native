@@ -505,6 +505,17 @@ function addSnapshotBaseHref(html: string, href: string): string {
   return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
 }
 
+function prepareStaticSnapshotHtml(html: string, href: string): string {
+  const withBase = addSnapshotBaseHref(html, href);
+  if (typeof DOMParser === "undefined") {
+    return withBase.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  }
+
+  const document = new DOMParser().parseFromString(withBase, "text/html");
+  document.querySelectorAll("script").forEach((script) => script.remove());
+  return `<!DOCTYPE html>${document.documentElement.outerHTML}`;
+}
+
 function snapshotEndpointUrl(bridgeUrl: string, previewUrl: string): string {
   const endpoint = new URL("/snapshot", bridgeUrl);
   endpoint.searchParams.set("url", previewUrl);
@@ -710,7 +721,7 @@ export function DesignCanvas({
         } | null;
         if (cancelled || !response.ok || !payload?.ok) return;
         const sourceUrl = payload.url || previewUrl;
-        const html = addSnapshotBaseHref(payload.html ?? "", sourceUrl);
+        const html = prepareStaticSnapshotHtml(payload.html ?? "", sourceUrl);
         const stamped = ensureCodeLayerNodeIdsInHtml(html, {
           source: {
             kind: "remote-url",

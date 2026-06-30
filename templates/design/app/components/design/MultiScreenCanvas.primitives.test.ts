@@ -110,6 +110,7 @@ describe("board surface pointer capture", () => {
     expect(result).toContain(
       "body>[data-agent-native-node-id]:not([data-an-primitive]):has([data-agent-native-node-id])",
     );
+    expect(result).toContain('body>[data-agent-native-layer-name="<body>"]');
     expect(result).toContain(
       `<div data-agent-native-node-id="rect" style="background:#ddd">`,
     );

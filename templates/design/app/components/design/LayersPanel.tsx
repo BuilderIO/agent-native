@@ -70,6 +70,7 @@ export interface LayersPanelNode {
   id: string;
   name: string;
   type?: LayersPanelNodeType;
+  tagName?: string;
   layout?: {
     display?: string;
     flexDirection?: string;
@@ -1557,7 +1558,7 @@ function LayerGlyph({
   selected,
   inSelectedSubtree,
 }: {
-  node: Pick<LayersPanelNode, "type" | "layout">;
+  node: Pick<LayersPanelNode, "type" | "layout" | "tagName" | "detail">;
   selected?: boolean;
   inSelectedSubtree?: boolean;
 }) {
@@ -1566,6 +1567,9 @@ function LayerGlyph({
     selected || inSelectedSubtree
       ? "text-foreground"
       : "text-[var(--design-editor-accent-color)]";
+  if (layerNodeUsesImageGlyph(node)) {
+    return <ImageLayerGlyph className={common} />;
+  }
   switch (node.type) {
     case "file":
     case "screen":
@@ -1608,6 +1612,22 @@ function LayerGlyph({
     default:
       return <FrameLayerGlyph className={common} />;
   }
+}
+
+function layerNodeTagName(
+  node: Pick<LayersPanelNode, "tagName" | "detail">,
+): string | null {
+  const explicit = node.tagName?.trim().toLowerCase();
+  if (explicit) return explicit;
+  const detailTag = /^<\s*([a-zA-Z][\w:-]*)/.exec(node.detail?.trim() ?? "");
+  return detailTag?.[1]?.toLowerCase() ?? null;
+}
+
+function layerNodeUsesImageGlyph(
+  node: Pick<LayersPanelNode, "type" | "tagName" | "detail">,
+): boolean {
+  const tag = layerNodeTagName(node);
+  return node.type === "image" || tag === "img" || tag === "picture";
 }
 
 function LayerOptionsGlyph({ className }: { className?: string }) {

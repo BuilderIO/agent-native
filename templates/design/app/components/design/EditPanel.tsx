@@ -304,6 +304,12 @@ interface EditPanelProps {
 export interface InspectCodeData {
   /** Outer HTML of the selected element (inline / Alpine source). */
   html?: string | null;
+  /** Selected element tag, used when only runtime selection metadata exists. */
+  tagName?: string | null;
+  /** Selected element id, used for the runtime-metadata fallback preview. */
+  id?: string | null;
+  /** Selected element classes, used for the runtime-metadata fallback preview. */
+  classes?: string[];
   /**
    * Resolved source file for real-app sources (localhost / fusion), when the
    * resolveNodeToFile capability is available.
@@ -317,6 +323,23 @@ export interface InspectCodeData {
     snippet?: string;
   } | null;
 }
+
+const VOID_HTML_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
 
 /**
  * Normalize a CSS length-ish value typed by the user. If the input is bare
@@ -1709,17 +1732,14 @@ function colorHasVisibleAlpha(value: string | undefined): boolean {
   return parsed.a > 0;
 }
 
+function normalizedElementTagName(tagName: string | null | undefined): string {
+  return tagName?.trim().toLowerCase() || "element";
+}
+
 function inspectorObjectTitle(element: ElementInfo): string {
-  const tag = element.tagName || "element";
+  const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return "Text";
-  if (tag === "section") return "Section";
-  if (tag === "img" || tag === "video" || tag === "picture") return "Image";
-  if (tag === "button" || tag === "a") return "Button";
-  if (tag === "svg" || tag === "path") return "Vector";
-  if (element.isFlexContainer || tag === "div" || tag === "main") {
-    return "Frame";
-  }
-  return tag.charAt(0).toUpperCase() + tag.slice(1);
+  return tag;
 }
 
 function displayLabel(value: string | undefined): string {
@@ -2201,6 +2221,141 @@ export function truncateOpeningTag(openTag: string, max = 32): string {
   );
 }
 
+function tagNameFromOpeningTag(openTag: string): string | null {
+  const match = /^<\/?\s*([a-zA-Z][\w:-]*)/.exec(openTag.trim());
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function isSelfClosingOpeningTag(openTag: string, tagName: string): boolean {
+  return /\/>\s*$/.test(openTag) || VOID_HTML_TAGS.has(tagName);
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function fallbackOpeningTag(
+  data: Pick<InspectCodeData, "tagName" | "id" | "classes">,
+) {
+  const tag = normalizedElementTagName(data.tagName);
+  const attrs: string[] = [];
+  const id = data.id?.trim();
+  const classes = data.classes?.map((item) => item.trim()).filter(Boolean);
+  if (id) attrs.push(`id="${escapeHtmlAttribute(id)}"`);
+  if (classes?.length) {
+    attrs.push(`class="${escapeHtmlAttribute(classes.join(" "))}"`);
+  }
+  return `<${tag}${attrs.length ? ` ${attrs.join(" ")}` : ""}>`;
+}
+
+export function elementHtmlPreview(
+  data: Pick<InspectCodeData, "html" | "tagName" | "id" | "classes">,
+): string | null {
+  const openingTag = openingTagOf(data.html);
+  const hasFallbackMetadata = Boolean(
+    data.tagName?.trim() ||
+    data.id?.trim() ||
+    data.classes?.some((item) => item.trim()),
+  );
+  if (!openingTag && !hasFallbackMetadata) return null;
+  const previewOpeningTag = openingTag ?? fallbackOpeningTag(data);
+  const tagName =
+    tagNameFromOpeningTag(previewOpeningTag) ??
+    normalizedElementTagName(data.tagName);
+  if (isSelfClosingOpeningTag(previewOpeningTag, tagName)) {
+    return previewOpeningTag;
+  }
+  return `${previewOpeningTag}\n  ...\n</${tagName}>`;
+}
+
+type HtmlTokenKind = "plain" | "punctuation" | "tag" | "attribute" | "value";
+
+interface HtmlToken {
+  text: string;
+  kind: HtmlTokenKind;
+}
+
+function tokenizeHtmlAttributes(source: string): HtmlToken[] {
+  const tokens: HtmlToken[] = [];
+  const attrPattern =
+    /(\s+)([^\s=/>]+)(?:\s*(=)\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g;
+  let cursor = 0;
+  for (const match of source.matchAll(attrPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      tokens.push({ text: source.slice(cursor, index), kind: "plain" });
+    }
+    tokens.push({ text: match[1] ?? "", kind: "plain" });
+    tokens.push({ text: match[2] ?? "", kind: "attribute" });
+    if (match[3]) tokens.push({ text: match[3], kind: "punctuation" });
+    if (match[4]) tokens.push({ text: match[4], kind: "value" });
+    cursor = index + match[0].length;
+  }
+  if (cursor < source.length) {
+    tokens.push({ text: source.slice(cursor), kind: "plain" });
+  }
+  return tokens;
+}
+
+function tokenizeHtmlTag(source: string): HtmlToken[] {
+  const match = /^(<\/?)([a-zA-Z][\w:-]*)([\s\S]*?)(\/?>)$/.exec(source);
+  if (!match) return [{ text: source, kind: "plain" }];
+  return [
+    { text: match[1] ?? "", kind: "punctuation" },
+    { text: match[2] ?? "", kind: "tag" },
+    ...tokenizeHtmlAttributes(match[3] ?? ""),
+    { text: match[4] ?? "", kind: "punctuation" },
+  ];
+}
+
+function tokenizeHtml(source: string): HtmlToken[] {
+  const tokens: HtmlToken[] = [];
+  const tagPattern = /<\/?[a-zA-Z][\w:-]*(?:"[^"]*"|'[^']*'|[^'">])*>/g;
+  let cursor = 0;
+  for (const match of source.matchAll(tagPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      tokens.push({ text: source.slice(cursor, index), kind: "plain" });
+    }
+    tokens.push(...tokenizeHtmlTag(match[0]));
+    cursor = index + match[0].length;
+  }
+  if (cursor < source.length) {
+    tokens.push({ text: source.slice(cursor), kind: "plain" });
+  }
+  return tokens;
+}
+
+function htmlTokenClassName(kind: HtmlTokenKind): string {
+  switch (kind) {
+    case "punctuation":
+      return "text-muted-foreground/70";
+    case "tag":
+      return "text-[var(--design-editor-accent-color)]";
+    case "attribute":
+      return "text-foreground/90";
+    case "value":
+      return "text-[var(--design-editor-measure-color)]";
+    default:
+      return "text-muted-foreground";
+  }
+}
+
+function highlightedHtml(source: string): ReactNode {
+  return tokenizeHtml(source).map((token, index) => (
+    <span
+      key={`${index}:${token.kind}`}
+      className={htmlTokenClassName(token.kind)}
+    >
+      {token.text}
+    </span>
+  ));
+}
+
 /**
  * Parse the top-level `key: value` pairs from an Alpine `x-data` object literal
  * (e.g. `{ variant: 'outline', size: 'lg', disabled: false }`).
@@ -2563,22 +2718,12 @@ export function isBooleanPropValue(value: string): boolean {
  * TODO: replace the read-only <pre> with an inline Monaco editor for richer
  * (editable) code inspection once the editor bundle is wired into the inspector.
  */
-function InspectCodePopover({
-  trigger,
-  data,
-}: {
-  trigger: ReactNode;
-  data: InspectCodeData;
-}) {
+function InspectCodePopover({ data }: { data: InspectCodeData }) {
   const [copied, setCopied] = useState(false);
   const html = data.html ?? "";
   const source = data.sourceLocation ?? null;
-  const snippet = source?.snippet || html;
-  // At-a-glance opening tag (tag name + attributes), truncated for readability.
-  const openingTag = (() => {
-    const raw = openingTagOf(html);
-    return raw ? truncateOpeningTag(raw) : null;
-  })();
+  const snippet =
+    elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
 
   const handleCopy = () => {
     if (!snippet) return;
@@ -2595,7 +2740,26 @@ function InspectCodePopover({
 
   return (
     <Popover>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              aria-label={
+                "Inspect code" /* i18n-ignore design inspector action */
+              }
+            >
+              <IconCode className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Inspect code" /* i18n-ignore design inspector action */}
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" className="w-80 space-y-2 p-2 text-[11px]">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
@@ -2617,16 +2781,6 @@ function InspectCodePopover({
           </Button>
         </div>
 
-        {/* At-a-glance opening tag (tag name + attributes) above the full HTML. */}
-        {openingTag && (
-          <code
-            className="block truncate rounded bg-[var(--design-editor-control-bg)] px-2 py-1 font-mono text-[10px] text-foreground"
-            title={openingTag}
-          >
-            {openingTag}
-          </code>
-        )}
-
         {source && (
           <div
             className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
@@ -2642,7 +2796,7 @@ function InspectCodePopover({
 
         {snippet ? (
           <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
-            <code>{snippet}</code>
+            <code>{highlightedHtml(snippet)}</code>
           </pre>
         ) : (
           <p className="px-1 py-2 text-muted-foreground">
@@ -2678,7 +2832,7 @@ function InspectCodePopover({
 }
 
 function elementTypeIcon(element: ElementInfo) {
-  const tag = element.tagName || "element";
+  const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return IconTypography;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
   if (tag === "svg" || tag === "path") return IconVector;
@@ -2690,18 +2844,14 @@ function SelectionHeader({
   element,
   selectedCount = 0,
   onCreateComponent,
-  inspectCodePopover,
+  inspectCode,
 }: {
   element: ElementInfo | null;
   selectedCount?: number;
   /** Promote the current selection into a reusable component. Omit/undefined to disable. */
   onCreateComponent?: () => void;
-  /**
-   * Render prop for the "Inspect code" affordance. Receives the trigger button
-   * so the parent can anchor a Popover to it; returns the full popover element.
-   * When omitted the button renders disabled.
-   */
-  inspectCodePopover?: (trigger: ReactNode) => ReactNode;
+  /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
+  inspectCode?: InspectCodeData;
 }) {
   if (!element) return null;
 
@@ -2710,15 +2860,6 @@ function SelectionHeader({
       ? `${selectedCount} selected`
       : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
-
-  const inspectTrigger = (
-    <SectionIconButton
-      label={"Inspect code" /* i18n-ignore design inspector action */}
-      disabled={!inspectCodePopover}
-    >
-      <IconCode className="size-3.5" />
-    </SectionIconButton>
-  );
 
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
@@ -2737,9 +2878,16 @@ function SelectionHeader({
         >
           <IconComponents className="size-3.5" />
         </SectionIconButton>
-        {inspectCodePopover
-          ? inspectCodePopover(inspectTrigger)
-          : inspectTrigger}
+        {inspectCode ? (
+          <InspectCodePopover data={inspectCode} />
+        ) : (
+          <SectionIconButton
+            label={"Inspect code" /* i18n-ignore design inspector action */}
+            disabled
+          >
+            <IconCode className="size-3.5" />
+          </SectionIconButton>
+        )}
       </div>
     </div>
   );
@@ -2807,7 +2955,7 @@ function SectionIconButton({
           variant="ghost"
           size="icon"
           className={cn(
-            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
+            "size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
             className,
           )}
           disabled={disabled}
@@ -3326,7 +3474,6 @@ function StrokeLayerControl({
           />
         </div>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={
             visible
               ? t("editPanel.labels.hideLayer")
@@ -3351,7 +3498,6 @@ function StrokeLayerControl({
           )}
         </SectionIconButton>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -3496,21 +3642,45 @@ function readBlurFilter(value: string | undefined): number {
   return match ? Math.max(0, Number(match[1])) : 0;
 }
 
+function hasBlurFilter(value: string | undefined): boolean {
+  return /blur\(/.test(value || "");
+}
+
+function setBlurFilterValue(value: string | undefined, blur: number): string {
+  const blurFn = `blur(${Math.max(0, Math.round(blur))}px)`;
+  const existing = compactCssValue(value, "");
+  return existing.includes("blur(")
+    ? existing.replace(/blur\([^)]*\)/, blurFn)
+    : blurFn;
+}
+
+function shadowColorWithOpacity(color: string, opacity: number): string {
+  const parsed = parseCssColor(color);
+  return parsed
+    ? rgbaToCss(withColorOpacity(parsed, opacity))
+    : opacity <= 0
+      ? "rgba(0, 0, 0, 0)"
+      : color;
+}
+
 function ShadowEffectRow({
   layer,
   index,
   onChange,
   onRemove,
+  onToggleVisibility,
 }: {
   layer: ShadowLayer;
   index: number;
   onChange: (patch: Partial<ShadowLayer>) => void;
   onRemove: () => void;
+  onToggleVisibility: () => void;
 }) {
   const t = useT();
+  const visible = colorHasVisibleAlpha(layer.color);
   return (
     <Popover>
-      {/* design effect row: [swatch+label+x,y,blur trigger (flex-1)] [remove] */}
+      {/* design effect row: [swatch+label+x,y,blur trigger (flex-1)] [eye] [remove] */}
       <div className="group flex items-center gap-1.5">
         <PopoverTrigger asChild>
           <button
@@ -3533,7 +3703,20 @@ function ShadowEffectRow({
           </button>
         </PopoverTrigger>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+          label={
+            visible
+              ? t("editPanel.labels.hideLayer")
+              : t("editPanel.labels.showLayer")
+          }
+          onClick={onToggleVisibility}
+        >
+          {visible ? (
+            <IconEye className="size-3.5" />
+          ) : (
+            <IconEyeOff className="size-3.5" />
+          )}
+        </SectionIconButton>
+        <SectionIconButton
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -4943,7 +5126,6 @@ function FillProperties({
                 />
               </div>
               <SectionIconButton
-                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={
                   isHidden
                     ? t("editPanel.labels.showLayer")
@@ -4959,7 +5141,6 @@ function FillProperties({
                 )}
               </SectionIconButton>
               <SectionIconButton
-                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={t("editPanel.labels.removeLayer")}
                 onClick={() => {
                   if (isTextElement) {
@@ -5091,7 +5272,6 @@ function FillProperties({
                       </PopoverContent>
                     </Popover>
                     <SectionIconButton
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={
                         opacity <= 0
                           ? t("editPanel.labels.showLayer")
@@ -5171,7 +5351,6 @@ function FillProperties({
                       )}
                     </SectionIconButton>
                     <SectionIconButton
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={t("editPanel.labels.removeLayer")}
                       onClick={removeLayer}
                     >
@@ -5420,11 +5599,19 @@ function EffectsProperties({
   const t = useT();
   const styles = element.computedStyles;
   const blurValue = readBlurFilter(styles.filter);
+  const filterHasBlur = hasBlurFilter(styles.filter);
   // M5 · Background (backdrop) blur is a distinct design effect type, backed by
   // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
-  const backdropBlurValue = readBlurFilter(
-    styles.backdropFilter || styles.webkitBackdropFilter,
-  );
+  const backdropFilterValue =
+    styles.backdropFilter || styles.webkitBackdropFilter;
+  const backdropFilterHasBlur = hasBlurFilter(backdropFilterValue);
+  const backdropBlurValue = readBlurFilter(backdropFilterValue);
+  const [hiddenEffectStash, setHiddenEffectStash] = useState<
+    Record<string, string>
+  >({});
+  const effectStashKey = elementIdentityKey(element);
+  const layerBlurStashKey = `${effectStashKey}:filter:blur`;
+  const backdropBlurStashKey = `${effectStashKey}:backdrop-filter:blur`;
   const shadowLayers = parseShadowLayers(styles.boxShadow);
   const setShadowLayers = (layers: ShadowLayer[]) => {
     const boxShadow = serializeShadowLayers(layers);
@@ -5496,6 +5683,41 @@ function EffectsProperties({
                 );
                 setShadowLayers(next);
               }}
+              onToggleVisibility={() => {
+                const visible = colorHasVisibleAlpha(layer.color);
+                const shadowStashKey = `${effectStashKey}:shadow:${layer.id}`;
+                if (visible) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [shadowStashKey]: layer.color,
+                  }));
+                  const next = shadowLayers.map((candidate) =>
+                    candidate.id === layer.id
+                      ? {
+                          ...candidate,
+                          color: shadowColorWithOpacity(candidate.color, 0),
+                        }
+                      : candidate,
+                  );
+                  setShadowLayers(next);
+                  return;
+                }
+
+                const restored =
+                  hiddenEffectStash[shadowStashKey] ??
+                  shadowColorWithOpacity(layer.color, 25);
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[shadowStashKey];
+                  return next;
+                });
+                const next = shadowLayers.map((candidate) =>
+                  candidate.id === layer.id
+                    ? { ...candidate, color: restored }
+                    : candidate,
+                );
+                setShadowLayers(next);
+              }}
               onRemove={() =>
                 setShadowLayers(
                   shadowLayers.filter((candidate) => candidate.id !== layer.id),
@@ -5505,7 +5727,7 @@ function EffectsProperties({
           ))}
         </div>
       ) : null}
-      {blurValue > 0 ? (
+      {filterHasBlur ? (
         /* design effect row for layer blur: flat row matching shadow rows */
         <Popover>
           <div className="group flex items-center gap-1.5">
@@ -5523,10 +5745,45 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
-              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              label={
+                blurValue > 0
+                  ? t("editPanel.labels.hideLayer")
+                  : t("editPanel.labels.showLayer")
+              }
+              onClick={() => {
+                if (blurValue > 0) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [layerBlurStashKey]: String(blurValue),
+                  }));
+                  onStyleChange("filter", setBlurFilterValue(styles.filter, 0));
+                  return;
+                }
+
+                const restored = Number(hiddenEffectStash[layerBlurStashKey]);
+                const nextBlur =
+                  Number.isFinite(restored) && restored > 0 ? restored : 4;
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[layerBlurStashKey];
+                  return next;
+                });
+                onStyleChange(
+                  "filter",
+                  setBlurFilterValue(styles.filter, nextBlur),
+                );
+              }}
+            >
+              {blurValue > 0 ? (
+                <IconEye className="size-3.5" />
+              ) : (
+                <IconEyeOff className="size-3.5" />
+              )}
+            </SectionIconButton>
+            <SectionIconButton
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("filter", "none")}
-              disabled={!styles.filter || styles.filter === "none"}
+              disabled={!filterHasBlur}
             >
               <IconMinus className="size-3.5" />
             </SectionIconButton>
@@ -5540,14 +5797,12 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={blurValue}
-              onChange={(value) => {
-                const blurFn = `blur(${Math.max(0, Math.round(value))}px)`;
-                const existing = styles.filter || "";
-                const next = existing.includes("blur(")
-                  ? existing.replace(/blur\([^)]*\)/, blurFn)
-                  : blurFn;
-                onStyleChange("filter", next);
-              }}
+              onChange={(value) =>
+                onStyleChange(
+                  "filter",
+                  setBlurFilterValue(styles.filter, value),
+                )
+              }
               unit="px"
               min={0}
               precision={1}
@@ -5557,7 +5812,7 @@ function EffectsProperties({
           </PopoverContent>
         </Popover>
       ) : null}
-      {backdropBlurValue > 0 ? (
+      {backdropFilterHasBlur ? (
         /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
         <Popover>
           <div className="group flex items-center gap-1.5">
@@ -5575,12 +5830,50 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
-              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              label={
+                backdropBlurValue > 0
+                  ? t("editPanel.labels.hideLayer")
+                  : t("editPanel.labels.showLayer")
+              }
+              onClick={() => {
+                if (backdropBlurValue > 0) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [backdropBlurStashKey]: String(backdropBlurValue),
+                  }));
+                  onStyleChange(
+                    "backdropFilter",
+                    setBlurFilterValue(backdropFilterValue, 0),
+                  );
+                  return;
+                }
+
+                const restored = Number(
+                  hiddenEffectStash[backdropBlurStashKey],
+                );
+                const nextBlur =
+                  Number.isFinite(restored) && restored > 0 ? restored : 8;
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[backdropBlurStashKey];
+                  return next;
+                });
+                onStyleChange(
+                  "backdropFilter",
+                  setBlurFilterValue(backdropFilterValue, nextBlur),
+                );
+              }}
+            >
+              {backdropBlurValue > 0 ? (
+                <IconEye className="size-3.5" />
+              ) : (
+                <IconEyeOff className="size-3.5" />
+              )}
+            </SectionIconButton>
+            <SectionIconButton
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("backdropFilter", "none")}
-              disabled={
-                !styles.backdropFilter || styles.backdropFilter === "none"
-              }
+              disabled={!backdropFilterHasBlur}
             >
               <IconMinus className="size-3.5" />
             </SectionIconButton>
@@ -5597,7 +5890,7 @@ function EffectsProperties({
               onChange={(value) =>
                 onStyleChange(
                   "backdropFilter",
-                  `blur(${Math.max(0, Math.round(value))}px)`,
+                  setBlurFilterValue(backdropFilterValue, value),
                 )
               }
               unit="px"
@@ -6594,11 +6887,9 @@ export function EditPanel({
                 ? () => setCreateComponentOpen(true)
                 : undefined
             }
-            inspectCodePopover={
+            inspectCode={
               inspectCode && selectedElement && selectedCount <= 1
-                ? (trigger) => (
-                    <InspectCodePopover trigger={trigger} data={inspectCode} />
-                  )
+                ? inspectCode
                 : undefined
             }
           />

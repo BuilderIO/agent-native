@@ -2347,6 +2347,7 @@ function codeLayerTreeToPanelNodes(
       id: node.id,
       name: resolvedLayerName(node),
       type: layerTypeForCodeLayer(node),
+      tagName: node.tag,
       layout: node.layout,
       detail: node.detail,
       badge: node.badge,
@@ -6977,11 +6978,8 @@ export default function DesignEditor() {
   // Outer HTML of the selection — backs the inline/Alpine "Inspect code" view.
   const selectedElementOuterHtml = useMemo(() => {
     if (!selectedElement?.selector) return null;
-    return (
-      selectedElement.htmlContent ??
-      getElementOuterHtml(activeContent, selectedElement.selector)
-    );
-  }, [activeContent, selectedElement?.selector, selectedElement?.htmlContent]);
+    return getElementOuterHtml(activeContent, selectedElement.selector);
+  }, [activeContent, selectedElement?.selector]);
 
   // §6.3 — the motion-dock target: the selected element's literal
   // `data-agent-native-node-id` (the value the motion compiler + preview bridge
@@ -7048,7 +7046,13 @@ export default function DesignEditor() {
     // resolveNodeToFile bridge op, which is wired through open-component-source
     // when an external file path is available; until that round-trip is hooked
     // up here the popover shows the projected HTML for all source types.
-    return { html: selectedElementOuterHtml, sourceLocation: null };
+    return {
+      html: selectedElementOuterHtml,
+      tagName: selectedElement.tagName,
+      id: selectedElement.id,
+      classes: selectedElement.classes,
+      sourceLocation: null,
+    };
   }, [selectedElement, selectedElementOuterHtml]);
 
   const handleCreateComponent = useCallback(

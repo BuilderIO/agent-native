@@ -201,17 +201,64 @@ test("text fills hide and restore without losing the original color", async ({
   );
   expect(initialColor).not.toBe("");
 
-  await hideFillButton.click({ force: true });
+  await expect(hideFillButton).toBeVisible();
+  await expect(
+    fillSection.locator('button[aria-label="Remove layer"]').first(),
+  ).toBeVisible();
+
+  await hideFillButton.click();
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "color"))
     .toBe("transparent");
-  await expect(showFillButton).toHaveCount(1);
+  await expect(showFillButton).toBeVisible();
 
-  await showFillButton.click({ force: true });
+  await showFillButton.click();
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "color"))
     .toBe(initialColor);
   await expect(heading).toBeVisible();
+});
+
+test("style layer row actions stay visible and toggle visibility state", async ({
+  page,
+}) => {
+  await selectByText(page, "Alpha Button");
+
+  const strokeSection = inspectorSection(page, /^Stroke$/i);
+  await strokeSection.getByRole("button", { name: "Add layer" }).click();
+  const hideStrokeButton = strokeSection
+    .locator('button[aria-label="Hide layer"]')
+    .first();
+  const removeStrokeButton = strokeSection
+    .locator('button[aria-label="Remove layer"]')
+    .first();
+  await expect(hideStrokeButton).toBeVisible();
+  await expect(removeStrokeButton).toBeVisible();
+
+  await hideStrokeButton.click();
+  await expect(
+    strokeSection.locator('button[aria-label="Show layer"]').first(),
+  ).toBeVisible();
+
+  const effectsSection = inspectorSection(page, /^Effects$/i);
+  await effectsSection.getByRole("button", { name: "Add layer" }).click();
+  await page.getByRole("menuitem", { name: "Drop shadow" }).click();
+  const hideEffectButton = effectsSection
+    .locator('button[aria-label="Hide layer"]')
+    .first();
+  const removeEffectButton = effectsSection
+    .locator('button[aria-label="Remove layer"]')
+    .first();
+  await expect(hideEffectButton).toBeVisible();
+  await expect(removeEffectButton).toBeVisible();
+
+  await hideEffectButton.click();
+  await expect(
+    effectsSection.locator('button[aria-label="Show layer"]').first(),
+  ).toBeVisible();
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "box-shadow"))
+    .toContain("rgba(0, 0, 0, 0)");
 });
 
 test("typography edits update size and spacing inputs", async ({ page }) => {

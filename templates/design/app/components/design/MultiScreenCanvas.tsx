@@ -469,7 +469,7 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
-const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-render>html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):has([data-agent-native-node-id]){background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}</style>`;
+const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-render>html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}</style>`;
 
 export function getBoardSurfaceRenderContent(html: string) {
   if (!html) return html;
