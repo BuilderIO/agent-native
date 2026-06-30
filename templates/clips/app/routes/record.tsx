@@ -99,6 +99,7 @@ import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
 import {
   RecorderEngine,
+  canUseTimeslicedRecorderChunks,
   NO_MIC_DEVICE_ID,
   type DisplaySurface,
   type RecorderFinalizeResult,
@@ -1200,7 +1201,7 @@ export default function RecordRoute() {
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
               mimeType: pickMimeType() || undefined,
-              requestStreaming: true,
+              requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
             }),
           },
         );

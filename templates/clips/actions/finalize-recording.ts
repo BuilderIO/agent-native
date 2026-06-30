@@ -251,10 +251,6 @@ export default defineAction({
       .string()
       .optional()
       .describe("MIME type of the assembled blob (e.g. video/webm)"),
-    videoSizeBytes: z
-      .number()
-      .optional()
-      .describe("Byte size of the uploaded video file"),
   }),
   run: async (args) => {
     const db = getDb();
@@ -375,13 +371,18 @@ export default defineAction({
               ? resumableSession.meta.filename
               : "",
           );
-          await deleteResumableSession(id);
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
-          return markRecordingReady({
+          const result = await markRecordingReady({
             ...readyParams,
             videoUrl,
-            videoSizeBytes: args.videoSizeBytes ?? 0,
+            videoSizeBytes: resumableSession.bytesUploaded,
           });
+          // Delete only after durable state is written — so a retry before
+          // this point can still find the session and re-enter this path.
+          deleteResumableSession(id).catch((err) =>
+            console.warn("[finalize] failed to delete resumable session:", err),
+          );
+          return result;
         } catch (err) {
           console.error("[finalize] resumable complete failed:", err);
           throw new Error(

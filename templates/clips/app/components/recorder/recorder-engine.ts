@@ -33,7 +33,7 @@ import {
 
 // Re-exported for existing callers; the canonical impls live in
 // @shared/recording-core and are shared with the Chrome extension recorder.
-export { pickMimeType, pickMimeTypeCandidates };
+export { pickMimeType, pickMimeTypeCandidates, canUseTimeslicedRecorderChunks };
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";

@@ -213,6 +213,12 @@ export default defineEventHandler(async (event: H3Event) => {
       );
     }
 
+    // Already finalized — retried final chunk after session was deleted. Skip
+    // buffered path writes so recording-upload-* state stays correct.
+    if (existing.status === "ready") {
+      return { ok: true, finalized: true };
+    }
+
     // Store chunks in application_state, assemble on finalize.
     if (await shouldRejectVideoUploadWithoutStorage()) {
       const now = new Date().toISOString();
