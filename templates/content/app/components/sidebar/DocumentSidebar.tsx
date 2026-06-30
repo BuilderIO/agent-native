@@ -867,55 +867,57 @@ export function DocumentSidebar({
                       {t("sidebar.restoreDatabase")}
                     </TooltipContent>
                   </Tooltip>
-                  <AlertDialog>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <AlertDialogTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={t(
-                              "sidebar.deleteDatabaseNamedPermanently",
-                              { title },
-                            )}
-                            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                            disabled={deleteDocument.isPending}
-                          >
-                            <IconTrashX size={14} />
-                          </button>
-                        </AlertDialogTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("sidebar.deletePermanently")}
-                      </TooltipContent>
-                    </Tooltip>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          {t("sidebar.deleteDatabasePermanentlyQuestion")}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {t("sidebar.deleteDatabasePermanentlyDescription", {
-                            title,
-                          })}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>
-                          {t("comments.cancel")}
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          onClick={() =>
-                            void handlePermanentDeleteDatabase(
-                              database.documentId,
-                            )
-                          }
-                        >
+                  {database.canPermanentlyDelete && (
+                    <AlertDialog>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AlertDialogTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={t(
+                                "sidebar.deleteDatabaseNamedPermanently",
+                                { title },
+                              )}
+                              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                              disabled={deleteDocument.isPending}
+                            >
+                              <IconTrashX size={14} />
+                            </button>
+                          </AlertDialogTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>
                           {t("sidebar.deletePermanently")}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                        </TooltipContent>
+                      </Tooltip>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {t("sidebar.deleteDatabasePermanentlyQuestion")}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {t("sidebar.deleteDatabasePermanentlyDescription", {
+                              title,
+                            })}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>
+                            {t("comments.cancel")}
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() =>
+                              void handlePermanentDeleteDatabase(
+                                database.documentId,
+                              )
+                            }
+                          >
+                            {t("sidebar.deletePermanently")}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
               );
             })}

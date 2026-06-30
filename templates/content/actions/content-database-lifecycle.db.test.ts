@@ -492,6 +492,7 @@ describe("content database soft-delete actions and reads", () => {
           documentId: ownedDeleted.databaseDocumentId,
           ownerDocumentId: null,
           deletedAt,
+          canPermanentlyDelete: true,
         },
       ]),
     );
@@ -510,6 +511,26 @@ describe("content database soft-delete actions and reads", () => {
         (database) => database.databaseId === inlineOwnedDeleted.databaseId,
       ),
     ).toBe(false);
+
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: inlineHost,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const hostEditorResult = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listTrashedContentDatabasesAction.run({}),
+    );
+    expect(hostEditorResult.databases).toEqual([
+      expect.objectContaining({
+        databaseId: inlineOwnedDeleted.databaseId,
+        canPermanentlyDelete: false,
+      }),
+    ]);
   });
 
   it("requires host document edit access before detaching inline database ownership", async () => {

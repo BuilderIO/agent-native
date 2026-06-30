@@ -169,12 +169,13 @@ export function inlineDatabaseBlockContent(
 export function insertInlineDatabaseBlock(
   editor: Editor,
   block: CreateInlineDatabaseResponse["block"],
+  position?: number | null,
 ) {
-  return editor
-    .chain()
-    .focus()
-    .insertContent(inlineDatabaseBlockContent(block))
-    .run();
+  const content = inlineDatabaseBlockContent(block);
+  const chain = editor.chain().focus();
+  return typeof position === "number"
+    ? chain.insertContentAt(position, content).run()
+    : chain.insertContent(content).run();
 }
 
 const commands: CommandTemplate[] = [
@@ -642,7 +643,7 @@ export function SlashCommandMenu({
     title: t("editor.slash.database"),
     description: t("editor.slash.databaseDescription"),
     icon: IconDatabase,
-    action: async (editor) => {
+    action: async (editor, { slashRange }) => {
       if (!documentId) {
         toast.error(t("editor.noDocumentSelected"));
         return;
@@ -653,7 +654,11 @@ export function SlashCommandMenu({
           hostDocumentId: documentId,
           title: t("editor.untitledDatabase"),
         });
-        const inserted = insertInlineDatabaseBlock(editor, result.block);
+        const inserted = insertInlineDatabaseBlock(
+          editor,
+          result.block,
+          slashRange?.from ?? null,
+        );
         if (!inserted) throw new Error(t("empty.genericError"));
         toast.success(t("editor.databaseCreated"), { id: toastId });
       } catch (error) {

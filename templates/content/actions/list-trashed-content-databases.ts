@@ -33,6 +33,7 @@ export default defineAction({
         ownerDocumentId: schema.contentDatabases.ownerDocumentId,
         deletedAt: schema.contentDatabases.deletedAt,
         documentTitle: schema.documents.title,
+        documentParentId: schema.documents.parentId,
       })
       .from(schema.contentDatabases)
       .innerJoin(
@@ -80,6 +81,9 @@ export default defineAction({
         documentId: row.documentId,
         ownerDocumentId: row.ownerDocumentId,
         deletedAt: row.deletedAt!,
+        canPermanentlyDelete:
+          row.ownerDocumentId === null ||
+          row.documentParentId !== row.ownerDocumentId,
       })),
     };
   },

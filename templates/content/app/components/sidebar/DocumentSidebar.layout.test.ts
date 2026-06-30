@@ -160,6 +160,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("handleRestoreDatabase(database.databaseId)");
     expect(sidebar).toContain("handlePermanentDeleteDatabase");
     expect(sidebar).toContain("database.documentId");
+    expect(sidebar).toContain("database.canPermanentlyDelete");
     expect(sidebar).toContain('t("sidebar.restoreDatabase")');
     expect(sidebar).toContain('t("sidebar.deletePermanently")');
     expect(sidebar).toContain("{renderTrashSection()}");

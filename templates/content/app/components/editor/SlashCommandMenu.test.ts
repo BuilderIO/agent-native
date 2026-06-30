@@ -136,6 +136,7 @@ describe("inline database slash command", () => {
     const chain: any = {
       focus: vi.fn(() => chain),
       insertContent: vi.fn(() => chain),
+      insertContentAt: vi.fn(() => chain),
       run: vi.fn(() => true),
     };
 
@@ -147,12 +148,30 @@ describe("inline database slash command", () => {
     );
   });
 
+  it("can anchor inline database insertion at the slash command position", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      insertContent: vi.fn(() => chain),
+      insertContentAt: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(
+      insertInlineDatabaseBlock({ chain: () => chain } as any, block, 7),
+    ).toBe(true);
+    expect(chain.insertContentAt).toHaveBeenCalledWith(
+      7,
+      inlineDatabaseBlockContent(block),
+    );
+    expect(chain.insertContent).not.toHaveBeenCalled();
+  });
+
   it("keeps /database wired to inline creation instead of page navigation", () => {
     const source = readSlashCommandMenuSource();
 
     expect(source).toContain("useCreateInlineContentDatabase");
     expect(source).toContain("hostDocumentId: documentId");
-    expect(source).toContain("insertInlineDatabaseBlock(editor, result.block)");
+    expect(source).toContain("slashRange?.from ?? null");
     expect(source).not.toContain("useCreateContentDatabase");
     expect(source).not.toContain(
       "navigate(`/page/${result.database.documentId}`",
