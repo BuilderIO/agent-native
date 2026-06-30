@@ -5,6 +5,7 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
   ensureCodeLayerNodeIdsInHtml,
+  moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   type EditIntent,
 } from "./code-layer";
@@ -790,5 +791,433 @@ describe("applyVisualEdit", () => {
 
     expect(patch.result.status).toBe("unsupported");
     expect(patch.content).toBe(html);
+  });
+});
+
+describe("wrapNodes", () => {
+  it("wraps sibling nodes in a new div wrapper at first target position", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.result.changed).toBe(true);
+    expect(patch.result.wrapperNodeId).toBeTruthy();
+    // Wrapper should contain both targets
+    expect(patch.content).toContain(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"`,
+    );
+    expect(patch.content).toContain(`data-agent-native-layer-name="Group"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="a"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="b"`);
+    // Wrapper should appear before c
+    const wrapperIdx = patch.content.indexOf(
+      `data-agent-native-layer-name="Group"`,
+    );
+    const cIdx = patch.content.indexOf(`data-agent-native-node-id="c"`);
+    expect(wrapperIdx).toBeLessThan(cIdx);
+    // c is still a direct child of main, not inside the wrapper
+    expect(patch.content).toMatch(/<\/div><div data-agent-native-node-id="c">/);
+  });
+
+  it("adds autoLayout styles to wrapper and strips absolute positioning from wrapped children", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 10px; top: 20px">X</div><div data-agent-native-node-id="y" style="position: absolute; right: 5px">Y</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x", "y"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: column");
+    expect(patch.content).toContain("gap: 8px");
+    // Absolute positioning should be stripped from children
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 10px");
+    expect(patch.content).not.toContain("top: 20px");
+    expect(patch.content).not.toContain("right: 5px");
+  });
+
+  it("returns unsupported when targets don't share a parent", () => {
+    const html = `<main><section><div data-agent-native-node-id="a">A</div></section><div data-agent-native-node-id="b">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("returns unsupported when selected siblings are not contiguous", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "c"],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("returns conflict when a target node id is not found", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "does-not-exist"],
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.content).toBe(html);
+  });
+});
+
+describe("unwrap", () => {
+  it("replaces a wrapper with its children at the wrapper's parent position", () => {
+    const html = `<main><div data-agent-native-node-id="wrapper"><span data-agent-native-node-id="a">A</span><span data-agent-native-node-id="b">B</span></div><p>after</p></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain(`data-agent-native-node-id="wrapper"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="a"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="b"`);
+    expect(patch.content).toContain("<p>after</p>");
+    // Children appear before <p>after</p>
+    const aIdx = patch.content.indexOf(`data-agent-native-node-id="a"`);
+    const pIdx = patch.content.indexOf("<p>after</p>");
+    expect(aIdx).toBeLessThan(pIdx);
+  });
+
+  it("round-trips through wrapNodes: wrapping then unwrapping returns equivalent content", () => {
+    const original = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div></main>`;
+    const wrapped = applyVisualEdit(original, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+    expect(wrapped.result.status).toBe("applied");
+    const wrapperId = wrapped.result.wrapperNodeId!;
+
+    const unwrapped = applyVisualEdit(wrapped.content, {
+      kind: "unwrap",
+      targetId: wrapperId,
+    });
+    expect(unwrapped.result.status).toBe("applied");
+    // After round-trip, both original nodes are direct children of <main> again.
+    expect(unwrapped.content).toContain(`data-agent-native-node-id="a"`);
+    expect(unwrapped.content).toContain(`data-agent-native-node-id="b"`);
+    expect(unwrapped.content).not.toContain(
+      `data-agent-native-node-id="${wrapperId}"`,
+    );
+  });
+
+  it("returns conflict when the targetId is not found", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "not-here",
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.content).toBe(html);
+  });
+});
+
+describe("autoLayout", () => {
+  it("enables auto-layout on a container with display:flex + direction + gap", () => {
+    const html = `<div data-agent-native-node-id="box"><span>A</span><span>B</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      direction: "row",
+      gap: "16px",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: row");
+    expect(patch.content).toContain("gap: 16px");
+  });
+
+  it("uses column and 8px defaults when direction and gap are omitted", () => {
+    const html = `<div data-agent-native-node-id="box"><span>A</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("flex-direction: column");
+    expect(patch.content).toContain("gap: 8px");
+  });
+
+  it("strips absolute positioning from direct children when enabling", () => {
+    const html = `<div data-agent-native-node-id="container"><div data-agent-native-node-id="child" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0">Child</div></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "container",
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    // Container is now flex
+    expect(patch.content).toContain("display: flex");
+    // Child's absolute positioning is stripped
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 0");
+    expect(patch.content).not.toContain("top: 0");
+    expect(patch.content).not.toContain("right: 0");
+    expect(patch.content).not.toContain("bottom: 0");
+  });
+
+  it("disables auto-layout by setting display:block", () => {
+    const html = `<div data-agent-native-node-id="box" style="display: flex; flex-direction: column; gap: 8px"><span>A</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: false,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: block");
+  });
+
+  it("returns conflict when targetId is not found", () => {
+    const html = `<div data-agent-native-node-id="box">A</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "missing",
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.content).toBe(html);
+  });
+});
+
+describe("moveNodeBetweenDocuments", () => {
+  it("removes the node from sourceHtml and inserts it into destHtml body", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="keep">Keep</div><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="anchor">Anchor</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // Node is gone from source
+    expect(result.sourceHtml).not.toContain(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(result.sourceHtml).toContain(`data-agent-native-node-id="keep"`);
+    // Node landed in dest
+    expect(result.destHtml).toContain(`data-agent-native-node-id="move-me"`);
+    expect(result.destHtml).toContain("Move");
+  });
+
+  it("inserts before anchor when placement is before", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="node">Node</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="anchor">Anchor</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "node",
+      anchorNodeId: "anchor",
+      placement: "before",
+    });
+
+    expect(result.status).toBe("applied");
+    const nodeIdx = result.destHtml.indexOf(`data-agent-native-node-id="node"`);
+    const anchorIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="anchor"`,
+    );
+    expect(nodeIdx).toBeLessThan(anchorIdx);
+  });
+
+  it("inserts after anchor when placement is after", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="node">Node</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="anchor">Anchor</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "node",
+      anchorNodeId: "anchor",
+      placement: "after",
+    });
+
+    expect(result.status).toBe("applied");
+    const anchorIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="anchor"`,
+    );
+    const nodeIdx = result.destHtml.indexOf(`data-agent-native-node-id="node"`);
+    expect(anchorIdx).toBeLessThan(nodeIdx);
+  });
+
+  it("re-stamps colliding node ids in the moved subtree to be unique in dest", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="dup"><span data-agent-native-node-id="child-dup">Child</span></div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="dup">Existing dup in dest</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "dup",
+    });
+
+    expect(result.status).toBe("applied");
+    // Collect all ids in destHtml
+    const allIds = Array.from(
+      result.destHtml.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+      (m) => m[1],
+    );
+    // All ids must be unique
+    expect(new Set(allIds).size).toBe(allIds.length);
+    // The original "dup" from dest must still be present
+    expect(allIds).toContain("dup");
+  });
+
+  it("returns unsupported when the node is not found in sourceHtml", () => {
+    const result = moveNodeBetweenDocuments(
+      `<body><div data-agent-native-node-id="a">A</div></body>`,
+      `<body></body>`,
+      { nodeId: "does-not-exist" },
+    );
+
+    expect(result.status).toBe("unsupported");
+    expect(result.message).toContain("does-not-exist");
+  });
+
+  it("returns unsupported when anchor is not found in destHtml", () => {
+    const result = moveNodeBetweenDocuments(
+      `<body><div data-agent-native-node-id="node">Node</div></body>`,
+      `<body><div data-agent-native-node-id="existing">X</div></body>`,
+      { nodeId: "node", anchorNodeId: "not-here" },
+    );
+
+    expect(result.status).toBe("unsupported");
+    expect(result.message).toContain("not-here");
+  });
+
+  it("re-stamps ALL colliding ids in a deeply-nested moved subtree", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="root"><div data-agent-native-node-id="l1"><span data-agent-native-node-id="l3">Deep</span></div></div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="l1">Existing l1</div><span data-agent-native-node-id="l3">Existing l3</span></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "root",
+    });
+
+    expect(result.status).toBe("applied");
+    const allIds = Array.from(
+      result.destHtml.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+      (m) => m[1],
+    );
+    expect(new Set(allIds).size).toBe(allIds.length);
+    // Original ids preserved
+    expect(allIds).toContain("l1");
+    expect(allIds).toContain("l3");
+    // No duplicate l1 or l3
+    expect(allIds.filter((id) => id === "l1")).toHaveLength(1);
+    expect(allIds.filter((id) => id === "l3")).toHaveLength(1);
+    // Moved content is present
+    expect(result.destHtml).toContain("Deep");
+  });
+});
+
+describe("autoLayout (regression)", () => {
+  it("applies flex styles when target is resolved by projection hash, not data-agent-native-node-id", () => {
+    // Regression: setContainerStyle previously searched only by data-agent-native-node-id,
+    // silently returning without applying any styles when the node had no such attribute.
+    // Now it uses any stable identifier (data-code-layer-id, data-layer-id, HTML id, etc.).
+    const html = `<div id="my-box"><span style="position: absolute; left: 5px">X</span></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const box = projection.nodes.find((n) => n.tag === "div");
+
+    expect(box?.dataAttributes["data-agent-native-node-id"]).toBeUndefined();
+
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: box!.id,
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: column");
+    expect(patch.content).toContain("gap: 8px");
+    // Child absolute positioning is stripped
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 5px");
+  });
+
+  it("strips absolute positioning from multiple direct children when targeting by HTML id", () => {
+    const html = `<div id="container"><div style="position: absolute; left: 0; top: 0">A</div><div style="position: absolute; left: 100px; top: 0">B</div></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const container = projection.nodes.find(
+      (n) => n.tag === "div" && !n.parentId,
+    );
+    expect(container).toBeTruthy();
+
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: container!.id,
+      enabled: true,
+      direction: "row",
+      gap: "16px",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: row");
+    expect(patch.content).toContain("gap: 16px");
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 0");
+    expect(patch.content).not.toContain("left: 100px");
+  });
+
+  it("wrapNodes with autoLayout correctly strips each child's own positioning only", () => {
+    // Each wrapped child's own absolute positioning is stripped; grandchild positioning is untouched.
+    const html = `<main><div data-agent-native-node-id="a" style="position: absolute; left: 10px"><span style="position: absolute; top: 3px">GC</span></div><div data-agent-native-node-id="b" style="position: absolute; right: 5px">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("left: 10px");
+    expect(patch.content).not.toContain("right: 5px");
+    // Grandchild positioning is NOT touched by wrapNodes autoLayout (only direct-child strip)
+    expect(patch.content).toContain("top: 3px");
+  });
+
+  it("applies all three flex styles when element has no stable data attributes and no HTML id", () => {
+    // Regression: previously only the first style property (display:flex) was applied because
+    // re-parsing after each individual mutation could not re-locate the target element when
+    // it carried no data-agent-native-node-id, data-code-layer-id, or HTML id.  All three
+    // setContainerStyle calls after the first returned silently with no-op.
+    const html = `<div class="container"><span style="position: absolute; left: 5px">X</span></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const box = projection.nodes.find((n) => n.tag === "div");
+
+    expect(box?.dataAttributes["data-agent-native-node-id"]).toBeUndefined();
+    expect(box?.attributes["id"]).toBeUndefined();
+
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: box!.id,
+      enabled: true,
+      direction: "row",
+      gap: "12px",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: row");
+    expect(patch.content).toContain("gap: 12px");
+    // Child absolute positioning is also stripped
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 5px");
   });
 });

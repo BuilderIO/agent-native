@@ -43,13 +43,21 @@ test("editor renders the toolbar and the design iframe content", async ({
 test("screen overview resizes previews from the device selector", async ({
   page,
 }) => {
+  const firstScreenCard = page.locator("[data-screen-card]").first();
+  await expect(firstScreenCard).toBeVisible();
+
   await page.getByRole("button", { name: "Device preview" }).first().click();
   await page.getByRole("menuitemradio", { name: "Desktop" }).click();
   await expect(page.getByText("1280 x 800").first()).toBeVisible();
+  const desktopBox = await firstScreenCard.boundingBox();
+  if (!desktopBox) throw new Error("missing desktop screen card bounds");
 
   await page.getByRole("button", { name: "Device preview" }).first().click();
   await page.getByRole("menuitemradio", { name: "Mobile" }).click();
   await expect(page.getByText("390 x 844").first()).toBeVisible();
+  await expect
+    .poll(async () => (await firstScreenCard.boundingBox())?.width ?? 0)
+    .toBeLessThan(desktopBox.width - 1);
 });
 
 test("screen overview keeps the name readable when frame header space is tight", async ({
@@ -115,6 +123,7 @@ test("screen overview lets users select elements inside the active screen", asyn
     .filter({ has: activeScreenCard })
     .first();
   const frameTitle = activeScreenShell.locator("[data-frame-title]");
+  const fullViewButton = activeScreenShell.locator("[data-frame-full-view]");
   const accentColor = await activeScreenCard.evaluate(() => {
     const probe = document.createElement("span");
     probe.style.color = "var(--design-editor-accent-color)";
@@ -162,6 +171,11 @@ test("screen overview lets users select elements inside the active screen", asyn
   const payload = selected?.payload ?? selected;
   expect(payload?.textContent ?? "").toContain("E2E Hero Heading");
   await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      fullViewButton.evaluate((el) => window.getComputedStyle(el).opacity),
+    )
+    .toBe("1");
   await expect
     .poll(() =>
       designFrame(page)
@@ -324,13 +338,10 @@ test("deeply nested layer rows keep a clickable hit target", async ({
 test("dragging an element on the canvas drives the bridge (move/reorder)", async ({
   page,
 }) => {
-  // Best-effort: real pointer drag through the editor. We assert the drag
-  // produced bridge activity (and capture which messages fired). A committed
-  // reorder emits `visual-structure-change`; if the gesture only re-selects we
-  // still prove pointer events reach the in-iframe bridge.
+  // Real pointer drag through the editor: this must reach the structural
+  // move path, not just the hover/select bridge messages.
   const fired = await dragCanvasByText(page, "Alpha Button", 0, 90);
-  expect(fired.length).toBeGreaterThan(0);
-  expect(fired.some((t) => /^(element-|visual-)/.test(t))).toBe(true);
+  expect(fired).toContain("visual-structure-change");
 });
 
 test("can capture a screenshot of the editor via CDP", async ({

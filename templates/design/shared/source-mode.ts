@@ -43,6 +43,50 @@ import {
 
 export const DESIGN_SOURCE_TYPES = ["inline", "localhost", "fusion"] as const;
 
+/**
+ * Source-level provenance for a selected DOM element, populated from
+ * data attributes emitted by the connected app's build-time transform
+ * (e.g. @vitejs/plugin-react jsxDEV source maps or a Babel source plugin).
+ *
+ * - data-source-file / data-loc "file:line:col" → sourceFile
+ * - data-source-line / data-loc                 → line
+ * - data-source-column / data-loc               → column
+ * - data-component-name                         → component
+ *
+ * All fields are optional because cross-origin localhost iframes cannot be
+ * read (same-origin policy), and inline screens may not carry these attrs.
+ */
+export interface ElementProvenance {
+  sourceFile?: string;
+  line?: number;
+  column?: number;
+  component?: string;
+}
+
+export function parseDataLocProvenance(
+  dataLoc: string,
+): Pick<ElementProvenance, "sourceFile" | "line" | "column"> | null {
+  const lastColonIndex = dataLoc.lastIndexOf(":");
+  if (lastColonIndex < 0) return null;
+  const lastPart = dataLoc.slice(lastColonIndex + 1);
+  if (!/^\d+$/.test(lastPart)) return null;
+
+  const beforeLastPart = dataLoc.slice(0, lastColonIndex);
+  const previousColonIndex = beforeLastPart.lastIndexOf(":");
+  const previousPart =
+    previousColonIndex >= 0 ? beforeLastPart.slice(previousColonIndex + 1) : "";
+  const hasColumn = /^\d+$/.test(previousPart);
+  const sourceFile = (
+    hasColumn ? beforeLastPart.slice(0, previousColonIndex) : beforeLastPart
+  ).trim();
+  const line = Number(hasColumn ? previousPart : lastPart);
+  const column = hasColumn ? Number(lastPart) : undefined;
+
+  if (!sourceFile || !Number.isFinite(line)) return null;
+  if (column !== undefined && !Number.isFinite(column)) return null;
+  return { sourceFile, line, column };
+}
+
 export type DesignSourceType = (typeof DESIGN_SOURCE_TYPES)[number];
 
 export const DESIGN_BRIDGE_OPERATIONS = [
