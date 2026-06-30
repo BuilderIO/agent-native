@@ -306,6 +306,54 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   await expect(horizontalConstraints).toBeHidden();
 });
 
+test("appearance controls use droplet blend menu and inline independent corners", async ({
+  page,
+}) => {
+  await selectByText(page, "Alpha Button");
+  const appearanceSection = inspectorSection(page, /^Appearance$/i);
+  await expect(appearanceSection).toBeVisible();
+  await expect(
+    appearanceSection.getByRole("combobox", { name: /Normal|Blend/i }),
+  ).toHaveCount(0);
+
+  await appearanceSection.getByRole("button", { name: "Blend mode" }).click();
+  await expect(
+    page.getByRole("menuitem", { name: /Pass through/i }),
+  ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Normal", exact: true }).click();
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "isolation"))
+    .toBe("isolate");
+
+  await appearanceSection.getByRole("button", { name: "Blend mode" }).click();
+  await page.getByRole("menuitem", { name: /Pass through/i }).click();
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "isolation"))
+    .toBe("auto");
+
+  const radiusInput = appearanceSection.locator(
+    'input[aria-label="Corner radius" i]',
+  );
+  await setScrubInput(appearanceSection, "Corner radius", "12");
+  await expect(radiusInput).toHaveValue("12");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "border-radius"))
+    .toContain("12px");
+
+  await appearanceSection
+    .getByRole("button", { name: "Independent corners" })
+    .click();
+  await expect(
+    appearanceSection.locator('input[aria-label="Top left" i]'),
+  ).toBeVisible();
+  await setScrubInput(appearanceSection, "Top left", "4");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "Alpha Button", "border-top-left-radius"),
+    )
+    .toBe("4px");
+});
+
 test("export rows add, remove, and reset when selection changes", async ({
   page,
 }) => {

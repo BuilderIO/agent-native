@@ -9541,7 +9541,8 @@ export default function DesignEditor() {
         return;
       }
       if (!canEditDesign) return;
-      const baseContent = getScreenContent(screenId);
+      const liveSnapshot = liveScreenSnapshotsById[screenId];
+      const baseContent = liveSnapshot?.html ?? getScreenContent(screenId);
       const projection = buildCodeLayerProjection(baseContent);
       const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
       const targetNode = targetInfo
@@ -9574,7 +9575,11 @@ export default function DesignEditor() {
         );
         return;
       }
-      applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      if (liveSnapshot) {
+        updateLiveScreenSnapshotContent(screenId, nextContent);
+      } else {
+        applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      }
       setActiveFileId(screenId);
       setActiveTool("text");
       setMode("edit");
@@ -9619,7 +9624,9 @@ export default function DesignEditor() {
       canEditDesign,
       getScreenContent,
       handleTextContentChange,
+      liveScreenSnapshotsById,
       t,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
