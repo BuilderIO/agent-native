@@ -26,6 +26,31 @@ export async function readSeedDesignId(): Promise<string> {
 }
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
+const E2E_BASE_URL = process.env.E2E_BASE_URL;
+const E2E_BASE_PATH = (() => {
+  if (!E2E_BASE_URL) return "";
+  try {
+    return new URL(E2E_BASE_URL).pathname.replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+})();
+
+function appPath(path: string): string {
+  if (
+    E2E_BASE_URL &&
+    E2E_BASE_PATH.endsWith("/design") &&
+    path.startsWith("/design")
+  ) {
+    const url = new URL(E2E_BASE_URL);
+    const suffix = path.slice("/design".length);
+    url.pathname = `${E2E_BASE_PATH}${suffix}`;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  }
+  return path;
+}
 
 export function designFrame(page: Page): FrameLocator {
   return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first().contentFrame();
@@ -33,7 +58,9 @@ export function designFrame(page: Page): FrameLocator {
 
 /** Open the editor for a design and wait for the toolbar + iframe to be ready. */
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`/design/${designId}`, { waitUntil: "domcontentloaded" });
+  await page.goto(appPath(`/design/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });

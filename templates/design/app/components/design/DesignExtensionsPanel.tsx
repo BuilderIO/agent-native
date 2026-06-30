@@ -447,6 +447,13 @@ interface ShaderFillsExtPanelProps {
   context: DesignExtensionSlotContext;
 }
 
+interface PreviewedShaderFill {
+  descriptor: ShaderDescriptor;
+  fileId?: string;
+  nodeId?: string;
+  selector?: string;
+}
+
 function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   const [showShaders, setShowShaders] = useState(false);
   const clearPreviewRef = useRef(context.onShaderFillPreviewClear);
@@ -466,7 +473,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   // The most recently previewed descriptor — Apply persists exactly this one,
   // so the write is intentional (one atomic call) rather than firing on every
   // slider tweak.
-  const [previewed, setPreviewed] = useState<ShaderDescriptor | null>(null);
+  const [previewed, setPreviewed] = useState<PreviewedShaderFill | null>(null);
   const applyShaderFill = useActionMutation("apply-shader-fill");
 
   // The persisting apply path needs an HTML file plus a target element. Without
@@ -476,6 +483,16 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   const canPersist = Boolean(
     context.activeFileId && (targetNodeId || targetSelector),
   );
+  const previewMatchesTarget = Boolean(
+    previewed &&
+    previewed.fileId === context.activeFileId &&
+    previewed.nodeId === targetNodeId &&
+    previewed.selector === targetSelector,
+  );
+
+  useEffect(() => {
+    setPreviewed(null);
+  }, [context.activeFileId, targetNodeId, targetSelector]);
 
   const persistFill = (descriptor: ShaderDescriptor) => {
     if (!canPersist) return;
@@ -556,7 +573,12 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           // for agent context on every tune and the iframe shows the gradient.
           // We just record the latest descriptor here; the explicit Apply
           // button below performs the single intentional persist write.
-          setPreviewed(descriptor);
+          setPreviewed({
+            descriptor,
+            fileId: context.activeFileId || undefined,
+            nodeId: targetNodeId,
+            selector: targetSelector,
+          });
           context.onShaderFillPreview?.(descriptor, css);
         }}
         onBack={closeShaders}
@@ -575,15 +597,17 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
             type="button"
             size="sm"
             className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
-            disabled={!previewed || applyShaderFill.isPending}
+            disabled={!previewMatchesTarget || applyShaderFill.isPending}
             onClick={() => {
-              if (previewed) persistFill(previewed);
+              if (previewMatchesTarget && previewed) {
+                persistFill(previewed.descriptor);
+              }
             }}
           >
             <IconSparkles className="size-3" />
             {applyShaderFill.isPending
               ? "Applying…"
-              : previewed
+              : previewMatchesTarget
                 ? "Apply fill"
                 : "Pick a preset"}
           </Button>

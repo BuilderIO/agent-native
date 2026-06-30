@@ -19,24 +19,15 @@
  * - The descriptor is validated against the preset manifest first, so callers
  *   get clear errors before any round-trip.
  *
- * The write reuses the canonical persist path (Yjs/collab + SQL via
- * agentEnterDocument / applyText / seedFromText), so collaborators and the agent
- * stay in sync. The edit is a single inline-style `style.background` change on
- * the resolved node — no structural inserts, no new owned rows.
+ * The write persists durable SQL content directly. The edit is a single
+ * inline-style `style.background` change on the resolved node — no structural
+ * inserts, no new owned rows.
  *
  * Plan reference: DESIGN-STUDIO-PLAN.md §6.7 + §7 (shader fill apply).
  */
 
 import { defineAction } from "@agent-native/core";
-import {
-  agentEnterDocument,
-  agentLeaveDocument,
-  agentUpdateSelection,
-  applyText,
-  getText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
+import { agentUpdateSelection } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -135,21 +126,6 @@ interface ResolvedDesignFile {
   codeLayerSource: CodeLayerSource;
 }
 
-async function liveContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Collab reads are best-effort; SQL content remains the fallback.
-  }
-  return storedContent;
-}
-
 /**
  * Resolve the target HTML design file with an access-scoped read, then assert
  * editor access. Mirrors `resolveEditableDesignFile` in apply-visual-edit.ts so
@@ -221,7 +197,7 @@ async function resolveEditableDesignFile(source: {
     id: file.id,
     designId: file.designId,
     filename: file.filename,
-    content: await liveContent(file.id, file.content ?? ""),
+    content: file.content ?? "",
     codeLayerSource: {
       kind: "design-file",
       designId: file.designId,
@@ -242,29 +218,19 @@ async function persistDesignFileEdit(file: {
   const db = getDb();
   const now = new Date().toISOString();
 
-  agentEnterDocument(file.id);
-  try {
-    await db
-      .update(schema.designFiles)
-      .set({ content: file.content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
+  await db
+    .update(schema.designFiles)
+    .set({ content: file.content, updatedAt: now })
+    .where(eq(schema.designFiles.id, file.id));
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, file.content, "content", "agent");
-    } else {
-      await seedFromText(file.id, file.content);
-    }
-
-    // guard:allow-unscoped — editor access on this design is asserted above
-    // (and again at the top of this helper); this only bumps the addressed
-    // design row's updatedAt.
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
-  } finally {
-    agentLeaveDocument(file.id);
-  }
+  // Keep SQL as the source of truth for this atomic server write. The editor
+  // already has the live shader preview applied; feeding a full HTML document
+  // back through an existing collab text snapshot can merge against stale
+  // iframe state and corrupt the saved source.
+  await db
+    .update(schema.designs)
+    .set({ updatedAt: now })
+    .where(eq(schema.designs.id, file.designId));
 }
 
 // ─── Action ──────────────────────────────────────────────────────────────────

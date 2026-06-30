@@ -3878,6 +3878,16 @@ export default function DesignEditor() {
   const fileSaveTimersRef = useRef<Record<string, number>>({});
   const postAuthSaveRef = useRef<string | null>(null);
 
+  const cancelQueuedFileContentSave = useCallback((fileId: string) => {
+    const timer = fileSaveTimersRef.current[fileId];
+    if (timer) {
+      window.clearTimeout(timer);
+      delete fileSaveTimersRef.current[fileId];
+    }
+    delete pendingFileSavesRef.current[fileId];
+    delete latestFileSaveForUnloadRef.current[fileId];
+  }, []);
+
   const saveFileContent = useCallback(
     (pending: FileContentSaveRequest) => {
       if (!canEditDesignRef.current) return;
@@ -5934,6 +5944,7 @@ export default function DesignEditor() {
         refreshPreview?: boolean;
         skipPreview?: boolean;
         immediateSave?: boolean;
+        persist?: boolean;
       } = {},
     ) => {
       if (!activeFile || !canEditDesignRef.current) return;
@@ -6016,13 +6027,18 @@ export default function DesignEditor() {
           }, LOCAL_EDIT_ORIGIN);
         }
       }
-      queueFileContentSave(activeFile.id, nextContent, {
-        syncCollab: !(ydoc && isSynced),
-        immediate: options.immediateSave,
-      });
+      if (options.persist === false) {
+        cancelQueuedFileContentSave(activeFile.id);
+      } else {
+        queueFileContentSave(activeFile.id, nextContent, {
+          syncCollab: !(ydoc && isSynced),
+          immediate: options.immediateSave,
+        });
+      }
     },
     [
       activeFile,
+      cancelQueuedFileContentSave,
       id,
       isSynced,
       markPendingLocalFileContent,
@@ -6038,7 +6054,11 @@ export default function DesignEditor() {
     (
       fileId: string,
       nextContent: string,
-      options: { refreshPreview?: boolean; skipPreview?: boolean } = {},
+      options: {
+        refreshPreview?: boolean;
+        skipPreview?: boolean;
+        persist?: boolean;
+      } = {},
     ) => {
       if (!canEditDesignRef.current) return;
       if (fileId === activeFile?.id) {
@@ -6058,15 +6078,20 @@ export default function DesignEditor() {
           ),
         };
       });
-      saveFileContent({
-        id: fileId,
-        content: nextContent,
-        syncCollab: true,
-      });
+      if (options.persist === false) {
+        cancelQueuedFileContentSave(fileId);
+      } else {
+        saveFileContent({
+          id: fileId,
+          content: nextContent,
+          syncCollab: true,
+        });
+      }
     },
     [
       activeFile?.id,
       applyLocalContentUpdate,
+      cancelQueuedFileContentSave,
       files,
       id,
       markPendingLocalFileContent,
@@ -6079,6 +6104,7 @@ export default function DesignEditor() {
     (fileId: string, nextContent: string) => {
       applyFileContentUpdate(fileId, nextContent, {
         refreshPreview: fileId === activeFile?.id,
+        persist: false,
       });
     },
     [activeFile?.id, applyFileContentUpdate],
@@ -6098,6 +6124,7 @@ export default function DesignEditor() {
       ) {
         applyFileContentUpdate(result.fileId, result.patchedContent, {
           refreshPreview: result.fileId === activeFile?.id,
+          persist: false,
         });
       }
       void handleRunDesignAudit();
@@ -12637,7 +12664,10 @@ ${serializedHtml}
                     applyFileContentUpdate(
                       response.fileId,
                       response.patchedContent,
-                      { refreshPreview: response.fileId === activeFile.id },
+                      {
+                        refreshPreview: response.fileId === activeFile.id,
+                        persist: false,
+                      },
                     );
                   }
                 },

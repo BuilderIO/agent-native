@@ -12,6 +12,11 @@ import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import type { DesignSourceCapabilities } from "../shared/design-source-capabilities.js";
+import {
+  normalizeDesignSourceType,
+  resolveDescriptorCapabilities,
+  type DesignSourceDescriptor,
+} from "../shared/source-mode.js";
 
 /**
  * Resolve the capabilities for the design's source type.
@@ -19,17 +24,35 @@ import type { DesignSourceCapabilities } from "../shared/design-source-capabilit
  */
 function resolveCapabilities(
   designData: string | null,
-): DesignSourceCapabilities | null {
-  if (!designData) return null;
+): DesignSourceCapabilities {
+  if (!designData) {
+    return resolveDescriptorCapabilities({ sourceType: "inline" });
+  }
+
   try {
     const parsed = JSON.parse(designData) as Record<string, unknown>;
     if (parsed.capabilities && typeof parsed.capabilities === "object") {
       return parsed.capabilities as DesignSourceCapabilities;
     }
+    const sourceType = normalizeDesignSourceType(parsed.sourceType) ?? "inline";
+    const descriptor: DesignSourceDescriptor =
+      sourceType === "fusion"
+        ? { sourceType, connected: parsed.connected === true }
+        : sourceType === "localhost"
+          ? {
+              sourceType,
+              connectionId:
+                typeof parsed.connectionId === "string"
+                  ? parsed.connectionId
+                  : "unknown",
+            }
+          : { sourceType };
+    return resolveDescriptorCapabilities(descriptor);
   } catch {
     // ignore parse errors
   }
-  return null;
+
+  return resolveDescriptorCapabilities({ sourceType: "inline" });
 }
 
 /**
@@ -167,7 +190,7 @@ export default defineAction({
     }
 
     const caps = resolveCapabilities(design.data);
-    if (caps !== null && !hasCapability(caps, "captureState")) {
+    if (!hasCapability(caps, "captureState")) {
       throw new Error(
         "The design's source does not support captureState. " +
           "Connect Builder or a localhost bridge to enable live captures.",
