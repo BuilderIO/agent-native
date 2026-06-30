@@ -47,6 +47,7 @@ import {
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   type CodeLayerNode,
+  type CodeLayerProjection,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
 import { componentNameFor, isComponentInstance } from "@shared/component-model";
@@ -2029,6 +2030,48 @@ function collectCodeLayerAncestors(
     if (match.length > 0) return match;
   }
   return [];
+}
+
+function findCodeLayerNodeInProjection(
+  projection: CodeLayerProjection,
+  previousNode: CodeLayerNode,
+): CodeLayerNode | null {
+  const stableSourceIds = [
+    previousNode.dataAttributes["data-agent-native-node-id"],
+    previousNode.dataAttributes["data-code-layer-id"],
+    previousNode.dataAttributes["data-layer-id"],
+    previousNode.dataAttributes["data-builder-id"],
+    previousNode.dataAttributes["data-loc"],
+    typeof previousNode.attributes.id === "string"
+      ? previousNode.attributes.id
+      : undefined,
+  ].filter((id): id is string => Boolean(id));
+
+  for (const sourceId of stableSourceIds) {
+    const stableMatch = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === sourceId ||
+        node.dataAttributes["data-code-layer-id"] === sourceId ||
+        node.dataAttributes["data-layer-id"] === sourceId ||
+        node.dataAttributes["data-builder-id"] === sourceId ||
+        node.dataAttributes["data-loc"] === sourceId ||
+        node.attributes.id === sourceId,
+    );
+    if (stableMatch) return stableMatch;
+  }
+
+  const exactMatch = projection.nodes.find(
+    (node) => node.id === previousNode.id,
+  );
+  if (exactMatch) return exactMatch;
+
+  const fallbackMatches = projection.nodes.filter(
+    (node) =>
+      node.tag === previousNode.tag &&
+      node.layerName === previousNode.layerName &&
+      (node.textSnippet ?? "") === (previousNode.textSnippet ?? ""),
+  );
+  return fallbackMatches.length === 1 ? (fallbackMatches[0] ?? null) : null;
 }
 
 function AgentNativeMenuMark({ className }: { className?: string }) {
@@ -9804,6 +9847,7 @@ ${serializedHtml}
       const sameFileDragIds: string[] = [];
       const crossFileDrags: Array<{ draggedId: string; sourceFileId: string }> =
         [];
+      const movedNodeSnapshots = new Map<string, CodeLayerNode>();
       for (const draggedId of intent.draggedIds) {
         const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
         if (
@@ -9814,6 +9858,7 @@ ${serializedHtml}
         ) {
           continue;
         }
+        movedNodeSnapshots.set(draggedId, draggedOwner.node);
         if (draggedOwner.fileId === targetOwner.fileId) {
           sameFileDragIds.push(draggedId);
         } else {
@@ -9896,6 +9941,40 @@ ${serializedHtml}
       }
 
       if (!moved) return;
+
+      const finalDestProjection =
+        nextDestContent !== destContent
+          ? buildCodeLayerProjection(nextDestContent)
+          : null;
+      const finalDestTree = finalDestProjection
+        ? buildCodeLayerTree(finalDestProjection)
+        : [];
+      const movedNodesAfterMove = intent.draggedIds
+        .map((draggedId) => movedNodeSnapshots.get(draggedId))
+        .map((node) =>
+          node && finalDestProjection
+            ? findCodeLayerNodeInProjection(finalDestProjection, node)
+            : null,
+        )
+        .filter((node): node is CodeLayerNode => Boolean(node));
+
+      if (movedNodesAfterMove.length > 0) {
+        setSelectedLayerIdsState(movedNodesAfterMove.map((node) => node.id));
+        const lastMovedNode =
+          movedNodesAfterMove[movedNodesAfterMove.length - 1];
+        if (lastMovedNode && targetOwner.fileId === activeFile?.id) {
+          setSelectedElement(elementInfoFromCodeLayerNode(lastMovedNode));
+        }
+        const movedAncestorIds = movedNodesAfterMove.flatMap((node) =>
+          collectCodeLayerAncestors(finalDestTree, node.id),
+        );
+        setExpandedLayerIds((current) => {
+          const next = new Set(current);
+          next.add(targetOwner.fileId);
+          movedAncestorIds.forEach((ancestorId) => next.add(ancestorId));
+          return next.size === current.length ? current : Array.from(next);
+        });
+      }
 
       // Persist source files that changed.
       for (const [sourceFileId, newSourceContent] of sourceContentMap) {
