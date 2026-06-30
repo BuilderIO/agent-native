@@ -562,7 +562,7 @@ export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 400);
       return { error: "email is required" };
     }
-    const owned = await getAuthStatus(session.email);
+    const owned = await getAuthStatus(session.email, session.orgId);
     const isOwned = owned.accounts.some((a) => a.email === targetEmail);
     if (!isOwned) {
       setResponseStatus(event, 403);
