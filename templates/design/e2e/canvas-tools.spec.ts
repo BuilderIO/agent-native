@@ -1282,6 +1282,163 @@ test("overview undo and redo stay global across screen content and canvas geomet
     .toBeGreaterThan(20);
 });
 
+test("single-screen undo does not consume overview history", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const aboutShell = screenShell(page, "About");
+  const aboutCard = aboutShell.locator("[data-screen-card]");
+  const aboutCardBox = await aboutCard.boundingBox();
+  if (!aboutCardBox) throw new Error("no about card box");
+  const aboutRectanglesBefore = await primitiveCount(
+    page,
+    "about.html",
+    "rectangle",
+  );
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.12,
+      y: aboutCardBox.y + aboutCardBox.height * 0.12,
+    },
+    end: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.22,
+      y: aboutCardBox.y + aboutCardBox.height * 0.22,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore + 1);
+
+  const sidebar = page.locator("aside").first();
+  const allScreens = sidebar.getByRole("button", { name: "All screens" });
+  const homeScreen = sidebar
+    .getByRole("button", { name: "Home", exact: true })
+    .first();
+  await homeScreen.click();
+  await expect(homeScreen).toHaveAttribute("aria-current", "page");
+
+  await pressPrimaryShortcut(page, "z");
+  await page.waitForTimeout(300);
+  expect(await primitiveCount(page, "about.html", "rectangle")).toBe(
+    aboutRectanglesBefore + 1,
+  );
+
+  await allScreens.click();
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(screenShell(page, "About")).toBeVisible();
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore);
+});
+
+test("overview undo skips deleted screen content history", async ({ page }) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const aboutFile = (await designFiles(page)).find(
+    (file) => file.filename === "about.html",
+  );
+  if (!aboutFile) throw new Error("about.html was not created");
+
+  const homeShell = screenShell(page, "Home");
+  const aboutShell = screenShell(page, "About");
+  const homeCardBox = await homeShell
+    .locator("[data-screen-card]")
+    .boundingBox();
+  const aboutCardBox = await aboutShell
+    .locator("[data-screen-card]")
+    .boundingBox();
+  if (!homeCardBox || !aboutCardBox) throw new Error("missing screen card box");
+  const homeRectanglesBefore = await primitiveCount(
+    page,
+    "index.html",
+    "rectangle",
+  );
+  const aboutRectanglesBefore = await primitiveCount(
+    page,
+    "about.html",
+    "rectangle",
+  );
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: homeCardBox.x + homeCardBox.width * 0.16,
+      y: homeCardBox.y + homeCardBox.height * 0.18,
+    },
+    end: {
+      x: homeCardBox.x + homeCardBox.width * 0.3,
+      y: homeCardBox.y + homeCardBox.height * 0.3,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore + 1);
+
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.16,
+      y: aboutCardBox.y + aboutCardBox.height * 0.18,
+    },
+    end: {
+      x: aboutCardBox.x + aboutCardBox.width * 0.3,
+      y: aboutCardBox.y + aboutCardBox.height * 0.3,
+    },
+  });
+  await expect
+    .poll(() => primitiveCount(page, "about.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(aboutRectanglesBefore + 1);
+
+  const aboutBox = await aboutShell.boundingBox();
+  if (!aboutBox) throw new Error("no about shell box");
+  await page.mouse.click(aboutBox.x + aboutBox.width * 0.3, aboutBox.y + 12);
+  await page.keyboard.press("Delete");
+  await expect
+    .poll(
+      async () =>
+        htmlScreenFiles(await designFiles(page)).some(
+          (file) => file.id === aboutFile.id,
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(false);
+
+  await pressPrimaryShortcut(page, "z");
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore);
+  expect(
+    htmlScreenFiles(await designFiles(page)).some(
+      (file) => file.id === aboutFile.id,
+    ),
+  ).toBe(false);
+});
+
 test("overview undo does not restore ghost geometry for deleted screens", async ({
   page,
 }) => {

@@ -497,12 +497,6 @@ export function removeUndoRedoOrderKind<T extends string>(
 
 type UndoRedoOrderKind = "content" | "file-content" | "geometry";
 
-function isContentUndoRedoOrderKind(
-  kind: UndoRedoOrderKind | undefined,
-): kind is "content" | "file-content" {
-  return kind === "content" || kind === "file-content";
-}
-
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
   return typeof update === "function" ? update(current) : update;
 }
@@ -909,6 +903,17 @@ export function getAvailableContentHistoryChanges(
   return getContentHistoryChanges(entry).filter(
     (change) => change.fileId === activeFileId || fileIds.has(change.fileId),
   );
+}
+
+function findLastContentHistoryChangeIndex(
+  stack: ContentHistoryChange[],
+  fileId?: string | null,
+) {
+  if (!fileId) return -1;
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    if (stack[index]?.fileId === fileId) return index;
+  }
+  return -1;
 }
 
 type PatchProofStatus =
@@ -3978,6 +3983,9 @@ export default function DesignEditor() {
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
   const contentUndoStackRef = useRef<ContentHistoryEntry[]>([]);
   const contentRedoStackRef = useRef<ContentHistoryEntry[]>([]);
+  const localContentUndoStackRef = useRef<ContentHistoryChange[]>([]);
+  const localContentRedoStackRef = useRef<ContentHistoryChange[]>([]);
+  const activeFileIdForUndoRef = useRef<string | null>(null);
   const suppressContentHistoryRef = useRef(false);
   const geometryUndoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
@@ -3985,21 +3993,40 @@ export default function DesignEditor() {
   const redoOrderRef = useRef<UndoRedoOrderKind[]>([]);
   const clearRedoStacks = useCallback(() => {
     contentRedoStackRef.current = [];
+    localContentRedoStackRef.current = [];
     geometryRedoStackRef.current = [];
     redoOrderRef.current = [];
     undoManagerRef.current?.clear(false, true);
   }, []);
   const syncUndoRedoState = useCallback(() => {
     const undoManager = undoManagerRef.current;
+    const canUseOverviewHistory = viewModeRef.current === "overview";
+    const activeHistoryFileId = activeFileIdForUndoRef.current;
+    const hasLocalUndo =
+      !canUseOverviewHistory &&
+      findLastContentHistoryChangeIndex(
+        localContentUndoStackRef.current,
+        activeHistoryFileId,
+      ) !== -1;
+    const hasLocalRedo =
+      !canUseOverviewHistory &&
+      findLastContentHistoryChangeIndex(
+        localContentRedoStackRef.current,
+        activeHistoryFileId,
+      ) !== -1;
     setCanUndo(
       Boolean(undoManager?.canUndo()) ||
-        contentUndoStackRef.current.length > 0 ||
-        geometryUndoStackRef.current.length > 0,
+        hasLocalUndo ||
+        (canUseOverviewHistory &&
+          (contentUndoStackRef.current.length > 0 ||
+            geometryUndoStackRef.current.length > 0)),
     );
     setCanRedo(
       Boolean(undoManager?.canRedo()) ||
-        contentRedoStackRef.current.length > 0 ||
-        geometryRedoStackRef.current.length > 0,
+        hasLocalRedo ||
+        (canUseOverviewHistory &&
+          (contentRedoStackRef.current.length > 0 ||
+            geometryRedoStackRef.current.length > 0)),
     );
   }, []);
   const recordContentHistoryEntry = useCallback(
@@ -4021,9 +4048,23 @@ export default function DesignEditor() {
     },
     [clearRedoStacks, syncUndoRedoState],
   );
+  const recordLocalContentHistoryEntry = useCallback(
+    (change: ContentHistoryChange) => {
+      if (change.before === change.after) return;
+      localContentUndoStackRef.current = [
+        ...localContentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        change,
+      ];
+      clearRedoStacks();
+      syncUndoRedoState();
+    },
+    [clearRedoStacks, syncUndoRedoState],
+  );
   const clearLocalUndoRedoStacks = useCallback(() => {
     contentUndoStackRef.current = [];
     contentRedoStackRef.current = [];
+    localContentUndoStackRef.current = [];
+    localContentRedoStackRef.current = [];
     geometryUndoStackRef.current = [];
     geometryRedoStackRef.current = [];
     historyOrderRef.current = [];
@@ -5363,6 +5404,7 @@ export default function DesignEditor() {
   }, [files, activeFileId]);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+  activeFileIdForUndoRef.current = activeFile?.id ?? null;
   const motionTimelineQueryParams =
     id && activeFile?.id
       ? { designId: id, sourceRef: activeFile.id }
@@ -6901,6 +6943,7 @@ export default function DesignEditor() {
         immediateSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
+        historyBeforeContent?: string;
         updatedAt?: string;
       } = {},
     ) => {
@@ -6908,10 +6951,12 @@ export default function DesignEditor() {
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
       const previousContent =
-        collabContentFileIdRef.current === activeFile.id &&
-        typeof collabContentRef.current === "string"
-          ? collabContentRef.current
-          : (activeFile.content ?? "");
+        typeof options.historyBeforeContent === "string"
+          ? options.historyBeforeContent
+          : collabContentFileIdRef.current === activeFile.id &&
+              typeof collabContentRef.current === "string"
+            ? collabContentRef.current
+            : (activeFile.content ?? "");
       const yjsHistoryAvailable = Boolean(
         shouldRecordHistory &&
         viewModeRef.current !== "overview" &&
@@ -6925,11 +6970,16 @@ export default function DesignEditor() {
         !yjsHistoryAvailable &&
         previousContent !== nextContent
       ) {
-        recordContentHistoryEntry({
+        const change = {
           fileId: activeFile.id,
           before: previousContent,
           after: nextContent,
-        });
+        };
+        if (viewModeRef.current === "overview") {
+          recordContentHistoryEntry(change);
+        } else {
+          recordLocalContentHistoryEntry(change);
+        }
       }
       if (options.updatedAt) {
         clearPendingLocalFileContent(activeFile.id);
@@ -7014,6 +7064,7 @@ export default function DesignEditor() {
       queueFileContentSave,
       replacePreviewContent,
       recordContentHistoryEntry,
+      recordLocalContentHistoryEntry,
       syncUndoRedoState,
       ydoc,
     ],
@@ -7307,7 +7358,10 @@ export default function DesignEditor() {
         : null;
 
       if (targetFile.id === activeFile?.id) {
-        applyLocalContentUpdate(nextContent, { immediateSave: true });
+        applyLocalContentUpdate(nextContent, {
+          historyBeforeContent: baseContent,
+          immediateSave: true,
+        });
       } else {
         recordContentHistoryEntry({
           fileId: targetFile.id,
@@ -8401,11 +8455,16 @@ export default function DesignEditor() {
         !suppressContentHistoryRef.current &&
         baseContent !== resolvedNextContent
       ) {
-        recordContentHistoryEntry({
+        const change = {
           fileId: activeFile.id,
           before: baseContent,
           after: resolvedNextContent,
-        });
+        };
+        if (viewModeRef.current === "overview") {
+          recordContentHistoryEntry(change);
+        } else {
+          recordLocalContentHistoryEntry(change);
+        }
       }
 
       setCollabContent(resolvedNextContent);
@@ -8470,6 +8529,7 @@ export default function DesignEditor() {
       canEditDesign,
       queueFileContentSave,
       recordContentHistoryEntry,
+      recordLocalContentHistoryEntry,
       replacePreviewContent,
       selectedElement,
       t,
@@ -10009,14 +10069,24 @@ export default function DesignEditor() {
         resolvedSourceNode?.dataAttributes["data-agent-native-node-id"] ??
         sourceNodeId ??
         sourceSelector;
+      const destProjection = buildCodeLayerProjection(destContent);
+      const resolvedTargetAnchor = targetAnchorNodeId
+        ? resolveCodeLayerNodeFromBridge(
+            destProjection,
+            undefined,
+            targetAnchorNodeId,
+          )
+        : null;
+      const targetAnchorAttrId =
+        resolvedTargetAnchor?.dataAttributes["data-agent-native-node-id"];
 
       // Use hit-test anchor when the canvas supplied one; fall back to
       // top-level body append ("inside" with no anchor = existing behaviour).
       const result = moveNodeBetweenDocuments(sourceContent, destContent, {
         nodeId: nodeAttrId,
-        ...(targetAnchorNodeId
+        ...(targetAnchorAttrId
           ? {
-              anchorNodeId: targetAnchorNodeId,
+              anchorNodeId: targetAnchorAttrId,
               placement: targetAnchorPlacement ?? "inside",
             }
           : { placement: "inside" }),
@@ -10260,8 +10330,10 @@ export default function DesignEditor() {
   const handleUndo = useCallback(() => {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
-    const undoContent = () => {
-      if (um?.canUndo()) {
+    const canUseOverviewHistory = viewModeRef.current === "overview";
+    let prunedUndoHistory = false;
+    const undoContent = (scope: "any" | "local" | "global" = "any") => {
+      if (scope !== "global" && um?.canUndo()) {
         um.undo();
         if (ydoc && activeFile) {
           const next = ydoc.getText("content").toString();
@@ -10294,6 +10366,43 @@ export default function DesignEditor() {
         return true;
       }
 
+      if (!canUseOverviewHistory && scope !== "global" && activeFile?.id) {
+        const localIndex = findLastContentHistoryChangeIndex(
+          localContentUndoStackRef.current,
+          activeFile.id,
+        );
+        if (localIndex !== -1) {
+          const [entry] = localContentUndoStackRef.current.splice(
+            localIndex,
+            1,
+          );
+          if (entry) {
+            localContentRedoStackRef.current = [
+              ...localContentRedoStackRef.current.slice(
+                -(MAX_DESIGN_UNDO_STACK - 1),
+              ),
+              entry,
+            ];
+            applyLocalContentUpdate(entry.before, {
+              refreshPreview: false,
+              immediateSave: true,
+              recordHistory: false,
+            });
+            setSelectedElement((prev) => {
+              if (!prev) return prev;
+              return refreshElementInfoFromContent(entry.before, prev);
+            });
+            setHoveredElement((prev) => {
+              if (!prev) return prev;
+              return refreshElementInfoFromContent(entry.before, prev);
+            });
+            return true;
+          }
+        }
+      }
+
+      if (scope === "local") return false;
+      if (!canUseOverviewHistory) return false;
       const entry =
         contentUndoStackRef.current[contentUndoStackRef.current.length - 1];
       if (!entry) return false;
@@ -10302,7 +10411,11 @@ export default function DesignEditor() {
         files.map((file) => file.id),
         activeFile?.id,
       );
-      if (changes.length === 0) return false;
+      if (changes.length === 0) {
+        contentUndoStackRef.current.pop();
+        prunedUndoHistory = true;
+        return false;
+      }
       contentUndoStackRef.current.pop();
       contentRedoStackRef.current = [
         ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -10347,6 +10460,7 @@ export default function DesignEditor() {
       return true;
     };
     const undoGeometry = () => {
+      if (!canUseOverviewHistory) return false;
       const entry = geometryUndoStackRef.current.pop();
       if (!entry) return false;
       geometryRedoStackRef.current = [
@@ -10366,14 +10480,25 @@ export default function DesignEditor() {
       return true;
     };
 
-    const preferred = historyOrderRef.current.pop();
-    const didUndo =
+    const undoByOrder = (preferred?: UndoRedoOrderKind) =>
       preferred === "geometry"
         ? undoGeometry() || undoContent()
-        : isContentUndoRedoOrderKind(preferred)
-          ? undoContent() || undoGeometry()
-          : undoContent() || undoGeometry();
-    if (didUndo) {
+        : preferred === "file-content"
+          ? undoContent("global") || undoGeometry()
+          : preferred === "content"
+            ? undoContent("local") || undoContent("global") || undoGeometry()
+            : undoContent() || undoGeometry();
+    let didUndo = false;
+    if (canUseOverviewHistory) {
+      while (!didUndo) {
+        const preferred = historyOrderRef.current.pop();
+        didUndo = undoByOrder(preferred);
+        if (didUndo || preferred === undefined) break;
+      }
+    } else {
+      didUndo = undoContent("local");
+    }
+    if (didUndo || prunedUndoHistory) {
       syncUndoRedoState();
     }
   }, [
@@ -10394,8 +10519,10 @@ export default function DesignEditor() {
   const handleRedo = useCallback(() => {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
-    const redoContent = () => {
-      if (um?.canRedo()) {
+    const canUseOverviewHistory = viewModeRef.current === "overview";
+    let prunedRedoHistory = false;
+    const redoContent = (scope: "any" | "local" | "global" = "any") => {
+      if (scope !== "global" && um?.canRedo()) {
         um.redo();
         if (ydoc && activeFile) {
           const next = ydoc.getText("content").toString();
@@ -10428,6 +10555,43 @@ export default function DesignEditor() {
         return true;
       }
 
+      if (!canUseOverviewHistory && scope !== "global" && activeFile?.id) {
+        const localIndex = findLastContentHistoryChangeIndex(
+          localContentRedoStackRef.current,
+          activeFile.id,
+        );
+        if (localIndex !== -1) {
+          const [entry] = localContentRedoStackRef.current.splice(
+            localIndex,
+            1,
+          );
+          if (entry) {
+            localContentUndoStackRef.current = [
+              ...localContentUndoStackRef.current.slice(
+                -(MAX_DESIGN_UNDO_STACK - 1),
+              ),
+              entry,
+            ];
+            applyLocalContentUpdate(entry.after, {
+              refreshPreview: false,
+              immediateSave: true,
+              recordHistory: false,
+            });
+            setSelectedElement((prev) => {
+              if (!prev) return prev;
+              return refreshElementInfoFromContent(entry.after, prev);
+            });
+            setHoveredElement((prev) => {
+              if (!prev) return prev;
+              return refreshElementInfoFromContent(entry.after, prev);
+            });
+            return true;
+          }
+        }
+      }
+
+      if (scope === "local") return false;
+      if (!canUseOverviewHistory) return false;
       const entry =
         contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
       if (!entry) return false;
@@ -10436,7 +10600,11 @@ export default function DesignEditor() {
         files.map((file) => file.id),
         activeFile?.id,
       );
-      if (changes.length === 0) return false;
+      if (changes.length === 0) {
+        contentRedoStackRef.current.pop();
+        prunedRedoHistory = true;
+        return false;
+      }
       contentRedoStackRef.current.pop();
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -10481,6 +10649,7 @@ export default function DesignEditor() {
       return true;
     };
     const redoGeometry = () => {
+      if (!canUseOverviewHistory) return false;
       const entry = geometryRedoStackRef.current.pop();
       if (!entry) return false;
       geometryUndoStackRef.current = [
@@ -10500,14 +10669,25 @@ export default function DesignEditor() {
       return true;
     };
 
-    const preferred = redoOrderRef.current.pop();
-    const didRedo =
+    const redoByOrder = (preferred?: UndoRedoOrderKind) =>
       preferred === "geometry"
         ? redoGeometry() || redoContent()
-        : isContentUndoRedoOrderKind(preferred)
-          ? redoContent() || redoGeometry()
-          : redoContent() || redoGeometry();
-    if (didRedo) {
+        : preferred === "file-content"
+          ? redoContent("global") || redoGeometry()
+          : preferred === "content"
+            ? redoContent("local") || redoContent("global") || redoGeometry()
+            : redoContent() || redoGeometry();
+    let didRedo = false;
+    if (canUseOverviewHistory) {
+      while (!didRedo) {
+        const preferred = redoOrderRef.current.pop();
+        didRedo = redoByOrder(preferred);
+        if (didRedo || preferred === undefined) break;
+      }
+    } else {
+      didRedo = redoContent("local");
+    }
+    if (didRedo || prunedRedoHistory) {
       syncUndoRedoState();
     }
   }, [
@@ -11772,7 +11952,7 @@ ${serializedHtml}
       },
     });
     if (!stamped.changed || stamped.content === activeContent) return;
-    applyLocalContentUpdate(stamped.content);
+    applyLocalContentUpdate(stamped.content, { recordHistory: false });
   }, [activeContent, activeFile, applyLocalContentUpdate, id, viewMode]);
   const activeCodeLayerTree = useMemo(
     () => buildCodeLayerTree(activeCodeLayerProjection),
