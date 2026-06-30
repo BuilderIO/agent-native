@@ -278,7 +278,7 @@ function FindingRow({
               )}
               aria-hidden="true"
             />
-            <span className="truncate text-[11px] text-foreground leading-snug">
+            <span className="truncate !text-[11px] text-foreground leading-snug">
               {finding.message}
             </span>
             {hasDetail && (
@@ -310,7 +310,7 @@ function FindingRow({
 
           {/* Expanded detail */}
           {expanded && finding.detail && (
-            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            <p className="mt-1 !text-[11px] leading-snug text-muted-foreground">
               {finding.detail}
             </p>
           )}
@@ -397,7 +397,7 @@ function A11ySection({
           <IconShieldCheck className="size-3.5 text-muted-foreground" />
           <span
             id="review-a11y-heading"
-            className="text-[11px] font-semibold text-foreground"
+            className="!text-[11px] font-semibold text-foreground"
           >
             Accessibility
           </span>
@@ -458,7 +458,7 @@ function A11ySection({
         {auditError && (
           <div className="flex min-h-7 items-center gap-2 rounded-[5px] px-2">
             <IconAlertCircle className="size-3.5 shrink-0 text-destructive" />
-            <span className="text-[11px] text-muted-foreground">
+            <span className="!text-[11px] text-muted-foreground">
               {auditError}
             </span>
           </div>
@@ -468,7 +468,7 @@ function A11ySection({
         {notRun && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2 text-muted-foreground/55">
             <IconShieldCheck className="size-3.5 shrink-0" />
-            <span className="truncate text-[11px]">Audit not run</span>
+            <span className="truncate !text-[11px]">Audit not run</span>
           </div>
         )}
 
@@ -476,7 +476,7 @@ function A11ySection({
         {loading && !hasFindings && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconRefresh className="size-3.5 animate-spin text-muted-foreground/50" />
-            <span className="text-[11px] text-muted-foreground/60">
+            <span className="!text-[11px] text-muted-foreground/60">
               Scanning…
             </span>
           </div>
@@ -486,7 +486,7 @@ function A11ySection({
         {!loading && !auditError && !notRun && !hasFindings && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconCheck className="size-3.5 text-emerald-500" />
-            <span className="text-[11px] text-muted-foreground">
+            <span className="!text-[11px] text-muted-foreground">
               No issues found.
             </span>
           </div>
@@ -565,7 +565,7 @@ function DiffRow({ entry }: { entry: VisualDiffEntry }) {
       >
         {cfg.label}
       </Badge>
-      <span className="truncate text-[11px] text-foreground leading-snug">
+      <span className="truncate !text-[11px] text-foreground leading-snug">
         {entry.description ?? entry.id}
       </span>
     </div>
@@ -599,7 +599,7 @@ function VisualDiffSection({
         <IconArrowsLeftRight className="size-3.5 text-muted-foreground" />
         <span
           id="review-diff-heading"
-          className="text-[11px] font-semibold text-foreground"
+          className="!text-[11px] font-semibold text-foreground"
         >
           Visual diff
         </span>
@@ -642,7 +642,7 @@ function VisualDiffSection({
         {diffError && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconAlertCircle className="size-3.5 shrink-0 text-destructive" />
-            <span className="text-[11px] text-muted-foreground">
+            <span className="!text-[11px] text-muted-foreground">
               {diffError}
             </span>
           </div>
@@ -651,14 +651,14 @@ function VisualDiffSection({
         {loading && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconRefresh className="size-3.5 animate-spin text-muted-foreground/50" />
-            <span className="text-[11px] text-muted-foreground/60">
+            <span className="!text-[11px] text-muted-foreground/60">
               Comparing…
             </span>
           </div>
         )}
 
         {!loading && !diffError && noVersionsSelected && !hasDiff && (
-          <div className="flex h-7 items-center rounded-[5px] px-2 text-[11px] text-muted-foreground/55">
+          <div className="flex h-7 items-center rounded-[5px] px-2 !text-[11px] text-muted-foreground/55">
             {hasVersions ? "Choose versions to diff" : "No versions yet"}
           </div>
         )}
@@ -666,7 +666,7 @@ function VisualDiffSection({
         {!loading && !diffError && !noVersionsSelected && !hasDiff && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconCheck className="size-3.5 text-emerald-500" />
-            <span className="text-[11px] text-muted-foreground">
+            <span className="!text-[11px] text-muted-foreground">
               No structural changes detected.
             </span>
           </div>
@@ -719,7 +719,7 @@ export function ReviewPanel({
 }: ReviewPanelProps) {
   return (
     <div
-      className={cn("flex flex-col gap-2 text-[11px]", className)}
+      className={cn("flex flex-col gap-2 !text-[11px]", className)}
       data-testid="review-panel"
     >
       <A11ySection

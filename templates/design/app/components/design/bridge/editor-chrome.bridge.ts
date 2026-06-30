@@ -1100,6 +1100,24 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     });
   }
 
+  function preservePreviousSelectedElementForShiftClick(
+    previous: Element | null,
+    next: Element | null,
+    e?: MouseEvent,
+  ): void {
+    if (
+      !e?.shiftKey ||
+      !previous ||
+      !next ||
+      previous === next ||
+      !document.documentElement.contains(previous) ||
+      isLayerInteractionBlocked(previous)
+    ) {
+      return;
+    }
+    setPassiveSelectionElements([previous].concat(passiveSelectionEls));
+  }
+
   function matchesSelectorList(
     el: Element | null,
     selectors: string[],
@@ -2675,6 +2693,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     selectedSpacingHovered = false;
     hoveredSpacingHandleKey = "";
+    var previousSelectedEl = selectedEl;
     selectedEl = selectionTargetForHit(target);
     if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
       selectedEl = null;
@@ -2682,6 +2701,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       return;
     }
     positionOverlay(selectionOverlay, selectedEl);
+    preservePreviousSelectedElementForShiftClick(
+      previousSelectedEl,
+      selectedEl,
+      e,
+    );
     postElementSelect(selectedEl, e);
   }
 
@@ -4289,8 +4313,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var startY = e.clientY;
     var didStartDrag = false;
     function selectTarget(target, ev?: MouseEvent) {
+      var previousSelectedEl = selectedEl;
       selectedEl = target;
       positionOverlay(selectionOverlay, selectedEl);
+      preservePreviousSelectedElementForShiftClick(
+        previousSelectedEl,
+        selectedEl,
+        ev,
+      );
       postElementSelect(selectedEl, ev);
     }
     function onMove(ev) {

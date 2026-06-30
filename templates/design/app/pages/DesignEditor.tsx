@@ -12400,7 +12400,7 @@ ${serializedHtml}
         : codingHandoffPreviewFallback);
   const shareExportTab = (
     <div className="space-y-3">
-      <div className="text-[11px] font-semibold uppercase text-muted-foreground">
+      <div className="!text-[11px] font-semibold uppercase text-muted-foreground">
         {"Format" /* i18n-ignore share export section label */}
       </div>
       <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -12425,11 +12425,11 @@ ${serializedHtml}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12px] font-semibold text-foreground">
                   {option.title}{" "}
-                  <span className="text-[11px] font-medium text-muted-foreground">
+                  <span className="!text-[11px] font-medium text-muted-foreground">
                     {option.extension}
                   </span>
                 </span>
-                <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                <span className="mt-0.5 block !text-[11px] leading-4 text-muted-foreground">
                   {option.description}
                 </span>
               </span>
@@ -12453,7 +12453,7 @@ ${serializedHtml}
           <div className="text-[12px] font-medium text-foreground">
             {selectedShareExportOption.title}
           </div>
-          <div className="text-[11px] text-muted-foreground">
+          <div className="!text-[11px] text-muted-foreground">
             {selectedShareExportOption.description}
           </div>
         </div>
@@ -12525,7 +12525,7 @@ ${serializedHtml}
             <div className="text-[12px] font-medium text-foreground">
               {"Download zip instead" /* i18n-ignore share send option */}
             </div>
-            <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+            <div className="mt-0.5 !text-[11px] leading-4 text-muted-foreground">
               {
                 "For agents without the Design connector, drop the bundle into your agent's chat manually." /* i18n-ignore share send option description */
               }
@@ -12555,7 +12555,7 @@ ${serializedHtml}
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
     "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-0.5 [&_[role=tablist]]:rounded-none [&_[role=tablist]]:bg-transparent [&_[role=tablist]]:p-0 " +
-    "[&_[role=tab]]:!h-6 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-2 [&_[role=tab]]:text-[11px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
+    "[&_[role=tab]]:!h-6 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-2 [&_[role=tab]]:!text-[11px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
     "[&_[role=tab]:hover]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab]:hover]:text-foreground [&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:ring-0";
   const designShareTabs = {
     shareLabel: "Share link" /* i18n-ignore share tab label */,
@@ -14373,7 +14373,7 @@ ${serializedHtml}
           className="absolute inset-x-0 top-0 h-px bg-[var(--design-editor-panel-divider-color)]"
         />
         <div className="relative flex w-full max-w-sm flex-col items-center text-center">
-          <div className="mb-2 text-[11px] font-medium uppercase text-muted-foreground">
+          <div className="mb-2 !text-[11px] font-medium uppercase text-muted-foreground">
             404
           </div>
           <h1 className="text-xl font-semibold text-foreground">
@@ -14898,7 +14898,7 @@ ${serializedHtml}
         <button
           type="button"
           aria-label={"Expand motion dock" /* i18n-ignore */}
-          className="flex h-8 w-full cursor-pointer items-center gap-2 bg-[var(--design-editor-panel-bg)] px-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
+          className="flex h-8 w-full cursor-pointer items-center gap-2 bg-[var(--design-editor-panel-bg)] px-3 text-left !text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
           disabled={motionDockLauncherHidden}
           onClick={() => setMotionDockOpenAnimated(true)}
         >
@@ -15573,7 +15573,7 @@ ${serializedHtml}
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-6 gap-1.5 px-2 text-[11px]"
+                      className="h-6 gap-1.5 px-2 !text-[11px]"
                       disabled={applyToSourcePending}
                       onClick={handleApplyToSource}
                     >
@@ -16255,7 +16255,6 @@ ${serializedHtml}
                   onActiveTabChange={setActiveInspectorTab}
                   tweaks={tweaks}
                   tweakValues={tweakSelections}
-                  canEdit={canEditDesign}
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFile?.updatedAt ?? null}
                   onComponentPropApplied={handleComponentPropApplied}
@@ -16274,7 +16273,6 @@ ${serializedHtml}
                   exporting={pngExporting || svgExporting}
                   designId={id}
                   fileId={activeFile?.id}
-                  filename={activeFile?.filename}
                   componentNodeId={selectedComponentNodeId}
                   sourceCapabilities={sourceCapabilities}
                   selectedElementAlreadyComponent={

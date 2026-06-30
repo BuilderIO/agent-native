@@ -452,7 +452,7 @@ export function MotionDock({
           {/* Collapse toggle. The label and nearby space are part of the target. */}
           <button
             type="button"
-            className="-ml-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            className="-ml-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 !text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
             onClick={() => setOpen(false)}
             aria-label="Collapse motion dock"
           >
@@ -524,7 +524,7 @@ export function MotionDock({
                     setDurationInput(String(durationMs));
                   }
                 }}
-                className="h-5 w-16 px-1 text-[11px] md:!text-[11px]"
+                className="h-5 w-16 px-1 !text-[11px] md:!text-[11px]"
                 aria-label="Duration in ms"
               />
               <span className="text-[10px] text-muted-foreground">ms</span>
@@ -596,7 +596,7 @@ export function MotionDock({
                 <IconLayersSubtract className="size-5 text-muted-foreground/40" />
                 {selectedTarget ? (
                   <>
-                    <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                    <p className="!text-[11px] text-muted-foreground/70 leading-snug">
                       Animate{" "}
                       <span className="font-medium text-foreground/80">
                         {selectedTarget.label}
@@ -610,7 +610,7 @@ export function MotionDock({
                     />
                   </>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                  <p className="!text-[11px] text-muted-foreground/70 leading-snug">
                     Select an element on the canvas, then add a track to animate
                     it.
                   </p>
@@ -732,7 +732,7 @@ function AddTrackMenu({
         type="button"
         size="sm"
         variant="secondary"
-        className="h-7 gap-1 text-[11px]"
+        className="h-7 gap-1 !text-[11px]"
         disabled={disabled}
       >
         <IconPlus className="size-3.5" />
@@ -743,7 +743,7 @@ function AddTrackMenu({
         type="button"
         size="sm"
         variant="ghost"
-        className="h-6 gap-1 px-2 text-[11px]"
+        className="h-6 gap-1 px-2 !text-[11px]"
         disabled={disabled}
       >
         <IconPlus className="size-3.5" />
@@ -850,7 +850,7 @@ function LayerGroup({
           )}
         </span>
         <span
-          className="flex-1 truncate text-[11px] font-medium"
+          className="flex-1 truncate !text-[11px] font-medium"
           title={layer.label}
         >
           {layer.label}

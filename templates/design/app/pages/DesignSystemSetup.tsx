@@ -1083,19 +1083,19 @@ function BuilderIndexPreview({
         <dt className="text-muted-foreground">
           {"Project" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.projectId}
         </dd>
         <dt className="text-muted-foreground">
           {"Job" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.jobId}
         </dd>
         <dt className="text-muted-foreground">
           {"Design system" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.designSystemId}
         </dd>
       </dl>

@@ -265,7 +265,7 @@ export function ShaderFillsPanel({
           >
             <IconArrowLeft className="size-3.5" />
           </button>
-          <span className="flex-1 truncate text-[11px] font-semibold text-foreground">
+          <span className="flex-1 truncate !text-[11px] font-semibold text-foreground">
             {preset?.label ?? active.preset}
           </span>
           <button
@@ -292,7 +292,7 @@ export function ShaderFillsPanel({
     <div className="flex flex-col">
       {/* Header: "Shader fills" title + + button + × button */}
       <div className="flex h-6 items-center gap-1 px-3">
-        <span className="flex-1 truncate text-[11px] font-semibold text-foreground">
+        <span className="flex-1 truncate !text-[11px] font-semibold text-foreground">
           {"Shader fills" /* i18n-ignore design panel title */}
         </span>
         <Tooltip>
@@ -330,7 +330,7 @@ export function ShaderFillsPanel({
             disabled={disabled}
             placeholder={"Search" /* i18n-ignore */}
             aria-label={"Search shaders" /* i18n-ignore */}
-            className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[11px] shadow-none focus-visible:ring-0 md:!text-[11px]"
+            className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 !text-[11px] shadow-none focus-visible:ring-0 md:!text-[11px]"
             onChange={(event) => setSearch(event.target.value)}
           />
           {search && (
@@ -387,7 +387,7 @@ export function ShaderFillsPanel({
             </p>
           )}
           {filtered.length === 0 ? (
-            <p className="py-4 text-center text-[11px] text-muted-foreground">
+            <p className="py-4 text-center !text-[11px] text-muted-foreground">
               {"No shaders match your search" /* i18n-ignore */}
             </p>
           ) : (

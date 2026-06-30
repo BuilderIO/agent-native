@@ -794,6 +794,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         positionOverlay(overlay, el);
       });
     }
+    function preservePreviousSelectedElementForShiftClick(previous, next, e) {
+      if (!e?.shiftKey || !previous || !next || previous === next || !document.documentElement.contains(previous) || isLayerInteractionBlocked(previous)) {
+        return;
+      }
+      setPassiveSelectionElements([previous].concat(passiveSelectionEls));
+    }
     function matchesSelectorList(el, selectors) {
       if (!el || !selectors || selectors.length === 0) return false;
       for (var i = 0; i < selectors.length; i += 1) {
@@ -1987,6 +1993,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       selectedSpacingHovered = false;
       hoveredSpacingHandleKey = "";
+      var previousSelectedEl = selectedEl;
       selectedEl = selectionTargetForHit(target);
       if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
         selectedEl = null;
@@ -1994,6 +2001,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       positionOverlay(selectionOverlay, selectedEl);
+      preservePreviousSelectedElementForShiftClick(
+        previousSelectedEl,
+        selectedEl,
+        e
+      );
       postElementSelect(selectedEl, e);
     }
     function suppressNextShieldClickBriefly() {
@@ -3244,8 +3256,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startY = e.clientY;
       var didStartDrag = false;
       function selectTarget(target, ev) {
+        var previousSelectedEl = selectedEl;
         selectedEl = target;
         positionOverlay(selectionOverlay, selectedEl);
+        preservePreviousSelectedElementForShiftClick(
+          previousSelectedEl,
+          selectedEl,
+          ev
+        );
         postElementSelect(selectedEl, ev);
       }
       function onMove(ev) {

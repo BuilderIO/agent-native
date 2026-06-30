@@ -221,7 +221,7 @@ export function ScrubInput({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
             className={cn(
-              "flex h-6 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 rounded-sm text-[11px] text-muted-foreground transition-colors",
+              "flex h-6 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 rounded-sm !text-[11px] text-muted-foreground transition-colors",
               "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
               dragging &&
                 "bg-[var(--design-editor-control-bg)] text-foreground",
@@ -262,7 +262,7 @@ export function ScrubInput({
         onKeyDown={handleKeyDown}
         className={cn(
           // Compact design-editor: h-6, 11px tabular text, ring-1 with no offset.
-          "h-6 text-[11px] tabular-nums",
+          "h-6 !text-[11px] tabular-nums",
           "focus-visible:ring-1 focus-visible:ring-offset-0",
           inputClassName,
           mixed && "text-muted-foreground",

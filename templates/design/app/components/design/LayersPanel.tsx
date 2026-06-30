@@ -925,7 +925,7 @@ export function LayersPanel({
             ))}
           </div>
         ) : (
-          <div className="px-3 py-8 text-center text-[11px] text-muted-foreground">
+          <div className="px-3 py-8 text-center !text-[11px] text-muted-foreground">
             {hasAnyRows ? labels.noMatches : labels.empty}
           </div>
         )}

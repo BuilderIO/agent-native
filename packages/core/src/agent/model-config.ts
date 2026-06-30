@@ -115,7 +115,20 @@ export function getContextWindowForModel(modelId: string): number {
   return DEFAULT_CONTEXT_WINDOW;
 }
 
-const ANTHROPIC_DEFAULT_MODEL_ID = "claude-sonnet-5";
+const ENABLE_CLAUDE_SONNET_5 = false;
+
+export const CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
+  ? "claude-sonnet-5"
+  : "claude-sonnet-4-6";
+export const CLAUDE_SONNET_MODEL_LABEL = ENABLE_CLAUDE_SONNET_5
+  ? "Claude Sonnet 5"
+  : "Claude Sonnet 4.6";
+
+const OPENROUTER_CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
+  ? "anthropic/claude-sonnet-5"
+  : "anthropic/claude-sonnet-4.6";
+
+const ANTHROPIC_DEFAULT_MODEL_ID = CLAUDE_SONNET_MODEL_ID;
 
 function builderGatewayModelId(model: string): string {
   return model.replace(/\./g, "-");
@@ -141,7 +154,7 @@ export const AGENT_MODEL_CONFIG = {
     supportedModels: [
       "auto",
       "claude-opus-4-8",
-      FRAMEWORK_DEFAULT_BUILDER_MODEL,
+      CLAUDE_SONNET_MODEL_ID,
       "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
       "gpt-5-4",
@@ -158,8 +171,7 @@ export const AGENT_MODEL_CONFIG = {
     supportedModels: [
       "claude-fable-5",
       "claude-opus-4-8",
-      ANTHROPIC_DEFAULT_MODEL_ID,
-      "claude-sonnet-4-6",
+      CLAUDE_SONNET_MODEL_ID,
       "claude-haiku-4-5-20251001",
     ],
   },
@@ -169,8 +181,7 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: [
         "claude-fable-5",
         "claude-opus-4-8",
-        ANTHROPIC_DEFAULT_MODEL_ID,
-        "claude-sonnet-4-6",
+        CLAUDE_SONNET_MODEL_ID,
         "claude-haiku-4-5-20251001",
       ],
     },
@@ -187,7 +198,7 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: [
         "anthropic/claude-fable-5",
         "anthropic/claude-opus-4.8",
-        "anthropic/claude-sonnet-5",
+        OPENROUTER_CLAUDE_SONNET_MODEL_ID,
         FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
         "openai/gpt-5.4",
         // Current stable Gemini on OpenRouter (2.5 Flash is GA)

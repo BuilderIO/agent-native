@@ -133,7 +133,6 @@ import {
 } from "./inspector";
 import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
-import { InspectorAiActions } from "./inspector/InspectorAiActions";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import { StatesPanel } from "./StatesPanel";
@@ -223,11 +222,8 @@ interface EditPanelProps {
   onStylesChange?: (styles: Record<string, string>) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
-  canEdit?: boolean;
-  /** Active file id — forwarded to InspectorAiActions for agent context. */
+  /** Active file id — used for component prop editing context. */
   fileId?: string;
-  /** Active file name (e.g. "index.html") — forwarded to InspectorAiActions. */
-  filename?: string;
   /** Latest active file HTML, used to compose rapid sequential source edits. */
   activeContent?: string;
   /** Server revision for activeContent. */
@@ -434,7 +430,7 @@ function PropInput({
           }
         }}
         placeholder={placeholder}
-        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
+        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
       />
     </div>
   );
@@ -775,7 +771,7 @@ function ColorInput({
     return (
       <button
         type="button"
-        className="flex h-6 w-full items-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] text-muted-foreground"
+        className="flex h-6 w-full items-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] text-muted-foreground"
         onClick={() => onChange("#000000")}
       >
         {MIXED_VALUE}
@@ -1097,7 +1093,7 @@ function PropSelect({
     <div className="flex items-center gap-1.5">
       <FieldLabel>{label}</FieldLabel>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+        <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -1105,7 +1101,7 @@ function PropSelect({
             <SelectItem
               key={opt.value}
               value={opt.value}
-              className="text-[11px]"
+              className="!text-[11px]"
             >
               {opt.label}
             </SelectItem>
@@ -1145,7 +1141,7 @@ function PropSlider({
         step={step}
         className="flex-1"
       />
-      <span className="w-12 text-right text-[11px] tabular-nums text-muted-foreground">
+      <span className="w-12 text-right !text-[11px] tabular-nums text-muted-foreground">
         {value}
         {unit}
       </span>
@@ -1185,7 +1181,7 @@ function PanelSection({
           onClick={() => setCollapsed((c) => !c)}
           aria-expanded={!collapsed}
         >
-          <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
+          <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
             {title}
           </h3>
         </button>
@@ -1194,7 +1190,7 @@ function PanelSection({
         ) : null}
       </div>
       {!collapsed && children ? (
-        <div className="space-y-1.5 px-3 pb-3 pt-0.5 text-[11px]">
+        <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
           {children}
         </div>
       ) : null}
@@ -1204,7 +1200,7 @@ function PanelSection({
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return (
-    <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground">
+    <Label className="w-[64px] shrink-0 !text-[11px] font-medium text-muted-foreground">
       {children}
     </Label>
   );
@@ -1212,7 +1208,7 @@ function FieldLabel({ children }: { children: ReactNode }) {
 
 function SubsectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11px] font-medium text-muted-foreground">{children}</p>
+    <p className="!text-[11px] font-medium text-muted-foreground">{children}</p>
   );
 }
 
@@ -1254,7 +1250,7 @@ function DesignSpacingControl({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-1.5">
-        <Label className="text-[11px] font-medium text-muted-foreground">
+        <Label className="!text-[11px] font-medium text-muted-foreground">
           {label}
         </Label>
         <Tooltip>
@@ -1651,7 +1647,7 @@ function ScrubStyleInput({
       precision={1}
       className="gap-0"
       labelClassName={cn(
-        "h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] tabular-nums",
+        "h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] tabular-nums",
         labelClassName,
       )}
       inputClassName={cn(
@@ -2172,7 +2168,7 @@ function CreateComponentPopover({
             <h3 className="text-[13px] font-semibold text-foreground">
               {"Create component" /* i18n-ignore design inspector action */}
             </h3>
-            <p className="text-[11px] leading-4 text-muted-foreground">
+            <p className="!text-[11px] leading-4 text-muted-foreground">
               {
                 "Name this element so it becomes a reusable component. The agent can then extract props and replace repeated instances." /* i18n-ignore design inspector copy */
               }
@@ -2181,7 +2177,7 @@ function CreateComponentPopover({
           <div className="space-y-1.5">
             <Label
               htmlFor="create-component-name"
-              className="text-[11px] font-medium text-muted-foreground"
+              className="!text-[11px] font-medium text-muted-foreground"
             >
               {"Component name" /* i18n-ignore design inspector label */}
             </Label>
@@ -2800,7 +2796,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
           {"Inspect code" /* i18n-ignore design inspector action */}
         </TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" className="w-80 space-y-2 p-2 text-[11px]">
+      <PopoverContent align="end" className="w-80 space-y-2 p-2 !text-[11px]">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
             {"Inspect code" /* i18n-ignore design inspector label */}
@@ -2859,7 +2855,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
               type="button"
               variant="outline"
               size="sm"
-              className="h-7 w-full gap-1.5 text-[11px]"
+              className="h-7 w-full gap-1.5 !text-[11px]"
             >
               <IconExternalLink className="size-3.5" />
               {"Open in VS Code" /* i18n-ignore design inspector action */}
@@ -2982,13 +2978,13 @@ function InspectorTabsHeader({
         <TabsList className="h-7 justify-start gap-0.5 rounded-none bg-transparent p-0">
           <TabsTrigger
             value="design"
-            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {"Design" /* i18n-ignore design inspector tab */}
           </TabsTrigger>
           <TabsTrigger
             value="tweaks"
-            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {t("designEditor.tweaks")}
           </TabsTrigger>
@@ -3206,23 +3202,23 @@ function TypographyDetailsPopover({
       >
         <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
           <div className="flex rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
-            <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-2.5 py-1 text-[11px] font-semibold text-foreground">
+            <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-2.5 py-1 !text-[11px] font-semibold text-foreground">
               {"Basics" /* i18n-ignore design typography details tab */}
             </span>
-            <span className="px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <span className="px-2.5 py-1 !text-[11px] font-medium text-muted-foreground">
               {"Details" /* i18n-ignore design typography details tab */}
             </span>
-            <span className="px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <span className="px-2.5 py-1 !text-[11px] font-medium text-muted-foreground">
               {"Variable" /* i18n-ignore design typography details tab */}
             </span>
           </div>
         </div>
-        <div className="space-y-3 p-4 text-[11px]">
+        <div className="space-y-3 p-4 !text-[11px]">
           <div className="flex h-20 items-center justify-center rounded-md bg-[var(--design-editor-control-bg)] text-[18px] text-muted-foreground/80">
             {"Preview" /* i18n-ignore design typography details preview */}
           </div>
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[11px] font-medium text-muted-foreground">
+            <span className="!text-[11px] font-medium text-muted-foreground">
               {"Text box" /* i18n-ignore design typography details label */}
             </span>
             <TextResizeControls
@@ -3576,7 +3572,7 @@ function StrokeLayerControl({
       {/* design stroke geometry: position + weight side by side */}
       <div className="grid grid-cols-2 gap-1.5">
         <Select value={position} onValueChange={movePosition}>
-          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -3584,7 +3580,7 @@ function StrokeLayerControl({
               <SelectItem
                 key={option.value}
                 value={option.value}
-                className="text-[11px]"
+                className="!text-[11px]"
               >
                 {option.label}
               </SelectItem>
@@ -3606,7 +3602,7 @@ function StrokeLayerControl({
           min={0}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -3754,7 +3750,7 @@ function ShadowEffectRow({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+            className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
           >
             <span
               className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
@@ -3806,7 +3802,7 @@ function ShadowEffectRow({
             <button
               type="button"
               className={cn(
-                "rounded border px-2 py-1 text-[11px]",
+                "rounded border px-2 py-1 !text-[11px]",
                 layer.inset
                   ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
                   : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground",
@@ -4045,7 +4041,7 @@ function TypographyProperties({
         >
           <SelectTrigger
             aria-label={t("editPanel.labels.font")}
-            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
           >
             <SelectValue />
           </SelectTrigger>
@@ -4054,7 +4050,7 @@ function TypographyProperties({
               <SelectItem
                 key={opt.value}
                 value={opt.value}
-                className="text-[11px]"
+                className="!text-[11px]"
               >
                 {opt.label}
               </SelectItem>
@@ -4069,7 +4065,7 @@ function TypographyProperties({
           value={styles.fontWeight || "400"}
           onValueChange={(v) => onStyleChange("fontWeight", v)}
         >
-          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -4077,7 +4073,7 @@ function TypographyProperties({
               <SelectItem
                 key={opt.value}
                 value={opt.value}
-                className="text-[11px]"
+                className="!text-[11px]"
               >
                 {opt.label}
               </SelectItem>
@@ -4096,7 +4092,7 @@ function TypographyProperties({
           min={1}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -4115,7 +4111,7 @@ function TypographyProperties({
           step={0.1}
           precision={2}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
         <ScrubInput
@@ -4129,7 +4125,7 @@ function TypographyProperties({
           unit="px"
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -4654,7 +4650,7 @@ function LayoutGuideProperties({
       }
     >
       {active ? (
-        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 !text-[11px] text-muted-foreground">
           <IconLayoutGrid className="size-3.5 shrink-0" />
           <span className="min-w-0 flex-1 truncate text-foreground">
             {"Columns" /* i18n-ignore design inspector label */}
@@ -4662,7 +4658,7 @@ function LayoutGuideProperties({
           <span className="shrink-0 tabular-nums">12</span>
         </div>
       ) : (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="!text-[11px] text-muted-foreground">
           {"No layout guides" /* i18n-ignore design inspector empty state */}
         </p>
       )}
@@ -5158,7 +5154,7 @@ function FillProperties({
       }
     >
       {fillIsMixed ? (
-        <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
+        <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
             "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
           }
@@ -5276,7 +5272,7 @@ function FillProperties({
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
                         >
                           <span
                             className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
@@ -5544,7 +5540,7 @@ function StrokeProperties({
       }
     >
       {strokeIsMixed ? (
-        <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
+        <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
             "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
           }
@@ -5627,10 +5623,10 @@ function AppearanceProperties({
       }
     >
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5">
-        <p className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
+        <p className="min-w-0 truncate !text-[11px] font-medium text-muted-foreground">
           {t("editPanel.labels.opacity")}
         </p>
-        <p className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
+        <p className="min-w-0 truncate !text-[11px] font-medium text-muted-foreground">
           {t("editPanel.labels.cornerRadius")}
         </p>
         <span aria-hidden="true" />
@@ -5713,21 +5709,21 @@ function EffectsProperties({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-44">
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addDropShadow}
             >
               <IconShadow className="size-3.5" />
               {t("editPanel.labels.dropShadow")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addLayerBlur}
             >
               <IconBlur className="size-3.5" />
               {t("editPanel.labels.layerBlur")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addBackgroundBlur}
             >
               <IconBackground className="size-3.5" />
@@ -5803,7 +5799,7 @@ function EffectsProperties({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {t("editPanel.labels.layerBlur")}
@@ -5888,7 +5884,7 @@ function EffectsProperties({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {"Background blur" /* i18n-ignore design effect type */}
@@ -6039,7 +6035,7 @@ function SelectionColorsProperties({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
                     aria-label={color.value}
                   >
                     <span
@@ -6072,7 +6068,7 @@ function SelectionColorsProperties({
       ) : (
         <button
           type="button"
-          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
+          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left !text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
           onClick={() => setExpanded(true)}
         >
           <span className="truncate">
@@ -6696,7 +6692,7 @@ export function ComponentSection({
           className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
           aria-hidden="true"
         />
-        <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
+        <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
           {name}
         </h3>
         {/* Jump-to-source action */}
@@ -6734,7 +6730,7 @@ export function ComponentSection({
       </div>
 
       {/* ── Body ── */}
-      <div className="space-y-1.5 px-3 pb-3 pt-0.5 text-[11px]">
+      <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
         {/* Source path chip */}
         {sourceChip && (
           <div
@@ -6762,7 +6758,7 @@ export function ComponentSection({
               const disabled = !editingEnabled || applyPropMutation.isPending;
               return (
                 <div key={row.name} className="flex items-center gap-1.5">
-                  <Label className="w-[64px] shrink-0 truncate text-[11px] font-medium capitalize text-muted-foreground">
+                  <Label className="w-[64px] shrink-0 truncate !text-[11px] font-medium capitalize text-muted-foreground">
                     {row.name}
                   </Label>
                   {hasOptions ? (
@@ -6772,7 +6768,7 @@ export function ComponentSection({
                       onValueChange={(v) => commitProp(row, v)}
                       disabled={disabled}
                     >
-                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -6780,7 +6776,7 @@ export function ComponentSection({
                           <SelectItem
                             key={opt}
                             value={opt}
-                            className="text-[11px]"
+                            className="!text-[11px]"
                           >
                             {opt}
                           </SelectItem>
@@ -6815,7 +6811,7 @@ export function ComponentSection({
                           e.currentTarget.blur();
                         }
                       }}
-                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
+                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
                     />
                   )}
                 </div>
@@ -6852,9 +6848,7 @@ export function EditPanel({
   onStylesChange,
   onExport,
   exporting = false,
-  canEdit = true,
   fileId,
-  filename,
   activeContent,
   activeFileUpdatedAt,
   designId,
@@ -7120,19 +7114,6 @@ export function EditPanel({
                     element={inspectorElement}
                     onStyleChange={onStyleChange}
                   />
-                ) : null}
-                {/* AI edit request block — collapsible, collapsed by default */}
-                {selectedCount <= 1 ? (
-                  <section className="shrink-0 border-t border-[var(--design-editor-control-border)]">
-                    <InspectorAiActions
-                      selector={inspectorElement.selector}
-                      sourceId={inspectorElement.sourceId}
-                      designId={designId}
-                      fileId={fileId}
-                      filename={filename}
-                      canEdit={canEdit}
-                    />
-                  </section>
                 ) : null}
               </>
             )}

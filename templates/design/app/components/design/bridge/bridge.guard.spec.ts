@@ -334,3 +334,84 @@ it(
     }
   },
 );
+
+it(
+  "editor chrome bridge keeps the previous primary outlined during shift-click multi-select",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      .box { position: absolute; width: 120px; height: 80px; background: #e9eef8; }
+      #first { left: 120px; top: 140px; }
+      #second { left: 320px; top: 140px; }
+    </style>
+  </head>
+  <body>
+    <div id="first" class="box" data-agent-native-node-id="first">First</div>
+    <div id="second" class="box" data-agent-native-node-id="second">Second</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#first",
+            selectorCandidates: ["#first"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.keyboard.down("Shift");
+      await page.mouse.click(340, 160);
+      await page.keyboard.up("Shift");
+
+      const previousPrimaryHasPassiveOverlay = await page.evaluate(() => {
+        const first = document.querySelector("#first");
+        if (!first) return false;
+        const firstRect = first.getBoundingClientRect();
+        return Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-agent-native-edit-overlay="multi-selection"]',
+          ),
+        ).some((overlay) => {
+          if (window.getComputedStyle(overlay).display === "none") return false;
+          const rect = overlay.getBoundingClientRect();
+          return (
+            Math.abs(rect.left - firstRect.left) < 1 &&
+            Math.abs(rect.top - firstRect.top) < 1 &&
+            Math.abs(rect.width - firstRect.width) < 1 &&
+            Math.abs(rect.height - firstRect.height) < 1
+          );
+        });
+      });
+
+      expect(previousPrimaryHasPassiveOverlay).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);

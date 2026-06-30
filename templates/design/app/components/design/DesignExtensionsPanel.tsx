@@ -581,15 +581,15 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
       <Tabs defaultValue="native" className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-border/60 px-2 py-1.5">
           <TabsList className="grid h-7 w-full grid-cols-3 rounded-md p-0.5">
-            <TabsTrigger value="native" className="h-6 gap-1 px-2 text-[11px]">
+            <TabsTrigger value="native" className="h-6 gap-1 px-2 !text-[11px]">
               <IconAssembly className="size-3" />
               Native
             </TabsTrigger>
-            <TabsTrigger value="media" className="h-6 gap-1 px-2 text-[11px]">
+            <TabsTrigger value="media" className="h-6 gap-1 px-2 !text-[11px]">
               <IconPhoto className="size-3" />
               Media
             </TabsTrigger>
-            <TabsTrigger value="figma" className="h-6 gap-1 px-2 text-[11px]">
+            <TabsTrigger value="figma" className="h-6 gap-1 px-2 !text-[11px]">
               <IconBrandFigma className="size-3" />
               Figma
             </TabsTrigger>
@@ -631,7 +631,7 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5">
-                      <span className="truncate text-[11px] font-medium leading-tight text-foreground">
+                      <span className="truncate !text-[11px] font-medium leading-tight text-foreground">
                         {asset.title}
                       </span>
                       <span className="shrink-0 rounded border border-border/70 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
@@ -678,19 +678,19 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
               value={figmaFileInput}
               onChange={(event) => setFigmaFileInput(event.target.value)}
               placeholder="Figma file URL or key"
-              className="h-7 text-[11px] md:!text-[11px]"
+              className="h-7 !text-[11px] md:!text-[11px]"
             />
             <div className="flex gap-1.5">
               <Input
                 value={figmaQueryInput}
                 onChange={(event) => setFigmaQueryInput(event.target.value)}
                 placeholder="Search components"
-                className="h-7 min-w-0 flex-1 text-[11px] md:!text-[11px]"
+                className="h-7 min-w-0 flex-1 !text-[11px] md:!text-[11px]"
               />
               <Button
                 type="submit"
                 size="sm"
-                className="h-7 cursor-pointer gap-1 px-2 text-[11px]"
+                className="h-7 cursor-pointer gap-1 px-2 !text-[11px]"
                 disabled={!figmaFileInput.trim() || figmaAssets.isFetching}
               >
                 <IconSearch className="size-3" />
@@ -949,7 +949,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           <Button
             type="button"
             size="sm"
-            className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+            className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
             onClick={() => setShowShaders(true)}
           >
             <IconSparkles className="size-3" />
@@ -991,7 +991,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           <Button
             type="button"
             size="sm"
-            className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+            className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
             disabled={!previewMatchesTarget || applyShaderFill.isPending}
             onClick={() => {
               if (previewMatchesTarget && previewed) {
@@ -1056,7 +1056,7 @@ function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
         <Button
           type="button"
           size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+          className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
           onClick={handleAskAgent}
         >
           <IconSparkles className="size-3" />
@@ -1111,7 +1111,7 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
         <Button
           type="button"
           size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+          className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
           onClick={handleAskAgent}
         >
           <IconSparkles className="size-3" />

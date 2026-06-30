@@ -5041,7 +5041,7 @@ export function MultiScreenCanvas({
           }}
         >
           <div className="flex h-full w-full items-start justify-between rounded-lg bg-muted/20 p-2">
-            <span className="max-w-[190px] truncate text-[11px] font-medium text-foreground">
+            <span className="max-w-[190px] truncate !text-[11px] font-medium text-foreground">
               {duplicatePreview.display}
             </span>
             <span className="flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
@@ -5059,7 +5059,7 @@ export function MultiScreenCanvas({
       {transformBadge ? (
         <div
           data-transform-badge
-          className="pointer-events-none fixed z-50 rounded border border-border bg-background/95 px-1.5 py-0.5 font-mono text-[11px] leading-5 text-foreground shadow-lg backdrop-blur"
+          className="pointer-events-none fixed z-50 rounded border border-border bg-background/95 px-1.5 py-0.5 font-mono !text-[11px] leading-5 text-foreground shadow-lg backdrop-blur"
           style={{ left: transformBadge.x, top: transformBadge.y }}
         >
           {transformBadge.text}
@@ -5630,7 +5630,7 @@ const Screen = memo(function Screen({
           <span
             data-frame-title
             className={cn(
-              "min-w-0 truncate text-[11px] font-medium",
+              "min-w-0 truncate !text-[11px] font-medium",
               emphasized
                 ? "text-[var(--design-editor-accent-color)]"
                 : activeOrEmphasized
@@ -5976,7 +5976,7 @@ function BreakpointPreviewRow({
                 />
                 <span
                   className={cn(
-                    "truncate text-[11px] font-medium",
+                    "truncate !text-[11px] font-medium",
                     isActive
                       ? "text-[var(--design-editor-accent-color)]"
                       : "text-muted-foreground",

@@ -5,6 +5,7 @@ import {
   AI_SDK_MODEL_CONFIG,
   ANTHROPIC_MODEL_CONFIG,
   BUILDER_MODEL_CONFIG,
+  CLAUDE_SONNET_MODEL_ID,
   DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_MODEL,
   DEFAULT_OPENAI_MODEL,
@@ -102,8 +103,18 @@ describe("agent model config catalog", () => {
   });
 
   it("keeps the Builder catalog aligned to the gateway allow-list", () => {
+    const hiddenSonnetModel =
+      CLAUDE_SONNET_MODEL_ID === "claude-sonnet-5"
+        ? "claude-sonnet-4-6"
+        : "claude-sonnet-5";
+
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("auto");
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-sonnet-5");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(
+      CLAUDE_SONNET_MODEL_ID,
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      hiddenSonnetModel,
+    );
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
@@ -139,7 +150,11 @@ describe("agent model config catalog", () => {
   it("includes current OpenRouter curated entries", () => {
     const openrouterModels = AI_SDK_MODEL_CONFIG.openrouter
       .supportedModels as readonly string[];
-    expect(openrouterModels).toContain("anthropic/claude-sonnet-5");
+    expect(openrouterModels).toContain(
+      CLAUDE_SONNET_MODEL_ID === "claude-sonnet-5"
+        ? "anthropic/claude-sonnet-5"
+        : "anthropic/claude-sonnet-4.6",
+    );
     expect(openrouterModels).toContain("google/gemini-2.5-flash");
   });
 });

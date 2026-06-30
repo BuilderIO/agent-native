@@ -200,7 +200,7 @@ function TokenRow({
       {/* Friendly name */}
       <button
         type="button"
-        className="min-w-0 flex-1 cursor-pointer truncate bg-transparent p-0 text-left text-[11px] text-foreground"
+        className="min-w-0 flex-1 cursor-pointer truncate bg-transparent p-0 text-left !text-[11px] text-foreground"
         onClick={onStartEdit}
         aria-label={`Edit ${token.name}`}
         title={token.name}
@@ -220,7 +220,7 @@ function TokenRow({
             if (e.key === "Escape") onCancelEdit();
           }}
           onBlur={onCommit}
-          className="h-5 w-24 px-1 py-0 text-[11px] font-mono md:!text-[11px]"
+          className="h-5 w-24 px-1 py-0 !text-[11px] font-mono md:!text-[11px]"
         />
       ) : (
         <button
@@ -360,7 +360,7 @@ function NewTokenPopover({ onAdd }: NewTokenPopoverProps) {
           type="button"
           variant="ghost"
           size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+          className="h-6 cursor-pointer gap-1 px-2 !text-[11px] text-muted-foreground hover:text-foreground"
         >
           <IconPlus className="size-3" />
           {t("designEditor.tokens.newToken")}
@@ -375,7 +375,7 @@ function NewTokenPopover({ onAdd }: NewTokenPopoverProps) {
             <Input
               value={cssVar}
               onChange={(e) => setCssVar(e.target.value)}
-              className="h-6 font-mono text-[11px] md:!text-[11px]"
+              className="h-6 font-mono !text-[11px] md:!text-[11px]"
               placeholder="--my-token"
             />
           </div>
@@ -386,13 +386,13 @@ function NewTokenPopover({ onAdd }: NewTokenPopoverProps) {
             <Input
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              className="h-6 font-mono text-[11px] md:!text-[11px]"
+              className="h-6 font-mono !text-[11px] md:!text-[11px]"
               placeholder="#3B82F6"
             />
           </div>
           <Button
             type="button"
-            className="h-7 w-full cursor-pointer text-[11px]"
+            className="h-7 w-full cursor-pointer !text-[11px]"
             onClick={handleAdd}
             disabled={!cssVar || !value}
           >
@@ -506,7 +506,7 @@ function ImportTokensPopover({
       <PopoverContent align="end" className="w-72 p-3 text-[12px]">
         <div className="space-y-3">
           <div className="space-y-1">
-            <p className="text-[11px] font-medium text-foreground">
+            <p className="!text-[11px] font-medium text-foreground">
               {t("designEditor.tokens.importTitle")}
             </p>
             <p className="text-[10px] leading-snug text-muted-foreground">
@@ -575,11 +575,11 @@ function ImportTokensPopover({
               value={text}
               onChange={(event) => setText(event.target.value)}
               placeholder={t("designEditor.tokens.pastePlaceholder")}
-              className="min-h-24 resize-none font-mono text-[11px]"
+              className="min-h-24 resize-none font-mono !text-[11px]"
             />
             <Button
               type="button"
-              className="h-7 w-full cursor-pointer text-[11px]"
+              className="h-7 w-full cursor-pointer !text-[11px]"
               disabled={isPending || !text.trim()}
               onClick={() => void runImport(() => onImportText(text))}
             >
@@ -720,7 +720,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
       <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
         <div className="flex items-center gap-1.5">
           <IconCode className="size-3.5 text-muted-foreground/60" />
-          <span className="text-[11px] font-semibold text-foreground">
+          <span className="!text-[11px] font-semibold text-foreground">
             {t("designEditor.tokens.title")}
           </span>
           {tokenCount > 0 && (
@@ -772,7 +772,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         {!isLoading && groups.length === 0 && (
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
             <IconPalette className="size-6 text-muted-foreground/30" />
-            <p className="text-[11px] leading-snug text-muted-foreground/60">
+            <p className="!text-[11px] leading-snug text-muted-foreground/60">
               {t("designEditor.tokens.empty")}
             </p>
             <p className="text-[10px] text-muted-foreground/40">

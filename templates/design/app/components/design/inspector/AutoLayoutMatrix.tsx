@@ -575,7 +575,7 @@ export function AutoLayoutMatrix({
 
         {/* ── Clip content ── */}
         {showChildLayoutControls ? (
-          <label className="flex h-6 cursor-pointer items-center gap-2 text-[11px] text-foreground">
+          <label className="flex h-6 cursor-pointer items-center gap-2 !text-[11px] text-foreground">
             <Checkbox
               checked={Boolean(value.clipContent)}
               disabled={disabled}
@@ -818,7 +818,7 @@ function AlignmentBars({
 /** Small uppercase muted section label, 11px. */
 function ControlLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="block text-[11px] font-medium text-muted-foreground">
+    <span className="block !text-[11px] font-medium text-muted-foreground">
       {children}
     </span>
   );
@@ -913,7 +913,7 @@ function GapField({
           disabled={disabled}
           className="min-w-0 flex-1 gap-0"
           labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
-          inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+          inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
         />
         {onDistribute != null ? (
           <DropdownMenu>
@@ -1028,7 +1028,7 @@ function PaddingField({
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
         labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
-        inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+        inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
     </div>
   );
@@ -1241,7 +1241,7 @@ export function SizingField({
           <div
             className={cn(
               "flex h-7 w-full items-center overflow-hidden rounded-md",
-              "bg-[var(--design-editor-control-bg)] text-[11px]",
+              "bg-[var(--design-editor-control-bg)] !text-[11px]",
               disabled && "pointer-events-none opacity-40",
             )}
           >
@@ -1261,7 +1261,7 @@ export function SizingField({
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
               labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
-              inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+              inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
             />
             {/* Caret opens the mode picker */}
             <Tooltip>
@@ -1303,7 +1303,7 @@ export function SizingField({
                   disabled={disabled}
                   className={cn(
                     "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
-                    "bg-[var(--design-editor-control-bg)] text-[11px]",
+                    "bg-[var(--design-editor-control-bg)] !text-[11px]",
                     "hover:bg-[var(--design-editor-panel-raised-bg)]",
                     "disabled:pointer-events-none disabled:opacity-40",
                     "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
@@ -1434,7 +1434,7 @@ function ConstraintSubRow({
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
         labelClassName="hidden"
-        inputClassName="h-5 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+        inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>
         <TooltipTrigger asChild>
