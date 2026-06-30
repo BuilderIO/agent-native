@@ -820,15 +820,15 @@ export const LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT = `
 export function appendHitTestResponder(html: string): string {
   if (html.includes("</body>")) {
     return html.replace(
-      "</body>",
-      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT + "</body>",
-    ); // i18n-ignore generated iframe HTML injection
+      "</body>", // i18n-ignore generated iframe HTML marker
+      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT + "</body>", // i18n-ignore generated iframe HTML injection
+    );
   }
   if (html.includes("</html>")) {
     return html.replace(
-      "</html>",
-      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT + "</html>",
-    ); // i18n-ignore generated iframe HTML injection
+      "</html>", // i18n-ignore generated iframe HTML marker
+      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT + "</html>", // i18n-ignore generated iframe HTML injection
+    );
   }
   return html + LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT;
 }
@@ -1162,6 +1162,9 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         color: cs.color,
         backgroundColor: cs.backgroundColor,
         backgroundImage: cs.backgroundImage,
+        backgroundPosition: cs.backgroundPosition,
+        backgroundRepeat: cs.backgroundRepeat,
+        backgroundSize: cs.backgroundSize,
         backgroundBlendMode: cs.backgroundBlendMode,
         fontSize: cs.fontSize,
         fontFamily: cs.fontFamily,

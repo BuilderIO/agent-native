@@ -159,8 +159,40 @@ function isWrappedByLabel(
   return labelCloseAfterInput !== -1;
 }
 
-/** Check interactive elements that are likely too small for touch targets (< ~44px heuristic via Tailwind class). */
-function checkTapTargets(html: string): A11yFinding[] {
+/**
+ * Whether an interactive element already declares a minimum size that meets the
+ * 44px tap-target floor. This recognises exactly what the inline auto-fix adds
+ * (`min-h-[44px] min-w-[44px]`) plus equivalents — arbitrary `min-h`/`min-w`
+ * values in px/rem/em ≥ 44px, the Tailwind spacing scale (`min-h-11` = 44px on a
+ * 4px step), and full-bleed minimums (`min-h-full` / `min-h-screen`). Without
+ * this, a fixed element keeps its original tiny `h-4` class and the audit would
+ * re-flag it forever, so the audit↔fix loop would never converge.
+ */
+function hasAdequateMinTapSize(tag: string): boolean {
+  // Arbitrary values: min-h-[44px], min-w-[2.75rem], etc.
+  const arbitraryPattern = /\bmin-(?:h|w)-\[([\d.]+)(px|rem|em)\]/gi;
+  let m: RegExpExecArray | null;
+  while ((m = arbitraryPattern.exec(tag)) !== null) {
+    const value = Number.parseFloat(m[1] ?? "");
+    if (!Number.isFinite(value)) continue;
+    const px = m[2]?.toLowerCase() === "px" ? value : value * 16;
+    if (px >= 44) return true;
+  }
+  // Tailwind spacing scale: min-h-11 / min-w-11 = 2.75rem = 44px (4px per step).
+  const scalePattern = /\bmin-(?:h|w)-(\d+)\b/gi;
+  while ((m = scalePattern.exec(tag)) !== null) {
+    if (Number.parseInt(m[1] ?? "", 10) * 4 >= 44) return true;
+  }
+  // Full-bleed minimums always clear the tap floor.
+  return /\bmin-(?:h|w)-(?:full|screen)\b/.test(tag);
+}
+
+/**
+ * Check interactive elements that are likely too small for touch targets
+ * (< ~44px heuristic via Tailwind class). Exported for unit tests that assert
+ * the audit↔fix loop converges (a fixed element must stop being flagged).
+ */
+export function checkTapTargets(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
   // Heuristic: buttons/links with explicit tiny size classes (h-4, h-5, w-4, w-5, size-4, size-5)
   // and no explicit larger override or sr-only are flagged.
@@ -174,7 +206,8 @@ function checkTapTargets(html: string): A11yFinding[] {
     if (
       tinyPattern.test(tag) &&
       !largePattern.test(tag) &&
-      !srOnlyPattern.test(tag)
+      !srOnlyPattern.test(tag) &&
+      !hasAdequateMinTapSize(tag)
     ) {
       findings.push({
         id: `tap-target:interactive-${idx}`,

@@ -117,15 +117,16 @@ describe("DesignEditor overview enter target", () => {
 });
 
 describe("DesignEditor sidebar code layer selection", () => {
-  it("preserves all-screens view when selecting a nested layer", () => {
+  it("keeps the owning screen selected when selecting a nested layer in overview", () => {
     expect(
       getSidebarCodeLayerSelectionState({
         currentViewMode: "overview",
+        ownerFileId: "screen-a",
         overviewSelectedScreenIds: ["previous-screen"],
       }),
     ).toEqual({
       viewMode: "overview",
-      overviewSelectedScreenIds: [],
+      overviewSelectedScreenIds: ["screen-a"],
     });
   });
 
@@ -556,6 +557,7 @@ describe("DesignEditor element canonicalization", () => {
 
     expect(refreshed?.computedStyles.color).toBe("blue");
     expect(refreshed?.computedStyles["background-color"]).toBe("yellow");
+    expect(refreshed?.computedStyles.backgroundColor).toBe("yellow");
   });
 
   it("does not retain stale computed styles after the source style is removed", () => {
@@ -579,6 +581,51 @@ describe("DesignEditor element canonicalization", () => {
     expect(refreshed?.computedStyles.color).toBeUndefined();
   });
 
+  it("preserves live computed styles for class-backed source nodes", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: ["hero"],
+      computedStyles: { color: "rgb(10, 20, 30)", fontSize: "32px" },
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Hero",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section class="hero" data-agent-native-node-id="hero">Hero</section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.computedStyles.color).toBe("rgb(10, 20, 30)");
+    expect(refreshed?.computedStyles.fontSize).toBe("32px");
+  });
+
+  it("drops stale class-backed computed styles when the source class is removed", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: ["hero"],
+      computedStyles: { color: "rgb(10, 20, 30)", fontSize: "32px" },
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Hero",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section data-agent-native-node-id="hero">Hero</section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.classes).toEqual([]);
+    expect(refreshed?.computedStyles.color).toBeUndefined();
+    expect(refreshed?.computedStyles.fontSize).toBeUndefined();
+  });
+
   it("parses inline style declarations without carrying stale properties", () => {
     expect(parseInlineStyleAttribute(" color : red ; width: 20px; ")).toEqual({
       color: "red",
@@ -589,13 +636,13 @@ describe("DesignEditor element canonicalization", () => {
 });
 
 describe("DesignEditor undo order helpers", () => {
-  it("removes stale content entries without disturbing geometry entries", () => {
+  it("removes stale active content entries without disturbing file content or geometry entries", () => {
     expect(
       removeUndoRedoOrderKind(
-        ["content", "geometry", "content", "geometry"],
+        ["content", "geometry", "file-content", "content", "geometry"],
         "content",
       ),
-    ).toEqual(["geometry", "geometry"]);
+    ).toEqual(["geometry", "file-content", "geometry"]);
   });
 });
 

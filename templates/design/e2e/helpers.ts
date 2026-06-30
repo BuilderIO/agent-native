@@ -140,6 +140,30 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
       { timeout: 20_000 },
     )
     .toBeGreaterThan(0);
+  const overviewChromeVisible = await page
+    .getByRole("button", { name: "Full view", exact: true })
+    .first()
+    .isVisible()
+    .catch(() => false);
+  if (overviewChromeVisible) {
+    await expect(page.locator("[data-frame-shell]").first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect
+      .poll(
+        async () => {
+          const box = await page
+            .locator("[data-frame-shell]")
+            .first()
+            .locator("[data-screen-card]")
+            .boundingBox();
+          return box && box.width > 0 && box.height > 0;
+        },
+        { timeout: 10_000 },
+      )
+      .toBeTruthy();
+    await page.waitForTimeout(750);
+  }
 }
 
 export async function enterDirectMode(page: Page): Promise<void> {
@@ -220,6 +244,15 @@ export async function selectByText(page: Page, text: string): Promise<any> {
   await page.evaluate(() => ((window as any).__bridge = []));
   const target = designFrame(page).getByText(text, { exact: false }).first();
   await target.waitFor({ state: "visible", timeout: 8_000 });
+  await expect
+    .poll(
+      async () =>
+        target.evaluate((element) =>
+          Boolean(element.closest("[data-agent-native-node-id]")),
+        ),
+      { timeout: 15_000 },
+    )
+    .toBeTruthy();
   const box = await target.boundingBox();
   if (!box) throw new Error(`no bounding box for "${text}"`);
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);

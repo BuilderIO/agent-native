@@ -6,7 +6,6 @@ import {
   parseGradientCss,
 } from "./GradientEditor";
 import {
-  imageFillToBackgroundStyles,
   imageFillToCss,
   parseImageFillCss,
   type ImageFillValue,
@@ -110,14 +109,39 @@ describe("image fill serialization", () => {
     expect(parseImageFillCss(fill)?.fit).toBe("fill");
   });
 
-  it("preserves fit markers in longhand background styles", () => {
-    const styles = imageFillToBackgroundStyles({
-      url: "https://x.test/a.png",
-      fit: "crop",
-    });
+  it("hydrates fit from computed-style-like longhands without a marker", () => {
+    expect(
+      parseImageFillCss({
+        backgroundImage: 'url("https://x.test/a.png")',
+        backgroundSize: "contain",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      })?.fit,
+    ).toBe("fit");
+  });
 
-    expect(styles.backgroundImage).toContain("agent-native-image-fit:crop");
-    expect(parseImageFillCss(styles.backgroundImage)?.fit).toBe("crop");
+  it("hydrates tile from computed-style-like longhands without a marker", () => {
+    expect(
+      parseImageFillCss({
+        backgroundImage: 'url("https://x.test/a.png")',
+        backgroundSize: "auto",
+        backgroundRepeat: "repeat",
+        backgroundPosition: "top left",
+      })?.fit,
+    ).toBe("tile");
+  });
+
+  it("hydrates tile from normalized computed background positions", () => {
+    for (const position of ["0% 0%", "left top", "0px 0px"]) {
+      expect(
+        parseImageFillCss({
+          backgroundImage: 'url("https://x.test/a.png")',
+          backgroundSize: "auto",
+          backgroundRepeat: "repeat",
+          backgroundPosition: position,
+        })?.fit,
+      ).toBe("tile");
+    }
   });
 
   it("returns transparent for empty url", () => {

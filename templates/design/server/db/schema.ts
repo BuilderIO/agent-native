@@ -179,6 +179,28 @@ export const designState = table("design_state", {
 });
 
 /**
+ * Localhost write-consent grants minted when the user explicitly allows file
+ * writes for a specific design + connection pair. Expire after 8 hours.
+ * Only HTML/CSS files may be written (enforced at the action layer).
+ */
+export const designLocalhostWriteGrants = table(
+  "design_localhost_write_grants",
+  {
+    id: text("id").primaryKey(),
+    designId: text("design_id").notNull(),
+    connectionId: text("connection_id").notNull(),
+    /** Filesystem root that was visible when the grant was created. */
+    rootPath: text("root_path").notNull(),
+    /** Short-lived token passed in the X-Bridge-Token header. */
+    bridgeToken: text("bridge_token").notNull(),
+    /** ISO timestamp after which the grant is considered expired (8 hours). */
+    grantedUntil: text("granted_until").notNull(),
+    createdAt: text("created_at").default(now()),
+    ...ownableColumns(),
+  },
+);
+
+/**
  * Cached accessibility audit + visual diff results for a design.
  * Keyed by design + optional base/compare design_versions pair + source ref.
  * status: 'pending' | 'ready' | 'error'

@@ -139,6 +139,10 @@ export interface DesignColorPickerProps {
   onChange: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
   onImageFillChange?: (value: ImageFillValue) => void;
+  backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundRepeat?: string;
+  backgroundPosition?: string;
   label?: string;
   opacity?: number;
   onOpacityChange?: (opacity: number) => void;
@@ -684,6 +688,10 @@ export function DesignColorPicker({
   onChange,
   onPaintValueChange,
   onImageFillChange,
+  backgroundImage,
+  backgroundSize,
+  backgroundRepeat,
+  backgroundPosition,
   label: _label,
   opacity,
   onOpacityChange,
@@ -723,7 +731,27 @@ export function DesignColorPicker({
   )
     ? blendMode
     : "normal";
-  const parsedImageFill = useMemo(() => parseImageFillCss(value), [value]);
+  const parsedImageFill = useMemo(
+    () =>
+      backgroundImage !== undefined ||
+      backgroundSize !== undefined ||
+      backgroundRepeat !== undefined ||
+      backgroundPosition !== undefined
+        ? parseImageFillCss({
+            backgroundImage: backgroundImage ?? value,
+            backgroundSize,
+            backgroundRepeat,
+            backgroundPosition,
+          })
+        : parseImageFillCss(value),
+    [
+      backgroundImage,
+      backgroundPosition,
+      backgroundRepeat,
+      backgroundSize,
+      value,
+    ],
+  );
 
   const [mode, setMode] = useState<DesignColorMode>("hex");
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));

@@ -34,6 +34,10 @@ import {
 } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
 import {
+  parseBoardObjects,
+  type BoardObjectEntry,
+} from "@shared/board-objects";
+import {
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
   type CanvasFrameGeometryById,
@@ -152,6 +156,10 @@ import {
   type LayersPanelMoveIntent,
   type LayersPanelNode,
 } from "@/components/design/LayersPanel";
+import {
+  LocalhostWriteConsentDialog,
+  type LocalhostWriteConsentPayload,
+} from "@/components/design/LocalhostWriteConsentDialog";
 import { LocalSourceEditBanner } from "@/components/design/LocalSourceEditBanner";
 import {
   MotionDock,
@@ -341,13 +349,16 @@ export function getOverviewEnterTarget(args: {
 
 export function getSidebarCodeLayerSelectionState(args: {
   currentViewMode: "single" | "overview";
+  ownerFileId?: string | null;
   overviewSelectedScreenIds: string[];
 }) {
-  const { currentViewMode, overviewSelectedScreenIds } = args;
+  const { currentViewMode, ownerFileId, overviewSelectedScreenIds } = args;
   return {
     viewMode: currentViewMode,
     overviewSelectedScreenIds:
-      currentViewMode === "overview" ? [] : overviewSelectedScreenIds,
+      currentViewMode === "overview" && ownerFileId
+        ? [ownerFileId]
+        : overviewSelectedScreenIds,
   };
 }
 
@@ -464,6 +475,14 @@ export function removeUndoRedoOrderKind<T extends string>(
   kind: T,
 ): T[] {
   return order.filter((entry) => entry !== kind);
+}
+
+type UndoRedoOrderKind = "content" | "file-content" | "geometry";
+
+function isContentUndoRedoOrderKind(
+  kind: UndoRedoOrderKind | undefined,
+): kind is "content" | "file-content" {
+  return kind === "content" || kind === "file-content";
 }
 
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
@@ -2061,6 +2080,36 @@ function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   };
 }
 
+function camelCaseCssProperty(property: string): string {
+  return property.replace(/-([a-z])/g, (_, letter: string) =>
+    letter.toUpperCase(),
+  );
+}
+
+function cssStyleAliases(
+  styles: Record<string, string>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [property, value] of Object.entries(styles)) {
+    result[property] = value;
+    if (property.includes("-")) {
+      result[camelCaseCssProperty(property)] = value;
+    }
+  }
+  return result;
+}
+
+function refreshedComputedStyles(
+  info: ElementInfo,
+  sourceStyles: Record<string, string>,
+  sourceClasses: readonly string[],
+): Record<string, string> {
+  const sourceWithAliases = cssStyleAliases(sourceStyles);
+  return sourceClasses.length > 0
+    ? { ...info.computedStyles, ...sourceWithAliases }
+    : sourceWithAliases;
+}
+
 function codeLayerNodeMatchesBridgeTarget(
   node: CodeLayerNode,
   selector?: string,
@@ -2150,7 +2199,7 @@ function canonicalElementInfoForCodeLayerNode(
     ...info,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
-    classes: node.classes.length > 0 ? node.classes : info.classes,
+    classes: node.classes,
     confidence: node.confidence,
     editCapabilities: info.editCapabilities?.some((capability) =>
       capability.kind.startsWith("deterministic"),
@@ -2212,7 +2261,11 @@ export function refreshElementInfoFromContent(
     const sourceInfo = elementInfoFromCodeLayerNode(node);
     return {
       ...canonicalElementInfoForCodeLayerNode(info, node),
-      computedStyles: sourceInfo.computedStyles,
+      computedStyles: refreshedComputedStyles(
+        info,
+        sourceInfo.computedStyles,
+        sourceInfo.classes,
+      ),
       textContent: sourceInfo.textContent,
       isFlexChild: sourceInfo.isFlexChild,
       isFlexContainer: sourceInfo.isFlexContainer,
@@ -2224,9 +2277,15 @@ export function refreshElementInfoFromContent(
     const doc = new DOMParser().parseFromString(content, "text/html");
     const element = queryUniqueSelector(doc, info.selector);
     if (!element) return null;
+    const classes = Array.from(element.classList);
     return {
       ...info,
-      computedStyles: parseInlineStyleAttribute(element.getAttribute("style")),
+      classes,
+      computedStyles: refreshedComputedStyles(
+        info,
+        parseInlineStyleAttribute(element.getAttribute("style")),
+        classes,
+      ),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
     };
   } catch {
@@ -2581,7 +2640,13 @@ function DesignToolbarTool({
                 ? "bg-[var(--design-editor-accent-color)] text-white"
                 : "hover:bg-white/10 hover:text-white",
             )}
-            onClick={onPrimary}
+            onClick={(event) => {
+              if (event.detail === 0) onPrimary();
+            }}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              onPrimary();
+            }}
             aria-label={label}
             aria-pressed={active}
           >
@@ -3252,7 +3317,40 @@ export default function DesignEditor() {
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
+  const [createdOverviewLayerSelection, setCreatedOverviewLayerSelection] =
+    useState<{ screenId: string; layerId: string } | null>(null);
   const pendingOverviewScreenSelectionRef = useRef<string | null>(null);
+  const pendingOverviewLayerSelectionRef = useRef<string | null>(null);
+  const pendingOverviewLayerSelectionClearTimerRef = useRef<number | null>(
+    null,
+  );
+  const clearPendingOverviewLayerSelectionTimer = useCallback(() => {
+    if (pendingOverviewLayerSelectionClearTimerRef.current === null) return;
+    window.clearTimeout(pendingOverviewLayerSelectionClearTimerRef.current);
+    pendingOverviewLayerSelectionClearTimerRef.current = null;
+  }, []);
+  const schedulePendingOverviewLayerSelectionClear = useCallback(
+    (layerId: string) => {
+      clearPendingOverviewLayerSelectionTimer();
+      pendingOverviewLayerSelectionClearTimerRef.current = window.setTimeout(
+        () => {
+          if (pendingOverviewLayerSelectionRef.current === layerId) {
+            pendingOverviewLayerSelectionRef.current = null;
+          }
+          setCreatedOverviewLayerSelection((current) =>
+            current?.layerId === layerId ? null : current,
+          );
+          pendingOverviewLayerSelectionClearTimerRef.current = null;
+        },
+        1800,
+      );
+    },
+    [clearPendingOverviewLayerSelectionTimer],
+  );
+  useEffect(
+    () => clearPendingOverviewLayerSelectionTimer,
+    [clearPendingOverviewLayerSelectionTimer],
+  );
   const [lockedLayerIds, setLockedLayerIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -3435,8 +3533,8 @@ export default function DesignEditor() {
   const suppressContentHistoryRef = useRef(false);
   const geometryUndoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
-  const historyOrderRef = useRef<Array<"content" | "geometry">>([]);
-  const redoOrderRef = useRef<Array<"content" | "geometry">>([]);
+  const historyOrderRef = useRef<UndoRedoOrderKind[]>([]);
+  const redoOrderRef = useRef<UndoRedoOrderKind[]>([]);
   const syncUndoRedoState = useCallback(() => {
     const undoManager = undoManagerRef.current;
     setCanUndo(
@@ -3460,7 +3558,7 @@ export default function DesignEditor() {
       contentRedoStackRef.current = [];
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        "content",
+        "file-content",
       ];
       redoOrderRef.current = [];
       syncUndoRedoState();
@@ -3482,6 +3580,16 @@ export default function DesignEditor() {
   // Dismissible localhost-source banner (reset per session).
   const [localSourceBannerDismissed, setLocalSourceBannerDismissed] =
     useState(false);
+  // Localhost write-consent dialog state. When the agent wants to write a local
+  // file and no valid grant exists for the active connection, we show the dialog
+  // with a pending payload; the user clicks "Allow writes" to mint a grant.
+  const [localhostWriteConsentOpen, setLocalhostWriteConsentOpen] =
+    useState(false);
+  const [localhostWriteConsentPayload, setLocalhostWriteConsentPayload] =
+    useState<LocalhostWriteConsentPayload | null>(null);
+  // Active localhost connection id for the consent dialog.
+  const [localhostConsentConnectionId, setLocalhostConsentConnectionId] =
+    useState<string>("");
   // Shared visual-editor annotate overlays. drawMode owns the send toolbar,
   // while pinMode temporarily routes canvas clicks to comment pins that queue
   // into the same agent submission.
@@ -3905,6 +4013,10 @@ export default function DesignEditor() {
   const openComponentSourceMutation = useActionMutation(
     "open-component-source",
   );
+
+  // Board object mutations — create/update persisted canvas primitives.
+  const createBoardObjectMutation = useActionMutation("create-board-object");
+  const updateBoardObjectsMutation = useActionMutation("update-board-objects");
 
   // §6.6 — "Make it real" migration flow (migrate-inline-design-to-app).
   // The mutation stays unconditional; the dialog gates on isSignedIn.
@@ -4342,6 +4454,46 @@ export default function DesignEditor() {
     () => getCanvasFrameGeometry(designDataJson),
     [designDataJson],
   );
+
+  // Board objects: persisted canvas primitives stored in designs.data.boardObjects.
+  // The server is the source of truth; we hold an optimistic local overlay in
+  // boardObjectsOverlay so create/update feel instant without waiting for a server
+  // round-trip (mirrors how canvasFrameGeometryById is optimistically updated).
+  const serverBoardObjects = useMemo(
+    () => parseBoardObjects(designDataJson.boardObjects),
+    [designDataJson],
+  );
+  const [boardObjectsOverlay, setBoardObjectsOverlay] = useState<
+    Record<string, BoardObjectEntry>
+  >({});
+  // Merge server + overlay; overlay entries win for in-flight optimistic updates.
+  const boardObjects = useMemo(
+    () => ({ ...serverBoardObjects, ...boardObjectsOverlay }),
+    [serverBoardObjects, boardObjectsOverlay],
+  );
+  // Keep a stable ref for debounced callbacks.
+  const boardObjectsOverlayRef = useRef(boardObjectsOverlay);
+  useEffect(() => {
+    boardObjectsOverlayRef.current = boardObjectsOverlay;
+  }, [boardObjectsOverlay]);
+  // Once the server data reflects an overlay entry, drop it from the overlay.
+  useEffect(() => {
+    setBoardObjectsOverlay((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of Object.keys(prev)) {
+        if (serverBoardObjects[id]) {
+          // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [serverBoardObjects]);
+
+  const boardObjectsSaveTimerRef = useRef<number | null>(null);
+
   const overviewScreens = useMemo(() => {
     const metadataByFileId = getDesignDataRecord(
       designDataJson,
@@ -4397,6 +4549,7 @@ export default function DesignEditor() {
         sourceType: stringValue("sourceType"),
         source: stringValue("source"),
         sourceFile: stringValue("sourceFile"),
+        connectionId: stringValue("connectionId"),
         lod: stringValue("lod"),
         previewState: stringValue("previewState"),
         status: stringValue("status"),
@@ -4521,11 +4674,12 @@ export default function DesignEditor() {
         beforeSnapshot,
         afterSnapshot,
       );
-      if (resizedFrameIds.length > 0) {
-        writeFrameGeometrySnapshot(afterSnapshot, {
-          syncViewportFrameIds: resizedFrameIds,
-        });
-      }
+      writeFrameGeometrySnapshot(
+        afterSnapshot,
+        resizedFrameIds.length > 0
+          ? { syncViewportFrameIds: resizedFrameIds }
+          : undefined,
+      );
       syncUndoRedoState();
     },
     [syncUndoRedoState, writeFrameGeometrySnapshot],
@@ -4974,21 +5128,59 @@ export default function DesignEditor() {
   const handleAddScreen = useCallback(() => {
     if (!id || !canEditDesign) return;
     const filename = nextBlankScreenFilename(files);
+    const content = blankScreenHtml(prettyScreenName(filename));
     createFileMutation.mutate(
       {
         designId: id,
         filename,
-        content: blankScreenHtml(prettyScreenName(filename)),
+        content,
         fileType: "html",
       } as any,
       {
         onSuccess: (result: any) => {
           const nextId = typeof result?.id === "string" ? result.id : null;
-          queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
-          });
           if (nextId) {
+            const now = new Date().toISOString();
+            queryClient.setQueryData(
+              ["action", "get-design", { id }],
+              (old: any) => {
+                if (
+                  !old ||
+                  typeof old !== "object" ||
+                  !Array.isArray(old.files)
+                ) {
+                  return old;
+                }
+                const optimisticFile: DesignFile = {
+                  id: nextId,
+                  filename,
+                  fileType: "html",
+                  content,
+                  createdAt:
+                    typeof result?.createdAt === "string"
+                      ? result.createdAt
+                      : now,
+                  updatedAt:
+                    typeof result?.updatedAt === "string"
+                      ? result.updatedAt
+                      : now,
+                };
+                return {
+                  ...old,
+                  files: old.files.some(
+                    (file: DesignFile) => file.id === nextId,
+                  )
+                    ? old.files.map((file: DesignFile) =>
+                        file.id === nextId ? optimisticFile : file,
+                      )
+                    : [...old.files, optimisticFile],
+                };
+              },
+            );
             pendingOverviewScreenSelectionRef.current = nextId;
+            pendingOverviewLayerSelectionRef.current = null;
+            clearPendingOverviewLayerSelectionTimer();
+            setCreatedOverviewLayerSelection(null);
             setActiveFileId(nextId);
             setSelectedElement(null);
             setSelectedLayerIdsState([nextId]);
@@ -4998,6 +5190,9 @@ export default function DesignEditor() {
             viewModeRef.current = "overview";
             setViewMode("overview");
           }
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
         },
         onError: (error) => {
           toast.error(
@@ -5008,12 +5203,21 @@ export default function DesignEditor() {
         },
       },
     );
-  }, [canEditDesign, createFileMutation, files, id, queryClient, t]);
+  }, [
+    canEditDesign,
+    clearPendingOverviewLayerSelectionTimer,
+    createFileMutation,
+    files,
+    id,
+    queryClient,
+    t,
+  ]);
 
   const handleCreateScreenFrame = useCallback(
     (geometry: { x: number; y: number; width: number; height: number }) => {
       if (!id || !canEditDesign) return;
       const filename = nextBlankScreenFilename(files);
+      const content = blankScreenHtml(prettyScreenName(filename));
       const nextGeometry = {
         x: Math.round(geometry.x),
         y: Math.round(geometry.y),
@@ -5024,17 +5228,54 @@ export default function DesignEditor() {
         {
           designId: id,
           filename,
-          content: blankScreenHtml(prettyScreenName(filename)),
+          content,
           fileType: "html",
         } as any,
         {
           onSuccess: (result: any) => {
             const nextId = typeof result?.id === "string" ? result.id : null;
-            queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
             if (nextId) {
+              const now = new Date().toISOString();
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (
+                    !old ||
+                    typeof old !== "object" ||
+                    !Array.isArray(old.files)
+                  ) {
+                    return old;
+                  }
+                  const optimisticFile: DesignFile = {
+                    id: nextId,
+                    filename,
+                    fileType: "html",
+                    content,
+                    createdAt:
+                      typeof result?.createdAt === "string"
+                        ? result.createdAt
+                        : now,
+                    updatedAt:
+                      typeof result?.updatedAt === "string"
+                        ? result.updatedAt
+                        : now,
+                  };
+                  return {
+                    ...old,
+                    files: old.files.some(
+                      (file: DesignFile) => file.id === nextId,
+                    )
+                      ? old.files.map((file: DesignFile) =>
+                          file.id === nextId ? optimisticFile : file,
+                        )
+                      : [...old.files, optimisticFile],
+                  };
+                },
+              );
               pendingOverviewScreenSelectionRef.current = nextId;
+              pendingOverviewLayerSelectionRef.current = null;
+              clearPendingOverviewLayerSelectionTimer();
+              setCreatedOverviewLayerSelection(null);
               setActiveFileId(nextId);
               setSelectedElement(null);
               setSelectedLayerIdsState([nextId]);
@@ -5048,6 +5289,9 @@ export default function DesignEditor() {
                 [nextId]: nextGeometry,
               });
             }
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
           },
           onError: (error) => {
             toast.error(
@@ -5062,6 +5306,7 @@ export default function DesignEditor() {
     [
       canEditDesign,
       canvasFrameGeometryById,
+      clearPendingOverviewLayerSelectionTimer,
       createFileMutation,
       files,
       id,
@@ -6283,14 +6528,29 @@ export default function DesignEditor() {
       if (!canEditDesign) return false;
       const targetFile = files.find((file) => file.id === screenId);
       if (!targetFile) return false;
+      const pendingContent = pendingLocalFileContentsRef.current.get(
+        targetFile.id,
+      )?.content;
+      const storedContent = targetFile.content ?? "";
       const baseContent =
-        targetFile.id === activeFile?.id
-          ? ydoc && isSynced
-            ? ydoc.getText("content").toString()
-            : ((collabContentFileIdRef.current === activeFile.id
-                ? collabContentRef.current
-                : null) ?? activeContent)
-          : targetFile.content;
+        pendingContent ??
+        (targetFile.id === activeFile?.id
+          ? (() => {
+              const liveContent =
+                ydoc && isSynced
+                  ? ydoc.getText("content").toString()
+                  : ((collabContentFileIdRef.current === activeFile.id
+                      ? collabContentRef.current
+                      : null) ?? activeContent);
+              return shouldUseLiveFileContent({
+                liveContent,
+                storedContent,
+                fileType: targetFile.fileType,
+              })
+                ? liveContent
+                : storedContent;
+            })()
+          : storedContent);
       const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive);
       if (!nextContent) {
         toast.error(t("designEditor.toasts.primitiveInsertFailed"));
@@ -6360,25 +6620,183 @@ export default function DesignEditor() {
       // new primitive selected, matching Figma behaviour.  We activate the
       // target screen (so the layers panel shows its content) and select the
       // new node, but do NOT switch to single/full view.
-      pendingOverviewScreenSelectionRef.current = null;
-      setActiveFileId(screenId);
-      setSelectedElement(null);
-      setHoveredElement(null);
-      setSelectedLayerIdsState([nodeId]);
-      setOverviewSelectedScreenIds([]);
-      setActiveTool("move");
-      setMode("edit");
+      pendingOverviewScreenSelectionRef.current = screenId;
+      pendingOverviewLayerSelectionRef.current = nodeId;
+      clearPendingOverviewLayerSelectionTimer();
+      flushSync(() => {
+        setCreatedOverviewLayerSelection({ screenId, layerId: nodeId });
+        setActiveFileId(screenId);
+        setSelectedElement(null);
+        setHoveredElement(null);
+        setSelectedLayerIdsState([nodeId]);
+        setOverviewSelectedScreenIds([screenId]);
+        setActiveTool("move");
+        setMode("edit");
+      });
       // viewMode stays at "overview" — no setViewMode("single") call here.
     },
-    [],
+    [clearPendingOverviewLayerSelectionTimer],
   );
 
-  const handleOverviewScreenSelectionChange = useCallback((ids: string[]) => {
-    const pendingId = pendingOverviewScreenSelectionRef.current;
-    if (pendingId && ids.length === 0) return;
-    if (pendingId) pendingOverviewScreenSelectionRef.current = null;
-    setOverviewSelectedScreenIds(ids);
-  }, []);
+  /**
+   * Called by MultiScreenCanvas when a draft primitive is committed outside all
+   * screen frames (and the design has more than one screen). Optimistically adds
+   * the entry to local state, then persists via create-board-object action.
+   */
+  const handleCreateBoardObject = useCallback(
+    (obj: BoardObjectEntry) => {
+      if (!id || !canEditDesign) return;
+      // Optimistic add.
+      setBoardObjectsOverlay((prev) => ({ ...prev, [obj.id]: obj }));
+      createBoardObjectMutation.mutate(
+        {
+          designId: id,
+          kind: obj.kind,
+          geometry: obj.geometry,
+          ...(obj.fill !== undefined && { fill: obj.fill }),
+          ...(obj.stroke !== undefined && { stroke: obj.stroke }),
+          ...(obj.strokeWidth !== undefined && {
+            strokeWidth: obj.strokeWidth,
+          }),
+          ...(obj.text !== undefined && { text: obj.text }),
+          ...(obj.pathData !== undefined && { pathData: obj.pathData }),
+          ...(obj.points !== undefined && { points: obj.points }),
+          ...(obj.autoSize !== undefined && { autoSize: obj.autoSize }),
+          ...(obj.name !== undefined && { name: obj.name }),
+        } as any,
+        {
+          onSuccess: () => {
+            // The server writes the design's data blob; polling/invalidation
+            // picks up the canonical entry. The overlay entry is dropped once
+            // serverBoardObjects gains the id (see reconcile effect above).
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design", { id }],
+            });
+          },
+          onError: () => {
+            // Roll back the optimistic add.
+            setBoardObjectsOverlay((prev) => {
+              const next = { ...prev };
+              // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+              delete next[obj.id];
+              return next;
+            });
+          },
+        },
+      );
+    },
+    [canEditDesign, createBoardObjectMutation, id, queryClient],
+  );
+
+  /**
+   * Debounced handler for board-object move/resize/delete from MultiScreenCanvas.
+   * Applies updates optimistically to the overlay and flushes to the server after
+   * 500 ms of inactivity (mirrors queueFrameGeometrySave).
+   */
+  const handleBoardObjectsChange = useCallback(
+    (
+      updates: Array<{
+        id: string;
+        geometry?: BoardObjectEntry["geometry"];
+        fill?: string;
+        stroke?: string;
+        strokeWidth?: number;
+        text?: string;
+        name?: string;
+      }>,
+      deletes?: string[],
+    ) => {
+      if (!id || !canEditDesign) return;
+
+      // Optimistic update.
+      setBoardObjectsOverlay((prev) => {
+        const next = { ...prev };
+        for (const upd of updates) {
+          const existing = next[upd.id] ?? serverBoardObjects[upd.id];
+          if (!existing) continue;
+          next[upd.id] = {
+            ...existing,
+            ...(upd.geometry !== undefined && { geometry: upd.geometry }),
+            ...(upd.fill !== undefined && { fill: upd.fill }),
+            ...(upd.stroke !== undefined && { stroke: upd.stroke }),
+            ...(upd.strokeWidth !== undefined && {
+              strokeWidth: upd.strokeWidth,
+            }),
+            ...(upd.text !== undefined && { text: upd.text }),
+            ...(upd.name !== undefined && { name: upd.name }),
+          };
+        }
+        for (const deleteId of deletes ?? []) {
+          // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+          delete next[deleteId];
+        }
+        return next;
+      });
+
+      // Debounced server write.
+      if (boardObjectsSaveTimerRef.current !== null) {
+        window.clearTimeout(boardObjectsSaveTimerRef.current);
+      }
+      boardObjectsSaveTimerRef.current = window.setTimeout(() => {
+        boardObjectsSaveTimerRef.current = null;
+        if (!canEditDesignRef.current) return;
+        updateBoardObjectsMutation.mutate(
+          {
+            designId: id,
+            updates,
+            ...(deletes?.length && { deletes }),
+          } as any,
+          {
+            onSuccess: () => {
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-design", { id }],
+              });
+            },
+          },
+        );
+      }, 500);
+    },
+    [
+      canEditDesign,
+      id,
+      queryClient,
+      serverBoardObjects,
+      updateBoardObjectsMutation,
+    ],
+  );
+
+  const handleOverviewScreenSelectionChange = useCallback(
+    (ids: string[]) => {
+      const pendingId = pendingOverviewScreenSelectionRef.current;
+      const fileIds = new Set(files.map((file) => file.id));
+      if (pendingId && ids.length === 0) return;
+      if (pendingId && ids.includes(pendingId)) {
+        setOverviewSelectedScreenIds(
+          ids.filter(
+            (layerId) => fileIds.has(layerId) || layerId === pendingId,
+          ),
+        );
+        if (fileIds.has(pendingId)) {
+          pendingOverviewScreenSelectionRef.current = null;
+        }
+        return;
+      }
+      if (pendingId) {
+        pendingOverviewScreenSelectionRef.current = null;
+        pendingOverviewLayerSelectionRef.current = null;
+        clearPendingOverviewLayerSelectionTimer();
+        setCreatedOverviewLayerSelection(null);
+      }
+      setOverviewSelectedScreenIds(
+        ids.filter((layerId) => fileIds.has(layerId)),
+      );
+    },
+    [clearPendingOverviewLayerSelectionTimer, files],
+  );
+
+  const shouldPreserveBlockedOverviewLayerSelectionRef = useRef<
+    (screenId: string) => boolean
+  >(() => false);
 
   const handleMoveTool = useCallback(() => {
     if (!canEditDesign) return;
@@ -6390,36 +6808,42 @@ export default function DesignEditor() {
 
   const handleFrameTool = useCallback(() => {
     if (!canEditDesign) return;
-    setActiveTool("frame");
-    setMode("edit");
-    setDrawMode(false);
-    setPinMode(false);
-    setSelectedElement(null);
-    viewModeRef.current = "overview";
-    setViewMode("overview");
+    flushSync(() => {
+      setActiveTool("frame");
+      setMode("edit");
+      setDrawMode(false);
+      setPinMode(false);
+      setSelectedElement(null);
+      viewModeRef.current = "overview";
+      setViewMode("overview");
+    });
   }, [canEditDesign]);
 
   const handleTextTool = useCallback(() => {
     if (!canEditDesign) return;
-    setActiveTool("text");
-    viewModeRef.current = "overview";
-    setViewMode("overview");
-    setMode("edit");
-    setDrawMode(false);
-    setPinMode(false);
-    setSelectedElement(null);
-  }, [canEditDesign]);
-
-  const handleShapeTool = useCallback(
-    (tool: ShapeTool) => {
-      if (!canEditDesign) return;
-      setActiveTool(tool);
+    flushSync(() => {
+      setActiveTool("text");
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
       setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
+    });
+  }, [canEditDesign]);
+
+  const handleShapeTool = useCallback(
+    (tool: ShapeTool) => {
+      if (!canEditDesign) return;
+      flushSync(() => {
+        setActiveTool(tool);
+        viewModeRef.current = "overview";
+        setViewMode("overview");
+        setMode("edit");
+        setDrawMode(false);
+        setPinMode(false);
+        setSelectedElement(null);
+      });
     },
     [canEditDesign],
   );
@@ -6430,13 +6854,15 @@ export default function DesignEditor() {
 
   const handlePenTool = useCallback(() => {
     if (!canEditDesign) return;
-    setActiveTool("pen");
-    viewModeRef.current = "overview";
-    setViewMode("overview");
-    setMode("edit");
-    setDrawMode(false);
-    setPinMode(false);
-    setSelectedElement(null);
+    flushSync(() => {
+      setActiveTool("pen");
+      viewModeRef.current = "overview";
+      setViewMode("overview");
+      setMode("edit");
+      setDrawMode(false);
+      setPinMode(false);
+      setSelectedElement(null);
+    });
   }, [canEditDesign]);
 
   const handleHandTool = useCallback(() => {
@@ -6819,6 +7245,23 @@ export default function DesignEditor() {
 
   const handleScreenElementSelect = useCallback(
     (screenId: string, info: ElementInfo) => {
+      const pendingLayerId = pendingOverviewLayerSelectionRef.current;
+      const pendingScreenId = pendingOverviewScreenSelectionRef.current;
+      const createdSelection = createdOverviewLayerSelection;
+      if (createdSelection?.screenId === screenId) {
+        return;
+      }
+      if (
+        (pendingLayerId || createdSelection?.layerId) &&
+        (!pendingScreenId || pendingScreenId === screenId) &&
+        isScreenRootElementInfo(info)
+      ) {
+        return;
+      }
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       const projection = getCodeLayerProjectionForScreen(screenId);
       const canonical = projection
         ? canonicalizeElementInfoFromProjection(projection, info)
@@ -6826,6 +7269,14 @@ export default function DesignEditor() {
       const node = projection
         ? resolveCodeLayerNodeFromElementInfo(projection, canonical)
         : null;
+      if (
+        shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId) &&
+        (isScreenRootElementInfo(canonical) ||
+          !node ||
+          selectedLayerIdsState.includes(node.id))
+      ) {
+        return;
+      }
       setActiveFileId(screenId);
       setSelectedElement(canonical);
       setHoveredElement(null);
@@ -6838,21 +7289,49 @@ export default function DesignEditor() {
       setMode("edit");
       focusDesignInspectorForSelection();
     },
-    [focusDesignInspectorForSelection, getCodeLayerProjectionForScreen],
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      createdOverviewLayerSelection,
+      focusDesignInspectorForSelection,
+      getCodeLayerProjectionForScreen,
+      selectedLayerIdsState,
+    ],
   );
 
-  const handleScreenElementClear = useCallback((screenId: string) => {
-    setActiveFileId(screenId);
-    setSelectedElement(null);
-    setHoveredElement(null);
-    setHoveredElementScreenId(null);
-    setSelectedLayerIdsState([]);
-    if (viewModeRef.current === "overview") {
-      setOverviewSelectedScreenIds([]);
-    }
-    setActiveTool("move");
-    setMode("edit");
-  }, []);
+  const handleScreenElementClear = useCallback(
+    (screenId: string) => {
+      const pendingLayerId = pendingOverviewLayerSelectionRef.current;
+      const pendingScreenId = pendingOverviewScreenSelectionRef.current;
+      const createdSelection = createdOverviewLayerSelection;
+      if (createdSelection?.screenId === screenId) {
+        return;
+      }
+      if (
+        (pendingLayerId || createdSelection?.layerId) &&
+        (!pendingScreenId || pendingScreenId === screenId)
+      ) {
+        return;
+      }
+      if (shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId)) {
+        return;
+      }
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
+      setActiveFileId(screenId);
+      setSelectedElement(null);
+      setHoveredElement(null);
+      setHoveredElementScreenId(null);
+      setSelectedLayerIdsState([]);
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds([]);
+      }
+      setActiveTool("move");
+      setMode("edit");
+    },
+    [clearPendingOverviewLayerSelectionTimer, createdOverviewLayerSelection],
+  );
 
   const handleElementSelect = useCallback(
     (info: ElementInfo) => {
@@ -6880,6 +7359,10 @@ export default function DesignEditor() {
 
   const handleScreenElementDblClickText = useCallback(
     (screenId: string, info: ElementInfo) => {
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       const projection = getCodeLayerProjectionForScreen(screenId);
       const canonical = projection
         ? canonicalizeElementInfoFromProjection(projection, info)
@@ -6898,7 +7381,12 @@ export default function DesignEditor() {
       setMode("edit");
       focusDesignInspectorForSelection();
     },
-    [focusDesignInspectorForSelection, getCodeLayerProjectionForScreen],
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      createdOverviewLayerSelection,
+      focusDesignInspectorForSelection,
+      getCodeLayerProjectionForScreen,
+    ],
   );
 
   const handleElementDblClickText = useCallback(
@@ -8509,12 +8997,14 @@ export default function DesignEditor() {
    *
    * The bridge in the source screen's iframe posts phase:"end" with the
    * selector / sourceNodeId of the dragged element.  MultiScreenCanvas maps
-   * the board point to a target screen and calls this handler.  We resolve
-   * both screens' content, identify the node by its data-agent-native-node-id
-   * (falling back to a projection lookup by selector when only the selector is
-   * available), call moveNodeBetweenDocuments to move it into the target
-   * screen's <body>, persist both files, switch the active screen to the
-   * target, and select the moved node — keeping viewMode "overview" throughout.
+   * the board point to a target screen, optionally runs a hit-test in the
+   * target iframe to resolve an anchorNodeId and placement, then calls this
+   * handler.  We resolve both screens' content, identify the node by its
+   * data-agent-native-node-id (falling back to a projection lookup by selector
+   * when only the selector is available), call moveNodeBetweenDocuments with
+   * the anchor from the hit-test (or top-level "inside" fallback), persist
+   * both files, switch the active screen to the target, and select the moved
+   * node — keeping viewMode "overview" throughout.
    */
   const handleCrossScreenElementDrop = useCallback(
     ({
@@ -8522,11 +9012,15 @@ export default function DesignEditor() {
       sourceNodeId,
       sourceScreenId,
       targetScreenId,
+      targetAnchorNodeId,
+      targetAnchorPlacement,
     }: {
       sourceSelector: string;
       sourceNodeId?: string;
       sourceScreenId: string;
       targetScreenId: string;
+      targetAnchorNodeId?: string;
+      targetAnchorPlacement?: "before" | "after" | "inside";
     }) => {
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
@@ -8556,9 +9050,16 @@ export default function DesignEditor() {
         sourceNodeId ??
         sourceSelector;
 
+      // Use hit-test anchor when the canvas supplied one; fall back to
+      // top-level body append ("inside" with no anchor = existing behaviour).
       const result = moveNodeBetweenDocuments(sourceContent, destContent, {
         nodeId: nodeAttrId,
-        placement: "inside",
+        ...(targetAnchorNodeId
+          ? {
+              anchorNodeId: targetAnchorNodeId,
+              placement: targetAnchorPlacement ?? "inside",
+            }
+          : { placement: "inside" }),
       });
       if (result.status !== "applied") {
         toast.error(
@@ -8822,7 +9323,7 @@ export default function DesignEditor() {
       ];
       redoOrderRef.current = [
         ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        "content",
+        "file-content",
       ];
       suppressContentHistoryRef.current = true;
       try {
@@ -8875,7 +9376,7 @@ export default function DesignEditor() {
     const didUndo =
       preferred === "geometry"
         ? undoGeometry() || undoContent()
-        : preferred === "content"
+        : isContentUndoRedoOrderKind(preferred)
           ? undoContent() || undoGeometry()
           : undoContent() || undoGeometry();
     if (didUndo) {
@@ -8949,7 +9450,7 @@ export default function DesignEditor() {
       ];
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        "content",
+        "file-content",
       ];
       suppressContentHistoryRef.current = true;
       try {
@@ -9002,7 +9503,7 @@ export default function DesignEditor() {
     const didRedo =
       preferred === "geometry"
         ? redoGeometry() || redoContent()
-        : preferred === "content"
+        : isContentUndoRedoOrderKind(preferred)
           ? redoContent() || redoGeometry()
           : redoContent() || redoGeometry();
     if (didRedo) {
@@ -9089,6 +9590,10 @@ export default function DesignEditor() {
   const enterOverviewFromZoom = useCallback(() => {
     if (viewModeRef.current === "overview") return;
     viewModeRef.current = "overview";
+    pendingOverviewScreenSelectionRef.current = null;
+    pendingOverviewLayerSelectionRef.current = null;
+    clearPendingOverviewLayerSelectionTimer();
+    setCreatedOverviewLayerSelection(null);
     runEditorViewTransition(() => {
       setDrawMode(false);
       setPinMode(false);
@@ -9098,7 +9603,7 @@ export default function DesignEditor() {
       setActiveTool("move");
       setViewMode("overview");
     });
-  }, [runEditorViewTransition]);
+  }, [clearPendingOverviewLayerSelectionTimer, runEditorViewTransition]);
 
   const enterSingleScreen = useCallback(
     (fileId?: string | null) => {
@@ -9112,6 +9617,10 @@ export default function DesignEditor() {
         return;
       }
       viewModeRef.current = "single";
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       runEditorViewTransition(() => {
         if (fileId) setActiveFileId(fileId);
         setDrawMode(false);
@@ -9124,7 +9633,11 @@ export default function DesignEditor() {
         setViewMode("single");
       });
     },
-    [activeFileId, runEditorViewTransition],
+    [
+      activeFileId,
+      clearPendingOverviewLayerSelectionTimer,
+      runEditorViewTransition,
+    ],
   );
 
   useEffect(() => {
@@ -9195,14 +9708,22 @@ export default function DesignEditor() {
 
   const handleSidebarScreenSelect = useCallback(
     (screenId: string) => {
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       setOverviewSelectedScreenIds([]);
       setSelectedLayerIdsState([]);
       enterSingleScreen(screenId);
     },
-    [enterSingleScreen],
+    [clearPendingOverviewLayerSelectionTimer, enterSingleScreen],
   );
 
   const handleSidebarScreenOverview = useCallback(() => {
+    pendingOverviewScreenSelectionRef.current = null;
+    pendingOverviewLayerSelectionRef.current = null;
+    clearPendingOverviewLayerSelectionTimer();
+    setCreatedOverviewLayerSelection(null);
     setOverviewSelectedScreenIds([]);
     setSelectedLayerIdsState([]);
     if (viewModeRef.current === "overview") {
@@ -9215,7 +9736,7 @@ export default function DesignEditor() {
       return;
     }
     enterOverviewFromZoom();
-  }, [enterOverviewFromZoom]);
+  }, [clearPendingOverviewLayerSelectionTimer, enterOverviewFromZoom]);
 
   const handlePinToolToggle = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
@@ -10291,6 +10812,23 @@ ${serializedHtml}
     return state;
   }, [codeLayerModelsByFile, hiddenLayerIds, lockedLayerIds]);
   useEffect(() => {
+    shouldPreserveBlockedOverviewLayerSelectionRef.current = (
+      screenId: string,
+    ) => {
+      if (viewModeRef.current !== "overview") return false;
+      return selectedLayerIdsState.some((layerId) => {
+        const owner = codeLayerOwnerByNodeId.get(layerId);
+        if (!owner || owner.fileId !== screenId) return false;
+        return (
+          effectiveCodeLayerState.lockedIds.has(screenId) ||
+          effectiveCodeLayerState.hiddenIds.has(screenId) ||
+          effectiveCodeLayerState.lockedIds.has(layerId) ||
+          effectiveCodeLayerState.hiddenIds.has(layerId)
+        );
+      });
+    };
+  }, [codeLayerOwnerByNodeId, effectiveCodeLayerState, selectedLayerIdsState]);
+  useEffect(() => {
     const fileIds = new Set(files.map((file) => file.id));
     const allCodeLayerNodes = codeLayerModelsByFile.flatMap(
       (model) => model.projection.nodes,
@@ -10447,6 +10985,18 @@ ${serializedHtml}
       ).map((node) => node.id),
     );
     const fileIds = new Set(files.map((file) => file.id));
+    const pendingOverviewScreenId = pendingOverviewScreenSelectionRef.current;
+    const pendingOverviewLayerId = pendingOverviewLayerSelectionRef.current;
+    if (pendingOverviewScreenId) {
+      validIds.add(pendingOverviewScreenId);
+      fileIds.add(pendingOverviewScreenId);
+    }
+    if (pendingOverviewLayerId) {
+      validIds.add(pendingOverviewLayerId);
+    }
+    if (createdOverviewLayerSelection) {
+      validIds.add(createdOverviewLayerSelection.layerId);
+    }
     if (selectedElementLayerId) validIds.add(selectedElementLayerId);
     files.forEach((file) => validIds.add(file.id));
     const selectedStateIds = selectedLayerIdsState.filter((layerId) =>
@@ -10459,11 +11009,13 @@ ${serializedHtml}
       viewMode === "overview" &&
       selectedStateIds.some((layerId) => fileIds.has(layerId));
     const baseSelection =
-      viewMode === "overview" && !hasOverviewCodeLayerSelection
-        ? overviewSelectedScreenIds.length > 0 || !hasOverviewFileSelection
-          ? overviewSelectedScreenIds
-          : selectedLayerIdsState
-        : selectedLayerIdsState;
+      viewMode === "overview" && createdOverviewLayerSelection
+        ? [createdOverviewLayerSelection.layerId]
+        : viewMode === "overview" && !hasOverviewCodeLayerSelection
+          ? overviewSelectedScreenIds.length > 0 || !hasOverviewFileSelection
+            ? overviewSelectedScreenIds
+            : selectedLayerIdsState
+          : selectedLayerIdsState;
     const filtered = baseSelection.filter((layerId) => validIds.has(layerId));
     if (selectedElementLayerId && !filtered.includes(selectedElementLayerId)) {
       if (filtered.length > 1) return [...filtered, selectedElementLayerId];
@@ -10473,6 +11025,7 @@ ${serializedHtml}
   }, [
     activeCodeLayerProjection.nodes,
     codeLayerModelsByFile,
+    createdOverviewLayerSelection,
     files,
     overviewSelectedScreenIds,
     selectedElementLayerId,
@@ -10484,6 +11037,59 @@ ${serializedHtml}
   useLayoutEffect(() => {
     selectedLayerIdsRef.current = selectedLayerIds;
   }, [selectedLayerIds]);
+
+  const layerPanelSelectedIds = useMemo(
+    () =>
+      viewMode === "overview" && createdOverviewLayerSelection
+        ? [createdOverviewLayerSelection.layerId]
+        : selectedLayerIds,
+    [createdOverviewLayerSelection, selectedLayerIds, viewMode],
+  );
+
+  const layerPanelExpandedIds = useMemo(() => {
+    if (viewMode !== "overview" || !createdOverviewLayerSelection) {
+      return expandedLayerIds;
+    }
+    const next = new Set(expandedLayerIds);
+    next.add(createdOverviewLayerSelection.screenId);
+    return Array.from(next);
+  }, [createdOverviewLayerSelection, expandedLayerIds, viewMode]);
+
+  useEffect(() => {
+    const pendingLayerId = pendingOverviewLayerSelectionRef.current;
+    if (!pendingLayerId) return;
+    if (!selectedLayerIdsState.includes(pendingLayerId)) {
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      return;
+    }
+    const owner = codeLayerOwnerByNodeId.get(pendingLayerId);
+    if (!owner) return;
+    schedulePendingOverviewLayerSelectionClear(pendingLayerId);
+    setActiveFileId(owner.fileId);
+    setSelectedElement(elementInfoFromCodeLayerNode(owner.node));
+    setExpandedLayerIds((current) => {
+      const next = new Set(current);
+      next.add(owner.fileId);
+      collectCodeLayerAncestors(owner.tree, pendingLayerId).forEach((id) =>
+        next.add(id),
+      );
+      return next.size === current.length ? current : Array.from(next);
+    });
+  }, [
+    clearPendingOverviewLayerSelectionTimer,
+    codeLayerOwnerByNodeId,
+    schedulePendingOverviewLayerSelectionClear,
+    selectedLayerIdsState,
+  ]);
+
+  useEffect(() => {
+    const pendingScreenId = pendingOverviewScreenSelectionRef.current;
+    if (!pendingScreenId) return;
+    if (files.some((file) => file.id === pendingScreenId)) {
+      pendingOverviewScreenSelectionRef.current = null;
+    }
+  }, [files]);
 
   useEffect(() => {
     setSelectedLayerIdsState((current) => {
@@ -10511,6 +11117,25 @@ ${serializedHtml}
       return next.size === current.length ? current : Array.from(next);
     });
   }, [activeCodeLayerTree, codeLayerOwnerByNodeId, selectedElementLayerId]);
+
+  useEffect(() => {
+    const selectedCodeLayerIds = selectedLayerIds.filter((layerId) =>
+      codeLayerOwnerByNodeId.has(layerId),
+    );
+    if (selectedCodeLayerIds.length === 0) return;
+    setExpandedLayerIds((current) => {
+      const next = new Set(current);
+      selectedCodeLayerIds.forEach((layerId) => {
+        const owner = codeLayerOwnerByNodeId.get(layerId);
+        if (!owner) return;
+        next.add(owner.fileId);
+        collectCodeLayerAncestors(owner.tree, layerId).forEach((ancestorId) =>
+          next.add(ancestorId),
+        );
+      });
+      return next.size === current.length ? current : Array.from(next);
+    });
+  }, [codeLayerOwnerByNodeId, selectedLayerIds]);
 
   useEffect(() => {
     if (!selectedElementLayerId) return;
@@ -10654,6 +11279,53 @@ ${serializedHtml}
         source: activeOverviewScreen?.source,
       })
     : undefined;
+  // Connection id for the active localhost screen — needed to mint write grants.
+  const activeLocalhostConnectionId = activeScreenIsLocalSource
+    ? ((activeOverviewScreen as { connectionId?: string } | undefined)
+        ?.connectionId ?? "")
+    : "";
+
+  /**
+   * Request consent to write a local file for the active localhost screen.
+   * If no valid grant exists, opens the consent dialog; once granted the
+   * caller should proceed to call write-local-file via the action surface.
+   *
+   * Only works when the active screen is localhost-backed and the current user
+   * has editor access. For non-localhost screens use the normal Ask-AI path.
+   *
+   * The files parameter is for display in the consent dialog only; the actual
+   * write must be performed by the caller via the write-local-file action.
+   */
+  const requestLocalhostWrite = useCallback(
+    (opts: {
+      files: string[];
+      onGranted: LocalhostWriteConsentPayload["onGranted"];
+      onCancel?: () => void;
+    }) => {
+      if (!id || !canEditDesign || !activeLocalhostConnectionId) return;
+
+      const rootPath =
+        activeScreenRouteSourceFile ?? activeLocalhostConnectionId;
+
+      setLocalhostConsentConnectionId(activeLocalhostConnectionId);
+      setLocalhostWriteConsentPayload({
+        rootPath,
+        files: opts.files,
+        onGranted: opts.onGranted,
+        onCancel: opts.onCancel ?? (() => {}),
+      });
+      setLocalhostWriteConsentOpen(true);
+    },
+    [
+      activeLocalhostConnectionId,
+      activeScreenRouteSourceFile,
+      canEditDesign,
+      id,
+    ],
+  );
+  // requestLocalhostWrite is consumed via the component instance or by
+  // connected inspector components; not all render paths call it directly.
+  void requestLocalhostWrite;
 
   // canGroup: 2+ DOM-node layers selected in the active screen (not file rows).
   const fileIdSet = new Set(files.map((f) => f.id));
@@ -10940,6 +11612,10 @@ ${serializedHtml}
       },
     ) => {
       const nextLayerIds = ids.filter((layerId) => !layerId.startsWith("__"));
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       if (intent.additive && !intent.range) {
         const currentLayerIds = (
           intent.currentSelectedIds && intent.currentSelectedIds.length > 0
@@ -10972,11 +11648,16 @@ ${serializedHtml}
       }
       const codeLayerOwner = codeLayerOwnerByNodeId.get(selectedId);
       if (codeLayerOwner) {
+        if (viewModeRef.current === "overview") {
+          pendingOverviewScreenSelectionRef.current = codeLayerOwner.fileId;
+          pendingOverviewLayerSelectionRef.current = selectedId;
+        }
         if (codeLayerOwner.fileId !== activeFile?.id) {
           setActiveFileId(codeLayerOwner.fileId);
         }
         const nextSelectionState = getSidebarCodeLayerSelectionState({
           currentViewMode: viewModeRef.current,
+          ownerFileId: codeLayerOwner.fileId,
           overviewSelectedScreenIds,
         });
         viewModeRef.current = nextSelectionState.viewMode;
@@ -11021,6 +11702,7 @@ ${serializedHtml}
     },
     [
       activeFile?.id,
+      clearPendingOverviewLayerSelectionTimer,
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
@@ -12094,8 +12776,8 @@ ${serializedHtml}
                 layers={
                   viewMode === "overview" ? undefined : activeLayerPanelNodes
                 }
-                selectedIds={selectedLayerIds}
-                expandedIds={expandedLayerIds}
+                selectedIds={layerPanelSelectedIds}
+                expandedIds={layerPanelExpandedIds}
                 searchQuery={layersSearchQuery}
                 onScreenSelect={handleSidebarScreenSelect}
                 onScreenOverview={handleSidebarScreenOverview}
@@ -12300,11 +12982,17 @@ ${serializedHtml}
                       onPrimitiveCreated={handlePrimitiveCreated}
                       onPrimitiveReparent={handleOverviewPrimitiveReparent}
                       onCrossScreenElementDrop={handleCrossScreenElementDrop}
+                      boardObjects={boardObjects}
+                      onCreateBoardObject={handleCreateBoardObject}
+                      onBoardObjectsChange={handleBoardObjectsChange}
                       onCreateScreenFrame={handleCreateScreenFrame}
                       onDeleteSelection={handleDeleteOverviewSelection}
-                      onSelectionChange={setOverviewSelectedScreenIds}
+                      onSelectionChange={handleOverviewScreenSelectionChange}
                       onPick={(id) => {
                         pendingOverviewScreenSelectionRef.current = null;
+                        pendingOverviewLayerSelectionRef.current = null;
+                        clearPendingOverviewLayerSelectionTimer();
+                        setCreatedOverviewLayerSelection(null);
                         setSelectedElement(null);
                         setHoveredElement(null);
                         setSelectedLayerIdsState([id]);
@@ -13146,6 +13834,25 @@ ${serializedHtml}
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Localhost write-consent dialog: shown when the agent or editor wants to
+          persist an edit to a local HTML/CSS source file and no valid grant
+          exists for the active connection yet. */}
+      {id && activeLocalhostConnectionId && (
+        <LocalhostWriteConsentDialog
+          open={localhostWriteConsentOpen}
+          onOpenChange={(next) => {
+            if (!next) {
+              localhostWriteConsentPayload?.onCancel();
+              setLocalhostWriteConsentPayload(null);
+            }
+            setLocalhostWriteConsentOpen(next);
+          }}
+          designId={id}
+          connectionId={localhostConsentConnectionId}
+          payload={localhostWriteConsentPayload}
+        />
+      )}
     </div>
   );
 }

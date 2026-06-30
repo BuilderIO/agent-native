@@ -20,6 +20,7 @@ import { scheduleReadyChime } from "@shared/recording-audio";
 import { chunkUploadUrl, pickMimeType } from "@shared/recording-core";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
+import { waitForReadyRecordingAfterFinalizeError } from "./finalize-recovery";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("offscreen");
@@ -31,6 +32,17 @@ const STORAGE_SETUP_FAILURE_RE =
 
 function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
+
+function isFinalUploadRecoveryCandidate(error: Error): boolean {
+  const tagged = error as {
+    finalUpload?: boolean;
+    status?: number;
+    storageSetupRequired?: boolean;
+  };
+  if (!tagged.finalUpload || tagged.storageSetupRequired) return false;
+  if (tagged.status === 413) return false;
+  return !/too large|exceeds.*limit|chunk too large/i.test(error.message);
 }
 
 type CaptureMode = "screen" | "camera";
@@ -79,6 +91,8 @@ type UploadResult = {
   recordingId?: string;
   videoUrl?: string;
   status?: string;
+  finalized?: boolean;
+  recoveredAfterFinalizeError?: boolean;
   waitingForStorage?: boolean;
   storageSetupRequired?: boolean;
   error?: string;
@@ -456,8 +470,12 @@ async function uploadChunk(
         : data?.error ||
             `Upload failed (${res.status}): ${text || res.statusText}`,
     );
-    (error as { storageSetupRequired?: boolean }).storageSetupRequired =
-      storageSetupRequired;
+    const uploadError = error as {
+      status?: number;
+      storageSetupRequired?: boolean;
+    };
+    uploadError.status = res.status;
+    uploadError.storageSetupRequired = storageSetupRequired;
     captureExtensionError(error, {
       tags: {
         surface: "offscreen",
@@ -930,20 +948,27 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         durationMs,
       );
     }
-    const result = await uploadChunk(
-      recording,
-      new Blob([], { type: recording.mimeType }),
-      recording.chunkIndex,
-      {
-        isFinal: true,
-        total: recording.chunkIndex,
-        durationMs,
-        width: recording.dimensions.width,
-        height: recording.dimensions.height,
-        hasAudio: recording.hasAudio,
-        hasCamera: recording.hasCamera,
-      },
-    );
+    let result: UploadResult;
+    try {
+      result = await uploadChunk(
+        recording,
+        new Blob([], { type: recording.mimeType }),
+        recording.chunkIndex,
+        {
+          isFinal: true,
+          total: recording.chunkIndex,
+          durationMs,
+          width: recording.dimensions.width,
+          height: recording.dimensions.height,
+          hasAudio: recording.hasAudio,
+          hasCamera: recording.hasCamera,
+        },
+      );
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      (error as { finalUpload?: boolean }).finalUpload = true;
+      throw error;
+    }
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
     reportStatus(recording.sessionId, "complete", {
@@ -955,6 +980,30 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
     const error = err instanceof Error ? err : new Error(String(err));
+
+    if (isFinalUploadRecoveryCandidate(error)) {
+      const recovered = await waitForReadyRecordingAfterFinalizeError({
+        uploadUrl: recording.uploadUrl,
+        recordingId: recording.recordingId,
+        authToken: recording.authToken,
+      });
+      if (recovered) {
+        console.warn(
+          "[clips-offscreen] final upload looked failed, but the recording is ready; treating as saved.",
+          {
+            recordingId: recording.recordingId,
+            originalError: error.message,
+          },
+        );
+        reportStatus(recording.sessionId, "complete", {
+          recordingId: recording.recordingId,
+          result: recovered,
+        });
+        recording.resolveStopped(recovered);
+        return;
+      }
+    }
+
     captureExtensionError(error, {
       tags: {
         surface: "offscreen",

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import http, {
@@ -72,6 +73,10 @@ export interface DesignConnectManifest {
 export interface DesignConnectBridge {
   server: Server;
   manifest: DesignConnectManifest;
+  /** Per-rootPath bridge token. Kept in-process only; never serialised into
+   *  the manifest JSON so it is not exposed over the network via GET /manifest.
+   *  The server-side grant action reads it from the running bridge instance. */
+  bridgeToken: string;
 }
 
 function stringFlagValue(argv: string[], index: number, flag: string) {
@@ -358,23 +363,16 @@ export async function prepareDesignConnectManifest(
     generatedAt,
     capabilities: BRIDGE_OPERATIONS.map((operation) => ({
       operation,
-      status:
-        operation === "readFile" ||
-        operation === "applyEdit" ||
-        operation === "writeFile"
-          ? "planned"
-          : "available",
+      status: "available" as const,
       reason:
-        operation === "writeFile"
-          ? "The bridge advertises the contract before enabling local file writes."
-          : operation === "resolveNodeToFile"
-            ? // resolveNodeToFile maps a runtime DOM node id (from the editor's
-              // 'select' payload) to { file, line, component } provenance.  The
-              // bridge endpoint exists; per-element provenance data must be
-              // emitted by the connected app at build time — see the provenance
-              // note in the help text below.
-              "Requires the connected app to emit data-source-file / data-source-line / data-component-name attributes (e.g. via @vitejs/plugin-react jsxDEV or a Babel source plugin)."
-            : undefined,
+        operation === "resolveNodeToFile"
+          ? // resolveNodeToFile maps a runtime DOM node id (from the editor's
+            // 'select' payload) to { file, line, component } provenance.  The
+            // bridge endpoint exists; per-element provenance data must be
+            // emitted by the connected app at build time — see the provenance
+            // note in the help text below.
+            "Requires the connected app to emit data-source-file / data-source-line / data-component-name attributes (e.g. via @vitejs/plugin-react jsxDEV or a Babel source plugin)."
+          : undefined,
     })),
   };
 }
@@ -387,23 +385,94 @@ function sendJson(
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type, x-bridge-token",
     "access-control-allow-private-network": "true",
   });
   res.end(`${JSON.stringify(body, null, 2)}\n`);
 }
 
+/** Read the full request body as a UTF-8 string. */
+async function readRequestBody(req: IncomingMessage): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+/**
+ * Resolve `targetDir` under `rootPath` with realpath so that symlinks and
+ * traversal sequences (../../etc) cannot escape the root.  Throws if the
+ * resolved path does not start with the resolved root.
+ */
+async function assertPathInside(
+  rootPath: string,
+  targetPath: string,
+): Promise<void> {
+  const resolvedRoot = await fs.realpath(rootPath).catch(() => {
+    throw new Error(`Bridge root path does not exist: ${rootPath}`);
+  });
+
+  // Resolve the parent directory (the file itself may not exist yet for writes).
+  const targetParent = path.dirname(path.resolve(rootPath, targetPath));
+  const resolvedParent = await fs.realpath(targetParent).catch(async () => {
+    // Parent may not exist yet; walk up until we find a real ancestor.
+    let candidate = targetParent;
+    for (let i = 0; i < 32; i++) {
+      const up = path.dirname(candidate);
+      if (up === candidate) break;
+      candidate = up;
+      try {
+        return await fs.realpath(candidate);
+      } catch {
+        // keep walking
+      }
+    }
+    throw new Error(`Cannot resolve parent directory: ${targetParent}`);
+  });
+
+  if (
+    !resolvedParent.startsWith(resolvedRoot + path.sep) &&
+    resolvedParent !== resolvedRoot
+  ) {
+    throw new Error(`Path traversal detected: resolved target is outside root`);
+  }
+}
+
+/** Allowed file extensions for write/apply-edit operations. */
+const ALLOWED_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
+
+function assertAllowedExtension(relPath: string): void {
+  const ext = path.extname(relPath).toLowerCase();
+  if (!ALLOWED_WRITE_EXTENSIONS.has(ext)) {
+    throw new Error(
+      `Write rejected: only .html, .htm, and .css files may be written via the bridge (got ${ext || "(no extension)"})`,
+    );
+  }
+}
+
 export async function startDesignConnectBridge(
   manifest: DesignConnectManifest,
 ): Promise<DesignConnectBridge> {
+  // Mint a cryptographically random per-rootPath bridge token.  This token is
+  // kept in-process only and is never emitted via the public GET routes so that
+  // an unauthenticated caller cannot read it.  The server-side grant action
+  // obtains it out-of-band (via the exported bridge reference).
+  const bridgeToken = crypto.randomBytes(32).toString("hex");
+
   const server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
       if (req.method === "OPTIONS") {
         sendJson(res, 204, {});
         return;
       }
+
       const pathname = new URL(req.url ?? "/", manifest.bridgeUrl).pathname;
+
+      // ── Public read-only routes (no token required) ──────────────────────
+
       if (pathname === "/" || pathname === "/manifest.json") {
         sendJson(res, 200, manifest as unknown as Record<string, unknown>);
         return;
@@ -423,6 +492,176 @@ export async function startDesignConnectBridge(
         sendJson(res, 200, { ok: true, source: manifest.source });
         return;
       }
+
+      // ── Token-gated write endpoints (POST only) ───────────────────────────
+
+      if (
+        pathname === "/read-file" ||
+        pathname === "/write-file" ||
+        pathname === "/apply-edit"
+      ) {
+        if (req.method !== "POST") {
+          sendJson(res, 405, { ok: false, error: "method not allowed" });
+          return;
+        }
+
+        // Authenticate with constant-time comparison to prevent timing attacks.
+        const tokenHeader = req.headers["x-bridge-token"];
+        const providedToken =
+          typeof tokenHeader === "string" ? tokenHeader : "";
+        let tokenValid = false;
+        try {
+          tokenValid =
+            providedToken.length === bridgeToken.length &&
+            crypto.timingSafeEqual(
+              Buffer.from(providedToken, "utf8"),
+              Buffer.from(bridgeToken, "utf8"),
+            );
+        } catch {
+          tokenValid = false;
+        }
+        if (!tokenValid) {
+          sendJson(res, 401, {
+            ok: false,
+            error: "invalid or missing bridge token",
+          });
+          return;
+        }
+
+        // Handle asynchronously so we can use await.
+        void (async () => {
+          try {
+            const raw = await readRequestBody(req);
+            const body = JSON.parse(raw) as Record<string, unknown>;
+            const relPath =
+              typeof body["relPath"] === "string" ? body["relPath"] : undefined;
+
+            if (!relPath) {
+              sendJson(res, 400, { ok: false, error: "relPath is required" });
+              return;
+            }
+
+            await assertPathInside(manifest.rootPath, relPath);
+            const absolutePath = path.resolve(manifest.rootPath, relPath);
+
+            if (pathname === "/read-file") {
+              // Read-file: no extension restriction — agents need to read any file.
+              let content: string;
+              try {
+                content = await fs.readFile(absolutePath, "utf8");
+              } catch (err: unknown) {
+                const code =
+                  err instanceof Error &&
+                  "code" in err &&
+                  (err as NodeJS.ErrnoException).code;
+                if (code === "ENOENT") {
+                  sendJson(res, 404, { ok: false, error: "file not found" });
+                } else {
+                  sendJson(res, 500, {
+                    ok: false,
+                    error: `read failed: ${err instanceof Error ? err.message : String(err)}`,
+                  });
+                }
+                return;
+              }
+              sendJson(res, 200, { ok: true, content });
+              return;
+            }
+
+            // write-file and apply-edit only allow .html/.htm/.css.
+            assertAllowedExtension(relPath);
+
+            if (pathname === "/write-file") {
+              const content =
+                typeof body["content"] === "string"
+                  ? body["content"]
+                  : undefined;
+              if (content === undefined) {
+                sendJson(res, 400, {
+                  ok: false,
+                  error: "content is required for write-file",
+                });
+                return;
+              }
+              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+              await fs.writeFile(absolutePath, content, "utf8");
+              sendJson(res, 200, { ok: true, relPath });
+              return;
+            }
+
+            // /apply-edit: supports either full replace ({content}) or
+            // search-and-replace ({search, replace}).
+            if (typeof body["content"] === "string") {
+              // Full-file replace via apply-edit — same as write-file but keeps
+              // the endpoint semantically separate for callers that want to
+              // distinguish intent.
+              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+              await fs.writeFile(
+                absolutePath,
+                body["content"] as string,
+                "utf8",
+              );
+              sendJson(res, 200, { ok: true, relPath, method: "replace" });
+              return;
+            }
+
+            const search =
+              typeof body["search"] === "string" ? body["search"] : undefined;
+            const replace =
+              typeof body["replace"] === "string" ? body["replace"] : undefined;
+            if (search === undefined || replace === undefined) {
+              sendJson(res, 400, {
+                ok: false,
+                error:
+                  "apply-edit requires either {content} for a full replace, or {search, replace} for a patch",
+              });
+              return;
+            }
+
+            let existing: string;
+            try {
+              existing = await fs.readFile(absolutePath, "utf8");
+            } catch (err: unknown) {
+              const code =
+                err instanceof Error &&
+                "code" in err &&
+                (err as NodeJS.ErrnoException).code;
+              if (code === "ENOENT") {
+                sendJson(res, 404, {
+                  ok: false,
+                  error: "file not found — use write-file to create new files",
+                });
+              } else {
+                sendJson(res, 500, {
+                  ok: false,
+                  error: `read failed: ${err instanceof Error ? err.message : String(err)}`,
+                });
+              }
+              return;
+            }
+
+            if (!existing.includes(search)) {
+              sendJson(res, 422, {
+                ok: false,
+                error: "search string not found in file",
+              });
+              return;
+            }
+
+            // Replace only the first occurrence to mirror surgical edit behaviour.
+            const updated = existing.replace(search, replace);
+            await fs.writeFile(absolutePath, updated, "utf8");
+            sendJson(res, 200, { ok: true, relPath, method: "patch" });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        return;
+      }
+
       sendJson(res, 404, { ok: false, error: "not found" });
     },
   );
@@ -435,7 +674,7 @@ export async function startDesignConnectBridge(
     });
   });
 
-  return { server, manifest };
+  return { server, manifest, bridgeToken };
 }
 
 function printHelp() {

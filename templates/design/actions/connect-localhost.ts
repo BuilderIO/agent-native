@@ -115,16 +115,7 @@ export default defineAction({
       args.capabilities ??
       DESIGN_BRIDGE_OPERATIONS.map((operation) => ({
         operation,
-        status:
-          operation === "readFile" ||
-          operation === "applyEdit" ||
-          operation === "writeFile"
-            ? ("planned" as const)
-            : ("available" as const),
-        reason:
-          operation === "writeFile"
-            ? "Local file writes require the next bridge hardening pass."
-            : undefined,
+        status: "available" as const,
       }));
 
     const values = {

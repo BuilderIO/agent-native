@@ -437,6 +437,61 @@ export default defineEventHandler(async (event: H3Event) => {
         };
       } catch (err) {
         console.error("[clips] finalize-recording failed:", err);
+        const [committed] = await db
+          .select({
+            id: schema.recordings.id,
+            status: schema.recordings.status,
+            videoUrl: schema.recordings.videoUrl,
+            durationMs: schema.recordings.durationMs,
+            width: schema.recordings.width,
+            height: schema.recordings.height,
+            hasAudio: schema.recordings.hasAudio,
+            hasCamera: schema.recordings.hasCamera,
+          })
+          .from(schema.recordings)
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ),
+          );
+        if (committed?.status === "ready" && committed.videoUrl) {
+          console.warn(
+            "[clips] finalize reported an error after committing a ready recording; returning committed success.",
+            {
+              recordingId,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
+          try {
+            await writeAppState(`recording-upload-${recordingId}`, {
+              recordingId,
+              status: "ready",
+              progress: 100,
+              videoUrl: committed.videoUrl,
+              finishedAt: new Date().toISOString(),
+            });
+          } catch (stateErr) {
+            console.warn("[clips] committed-ready state repair failed:", {
+              recordingId,
+              err:
+                stateErr instanceof Error ? stateErr.message : String(stateErr),
+            });
+          }
+          return {
+            ok: true,
+            finalized: true,
+            recoveredAfterFinalizeError: true,
+            id: committed.id,
+            status: "ready",
+            videoUrl: committed.videoUrl,
+            durationMs: committed.durationMs,
+            width: committed.width,
+            height: committed.height,
+            hasAudio: committed.hasAudio,
+            hasCamera: committed.hasCamera,
+          };
+        }
         await db
           .update(schema.recordings)
           .set({

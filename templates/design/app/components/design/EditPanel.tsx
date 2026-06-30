@@ -370,6 +370,9 @@ function ColorInput({
   value,
   onChange,
   backgroundImage,
+  backgroundSize,
+  backgroundRepeat,
+  backgroundPosition,
   onBackgroundImageChange,
   onImageFillChange,
   blendMode,
@@ -382,6 +385,9 @@ function ColorInput({
   value: string;
   onChange: (value: string) => void;
   backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundRepeat?: string;
+  backgroundPosition?: string;
   onBackgroundImageChange?: (value: string) => void;
   onImageFillChange?: (value: ImageFillValue) => void;
   blendMode?: string;
@@ -400,6 +406,9 @@ function ColorInput({
   }, [value]);
 
   const backgroundLayers = splitCssLayers(backgroundImage || "");
+  const backgroundSizeLayers = splitCssLayers(backgroundSize || "");
+  const backgroundRepeatLayers = splitCssLayers(backgroundRepeat || "");
+  const backgroundPositionLayers = splitCssLayers(backgroundPosition || "");
   const selectedLayerIndex = fillLayerIndex(selectedFillId);
   const selectedGradient =
     selectedLayerIndex !== null
@@ -634,6 +643,8 @@ function ColorInput({
     selectedLayerIndex !== null
       ? (backgroundLayers[selectedLayerIndex] ?? draft ?? value ?? "#000000")
       : draft || "#000000";
+  const selectedBackgroundLayerValue = (layers: string[]): string | undefined =>
+    selectedLayerIndex !== null ? layers[selectedLayerIndex] : undefined;
   const handlePaintTypeChange = (type: DesignPaintType) => {
     const selectedLayer = fillLayerIndex(selectedFillId);
     if (type === "solid") {
@@ -694,6 +705,12 @@ function ColorInput({
         supportsLayeredFills ? handlePaintValueChange : undefined
       }
       onImageFillChange={onImageFillChange}
+      backgroundImage={selectedBackgroundLayerValue(backgroundLayers)}
+      backgroundSize={selectedBackgroundLayerValue(backgroundSizeLayers)}
+      backgroundRepeat={selectedBackgroundLayerValue(backgroundRepeatLayers)}
+      backgroundPosition={selectedBackgroundLayerValue(
+        backgroundPositionLayers,
+      )}
       blendMode={blendMode}
       onBlendModeChange={onBlendModeChange}
       showBlendMode={Boolean(onBlendModeChange)}
@@ -3423,7 +3440,10 @@ function PageProperties({
           label={t("editPanel.labels.background")}
           value={styles.backgroundColor || ""}
           onChange={(v) => onStyleChange("backgroundColor", v)}
-          backgroundImage={styles.backgroundImage || ""}
+          backgroundImage={styles.backgroundImage}
+          backgroundSize={styles.backgroundSize}
+          backgroundRepeat={styles.backgroundRepeat}
+          backgroundPosition={styles.backgroundPosition}
           onBackgroundImageChange={(v) => onStyleChange("backgroundImage", v)}
           onImageFillChange={(value) =>
             commitStylePatch(
@@ -4560,6 +4580,15 @@ function FillProperties({
   const backgroundLayers = isTextElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
+  const backgroundSizeLayers = isTextElement
+    ? []
+    : splitCssLayers(styles.backgroundSize || "");
+  const backgroundRepeatLayers = isTextElement
+    ? []
+    : splitCssLayers(styles.backgroundRepeat || "");
+  const backgroundPositionLayers = isTextElement
+    ? []
+    : splitCssLayers(styles.backgroundPosition || "");
   const hasBackgroundLayer = !isTextElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
@@ -4813,6 +4842,10 @@ function FillProperties({
                             );
                           }}
                           paintType={gradient?.type ?? "image"}
+                          backgroundImage={layer}
+                          backgroundSize={backgroundSizeLayers[index]}
+                          backgroundRepeat={backgroundRepeatLayers[index]}
+                          backgroundPosition={backgroundPositionLayers[index]}
                           gradientType={gradient?.type}
                           onGradientTypeChange={(type) => {
                             if (!gradient) return;

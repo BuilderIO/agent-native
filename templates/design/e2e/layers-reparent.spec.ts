@@ -244,7 +244,14 @@ async function rowLevel(page: Page, name: string): Promise<number> {
 }
 
 async function clickLayerRow(page: Page, name: string): Promise<void> {
-  await layerRowButton(page, name).click();
+  const button = await waitForLayerRowButton(page, name);
+  await button.click({ force: true });
+}
+
+async function waitForLayerRowButton(page: Page, name: string) {
+  const button = layerRowButton(page, name);
+  await expect(button).toBeVisible();
+  return button;
 }
 
 async function expandLayerRow(page: Page, name: string): Promise<void> {
@@ -376,10 +383,42 @@ function cssString(value: string) {
 }
 
 async function openLayerSearch(page: Page, query: string): Promise<void> {
-  await page
-    .getByRole("button", { name: "Search layers...", exact: true })
-    .click();
-  await page.getByPlaceholder("Search layers...").fill(query);
+  const normalized = query.trim().toLowerCase();
+  const deadline = Date.now() + 30_000;
+  let lastNames: string[] = [];
+  do {
+    const input = page.getByPlaceholder("Search layers...");
+    if (!(await input.isVisible().catch(() => false))) {
+      await page
+        .getByRole("button", { name: "Search layers...", exact: true })
+        .click();
+      await expect(input).toBeVisible();
+    }
+    await input.fill(query);
+    await expect(input).toHaveValue(query);
+    const matched = await expect
+      .poll(
+        async () => {
+          lastNames = await visibleLayerNames(page);
+          return normalized
+            ? lastNames.some((name) => name.toLowerCase().includes(normalized))
+            : lastNames.length > 0;
+        },
+        { timeout: 3_000 },
+      )
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false);
+    if (matched) return;
+    await page.waitForTimeout(250);
+  } while (Date.now() < deadline);
+
+  if (!normalized) {
+    throw new Error("Layer rows did not become searchable");
+  }
+  throw new Error(
+    `Layer search for ${query} did not match any rows; last rows: ${lastNames.join(", ")}`,
+  );
 }
 
 async function attemptCanvasSelect(

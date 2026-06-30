@@ -25,6 +25,13 @@ export interface ImageFillValue {
   fit: ImageFitMode;
 }
 
+export interface ImageFillBackgroundStyles {
+  backgroundImage: string;
+  backgroundSize?: string;
+  backgroundRepeat?: string;
+  backgroundPosition?: string;
+}
+
 const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
   { mode: "fill", label: "Fill" }, // i18n-ignore image fit mode
   { mode: "fit", label: "Fit" }, // i18n-ignore image fit mode
@@ -139,23 +146,95 @@ export function imageFillToBackgroundStyles(
 //   group 3 — unquoted:       url(...no-parens-or-quotes...)
 const URL_RE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/i;
 
-/** Extract the URL + fit mode from a CSS background value, if present. */
-export function parseImageFillCss(value: string): ImageFillValue | null {
-  const match = value.match(URL_RE);
+function normalizeCssLayer(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function firstCssLayer(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "";
+  let depth = 0;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+    if (char === "," && depth === 0) return trimmed.slice(0, index).trim();
+  }
+  return trimmed;
+}
+
+function isStartBackgroundPosition(position: string): boolean {
+  if (!position) return false;
+  const normalized = position
+    .replace(/\s+/g, " ")
+    .replace(/\b0(?:\.0+)?(?:px|em|rem|%)\b/g, "0")
+    .trim();
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length === 1) {
+    return tokens[0] === "0" || tokens[0] === "top" || tokens[0] === "left";
+  }
+  const horizontal = tokens[0];
+  const vertical = tokens[1];
+  return (
+    (horizontal === "left" || horizontal === "0") &&
+    (vertical === "top" || vertical === "0")
+  );
+}
+
+function inferFitFromBackgroundStyles(
+  styles: ImageFillBackgroundStyles,
+): ImageFitMode | null {
+  const size = normalizeCssLayer(firstCssLayer(styles.backgroundSize));
+  const repeat = normalizeCssLayer(firstCssLayer(styles.backgroundRepeat));
+  const position = normalizeCssLayer(firstCssLayer(styles.backgroundPosition));
+
+  if (size === "contain") return "fit";
+  if (repeat === "repeat" || repeat === "repeat-x" || repeat === "repeat-y") {
+    return "tile";
+  }
+  if (size === "auto" && repeat === "repeat") return "tile";
+  if (
+    isStartBackgroundPosition(position) &&
+    (repeat === "repeat" || size === "auto")
+  ) {
+    return "tile";
+  }
+  if (size === "cover") return "fill";
+  return null;
+}
+
+/** Extract the URL + fit mode from CSS background input, if present. */
+export function parseImageFillCss(value: string): ImageFillValue | null;
+export function parseImageFillCss(
+  value: ImageFillBackgroundStyles,
+): ImageFillValue | null;
+export function parseImageFillCss(
+  value: string | ImageFillBackgroundStyles,
+): ImageFillValue | null {
+  const styles = typeof value === "string" ? { backgroundImage: value } : value;
+  const match = styles.backgroundImage.match(URL_RE);
   if (!match) return null;
   const url = (match[1] ?? match[2] ?? match[3] ?? "").trim();
-  const marker = value.match(FIT_MARKER_RE)?.[1] as ImageFitMode | undefined;
+  const marker = styles.backgroundImage.match(FIT_MARKER_RE)?.[1] as
+    | ImageFitMode
+    | undefined;
   if (marker) return { url, fit: marker };
+  const inferredFit = inferFitFromBackgroundStyles(styles);
+  if (inferredFit) return { url, fit: inferredFit };
   // Heuristic fallback when no marker comment is present (e.g. CSS pasted from
   // DevTools or Figma inspect). Note: "crop" and "fill" produce identical CSS
   // (center / cover no-repeat), so external CSS without the marker comment will
   // always parse as "fill". Crop mode is only recoverable via the proprietary
   // agent-native-image-fit marker written by imageFillToCss.
   let fit: ImageFitMode = "fill";
-  if (/contain/i.test(value)) fit = "fit";
-  else if (/repeat(?!\s+no)/i.test(value) && !/no-repeat/i.test(value))
+  const backgroundImage = styles.backgroundImage;
+  if (/contain/i.test(backgroundImage)) fit = "fit";
+  else if (
+    /repeat(?!\s+no)/i.test(backgroundImage) &&
+    !/no-repeat/i.test(backgroundImage)
+  )
     fit = "tile";
-  else if (/cover/i.test(value)) fit = "fill";
+  else if (/cover/i.test(backgroundImage)) fit = "fill";
   return { url, fit };
 }
 
