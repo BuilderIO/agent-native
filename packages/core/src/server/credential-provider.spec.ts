@@ -865,4 +865,46 @@ describe("resolveSecret (generic)", () => {
     expect(await resolveSecret("SOME_KEY")).toBe("v");
     delete process.env.SOME_KEY;
   });
+
+  it("uses the deploy env for OAuth client keys in an authenticated production request (shared deployment client)", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.GOOGLE_CLIENT_ID = "deploy-google-client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "deploy-google-client-secret";
+    process.env.OPENAI_API_KEY = "deploy-openai-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockResolvedValue(null);
+    // A shared OAuth client is deployment-wide identity, so the deploy env is a
+    // safe fallback for signed-in users (each still does their own OAuth).
+    expect(await resolveSecret("GOOGLE_CLIENT_ID")).toBe(
+      "deploy-google-client-id",
+    );
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe(
+      "deploy-google-client-secret",
+    );
+    // A per-tenant API key stays blocked from the deploy env.
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+  });
+
+  it("lets a per-tenant OAuth client override the deploy env (BYO wins)", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.GOOGLE_CLIENT_ID = "deploy-google-client-id";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("org_1");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce({
+        value: "tenant-google-client-id",
+        last4: "t-id",
+        updatedAt: 1,
+      }); // org scope hit — returned before the env fallback
+    expect(await resolveSecret("GOOGLE_CLIENT_ID")).toBe(
+      "tenant-google-client-id",
+    );
+    delete process.env.GOOGLE_CLIENT_ID;
+  });
 });

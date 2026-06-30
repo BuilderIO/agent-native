@@ -108,6 +108,33 @@ function isBuilderCredentialKey(key: string): boolean {
   return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);
 }
 
+/**
+ * OAuth *client* credentials — the client_id / client_secret that identify the
+ * deployment's own OAuth app (Google / GitHub sign-in, Gmail / Calendar / Docs
+ * connect). Unlike a per-tenant API key, a shared OAuth client is deployment-
+ * wide identity, not a secret that belongs to one tenant: every user authorizes
+ * the SAME app for their OWN account and receives their OWN tokens (stored
+ * per-user in `oauth_tokens`), so a deploy-level value can never impersonate
+ * another tenant. A tenant that supplies its own client (the BYO upload path)
+ * still wins — user/org/workspace scopes are read first, above this env
+ * fallback. So these keys are allowed to fall back to the deploy env even for
+ * authenticated hosted users (the same treatment Builder credential keys get),
+ * which lets one deployment offer a single shared "Sign in with Google" instead
+ * of forcing every user to register their own Google Cloud OAuth app.
+ */
+const DEPLOYMENT_WIDE_OAUTH_CLIENT_KEYS = [
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_SIGN_IN_CLIENT_ID",
+  "GOOGLE_SIGN_IN_CLIENT_SECRET",
+  "GITHUB_CLIENT_ID",
+  "GITHUB_CLIENT_SECRET",
+] as const;
+
+function isDeploymentWideOAuthClientKey(key: string): boolean {
+  return (DEPLOYMENT_WIDE_OAUTH_CLIENT_KEYS as readonly string[]).includes(key);
+}
+
 function isHostedWorkspaceRuntime(): boolean {
   const hasFusionPreview = Boolean(
     process.env.FUSION_ENVIRONMENT ||
@@ -966,13 +993,15 @@ export async function resolveSecret(key: string): Promise<string | null> {
     // The deploy-level value would silently impersonate the actual key
     // owner across every tenant. Local/single-tenant deployments keep the
     // original env fallback for BYO-server workflows.
-    const envFallback = (
-      isBuilderCredentialKey(key)
-        ? canUseBuilderDeployCredentialFallbackForRequest()
-        : canUseDeployCredentialFallbackForRequest()
-    )
-      ? process.env[key] || null
-      : null;
+    const allowDeployFallback = isBuilderCredentialKey(key)
+      ? canUseBuilderDeployCredentialFallbackForRequest()
+      : isDeploymentWideOAuthClientKey(key)
+        ? // A shared OAuth client is deployment-wide identity, not a per-tenant
+          // secret — safe to use for authenticated users (BYO per-tenant client
+          // is still resolved first, above). See DEPLOYMENT_WIDE_OAUTH_CLIENT_KEYS.
+          true
+        : canUseDeployCredentialFallbackForRequest();
+    const envFallback = allowDeployFallback ? process.env[key] || null : null;
     if (traceLookup) {
       console.log(
         `[resolve-secret] key=${key} email=${email} orgId=${getRequestOrgId() ?? "(none)"} scope=${envFallback ? "env-fallback" : "none"} hit=${!!envFallback}`,
