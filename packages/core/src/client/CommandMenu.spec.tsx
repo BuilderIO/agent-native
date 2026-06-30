@@ -114,6 +114,50 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).toContain("Result for launch");
   });
 
+  it("does not render stale dynamic results while closed or reopening", () => {
+    const renderQueries: string[] = [];
+
+    function render(open: boolean) {
+      act(() => {
+        root.render(
+          <CommandMenu
+            open={open}
+            onOpenChange={() => undefined}
+            showAgentFallback={false}
+            renderResults={(query) => {
+              renderQueries.push(query);
+              return query.trim() ? (
+                <CommandMenu.Group heading="Dynamic">
+                  <CommandMenu.Item onSelect={() => undefined}>
+                    Result for {query}
+                  </CommandMenu.Item>
+                </CommandMenu.Group>
+              ) : null;
+            }}
+          >
+            <CommandMenu.Group heading="Actions">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Static action
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          </CommandMenu>,
+        );
+      });
+    }
+
+    render(true);
+    search("launch");
+    expect(renderQueries).toContain("launch");
+
+    renderQueries.length = 0;
+    render(false);
+    expect(renderQueries).toEqual([]);
+
+    render(true);
+    expect(renderQueries.at(-1)).toBe("");
+    expect(document.body.textContent).not.toContain("Result for launch");
+  });
+
   it("can opt into opening from a contenteditable target", () => {
     function ShortcutHarness() {
       const [open, setOpen] = React.useState(false);

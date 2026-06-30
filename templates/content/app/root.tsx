@@ -363,6 +363,14 @@ function ContentCommandSearchResults({
 
   return (
     <>
+      {error ? (
+        <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+          <CommandStateMessage>
+            {t("root.commandSearchPartialError")}
+          </CommandStateMessage>
+        </CommandMenu.Group>
+      ) : null}
+
       {searchGroups.documents.length > 0 ? (
         <CommandMenu.Group heading={t("root.commandDocumentsHeading")}>
           {searchGroups.documents.map((document) => (

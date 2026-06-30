@@ -6,6 +6,7 @@ const messages = {
     commandSearchPlaceholder: "搜尋文件和資料庫...",
     commandSearchLoading: "搜尋中...",
     commandSearchError: "搜尋目前無法使用。",
+    commandSearchPartialError: "部分結果無法載入。",
     commandSearchEmpty: "沒有相符的文件或資料庫。",
     commandDocumentsHeading: "文件",
     commandDatabasesHeading: "資料庫",

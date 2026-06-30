@@ -328,8 +328,15 @@ export function CommandMenu({
     setTimeout(() => setChangelogOpen(true), 50);
   }, [onOpenChange, markChangelogSeen]);
 
-  // Focus input when opening
+  // Focus input when opening; clear search while closed so reopen never renders
+  // dynamic results for the previous query.
   useEffect(() => {
+    if (!open) {
+      setSearch("");
+      setSelectedIndex(0);
+      return;
+    }
+
     if (open) {
       setSearch("");
       setSelectedIndex(0);
@@ -500,7 +507,7 @@ export function CommandMenu({
       React.isValidElement(child) &&
       (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
-  const dynamicResults = renderResults?.(search);
+  const dynamicResults = open ? renderResults?.(search) : null;
   const hasDynamicResults = Boolean(dynamicResults);
 
   return (
