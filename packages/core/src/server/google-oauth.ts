@@ -442,6 +442,7 @@ export function resolveOAuthRedirectUri(
 export interface OAuthStatePayload {
   redirectUri: string;
   owner?: string;
+  orgId?: string;
   desktop?: boolean;
   addAccount?: boolean;
   app?: string;
@@ -512,6 +513,7 @@ function getStateSigningKey(): string {
 export interface EncodeOAuthStateOptions {
   redirectUri: string;
   owner?: string;
+  orgId?: string;
   desktop?: boolean;
   addAccount?: boolean;
   app?: string;
@@ -585,6 +587,7 @@ export function encodeOAuthState(
     r: opts.redirectUri,
   };
   if (opts.owner) payload.o = opts.owner;
+  if (opts.orgId) payload.g = opts.orgId;
   if (opts.desktop) payload.d = true;
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
@@ -631,6 +634,7 @@ export function decodeOAuthState(
       return {
         redirectUri: parsed.r || fallbackUri,
         owner: parsed.o || undefined,
+        orgId: typeof parsed.g === "string" ? parsed.g : undefined,
         desktop: !!parsed.d,
         addAccount: !!parsed.a,
         app: typeof parsed.app === "string" ? parsed.app : undefined,

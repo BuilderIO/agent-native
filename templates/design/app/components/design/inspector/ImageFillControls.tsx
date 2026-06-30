@@ -238,6 +238,14 @@ export function parseImageFillCss(
   return { url, fit };
 }
 
+export function mergeImageFitDraft(
+  value: ImageFillValue,
+  urlDraft: string,
+  fit: ImageFitMode,
+): ImageFillValue {
+  return { ...value, url: urlDraft.trim(), fit };
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export interface ImageFillControlsProps {
@@ -255,13 +263,15 @@ export function ImageFillControls({
 }: ImageFillControlsProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [urlDraft, setUrlDraft] = useState(value.url);
+  const urlDraftRef = useRef(value.url);
 
   useEffect(() => {
+    urlDraftRef.current = value.url;
     setUrlDraft(value.url);
   }, [value.url]);
 
   const commitUrl = () => {
-    onChange({ ...value, url: urlDraft.trim() });
+    onChange({ ...value, url: urlDraftRef.current.trim() });
   };
 
   const handleFilePick = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -338,7 +348,10 @@ export function ImageFillControls({
           aria-label={"Image URL" /* i18n-ignore */}
           spellCheck={false}
           className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px]"
-          onChange={(event) => setUrlDraft(event.target.value)}
+          onChange={(event) => {
+            urlDraftRef.current = event.target.value;
+            setUrlDraft(event.target.value);
+          }}
           onBlur={commitUrl}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -378,7 +391,11 @@ export function ImageFillControls({
       {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
       <Select
         value={value.fit}
-        onValueChange={(v) => onChange({ ...value, fit: v as ImageFitMode })}
+        onValueChange={(v) =>
+          onChange(
+            mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
+          )
+        }
         disabled={disabled}
       >
         <SelectTrigger

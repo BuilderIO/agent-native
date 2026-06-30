@@ -89,4 +89,20 @@ describe("apply-design-token-edit", () => {
     expect(persisted.tweakSelections["--shadow-glow"]).toBe(glow);
     expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects unsafe CSS custom property names and token values", () => {
+    expect(
+      action.schema.safeParse({
+        designId: "design_1",
+        edits: [{ cssVar: "--color-accent;body", value: "#2563eb" }],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      action.schema.safeParse({
+        designId: "design_1",
+        edits: [{ cssVar: "--color-accent", value: "red; color: black" }],
+      }).success,
+    ).toBe(false);
+  });
 });

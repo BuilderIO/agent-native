@@ -196,13 +196,20 @@ export function checkTapTargets(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
   // Heuristic: buttons/links with explicit tiny size classes (h-4, h-5, w-4, w-5, size-4, size-5)
   // and no explicit larger override or sr-only are flagged.
-  const interactivePattern = /<(?:button|a)\b[^>]*>/gi;
+  const interactivePattern =
+    /<(button|a|input|select|textarea)\b[^>]*(?:\/>|>)/gi;
   const tinyPattern = /\b(?:h|w|size)-[345]\b/;
   const largePattern = /\b(?:h|w|size)-(?:[6-9]|[1-9]\d)/;
   const srOnlyPattern = /\bsr-only\b/;
   let idx = 0;
   for (const m of html.matchAll(interactivePattern)) {
     const tag = m[0];
+    const tagName = (m[1] ?? "button").toLowerCase();
+    const typeMatch = tag.match(/\btype\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
+    if (tagName === "input") {
+      const type = (typeMatch?.[1] ?? typeMatch?.[2] ?? "text").toLowerCase();
+      if (type === "hidden") continue;
+    }
     if (
       tinyPattern.test(tag) &&
       !largePattern.test(tag) &&
@@ -217,7 +224,7 @@ export function checkTapTargets(html: string): A11yFinding[] {
         detail:
           "Minimum recommended tap target size is 44×44 px (WCAG 2.5.5). Consider increasing padding or size.",
         nodeId: extractNodeId(tag),
-        selector: extractSelector(tag, "button"),
+        selector: extractSelector(tag, tagName),
         wcag: "2.5.5",
         fixAvailable: true,
       });

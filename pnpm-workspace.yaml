@@ -59,5 +59,6 @@ allowBuilds:
   ffmpeg-static: set this to true or false
   node-pty: set this to true or false
   protobufjs: set this to true or false
+  puppeteer: set this to true or false
   sharp: set this to true or false
   workerd: set this to true or false

@@ -17,7 +17,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { resolveTweaksToCssVars } from "../shared/resolve-tweaks.js";
+import {
+  isSafeCssTokenValue,
+  isSafeCssVarName,
+  resolveTweaksToCssVars,
+} from "../shared/resolve-tweaks.js";
 
 type ImportedTokenType =
   | "color"
@@ -174,10 +178,6 @@ function normalizeValue(value: string): string {
     .trim();
 }
 
-function isSafeTokenValue(value: string): boolean {
-  return value.length > 0 && value.length <= 300 && !/[}<]/.test(value);
-}
-
 function tokenVar(prefix: string, key: string): string {
   if (key.startsWith("--")) return key;
   const stem = toKebab(key);
@@ -224,7 +224,7 @@ function parseNamedLines(
 
       const label = match[1].replace(/\*\*/g, "").trim();
       const value = normalizeValue(match[2]);
-      if (!isSafeTokenValue(value)) continue;
+      if (!isSafeCssTokenValue(value)) continue;
 
       const lower = label.toLowerCase();
       let cssVar: string | null = null;
@@ -261,7 +261,7 @@ function uniqueTokenList(tokens: ImportedDesignToken[]): ImportedDesignToken[] {
 
   for (const token of tokens) {
     if (!/^--[-_a-zA-Z0-9]+$/.test(token.cssVar)) continue;
-    if (!isSafeTokenValue(token.value)) continue;
+    if (!isSafeCssTokenValue(token.value)) continue;
     const previous = byVar.get(token.cssVar);
     byVar.set(token.cssVar, token);
     if (!previous && !/^--color-imported-\d+$/.test(token.cssVar)) {
@@ -404,7 +404,11 @@ export default defineAction({
     }
 
     const { filesAnalyzed, tokens } = tokensFromFiles(importFiles);
-    if (tokens.length === 0) {
+    const safeTokens = tokens.filter(
+      (token) =>
+        isSafeCssVarName(token.cssVar) && isSafeCssTokenValue(token.value),
+    );
+    if (safeTokens.length === 0) {
       return {
         designId,
         source,
@@ -452,7 +456,7 @@ export default defineAction({
         : {};
     const nextSelections = { ...prevSelections };
 
-    for (const token of tokens) {
+    for (const token of safeTokens) {
       const tweakId = cssVarToTweakId.get(token.cssVar);
       nextSelections[tweakId ?? token.cssVar] = token.value;
     }
@@ -464,7 +468,7 @@ export default defineAction({
         ? (prevData.tokenImportSources as Record<string, string>)
         : {};
     const tokenImportSources = { ...previousSources };
-    for (const token of tokens) {
+    for (const token of safeTokens) {
       tokenImportSources[token.cssVar] =
         token.source === "CSS variables" || token.source === "Colors"
           ? sourceLabel
@@ -484,7 +488,7 @@ export default defineAction({
         {
           source,
           sourceLabel,
-          tokenCount: tokens.length,
+          tokenCount: safeTokens.length,
           filesAnalyzed,
           importedAt: now,
         },
@@ -500,10 +504,10 @@ export default defineAction({
     return {
       designId,
       source,
-      importedCount: tokens.length,
+      importedCount: safeTokens.length,
       skippedCount: importFiles.length - filesAnalyzed.length,
       filesAnalyzed,
-      tokens,
+      tokens: safeTokens,
       resolvedCssVars: resolveTweaksToCssVars(tweaks, nextSelections),
       deepLink: designDeepLink(designId),
     };

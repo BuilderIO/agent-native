@@ -870,10 +870,33 @@ interface GeometryHistoryEntry {
   after: CanvasFrameGeometryById;
 }
 
-interface ContentHistoryEntry {
+export interface ContentHistoryChange {
   fileId: string;
   before: string;
   after: string;
+}
+
+export interface ContentHistoryGroup {
+  changes: ContentHistoryChange[];
+}
+
+export type ContentHistoryEntry = ContentHistoryChange | ContentHistoryGroup;
+
+export function getContentHistoryChanges(
+  entry: ContentHistoryEntry,
+): ContentHistoryChange[] {
+  return "changes" in entry ? entry.changes : [entry];
+}
+
+export function getAvailableContentHistoryChanges(
+  entry: ContentHistoryEntry,
+  availableFileIds: Iterable<string>,
+  activeFileId?: string | null,
+): ContentHistoryChange[] {
+  const fileIds = new Set(availableFileIds);
+  return getContentHistoryChanges(entry).filter(
+    (change) => change.fileId === activeFileId || fileIds.has(change.fileId),
+  );
 }
 
 type PatchProofStatus =
@@ -3533,6 +3556,7 @@ export default function DesignEditor() {
     useState<{ screenId: string; layerId: string } | null>(null);
   const pendingOverviewScreenSelectionRef = useRef<string | null>(null);
   const pendingOverviewLayerSelectionRef = useRef<string | null>(null);
+  const lastOverviewSelectedScreenIdsRef = useRef<string[]>([]);
   // Tracks the nodeId of the most recently created TEXT primitive across one
   // handleCreatePrimitive → handlePrimitiveCreated round-trip. Cleared after
   // use. Lets handlePrimitiveCreated trigger begin-text-edit without needing
@@ -3850,10 +3874,13 @@ export default function DesignEditor() {
   }, []);
   const recordContentHistoryEntry = useCallback(
     (entry: ContentHistoryEntry) => {
-      if (entry.before === entry.after) return;
+      const changes = getContentHistoryChanges(entry).filter(
+        (change) => change.before !== change.after,
+      );
+      if (changes.length === 0) return;
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        entry,
+        changes.length === 1 ? changes[0] : { changes },
       ];
       contentRedoStackRef.current = [];
       historyOrderRef.current = [
@@ -3910,6 +3937,13 @@ export default function DesignEditor() {
   useEffect(() => {
     viewModeRef.current = viewMode;
   }, [viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "overview" || overviewSelectedScreenIds.length === 0) {
+      return;
+    }
+    lastOverviewSelectedScreenIdsRef.current = [...overviewSelectedScreenIds];
+  }, [overviewSelectedScreenIds, viewMode]);
   const [hasPendingGeneration, setHasPendingGeneration] = useState(() =>
     hasFreshPendingGeneration(id),
   );
@@ -6733,20 +6767,24 @@ export default function DesignEditor() {
         skipPreview?: boolean;
         immediateSave?: boolean;
         persist?: boolean;
+        recordHistory?: boolean;
         updatedAt?: string;
       } = {},
     ) => {
       if (!activeFile || !canEditDesignRef.current) return;
+      const shouldRecordHistory =
+        options.recordHistory !== false && !options.updatedAt;
       const previousContent =
         collabContentFileIdRef.current === activeFile.id &&
         typeof collabContentRef.current === "string"
           ? collabContentRef.current
           : (activeFile.content ?? "");
       const yjsHistoryAvailable = Boolean(
-        ydoc && isSynced && undoManagerRef.current,
+        shouldRecordHistory && ydoc && isSynced && undoManagerRef.current,
       );
       if (
         !suppressContentHistoryRef.current &&
+        shouldRecordHistory &&
         !yjsHistoryAvailable &&
         previousContent !== nextContent
       ) {
@@ -6810,10 +6848,13 @@ export default function DesignEditor() {
       if (ydoc && isSynced) {
         const ytext = ydoc.getText("content");
         if (ytext.toString() !== nextContent) {
-          ydoc.transact(() => {
-            ytext.delete(0, ytext.length);
-            ytext.insert(0, nextContent);
-          }, LOCAL_EDIT_ORIGIN);
+          ydoc.transact(
+            () => {
+              ytext.delete(0, ytext.length);
+              ytext.insert(0, nextContent);
+            },
+            shouldRecordHistory ? LOCAL_EDIT_ORIGIN : TAB_ID,
+          );
         }
       }
       if (options.persist === false) {
@@ -6849,6 +6890,7 @@ export default function DesignEditor() {
         refreshPreview?: boolean;
         skipPreview?: boolean;
         persist?: boolean;
+        recordHistory?: boolean;
         updatedAt?: string;
       } = {},
     ) => {
@@ -6858,6 +6900,21 @@ export default function DesignEditor() {
         return;
       }
       const previousFile = files.find((file) => file.id === fileId);
+      const previousContent =
+        getScreenContent(fileId) ?? previousFile?.content ?? "";
+      const shouldRecordHistory =
+        options.recordHistory !== false && !options.updatedAt;
+      if (
+        !suppressContentHistoryRef.current &&
+        shouldRecordHistory &&
+        previousContent !== nextContent
+      ) {
+        recordContentHistoryEntry({
+          fileId,
+          before: previousContent,
+          after: nextContent,
+        });
+      }
       if (options.updatedAt) {
         clearPendingLocalFileContent(fileId);
       } else {
@@ -6902,9 +6959,11 @@ export default function DesignEditor() {
       cancelQueuedFileContentSave,
       clearPendingLocalFileContent,
       files,
+      getScreenContent,
       id,
       markPendingLocalFileContent,
       queryClient,
+      recordContentHistoryEntry,
       saveFileContent,
     ],
   );
@@ -9461,10 +9520,27 @@ export default function DesignEditor() {
         destNodeAttrId,
       );
 
+      recordContentHistoryEntry({
+        changes: [
+          {
+            fileId: sourceScreenId,
+            before: sourceContent,
+            after: result.sourceHtml,
+          },
+          {
+            fileId: targetScreenId,
+            before: destContent,
+            after: strippedDest,
+          },
+        ],
+      });
+
       applyFileContentUpdate(sourceScreenId, result.sourceHtml, {
+        recordHistory: false,
         refreshPreview: true,
       });
       applyFileContentUpdate(targetScreenId, strippedDest, {
+        recordHistory: false,
         refreshPreview: true,
       });
 
@@ -9478,7 +9554,13 @@ export default function DesignEditor() {
         setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
       }
     },
-    [applyFileContentUpdate, canEditDesign, getScreenContent, t],
+    [
+      applyFileContentUpdate,
+      canEditDesign,
+      getScreenContent,
+      recordContentHistoryEntry,
+      t,
+    ],
   );
 
   /**
@@ -9573,10 +9655,27 @@ export default function DesignEditor() {
         destNodeAttrId,
       );
 
+      recordContentHistoryEntry({
+        changes: [
+          {
+            fileId: sourceScreenId,
+            before: sourceContent,
+            after: result.sourceHtml,
+          },
+          {
+            fileId: targetScreenId,
+            before: destContent,
+            after: strippedDest,
+          },
+        ],
+      });
+
       applyFileContentUpdate(sourceScreenId, result.sourceHtml, {
+        recordHistory: false,
         refreshPreview: true,
       });
       applyFileContentUpdate(targetScreenId, strippedDest, {
+        recordHistory: false,
         refreshPreview: true,
       });
 
@@ -9592,7 +9691,13 @@ export default function DesignEditor() {
         setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
       }
     },
-    [applyFileContentUpdate, canEditDesign, getScreenContent, t],
+    [
+      applyFileContentUpdate,
+      canEditDesign,
+      getScreenContent,
+      recordContentHistoryEntry,
+      t,
+    ],
   );
 
   const handleCutSelection = useCallback(async () => {
@@ -9800,12 +9905,12 @@ export default function DesignEditor() {
       const entry =
         contentUndoStackRef.current[contentUndoStackRef.current.length - 1];
       if (!entry) return false;
-      if (
-        entry.fileId !== activeFile?.id &&
-        !files.some((file) => file.id === entry.fileId)
-      ) {
-        return false;
-      }
+      const changes = getAvailableContentHistoryChanges(
+        entry,
+        files.map((file) => file.id),
+        activeFile?.id,
+      );
+      if (changes.length === 0) return false;
       contentUndoStackRef.current.pop();
       contentRedoStackRef.current = [
         ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -9817,27 +9922,34 @@ export default function DesignEditor() {
       ];
       suppressContentHistoryRef.current = true;
       try {
-        if (entry.fileId === activeFile?.id) {
-          applyLocalContentUpdate(entry.before, {
-            refreshPreview: false,
-            immediateSave: true,
-          });
-        } else {
-          applyFileContentUpdate(entry.fileId, entry.before, {
-            refreshPreview: false,
-          });
+        for (const change of changes) {
+          if (change.fileId === activeFile?.id) {
+            applyLocalContentUpdate(change.before, {
+              refreshPreview: false,
+              immediateSave: true,
+              recordHistory: false,
+            });
+          } else {
+            applyFileContentUpdate(change.fileId, change.before, {
+              recordHistory: false,
+              refreshPreview: false,
+            });
+          }
         }
       } finally {
         suppressContentHistoryRef.current = false;
       }
-      if (entry.fileId === activeFile?.id) {
+      const activeChange = changes.find(
+        (change) => change.fileId === activeFile?.id,
+      );
+      if (activeChange) {
         setSelectedElement((prev) => {
           if (!prev) return prev;
-          return refreshElementInfoFromContent(entry.before, prev);
+          return refreshElementInfoFromContent(activeChange.before, prev);
         });
         setHoveredElement((prev) => {
           if (!prev) return prev;
-          return refreshElementInfoFromContent(entry.before, prev);
+          return refreshElementInfoFromContent(activeChange.before, prev);
         });
       }
       return true;
@@ -9927,12 +10039,12 @@ export default function DesignEditor() {
       const entry =
         contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
       if (!entry) return false;
-      if (
-        entry.fileId !== activeFile?.id &&
-        !files.some((file) => file.id === entry.fileId)
-      ) {
-        return false;
-      }
+      const changes = getAvailableContentHistoryChanges(
+        entry,
+        files.map((file) => file.id),
+        activeFile?.id,
+      );
+      if (changes.length === 0) return false;
       contentRedoStackRef.current.pop();
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -9944,27 +10056,34 @@ export default function DesignEditor() {
       ];
       suppressContentHistoryRef.current = true;
       try {
-        if (entry.fileId === activeFile?.id) {
-          applyLocalContentUpdate(entry.after, {
-            refreshPreview: false,
-            immediateSave: true,
-          });
-        } else {
-          applyFileContentUpdate(entry.fileId, entry.after, {
-            refreshPreview: false,
-          });
+        for (const change of changes) {
+          if (change.fileId === activeFile?.id) {
+            applyLocalContentUpdate(change.after, {
+              refreshPreview: false,
+              immediateSave: true,
+              recordHistory: false,
+            });
+          } else {
+            applyFileContentUpdate(change.fileId, change.after, {
+              recordHistory: false,
+              refreshPreview: false,
+            });
+          }
         }
       } finally {
         suppressContentHistoryRef.current = false;
       }
-      if (entry.fileId === activeFile?.id) {
+      const activeChange = changes.find(
+        (change) => change.fileId === activeFile?.id,
+      );
+      if (activeChange) {
         setSelectedElement((prev) => {
           if (!prev) return prev;
-          return refreshElementInfoFromContent(entry.after, prev);
+          return refreshElementInfoFromContent(activeChange.after, prev);
         });
         setHoveredElement((prev) => {
           if (!prev) return prev;
-          return refreshElementInfoFromContent(entry.after, prev);
+          return refreshElementInfoFromContent(activeChange.after, prev);
         });
       }
       return true;
@@ -10077,6 +10196,15 @@ export default function DesignEditor() {
     transition?.updateCallbackDone?.catch(() => {});
   }, []);
 
+  const getRestoredOverviewSelection = useCallback(() => {
+    const fileIds = new Set(files.map((file) => file.id));
+    const restored = lastOverviewSelectedScreenIdsRef.current.filter((id) =>
+      fileIds.has(id),
+    );
+    if (restored.length > 0) return restored;
+    return activeFileId && fileIds.has(activeFileId) ? [activeFileId] : [];
+  }, [activeFileId, files]);
+
   const enterOverviewFromZoom = useCallback(() => {
     if (viewModeRef.current === "overview") return;
     viewModeRef.current = "overview";
@@ -10084,6 +10212,7 @@ export default function DesignEditor() {
     pendingOverviewLayerSelectionRef.current = null;
     clearPendingOverviewLayerSelectionTimer();
     setCreatedOverviewLayerSelection(null);
+    const restoredOverviewSelection = getRestoredOverviewSelection();
     runEditorViewTransition(() => {
       setDrawMode(false);
       setPinMode(false);
@@ -10091,9 +10220,15 @@ export default function DesignEditor() {
       setSelectedElement(null);
       setHoveredElement(null);
       setActiveTool("move");
+      setOverviewSelectedScreenIds(restoredOverviewSelection);
+      setSelectedLayerIdsState(restoredOverviewSelection);
       setViewMode("overview");
     });
-  }, [clearPendingOverviewLayerSelectionTimer, runEditorViewTransition]);
+  }, [
+    clearPendingOverviewLayerSelectionTimer,
+    getRestoredOverviewSelection,
+    runEditorViewTransition,
+  ]);
 
   const enterSingleScreen = useCallback(
     (fileId?: string | null) => {
@@ -10198,6 +10333,14 @@ export default function DesignEditor() {
 
   const handleSidebarScreenSelect = useCallback(
     (screenId: string) => {
+      if (
+        viewModeRef.current === "overview" &&
+        overviewSelectedScreenIds.length > 0
+      ) {
+        lastOverviewSelectedScreenIdsRef.current = [
+          ...overviewSelectedScreenIds,
+        ];
+      }
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -10206,16 +10349,21 @@ export default function DesignEditor() {
       setSelectedLayerIdsState([]);
       enterSingleScreen(screenId);
     },
-    [clearPendingOverviewLayerSelectionTimer, enterSingleScreen],
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      enterSingleScreen,
+      overviewSelectedScreenIds,
+    ],
   );
 
   const handleSidebarScreenOverview = useCallback(() => {
+    const restoredOverviewSelection = getRestoredOverviewSelection();
     pendingOverviewScreenSelectionRef.current = null;
     pendingOverviewLayerSelectionRef.current = null;
     clearPendingOverviewLayerSelectionTimer();
     setCreatedOverviewLayerSelection(null);
-    setOverviewSelectedScreenIds([]);
-    setSelectedLayerIdsState([]);
+    setOverviewSelectedScreenIds(restoredOverviewSelection);
+    setSelectedLayerIdsState(restoredOverviewSelection);
     if (viewModeRef.current === "overview") {
       setDrawMode(false);
       setPinMode(false);
@@ -10226,7 +10374,11 @@ export default function DesignEditor() {
       return;
     }
     enterOverviewFromZoom();
-  }, [clearPendingOverviewLayerSelectionTimer, enterOverviewFromZoom]);
+  }, [
+    clearPendingOverviewLayerSelectionTimer,
+    enterOverviewFromZoom,
+    getRestoredOverviewSelection,
+  ]);
 
   const handlePinToolToggle = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
@@ -12183,6 +12335,7 @@ ${serializedHtml}
       // Group by source file so multiple nodes from the same source are
       // applied sequentially against the running source content.
       const sourceContentMap = new Map<string, string>();
+      const sourceOriginalContentMap = new Map<string, string>();
       const movedNodeIdByDraggedId = new Map<string, string>();
       for (const { draggedId, sourceFileId } of getLayerMoveIterationOrder(
         crossFileDrags,
@@ -12197,6 +12350,9 @@ ${serializedHtml}
           sourceFileContent: srcFile.content,
           sourceContentMap,
         });
+        if (!sourceOriginalContentMap.has(sourceFileId)) {
+          sourceOriginalContentMap.set(sourceFileId, currentSourceContent);
+        }
 
         // The dragged node's data-agent-native-node-id is the node id tracked
         // by code-layer. Look up the actual attribute value from the owner.
@@ -12274,9 +12430,37 @@ ${serializedHtml}
         });
       }
 
+      const hasCrossFileMoves = sourceContentMap.size > 0;
+      if (hasCrossFileMoves) {
+        recordContentHistoryEntry({
+          changes: [
+            ...Array.from(sourceContentMap.entries()).map(
+              ([sourceFileId, newSourceContent]) => ({
+                fileId: sourceFileId,
+                before:
+                  sourceOriginalContentMap.get(sourceFileId) ??
+                  files.find((file) => file.id === sourceFileId)?.content ??
+                  "",
+                after: newSourceContent,
+              }),
+            ),
+            ...(nextDestContent !== destContent
+              ? [
+                  {
+                    fileId: targetOwner.fileId,
+                    before: destContent,
+                    after: nextDestContent,
+                  },
+                ]
+              : []),
+          ],
+        });
+      }
+
       // Persist source files that changed.
       for (const [sourceFileId, newSourceContent] of sourceContentMap) {
         applyFileContentUpdate(sourceFileId, newSourceContent, {
+          recordHistory: !hasCrossFileMoves,
           refreshPreview: false,
         });
       }
@@ -12284,6 +12468,7 @@ ${serializedHtml}
       // Persist dest file (which may also be the active file).
       if (nextDestContent !== destContent) {
         applyFileContentUpdate(targetOwner.fileId, nextDestContent, {
+          recordHistory: !hasCrossFileMoves,
           refreshPreview: false,
         });
       }
@@ -12297,6 +12482,7 @@ ${serializedHtml}
       effectiveCodeLayerState,
       files,
       getFreshActiveContent,
+      recordContentHistoryEntry,
       t,
     ],
   );

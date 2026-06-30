@@ -250,6 +250,25 @@ describe("tap-target fix clears on re-audit", () => {
       checkTapTargets(`<a class="h-4 min-h-5 min-w-5">y</a>`),
     ).toHaveLength(1);
   });
+
+  it("flags tiny form controls as tap targets too", () => {
+    expect(
+      checkTapTargets(`<input class="h-4 w-4" aria-label="Name" />`),
+    ).toHaveLength(1);
+    expect(
+      checkTapTargets(
+        `<select class="h-5 w-5" aria-label="Sort"><option>A</option></select>`,
+      ),
+    ).toHaveLength(1);
+    expect(
+      checkTapTargets(
+        `<textarea class="h-5 w-5" aria-label="Notes"></textarea>`,
+      ),
+    ).toHaveLength(1);
+    expect(
+      checkTapTargets(`<input type="hidden" class="h-4 w-4" />`),
+    ).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

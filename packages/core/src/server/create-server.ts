@@ -221,11 +221,9 @@ export function createServer(
             key: cfg.key,
             label: cfg.label,
             required: cfg.required ?? false,
-            configured:
-              Boolean(process.env[cfg.key]) ||
-              (await runWithRequestContext({ userEmail, orgId }, () =>
-                resolveSecret(cfg.key).then(Boolean),
-              )),
+            configured: await runWithRequestContext({ userEmail, orgId }, () =>
+              resolveSecret(cfg.key).then(Boolean),
+            ),
             ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
           })),
         );

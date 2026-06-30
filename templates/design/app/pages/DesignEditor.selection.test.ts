@@ -4,8 +4,10 @@ import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
   findMovedCodeLayerNodeInProjection,
+  getAvailableContentHistoryChanges,
   getFreshActiveFileContent,
   getFreshScreenContent,
+  getContentHistoryChanges,
   getDesignEditorShareUrl,
   getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
@@ -683,6 +685,41 @@ describe("DesignEditor undo order helpers", () => {
         "content",
       ),
     ).toEqual(["geometry", "file-content", "geometry"]);
+  });
+
+  it("keeps grouped file-content history changes together", () => {
+    expect(
+      getContentHistoryChanges({
+        changes: [
+          { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+          { fileId: "screen-b", before: "<b>old</b>", after: "<b>new</b>" },
+        ],
+      }),
+    ).toEqual([
+      { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+      { fileId: "screen-b", before: "<b>old</b>", after: "<b>new</b>" },
+    ]);
+  });
+
+  it("skips deleted files in grouped file-content history entries", () => {
+    expect(
+      getAvailableContentHistoryChanges(
+        {
+          changes: [
+            { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+            {
+              fileId: "deleted-screen",
+              before: "<b>old</b>",
+              after: "<b>new</b>",
+            },
+          ],
+        },
+        ["screen-a"],
+        null,
+      ),
+    ).toEqual([
+      { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+    ]);
   });
 });
 

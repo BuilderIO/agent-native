@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { TweakDefinition } from "./api";
 import {
+  isSafeCssTokenValue,
+  isSafeCssVarName,
   resolveTweaksToCssVars,
   renderResolvedRootBlock,
 } from "./resolve-tweaks";
@@ -95,10 +97,42 @@ describe("resolveTweaksToCssVars", () => {
     ).toBe("#111827");
   });
 
+  it("drops unsafe CSS values before they can break out of a declaration", () => {
+    expect(isSafeCssTokenValue("red; color: black")).toBe(false);
+    expect(isSafeCssTokenValue("red} body { color: black")).toBe(false);
+    expect(isSafeCssTokenValue("red/* comment */")).toBe(false);
+    expect(isSafeCssTokenValue("<style>body{color:red}</style>")).toBe(false);
+    expect(isSafeCssTokenValue("oklch(70% 0.12 240)")).toBe(true);
+    expect(isSafeCssVarName("--color-accent")).toBe(true);
+    expect(isSafeCssVarName("--color-accent;body")).toBe(false);
+    expect(isSafeCssVarName("color-accent")).toBe(false);
+    expect(
+      resolveTweaksToCssVars(tweaks, {
+        "theme-accent": "red; color: black",
+        "--shadow-glow": "0 0 24px red; color: black",
+        "--safe-shadow": "0 0 24px rgba(14, 165, 233, 0.4)",
+      }),
+    ).toEqual({
+      "--radius": "12px",
+      "--dark-mode": "1",
+      "--density": "normal",
+      "--safe-shadow": "0 0 24px rgba(14, 165, 233, 0.4)",
+    });
+  });
+
   it("renders a :root block", () => {
     expect(
       renderResolvedRootBlock({ "--color-accent": "#fff", "--radius": "8px" }),
     ).toBe(":root {\n  --color-accent: #fff;\n  --radius: 8px;\n}");
     expect(renderResolvedRootBlock({})).toBe("");
+  });
+
+  it("does not render unsafe CSS declarations", () => {
+    expect(
+      renderResolvedRootBlock({
+        "--color-accent": "#fff",
+        "--bad": "red; color: black",
+      }),
+    ).toBe(":root {\n  --color-accent: #fff;\n}");
   });
 });

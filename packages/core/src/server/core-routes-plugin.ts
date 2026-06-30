@@ -2316,11 +2316,10 @@ export function createCoreRoutesPlugin(
             }
             return Promise.all(
               envKeys.map(async (cfg) => {
-                const configured =
-                  Boolean(process.env[cfg.key]) ||
-                  (await runWithRequestContext({ userEmail, orgId }, () =>
-                    resolveSecret(cfg.key).then(Boolean),
-                  ));
+                const configured = await runWithRequestContext(
+                  { userEmail, orgId },
+                  () => resolveSecret(cfg.key).then(Boolean),
+                );
                 return {
                   key: cfg.key,
                   label: cfg.label,

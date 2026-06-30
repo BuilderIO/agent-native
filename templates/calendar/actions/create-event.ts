@@ -1,6 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { emit } from "@agent-native/core/event-bus";
-import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
+import {
+  buildDeepLink,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { z } from "zod";
 
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
@@ -151,7 +155,10 @@ export default defineAction({
     // Resolve account email
     let acctEmail = email;
     if (args.accountEmail && args.accountEmail !== email) {
-      const status = await googleCalendar.getAuthStatus(email);
+      const status = await googleCalendar.getAuthStatus(
+        email,
+        getRequestOrgId(),
+      );
       const isOwned = status.accounts.some(
         (a) => a.email === args.accountEmail,
       );
