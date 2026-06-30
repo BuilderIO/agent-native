@@ -615,6 +615,10 @@ export interface ContentDatabaseResponse {
   createdDocumentId?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
+  duplicatedItemIds?: string[];
+  duplicatedDocumentIds?: string[];
+  deletedItemIds?: string[];
+  deletedDocumentIds?: string[];
 }
 
 export interface ContentDatabaseUnavailableResponse {
@@ -668,6 +672,13 @@ export interface DuplicateDatabaseItemRequest {
   itemId?: string;
   documentId?: string;
   title?: string;
+}
+
+export interface DatabaseItemsBatchRequest {
+  databaseId?: string;
+  documentId?: string;
+  itemIds?: string[];
+  documentIds?: string[];
 }
 
 export interface MoveDatabaseItemRequest {

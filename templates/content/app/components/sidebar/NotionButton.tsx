@@ -22,7 +22,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
+import {
+  openNotionOAuthUrl,
+  useDisconnectNotion,
+  useNotionConnection,
+} from "@/hooks/use-notion";
 import { cn } from "@/lib/utils";
 
 // ─── Notion SVG icon ────────────────────────────────────────────────────────
@@ -125,8 +129,8 @@ export function NotionButton() {
     };
   }, []);
 
-  function handleConnect() {
-    if (!connection?.authUrl) {
+  async function handleConnect() {
+    if (connection?.error === "missing_credentials") {
       if (needsCredentials) {
         setShowWizard(true);
         return;
@@ -134,7 +138,16 @@ export function NotionButton() {
       toast.error(t("sidebar.notionOAuthNotConfigured"));
       return;
     }
-    window.open(connection.authUrl, "_blank");
+    try {
+      window.open(await openNotionOAuthUrl(), "_blank");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("sidebar.notionOAuthNotConfigured"),
+      );
+      return;
+    }
 
     // Clear any existing poll before starting a new one
     if (pollRef.current) clearInterval(pollRef.current);
@@ -142,18 +155,12 @@ export function NotionButton() {
 
     // Poll for connection
     pollRef.current = setInterval(async () => {
-      const res = await fetch(appApiPath("/api/notion/status")).catch(
-        () => null,
-      );
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.connected) {
-          clearInterval(pollRef.current);
-          pollRef.current = undefined;
-          setShowWizard(false);
-          setOpen(false);
-          refetch();
-        }
+      const result = await refetch();
+      if (result.data?.connected) {
+        clearInterval(pollRef.current);
+        pollRef.current = undefined;
+        setShowWizard(false);
+        setOpen(false);
       }
     }, 2000);
 
@@ -166,7 +173,7 @@ export function NotionButton() {
 
   async function handleDisconnect() {
     try {
-      await disconnectNotion.mutateAsync();
+      await disconnectNotion.mutateAsync({});
       toast.success(t("sidebar.notionDisconnectedWorkspace"));
     } catch (err) {
       toast.error(

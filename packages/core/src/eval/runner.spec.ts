@@ -43,7 +43,8 @@ vi.mock("../observability/store.js", () => ({
 const { defineEval } = await import("./define-eval.js");
 const { contains, exactMatch, usesTool, llmJudge, createScorer } =
   await import("./scorer.js");
-const { scoreEval, runEvals } = await import("./runner.js");
+const { scoreEval, runEvals, runEvalSuite } = await import("./runner.js");
+const { formatReport } = await import("./report.js");
 const { createAgentRunner } = await import("./agent-runner.js");
 
 /** A fake runner that returns a fixed output and supplies a judge stub. */
@@ -180,6 +181,29 @@ describe("scoreEval with a JS scorer", () => {
       thresholdOverride: 0.9,
     });
     expect(failing.passed).toBe(false);
+  });
+
+  it("reports skipped evals without running the agent or scorers", async () => {
+    const e = defineEval({
+      name: "gated nightly",
+      input: { prompt: "x" },
+      skipReason: "Skipped because NIGHTLY_EVALS is unset",
+      scorers: [],
+    });
+    const runner = fakeRunner({ text: "should not run" });
+    const runSpy = vi.spyOn(runner, "runAgent");
+
+    const row = await scoreEval(e, runner);
+
+    expect(runSpy).not.toHaveBeenCalled();
+    expect(row).toMatchObject({
+      eval: "gated nightly",
+      status: "skipped",
+      skipReason: "Skipped because NIGHTLY_EVALS is unset",
+      passed: true,
+      avgScore: 0,
+      scores: [],
+    });
   });
 });
 
@@ -340,5 +364,95 @@ describe("persistence to the observability store", () => {
     });
     await runEvals([e], fakeRunner({ text: "a" }), { persist: false });
     expect(storeMod.insertEvalResult).not.toHaveBeenCalled();
+  });
+
+  it("does not persist skipped rows", async () => {
+    const e = defineEval({
+      name: "skipped-persist",
+      input: { prompt: "x" },
+      skipReason: "No eval secrets configured",
+      scorers: [],
+    });
+    await runEvals([e], fakeRunner({ text: "unused" }), { persist: true });
+    expect(storeMod.insertEvalResult).not.toHaveBeenCalled();
+  });
+});
+
+describe("runEvalSuite runner creation", () => {
+  it("does not resolve an engine or discover actions when evals are fully self-running", async () => {
+    const e = defineEval({
+      name: "self-running",
+      input: { prompt: "x" },
+      run: async () => ({
+        text: "skipped",
+        toolCalls: [],
+        ok: true,
+        runId: "eval:self-running",
+        durationMs: 0,
+      }),
+      scorers: [
+        createScorer({
+          name: "always_pass",
+          generateScore() {
+            return 1;
+          },
+        }),
+      ],
+    });
+
+    const result = await runEvalSuite({ evals: [e], persist: false });
+
+    expect(result.report.failed).toBe(0);
+    expect(engineMod.resolveEngine).not.toHaveBeenCalled();
+  });
+
+  it("does not resolve an engine or discover actions when all evals are skipped", async () => {
+    const e = defineEval({
+      name: "skipped",
+      input: { prompt: "x" },
+      skipReason: "Manual gate is disabled",
+      scorers: [],
+    });
+
+    const result = await runEvalSuite({ evals: [e], persist: false });
+
+    expect(result.report).toMatchObject({
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 1,
+    });
+    expect(result.report.results[0]).toMatchObject({
+      status: "skipped",
+      skipReason: "Manual gate is disabled",
+    });
+    expect(engineMod.resolveEngine).not.toHaveBeenCalled();
+  });
+});
+
+describe("formatReport", () => {
+  it("distinguishes skipped rows from passed rows", async () => {
+    const skipped = defineEval({
+      name: "skipped",
+      input: { prompt: "x" },
+      skipReason: "Missing eval gate",
+      scorers: [],
+    });
+    const passed = defineEval({
+      name: "passed",
+      input: { prompt: "x" },
+      scorers: [contains("ok")],
+    });
+    const report = await runEvals(
+      [skipped, passed],
+      fakeRunner({ text: "ok" }),
+      { persist: false },
+    );
+
+    const formatted = formatReport(report);
+
+    expect(formatted).toContain("- skipped  (skipped)");
+    expect(formatted).toContain("reason: Missing eval gate");
+    expect(formatted).toContain("PASS: 1/1 evals passed, 1 skipped");
   });
 });

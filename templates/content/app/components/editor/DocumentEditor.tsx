@@ -6,7 +6,6 @@ import {
   emailToName,
   useSession,
   useT,
-  appApiPath,
   agentNativePath,
   type CollabUser,
 } from "@agent-native/core/client";
@@ -40,7 +39,10 @@ import {
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
-import { useDocumentSyncStatus } from "@/hooks/use-notion";
+import {
+  useDocumentSyncStatus,
+  usePushDocumentToNotion,
+} from "@/hooks/use-notion";
 import {
   canWriteLinkedLocalSource,
   readDocumentFromLinkedLocalSource,
@@ -297,6 +299,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null, {
     autoSync,
   });
+  const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
@@ -675,14 +678,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         ]);
         if (status?.pageId && !status.hasConflict) {
           try {
-            const res = await fetch(
-              appApiPath(`/api/documents/${documentId}/notion/push`),
-              { method: "POST" },
-            );
-            if (res.ok) {
-              const next = (await res.json()) as DocumentSyncStatus;
-              queryClient.setQueryData(["document-sync", documentId], next);
-            }
+            const next = await pushDocumentToNotion.mutateAsync({
+              documentId,
+            });
+            queryClient.setQueryData(["document-sync", documentId], next);
           } catch {
             // Non-fatal — next polling refetch will surface any error.
           }
@@ -697,6 +696,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       autoSync,
       isLinkedLocalSourceDocument,
       persistDocumentUpdates,
+      pushDocumentToNotion,
       queryClient,
     ],
   );

@@ -27,13 +27,19 @@ export function formatReport(report: EvalRunReport): string {
   lines.push("  ─────");
 
   for (const row of report.results) {
-    const mark = row.passed ? "✓" : "✗";
+    const mark = row.status === "skipped" ? "-" : row.passed ? "✓" : "✗";
     lines.push("");
-    lines.push(
-      `  ${mark} ${row.eval}  (avg ${pct(row.avgScore)}, threshold ${pct(
-        row.threshold,
-      )})`,
-    );
+    if (row.status === "skipped") {
+      lines.push(`  ${mark} ${row.eval}  (skipped)`);
+      lines.push(`      reason: ${row.skipReason ?? "No reason provided"}`);
+      continue;
+    } else {
+      lines.push(
+        `  ${mark} ${row.eval}  (avg ${pct(row.avgScore)}, threshold ${pct(
+          row.threshold,
+        )})`,
+      );
+    }
     if (row.error) {
       lines.push(`      ⚠ run error: ${row.error}`);
     }
@@ -51,8 +57,12 @@ export function formatReport(report: EvalRunReport): string {
   lines.push("");
   lines.push("  ─────");
   const verdict = report.failed === 0 ? "PASS" : "FAIL";
+  const skipped = report.skipped ?? 0;
+  const executedTotal = report.total - skipped;
+  const executedPassed = report.passed - skipped;
   lines.push(
-    `  ${verdict}: ${report.passed}/${report.total} evals passed` +
+    `  ${verdict}: ${executedPassed}/${executedTotal} evals passed` +
+      (skipped > 0 ? `, ${skipped} skipped` : "") +
       (report.failed > 0 ? `, ${report.failed} below threshold` : ""),
   );
   lines.push("");
