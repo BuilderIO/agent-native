@@ -178,27 +178,40 @@ describe("Builder CMS source adapter", () => {
   });
 
   it("normalizes Builder Content API entries", () => {
-    expect(
-      normalizeBuilderCmsApiEntry(
-        {
-          id: "entry-1",
-          name: "Fallback name",
-          lastUpdated: "2026-06-08T12:00:00.000Z",
-          data: {
-            title: "Builder API title",
-            url: "/blog/builder-api-title",
-            handle: "builder-api-title",
-            description: "A useful field",
-          },
+    const entry = normalizeBuilderCmsApiEntry(
+      {
+        id: "entry-1",
+        name: "Fallback name",
+        lastUpdated: "2026-06-08T12:00:00.000Z",
+        data: {
+          title: "Builder API title",
+          url: "/blog/builder-api-title",
+          handle: "builder-api-title",
+          description: "A useful field",
         },
-        "blog_article",
-      ),
-    ).toEqual({
+      },
+      "blog_article",
+    );
+
+    expect(entry).toEqual({
       id: "entry-1",
       model: "blog_article",
       title: "Builder API title",
       urlPath: "/blog/builder-api-title",
       updatedAt: "2026-06-08T12:00:00.000Z",
+      rawEntry: {
+        id: "entry-1",
+        model: "blog_article",
+        name: "Fallback name",
+        published: undefined,
+        lastUpdated: "2026-06-08T12:00:00.000Z",
+        data: {
+          title: "Builder API title",
+          url: "/blog/builder-api-title",
+          handle: "builder-api-title",
+          description: "A useful field",
+        },
+      },
       sourceValues: {
         "data.title": "Builder API title",
         "data.url": "/blog/builder-api-title",

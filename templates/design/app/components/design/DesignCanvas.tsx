@@ -596,7 +596,11 @@ export function DesignCanvas({
         )
           .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
           .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
-          .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
+          .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY))
+          .replace(
+            "__DESIGN_CANVAS_SCREEN_ID__",
+            JSON.stringify(screenId ?? contentKey ?? ""),
+          );
     const embeddedWheelBridge = EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
       isEmbeddedFrame ? "true" : "false",

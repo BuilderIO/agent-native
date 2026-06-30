@@ -1,4 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export type DesignHotkeyTool =
   | "move"
@@ -166,9 +169,9 @@ function isFocusableChromeTarget(target: EventTarget | null) {
 export function useDesignHotkeys(props: UseDesignHotkeysProps) {
   const propsRef = useRef(props);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     propsRef.current = props;
-  }, [props]);
+  });
 
   useEffect(() => {
     const eventTarget =

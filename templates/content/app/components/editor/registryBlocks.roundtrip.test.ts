@@ -5,10 +5,17 @@ import {
   parseRegistryBlockData,
   serializeRegistryBlockToMdx,
 } from "@shared/nfm-registry";
+import { Editor } from "@tiptap/core";
+import { NodeSelection } from "@tiptap/pm/state";
+import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it } from "vitest";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 
+import {
+  LockedSourceComponentBlocks,
+  RegistryBlockNode,
+} from "./extensions/registryBlocks";
 import { seedRegistryBlockRaw } from "./registrySlashItems";
 
 /**
@@ -159,6 +166,236 @@ describe("registry blocks — readable Columns source", () => {
       (data.columns?.[0]?.blocks[0]?.data as { markdown?: string }).markdown,
     ).toContain("Old behavior");
     expect(data.columns?.[1]?.blocks[0]?.type).toBe("data-model");
+  });
+});
+
+describe("registry blocks — source component markers", () => {
+  it("round-trips provider-native component markers through NFM", async () => {
+    const raw = serializeRegistryBlockToMdx("source-component", {
+      id: "source-component-builder-table-1",
+      data: {
+        provider: "builder",
+        componentName: "Table",
+        rawRef: "content/builder/.raw/blog-article/entry/table-abc.json",
+        rawHash: "hash123",
+        sourceLabel: "Builder body",
+        previewStatus: "available",
+        previewKind: "table",
+        previewItems: ["3 rows", "4 columns"],
+        preview: {
+          status: "available",
+          kind: "table",
+          label: "Builder Table",
+          summary: "A table preview.",
+          fields: [
+            { label: "rows", value: "3" },
+            { label: "columns", value: "4" },
+          ],
+          table: {
+            columns: [
+              { id: "name", label: "Name" },
+              { id: "status", label: "Status" },
+            ],
+            rows: [{ name: "Alpha", status: "Draft" }],
+          },
+        },
+        title: "Builder Table",
+        summary: "A preserved Builder table component.",
+      },
+    });
+
+    const nfm = `Before\n${raw}\nAfter`;
+    expect(docToNfm(nfmToDoc(nfm))).toBe(nfm);
+
+    const doc = nfmToDoc(nfm);
+    const block = doc.content.find((n) => n.type === "registryBlock");
+    expect(block?.attrs?.blockType).toBe("source-component");
+    expect(block?.attrs?.blockId).toBe("source-component-builder-table-1");
+
+    const parsed = await parseRegistryBlockData(raw);
+    expect(parsed?.type).toBe("source-component");
+    expect(parsed?.data).toMatchObject({
+      provider: "builder",
+      componentName: "Table",
+      rawRef: "content/builder/.raw/blog-article/entry/table-abc.json",
+      rawHash: "hash123",
+      previewStatus: "available",
+      previewKind: "table",
+      previewItems: ["3 rows", "4 columns"],
+      preview: {
+        status: "available",
+        kind: "table",
+        label: "Builder Table",
+        fields: [
+          { label: "rows", value: "3" },
+          { label: "columns", value: "4" },
+        ],
+        table: {
+          columns: [
+            { id: "name", label: "Name" },
+            { id: "status", label: "Status" },
+          ],
+          rows: [{ name: "Alpha", status: "Draft" }],
+        },
+      },
+      title: "Builder Table",
+    });
+  });
+
+  it("prevents deleting locked source component markers in the editor", () => {
+    const raw = serializeRegistryBlockToMdx("source-component", {
+      id: "source-component-builder-locked",
+      data: {
+        provider: "builder",
+        componentName: "Table",
+        rawRef: "content/builder/.raw/blog-article/entry/table-locked.json",
+        rawHash: "hash123",
+        previewStatus: "available",
+        previewKind: "table",
+        previewItems: ["1 row", "2 columns"],
+      },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit, RegistryBlockNode, LockedSourceComponentBlocks],
+      content: nfmToDoc(`Before\n${raw}\nAfter`),
+    });
+
+    try {
+      let pos = -1;
+      editor.state.doc.descendants((node, nodePos) => {
+        if (node.type.name === "registryBlock") {
+          pos = nodePos;
+          return false;
+        }
+        return true;
+      });
+      expect(pos).toBeGreaterThan(0);
+      editor.view.dispatch(
+        editor.state.tr.setSelection(
+          NodeSelection.create(editor.state.doc, pos),
+        ),
+      );
+
+      expect(editor.commands.deleteSelection()).toBe(true);
+      const sourceBlocks: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (
+          node.type.name === "registryBlock" &&
+          node.attrs.blockType === "source-component"
+        ) {
+          sourceBlocks.push(node.attrs.blockId);
+        }
+        return true;
+      });
+      expect(sourceBlocks).toEqual(["source-component-builder-locked"]);
+      expect(docToNfm(editor.getJSON() as never)).toContain("<SourceComponent");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("prevents duplicating locked source component markers in the editor", () => {
+    const raw = serializeRegistryBlockToMdx("source-component", {
+      id: "source-component-builder-duplicate",
+      data: {
+        provider: "builder",
+        componentName: "Embed",
+        rawRef: "content/builder/.raw/blog-article/entry/embed.json",
+        rawHash: "hash123",
+        previewStatus: "available",
+        previewKind: "embed",
+        previewUrl: "https://example.com/embed",
+      },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit, RegistryBlockNode, LockedSourceComponentBlocks],
+      content: nfmToDoc(`Before\n${raw}\nAfter`),
+    });
+
+    try {
+      editor.commands.focus("end");
+      editor.commands.insertContent({
+        type: "registryBlock",
+        attrs: {
+          blockType: "source-component",
+          blockId: "source-component-builder-duplicate",
+          title: null,
+          summary: null,
+          sourceBlockId: null,
+          __raw: raw,
+        },
+      });
+
+      const sourceBlocks: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (
+          node.type.name === "registryBlock" &&
+          node.attrs.blockType === "source-component"
+        ) {
+          sourceBlocks.push(node.attrs.blockId);
+        }
+        return true;
+      });
+      expect(sourceBlocks).toEqual(["source-component-builder-duplicate"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("prevents select-all deletion of locked source component markers", () => {
+    const raw = serializeRegistryBlockToMdx("source-component", {
+      id: "source-component-builder-select-all",
+      data: {
+        provider: "builder",
+        componentName: "Image",
+        rawRef: "content/builder/.raw/blog-article/entry/image.json",
+        rawHash: "hash123",
+        previewStatus: "available",
+        previewKind: "component",
+      },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit, RegistryBlockNode, LockedSourceComponentBlocks],
+      content: nfmToDoc(`Before\n${raw}\nAfter`),
+    });
+
+    try {
+      editor.commands.selectAll();
+      expect(editor.commands.deleteSelection()).toBe(true);
+      expect(docToNfm(editor.getJSON() as never)).toContain(
+        "source-component-builder-select-all",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("prevents paste-replacing a range that contains locked source component markers", () => {
+    const raw = serializeRegistryBlockToMdx("source-component", {
+      id: "source-component-builder-paste-replace",
+      data: {
+        provider: "builder",
+        componentName: "Image",
+        rawRef: "content/builder/.raw/blog-article/entry/image.json",
+        rawHash: "hash123",
+        previewStatus: "available",
+        previewKind: "component",
+      },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit, RegistryBlockNode, LockedSourceComponentBlocks],
+      content: nfmToDoc(`Before\n${raw}\nAfter`),
+    });
+
+    try {
+      editor.commands.selectAll();
+      editor.commands.insertContent("Replacement prose");
+      const nfm = docToNfm(editor.getJSON() as never);
+      expect(nfm).toContain("source-component-builder-paste-replace");
+      expect(nfm).not.toBe("Replacement prose");
+    } finally {
+      editor.destroy();
+    }
   });
 });
 
