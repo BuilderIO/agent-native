@@ -6,9 +6,13 @@
  * `get-design-review`, and a structural visual-diff section comparing two
  * `design_versions`.
  *
- * Read-only.  The "Fix" button is rendered but kept disabled (gated) — it
- * will be wired to `apply-a11y-fix` when the capability is real-app-only and
- * the source advertises `fixA11y` capability.
+ * The "Fix" button is wired to the `apply-a11y-fix` action for findings that
+ * are auto-fixable inline (contrast/color, tap-target, focus-visibility) — the
+ * fix reduces to a deterministic style/class edit against the SQL-backed HTML,
+ * and the canvas re-renders from the written content.  Findings that need a new
+ * attribute (alt / aria-label) or a semantic rewrite stay informational with no
+ * Fix affordance.  When no design source (`designId`/`fileId`) is provided the
+ * panel falls back to read-only.
  *
  * Layout matches the Review artboard in the canonical plan visual:
  *   <https://plan.agent-native.com/plans/plan-88dc4a09fb0c46bc>
@@ -16,6 +20,7 @@
  * shadcn/ui primitives + Tabler icons throughout.  No emojis.
  */
 
+import { useActionMutation } from "@agent-native/core/client";
 import {
   IconAlertCircle,
   IconAlertTriangle,
@@ -26,6 +31,7 @@ import {
   IconInfoCircle,
   IconRefresh,
   IconShieldCheck,
+  IconWand,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -35,12 +41,30 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
-import type {
-  A11yFinding,
-  A11ySeverity,
-  VisualDiffChangeKind,
-  VisualDiffEntry,
+import {
+  isA11yFindingAutoFixable,
+  type A11yFinding,
+  type A11ySeverity,
+  type VisualDiffChangeKind,
+  type VisualDiffEntry,
 } from "../../../shared/design-review.js";
+
+// ---------------------------------------------------------------------------
+// Inline a11y fix wiring
+// ---------------------------------------------------------------------------
+
+/**
+ * Identifies the inline design source a fix should be applied to.  Required for
+ * the "Fix" affordance to be enabled — without it the panel is read-only.
+ */
+export interface ReviewFixSource {
+  designId?: string;
+  fileId?: string;
+  filename?: string;
+}
+
+/** Per-finding state for the optimistic Fix flow. */
+type FixStatus = "idle" | "pending" | "fixed" | "error";
 
 // ---------------------------------------------------------------------------
 // Shared sub-types
@@ -82,6 +106,17 @@ export interface ReviewPanelProps {
   diffError?: string | null;
   /** Called when a finding row is clicked — navigates the canvas to the node. */
   onFindingClick?: (finding: A11yFinding) => void;
+  /**
+   * Inline design source for the "Fix" affordance.  When provided (and a
+   * finding is auto-fixable), a "Fix" button applies `apply-a11y-fix` against
+   * this source.  Omit to keep the panel read-only.
+   */
+  fixSource?: ReviewFixSource;
+  /**
+   * Called after a fix is successfully applied — e.g. to refetch the audit so
+   * the resolved finding drops out of the list.  The applied finding is passed.
+   */
+  onFixApplied?: (finding: A11yFinding) => void;
   className?: string;
 }
 
@@ -145,14 +180,62 @@ const DIFF_KIND_CONFIG: Record<
 function FindingRow({
   finding,
   onClick,
+  fixSource,
+  onFixApplied,
 }: {
   finding: A11yFinding;
   onClick?: (finding: A11yFinding) => void;
+  fixSource?: ReviewFixSource;
+  onFixApplied?: (finding: A11yFinding) => void;
 }) {
   const cfg = SEVERITY_CONFIG[finding.severity];
   const Icon = cfg.icon;
   const [expanded, setExpanded] = useState(false);
   const hasDetail = !!(finding.detail ?? finding.wcag);
+
+  const applyFix = useActionMutation("apply-a11y-fix");
+  const [fixStatus, setFixStatus] = useState<FixStatus>("idle");
+
+  // A Fix affordance is shown only when (a) the finding maps to a deterministic
+  // inline edit and (b) a design source is available to write to.  Everything
+  // else stays informational.
+  const hasSource = !!(fixSource?.designId ?? fixSource?.fileId);
+  const canFix = hasSource && isA11yFindingAutoFixable(finding);
+
+  const handleFix = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!canFix || fixStatus === "pending" || fixStatus === "fixed") return;
+    // Optimistic: flip to "fixed" immediately; the canvas re-renders from the
+    // written content and the parent can refetch to drop the resolved finding.
+    setFixStatus("pending");
+    try {
+      const res = (await applyFix.mutateAsync({
+        designId: fixSource?.designId,
+        fileId: fixSource?.fileId,
+        filename: fixSource?.filename,
+        finding: {
+          id: finding.id,
+          severity: finding.severity,
+          category: finding.category,
+          message: finding.message,
+          detail: finding.detail,
+          nodeId: finding.nodeId,
+          selector: finding.selector,
+          wcag: finding.wcag,
+          fixAvailable: finding.fixAvailable,
+        },
+      })) as { applied?: boolean } | undefined;
+      if (res?.applied) {
+        setFixStatus("fixed");
+        onFixApplied?.(finding);
+      } else {
+        // The engine could not apply it (e.g. selector no longer resolves).
+        setFixStatus("error");
+      }
+    } catch {
+      setFixStatus("error");
+    }
+  };
 
   return (
     <div
@@ -227,18 +310,44 @@ function FindingRow({
           )}
         </div>
 
-        {/* Fix button — disabled/gated until apply-a11y-fix is wired */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled
-          className="h-5 shrink-0 px-1.5 text-[10px] opacity-40"
-          title="Fix (real-app only)"
-          onClick={(e) => e.stopPropagation()}
-        >
-          Fix
-        </Button>
+        {/* Fix button — enabled only for inline auto-fixable findings with a
+            design source. Non-fixable findings render nothing (informational). */}
+        {canFix &&
+          (fixStatus === "fixed" ? (
+            <span
+              className="flex h-5 shrink-0 items-center gap-1 px-1.5 text-[10px] text-emerald-500"
+              title="Fix applied"
+            >
+              <IconCheck className="size-3" />
+              Fixed
+            </span>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={fixStatus === "pending"}
+              className={cn(
+                "h-5 shrink-0 gap-1 px-1.5 text-[10px]",
+                fixStatus === "error"
+                  ? "text-destructive hover:text-destructive"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              title={
+                fixStatus === "error"
+                  ? "Fix could not be applied — retry"
+                  : "Apply this fix inline"
+              }
+              onClick={handleFix}
+            >
+              {fixStatus === "pending" ? (
+                <IconRefresh className="size-3 animate-spin" />
+              ) : (
+                <IconWand className="size-3" />
+              )}
+              {fixStatus === "error" ? "Retry" : "Fix"}
+            </Button>
+          ))}
       </div>
     </div>
   );
@@ -255,6 +364,8 @@ function A11ySection({
   auditError,
   onRunAudit,
   onFindingClick,
+  fixSource,
+  onFixApplied,
 }: {
   findings: A11yFinding[];
   loading?: boolean;
@@ -262,6 +373,8 @@ function A11ySection({
   auditError?: string | null;
   onRunAudit?: () => void;
   onFindingClick?: (finding: A11yFinding) => void;
+  fixSource?: ReviewFixSource;
+  onFixApplied?: (finding: A11yFinding) => void;
 }) {
   const errors = findings.filter((f) => f.severity === "error");
   const warnings = findings.filter((f) => f.severity === "warning");
@@ -389,6 +502,8 @@ function A11ySection({
                 key={finding.id}
                 finding={finding}
                 onClick={onFindingClick}
+                fixSource={fixSource}
+                onFixApplied={onFixApplied}
               />
             ))}
           </div>
@@ -582,9 +697,11 @@ function VisualDiffSection({
  * ReviewPanel renders the accessibility audit results and visual-diff section
  * for the Design Studio's Review inspector tab / bottom dock.
  *
- * It is read-only: the "Fix" button is rendered but disabled (gated) until
- * `apply-a11y-fix` is wired to a real-app source that advertises the
- * `fixA11y` capability.
+ * When a `fixSource` is supplied, auto-fixable findings (contrast/color,
+ * tap-target, focus-visibility) show an inline "Fix" button wired to the
+ * `apply-a11y-fix` action; the canvas re-renders from the written content.
+ * Findings that need a new attribute or a semantic rewrite remain
+ * informational.  Without a `fixSource` the panel is read-only.
  */
 export function ReviewPanel({
   findings,
@@ -600,6 +717,8 @@ export function ReviewPanel({
   diffLoading,
   diffError,
   onFindingClick,
+  fixSource,
+  onFixApplied,
   className,
 }: ReviewPanelProps) {
   return (
@@ -616,6 +735,8 @@ export function ReviewPanel({
             auditError={auditError}
             onRunAudit={onRunAudit}
             onFindingClick={onFindingClick}
+            fixSource={fixSource}
+            onFixApplied={onFixApplied}
           />
 
           <div className="my-2 mx-3">

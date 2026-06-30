@@ -292,3 +292,32 @@ export function buildShaderFillFallbackBlock(
     `}`,
   ].join("\n");
 }
+
+/**
+ * Resolve the CSS `background` value to persist into the design source for a
+ * shader fill.
+ *
+ * This is the single value `apply-shader-fill` writes onto the target element's
+ * inline `style.background`.  It is identical to the value the live preview
+ * renders (`generateShaderFillPreviewCss`) so "what you previewed is what you
+ * get", and — like every other output of this module — every colour passes
+ * through the strict CSS-colour allowlist before being interpolated, so a
+ * `descriptor.colors` payload can never carry a CSS-injection string into the
+ * persisted source.
+ *
+ * Returns the gradient string plus the sanitised palette that produced it so
+ * callers can surface proof-of-persist (which colours were written, which were
+ * neutralised) without re-deriving them.
+ *
+ * @param descriptor - The ShaderDescriptor defining preset + params + colours.
+ * @returns `{ background, colors }` — the value to write and the safe palette.
+ */
+export function buildShaderFillBackground(descriptor: ShaderDescriptor): {
+  background: string;
+  colors: string[];
+} {
+  return {
+    background: generateShaderFillPreviewCss(descriptor),
+    colors: resolveColors(descriptor),
+  };
+}
