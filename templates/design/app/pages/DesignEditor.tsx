@@ -888,6 +888,17 @@ export function getContentHistoryChanges(
   return "changes" in entry ? entry.changes : [entry];
 }
 
+export function getAvailableContentHistoryChanges(
+  entry: ContentHistoryEntry,
+  availableFileIds: Iterable<string>,
+  activeFileId?: string | null,
+): ContentHistoryChange[] {
+  const fileIds = new Set(availableFileIds);
+  return getContentHistoryChanges(entry).filter(
+    (change) => change.fileId === activeFileId || fileIds.has(change.fileId),
+  );
+}
+
 type PatchProofStatus =
   | "runtime"
   | "queued"
@@ -9894,16 +9905,12 @@ export default function DesignEditor() {
       const entry =
         contentUndoStackRef.current[contentUndoStackRef.current.length - 1];
       if (!entry) return false;
-      const changes = getContentHistoryChanges(entry);
-      if (
-        changes.some(
-          (change) =>
-            change.fileId !== activeFile?.id &&
-            !files.some((file) => file.id === change.fileId),
-        )
-      ) {
-        return false;
-      }
+      const changes = getAvailableContentHistoryChanges(
+        entry,
+        files.map((file) => file.id),
+        activeFile?.id,
+      );
+      if (changes.length === 0) return false;
       contentUndoStackRef.current.pop();
       contentRedoStackRef.current = [
         ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -10032,16 +10039,12 @@ export default function DesignEditor() {
       const entry =
         contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
       if (!entry) return false;
-      const changes = getContentHistoryChanges(entry);
-      if (
-        changes.some(
-          (change) =>
-            change.fileId !== activeFile?.id &&
-            !files.some((file) => file.id === change.fileId),
-        )
-      ) {
-        return false;
-      }
+      const changes = getAvailableContentHistoryChanges(
+        entry,
+        files.map((file) => file.id),
+        activeFile?.id,
+      );
+      if (changes.length === 0) return false;
       contentRedoStackRef.current.pop();
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),

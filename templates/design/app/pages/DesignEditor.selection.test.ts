@@ -4,6 +4,7 @@ import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
   findMovedCodeLayerNodeInProjection,
+  getAvailableContentHistoryChanges,
   getFreshActiveFileContent,
   getFreshScreenContent,
   getContentHistoryChanges,
@@ -697,6 +698,27 @@ describe("DesignEditor undo order helpers", () => {
     ).toEqual([
       { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
       { fileId: "screen-b", before: "<b>old</b>", after: "<b>new</b>" },
+    ]);
+  });
+
+  it("skips deleted files in grouped file-content history entries", () => {
+    expect(
+      getAvailableContentHistoryChanges(
+        {
+          changes: [
+            { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+            {
+              fileId: "deleted-screen",
+              before: "<b>old</b>",
+              after: "<b>new</b>",
+            },
+          ],
+        },
+        ["screen-a"],
+        null,
+      ),
+    ).toEqual([
+      { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
     ]);
   });
 });
