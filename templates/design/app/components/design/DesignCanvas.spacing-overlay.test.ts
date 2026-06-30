@@ -29,20 +29,27 @@ describe("DesignCanvas spacing overlay bridge", () => {
     expect(source).toContain("rowGap");
   });
 
-  it("shows spacing affordances when hovering the selected element or its children", () => {
-    expect(source).toContain("selectedSpacingHovered = Boolean");
-    expect(source).toContain("hoveredEl === selectedEl");
-    expect(source).toContain("selectedEl.contains(hoveredEl)");
+  it("keeps selected-element spacing affordances mounted without hover gating", () => {
+    expect(source).not.toContain(
+      "!selectedSpacingHovered && !hoveredSpacingHandleKey && !spacingDrag",
+    );
+    expect(source).toContain(
+      "var activeHandle = spacingDrag ? spacingDrag.handle : null",
+    );
+    expect(source).not.toContain("handle.key === hoveredSpacingHandleKey");
   });
 
   it("keeps spacing handles stable while their hit regions are hovered", () => {
     expect(source).toContain("var spacingOverlayRenderKey =");
     expect(source).toContain("function handleSpacingOverlayPointerMove");
+    expect(source).toContain("function scheduleSpacingHoverClear");
+    expect(source).toMatch(/regionNode\.addEventListener\(\s*"pointerdown"/);
     expect(source).toContain("function selectedSpacingSurfaceContainsPoint");
     expect(source).toContain("function shouldKeepSpacingOverlayForLeave");
     expect(source).toContain(
       "var region = spacingRegionFromPoint(clientX, clientY)",
     );
+    expect(source).toContain("activateSpacingHandle(spacingKey)");
     expect(source).toContain(
       "return selectedSpacingSurfaceContainsPoint(e.clientX, e.clientY)",
     );
@@ -59,7 +66,7 @@ describe("DesignCanvas spacing overlay bridge", () => {
   });
 
   it("clicks children inside a selected parent while drags still move the parent", () => {
-    expect(source).toContain("var clickTarget = selectionTargetForHit(hit)");
+    expect(source).toContain("var clickTarget = hitTarget");
     expect(source).toMatch(
       /selectTarget\(\s*clickTarget \|\| dragTarget\s*,\s*ev\s*\)/,
     );

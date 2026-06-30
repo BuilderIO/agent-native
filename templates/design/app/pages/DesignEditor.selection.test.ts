@@ -10,6 +10,7 @@ import {
   getUndoRedoPriorityOrder,
   getContentHistoryChanges,
   getDesignEditorShareUrl,
+  getDesignEditorStateUrlSearch,
   getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
   getLocalhostRouteSourceFile,
@@ -255,6 +256,35 @@ describe("DesignEditor share URLs", () => {
     expect(
       getDesignEditorShareUrl("design-123", "https://builder.example"),
     ).toBe("https://builder.example/design/design-123");
+  });
+});
+
+describe("DesignEditor URL state", () => {
+  it("serializes focused screen and selection state while preserving unrelated params", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?design_host=builder&view=overview&fileId=old",
+        viewMode: "single",
+        screenId: "screen-123",
+        selectionId: "node-456",
+        zoom: 100,
+      }),
+    ).toBe(
+      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100",
+    );
+  });
+
+  it("removes stale selection aliases when no element is selected", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch:
+          "?view=single&screen=screen-123&selection=node-456&filename=old.html&zoom=125.555",
+        viewMode: "overview",
+        screenId: "screen-123",
+        selectionId: null,
+        zoom: 33.3333,
+      }),
+    ).toBe("?view=overview&screen=screen-123&zoom=33.33");
   });
 });
 

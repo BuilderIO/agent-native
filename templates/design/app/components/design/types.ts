@@ -1,5 +1,6 @@
 export interface ElementInfo {
   tagName: string;
+  componentName?: string;
   id?: string;
   sourceId?: string;
   selector?: string;
@@ -12,7 +13,14 @@ export interface ElementInfo {
   childElementCount?: number;
   isFlexChild: boolean;
   isFlexContainer: boolean;
+  isGridContainer?: boolean;
   parentDisplay?: string;
+  parentAutoLayout?: {
+    display?: string;
+    selector?: string;
+    sourceId?: string;
+    boundingRect: { x: number; y: number; width: number; height: number };
+  };
   parentLayout?: {
     display?: string;
     flexDirection?: string;

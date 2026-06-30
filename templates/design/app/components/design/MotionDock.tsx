@@ -163,13 +163,8 @@ export function MotionDock({
 
   // Dock height (resizable via the top drag handle).
   const [dockHeight, setDockHeight] = useState(DEFAULT_DOCK_HEIGHT);
-  const [hasReservedDockSpace, setHasReservedDockSpace] = useState(isOpen);
   const resizingRef = useRef(false);
   const resizeStartRef = useRef<{ y: number; h: number } | null>(null);
-
-  useEffect(() => {
-    if (isOpen) setHasReservedDockSpace(true);
-  }, [isOpen]);
 
   const handleDockTransitionEnd = useCallback(
     (event: ReactTransitionEvent<HTMLDivElement>) => {
@@ -179,18 +174,9 @@ export function MotionDock({
         event.propertyName !== "transform"
       )
         return;
-      if (!isOpen) setHasReservedDockSpace(false);
+      if (!isOpen) onExitComplete?.();
     },
-    [isOpen],
-  );
-
-  const handleDockSpaceTransitionEnd = useCallback(
-    (event: ReactTransitionEvent<HTMLDivElement>) => {
-      if (event.currentTarget !== event.target) return;
-      if (event.propertyName !== "height") return;
-      if (!isOpen && !hasReservedDockSpace) onExitComplete?.();
-    },
-    [hasReservedDockSpace, isOpen, onExitComplete],
+    [isOpen, onExitComplete],
   );
 
   // Expanded layers in the sidebar.
@@ -435,19 +421,18 @@ export function MotionDock({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
-      className="design-motion-dock-space relative shrink-0 overflow-hidden"
-      onTransitionEnd={handleDockSpaceTransitionEnd}
-      style={{ height: isOpen || hasReservedDockSpace ? dockHeight : 0 }}
+      className="design-motion-dock-space relative shrink-0 overflow-visible"
+      style={{ height: isOpen ? dockHeight : 0 }}
     >
       <div
         aria-label="Motion dock"
         aria-hidden={!isOpen ? true : undefined}
         onTransitionEnd={handleDockTransitionEnd}
         className={cn(
-          "design-motion-dock flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background select-none",
+          "design-motion-dock absolute inset-x-0 top-0 z-40 flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background select-none",
           isOpen
-            ? "relative translate-y-0 border-border opacity-100"
-            : "absolute inset-x-0 bottom-0 z-40 translate-y-full border-transparent pointer-events-none",
+            ? "translate-y-0 border-border opacity-100"
+            : "translate-y-full border-transparent pointer-events-none",
         )}
         style={{ height: dockHeight }}
       >

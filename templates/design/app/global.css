@@ -42,6 +42,20 @@
     hsl(213 91% 67%) 14%,
     transparent
   );
+  --design-editor-component-color: hsl(263 84% 64%);
+  --design-editor-component-hover-color: hsl(263 72% 56%);
+  --design-editor-component-selection-color: color-mix(
+    in srgb,
+    hsl(263 84% 64%) 16%,
+    transparent
+  );
+  --design-editor-component-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(263 84% 64%) 10%,
+    transparent
+  );
+  --design-editor-component-strong-color: var(--design-editor-component-color);
+  --design-editor-component-contrast-color: #ffffff;
   --design-editor-active-row-color: color-mix(
     in srgb,
     hsl(0 0% 15%) 8%,
@@ -76,11 +90,6 @@
     hsl(var(--foreground)) 6%,
     transparent
   );
-  --design-editor-skeleton-panel-ghost-strong-bg: color-mix(
-    in srgb,
-    hsl(var(--foreground)) 9%,
-    transparent
-  );
   --design-editor-skeleton-frame-bg: color-mix(
     in srgb,
     var(--design-editor-panel-bg) 82%,
@@ -101,11 +110,6 @@
     hsl(var(--foreground)) 8%,
     transparent
   );
-  --design-editor-skeleton-frame-ghost-strong-bg: color-mix(
-    in srgb,
-    hsl(var(--foreground)) 12%,
-    transparent
-  );
   --design-editor-skeleton-dock-bg: color-mix(
     in srgb,
     var(--design-editor-panel-bg) 94%,
@@ -114,16 +118,6 @@
   --design-editor-skeleton-dock-border: color-mix(
     in srgb,
     hsl(var(--foreground)) 12%,
-    transparent
-  );
-  --design-editor-skeleton-dock-ghost-bg: color-mix(
-    in srgb,
-    hsl(var(--foreground)) 11%,
-    transparent
-  );
-  --design-editor-skeleton-dock-divider-bg: color-mix(
-    in srgb,
-    hsl(var(--foreground)) 16%,
     transparent
   );
 }
@@ -164,6 +158,20 @@
     hsl(213 91% 67%) 24%,
     transparent
   );
+  --design-editor-component-color: hsl(263 88% 74%);
+  --design-editor-component-hover-color: hsl(263 82% 68%);
+  --design-editor-component-selection-color: color-mix(
+    in srgb,
+    hsl(263 88% 74%) 28%,
+    transparent
+  );
+  --design-editor-component-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(263 88% 74%) 18%,
+    transparent
+  );
+  --design-editor-component-strong-color: var(--design-editor-component-color);
+  --design-editor-component-contrast-color: #ffffff;
   --design-editor-active-row-color: hsl(0 0% 20%);
   --design-editor-layer-hover-color: color-mix(
     in srgb,
@@ -325,17 +333,21 @@
   animation: none !important;
 }
 
+.design-motion-dock,
+.design-motion-dock-space {
+  --design-motion-dock-duration: 200ms;
+  --design-motion-dock-easing: ease-out;
+  transition-duration: var(--design-motion-dock-duration);
+  transition-timing-function: var(--design-motion-dock-easing);
+}
+
 .design-motion-dock {
   transition-property: translate, transform, border-color;
-  transition-duration: 200ms;
-  transition-timing-function: ease-out;
   will-change: translate, transform;
 }
 
 .design-motion-dock-space {
   transition-property: height;
-  transition-duration: 200ms;
-  transition-timing-function: ease-out;
 }
 
 .dark .design-editor-app-menu-content {

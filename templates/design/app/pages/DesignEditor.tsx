@@ -460,6 +460,41 @@ export function getDesignEditorShareUrl(
   return new URL(pathname, origin).toString();
 }
 
+function formatDesignEditorUrlZoom(zoom: number): string {
+  const rounded = Math.round(zoom * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+export function getDesignEditorStateUrlSearch(args: {
+  currentSearch: string;
+  viewMode: "single" | "overview";
+  screenId?: string | null;
+  selectionId?: string | null;
+  zoom?: number | null;
+}) {
+  const params = new URLSearchParams(args.currentSearch);
+  params.set("view", args.viewMode);
+  if (args.screenId) {
+    params.set("screen", args.screenId);
+  } else {
+    params.delete("screen");
+  }
+  params.delete("fileId");
+  params.delete("filename");
+  if (args.selectionId) {
+    params.set("selection", args.selectionId);
+  } else {
+    params.delete("selection");
+  }
+  if (typeof args.zoom === "number" && Number.isFinite(args.zoom)) {
+    params.set("zoom", formatDesignEditorUrlZoom(args.zoom));
+  } else {
+    params.delete("zoom");
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 export function getLocalhostRouteSourceFile(args: {
   sourceFile?: string;
   source?: string;
@@ -1152,6 +1187,7 @@ function designEditorCommandFromSearchParams(
     searchParams.get("screen") ??
     searchParams.get("fileId") ??
     searchParams.get("filename");
+  const selection = searchParams.get("selection");
   const rawZoom = searchParams.get("zoom");
   const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
   const tool = normalizeDesignTool(searchParams.get("tool"));
@@ -1163,6 +1199,7 @@ function designEditorCommandFromSearchParams(
     inspector !== "extensions" &&
     !leftPanel &&
     !screen &&
+    !selection &&
     !tool
   ) {
     return null;
@@ -1183,6 +1220,7 @@ function designEditorCommandFromSearchParams(
   }
   if (leftPanel) command.leftPanel = leftPanel;
   if (screen) command.screen = screen;
+  if (selection) command.selection = selection;
   if (Number.isFinite(zoom)) {
     command.zoom = zoom;
   } else if (editorView === "single") {
@@ -3752,6 +3790,11 @@ export default function DesignEditor() {
     () => new URLSearchParams(location.search),
     [location.search],
   );
+  const routeScreenTarget =
+    searchParams.get("screen") ??
+    searchParams.get("fileId") ??
+    searchParams.get("filename");
+  const routeSelectionId = searchParams.get("selection") || null;
   const postAuthIntent = useMemo<PostAuthDesignIntent | null>(() => {
     const value = searchParams.get("intent");
     return value === "save" || value === "share" ? value : null;
@@ -5700,6 +5743,7 @@ export default function DesignEditor() {
   const applyDesignEditorCommand = useCallback(
     (command: DesignEditorCommand | Record<string, unknown>) => {
       if (!id || command.designId !== id) return true;
+      const commandRecord = command as Record<string, unknown>;
       const editorView =
         command.editorView === "overview" || command.editorView === "single"
           ? command.editorView
@@ -5716,6 +5760,14 @@ export default function DesignEditor() {
               : typeof command.screen === "string"
                 ? command.screen
                 : null;
+      const selectionId =
+        typeof command.selection === "string"
+          ? command.selection
+          : typeof commandRecord.nodeId === "string"
+            ? commandRecord.nodeId
+            : typeof commandRecord.layerId === "string"
+              ? commandRecord.layerId
+              : null;
       const targetFile = findDesignFileByScreenTarget(files, target);
       // A navigate command can name a screen the agent just created that the
       // get-design query hasn't refetched yet. Treat any unresolved named target
@@ -5763,6 +5815,9 @@ export default function DesignEditor() {
       if (targetFile) {
         setActiveFileId(targetFile.id);
       }
+      if (selectionId) {
+        setSelectedLayerIdsState([selectionId]);
+      }
 
       const commandZoom =
         typeof command.zoom === "number" && Number.isFinite(command.zoom)
@@ -5774,12 +5829,12 @@ export default function DesignEditor() {
 
       if (editorView === "overview") {
         viewModeRef.current = "overview";
-        setSelectedElement(null);
+        if (!selectionId) setSelectedElement(null);
         applyCommandTool("move");
         setViewMode("overview");
       } else if (editorView === "single") {
         viewModeRef.current = "single";
-        setSelectedElement(null);
+        if (!selectionId) setSelectedElement(null);
         applyCommandTool("move");
         if (commandZoom === null) {
           setScreenZoom(FOCUSED_SCREEN_ZOOM);
@@ -12714,11 +12769,116 @@ ${serializedHtml}
     selectedLayerIdsState,
     viewMode,
   ]);
+  const selectedUrlSelectionId = useMemo(
+    () =>
+      selectedElementLayerId ??
+      [...selectedLayerIds]
+        .reverse()
+        .find((layerId) => codeLayerOwnerByNodeId.has(layerId)) ??
+      null,
+    [codeLayerOwnerByNodeId, selectedElementLayerId, selectedLayerIds],
+  );
   const selectedLayerIdsRef = useRef<string[]>(selectedLayerIds);
 
   useLayoutEffect(() => {
     selectedLayerIdsRef.current = selectedLayerIds;
   }, [selectedLayerIds]);
+
+  useEffect(() => {
+    if (!routeSelectionId) return;
+    const owner = codeLayerOwnerByNodeId.get(routeSelectionId);
+    if (!owner) return;
+    const selectionBlocked =
+      effectiveCodeLayerState.lockedIds.has(owner.fileId) ||
+      effectiveCodeLayerState.hiddenIds.has(owner.fileId) ||
+      effectiveCodeLayerState.lockedIds.has(routeSelectionId) ||
+      effectiveCodeLayerState.hiddenIds.has(routeSelectionId);
+    if (
+      activeFileId === owner.fileId &&
+      selectedLayerIds.includes(routeSelectionId) &&
+      (selectionBlocked || selectedElementLayerId === routeSelectionId)
+    ) {
+      return;
+    }
+
+    pendingOverviewScreenSelectionRef.current = null;
+    pendingOverviewLayerSelectionRef.current = null;
+    clearPendingOverviewLayerSelectionTimer();
+    setCreatedOverviewLayerSelection(null);
+    setActiveFileId(owner.fileId);
+    setSelectedLayerIdsState([routeSelectionId]);
+    if (viewModeRef.current === "overview") {
+      setOverviewSelectedScreenIds([]);
+    }
+    setSelectedElement(
+      selectionBlocked ? null : elementInfoFromCodeLayerNode(owner.node),
+    );
+    setHoveredElement(null);
+    setHoveredElementScreenId(null);
+    setActiveTool("move");
+    setMode("edit");
+    if (!selectionBlocked) {
+      focusDesignInspectorForSelection();
+    }
+  }, [
+    activeFileId,
+    clearPendingOverviewLayerSelectionTimer,
+    codeLayerOwnerByNodeId,
+    effectiveCodeLayerState,
+    focusDesignInspectorForSelection,
+    routeSelectionId,
+    selectedElementLayerId,
+    selectedLayerIds,
+  ]);
+
+  useEffect(() => {
+    if (!id || files.length === 0) return;
+    if (
+      routeScreenTarget &&
+      !findDesignFileByScreenTarget(files, routeScreenTarget) &&
+      !activeFileId
+    ) {
+      return;
+    }
+    const preserveUnresolvedRouteSelection = Boolean(
+      routeSelectionId &&
+      routeSelectionId !== selectedUrlSelectionId &&
+      codeLayerOwnerByNodeId.size === 0,
+    );
+    const nextSearch = getDesignEditorStateUrlSearch({
+      currentSearch: location.search,
+      viewMode,
+      screenId: activeFile?.id ?? activeFileId,
+      selectionId:
+        selectedUrlSelectionId ??
+        (preserveUnresolvedRouteSelection ? routeSelectionId : null),
+      zoom,
+    });
+    if (nextSearch === location.search) return;
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch,
+        hash: location.hash,
+      },
+      { replace: true, preventScrollReset: true },
+    );
+  }, [
+    activeFile?.id,
+    activeFileId,
+    codeLayerOwnerByNodeId.size,
+    files,
+    id,
+    location.hash,
+    location.pathname,
+    location.search,
+    navigate,
+    routeScreenTarget,
+    routeSelectionId,
+    selectedUrlSelectionId,
+    viewMode,
+    zoom,
+  ]);
 
   const selectedLayerTargets = useMemo<SelectedLayerTarget[]>(
     () =>

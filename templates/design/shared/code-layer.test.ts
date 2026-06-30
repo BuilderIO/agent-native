@@ -165,14 +165,12 @@ describe("code-layer projection", () => {
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
     const mainNode = tree[0];
     expect(mainNode).toBeTruthy();
-    const navBar = mainNode?.children.find(
-      (child) => child.name === "Frame" || child.type === "component",
-    );
-    // The NavBar-annotated div must be classified as "component".
+    // The NavBar-annotated div must use the component name and classification.
     const componentChild = mainNode?.children.find(
       (child) => child.type === "component",
     );
     expect(componentChild).toBeTruthy();
+    expect(componentChild?.name).toBe("NavBar");
   });
 
   it("builds a design-editor DOM layer tree from projection parentage", () => {

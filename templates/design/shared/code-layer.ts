@@ -2081,9 +2081,10 @@ export function buildCodeLayerTree(
   const treeById = new Map<string, CodeLayerTreeNode>();
 
   for (const node of projection.nodes) {
+    const componentName = node.componentInstance?.name;
     treeById.set(node.id, {
       id: node.id,
-      name: node.layerName,
+      name: componentName ?? node.layerName,
       type: treeTypeForNode(node),
       tag: node.tag,
       selector: node.selector,

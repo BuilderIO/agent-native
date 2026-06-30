@@ -116,6 +116,24 @@ describe("board surface pointer capture", () => {
     );
   });
 
+  it("hides only oversized neutral board backdrop rectangles", () => {
+    const html = `<!doctype html><html><body>
+      <div data-agent-native-node-id="backdrop" data-an-primitive="rectangle" style="position:absolute;left:-16305px;top:-25001px;width:5800px;height:5500px;background:rgb(218, 218, 218);border:1px solid rgb(168, 168, 168);"></div>
+      <div data-agent-native-node-id="normal" data-an-primitive="rectangle" style="position:absolute;left:10px;top:10px;width:160px;height:120px;background:#d9d9d9;border:1px solid #bdbdbd;"></div>
+    </body></html>`;
+    const result = getBoardSurfaceRenderContent(html);
+
+    expect(result).toContain(
+      '[data-agent-native-board-backdrop-candidate="true"]',
+    );
+    expect(result).toMatch(
+      /data-agent-native-node-id="backdrop"[^>]*data-agent-native-board-backdrop-candidate="true"/,
+    );
+    expect(result).not.toMatch(
+      /data-agent-native-node-id="normal"[^>]*data-agent-native-board-backdrop-candidate="true"/,
+    );
+  });
+
   it("captures only direct board edit tools", () => {
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "move" })).toBe(true);
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "select" })).toBe(
@@ -189,6 +207,25 @@ describe("board surface pointer capture", () => {
       getBoardContentLayerSignature(
         `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
       ),
+    );
+  });
+
+  it("changes the active board iframe content key when layer hierarchy changes", () => {
+    const before = `<body><div data-agent-native-node-id="parent"></div><div data-agent-native-node-id="child"></div></body>`;
+    const after = `<body><div data-agent-native-node-id="parent"><div data-agent-native-node-id="child"></div></div></body>`;
+
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: before,
+        boardIsActive: true,
+      }),
+    ).not.toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: after,
+        boardIsActive: true,
+      }),
     );
   });
 

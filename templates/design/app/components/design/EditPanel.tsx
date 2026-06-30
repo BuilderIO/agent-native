@@ -1729,6 +1729,8 @@ function normalizedElementTagName(tagName: string | null | undefined): string {
 }
 
 function inspectorObjectTitle(element: ElementInfo): string {
+  const componentName = element.componentName?.trim();
+  if (componentName) return componentName;
   const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return "Text";
   return tag;
@@ -1842,7 +1844,7 @@ const LEAF_TAGS = new Set([
  * children show the full Auto layout section the same way does.
  */
 function isContainerElement(element: ElementInfo): boolean {
-  if (element.isFlexContainer) return true;
+  if (element.isFlexContainer || element.isGridContainer) return true;
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag) || LEAF_TAGS.has(tag)) return false;
   return CONTAINER_TAGS.has(tag);
@@ -2856,6 +2858,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
 }
 
 function elementTypeIcon(element: ElementInfo) {
+  if (element.componentName?.trim()) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return IconTypography;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
@@ -2890,13 +2893,21 @@ function SelectionHeader({
       ? `${selectedCount} selected`
       : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
+  const isComponentSelection = Boolean(element.componentName?.trim());
 
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
       {/* Node-type label. Rename lives in the layers panel and device sizing
           lives elsewhere, so this is a plain non-interactive label. */}
       <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
-        <TypeIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <TypeIcon
+          className={cn(
+            "size-3.5 shrink-0",
+            isComponentSelection
+              ? "text-[var(--design-editor-component-color)]"
+              : "text-muted-foreground",
+          )}
+        />
         <span className="truncate">{title}</span>
       </div>
       {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
@@ -6212,11 +6223,11 @@ function MakeItRealCard({
 
   const summary =
     cta.kind === "configure-project"
-      ? `Configure Builder to enable ${featureLabel}.`
+      ? `Choose a Builder project to enable ${featureLabel}.`
       : `Connect Builder to enable ${featureLabel}.`;
   const primaryLabel =
     cta.kind === "configure-project"
-      ? "Configure" /* i18n-ignore make-it-real card */
+      ? "Choose" /* i18n-ignore make-it-real card */
       : "Connect"; /* i18n-ignore make-it-real card */
 
   return (
@@ -6662,7 +6673,7 @@ export function ComponentSection({
       <div className="flex min-h-9 items-center gap-2 px-3">
         {/* Accent diamond matching the workbench artboard component rows */}
         <span
-          className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-accent-color)]"
+          className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
           aria-hidden="true"
         />
         <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
@@ -6696,7 +6707,7 @@ export function ComponentSection({
               canJumpToSource
                 ? "Edit component source" /* i18n-ignore design inspector action */
                 : (capabilities.ctaMessage ??
-                  "Connect Builder to jump to component source") /* i18n-ignore design inspector tooltip */
+                  "Source jump needs a connected app") /* i18n-ignore design inspector tooltip */
             }
           </TooltipContent>
         </Tooltip>
@@ -6793,11 +6804,11 @@ export function ComponentSection({
           </div>
         )}
 
-        {/* Connect-Builder CTA (inline, only when real-app features are gated) */}
-        {capabilities.ctaRequired && (
+        {/* Connect-Builder CTA (only when prop editing is actually gated). */}
+        {capabilities.ctaRequired && !editingEnabled && (
           <MakeItRealCard
             designId={designId}
-            featureLabel="component source jump and full prop controls"
+            featureLabel="component source jump and typed prop metadata"
           />
         )}
       </div>

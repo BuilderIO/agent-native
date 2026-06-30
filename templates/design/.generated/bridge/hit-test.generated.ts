@@ -123,6 +123,11 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return "y";
     }
+    function isAutoLayoutElement(el) {
+      if (!el) return false;
+      var cs = window.getComputedStyle(el);
+      return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
+    }
     function edgePlacementForRect(rect, axis, clientX, clientY) {
       var size = axis === "x" ? rect.width : rect.height;
       if (!size) return null;
@@ -143,34 +148,40 @@ export const hitTestBridgeScript: string = `"use strict";
     function resolveHitTarget(clientX, clientY) {
       var hit = elementFromEditorPoint(clientX, clientY);
       if (!hit || hit === document.documentElement) return null;
-      if (isContainerDropTarget(hit)) {
-        var containerRect = hit.getBoundingClientRect();
-        var edgeAxis = hit.parentElement ? parentFlowAxis(hit.parentElement) : parentFlowAxis(hit);
-        var edgePlacement = edgePlacementForRect(
-          containerRect,
-          edgeAxis,
-          clientX,
-          clientY
-        );
-        if (!edgePlacement) {
-          return { anchor: hit, placement: "inside", axis: parentFlowAxis(hit) };
+      var cursor = hit;
+      while (cursor && cursor !== document.body) {
+        if (isLayerInteractionBlocked(cursor)) return null;
+        var parent = cursor.parentElement;
+        if (parent && isAutoLayoutElement(parent)) {
+          var parentAxis = parentFlowAxis(parent);
+          var childRect = cursor.getBoundingClientRect();
+          var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
+          var childPointer = parentAxis === "x" ? clientX : clientY;
+          return {
+            anchor: cursor,
+            placement: childPointer < childCenter ? "before" : "after",
+            axis: parentAxis
+          };
         }
-        return { anchor: hit, placement: edgePlacement, axis: edgeAxis };
-      }
-      var hitParent = hit.parentElement;
-      if (hitParent) {
-        var hitAxis = parentFlowAxis(hitParent);
-        var hitRect = hit.getBoundingClientRect();
-        var hitCenter = hitAxis === "x" ? hitRect.left + hitRect.width / 2 : hitRect.top + hitRect.height / 2;
-        var hitPointer = hitAxis === "x" ? clientX : clientY;
-        return {
-          anchor: hit,
-          placement: hitPointer < hitCenter ? "before" : "after",
-          axis: hitAxis
-        };
-      }
-      if (hit === document.body || !hit.parentElement) {
-        return { anchor: document.body, placement: "inside", axis: "y" };
+        if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+          var containerRect = cursor.getBoundingClientRect();
+          var edgeAxis = parent ? parentFlowAxis(parent) : parentFlowAxis(cursor);
+          var edgePlacement = edgePlacementForRect(
+            containerRect,
+            edgeAxis,
+            clientX,
+            clientY
+          );
+          if (edgePlacement && parent && isAutoLayoutElement(parent)) {
+            return { anchor: cursor, placement: edgePlacement, axis: edgeAxis };
+          }
+          return {
+            anchor: cursor,
+            placement: "inside",
+            axis: parentFlowAxis(cursor)
+          };
+        }
+        cursor = parent;
       }
       return null;
     }

@@ -29,7 +29,10 @@ import {
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { chromium } from "@playwright/test";
 import { describe, expect, it } from "vitest";
+
+import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const designRoot = resolve(__dirname, "../../../..");
@@ -47,6 +50,16 @@ function getBridgeFiles(): string[] {
 function generatedPath(bridgeFilename: string): string {
   const name = bridgeFilename.replace(/\.bridge\.ts$/, "");
   return join(generatedDir, `${name}.generated.ts`);
+}
+
+function hydratedEditorChromeBridgeScript(): string {
+  return editorChromeBridgeScript
+    .replace("__READ_ONLY__", "false")
+    .replace("__TEXT_EDITING_ENABLED__", "false")
+    .replace("__EDITOR_CHROME_SCALE_X__", "1")
+    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("bridge-guard"))
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false");
 }
 
 // ── test 1: no runtime imports ─────────────────────────────────────────────
@@ -181,3 +194,78 @@ describe("generated bridge modules", () => {
     });
   }
 });
+
+it(
+  "editor chrome bridge lets plain wheel scroll the underlying app shell",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+      #app-shell { width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden; }
+      .hero { height: 280px; background: #eef; }
+      .content { height: 2200px; padding: 32px; }
+    </style>
+  </head>
+  <body>
+    <div id="app-shell" data-agent-native-node-id="app-shell">
+      <section class="hero" data-agent-native-node-id="hero">Top</section>
+      <main class="content" data-agent-native-node-id="content">Deep content</main>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const before = await page
+        .locator("#app-shell")
+        .evaluate((el) => el.scrollTop);
+      await page.mouse.move(450, 350);
+      await page.mouse.wheel(0, 500);
+      await page.waitForTimeout(80);
+      const after = await page
+        .locator("#app-shell")
+        .evaluate((el) => el.scrollTop);
+
+      await page.locator("#app-shell").evaluate((el) => {
+        el.scrollTop = 0;
+      });
+      await page.evaluate(() => {
+        const shield = document.querySelector(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        shield?.dispatchEvent(
+          new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            clientX: 450,
+            clientY: 350,
+            deltaY: 500,
+            metaKey: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(30);
+      const afterMetaWheel = await page
+        .locator("#app-shell")
+        .evaluate((el) => el.scrollTop);
+
+      expect(after).toBeGreaterThan(before);
+      expect(afterMetaWheel).toBe(0);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);

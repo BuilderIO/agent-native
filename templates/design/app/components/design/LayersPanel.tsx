@@ -816,10 +816,7 @@ export function LayersPanel({
                   onClick={() => onScreenSelect?.(screen.id)}
                   title={screen.filename ?? screen.name}
                 >
-                  <LayerGlyph
-                    node={{ ...screen, type: "file" }}
-                    selected={false}
-                  />
+                  <LayerGlyph node={{ ...screen, type: "file" }} />
                   <span className="min-w-0 flex-1 truncate">{screen.name}</span>
                   {screen.badge ? (
                     <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
@@ -1002,6 +999,7 @@ function LayerRow({
   visibleRows: FlatLayerRow[];
 }) {
   const { node, depth, hasChildren, canAcceptChildren } = row;
+  const isComponentLayer = layerNodeIsComponent(node);
   const selectable = node.selectable !== false;
   const lockable = node.lockable !== false && Boolean(onToggleLocked);
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
@@ -1285,10 +1283,14 @@ function LayerRow({
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
-                "bg-[var(--design-editor-selection-color)] text-foreground",
+                (isComponentLayer
+                  ? "bg-[var(--design-editor-component-selection-color)] text-foreground"
+                  : "bg-[var(--design-editor-selection-color)] text-foreground"),
               !isSelected &&
                 isInSelectedSubtree &&
-                "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95",
+                (isComponentLayer
+                  ? "bg-[var(--design-editor-component-selected-subtree-color)] text-foreground/95"
+                  : "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95"),
               !isSelected &&
                 isActiveScreen &&
                 "bg-[var(--design-editor-active-row-color)] text-foreground hover:bg-[var(--design-editor-active-row-color)]",
@@ -1338,16 +1340,12 @@ function LayerRow({
               <span
                 className={cn(
                   "shrink-0 text-muted-foreground",
-                  (isSelected || isInSelectedSubtree) && "text-foreground",
+                  isComponentLayer
+                    ? "text-[var(--design-editor-component-color)]"
+                    : (isSelected || isInSelectedSubtree) && "text-foreground",
                 )}
               >
-                {node.icon ?? (
-                  <LayerGlyph
-                    node={node}
-                    selected={isSelected}
-                    inSelectedSubtree={isInSelectedSubtree}
-                  />
-                )}
+                {node.icon ?? <LayerGlyph node={node} />}
               </span>
               {isRenaming ? (
                 <input
@@ -1393,6 +1391,8 @@ function LayerRow({
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate font-medium leading-none",
+                    isComponentLayer &&
+                      "text-[var(--design-editor-component-color)]",
                     node.hidden && "line-through",
                   )}
                   title={node.name}
@@ -1555,18 +1555,11 @@ function IconTooltipButton({
 
 function LayerGlyph({
   node,
-  selected,
-  inSelectedSubtree,
 }: {
   node: Pick<LayersPanelNode, "type" | "layout" | "tagName" | "detail">;
-  selected?: boolean;
-  inSelectedSubtree?: boolean;
 }) {
   const common = "size-4";
-  const componentColor =
-    selected || inSelectedSubtree
-      ? "text-foreground"
-      : "text-[var(--design-editor-accent-color)]";
+  const componentColor = "text-[var(--design-editor-component-color)]";
   if (layerNodeUsesImageGlyph(node)) {
     return <ImageLayerGlyph className={common} />;
   }
@@ -1628,6 +1621,10 @@ function layerNodeUsesImageGlyph(
 ): boolean {
   const tag = layerNodeTagName(node);
   return node.type === "image" || tag === "img" || tag === "picture";
+}
+
+function layerNodeIsComponent(node: Pick<LayersPanelNode, "type">): boolean {
+  return node.type === "component" || node.type === "instance";
 }
 
 function LayerOptionsGlyph({ className }: { className?: string }) {
