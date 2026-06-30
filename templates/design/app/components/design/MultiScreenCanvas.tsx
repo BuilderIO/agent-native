@@ -4258,23 +4258,28 @@ function resolveScreenMetadata(
   keyedMetadata?: ScreenMetadata,
   getterMetadata?: ScreenMetadata,
 ): ResolvedScreenMetadata {
-  const metadata = { ...screen, ...keyedMetadata, ...getterMetadata };
+  // Normalize content to a string up front: a screen whose content has not yet
+  // loaded (or is otherwise not a plain string) must not crash the overview
+  // render via the content.trim()/slice() helpers below.
+  const safeScreen: ScreenFile =
+    typeof screen.content === "string" ? screen : { ...screen, content: "" };
+  const metadata = { ...safeScreen, ...keyedMetadata, ...getterMetadata };
   const previewUrl =
     metadata.url ??
     metadata.previewUrl ??
-    screen.previewUrl ??
-    getPreviewUrl(screen.content);
+    safeScreen.previewUrl ??
+    getPreviewUrl(safeScreen.content);
   const width = metadata.width && metadata.width > 0 ? metadata.width : 1280;
   const height =
     metadata.height && metadata.height > 0 ? metadata.height : 2560;
   return {
     source:
       normalizeSource(metadata.sourceType ?? metadata.source) ??
-      deriveSource(screen, previewUrl),
+      deriveSource(safeScreen, previewUrl),
     previewState:
       normalizePreviewState(
         metadata.lod ?? metadata.previewState ?? metadata.status,
-      ) ?? derivePreviewState(screen, previewUrl),
+      ) ?? derivePreviewState(safeScreen, previewUrl),
     title: metadata.title,
     width,
     height,
@@ -4350,7 +4355,11 @@ function derivePreviewState(
 }
 
 function getPreviewUrl(content: string) {
-  return getUrl(content.trim())?.toString();
+  // Tolerate non-string content (e.g. a screen whose content has not loaded):
+  // a missing URL is correct here, a crash is not.
+  return getUrl(
+    typeof content === "string" ? content.trim() : undefined,
+  )?.toString();
 }
 
 function getUrl(value: string | undefined) {

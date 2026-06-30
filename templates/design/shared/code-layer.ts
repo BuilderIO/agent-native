@@ -1698,6 +1698,9 @@ function buildProjection(
   html: string,
   source: CodeLayerSource,
 ): ProjectionBuild {
+  // Tolerate non-string input from any caller (e.g. content not yet loaded):
+  // an empty projection is correct; crashing the editor is not.
+  if (typeof html !== "string") html = "";
   const elements = parseHtmlElements(html);
   const nodeIdByElementIndex = new Map<number, string>();
   const nodes: CodeLayerNode[] = [];
@@ -1818,7 +1821,11 @@ export function buildCodeLayerProjection(
   html: string,
   options: { source?: CodeLayerSource } = {},
 ): CodeLayerProjection {
-  return buildProjection(html, options.source ?? { kind: "inline-html" })
+  // Defensive: callers (memos/effects) may project before content has loaded
+  // (e.g. `activeContent` is briefly undefined on first render). Projecting a
+  // non-string must yield an empty projection, never crash the editor.
+  const safeHtml = typeof html === "string" ? html : "";
+  return buildProjection(safeHtml, options.source ?? { kind: "inline-html" })
     .projection;
 }
 

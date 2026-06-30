@@ -4269,8 +4269,16 @@ export default function DesignEditor() {
     ];
   }, [activeUsers, currentUser, session?.image]);
 
-  // Resolve the content to render: prefer collab content, fall back to DB
-  const activeContent = collabContent ?? activeFile?.content ?? "";
+  // Resolve the content to render: prefer collab content, fall back to DB.
+  // Always resolve to a string — a non-string source (e.g. a collab value that
+  // is not yet a plain string, or a not-yet-loaded file) must never reach the
+  // many `content.trim()` / projection callers below, which would crash render.
+  const activeContent =
+    typeof collabContent === "string"
+      ? collabContent
+      : typeof activeFile?.content === "string"
+        ? activeFile.content
+        : "";
   const pageStyles = useMemo(
     () => getBodyInlineStyles(activeContent),
     [activeContent],
