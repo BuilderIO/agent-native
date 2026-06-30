@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
+  buildActiveFileNodeIdSet,
+  getFreshActiveFileContent,
+  getFreshScreenContent,
   getDesignEditorShareUrl,
+  getLayerMoveIterationOrder,
+  getLayerMoveSourceContent,
+  getLocalhostRouteSourceFile,
   getOverviewCanvasZoom,
   getOverviewDisplayZoom,
   getOverviewEnterTarget,
@@ -14,6 +20,7 @@ import {
   getSelectedScreenIdsForEditorState,
   shouldLockInspectorForInitialGeneration,
   shouldEscapeToOverview,
+  sortCodeLayerIdsByTreeOrder,
 } from "./DesignEditor";
 
 describe("DesignEditor overview selection state", () => {
@@ -174,6 +181,155 @@ describe("DesignEditor share URLs", () => {
     expect(
       getDesignEditorShareUrl("design-123", "https://builder.example"),
     ).toBe("https://builder.example/design/design-123");
+  });
+});
+
+describe("DesignEditor localhost route source", () => {
+  it("prefers explicit route metadata sourceFile for local handoff", () => {
+    expect(
+      getLocalhostRouteSourceFile({
+        sourceFile: "app/routes/home.tsx",
+        source: '{"file":"legacy.tsx"}',
+      }),
+    ).toBe("app/routes/home.tsx");
+  });
+
+  it("falls back to legacy source metadata shapes", () => {
+    expect(
+      getLocalhostRouteSourceFile({
+        source: '{"file":"app/routes/settings.tsx"}',
+      }),
+    ).toBe("app/routes/settings.tsx");
+    expect(
+      getLocalhostRouteSourceFile({ source: "app/routes/plain.tsx" }),
+    ).toBe("app/routes/plain.tsx");
+  });
+});
+
+describe("DesignEditor layer move source snapshots", () => {
+  it("prefers the latest local active content snapshot during rapid edits", () => {
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "stale react content",
+        latestContent: null,
+        lastLocalContent: "fresh local content",
+      }),
+    ).toBe("fresh local content");
+
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "stale react content",
+        latestContent: "remote or local latest content",
+        lastLocalContent: "older local content",
+      }),
+    ).toBe("remote or local latest content");
+
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "current react content",
+        latestContent: null,
+        lastLocalContent: null,
+      }),
+    ).toBe("current react content");
+  });
+
+  it("uses the progressive source snapshot before active file content", () => {
+    expect(
+      getLayerMoveSourceContent({
+        sourceFileId: "active",
+        activeFileId: "active",
+        activeContent: "original active",
+        sourceFileContent: "stale file",
+        sourceContentMap: new Map([["active", "after first move"]]),
+      }),
+    ).toBe("after first move");
+  });
+
+  it("falls back to active content or source file content for first move", () => {
+    expect(
+      getLayerMoveSourceContent({
+        sourceFileId: "active",
+        activeFileId: "active",
+        activeContent: "original active",
+        sourceFileContent: "stale file",
+        sourceContentMap: new Map(),
+      }),
+    ).toBe("original active");
+    expect(
+      getLayerMoveSourceContent({
+        sourceFileId: "other",
+        activeFileId: "active",
+        activeContent: "original active",
+        sourceFileContent: "other file",
+        sourceContentMap: new Map(),
+      }),
+    ).toBe("other file");
+  });
+
+  it("orders same-file multi-layer moves by tree order", () => {
+    const tree = [
+      {
+        id: "parent",
+        children: [
+          { id: "heading", children: [] },
+          {
+            id: "content",
+            children: [
+              { id: "button", children: [] },
+              { id: "caption", children: [] },
+            ],
+          },
+        ],
+      },
+    ] as any;
+
+    expect(
+      sortCodeLayerIdsByTreeOrder(["caption", "heading", "missing"], tree),
+    ).toEqual(["heading", "caption", "missing"]);
+  });
+
+  it("iterates after-drops in reverse so same-anchor inserts keep tree order", () => {
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "after")).toEqual([
+      "c",
+      "b",
+      "a",
+    ]);
+
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "before")).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "inside")).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("uses the fresh active snapshot when resolving overview screen content", () => {
+    const fileContentById = new Map([
+      ["active", "stale persisted active"],
+      ["other", "other screen content"],
+    ]);
+
+    expect(
+      getFreshScreenContent({
+        screenId: "active",
+        activeFileId: "active",
+        freshActiveContent: "fresh active content",
+        fileContentById,
+      }),
+    ).toBe("fresh active content");
+
+    expect(
+      getFreshScreenContent({
+        screenId: "other",
+        activeFileId: "active",
+        freshActiveContent: "fresh active content",
+        fileContentById,
+      }),
+    ).toBe("other screen content");
   });
 });
 
@@ -344,5 +500,68 @@ describe("DesignEditor element canonicalization", () => {
     });
 
     expect(node).toBeNull();
+  });
+});
+
+describe("buildActiveFileNodeIdSet (group/ungroup stale-id filter)", () => {
+  it("includes both projection ids and data-agent-native-node-id attr values", () => {
+    const html = `<!DOCTYPE html><html><body>
+      <div data-agent-native-node-id="node-a">A</div>
+      <div data-agent-native-node-id="node-b">B</div>
+    </body></html>`;
+    const projection = buildCodeLayerProjection(html);
+    const idSet = buildActiveFileNodeIdSet(projection);
+
+    // Projection ids (internal) should be present.
+    for (const n of projection.nodes) {
+      expect(idSet.has(n.id)).toBe(true);
+    }
+    // data-agent-native-node-id attr values should be present.
+    expect(idSet.has("node-a")).toBe(true);
+    expect(idSet.has("node-b")).toBe(true);
+  });
+
+  it("excludes ids that belong to nodes outside the active file", () => {
+    const activeHtml = `<!DOCTYPE html><html><body>
+      <div data-agent-native-node-id="active-node-1">A</div>
+      <div data-agent-native-node-id="active-node-2">B</div>
+    </body></html>`;
+    const activeProjection = buildCodeLayerProjection(activeHtml);
+    const activeNodeIdSet = buildActiveFileNodeIdSet(activeProjection);
+
+    // Ids from a second (non-active) file are NOT in the active set.
+    expect(activeNodeIdSet.has("other-file-node")).toBe(false);
+
+    // simulated selectedLayerIdsState that mixes active + stale ids
+    const files = [{ id: "file-a" }, { id: "file-b" }];
+    const fileIds = new Set(files.map((f) => f.id));
+    const allLayerIds = [
+      "active-node-1",
+      "active-node-2",
+      "other-file-node", // stale id from non-active file
+      "file-a", // file-row id — should be excluded by fileIds filter
+    ];
+
+    const filteredNodeIds = allLayerIds.filter(
+      (id) =>
+        !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
+    );
+
+    // Only the two active-file node attr ids pass through.
+    expect(filteredNodeIds).toEqual(["active-node-1", "active-node-2"]);
+  });
+
+  it("handles nodes without data-agent-native-node-id (only projection id exposed)", () => {
+    const html = `<!DOCTYPE html><html><body>
+      <div class="plain">No node id attr</div>
+    </body></html>`;
+    const projection = buildCodeLayerProjection(html);
+    const idSet = buildActiveFileNodeIdSet(projection);
+
+    // At least one projection id is present.
+    expect(idSet.size).toBeGreaterThan(0);
+    for (const n of projection.nodes) {
+      expect(idSet.has(n.id)).toBe(true);
+    }
   });
 });

@@ -14,6 +14,7 @@ import { IconMinus, IconPlus } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -28,6 +29,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /* -------------------------------------------------------------------------- */
 /* Pan / zoom feel — recovered from the on-main hardcoded renderer            */
@@ -313,7 +317,7 @@ export function CanvasArea({
     canvas.viewport?.pan?.x ?? ""
   }:${canvas.viewport?.pan?.y ?? ""}`;
   const lastAppliedSavedViewportKeyRef = useRef<string | null>(null);
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!hasSavedViewport) return;
     if (lastAppliedSavedViewportKeyRef.current === savedViewportKey) return;
     lastAppliedSavedViewportKeyRef.current = savedViewportKey;
@@ -344,7 +348,7 @@ export function CanvasArea({
   boardRef.current = board;
 
   const lastAutoFitKeyRef = useRef<string | null>(null);
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (hasSavedViewport) return;
     if (lastAutoFitKeyRef.current === frameLayoutKey) return;
     const element = viewportRef.current;

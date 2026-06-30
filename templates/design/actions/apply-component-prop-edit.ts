@@ -49,7 +49,10 @@ import type {
   ClassEditIntent,
   StyleEditIntent,
 } from "../shared/code-layer.js";
-import { componentNameFor } from "../shared/component-model.js";
+import {
+  componentNameFor,
+  componentNodeIdMatches,
+} from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { normalizeDesignSourceType } from "../shared/source-mode.js";
 
@@ -296,7 +299,9 @@ export default defineAction({
       source: codeLayerSource,
     });
 
-    const node = projection.nodes.find((n) => n.id === nodeId);
+    const node = projection.nodes.find((n) =>
+      componentNodeIdMatches(n, nodeId),
+    );
     if (!node) {
       throw new Error(
         `Node "${nodeId}" not found. Run get-code-layer-projection to list current ids.`,
@@ -398,7 +403,9 @@ export default defineAction({
     }
 
     // ── Persist ──────────────────────────────────────────────────────────────
-    if (changed) {
+    const shouldPersist = changed || patchedContent !== (file.content ?? "");
+
+    if (shouldPersist) {
       await persistEdit({
         id: file.id,
         designId: file.designId,
@@ -419,13 +426,14 @@ export default defineAction({
       componentName,
       sourceType,
       editKind: edit.kind,
-      persisted: changed,
+      persisted: shouldPersist,
       ctaRequired: false,
       fileId: file.id,
       filename: file.filename,
+      content: patchedContent,
       bytesBefore: html.length,
       bytesAfter: patchedContent.length,
-      note: changed
+      note: shouldPersist
         ? "Edit applied and persisted via the deterministic HTML-patch path."
         : "No change applied — the edit produced the same result as the current content.",
     };

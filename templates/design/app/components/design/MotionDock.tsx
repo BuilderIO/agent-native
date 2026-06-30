@@ -174,6 +174,14 @@ export function MotionDock({
     () => new Set(tracks.map((t) => t.targetNodeId)),
   );
 
+  useEffect(() => {
+    setExpandedNodeIds((current) => {
+      const next = new Set(current);
+      for (const track of tracks) next.add(track.targetNodeId);
+      return next.size === current.size ? current : next;
+    });
+  }, [tracks]);
+
   // Ruler / track area ref for pointer math.
   const trackAreaRef = useRef<HTMLDivElement>(null);
 
@@ -403,6 +411,7 @@ export function MotionDock({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
+      aria-label="Motion dock"
       className={cn(
         "flex flex-col border-t border-border bg-background transition-all duration-150 select-none",
         isOpen ? "" : "h-8",

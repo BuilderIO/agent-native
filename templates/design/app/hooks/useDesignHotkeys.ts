@@ -307,7 +307,9 @@ function handleDesignHotkey(
   if (primary && key === "d") return run(props.onDuplicate);
   if (primary && key === "r") return run(props.onRename);
   if (primary && key === "g") {
-    return event.shiftKey ? run(props.onUngroup) : run(props.onGroup);
+    // Figma uses ⇧⌘G for ungroup; also support ⌥⌘G as an alias.
+    if (event.shiftKey || event.altKey) return run(props.onUngroup);
+    return run(props.onGroup);
   }
 
   if (primary && (key === "=" || key === "+")) return run(props.onZoomIn);

@@ -152,10 +152,23 @@ export default defineAction({
     if (route !== undefined) patch.route = route;
     if (fixtureData !== undefined) {
       // Sanitise replayed markup (stored-XSS guard) before persisting.
-      patch.fixtureData =
-        fixtureData !== null
-          ? JSON.stringify(sanitizeStatePayload(fixtureData))
-          : null;
+      if (fixtureData !== null) {
+        const fixtureDataJson = JSON.stringify(
+          sanitizeStatePayload(fixtureData),
+        );
+        if (
+          Buffer.byteLength(fixtureDataJson, "utf8") > CAPTURE_DATA_MAX_BYTES
+        ) {
+          throw new Error(
+            `fixtureData exceeds the ${Math.round(
+              CAPTURE_DATA_MAX_BYTES / 1024,
+            )}KB limit. Trim the payload before updating this fixture.`,
+          );
+        }
+        patch.fixtureData = fixtureDataJson;
+      } else {
+        patch.fixtureData = null;
+      }
     }
     if (captureData !== undefined) {
       if (captureData !== null) {

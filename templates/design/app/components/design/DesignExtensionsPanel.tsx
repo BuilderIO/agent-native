@@ -26,7 +26,7 @@ import {
   IconSparkles,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -86,6 +86,8 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   mode: string;
   activeTool: string;
   tweakValues: Record<string, string | number | boolean>;
+  onShaderFillPreview?: (descriptor: ShaderDescriptor, css: string) => void;
+  onShaderFillPreviewClear?: () => void;
 }
 
 interface DesignExtensionsPanelProps {
@@ -447,6 +449,20 @@ interface ShaderFillsExtPanelProps {
 
 function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   const [showShaders, setShowShaders] = useState(false);
+  const clearPreviewRef = useRef(context.onShaderFillPreviewClear);
+  useEffect(() => {
+    clearPreviewRef.current = context.onShaderFillPreviewClear;
+  }, [context.onShaderFillPreviewClear]);
+  useEffect(
+    () => () => {
+      clearPreviewRef.current?.();
+    },
+    [],
+  );
+  const closeShaders = () => {
+    context.onShaderFillPreviewClear?.();
+    setShowShaders(false);
+  };
   // The most recently previewed descriptor — Apply persists exactly this one,
   // so the write is intentional (one atomic call) rather than firing on every
   // slider tweak.
@@ -535,14 +551,15 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   return (
     <div className="flex flex-col">
       <ShaderFillsPanel
-        onApply={(descriptor, _css) => {
+        onApply={(descriptor, css) => {
           // Preview only: ShaderFillsPanel fires apply-shader (planning/codegen)
           // for agent context on every tune and the iframe shows the gradient.
           // We just record the latest descriptor here; the explicit Apply
           // button below performs the single intentional persist write.
           setPreviewed(descriptor);
+          context.onShaderFillPreview?.(descriptor, css);
         }}
-        onBack={() => setShowShaders(false)}
+        onBack={closeShaders}
         applyContext={{
           designId: context.designId || undefined,
           fileId: context.activeFileId || undefined,

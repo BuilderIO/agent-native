@@ -36,7 +36,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { compile } from "../shared/motion-compiler.js";
+import {
+  assertSafeMotionCssProperty,
+  assertSafeMotionCssToken,
+  compile,
+} from "../shared/motion-compiler.js";
 import type { MotionTrack } from "../shared/motion-timeline.js";
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
@@ -84,47 +88,6 @@ const MOTION_STYLE_CLOSE = "</style>";
  * variants — and to detect any `</style` sequence smuggled into compiled CSS.
  */
 const STYLE_CLOSE_RE = /<\s*\/\s*style\b[^>]*>/i;
-
-/**
- * Reject `<`, `>`, and any `</style` sequence in a CSS token before it is
- * compiled into the managed `<style>` block. Keyframe `value` / `ease` come
- * straight from the caller and are interpolated raw into the CSS, so an
- * unescaped `</style>` (or angle bracket) would break out of the style block
- * and inject arbitrary markup. Returns the original string when safe; throws on
- * a breakout attempt so the whole atomic write fails loudly rather than
- * persisting a poisoned block.
- */
-function assertSafeCssToken(value: string, field: string): string {
-  if (/[<>]/.test(value) || /<\s*\/\s*style/i.test(value)) {
-    throw new Error(
-      `Invalid ${field}: "<", ">", and "</style" are not allowed in motion CSS values.`,
-    );
-  }
-  return value;
-}
-
-/**
- * Validate that a CSS property name is a safe CSS identifier.
- *
- * Accepts standard and vendor-prefixed property names (e.g. "opacity",
- * "transform", "-webkit-transform") and nothing else.  Rejects any string
- * containing `:`, `;`, `{`, `}`, `<`, `/`, whitespace, or other characters
- * that could break out of a CSS declaration or `<style>` block context when
- * the property is interpolated as `${property}: ${value};` inside
- * `@keyframes`.
- *
- * Uses the strict CSS ident regex `^-?[a-zA-Z][a-zA-Z0-9-]*$` which covers
- * every real animatable CSS property while blocking injection payloads.
- */
-function assertSafeCssProperty(property: string, field: string): string {
-  if (!/^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(property)) {
-    throw new Error(
-      `Invalid ${field}: "${property}" is not a valid CSS property identifier. ` +
-        "Only ASCII letters, digits, hyphens, and an optional leading hyphen are allowed.",
-    );
-  }
-  return property;
-}
 
 /**
  * Inject or replace the managed `<style data-agent-native-motion>` block in
@@ -328,15 +291,15 @@ export default defineAction({
     // keyframe values, and easing strings before they are compiled into the
     // managed <style> block.
     for (const track of typedTracks) {
-      assertSafeCssProperty(track.property, "track.property");
+      assertSafeMotionCssProperty(track.property, "track.property");
       for (const kf of track.keyframes) {
-        assertSafeCssToken(kf.value, "keyframe value");
+        assertSafeMotionCssToken(kf.value, "keyframe value");
         if (kf.ease !== undefined) {
-          assertSafeCssToken(kf.ease, "keyframe ease");
+          assertSafeMotionCssToken(kf.ease, "keyframe ease");
         }
       }
     }
-    assertSafeCssToken(defaultEase, "defaultEase");
+    assertSafeMotionCssToken(defaultEase, "defaultEase");
 
     const { css, hash } = compile({
       id: timelineId ?? "",

@@ -27,6 +27,7 @@ import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerSource } from "../shared/code-layer.js";
 import {
   componentNameFor,
+  componentNodeIdMatches,
   extractProps,
   type ComponentInstance,
 } from "../shared/component-model.js";
@@ -112,6 +113,14 @@ export default defineAction({
     const caps = resolveSourceCapabilities(sourceType);
     const canResolveToFile = hasCapability(caps, "resolveNodeToFile");
     const hasFullIndex = hasCapability(caps, "indexComponents");
+    const canEditProps =
+      sourceType === "inline" || hasCapability(caps, "applyEdit");
+    const ctaRequired = !hasFullIndex || !canEditProps;
+    const ctaMessage = !hasFullIndex
+      ? "Full prop controls (TypeScript prop types, cva variants, Storybook stories) require a connected Builder app. Connect Builder to unlock."
+      : !canEditProps
+        ? "Prop write-back requires the bridge applyEdit capability. Preview controls remain available until source write hardening is enabled."
+        : undefined;
 
     // ── Fetch design file ────────────────────────────────────────────────────
     const conditions = [
@@ -153,7 +162,9 @@ export default defineAction({
       source: codeLayerSource,
     });
 
-    const node = projection.nodes.find((n) => n.id === nodeId);
+    const node = projection.nodes.find((n) =>
+      componentNodeIdMatches(n, nodeId),
+    );
     if (!node) {
       throw new Error(
         `Node "${nodeId}" not found in projection. Run get-code-layer-projection to list current node ids.`,
@@ -180,7 +191,7 @@ export default defineAction({
       props: observedProps,
       alpineData,
       selector: node.selector,
-      nodeId: node.id,
+      nodeId,
     };
 
     // ── Lookup persisted component_index row ─────────────────────────────────
@@ -231,11 +242,9 @@ export default defineAction({
       capabilities: {
         canResolveToFile,
         hasFullIndex,
-        canEditProps: true, // preview-only on inline; persists on real-app
-        ctaRequired: !hasFullIndex,
-        ctaMessage: !hasFullIndex
-          ? "Full prop controls (TypeScript prop types, cva variants, Storybook stories) require a connected Builder app. Connect Builder to unlock."
-          : undefined,
+        canEditProps,
+        ctaRequired,
+        ctaMessage,
       },
     };
   },

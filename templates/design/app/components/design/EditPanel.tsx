@@ -11,6 +11,7 @@ import {
   rgbaToHex,
   withColorOpacity,
 } from "@shared/color-utils";
+import { propNameToDataAttribute } from "@shared/component-model";
 import {
   IconAlignCenter,
   IconAlignJustified,
@@ -68,6 +69,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -135,6 +138,7 @@ import {
 } from "./inspector";
 import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
+import { InspectorAiActions } from "./inspector/InspectorAiActions";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import { StatesPanel } from "./StatesPanel";
@@ -167,15 +171,28 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
   readOnly?: boolean;
+  /** Active file id — forwarded to InspectorAiActions for agent context. */
+  fileId?: string;
+  /** Active file name (e.g. "index.html") — forwarded to InspectorAiActions. */
+  filename?: string;
   // -------------------------------------------------------------------------
   // Design Studio panels (§6.2, §6.4, §6.5)
   // Pass `designId` to unlock Tokens, States, and Review sections.
   // -------------------------------------------------------------------------
   /** The active design's id — required to mount Tokens / States / Review. */
   designId?: string;
+  /**
+   * Called after a component prop edit returns the patched source so the parent
+   * editor can sync local/Yjs content instead of waiting for query invalidation.
+   */
+  onComponentPropApplied?: (fileId: string, content: string) => void;
   /**
    * Called after a token edit is applied so the parent can push the resolved
    * CSS-var map into the iframe via the tweak-values postMessage.
@@ -197,13 +214,6 @@ interface EditPanelProps {
    * and an Edit component action.
    */
   componentNodeId?: string;
-  /**
-   * The active design file id the selected component lives in. Threaded into
-   * `get-component-details` / `apply-component-prop-edit` so prop reads and
-   * writes target the screen the user is editing instead of defaulting to
-   * `index.html`. When omitted the actions fall back to `index.html`.
-   */
-  componentFileId?: string;
   /**
    * Source capabilities for the current design.  Used to gate the Edit
    * component / jump-to-source affordances.  When absent all writes default
@@ -3688,10 +3698,15 @@ function FlexContainerControls({
   element,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -3711,6 +3726,47 @@ function FlexContainerControls({
   // alone is a no-op against a block element.
   const ensureFlex = () => {
     if (!isFlex) onStyleChange("display", "flex");
+  };
+
+  /**
+   * Handle the Flow control switching between flex and normal-flow (block).
+   *
+   * For 'flex': ensures display:flex is set (ensureFlex path).
+   * For 'block': sets display:block and leaves children unchanged — mirrors
+   * the { kind:"autoLayout", enabled:false } substrate intent exactly.
+   */
+  const handleDisplayChange = (nextDisplay: "flex" | "block") => {
+    if (nextDisplay === "flex") {
+      ensureFlex();
+      return;
+    }
+    // Turn auto-layout off: set display:block, leaving children unchanged.
+    // This is the direct equivalent of the autoLayout substrate with enabled:false.
+    onStyleChange("display", "block");
+  };
+
+  /**
+   * "Convert to auto layout" — enables flex on a non-flex container and strips
+   * position:absolute from direct children (full reflow via the autoLayout
+   * substrate intent). Falls back to a style-only patch when no substrate
+   * handler is wired (e.g. read-only or non-editable contexts).
+   */
+  const handleConvertToAutoLayout = () => {
+    if (onAutoLayoutConvert && element.sourceId) {
+      onAutoLayoutConvert(element.sourceId, { direction: "row", gap: "8px" });
+      return;
+    }
+    // Fallback: set display:flex on the parent only (no child strip).
+    commitStylePatch(
+      {
+        display: "flex",
+        flexDirection: "row",
+        gap: "8px",
+        alignItems: "flex-start",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
   };
   const padding = {
     top: parseNumericValue(styles.paddingTop || "0"),
@@ -3758,8 +3814,22 @@ function FlexContainerControls({
 
   return (
     <div className="space-y-2">
+      {/* Convert to auto layout — shown when the container is not yet flex */}
+      {!isFlex ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 w-full gap-1.5 text-[11px]"
+          onClick={handleConvertToAutoLayout}
+        >
+          <IconLayoutSettings className="size-3.5 shrink-0" />
+          {"Convert to auto layout" /* i18n-ignore design inspector action */}
+        </Button>
+      ) : null}
       <AutoLayoutMatrix
         value={autoLayoutValue}
+        onDisplayChange={handleDisplayChange}
         onDirectionChange={(direction) => {
           ensureFlex();
           onStyleChange(
@@ -3943,10 +4013,15 @@ function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
 }) {
   const t = useT();
   const flexChild = isParentFlex(element);
@@ -4039,6 +4114,7 @@ function LayoutContextProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
+        onAutoLayoutConvert={onAutoLayoutConvert}
       />
       {childControls}
     </PanelSection>
@@ -5589,6 +5665,7 @@ function MakeItRealCard({
  * typed here; the action may return additional fields.
  */
 interface ComponentDetailsResult {
+  nodeId: string;
   name: string;
   sourceType: string;
   observedProps: Array<{ name: string; value: string }>;
@@ -5624,40 +5701,55 @@ interface ComponentDetailsResult {
  */
 export function ComponentSection({
   designId,
-  nodeId,
   fileId,
+  nodeId,
+  onComponentPropApplied,
   sourceCapabilities = [],
 }: {
   designId: string;
-  nodeId: string;
-  /**
-   * The active design file id. Threaded into the prop read + write so they
-   * target the screen being edited instead of defaulting to `index.html`.
-   */
   fileId?: string;
+  nodeId: string;
+  onComponentPropApplied?: (fileId: string, content: string) => void;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
 }) {
   const queryClient = useQueryClient();
-  const detailsKey = [
-    "action",
-    "get-component-details",
-    { designId, nodeId, fileId },
-  ];
+  const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
+  const detailsKey = ["action", "get-component-details", detailsParams];
 
-  const { data, isLoading, error } = useActionQuery<ComponentDetailsResult>(
-    "get-component-details",
-    { designId, nodeId, fileId },
-  );
+  const { data, isLoading, error, refetch } =
+    useActionQuery<ComponentDetailsResult>(
+      "get-component-details",
+      detailsParams,
+      { refetchOnMount: "always" },
+    );
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
 
-  // Persist a single prop change through apply-component-prop-edit. The canvas
-  // re-renders from the freshly written design content (get-design refetch),
-  // so no postMessage into the iframe is needed. The get-component-details
-  // cache is optimistically patched so the control reflects the new value
-  // immediately, then reconciled with the server on settle.
+  const postComponentPropPreview = useCallback(
+    (attribute: string, value: string) => {
+      if (typeof document === "undefined") return;
+
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      iframe?.contentWindow?.postMessage(
+        {
+          type: "style-change",
+          selector: data?.instance?.selector ?? "",
+          nodeId: data?.instance?.nodeId ?? nodeId,
+          attributeOverrides: { [attribute]: value },
+        },
+        "*",
+      );
+    },
+    [data?.instance?.nodeId, data?.instance?.selector, nodeId],
+  );
+
+  // Persist a single prop change through apply-component-prop-edit. Attribute
+  // props also preview immediately in the iframe so the selected component
+  // changes without waiting for the write/refetch round-trip.
   const persistPropEdit = (
     edit:
       | { kind: "alpineData"; value: string }
@@ -5667,19 +5759,50 @@ export function ComponentSection({
     queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
       prev ? optimistic(prev) : prev,
     );
+    if (edit.kind === "attribute") {
+      postComponentPropPreview(edit.attribute, edit.value);
+    }
     applyPropMutation.mutate(
-      { designId, nodeId, fileId, edit },
+      { designId, nodeId, ...(fileId ? { fileId } : {}), edit },
       {
+        onSuccess: (result) => {
+          const response = result as {
+            content?: unknown;
+            fileId?: unknown;
+          };
+          if (
+            typeof response.fileId === "string" &&
+            typeof response.content === "string"
+          ) {
+            onComponentPropApplied?.(response.fileId, response.content);
+          }
+        },
         onSettled: () => {
-          // Re-render the canvas from the new content and re-read the props.
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
           void queryClient.invalidateQueries({ queryKey: detailsKey });
+          void refetch();
         },
       },
     );
   };
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        (event.data as { type?: unknown } | null)?.type === "element-select"
+      ) {
+        void refetch();
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [refetch]);
 
   // While loading, show a compact skeleton that matches the section width.
   if (isLoading) {
@@ -5718,7 +5841,7 @@ export function ComponentSection({
   // Real-app sources keep the deeper source-prop controls gated as-is, so for
   // non-inline sources the controls are read-only here.
   const isInline = sourceType === "inline";
-  const editingEnabled = isInline; // gated; real-app stays read-only for now
+  const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   // Each editable row: name + current value + how it persists + its options.
@@ -5799,7 +5922,12 @@ export function ComponentSection({
       } else {
         // The original carries content (methods / nested / expressions) we
         // can't rewrite for this key without dropping it. Fail safe: skip the
-        // edit rather than persist a lossy rewrite.
+        // edit rather than persist a lossy rewrite, and tell the user why so
+        // the change doesn't silently vanish.
+        toast.error(
+          // i18n-ignore
+          "Can’t safely edit this prop inline — this component’s Alpine state is too complex. Edit the source instead.",
+        );
         return;
       }
 
@@ -5815,12 +5943,10 @@ export function ComponentSection({
         }),
       );
     } else {
-      // camelCase prop name → data-agent-native-prop-<kebab>
-      const kebab = row.name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
       persistPropEdit(
         {
           kind: "attribute",
-          attribute: `data-agent-native-prop-${kebab}`,
+          attribute: propNameToDataAttribute(row.name),
           value: nextValue,
         },
         (prev) => {
@@ -5877,7 +6003,11 @@ export function ComponentSection({
                 "Edit component source" /* i18n-ignore design inspector action */
               }
               onClick={() => {
-                openSourceMutation.mutate({ designId, nodeId });
+                openSourceMutation.mutate({
+                  designId,
+                  nodeId,
+                  ...(fileId ? { fileId } : {}),
+                });
               }}
             >
               <IconExternalLink className="size-3.5" />
@@ -5920,6 +6050,7 @@ export function ComponentSection({
             {rows.map((row) => {
               const hasOptions = (row.options?.length ?? 0) > 0;
               const isBoolean = !hasOptions && isBooleanPropValue(row.value);
+              const disabled = !editingEnabled || applyPropMutation.isPending;
               return (
                 <div key={row.name} className="flex items-center gap-1.5">
                   <Label className="w-[64px] shrink-0 truncate text-[11px] font-medium capitalize text-muted-foreground">
@@ -5930,7 +6061,7 @@ export function ComponentSection({
                     <Select
                       value={row.value || row.options![0] || ""}
                       onValueChange={(v) => commitProp(row, v)}
-                      disabled={!editingEnabled}
+                      disabled={disabled}
                     >
                       <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
                         <SelectValue />
@@ -5955,7 +6086,7 @@ export function ComponentSection({
                         onCheckedChange={(checked) =>
                           commitProp(row, checked ? "true" : "false")
                         }
-                        disabled={!editingEnabled}
+                        disabled={disabled}
                         className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
                         aria-label={
                           row.name /* i18n-ignore dynamic prop name */
@@ -5967,7 +6098,7 @@ export function ComponentSection({
                     <Input
                       defaultValue={row.value}
                       key={`${row.name}:${row.value}`}
-                      disabled={!editingEnabled}
+                      disabled={disabled}
                       onBlur={(e) => commitProp(row, e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
@@ -6010,15 +6141,18 @@ export function EditPanel({
   onRequestTweaks,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
   onExport,
   exporting = false,
   readOnly = false,
+  fileId,
+  filename,
   designId,
+  onComponentPropApplied,
   onTokensApplied,
   statesPanelProps,
   reviewPanelProps,
   componentNodeId,
-  componentFileId,
   sourceCapabilities = [],
   onCreateComponent,
   defaultComponentName = "Component",
@@ -6076,6 +6210,7 @@ export function EditPanel({
   // over-scroll bounce, could briefly un-shield the canvas and allow a stray
   // pointer event to deselect the selected canvas element (R3 regression).
   const scrolledRecentlyRef = useRef(false);
+  const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (readOnly) {
@@ -6155,7 +6290,14 @@ export function EditPanel({
 
           <div
             className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            onWheelCapture={() => {
+              userScrollIntentRef.current = true;
+            }}
+            onTouchMoveCapture={() => {
+              userScrollIntentRef.current = true;
+            }}
             onScroll={() => {
+              if (!userScrollIntentRef.current) return;
               // Mark that a scroll just happened so the click that some
               // browsers fire at the end of a scroll gesture (or after an
               // overscroll/rubber-band bounce) is suppressed. Crucially this
@@ -6170,6 +6312,7 @@ export function EditPanel({
               }
               scrollTimerRef.current = setTimeout(() => {
                 scrolledRecentlyRef.current = false;
+                userScrollIntentRef.current = false;
                 scrollTimerRef.current = null;
               }, 300);
             }}
@@ -6181,6 +6324,7 @@ export function EditPanel({
               // browsers generate after a touch-scroll ends.
               if (!scrolledRecentlyRef.current) return;
               scrolledRecentlyRef.current = false;
+              userScrollIntentRef.current = false;
               if (scrollTimerRef.current !== null) {
                 clearTimeout(scrollTimerRef.current);
                 scrollTimerRef.current = null;
@@ -6222,8 +6366,9 @@ export function EditPanel({
             {designId && componentNodeId && (
               <ComponentSection
                 designId={designId}
+                fileId={fileId}
                 nodeId={componentNodeId}
-                fileId={componentFileId}
+                onComponentPropApplied={onComponentPropApplied}
                 sourceCapabilities={sourceCapabilities}
               />
             )}
@@ -6246,6 +6391,7 @@ export function EditPanel({
                   element={selectedElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  onAutoLayoutConvert={onAutoLayoutConvert}
                 />
                 <AppearanceProperties
                   element={selectedElement}
@@ -6282,6 +6428,17 @@ export function EditPanel({
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
+                {/* AI edit request block — collapsible, collapsed by default */}
+                <section className="shrink-0 border-t border-[var(--design-editor-control-border)]">
+                  <InspectorAiActions
+                    selector={selectedElement.selector}
+                    sourceId={selectedElement.sourceId}
+                    designId={designId}
+                    fileId={fileId}
+                    filename={filename}
+                    canEdit={!readOnly}
+                  />
+                </section>
               </>
             )}
             {onExport ? (

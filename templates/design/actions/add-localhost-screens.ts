@@ -30,6 +30,7 @@ const routeInputSchema = z.object({
   path: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
+  sourceFile: z.string().optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
   x: z.number().optional(),
@@ -307,6 +308,7 @@ export default defineAction({
       path: string;
       url: string;
       routeId: string;
+      sourceFile?: string;
       width: number;
       height: number;
     }> = [];
@@ -330,6 +332,7 @@ export default defineAction({
         input.routeId ?? manifestRoute?.id ?? makeLocalhostRouteId(path);
       const title =
         input.title ?? manifestRoute?.title ?? titleFromRoutePath(path);
+      const sourceFile = input.sourceFile ?? manifestRoute?.sourceFile;
       const width = input.width ?? defaultWidth;
       const height = input.height ?? defaultHeight;
       const preferredFilename = `localhost-${slugForPath(path)}.html`;
@@ -369,6 +372,7 @@ export default defineAction({
         path,
         url,
         routeId,
+        sourceFile,
         width,
         height,
       });
@@ -406,6 +410,7 @@ export default defineAction({
         previewUrl: screen.url,
         connectionId: connection.id,
         routeId: screen.routeId,
+        sourceFile: screen.sourceFile,
         path: screen.path,
         bridgeUrl: connection.bridgeUrl ?? undefined,
       };

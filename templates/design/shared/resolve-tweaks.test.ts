@@ -68,6 +68,33 @@ describe("resolveTweaksToCssVars", () => {
     });
   });
 
+  it("includes direct CSS custom-property selections", () => {
+    expect(
+      resolveTweaksToCssVars(tweaks, {
+        "--shadow-glow": "0 0 24px rgba(14, 165, 233, 0.4)",
+        "--radius-card": 6,
+        "--feature-enabled": false,
+        "not-a-css-var": "ignored",
+      }),
+    ).toEqual({
+      "--color-accent": "#0EA5E9",
+      "--radius": "12px",
+      "--dark-mode": "1",
+      "--density": "normal",
+      "--shadow-glow": "0 0 24px rgba(14, 165, 233, 0.4)",
+      "--radius-card": "6px",
+      "--feature-enabled": "0",
+    });
+  });
+
+  it("lets direct CSS custom-property selections override tweak defaults", () => {
+    expect(
+      resolveTweaksToCssVars(tweaks, {
+        "--color-accent": "#111827",
+      })["--color-accent"],
+    ).toBe("#111827");
+  });
+
   it("renders a :root block", () => {
     expect(
       renderResolvedRootBlock({ "--color-accent": "#fff", "--radius": "8px" }),

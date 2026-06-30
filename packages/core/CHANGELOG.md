@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.80.10
+
+### Patch Changes
+
+- d26a679: Design connect: document the per-element provenance contract (`data-source-file` / `data-source-line` / `data-source-column` / `data-component-name`, plus `data-loc` shorthand) used to map a selected element back to its source location, and surface it in `design connect --help`. The `resolveNodeToFile` bridge capability now carries a reason string describing this contract.
+- d26a679: Harden the app-backed skill installer for visual-plan feedback: built-in skill folders now stage writes before replacing existing installs, include first-time install command metadata, and make `skills update` point first-time users to `skills add` for setup and MCP registration.
+
 ## 0.80.9
 
 ### Patch Changes

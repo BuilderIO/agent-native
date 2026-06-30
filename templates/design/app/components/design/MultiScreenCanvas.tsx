@@ -47,6 +47,7 @@ import {
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
+import { canvasPrimitiveReactStyle } from "./canvas-primitive-style";
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "./types";
 
 interface ScreenFile {
@@ -143,6 +144,7 @@ interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  fullViewScreenIds?: string[];
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
@@ -166,6 +168,13 @@ interface MultiScreenCanvasProps {
     primitive: CanvasPrimitiveInsert,
   ) => boolean | string;
   onPrimitiveCreated?: (screenId: string, nodeId: string) => void;
+  onPrimitiveReparent?: (args: {
+    sourceNodeId: string;
+    sourceScreenId: string;
+    targetNodeId: string;
+    targetScreenId: string;
+    placement: "inside";
+  }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
@@ -191,6 +200,19 @@ interface MultiScreenCanvasProps {
     widthPx: number | undefined,
   ) => void;
   onSelectionChange?: (selectedIds: string[]) => void;
+  /**
+   * Called when the user drags an element out of the active screen's iframe
+   * and drops it onto a different screen.  The bridge in the source iframe
+   * posts { type:"agent-native:cross-screen-drag" } messages; the host
+   * translates them to board coords, finds the target frame, and calls this
+   * prop with the resolved ids.
+   */
+  onCrossScreenElementDrop?: (args: {
+    sourceSelector: string;
+    sourceNodeId?: string;
+    sourceScreenId: string;
+    targetScreenId: string;
+  }) => void;
 }
 
 /**
@@ -503,6 +525,7 @@ export function MultiScreenCanvas({
   zoom,
   activeId,
   selectedScreenIds,
+  fullViewScreenIds,
   activeScreenHasHoveredChild = false,
   hoveredChildScreenId,
   directlyHoveredScreenId,
@@ -520,6 +543,7 @@ export function MultiScreenCanvas({
   onGeometryCommit,
   onCreatePrimitive,
   onPrimitiveCreated,
+  onPrimitiveReparent,
   onCreateScreenFrame,
   onDeleteSelection,
   onZoomChange,
@@ -530,6 +554,7 @@ export function MultiScreenCanvas({
   onAddBreakpoint,
   onActiveBreakpointChange,
   onSelectionChange,
+  onCrossScreenElementDrop,
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -541,6 +566,7 @@ export function MultiScreenCanvas({
   const frameGeometryRef = useRef(frameGeometry);
   const onGeometryChangeRef = useRef(onGeometryChange);
   const onGeometryCommitRef = useRef(onGeometryCommit);
+  const screensRef = useRef(screens);
   const [draftPrimitives, setDraftPrimitives] = useState<DraftPrimitive[]>([]);
   const draftPrimitivesRef = useRef(draftPrimitives);
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
@@ -575,6 +601,34 @@ export function MultiScreenCanvas({
     null,
   );
   const [dragCursor, setDragCursor] = useState<string | null>(null);
+  const [primitiveDropTarget, setPrimitiveDropTarget] =
+    useState<PrimitiveDropTarget | null>(null);
+  const primitiveDropTargetRef = useRef<PrimitiveDropTarget | null>(null);
+  const onPrimitiveReparentRef = useRef(onPrimitiveReparent);
+
+  // Cross-screen element drag state — driven by postMessage from the source iframe.
+  interface CrossScreenDragGhost {
+    /** Board-space point where the ghost is shown (follows the cursor). */
+    boardX: number;
+    boardY: number;
+  }
+  interface CrossScreenDragTarget {
+    /** The screen frame that is the candidate drop target. */
+    id: string;
+    geometry: FrameGeometry;
+  }
+  const [crossScreenGhost, setCrossScreenGhost] =
+    useState<CrossScreenDragGhost | null>(null);
+  const [crossScreenTarget, setCrossScreenTarget] =
+    useState<CrossScreenDragTarget | null>(null);
+  /** Ref kept in sync with state so the message handler can read without closures. */
+  const crossScreenTargetRef = useRef<CrossScreenDragTarget | null>(null);
+  /** The most-recent drag message payload — kept for use in the "end" handler. */
+  const crossScreenDragMsgRef = useRef<{
+    selector: string;
+    sourceId?: string;
+  } | null>(null);
+  const onCrossScreenElementDropRef = useRef(onCrossScreenElementDrop);
   const suppressNextPick = useRef(false);
   const feedbackTimerRef = useRef<number | null>(null);
   const pendingWheelGestureRef = useRef<PendingWheelGesture | null>(null);
@@ -605,6 +659,18 @@ export function MultiScreenCanvas({
   useEffect(() => {
     onGeometryCommitRef.current = onGeometryCommit;
   }, [onGeometryCommit]);
+
+  useEffect(() => {
+    onPrimitiveReparentRef.current = onPrimitiveReparent;
+  }, [onPrimitiveReparent]);
+
+  useEffect(() => {
+    onCrossScreenElementDropRef.current = onCrossScreenElementDrop;
+  }, [onCrossScreenElementDrop]);
+
+  useEffect(() => {
+    screensRef.current = screens;
+  }, [screens]);
 
   useEffect(() => {
     activePenPathRef.current = activePenPath;
@@ -757,15 +823,13 @@ export function MultiScreenCanvas({
         const metadata = getResolvedMetadata(screen);
         const currentGeometry =
           current[screen.id] ?? getInitialFrameGeometry(index, metadata);
-        const nextHeight = getOverviewFrameHeight(
-          currentGeometry.width,
+        const nextGeometry = getPreviewDeviceFrameGeometry({
+          currentGeometry,
           metadata,
-        );
-        if (currentGeometry.height === nextHeight) return;
-        next[screen.id] = {
-          ...currentGeometry,
-          height: nextHeight,
-        };
+          previewDeviceFrame,
+        });
+        if (sameFrameGeometry(currentGeometry, nextGeometry)) return;
+        next[screen.id] = nextGeometry;
         changed = true;
       });
 
@@ -810,9 +874,17 @@ export function MultiScreenCanvas({
     if (!surfaceRef.current || screens.length === 0) return;
     const rect = surfaceRef.current.getBoundingClientRect();
     const scale = zoomRef.current / 100;
-    const frames = screens.map((screen, index) =>
-      getInitialFrameGeometry(index, getResolvedMetadata(screen)),
-    );
+    const frames = screens.map((screen, index) => {
+      const metadata = getResolvedMetadata(screen);
+      const currentGeometry =
+        frameGeometryRef.current[screen.id] ??
+        getInitialFrameGeometry(index, metadata);
+      return getPreviewDeviceFrameGeometry({
+        currentGeometry,
+        metadata,
+        previewDeviceFrame,
+      });
+    });
     const bounds = getFrameGroupBounds(
       frames.map((geometry, index) => ({
         id: screens[index]?.id ?? String(index),
@@ -930,6 +1002,155 @@ export function MultiScreenCanvas({
         )[0],
     [getCurrentFrameEntries],
   );
+
+  // ── Cross-screen element drag receiver ────────────────────────────────────
+  // The source iframe (the active interactive screen) posts
+  // { type: "agent-native:cross-screen-drag", phase, selector, sourceId,
+  //   iframeX, iframeY, viewportW, viewportH }
+  // during element drags that the bridge wants the host to handle.
+  useEffect(() => {
+    if (!onCrossScreenElementDrop) return;
+
+    const clearCrossScreenDrag = () => {
+      setCrossScreenGhost(null);
+      setCrossScreenTarget(null);
+      crossScreenTargetRef.current = null;
+      crossScreenDragMsgRef.current = null;
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      if (!event.data || event.data.type !== "agent-native:cross-screen-drag") {
+        return;
+      }
+      const msg = event.data as {
+        type: string;
+        phase: "move" | "end" | "cancel";
+        selector?: string;
+        sourceId?: string;
+        iframeX?: number;
+        iframeY?: number;
+        viewportW?: number;
+        viewportH?: number;
+      };
+
+      if (msg.phase === "cancel") {
+        clearCrossScreenDrag();
+        return;
+      }
+
+      // The drag originates from the active screen (only the active screen has
+      // a live interactive iframe posting these messages).
+      const sourceScreenId = activeId;
+      if (!sourceScreenId) {
+        // Always clear visual state (ghost + highlight) when we have no active
+        // screen to attribute the drag to — regardless of the phase. Without
+        // this, a "move" message arriving after activeId became null would leave
+        // stale ghost/target state visible on the canvas.
+        clearCrossScreenDrag();
+        return;
+      }
+
+      if (msg.phase === "move") {
+        const { iframeX, iframeY, viewportW, viewportH, selector, sourceId } =
+          msg;
+        if (
+          iframeX === undefined ||
+          iframeY === undefined ||
+          viewportW === undefined ||
+          viewportH === undefined
+        ) {
+          return;
+        }
+
+        // Remember the latest drag payload for use on "end".
+        crossScreenDragMsgRef.current = {
+          selector: selector ?? "",
+          sourceId,
+        };
+
+        // Pointer is inside the source iframe — let the bridge handle it.
+        if (
+          iframeX >= 0 &&
+          iframeY >= 0 &&
+          iframeX <= viewportW &&
+          iframeY <= viewportH
+        ) {
+          clearCrossScreenDrag();
+          return;
+        }
+
+        // Translate iframe coords → board coords using source frame geometry.
+        // Board math mirrors primitiveLocalToBoardRect:
+        //   boardX = frame.x + iframeX * (frame.width / metadata.width)
+        //   boardY = frame.y + iframeY * (frame.height / metadata.height)
+        const sourceScreen = screensRef.current.find(
+          (s) => s.id === sourceScreenId,
+        );
+        const sourceGeometry = frameGeometryRef.current[sourceScreenId];
+        if (!sourceScreen || !sourceGeometry) {
+          clearCrossScreenDrag();
+          return;
+        }
+        const sourceMetadata = getResolvedMetadata(sourceScreen);
+        const scaleX = sourceGeometry.width / Math.max(1, sourceMetadata.width);
+        const scaleY =
+          sourceGeometry.height / Math.max(1, sourceMetadata.height);
+        const boardX = sourceGeometry.x + iframeX * scaleX;
+        const boardY = sourceGeometry.y + iframeY * scaleY;
+        const boardPoint = { x: boardX, y: boardY };
+
+        setCrossScreenGhost({ boardX, boardY });
+
+        // Find which screen frame the board point falls in.
+        const target = getFrameEntryAtPoint(boardPoint);
+        if (target && target.id !== sourceScreenId) {
+          const nextTarget = { id: target.id, geometry: target.geometry };
+          crossScreenTargetRef.current = nextTarget;
+          setCrossScreenTarget(nextTarget);
+        } else {
+          crossScreenTargetRef.current = null;
+          setCrossScreenTarget(null);
+        }
+        return;
+      }
+
+      if (msg.phase === "end") {
+        const candidate = crossScreenTargetRef.current;
+        // Use the saved payload from the last "move" as the primary source of
+        // truth; fall back to the "end" message's own fields in case the ref
+        // was cleared (e.g. a brief re-entry into the source iframe nulled it
+        // via clearCrossScreenDrag while pointerOutsideIframe remained true).
+        const payload = crossScreenDragMsgRef.current ?? {
+          selector: msg.selector ?? "",
+          sourceId: msg.sourceId,
+        };
+        clearCrossScreenDrag();
+        // Guard: require at least one stable identifier (selector or sourceId)
+        // so the drop handler in DesignEditor can resolve the node. An empty
+        // selector AND a missing sourceId would produce nodeAttrId="" and
+        // moveNodeBetweenDocuments would fail with a generic error toast.
+        const hasIdentifier = !!(payload.selector || payload.sourceId);
+        if (candidate && hasIdentifier && sourceScreenId) {
+          onCrossScreenElementDropRef.current?.({
+            sourceSelector: payload.selector,
+            sourceNodeId: payload.sourceId,
+            sourceScreenId,
+            targetScreenId: candidate.id,
+          });
+        }
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [
+    activeId,
+    getFrameEntryAtPoint,
+    getResolvedMetadata,
+    onCrossScreenElementDrop,
+  ]);
 
   const deleteSelectedItems = useCallback(() => {
     const frameIds = selectedIdsRef.current.filter(
@@ -1059,6 +1280,31 @@ export function MultiScreenCanvas({
     [],
   );
 
+  const updatePrimitiveDropTarget = useCallback(
+    (target: PrimitiveDropTarget | null) => {
+      primitiveDropTargetRef.current = target;
+      setPrimitiveDropTarget(target);
+    },
+    [],
+  );
+
+  const findPrimitiveDropTarget = useCallback(
+    (
+      point: Point,
+      draggedNodeId: string | null,
+    ): PrimitiveDropTarget | null => {
+      if (!onPrimitiveReparentRef.current) return null;
+      return getPrimitiveDropTargetForPoint(
+        point,
+        draggedNodeId,
+        screensRef.current,
+        frameGeometryRef.current,
+        getResolvedMetadata,
+      );
+    },
+    [getResolvedMetadata],
+  );
+
   const finishDrag = useCallback(() => {
     if (feedbackTimerRef.current !== null) {
       window.clearTimeout(feedbackTimerRef.current);
@@ -1072,6 +1318,8 @@ export function MultiScreenCanvas({
     setAlignmentGuides([]);
     setTransformBadge(null);
     setDragCursor(null);
+    primitiveDropTargetRef.current = null;
+    setPrimitiveDropTarget(null);
     dragCleanup.current?.();
   }, []);
 
@@ -1556,11 +1804,15 @@ export function MultiScreenCanvas({
 
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
       const originFrameId = getFrameEntryAtPoint(originCanvas)?.id;
-      const initialGeometry = getDraftGeometryForTool(
-        tool,
-        originCanvas,
-        originCanvas,
-      );
+      // B1 fix: seed a zero-size preview at the click origin instead of
+      // getDraftGeometryForTool(tool, origin, origin) which returns the
+      // default 160x120 size and causes a visible flash before the drag delta
+      // applies.  The real size only matters at mouseup (createDraftPrimitive)
+      // which already handles the "no drag" click-to-place case correctly.
+      const initialGeometry =
+        tool === "pen" || tool === "line" || tool === "arrow"
+          ? getDraftGeometryForTool(tool, originCanvas, originCanvas)
+          : { x: originCanvas.x, y: originCanvas.y, width: 0, height: 0 };
       const initialPoints =
         tool === "pen"
           ? [originCanvas]
@@ -1796,40 +2048,94 @@ export function MultiScreenCanvas({
           ev.clientX,
           ev.clientY,
         );
+
+        // Primitive drop-into-container detection: check if the dragged draft
+        // is hovering over a committed container primitive on any screen.
+        const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
+        const primitiveTarget = findPrimitiveDropTarget(canvasPoint, null);
+        updatePrimitiveDropTarget(primitiveTarget);
       };
 
       const handleMouseUp = () => {
         const state = dragState.current;
+        const dropTarget = primitiveDropTargetRef.current;
         if (state?.type === "draft-move" && state.hasMoved) {
-          const persisted: Array<{
-            draftId: string;
-            frameId: string;
-            nodeId: string;
-          }> = [];
-          draftPrimitivesRef.current.forEach((draft) => {
-            if (!state.targetIds.includes(draft.id)) return;
-            const result = persistDraftPrimitive(draft);
-            if (result) {
-              persisted.push({
-                draftId: draft.id,
-                frameId: result.frameId,
-                nodeId: result.nodeId,
-              });
-            }
-          });
+          if (dropTarget) {
+            // Drop into a container primitive: persist the draft into the
+            // target's screen, then call onPrimitiveReparent to nest it.
+            const persisted: Array<{
+              draftId: string;
+              frameId: string;
+              nodeId: string;
+            }> = [];
+            draftPrimitivesRef.current.forEach((draft) => {
+              if (!state.targetIds.includes(draft.id)) return;
+              // Persist into the target's screen (not just any containing frame)
+              const result = persistDraftPrimitive(draft, dropTarget.screenId);
+              if (result) {
+                persisted.push({
+                  draftId: draft.id,
+                  frameId: result.frameId,
+                  nodeId: result.nodeId,
+                });
+              }
+            });
 
-          if (persisted.length > 0) {
-            const persistedDraftIds = new Set(
-              persisted.map((entry) => entry.draftId),
-            );
-            updateDraftPrimitives((current) =>
-              current.filter((draft) => !persistedDraftIds.has(draft.id)),
-            );
-            updateSelectedDraftIds((current) =>
-              current.filter((draftId) => !persistedDraftIds.has(draftId)),
-            );
-            const lastNodeId = persisted[persisted.length - 1]?.nodeId;
-            if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
+            if (persisted.length > 0) {
+              const persistedDraftIds = new Set(
+                persisted.map((entry) => entry.draftId),
+              );
+              updateDraftPrimitives((current) =>
+                current.filter((draft) => !persistedDraftIds.has(draft.id)),
+              );
+              updateSelectedDraftIds((current) =>
+                current.filter((draftId) => !persistedDraftIds.has(draftId)),
+              );
+              // Reparent each persisted node into the container primitive.
+              persisted.forEach((entry) => {
+                onPrimitiveReparentRef.current?.({
+                  sourceNodeId: entry.nodeId,
+                  sourceScreenId: entry.frameId,
+                  targetNodeId: dropTarget.nodeId,
+                  targetScreenId: dropTarget.screenId,
+                  placement: "inside",
+                });
+              });
+              const lastNodeId = persisted[persisted.length - 1]?.nodeId;
+              if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
+            }
+          } else {
+            // Normal drop: persist into whichever screen contains the draft.
+            const persisted: Array<{
+              draftId: string;
+              frameId: string;
+              nodeId: string;
+            }> = [];
+            draftPrimitivesRef.current.forEach((draft) => {
+              if (!state.targetIds.includes(draft.id)) return;
+              const result = persistDraftPrimitive(draft);
+              if (result) {
+                persisted.push({
+                  draftId: draft.id,
+                  frameId: result.frameId,
+                  nodeId: result.nodeId,
+                });
+              }
+            });
+
+            if (persisted.length > 0) {
+              const persistedDraftIds = new Set(
+                persisted.map((entry) => entry.draftId),
+              );
+              updateDraftPrimitives((current) =>
+                current.filter((draft) => !persistedDraftIds.has(draft.id)),
+              );
+              updateSelectedDraftIds((current) =>
+                current.filter((draftId) => !persistedDraftIds.has(draftId)),
+              );
+              const lastNodeId = persisted[persisted.length - 1]?.nodeId;
+              if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
+            }
           }
         }
         finishDrag();
@@ -1838,12 +2144,15 @@ export function MultiScreenCanvas({
       installDragListeners(handleMouseMove, handleMouseUp);
     },
     [
+      findPrimitiveDropTarget,
       finishDrag,
+      getCanvasPoint,
       getCurrentCanvasEntries,
       installDragListeners,
       persistDraftPrimitive,
       showTransformFeedback,
       updateDraftPrimitives,
+      updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
     ],
@@ -2091,11 +2400,51 @@ export function MultiScreenCanvas({
           ev.clientX,
           ev.clientY,
         );
+
+        // When all dragged ids are committed primitive nodeIds (not screen
+        // frames), check for a container primitive drop target to highlight.
+        const currentFrameIds = Object.keys(frameGeometryRef.current);
+        const allCommitted = state.targetIds.every(
+          (targetId) => !currentFrameIds.includes(targetId),
+        );
+        if (allCommitted) {
+          const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
+          updatePrimitiveDropTarget(
+            findPrimitiveDropTarget(canvasPoint, state.primaryId),
+          );
+        }
       };
 
       const handleMouseUp = () => {
         const state = dragState.current;
+        const dropTarget = primitiveDropTargetRef.current;
         if (state?.type === "move" && state.hasMoved) {
+          // If all dragged ids are committed primitive nodeIds (not screen
+          // frames), attempt a primitive reparent on drop.
+          const currentFrameIds = Object.keys(frameGeometryRef.current);
+          const allCommitted = state.targetIds.every(
+            (targetId) => !currentFrameIds.includes(targetId),
+          );
+          if (allCommitted && dropTarget) {
+            const sourceScreenId = resolveNodeScreenId(
+              state.primaryId,
+              screensRef.current,
+            );
+            if (sourceScreenId) {
+              onPrimitiveReparentRef.current?.({
+                sourceNodeId: state.primaryId,
+                sourceScreenId,
+                targetNodeId: dropTarget.nodeId,
+                targetScreenId: dropTarget.screenId,
+                placement: "inside",
+              });
+              suppressNextPick.current = true;
+              finishDrag();
+              return;
+            }
+          }
+
+          // Normal screen-frame geometry commit.
           const after = cloneFrameGeometryById(frameGeometryRef.current);
           onGeometryCommitRef.current?.(
             frameGeometryWithOverrides(after, state.originFrames),
@@ -2110,12 +2459,15 @@ export function MultiScreenCanvas({
     },
     [
       activeId,
+      findPrimitiveDropTarget,
       finishDrag,
+      getCanvasPoint,
       getCurrentFrameEntries,
       installDragListeners,
       onPick,
       showTransformFeedback,
       updateFrameGeometry,
+      updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
     ],
@@ -2980,6 +3332,7 @@ export function MultiScreenCanvas({
         : appendPenNode(activePenPath, createCornerNode(penPointer))
       : activePenPath;
   const selectedIdSet = new Set(selectedIds);
+  const fullViewIdSet = new Set(fullViewScreenIds ?? []);
   const selectedDraftIdSet = new Set(selectedDraftIds);
   const surfaceCursor = isPanning
     ? "grabbing"
@@ -3086,6 +3439,7 @@ export function MultiScreenCanvas({
               screenContent={screenContentById.get(screen.id)}
               isActive={screen.id === activeId}
               isSelected={selectedIdSet.has(screen.id)}
+              showFullView={fullViewIdSet.has(screen.id)}
               isDirectlyHovered={screen.id === directlyHoveredScreenId}
               hasHoveredChild={
                 (screen.id === activeId && activeScreenHasHoveredChild) ||
@@ -3236,6 +3590,29 @@ export function MultiScreenCanvas({
         />
       ) : null}
 
+      {primitiveDropTarget ? (
+        <span
+          data-primitive-drop-target
+          className="pointer-events-none absolute z-40 rounded-sm"
+          style={{
+            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
+            left:
+              pan.x +
+              (SURFACE_PADDING + primitiveDropTarget.boardRect.x) * scale,
+            top:
+              pan.y +
+              (SURFACE_PADDING + primitiveDropTarget.boardRect.y) * scale,
+            width: Math.max(1, primitiveDropTarget.boardRect.width * scale),
+            height: Math.max(1, primitiveDropTarget.boardRect.height * scale),
+            // Match the in-screen inside-guide style: 2px accent border + 14%
+            // accent fill. Uses the same CSS variable as the DesignCanvas guide.
+            border: "2px solid var(--design-editor-accent-color)",
+            background:
+              "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)",
+          }}
+        />
+      ) : null}
+
       {duplicatePreview ? (
         <div
           className={cn(
@@ -3277,6 +3654,46 @@ export function MultiScreenCanvas({
         >
           {transformBadge.text}
         </div>
+      ) : null}
+
+      {/* Cross-screen element drag: highlight the candidate target screen frame.
+          Uses the same style as the primitiveDropTarget overlay (2px accent border
+          + 14% accent fill) so it is visually consistent. */}
+      {crossScreenTarget ? (
+        <span
+          data-cross-screen-drop-target
+          className="pointer-events-none absolute z-40 rounded-sm"
+          style={{
+            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
+            left:
+              pan.x + (SURFACE_PADDING + crossScreenTarget.geometry.x) * scale,
+            top:
+              pan.y + (SURFACE_PADDING + crossScreenTarget.geometry.y) * scale,
+            width: Math.max(1, crossScreenTarget.geometry.width * scale),
+            height: Math.max(1, crossScreenTarget.geometry.height * scale),
+            border: "2px solid var(--design-editor-accent-color)",
+            background:
+              "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)",
+          }}
+        />
+      ) : null}
+
+      {/* Cross-screen element drag: small ghost following the board-space cursor. */}
+      {crossScreenGhost ? (
+        <span
+          data-cross-screen-drag-ghost
+          className="pointer-events-none absolute z-50 rounded border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/20 shadow"
+          style={{
+            // A fixed-size ghost (16×16 canvas-px) centred on the board point.
+            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
+            left:
+              pan.x + (SURFACE_PADDING + crossScreenGhost.boardX) * scale - 8,
+            top:
+              pan.y + (SURFACE_PADDING + crossScreenGhost.boardY) * scale - 8,
+            width: 16,
+            height: 16,
+          }}
+        />
       ) : null}
     </div>
   );
@@ -3339,6 +3756,11 @@ function DraftPrimitiveLayer({
       }}
     >
       <DraftPrimitiveContent draft={draft} preview={preview} />
+      {/* B3 fix: for the creation preview the outline must sit flush with the
+          geometry box (inset: 0) so the blue accent border lands exactly on the
+          shape edge with no visible gap between the gray content border and the
+          blue selection outline.  For placed / hovered draft-primitives the
+          existing -5px inset is intentional (matches the screen-frame chrome). */}
       <span
         className={cn(
           "pointer-events-none absolute rounded-sm border transition-opacity",
@@ -3349,7 +3771,7 @@ function DraftPrimitiveLayer({
               : "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100",
         )}
         style={{
-          inset: -5 * chromeScale,
+          inset: preview ? 0 : -5 * chromeScale,
           borderWidth: 1.5 * chromeScale,
           transition: getChromeBorderTransition(chromeSettling),
         }}
@@ -3422,12 +3844,19 @@ function DraftPrimitiveContent({
   }
 
   if (draft.kind === "text") {
+    // B5 fix: use canonical style so preview matches the committed element.
+    const textStyle = canvasPrimitiveReactStyle("text", {
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
     return (
       <div
         className={cn(
-          "flex size-full items-start rounded-sm border border-dashed border-primary/60 bg-primary/5 px-2 py-1 text-sm font-medium text-foreground",
+          "flex size-full items-start px-2 py-1 text-sm font-medium text-foreground",
           muted,
         )}
+        style={textStyle}
       >
         <span className="truncate">{draft.text}</span>
       </div>
@@ -3435,27 +3864,24 @@ function DraftPrimitiveContent({
   }
 
   if (draft.kind === "frame") {
-    return (
-      <div
-        className={cn(
-          "size-full rounded-sm border-2 border-dashed border-primary/70 bg-primary/5",
-          muted,
-        )}
-      />
-    );
+    // B5 fix: use canonical style so preview matches the committed element.
+    const frameStyle = canvasPrimitiveReactStyle("frame", {
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
+    return <div className={cn("size-full", muted)} style={frameStyle} />;
   }
 
   if (draft.kind === "ellipse") {
-    return (
-      <div
-        className={cn("size-full rounded-full border", muted)}
-        style={{
-          background: draft.fill ?? "hsl(var(--primary) / 0.12)",
-          borderColor: draft.stroke ?? "hsl(var(--primary) / 0.7)",
-          borderWidth: draft.strokeWidth ?? 1,
-        }}
-      />
-    );
+    // B5/B6 fix: use canonical style — ellipse gets borderRadius:50% in both
+    // the preview and the committed path, and the same calm neutral fill.
+    const ellipseStyle = canvasPrimitiveReactStyle("ellipse", {
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
+    return <div className={cn("size-full", muted)} style={ellipseStyle} />;
   }
 
   if (draft.kind === "polygon" || draft.kind === "star") {
@@ -3482,16 +3908,13 @@ function DraftPrimitiveContent({
     );
   }
 
-  return (
-    <div
-      className={cn("size-full rounded-sm border", muted)}
-      style={{
-        background: draft.fill ?? "hsl(var(--primary) / 0.12)",
-        borderColor: draft.stroke ?? "hsl(var(--primary) / 0.7)",
-        borderWidth: draft.strokeWidth ?? 1,
-      }}
-    />
-  );
+  // B5 fix: rect/rectangle — use canonical style so preview matches committed.
+  const rectStyle = canvasPrimitiveReactStyle("rect", {
+    fill: draft.fill,
+    stroke: draft.stroke,
+    strokeWidth: draft.strokeWidth,
+  });
+  return <div className={cn("size-full", muted)} style={rectStyle} />;
 }
 
 function PenPathOverlay({
@@ -3621,6 +4044,7 @@ interface ScreenProps {
   geometry: FrameGeometry;
   isActive: boolean;
   isSelected: boolean;
+  showFullView: boolean;
   isDirectlyHovered: boolean;
   hasHoveredChild: boolean;
   groupSelected: boolean;
@@ -3655,6 +4079,7 @@ const Screen = memo(function Screen({
   geometry,
   isActive,
   isSelected,
+  showFullView,
   isDirectlyHovered,
   hasHoveredChild,
   groupSelected,
@@ -3685,6 +4110,7 @@ const Screen = memo(function Screen({
     !creationToolActive &&
     !canvasGestureActive;
   const emphasized = isSelected || frameDirectlyHovered;
+  const fullViewVisible = emphasized || showFullView;
   const activeOrEmphasized = isActive || emphasized;
   const selectionOutlined = isSelected && !groupSelected;
   const showHoverChrome =
@@ -3812,7 +4238,7 @@ const Screen = memo(function Screen({
           className={cn(
             "absolute top-1/2 z-40 flex h-5 shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            emphasized && "opacity-100",
+            fullViewVisible && "opacity-100",
             fullViewOutsideFrame ? "left-full" : "right-1",
           )}
           style={{
@@ -3910,26 +4336,12 @@ const Screen = memo(function Screen({
         }}
       >
         <span
-          data-screen-hover-outline
-          className={cn(
-            "pointer-events-none absolute border transition-opacity",
-            showHoverChrome
-              ? "border-[var(--design-editor-accent-color)] opacity-100"
-              : "border-transparent opacity-0",
-          )}
-          style={{
-            inset: -5 * chromeScale,
-            borderRadius: 13 * chromeScale,
-            borderWidth: 1.5 * chromeScale,
-            transition: getChromeBorderTransition(chromeSettling),
-          }}
-        />
-        <span
           data-screen-content
           className={cn(
             "relative block h-full w-full overflow-hidden rounded-lg border bg-white shadow-2xl transition-colors",
-            "border-border",
-            showHoverChrome && "border-muted-foreground/60",
+            showHoverChrome
+              ? "border-[var(--design-editor-accent-color)]"
+              : "border-border",
           )}
           style={{ pointerEvents: screenContentInteractive ? "auto" : "none" }}
         >
@@ -3965,7 +4377,7 @@ const Screen = memo(function Screen({
           )}
           {creationToolActive ? (
             <span
-              className="absolute inset-0 z-20 cursor-crosshair"
+              className="pointer-events-auto absolute inset-0 z-20 cursor-crosshair"
               aria-hidden="true"
             />
           ) : null}
@@ -4025,6 +4437,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     sameFrameGeometry(prev.geometry, next.geometry) &&
     prev.isActive === next.isActive &&
     prev.isSelected === next.isSelected &&
+    prev.showFullView === next.showFullView &&
     prev.isDirectlyHovered === next.isDirectlyHovered &&
     prev.hasHoveredChild === next.hasHoveredChild &&
     prev.groupSelected === next.groupSelected &&
@@ -4515,6 +4928,30 @@ function getOverviewFrameHeight(width: number, metadata?: ScreenViewportSize) {
   const sourceHeight =
     metadata?.height && metadata.height > 0 ? metadata.height : 2560;
   return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
+}
+
+export function getPreviewDeviceFrameGeometry({
+  currentGeometry,
+  metadata,
+  previewDeviceFrame,
+}: {
+  currentGeometry: FrameGeometry;
+  metadata?: { width: number; height: number };
+  previewDeviceFrame: DeviceFrameType;
+}): FrameGeometry {
+  if (previewDeviceFrame === "none") {
+    return {
+      ...currentGeometry,
+      height: getOverviewFrameHeight(currentGeometry.width, metadata),
+    };
+  }
+
+  const viewport = DEVICE_FRAME_VIEWPORTS[previewDeviceFrame];
+  return {
+    ...currentGeometry,
+    width: Math.max(1, Math.round(metadata?.width ?? viewport.width)),
+    height: Math.max(1, Math.round(metadata?.height ?? viewport.height)),
+  };
 }
 
 function getScreenPreviewViewport(
@@ -5332,4 +5769,273 @@ function getUrl(value: string | undefined) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+// ---------------------------------------------------------------------------
+// Primitive-into-primitive drop target detection
+// ---------------------------------------------------------------------------
+
+/** A committed container primitive that can accept a dropped primitive. */
+export interface PrimitiveDropTarget {
+  /** The node's data-agent-native-node-id value. */
+  nodeId: string;
+  /** The screen frame id (ScreenFile.id) that owns this primitive. */
+  screenId: string;
+  /** The primitive's bounding rect in board/canvas space. */
+  boardRect: FrameGeometry;
+}
+
+/**
+ * Parsed representation of a committed primitive found in a screen's HTML.
+ * Geometry is in screen-local CSS pixels (as written by appendCanvasPrimitiveToHtml).
+ */
+export interface ParsedScreenPrimitive {
+  nodeId: string;
+  screenId: string;
+  /** Position relative to screen body (CSS px). */
+  localLeft: number;
+  localTop: number;
+  localWidth: number;
+  localHeight: number;
+  isContainer: boolean;
+}
+
+/** Fast djb2-variant hash of a string. Runs in O(n) but is inlined for the
+ *  JIT — no allocations, no imports.  Produces a 32-bit unsigned integer as a
+ *  hex string.  Used only for cache-key disambiguation, not cryptography. */
+function hashString(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    // h = h * 33 ^ charCode  (djb2 xor variant)
+    h = ((h << 5) + h) ^ s.charCodeAt(i);
+    h = h >>> 0; // keep as unsigned 32-bit
+  }
+  return h.toString(16);
+}
+
+/** Simple LRU-style cache to avoid re-parsing the same screen HTML on every
+ *  mousemove frame.  Keyed by `screenId:contentLength:hash` so that ANY edit
+ *  (including changes deep in the middle of a large HTML document) invalidates
+ *  the entry.  A length:hash pair eliminates the collision zone that existed
+ *  when only prefix48+suffix48 were used — edits in `content[48..len-49]` would
+ *  produce the same key even though the content differed. */
+export const primitiveParseCache = new Map<string, ParsedScreenPrimitive[]>();
+const PRIMITIVE_PARSE_CACHE_MAX = 64;
+
+export function parsePrimitivesFromScreen(
+  screen: ScreenFile,
+): ParsedScreenPrimitive[] {
+  const cacheKey = `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
+  const cached = primitiveParseCache.get(cacheKey);
+  if (cached) return cached;
+
+  const result: ParsedScreenPrimitive[] = [];
+  if (typeof DOMParser === "undefined" || !screen.content) {
+    return result;
+  }
+
+  try {
+    const doc = new DOMParser().parseFromString(screen.content, "text/html");
+    const nodes = doc.querySelectorAll("[data-agent-native-node-id]");
+    nodes.forEach((el) => {
+      const nodeId = el.getAttribute("data-agent-native-node-id");
+      if (!nodeId) return;
+
+      const htmlEl = el as HTMLElement;
+      const style = htmlEl.style;
+      const tag = el.tagName.toLowerCase();
+
+      // Only block elements with explicit absolute positioning are considered
+      // positioned primitives drawn by appendCanvasPrimitiveToHtml.
+      if (style.position !== "absolute") return;
+
+      const left = parseFloat(style.left) || 0;
+      const top = parseFloat(style.top) || 0;
+      const width = parseFloat(style.width) || 0;
+      const height = parseFloat(style.height) || 0;
+
+      // Validity: must have non-zero size
+      if (width <= 0 || height <= 0) return;
+
+      // Container check:
+      //   - Must be a div (not svg/path/circle/polygon/etc.)
+      //   - Must NOT be an ellipse (border-radius:50%)
+      //   - NOT a text primitive (but text divs could be containers in principle;
+      //     we exclude them by checking for display:inline-block autoSize pattern)
+      const isDiv = tag === "div";
+      const isEllipse =
+        style.borderRadius === "50%" ||
+        style.borderRadius === "50% 50% 50% 50%";
+      const isTextAutoSize = style.display === "inline-block";
+      const isContainer = isDiv && !isEllipse && !isTextAutoSize;
+
+      result.push({
+        nodeId,
+        screenId: screen.id,
+        localLeft: left,
+        localTop: top,
+        localWidth: width,
+        localHeight: height,
+        isContainer,
+      });
+    });
+  } catch {
+    // Silently ignore parse errors
+  }
+
+  if (primitiveParseCache.size >= PRIMITIVE_PARSE_CACHE_MAX) {
+    // Evict the oldest entry
+    const firstKey = primitiveParseCache.keys().next().value;
+    if (firstKey !== undefined) primitiveParseCache.delete(firstKey);
+  }
+  primitiveParseCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * Convert a screen-local primitive rect to board/canvas coordinates.
+ *
+ * appendCanvasPrimitiveToHtml stores positions in screen-local CSS pixels
+ * scaled from the board draft geometry:
+ *   localX = (boardX - frame.x) * (metadata.width / frame.width)
+ * Inverting:
+ *   boardX = frame.x + localX * (frame.width / metadata.width)
+ */
+export function primitiveLocalToBoardRect(
+  localLeft: number,
+  localTop: number,
+  localWidth: number,
+  localHeight: number,
+  frameGeometry: FrameGeometry,
+  metadata: { width: number; height: number },
+): FrameGeometry {
+  const scaleX = frameGeometry.width / Math.max(1, metadata.width);
+  const scaleY = frameGeometry.height / Math.max(1, metadata.height);
+  return {
+    x: frameGeometry.x + localLeft * scaleX,
+    y: frameGeometry.y + localTop * scaleY,
+    width: Math.max(1, localWidth * scaleX),
+    height: Math.max(1, localHeight * scaleY),
+  };
+}
+
+/**
+ * Find the topmost committed container primitive at `point` (canvas coords),
+ * excluding `draggedNodeId` and any of its descendants.
+ *
+ * Descendants are detected geometrically: a primitive whose board rect is
+ * fully enclosed by the dragged node's board rect is treated as a descendant
+ * and excluded. This avoids a circular parent-child relationship on drop.
+ *
+ * Returns null if no valid target found.
+ */
+export function getPrimitiveDropTargetForPoint(
+  point: Point,
+  draggedNodeId: string | null,
+  screens: ScreenFile[],
+  frameGeometryById: FrameGeometryById,
+  getMetadata: (screen: ScreenFile) => { width: number; height: number },
+): PrimitiveDropTarget | null {
+  // Pre-compute the dragged node's board rect so we can exclude its descendants.
+  let draggedBoardRect: FrameGeometry | null = null;
+  if (draggedNodeId) {
+    outer: for (const screen of screens) {
+      const frameGeometry = frameGeometryById[screen.id];
+      if (!frameGeometry) continue;
+      const metadata = getMetadata(screen);
+      const primitives = parsePrimitivesFromScreen(screen);
+      for (const prim of primitives) {
+        if (prim.nodeId === draggedNodeId) {
+          draggedBoardRect = primitiveLocalToBoardRect(
+            prim.localLeft,
+            prim.localTop,
+            prim.localWidth,
+            prim.localHeight,
+            frameGeometry,
+            metadata,
+          );
+          break outer;
+        }
+      }
+    }
+  }
+
+  let best: PrimitiveDropTarget | null = null;
+
+  for (const screen of screens) {
+    const frameGeometry = frameGeometryById[screen.id];
+    if (!frameGeometry) continue;
+
+    const frameBounds = {
+      left: frameGeometry.x,
+      top: frameGeometry.y,
+      right: frameGeometry.x + frameGeometry.width,
+      bottom: frameGeometry.y + frameGeometry.height,
+    };
+    if (!rectContainsPoint(frameBounds, point)) {
+      continue;
+    }
+
+    const metadata = getMetadata(screen);
+    const primitives = parsePrimitivesFromScreen(screen);
+
+    for (const prim of primitives) {
+      if (!prim.isContainer) continue;
+      if (draggedNodeId && prim.nodeId === draggedNodeId) continue;
+
+      const boardRect = primitiveLocalToBoardRect(
+        prim.localLeft,
+        prim.localTop,
+        prim.localWidth,
+        prim.localHeight,
+        frameGeometry,
+        metadata,
+      );
+
+      // Exclude geometric descendants: a primitive whose board rect is fully
+      // contained within the dragged node's board rect is a child/descendant
+      // and cannot be a valid reparent target (would create a cycle).
+      if (
+        draggedBoardRect &&
+        boardRect.x >= draggedBoardRect.x &&
+        boardRect.y >= draggedBoardRect.y &&
+        boardRect.x + boardRect.width <=
+          draggedBoardRect.x + draggedBoardRect.width &&
+        boardRect.y + boardRect.height <=
+          draggedBoardRect.y + draggedBoardRect.height
+      ) {
+        continue;
+      }
+
+      if (
+        point.x >= boardRect.x &&
+        point.x <= boardRect.x + boardRect.width &&
+        point.y >= boardRect.y &&
+        point.y <= boardRect.y + boardRect.height
+      ) {
+        // Later in the DOM = higher paint order = topmost visually.
+        // We take the last match within each screen (DOM order).
+        best = { nodeId: prim.nodeId, screenId: screen.id, boardRect };
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Resolve which screen (ScreenFile.id) owns a committed primitive nodeId by
+ * scanning all screen HTML for the given data-agent-native-node-id value.
+ */
+export function resolveNodeScreenId(
+  nodeId: string,
+  screens: ScreenFile[],
+): string | null {
+  for (const screen of screens) {
+    const primitives = parsePrimitivesFromScreen(screen);
+    if (primitives.some((p) => p.nodeId === nodeId)) {
+      return screen.id;
+    }
+  }
+  return null;
 }

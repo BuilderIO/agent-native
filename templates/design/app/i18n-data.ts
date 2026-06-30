@@ -438,8 +438,28 @@ const enUS = {
       layerMoveFailed: "Could not move that layer",
       duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
+      auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
+    },
+    localSourceEdit: {
+      bannerNotice:
+        "Edits to connected local code are applied by the AI agent, not written directly.",
+      askAiToEdit: "Ask AI to edit",
+      copyPrompt: "Copy prompt",
+      dialogTitle: "Ask AI to edit connected source",
+      requestPlaceholder:
+        "Change the button color to blue, update the heading text…",
+      askAi: "Ask AI",
+      applyWithAi: "Apply with AI",
+      copyPromptTooltip: "Copy prompt to clipboard",
+      targeting: "Targeting:",
+      describeElementChange: "Describe the change for this element…",
+      describeChange: "Describe what you want to change…",
+      dialogDescription:
+        "Describe what you want to change. The agent will call view-screen first, then apply edits through the code editor.",
+      dialogDescriptionFile:
+        'Describe what you want to change in "{{file}}". The agent will call view-screen first, then apply edits through the code editor.',
     },
   },
   layersPanel: {
@@ -8893,6 +8913,7 @@ const designPublicShareOverrides = {
       shareEditorLinkDescription: "有權限的任何人都能在編輯器中開啟這個設計。",
       toasts: {
         saveCopyError: "無法儲存這個設計的副本",
+        auditRunFailed: "無法執行設計稽核",
       },
     },
     visualEdit: {
@@ -8922,6 +8943,7 @@ const designPublicShareOverrides = {
         "有访问权限的任何人都可以在编辑器中打开此设计。",
       toasts: {
         saveCopyError: "无法保存此设计的副本",
+        auditRunFailed: "无法运行设计审核",
       },
     },
     visualEdit: {
@@ -8951,6 +8973,7 @@ const designPublicShareOverrides = {
         "Cualquier persona con acceso puede abrir este diseño en el editor.",
       toasts: {
         saveCopyError: "No se pudo guardar una copia de este diseño",
+        auditRunFailed: "No se pudo ejecutar la auditoria de diseno",
       },
     },
     visualEdit: {
@@ -8980,6 +9003,7 @@ const designPublicShareOverrides = {
         "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
       toasts: {
         saveCopyError: "Impossible d'enregistrer une copie de ce design",
+        auditRunFailed: "Impossible d'executer l'audit de design",
       },
     },
     visualEdit: {
@@ -9010,6 +9034,7 @@ const designPublicShareOverrides = {
       toasts: {
         saveCopyError:
           "Eine Kopie dieses Designs konnte nicht gespeichert werden",
+        auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
       },
     },
     visualEdit: {
@@ -9039,6 +9064,7 @@ const designPublicShareOverrides = {
         "アクセス権のある人は、このデザインをエディターで開けます。",
       toasts: {
         saveCopyError: "このデザインのコピーを保存できませんでした",
+        auditRunFailed: "デザイン監査を実行できませんでした",
       },
     },
     visualEdit: {
@@ -9068,6 +9094,7 @@ const designPublicShareOverrides = {
         "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
       toasts: {
         saveCopyError: "이 디자인의 사본을 저장할 수 없습니다",
+        auditRunFailed: "디자인 감사를 실행할 수 없습니다",
       },
     },
     visualEdit: {
@@ -9097,6 +9124,7 @@ const designPublicShareOverrides = {
         "Qualquer pessoa com acesso pode abrir este design no editor.",
       toasts: {
         saveCopyError: "Nao foi possivel salvar uma copia deste design",
+        auditRunFailed: "Nao foi possivel executar a auditoria de design",
       },
     },
     visualEdit: {
@@ -9126,6 +9154,7 @@ const designPublicShareOverrides = {
         "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
       toasts: {
         saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
+        auditRunFailed: "design audit चलाया नहीं जा सका",
       },
     },
     visualEdit: {
@@ -9155,6 +9184,7 @@ const designPublicShareOverrides = {
         "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
       toasts: {
         saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
+        auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       },
     },
     visualEdit: {
@@ -9337,6 +9367,232 @@ const designVisualEditOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
+const designLocalSourceEditOverrides = {
+  "zh-TW": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice: "對已連結本機程式碼的編輯由 AI 代理套用，不會直接寫入。",
+        askAiToEdit: "請 AI 編輯",
+        copyPrompt: "複製提示",
+        dialogTitle: "請 AI 編輯已連結的來源",
+        requestPlaceholder: "將按鈕顏色改成藍色、更新標題文字…",
+        askAi: "詢問 AI",
+        applyWithAi: "用 AI 套用",
+        copyPromptTooltip: "將提示複製到剪貼簿",
+        targeting: "目標：",
+        describeElementChange: "描述要對此元素進行的更改…",
+        describeChange: "描述您想要更改的內容…",
+        dialogDescription:
+          "描述您想要更改的內容。代理會先呼叫 view-screen，再透過程式碼編輯器套用編輯。",
+        dialogDescriptionFile:
+          "描述您想在「{{file}}」中更改的內容。代理會先呼叫 view-screen，再透過程式碼編輯器套用編輯。",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice: "对已连接本地代码的编辑由 AI 代理应用，不会直接写入。",
+        askAiToEdit: "请 AI 编辑",
+        copyPrompt: "复制提示",
+        dialogTitle: "请 AI 编辑已连接的源码",
+        requestPlaceholder: "将按钮颜色改成蓝色、更新标题文字…",
+        askAi: "询问 AI",
+        applyWithAi: "用 AI 应用",
+        copyPromptTooltip: "将提示复制到剪贴板",
+        targeting: "目标：",
+        describeElementChange: "描述要对此元素进行的更改…",
+        describeChange: "描述您想要更改的内容…",
+        dialogDescription:
+          "描述您想要更改的内容。代理会先调用 view-screen，再通过代码编辑器应用编辑。",
+        dialogDescriptionFile:
+          "描述您想在“{{file}}”中更改的内容。代理会先调用 view-screen，再通过代码编辑器应用编辑。",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "Las ediciones del código local conectado las aplica el agente de IA, no se escriben directamente.",
+        askAiToEdit: "Pedir edición a la IA",
+        copyPrompt: "Copiar prompt",
+        dialogTitle: "Pedir a la IA que edite el código conectado",
+        requestPlaceholder:
+          "Cambia el color del botón a azul, actualiza el texto del título…",
+        askAi: "Preguntar a la IA",
+        applyWithAi: "Aplicar con IA",
+        copyPromptTooltip: "Copiar prompt al portapapeles",
+        targeting: "Objetivo:",
+        describeElementChange: "Describe el cambio para este elemento…",
+        describeChange: "Describe lo que quieres cambiar…",
+        dialogDescription:
+          "Describe lo que quieres cambiar. El agente llamará a view-screen primero y luego aplicará los cambios a través del editor de código.",
+        dialogDescriptionFile:
+          'Describe lo que quieres cambiar en "{{file}}". El agente llamará a view-screen primero y luego aplicará los cambios a través del editor de código.',
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "Les modifications du code local connecté sont appliquées par l'agent IA, pas écrites directement.",
+        askAiToEdit: "Demander à l'IA de modifier",
+        copyPrompt: "Copier le prompt",
+        dialogTitle: "Demander à l'IA de modifier la source connectée",
+        requestPlaceholder:
+          "Change la couleur du bouton en bleu, mets à jour le titre…",
+        askAi: "Demander à l'IA",
+        applyWithAi: "Appliquer avec l'IA",
+        copyPromptTooltip: "Copier le prompt dans le presse-papiers",
+        targeting: "Cible :",
+        describeElementChange: "Décrivez la modification pour cet élément…",
+        describeChange: "Décrivez ce que vous voulez changer…",
+        dialogDescription:
+          "Décrivez ce que vous voulez changer. L'agent appellera d'abord view-screen, puis appliquera les modifications via l'éditeur de code.",
+        dialogDescriptionFile:
+          "Décrivez ce que vous voulez changer dans \"{{file}}\". L'agent appellera d'abord view-screen, puis appliquera les modifications via l'éditeur de code.",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "Änderungen am verbundenen lokalen Code werden vom KI-Agenten angewendet, nicht direkt geschrieben.",
+        askAiToEdit: "KI um Änderung bitten",
+        copyPrompt: "Prompt kopieren",
+        dialogTitle: "KI um Bearbeitung der verbundenen Quelle bitten",
+        requestPlaceholder:
+          "Ändere die Button-Farbe in Blau, aktualisiere den Überschriftstext…",
+        askAi: "KI fragen",
+        applyWithAi: "Mit KI anwenden",
+        copyPromptTooltip: "Prompt in die Zwischenablage kopieren",
+        targeting: "Ziel:",
+        describeElementChange: "Beschreibe die Änderung für dieses Element…",
+        describeChange: "Beschreibe, was du ändern möchtest…",
+        dialogDescription:
+          "Beschreibe, was du ändern möchtest. Der Agent ruft zuerst view-screen auf und wendet die Änderungen dann über den Code-Editor an.",
+        dialogDescriptionFile:
+          'Beschreibe, was du in "{{file}}" ändern möchtest. Der Agent ruft zuerst view-screen auf und wendet die Änderungen dann über den Code-Editor an.',
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "接続済みローカルコードの編集は AI エージェントが適用し、直接は書き込みません。",
+        askAiToEdit: "AI に編集を依頼",
+        copyPrompt: "プロンプトをコピー",
+        dialogTitle: "接続済みソースの編集を AI に依頼",
+        requestPlaceholder: "ボタンの色を青に変更、見出しテキストを更新…",
+        askAi: "AI に質問",
+        applyWithAi: "AI で適用",
+        copyPromptTooltip: "プロンプトをクリップボードにコピー",
+        targeting: "対象：",
+        describeElementChange: "この要素への変更を説明してください…",
+        describeChange: "変更したい内容を説明してください…",
+        dialogDescription:
+          "変更したい内容を説明してください。エージェントはまず view-screen を呼び出し、その後コードエディターで編集を適用します。",
+        dialogDescriptionFile:
+          "「{{file}}」で変更したい内容を説明してください。エージェントはまず view-screen を呼び出し、その後コードエディターで編集を適用します。",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "연결된 로컬 코드 편집은 AI 에이전트가 적용하며 직접 작성하지 않습니다.",
+        askAiToEdit: "AI에 편집 요청",
+        copyPrompt: "프롬프트 복사",
+        dialogTitle: "연결된 소스 편집을 AI에 요청",
+        requestPlaceholder:
+          "버튼 색상을 파란색으로 변경, 제목 텍스트 업데이트…",
+        askAi: "AI에 질문",
+        applyWithAi: "AI로 적용",
+        copyPromptTooltip: "프롬프트를 클립보드에 복사",
+        targeting: "대상:",
+        describeElementChange: "이 요소에 대한 변경 사항을 설명하세요…",
+        describeChange: "변경하려는 내용을 설명하세요…",
+        dialogDescription:
+          "변경하려는 내용을 설명하세요. 에이전트가 먼저 view-screen을 호출한 다음 코드 편집기로 편집을 적용합니다.",
+        dialogDescriptionFile:
+          "“{{file}}”에서 변경하려는 내용을 설명하세요. 에이전트가 먼저 view-screen을 호출한 다음 코드 편집기로 편집을 적용합니다.",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "As edições do código local conectado são aplicadas pelo agente de IA, não escritas diretamente.",
+        askAiToEdit: "Pedir edição à IA",
+        copyPrompt: "Copiar prompt",
+        dialogTitle: "Pedir à IA para editar a fonte conectada",
+        requestPlaceholder:
+          "Mude a cor do botão para azul, atualize o texto do título…",
+        askAi: "Perguntar à IA",
+        applyWithAi: "Aplicar com IA",
+        copyPromptTooltip: "Copiar prompt para a área de transferência",
+        targeting: "Alvo:",
+        describeElementChange: "Descreva a alteração para este elemento…",
+        describeChange: "Descreva o que você quer mudar…",
+        dialogDescription:
+          "Descreva o que você quer mudar. O agente chamará view-screen primeiro e depois aplicará as edições pelo editor de código.",
+        dialogDescriptionFile:
+          'Descreva o que você quer mudar em "{{file}}". O agente chamará view-screen primeiro e depois aplicará as edições pelo editor de código.',
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "जुड़े हुए local code में बदलाव AI agent लागू करता है, सीधे नहीं लिखे जाते।",
+        askAiToEdit: "AI से edit करने को कहें",
+        copyPrompt: "Prompt कॉपी करें",
+        dialogTitle: "जुड़े हुए source को edit करने के लिए AI से कहें",
+        requestPlaceholder: "बटन का रंग नीला करें, heading text अपडेट करें…",
+        askAi: "AI से पूछें",
+        applyWithAi: "AI से लागू करें",
+        copyPromptTooltip: "Prompt को clipboard पर कॉपी करें",
+        targeting: "लक्ष्य:",
+        describeElementChange: "इस element के लिए बदलाव बताएं…",
+        describeChange: "आप क्या बदलना चाहते हैं, बताएं…",
+        dialogDescription:
+          "आप क्या बदलना चाहते हैं, बताएं। Agent पहले view-screen को call करेगा, फिर code editor से बदलाव लागू करेगा।",
+        dialogDescriptionFile:
+          '"{{file}}" में आप क्या बदलना चाहते हैं, बताएं। Agent पहले view-screen को call करेगा, फिर code editor से बदलाव लागू करेगा।',
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "يطبّق وكيل الذكاء الاصطناعي التعديلات على الكود المحلي المتصل، ولا تُكتب مباشرة.",
+        askAiToEdit: "اطلب من الذكاء الاصطناعي التعديل",
+        copyPrompt: "نسخ الموجّه",
+        dialogTitle: "اطلب من الذكاء الاصطناعي تعديل المصدر المتصل",
+        requestPlaceholder: "غيّر لون الزر إلى الأزرق، وحدّث نص العنوان…",
+        askAi: "اسأل الذكاء الاصطناعي",
+        applyWithAi: "تطبيق بالذكاء الاصطناعي",
+        copyPromptTooltip: "نسخ الموجّه إلى الحافظة",
+        targeting: "الهدف:",
+        describeElementChange: "صف التغيير المطلوب على هذا العنصر…",
+        describeChange: "صف ما تريد تغييره…",
+        dialogDescription:
+          "صف ما تريد تغييره. سيستدعي الوكيل view-screen أولاً ثم يطبّق التعديلات عبر محرر الكود.",
+        dialogDescriptionFile:
+          'صف ما تريد تغييره في "{{file}}". سيستدعي الوكيل view-screen أولاً ثم يطبّق التعديلات عبر محرر الكود.',
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
@@ -9346,6 +9602,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["zh-TW"],
       designPublicShareOverrides["zh-TW"],
       designVisualEditOverrides["zh-TW"],
+      designLocalSourceEditOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -9358,6 +9615,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["zh-CN"],
       designPublicShareOverrides["zh-CN"],
       designVisualEditOverrides["zh-CN"],
+      designLocalSourceEditOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -9409,6 +9667,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["es-ES"],
       designPublicShareOverrides["es-ES"],
       designVisualEditOverrides["es-ES"],
+      designLocalSourceEditOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -9460,6 +9719,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["fr-FR"],
       designPublicShareOverrides["fr-FR"],
       designVisualEditOverrides["fr-FR"],
+      designLocalSourceEditOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -9511,6 +9771,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["de-DE"],
       designPublicShareOverrides["de-DE"],
       designVisualEditOverrides["de-DE"],
+      designLocalSourceEditOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -9562,6 +9823,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["ja-JP"],
       designPublicShareOverrides["ja-JP"],
       designVisualEditOverrides["ja-JP"],
+      designLocalSourceEditOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -9614,6 +9876,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["ko-KR"],
       designPublicShareOverrides["ko-KR"],
       designVisualEditOverrides["ko-KR"],
+      designLocalSourceEditOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -9664,6 +9927,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["pt-BR"],
       designPublicShareOverrides["pt-BR"],
       designVisualEditOverrides["pt-BR"],
+      designLocalSourceEditOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -9715,6 +9979,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["hi-IN"],
       designPublicShareOverrides["hi-IN"],
       designVisualEditOverrides["hi-IN"],
+      designLocalSourceEditOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -9766,6 +10031,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["ar-SA"],
       designPublicShareOverrides["ar-SA"],
       designVisualEditOverrides["ar-SA"],
+      designLocalSourceEditOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",
