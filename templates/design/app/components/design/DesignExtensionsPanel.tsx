@@ -74,6 +74,8 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   designTitle: string | null;
   activeFileId: string | null;
   activeFilename: string | null;
+  activeFileUpdatedAt: string | null;
+  activeContent: string;
   viewMode: "single" | "overview";
   zoom: number;
   screens: Array<{
@@ -88,6 +90,11 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   tweakValues: Record<string, string | number | boolean>;
   onShaderFillPreview?: (descriptor: ShaderDescriptor, css: string) => void;
   onShaderFillPreviewClear?: () => void;
+  onShaderFillApplied?: (
+    fileId: string,
+    content: string,
+    updatedAt?: string,
+  ) => void;
 }
 
 interface DesignExtensionsPanelProps {
@@ -447,6 +454,13 @@ interface ShaderFillsExtPanelProps {
   context: DesignExtensionSlotContext;
 }
 
+interface PreviewedShaderFill {
+  descriptor: ShaderDescriptor;
+  fileId?: string;
+  nodeId?: string;
+  selector?: string;
+}
+
 function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   const [showShaders, setShowShaders] = useState(false);
   const clearPreviewRef = useRef(context.onShaderFillPreviewClear);
@@ -466,7 +480,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   // The most recently previewed descriptor — Apply persists exactly this one,
   // so the write is intentional (one atomic call) rather than firing on every
   // slider tweak.
-  const [previewed, setPreviewed] = useState<ShaderDescriptor | null>(null);
+  const [previewed, setPreviewed] = useState<PreviewedShaderFill | null>(null);
   const applyShaderFill = useActionMutation("apply-shader-fill");
 
   // The persisting apply path needs an HTML file plus a target element. Without
@@ -476,6 +490,16 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   const canPersist = Boolean(
     context.activeFileId && (targetNodeId || targetSelector),
   );
+  const previewMatchesTarget = Boolean(
+    previewed &&
+    previewed.fileId === context.activeFileId &&
+    previewed.nodeId === targetNodeId &&
+    previewed.selector === targetSelector,
+  );
+
+  useEffect(() => {
+    setPreviewed(null);
+  }, [context.activeFileId, targetNodeId, targetSelector]);
 
   const persistFill = (descriptor: ShaderDescriptor) => {
     if (!canPersist) return;
@@ -498,13 +522,41 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           kind: "design-file" as const,
           designId: context.designId || undefined,
           fileId: context.activeFileId || undefined,
+          revision: context.activeFileUpdatedAt || undefined,
+          currentContent: context.activeContent,
         },
       },
       {
         onSuccess: (res) => {
-          const r = res as { persisted?: boolean } | undefined;
+          const r = res as
+            | {
+                fileId?: unknown;
+                patchedContent?: unknown;
+                persisted?: boolean;
+                conflict?: boolean;
+                error?: unknown;
+                note?: unknown;
+                updatedAt?: unknown;
+              }
+            | undefined;
           if (r?.persisted) {
+            if (
+              typeof r.fileId === "string" &&
+              typeof r.patchedContent === "string"
+            ) {
+              context.onShaderFillApplied?.(
+                r.fileId,
+                r.patchedContent,
+                typeof r.updatedAt === "string" ? r.updatedAt : undefined,
+              );
+            }
             toast.success("Shader fill applied to the selected element.");
+          } else if (r?.conflict) {
+            toast.error(
+              typeof r.error === "string" || typeof r.note === "string"
+                ? String(r.error ?? r.note)
+                : "This file changed since the shader fill was previewed. Refresh and try again.",
+            );
           } else {
             toast.message("Shader fill previewed — nothing was written.");
           }
@@ -556,7 +608,12 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           // for agent context on every tune and the iframe shows the gradient.
           // We just record the latest descriptor here; the explicit Apply
           // button below performs the single intentional persist write.
-          setPreviewed(descriptor);
+          setPreviewed({
+            descriptor,
+            fileId: context.activeFileId || undefined,
+            nodeId: targetNodeId,
+            selector: targetSelector,
+          });
           context.onShaderFillPreview?.(descriptor, css);
         }}
         onBack={closeShaders}
@@ -575,15 +632,17 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
             type="button"
             size="sm"
             className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
-            disabled={!previewed || applyShaderFill.isPending}
+            disabled={!previewMatchesTarget || applyShaderFill.isPending}
             onClick={() => {
-              if (previewed) persistFill(previewed);
+              if (previewMatchesTarget && previewed) {
+                persistFill(previewed.descriptor);
+              }
             }}
           >
             <IconSparkles className="size-3" />
             {applyShaderFill.isPending
               ? "Applying…"
-              : previewed
+              : previewMatchesTarget
                 ? "Apply fill"
                 : "Pick a preset"}
           </Button>

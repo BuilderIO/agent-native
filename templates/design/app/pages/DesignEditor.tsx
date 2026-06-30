@@ -3878,6 +3878,16 @@ export default function DesignEditor() {
   const fileSaveTimersRef = useRef<Record<string, number>>({});
   const postAuthSaveRef = useRef<string | null>(null);
 
+  const cancelQueuedFileContentSave = useCallback((fileId: string) => {
+    const timer = fileSaveTimersRef.current[fileId];
+    if (timer) {
+      window.clearTimeout(timer);
+      delete fileSaveTimersRef.current[fileId];
+    }
+    delete pendingFileSavesRef.current[fileId];
+    delete latestFileSaveForUnloadRef.current[fileId];
+  }, []);
+
   const saveFileContent = useCallback(
     (pending: FileContentSaveRequest) => {
       if (!canEditDesignRef.current) return;
@@ -5934,6 +5944,8 @@ export default function DesignEditor() {
         refreshPreview?: boolean;
         skipPreview?: boolean;
         immediateSave?: boolean;
+        persist?: boolean;
+        updatedAt?: string;
       } = {},
     ) => {
       if (!activeFile || !canEditDesignRef.current) return;
@@ -5966,11 +5978,15 @@ export default function DesignEditor() {
         redoOrderRef.current = [];
         syncUndoRedoState();
       }
-      markPendingLocalFileContent(
-        activeFile.id,
-        nextContent,
-        activeFile.updatedAt,
-      );
+      if (options.updatedAt) {
+        clearPendingLocalFileContent(activeFile.id);
+      } else {
+        markPendingLocalFileContent(
+          activeFile.id,
+          nextContent,
+          activeFile.updatedAt,
+        );
+      }
       setCollabContent(nextContent);
       setCollabContentFileId(activeFile.id);
       lastLocalContentRef.current = nextContent;
@@ -5991,7 +6007,13 @@ export default function DesignEditor() {
                     // from a client-clock timestamp can, under clock skew, make a
                     // later server-authored agent edit look "older" and get
                     // dropped by the watermark gate (agent edit silently lost).
-                    { ...file, content: nextContent }
+                    {
+                      ...file,
+                      content: nextContent,
+                      ...(options.updatedAt
+                        ? { updatedAt: options.updatedAt }
+                        : {}),
+                    }
                   : file,
               ),
             };
@@ -6016,13 +6038,19 @@ export default function DesignEditor() {
           }, LOCAL_EDIT_ORIGIN);
         }
       }
-      queueFileContentSave(activeFile.id, nextContent, {
-        syncCollab: !(ydoc && isSynced),
-        immediate: options.immediateSave,
-      });
+      if (options.persist === false) {
+        cancelQueuedFileContentSave(activeFile.id);
+      } else {
+        queueFileContentSave(activeFile.id, nextContent, {
+          syncCollab: !(ydoc && isSynced),
+          immediate: options.immediateSave,
+        });
+      }
     },
     [
       activeFile,
+      cancelQueuedFileContentSave,
+      clearPendingLocalFileContent,
       id,
       isSynced,
       markPendingLocalFileContent,
@@ -6038,7 +6066,12 @@ export default function DesignEditor() {
     (
       fileId: string,
       nextContent: string,
-      options: { refreshPreview?: boolean; skipPreview?: boolean } = {},
+      options: {
+        refreshPreview?: boolean;
+        skipPreview?: boolean;
+        persist?: boolean;
+        updatedAt?: string;
+      } = {},
     ) => {
       if (!canEditDesignRef.current) return;
       if (fileId === activeFile?.id) {
@@ -6046,7 +6079,15 @@ export default function DesignEditor() {
         return;
       }
       const previousFile = files.find((file) => file.id === fileId);
-      markPendingLocalFileContent(fileId, nextContent, previousFile?.updatedAt);
+      if (options.updatedAt) {
+        clearPendingLocalFileContent(fileId);
+      } else {
+        markPendingLocalFileContent(
+          fileId,
+          nextContent,
+          previousFile?.updatedAt,
+        );
+      }
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
         if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
           return old;
@@ -6054,19 +6095,33 @@ export default function DesignEditor() {
         return {
           ...old,
           files: old.files.map((file: DesignFile) =>
-            file.id === fileId ? { ...file, content: nextContent } : file,
+            file.id === fileId
+              ? {
+                  ...file,
+                  content: nextContent,
+                  ...(options.updatedAt
+                    ? { updatedAt: options.updatedAt }
+                    : {}),
+                }
+              : file,
           ),
         };
       });
-      saveFileContent({
-        id: fileId,
-        content: nextContent,
-        syncCollab: true,
-      });
+      if (options.persist === false) {
+        cancelQueuedFileContentSave(fileId);
+      } else {
+        saveFileContent({
+          id: fileId,
+          content: nextContent,
+          syncCollab: true,
+        });
+      }
     },
     [
       activeFile?.id,
       applyLocalContentUpdate,
+      cancelQueuedFileContentSave,
+      clearPendingLocalFileContent,
       files,
       id,
       markPendingLocalFileContent,
@@ -6076,9 +6131,11 @@ export default function DesignEditor() {
   );
 
   const handleComponentPropApplied = useCallback(
-    (fileId: string, nextContent: string) => {
+    (fileId: string, nextContent: string, updatedAt?: string) => {
       applyFileContentUpdate(fileId, nextContent, {
         refreshPreview: fileId === activeFile?.id,
+        persist: false,
+        updatedAt,
       });
     },
     [activeFile?.id, applyFileContentUpdate],
@@ -6098,6 +6155,7 @@ export default function DesignEditor() {
       ) {
         applyFileContentUpdate(result.fileId, result.patchedContent, {
           refreshPreview: result.fileId === activeFile?.id,
+          persist: false,
         });
       }
       void handleRunDesignAudit();
@@ -6617,6 +6675,8 @@ export default function DesignEditor() {
       designTitle: design?.title ?? null,
       activeFileId: activeFile?.id ?? null,
       activeFilename: activeFile?.filename ?? null,
+      activeFileUpdatedAt: activeFile?.updatedAt ?? null,
+      activeContent,
       viewMode,
       zoom,
       screens: files.map((file) => ({
@@ -6638,12 +6698,22 @@ export default function DesignEditor() {
         });
       },
       onShaderFillPreviewClear: () => setShaderFillPreview(null),
+      onShaderFillApplied: (fileId, content, updatedAt) => {
+        applyFileContentUpdate(fileId, content, {
+          refreshPreview: fileId === activeFile?.id,
+          persist: false,
+          updatedAt,
+        });
+      },
     }),
     [
+      activeContent,
       activeFile?.filename,
       activeFile?.fileType,
       activeFile?.id,
+      activeFile?.updatedAt,
       activeTool,
+      applyFileContentUpdate,
       design?.title,
       files,
       id,
@@ -12473,6 +12543,8 @@ ${serializedHtml}
                   tweakValues={tweakSelections}
                   extensionContext={designExtensionContext}
                   readOnly={initialGenerationReadOnly}
+                  activeContent={activeContent}
+                  activeFileUpdatedAt={activeFile?.updatedAt ?? null}
                   onComponentPropApplied={handleComponentPropApplied}
                   onTokensApplied={(resolvedCssVars) => {
                     if (!canEditDesign || !id) return;
@@ -12622,6 +12694,11 @@ ${serializedHtml}
                 fileId: activeFile.id,
                 tracks: tracks.map(({ label: _label, ...t }) => t),
                 durationMs,
+                currentContent: getFreshActiveFileContent({
+                  activeContent,
+                  latestContent: latestActiveContentRef.current,
+                  lastLocalContent: lastLocalContentRef.current,
+                }),
                 includeContent: true,
               },
               {
@@ -12637,7 +12714,10 @@ ${serializedHtml}
                     applyFileContentUpdate(
                       response.fileId,
                       response.patchedContent,
-                      { refreshPreview: response.fileId === activeFile.id },
+                      {
+                        refreshPreview: response.fileId === activeFile.id,
+                        persist: false,
+                      },
                     );
                   }
                 },

@@ -26,6 +26,30 @@ export async function readSeedDesignId(): Promise<string> {
 }
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
+const E2E_BASE_URL = process.env.E2E_BASE_URL;
+const E2E_BASE_PATH = (() => {
+  if (!E2E_BASE_URL) return "";
+  try {
+    return new URL(E2E_BASE_URL).pathname.replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+})();
+
+export function appPath(path: string): string {
+  const route = new URL(path, "http://agent-native.local");
+  if (E2E_BASE_URL && E2E_BASE_PATH) {
+    const url = new URL(E2E_BASE_URL);
+    // dev-lazy strips the app mount (/design) before handing the request to the
+    // app, so the editor's own /design/:id route intentionally becomes
+    // /design/design/:id when E2E_BASE_URL points at the gateway mount.
+    url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
+    url.search = route.search;
+    url.hash = route.hash;
+    return url.toString();
+  }
+  return `${route.pathname}${route.search}${route.hash}`;
+}
 
 export function designFrame(page: Page): FrameLocator {
   return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first().contentFrame();
@@ -33,7 +57,9 @@ export function designFrame(page: Page): FrameLocator {
 
 /** Open the editor for a design and wait for the toolbar + iframe to be ready. */
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`/design/${designId}`, { waitUntil: "domcontentloaded" });
+  await page.goto(appPath(`/design/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });

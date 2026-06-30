@@ -108,6 +108,8 @@ function checkMissingLabels(html: string): A11yFinding[] {
   let idx = 0;
   for (const m of html.matchAll(inputPattern)) {
     const tag = m[0];
+    const inputStart = m.index ?? 0;
+    const inputEnd = inputStart + tag.length;
     const typeMatch = tag.match(/\btype\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
     const type = (typeMatch?.[1] ?? typeMatch?.[2] ?? "text").toLowerCase();
     // Hidden and submit/button/image inputs don't need visible labels
@@ -123,8 +125,9 @@ function checkMissingLabels(html: string): A11yFinding[] {
     const hasExplicitLabel = inputId
       ? new RegExp(`for\\s*=\\s*(?:"${inputId}"|'${inputId}')`, "i").test(html)
       : false;
+    const hasImplicitLabel = isWrappedByLabel(html, inputStart, inputEnd);
 
-    if (!hasAriaLabel && !hasExplicitLabel) {
+    if (!hasAriaLabel && !hasExplicitLabel && !hasImplicitLabel) {
       findings.push({
         id: `missing-label:input-${idx}`,
         severity: "error" as A11ySeverity,
@@ -141,6 +144,19 @@ function checkMissingLabels(html: string): A11yFinding[] {
     idx++;
   }
   return findings;
+}
+
+function isWrappedByLabel(
+  html: string,
+  inputStart: number,
+  inputEnd: number,
+): boolean {
+  const labelOpen = html.lastIndexOf("<label", inputStart);
+  if (labelOpen === -1) return false;
+  const labelCloseBeforeInput = html.lastIndexOf("</label", inputStart);
+  if (labelCloseBeforeInput > labelOpen) return false;
+  const labelCloseAfterInput = html.indexOf("</label", inputEnd);
+  return labelCloseAfterInput !== -1;
 }
 
 /** Check interactive elements that are likely too small for touch targets (< ~44px heuristic via Tailwind class). */

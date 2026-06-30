@@ -15,7 +15,6 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { getText, hasCollabState } from "@agent-native/core/collab";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -33,23 +32,6 @@ import {
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { normalizeDesignSourceType } from "../shared/source-mode.js";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function liveContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Collab reads are best-effort; SQL content is the fallback.
-  }
-  return storedContent;
-}
 
 function parseJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -148,7 +130,11 @@ export default defineAction({
 
     if (!file) throw new Error("Design HTML file not found.");
 
-    const html = await liveContent(file.id, file.content ?? "");
+    // Use the durable SQL source for component prop reads. A connected editor
+    // can briefly hold an older Yjs text snapshot while server-side prop writes
+    // have already updated SQL; preferring collab here makes the inspector
+    // rehydrate stale props even though the canvas renders the saved source.
+    const html = file.content ?? "";
 
     // ── Projection lookup ────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {

@@ -241,14 +241,12 @@ export function StatesPanel({
 
   const createState = useActionMutation("create-design-state");
   const deleteState = useActionMutation("delete-design-state");
-  const setActiveBreakpoint = useActionMutation("set-active-breakpoint");
 
   const states = data?.states ?? [];
 
   // --- Breakpoint control ---
   const handleBreakpointClick = (id: string) => {
     onBreakpointSelect(id);
-    setActiveBreakpoint.mutate({ designId, breakpointId: id });
   };
 
   // --- Create state ---

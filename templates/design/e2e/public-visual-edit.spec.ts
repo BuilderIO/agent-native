@@ -9,6 +9,7 @@ import {
 } from "@playwright/test";
 
 import {
+  appPath,
   bridgeMessages,
   designFrame,
   installBridge,
@@ -51,7 +52,7 @@ test.describe.serial("public visual edit", () => {
     const signedOut = await openSignedOutPage(browser, "/visual-edit");
     try {
       await expect(signedOut.page).toHaveURL(
-        new RegExp(`${escapeRegExp(`${BASE_URL}/visual-edit`)}(?:[?#].*)?$`),
+        new RegExp(`${escapeRegExp(appUrl("/visual-edit"))}(?:[?#].*)?$`),
       );
       await expect(
         signedOut.page.getByRole("heading", { level: 1 }).first(),
@@ -157,14 +158,14 @@ test.describe.serial("public visual edit", () => {
           .getByRole("button")
           .filter({ hasText: /sign up free to save/i })
           .first(),
-      `/design/${designId}?intent=save`,
+      appReturnPath(`/design/${designId}?intent=save`),
     );
 
     await expectReturnUrl(
       browser,
       `/design/${designId}`,
       (page) => page.getByRole("button", { name: /^share$/i }).first(),
-      `/design/${designId}?intent=share`,
+      appReturnPath(`/design/${designId}?intent=share`),
     );
   });
 });
@@ -224,7 +225,7 @@ async function openSignedOutPage(
     }
   });
 
-  await page.goto(new URL(pathname, BASE_URL).toString(), {
+  await page.goto(appUrl(pathname), {
     waitUntil: "domcontentloaded",
   });
 
@@ -279,4 +280,13 @@ async function assertNoRuntimeErrors({
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function appUrl(pathname: string): string {
+  return new URL(appPath(pathname), BASE_URL).toString();
+}
+
+function appReturnPath(pathname: string): string {
+  const url = new URL(appUrl(pathname));
+  return `${url.pathname}${url.search}${url.hash}`;
 }
