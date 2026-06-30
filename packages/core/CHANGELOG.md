@@ -1,5 +1,52 @@
 # @agent-native/core
 
+## 0.81.0
+
+### Minor Changes
+
+- 3164729: Add secure localhost bridge write endpoints to the design connect bridge.
+
+  `startDesignConnectBridge` now mints a cryptographically random per-session
+  `bridgeToken` (exposed on the returned `DesignConnectBridge` object) and
+  serves three new token-gated POST endpoints on the same localhost-only server:
+  - `POST /read-file` — reads any file within the root (no extension restriction)
+  - `POST /write-file` — writes `.html`, `.htm`, or `.css` files within the root
+  - `POST /apply-edit` — patches an existing file via `{search, replace}` or
+    replaces it entirely via `{content}`
+
+  All three endpoints require the `X-Bridge-Token` header to match the minted
+  token (constant-time comparison). Path confinement is enforced via
+  `fs.realpath` on both the root and the target parent directory, blocking
+  directory traversal and symlink escape attacks. The token is never serialised
+  into the public `/manifest.json` response.
+
+  The `DesignConnectManifest` capabilities array now marks `readFile`,
+  `applyEdit`, and `writeFile` as `"available"` (previously `"planned"`).
+
+### Patch Changes
+
+- 3164729: Builder waitlist submissions now include a use-case field so Forms and Slack routing can distinguish background coding requests from Design publish requests.
+- 3164729: Fix bridge token registration so design localhost write-back works end-to-end.
+
+  `registerConnectionWithServer` is a new exported function that POSTs the
+  bridge's real `bridgeToken` (minted by `startDesignConnectBridge`) to the
+  design app's `connect-localhost` action endpoint on startup. This stores the
+  token on the `designLocalhostConnections` row so `grant-localhost-write-consent`
+  can read it instead of minting an unrelated token, which previously caused every
+  bridge write to return 401.
+
+  `DesignConnectArgs` gains an optional `appUrl` field (populated by the new
+  `--app-url <url>` CLI flag or the `AGENT_NATIVE_URL` / `DESIGN_APP_URL` env
+  vars) that controls where self-registration is sent. Registration is
+  best-effort: if no app URL is configured or the request fails, the bridge
+  continues running normally.
+
+- 3164729: Register Figma as a Design provider API so Design actions can browse and render Figma library components through scoped `FIGMA_ACCESS_TOKEN` credentials.
+- 3164729: Make the Connect AI setup card adapt to narrow chat sidebars with container queries.
+- 3164729: Keep reserved organization switcher slots stable with a disabled loading placeholder.
+- 3164729: Redirect relative PGlite data directories to writable `/tmp` paths on serverless runtimes.
+- 3164729: Make the default shared share button outline trigger transparent at rest.
+
 ## 0.80.11
 
 ### Patch Changes
