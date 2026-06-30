@@ -7,7 +7,11 @@ import {
 } from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
-import { chunkUploadUrl, pickMimeType, type UploadMode } from "@shared/recording-core";
+import {
+  chunkUploadUrl,
+  pickMimeType,
+  type UploadMode,
+} from "@shared/recording-core";
 import {
   IconAlertTriangle,
   IconArrowLeft,

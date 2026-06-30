@@ -26,7 +26,10 @@ export async function setResumableSession(
   recordingId: string,
   session: StoredResumableSession,
 ): Promise<void> {
-  await writeAppState(key(recordingId), session as unknown as Record<string, unknown>);
+  await writeAppState(
+    key(recordingId),
+    session as unknown as Record<string, unknown>,
+  );
 }
 
 export async function deleteResumableSession(

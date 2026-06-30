@@ -12,6 +12,8 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
+import type { UploadMode } from "@shared/recording-core.js";
+import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -23,8 +25,6 @@ import {
 import { setResumableSession } from "../server/lib/resumable-session.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
-import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import type { UploadMode } from "@shared/recording-core.js";
 
 export default defineAction({
   description:

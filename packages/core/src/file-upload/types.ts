@@ -63,8 +63,20 @@ export interface FileUploadProvider {
    * during recording instead of assembling the full blob after stop().
    */
   resumable?: {
-    startSession(filename: string, mimeType: string, maxBytes: number): Promise<ResumableUploadSession>;
-    relayChunk(session: ResumableUploadSession, contentRange: string, bytes: Uint8Array, options?: { mimeType?: string }): Promise<ResumableChunkResult>;
-    completeSession(session: ResumableUploadSession, filename: string): Promise<string>;
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+    ): Promise<string>;
   };
 }
