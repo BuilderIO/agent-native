@@ -32,7 +32,7 @@ export function mergeDocumentIntoListDocumentsCache(
     item.id === document.id ? { ...item, ...document } : item,
   );
 
-  return { ...old, documents: nextDocuments };
+  return { ...(old as object), documents: nextDocuments };
 }
 
 export function useDocuments() {
