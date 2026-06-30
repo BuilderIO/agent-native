@@ -8337,7 +8337,7 @@ ${serializedHtml}
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 shrink-0 cursor-pointer gap-0.5 rounded-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="h-8 shrink-0 cursor-pointer gap-0.5 rounded-md px-0 text-muted-foreground hover:bg-accent hover:text-foreground"
               aria-label={t("designEditor.devicePreview")}
             >
               {deviceFrameIcon}
@@ -8347,7 +8347,7 @@ ${serializedHtml}
         </TooltipTrigger>
         <TooltipContent>{t("designEditor.devicePreview")}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="start" className="w-44">
         <DropdownMenuRadioGroup
           value={deviceFrame}
           onValueChange={(v) => setDeviceFrame(v as DeviceFrameType)}
@@ -8632,17 +8632,18 @@ ${serializedHtml}
 
   const rightSidebarActions = (
     <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
-      <div className="flex min-h-8 items-center justify-between gap-2">
-        <DesignCollaboratorsMenu
-          collaborators={designCollaborators}
-          followingEmail={followingEmail}
-          label={t("designEditor.collaborators")}
-          onAvatarClick={handleAvatarClick}
-        />
-
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div className="flex min-h-8 items-center gap-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          <DesignCollaboratorsMenu
+            collaborators={designCollaborators}
+            followingEmail={followingEmail}
+            label={t("designEditor.collaborators")}
+            onAvatarClick={handleAvatarClick}
+          />
           {deviceFrameControl}
+        </div>
 
+        <div className="flex shrink-0 items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

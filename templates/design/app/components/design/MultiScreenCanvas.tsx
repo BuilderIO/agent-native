@@ -3907,7 +3907,6 @@ function SelectionBox({
         height: geometry.height,
         borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
-        transition: CHROME_BORDER_TRANSITION,
         transform: geometry.rotation
           ? `rotate(${geometry.rotation}deg)`
           : undefined,

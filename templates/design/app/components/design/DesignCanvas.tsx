@@ -252,9 +252,6 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   var scaleToolEnabled = false;
   var editorChromeScaleX = Math.max(0.05, Number(__EDITOR_CHROME_SCALE_X__) || 1);
   var editorChromeScaleY = Math.max(0.05, Number(__EDITOR_CHROME_SCALE_Y__) || editorChromeScaleX);
-  document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-x', String(editorChromeScaleX));
-  document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-y', String(editorChromeScaleY));
-  document.documentElement.style.setProperty('--agent-native-editor-chrome-line-scale', String(Math.max(editorChromeScaleX, editorChromeScaleY)));
 
   // Ease the constant-size selection chrome to its new size when overview zoom
   // settles (parent posts set-editor-chrome-scale), matching the canvas chrome.
@@ -266,6 +263,24 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       '[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}';
     (document.head || document.documentElement).appendChild(chromeTransitionStyle);
   })();
+
+  function chromeScaleX() {
+    return 1 / Math.max(0.05, editorChromeScaleX);
+  }
+
+  function chromeScaleY() {
+    return 1 / Math.max(0.05, editorChromeScaleY);
+  }
+
+  function chromeLineScale() {
+    return 1 / Math.max(0.05, Math.max(editorChromeScaleX, editorChromeScaleY));
+  }
+
+  function syncEditorChromeScaleVars() {
+    document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-x', String(chromeScaleX()));
+    document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-y', String(chromeScaleY()));
+    document.documentElement.style.setProperty('--agent-native-editor-chrome-line-scale', String(chromeLineScale()));
+  }
 
   function escapeIdent(value) {
     if (window.CSS && typeof window.CSS.escape === 'function') {
@@ -843,6 +858,49 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     paddingOverlay.style.left = left + 'px';
   }
 
+  function applyEditorChromeScale() {
+    syncEditorChromeScaleVars();
+    var sx = chromeScaleX();
+    var sy = chromeScaleY();
+    var line = chromeLineScale();
+    highlightOverlay.style.borderWidth = (1.5 * line) + 'px';
+    selectionOverlay.style.borderWidth = (1.5 * line) + 'px';
+    paddingOverlay.style.borderWidth = Math.max(1, 1 * line) + 'px';
+
+    selectionOverlay.querySelectorAll('[data-agent-native-edge-handle]').forEach(function(edge) {
+      var pos = edge.getAttribute('data-agent-native-edge-handle');
+      if (pos === 'n' || pos === 's') {
+        edge.style.height = (10 * sy) + 'px';
+        edge.style[pos === 'n' ? 'top' : 'bottom'] = (-5 * sy) + 'px';
+      }
+      if (pos === 'e' || pos === 'w') {
+        edge.style.width = (10 * sx) + 'px';
+        edge.style[pos === 'w' ? 'left' : 'right'] = (-5 * sx) + 'px';
+      }
+    });
+
+    selectionOverlay.querySelectorAll('[data-agent-native-edit-handle]').forEach(function(handle) {
+      var pos = handle.getAttribute('data-agent-native-edit-handle') || '';
+      handle.style.width = (7 * sx) + 'px';
+      handle.style.height = (7 * sy) + 'px';
+      handle.style.borderWidth = Math.max(1, 1 * line) + 'px';
+      if (pos.indexOf('n') !== -1) handle.style.top = (-4 * sy) + 'px';
+      if (pos.indexOf('s') !== -1) handle.style.bottom = (-4 * sy) + 'px';
+      if (pos.indexOf('w') !== -1) handle.style.left = (-4 * sx) + 'px';
+      if (pos.indexOf('e') !== -1) handle.style.right = (-4 * sx) + 'px';
+    });
+
+    selectionOverlay.querySelectorAll('[data-agent-native-rotate-handle]').forEach(function(handle) {
+      var pos = handle.getAttribute('data-agent-native-rotate-handle') || '';
+      handle.style.width = (18 * sx) + 'px';
+      handle.style.height = (18 * sy) + 'px';
+      if (pos.indexOf('n') !== -1) handle.style.top = (-26 * sy) + 'px';
+      if (pos.indexOf('s') !== -1) handle.style.bottom = (-26 * sy) + 'px';
+      if (pos.indexOf('w') !== -1) handle.style.left = (-26 * sx) + 'px';
+      if (pos.indexOf('e') !== -1) handle.style.right = (-26 * sx) + 'px';
+    });
+  }
+
   function positionOverlay(overlay, el) {
     if (!el || !document.documentElement.contains(el)) {
       overlay.style.display = 'none';
@@ -852,23 +910,26 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     // the handles hug the rotated element rather than its inflated AABB.
     if (overlay === selectionOverlay) {
       var elCs = window.getComputedStyle(el);
-      var elLeft = readPx(el.style.left || elCs.left);
-      var elTop = readPx(el.style.top || elCs.top);
-      var elW = readPx(el.style.width || elCs.width);
-      var elH = readPx(el.style.height || elCs.height);
+      var elLeft = readFinitePx(el.style.left || elCs.left);
+      var elTop = readFinitePx(el.style.top || elCs.top);
+      var elW = readFinitePx(el.style.width || elCs.width);
+      var elH = readFinitePx(el.style.height || elCs.height);
       var elRot = currentRotation(el);
+      var canUseLocalBox = Math.abs(elRot) > 0.01 && elLeft !== null && elTop !== null && elW !== null && elH !== null;
       // Convert element-local left/top to viewport coords by walking to the
       // nearest positioned ancestor (same reference frame as getBoundingClientRect).
-      var parentRect = (el.offsetParent || document.documentElement).getBoundingClientRect();
-      overlay.style.display = 'block';
-      overlay.style.left = (parentRect.left + elLeft) + 'px';
-      overlay.style.top = (parentRect.top + elTop) + 'px';
-      overlay.style.width = elW + 'px';
-      overlay.style.height = elH + 'px';
-      overlay.style.transform = elRot ? 'rotate(' + elRot + 'deg)' : '';
-      overlay.style.transformOrigin = '0 0';
-      updatePaddingOverlay(el);
-      return;
+      if (canUseLocalBox) {
+        var parentRect = (el.offsetParent || document.documentElement).getBoundingClientRect();
+        overlay.style.display = 'block';
+        overlay.style.left = (parentRect.left + elLeft) + 'px';
+        overlay.style.top = (parentRect.top + elTop) + 'px';
+        overlay.style.width = elW + 'px';
+        overlay.style.height = elH + 'px';
+        overlay.style.transform = 'rotate(' + elRot + 'deg)';
+        overlay.style.transformOrigin = '0 0';
+        updatePaddingOverlay(el);
+        return;
+      }
     }
     var rect = el.getBoundingClientRect();
     overlay.style.display = 'block';
@@ -876,6 +937,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     overlay.style.left = rect.left + 'px';
     overlay.style.width = rect.width + 'px';
     overlay.style.height = rect.height + 'px';
+    overlay.style.transform = '';
+    if (overlay === selectionOverlay) updatePaddingOverlay(el);
   }
 
   function refreshOverlays() {
@@ -1199,6 +1262,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   function readPx(value) {
     var num = parseFloat(value);
     return Number.isFinite(num) ? num : 0;
+  }
+
+  function readFinitePx(value) {
+    if (!value || value === 'auto') return null;
+    var num = parseFloat(value);
+    return Number.isFinite(num) ? num : null;
   }
 
   function currentRotation(el) {
@@ -2009,9 +2078,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       // Rebuilding srcdoc reloads the iframe and flashes the content white.
       editorChromeScaleX = Math.max(0.05, Number(e.data.scaleX) || 1);
       editorChromeScaleY = Math.max(0.05, Number(e.data.scaleY) || editorChromeScaleX);
-      document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-x', String(editorChromeScaleX));
-      document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-y', String(editorChromeScaleY));
-      document.documentElement.style.setProperty('--agent-native-editor-chrome-line-scale', String(Math.max(editorChromeScaleX, editorChromeScaleY)));
+      applyEditorChromeScale();
       if (selectedEl || hoveredEl) refreshOverlays();
       return;
     }
@@ -2151,6 +2218,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 
   window.addEventListener('scroll', refreshOverlays, true);
   window.addEventListener('resize', refreshOverlays);
+  applyEditorChromeScale();
 })();
 </script>
 `;

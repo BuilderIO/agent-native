@@ -1902,7 +1902,7 @@ function InspectorTabsHeader({
   const t = useT();
 
   return (
-    <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2">
+    <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2 py-1">
       <Tabs
         value={activeTab}
         onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
