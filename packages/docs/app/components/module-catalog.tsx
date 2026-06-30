@@ -1,4 +1,4 @@
-import { trackEvent } from "@agent-native/core/client";
+import { trackEvent, useT } from "@agent-native/core/client";
 import {
   IconActivity,
   IconBlocks,
@@ -19,99 +19,101 @@ import { Link } from "react-router";
 type ModuleIcon = typeof IconRefresh;
 
 export type AgentNativeModule = {
-  name: string;
-  description: string;
+  id: string;
+  titleKey: string;
+  descriptionKey: string;
   icon: ModuleIcon;
 };
 
 export const agentNativeModules: AgentNativeModule[] = [
   {
-    name: "Auto state syncing",
-    description:
-      "Agent changes update the UI, and the UI state stays visible to the agent without another bridge.",
+    id: "auto-state-syncing",
+    titleKey: "home.modules.items.autoStateSyncing.title",
+    descriptionKey: "home.modules.items.autoStateSyncing.body",
     icon: IconRefresh,
   },
   {
-    name: "Actions",
-    description:
-      "Define work once and use it from the UI, agent, HTTP, MCP, A2A, and CLI.",
+    id: "actions",
+    titleKey: "home.modules.items.actions.title",
+    descriptionKey: "home.modules.items.actions.body",
     icon: IconCode,
   },
   {
-    name: "SQL state and ORM",
-    description:
-      "Durable app data, application state, migrations, and provider-agnostic schemas.",
+    id: "sql-state-orm",
+    titleKey: "home.modules.items.sqlStateOrm.title",
+    descriptionKey: "home.modules.items.sqlStateOrm.body",
     icon: IconDatabase,
   },
   {
-    name: "DB admin",
-    description:
-      "Agent-readable schemas, query surfaces, migrations, and admin tools without a custom back office.",
+    id: "db-admin",
+    titleKey: "home.modules.items.dbAdmin.title",
+    descriptionKey: "home.modules.items.dbAdmin.body",
     icon: IconDatabase,
   },
   {
-    name: "Auth and governance",
-    description:
-      "Login, organizations, multi-tenancy, permissions, approvals, and policy hooks.",
+    id: "auth-governance",
+    titleKey: "home.modules.items.authGovernance.title",
+    descriptionKey: "home.modules.items.authGovernance.body",
     icon: IconShieldLock,
   },
   {
-    name: "Sharing",
-    description:
-      "Share links, scoped access, public/private resources, comments, and review surfaces.",
+    id: "sharing",
+    titleKey: "home.modules.items.sharing.title",
+    descriptionKey: "home.modules.items.sharing.body",
     icon: IconShare,
   },
   {
-    name: "Realtime collaboration",
-    description:
-      "Multi-user editing, live presence, optimistic UI, and server-backed reconciliation.",
+    id: "realtime-collaboration",
+    titleKey: "home.modules.items.realtimeCollaboration.title",
+    descriptionKey: "home.modules.items.realtimeCollaboration.body",
     icon: IconUsers,
   },
   {
-    name: "Agent interoperability",
-    description:
-      "A2A, MCP, MCP apps, external agents, harness agents, and cross-app handoffs.",
+    id: "agent-interoperability",
+    titleKey: "home.modules.items.agentInteroperability.title",
+    descriptionKey: "home.modules.items.agentInteroperability.body",
     icon: IconNetwork,
   },
   {
-    name: "Automations and queues",
-    description:
-      "Event-triggered work, scheduled tasks, background runs, and reliable mutations.",
+    id: "automations-queues",
+    titleKey: "home.modules.items.automationsQueues.title",
+    descriptionKey: "home.modules.items.automationsQueues.body",
     icon: IconSettingsAutomation,
   },
   {
-    name: "Agent UI surface",
-    description:
-      "Chat, skills, instructions, generative UI, voice input, and agent-visible context.",
+    id: "agent-ui-surface",
+    titleKey: "home.modules.items.agentUiSurface.title",
+    descriptionKey: "home.modules.items.agentUiSurface.body",
     icon: IconRobot,
   },
   {
-    name: "Observability",
-    description:
-      "Tracing, evals, feedback, experiments, and proof that agents did what they claimed.",
+    id: "observability",
+    titleKey: "home.modules.items.observability.title",
+    descriptionKey: "home.modules.items.observability.body",
     icon: IconChartDots,
   },
   {
-    name: "Workspaces",
-    description:
-      "Composable headed or headless apps that discover each other and coordinate over A2A.",
+    id: "workspaces",
+    titleKey: "home.modules.items.workspaces.title",
+    descriptionKey: "home.modules.items.workspaces.body",
     icon: IconBlocks,
   },
   {
-    name: "Source ownership",
-    description:
-      "Docs and source live where agents can inspect, fork, eject, patch, or replace them.",
+    id: "source-ownership",
+    titleKey: "home.modules.items.sourceOwnership.title",
+    descriptionKey: "home.modules.items.sourceOwnership.body",
     icon: IconPackage,
   },
   {
-    name: "Audit logs",
-    description:
-      "A durable record of human and agent changes, scoped to the resources users can access.",
+    id: "audit-logs",
+    titleKey: "home.modules.items.auditLogs.title",
+    descriptionKey: "home.modules.items.auditLogs.body",
     icon: IconActivity,
   },
 ];
 
 function ModuleCard({ module }: { module: AgentNativeModule }) {
+  const t = useT();
   const Icon = module.icon;
   return (
     <article className="flex min-h-[170px] min-w-0 flex-col rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-5">
@@ -119,10 +121,10 @@ function ModuleCard({ module }: { module: AgentNativeModule }) {
         <Icon size={20} stroke={1.8} aria-hidden />
       </div>
       <h3 className="m-0 text-base font-semibold leading-snug text-[var(--fg)]">
-        {module.name}
+        {t(module.titleKey)}
       </h3>
       <p className="m-0 mt-2 text-sm leading-relaxed text-[var(--fg-secondary)]">
-        {module.description}
+        {t(module.descriptionKey)}
       </p>
     </article>
   );
@@ -137,15 +139,17 @@ function modulePairs() {
 }
 
 export function ModulesRail({ allModulesPath }: { allModulesPath: string }) {
+  const t = useT();
+
   return (
     <div className="templates-side-scroll -mx-6 flex snap-x gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10 [scroll-padding-left:2.5rem]">
       {modulePairs().map((pair) => (
         <div
-          key={pair.map((module) => module.name).join("-")}
+          key={pair.map((module) => module.id).join("-")}
           className="grid w-[320px] shrink-0 snap-start scroll-ml-10 grid-rows-2 gap-5 sm:w-[360px]"
         >
           {pair.map((module) => (
-            <ModuleCard key={module.name} module={module} />
+            <ModuleCard key={module.id} module={module} />
           ))}
         </div>
       ))}
@@ -162,10 +166,10 @@ export function ModulesRail({ allModulesPath }: { allModulesPath: string }) {
           }
         >
           <h3 className="m-0 text-2xl font-semibold tracking-tight text-[var(--fg)]">
-            View all modules
+            {t("home.modules.viewAll")}
           </h3>
           <span className="primary-button">
-            View all modules
+            {t("home.modules.viewAll")}
             <svg
               width="16"
               height="16"
@@ -191,7 +195,7 @@ export function ModulesGrid() {
   return (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
       {agentNativeModules.map((module) => (
-        <ModuleCard key={module.name} module={module} />
+        <ModuleCard key={module.id} module={module} />
       ))}
     </div>
   );

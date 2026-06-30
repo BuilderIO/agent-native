@@ -363,9 +363,6 @@ const enUS = {
     variations: "{{count}} variations",
     close: "Close",
     generating: "Generating design...",
-    inspectorLockedTitle: "Inspector locked while generating",
-    inspectorLockedDescription:
-      "Controls unlock when the first screen is ready.",
     noFiles: "No files yet. Ask the agent to generate a design.",
     tryAgain: "Try again",
     newPrompt: "New prompt",
@@ -662,6 +659,7 @@ const enUS = {
     newDesign: "New Design",
     newDesignLower: "New design",
     createDesignProject: "Create a design project",
+    openingDesign: "Opening design...",
     describeBuild: "Describe what you want to build...",
     selected: "{{count}} selected",
     clearVisibleSelection: "Clear visible selection",
@@ -4389,6 +4387,7 @@ const designRawLiteralOverrides = {
       newDesign: "新Design",
       newDesignLower: "新设计",
       createDesignProject: "创建一个设计项目",
+      openingDesign: "正在打开设计...",
       describeBuild: "描述您想要构建的内容...",
       selected: "已选择 {{count}}",
       clearVisibleSelection: "清晰可见的选择",
@@ -4542,6 +4541,7 @@ const designRawLiteralOverrides = {
       newDesign: "Nuevo Design",
       newDesignLower: "Nuevo diseño",
       createDesignProject: "Crear un proyecto de diseño.",
+      openingDesign: "Abriendo diseño...",
       describeBuild: "Describe lo que quieres crear...",
       selected: "{{count}} seleccionado",
       clearVisibleSelection: "Borrar selección visible",
@@ -4696,6 +4696,7 @@ const designRawLiteralOverrides = {
       newDesign: "Nouveau Design",
       newDesignLower: "Nouveau design",
       createDesignProject: "Créer un projet de conception",
+      openingDesign: "Ouverture du design...",
       describeBuild: "Décrivez ce que vous voulez créer...",
       selected: "{{count}} sélectionné",
       clearVisibleSelection: "Effacer la sélection visible",
@@ -4851,6 +4852,7 @@ const designRawLiteralOverrides = {
       newDesign: "Neue Design",
       newDesignLower: "Neues Design",
       createDesignProject: "Erstellen Sie ein Designprojekt",
+      openingDesign: "Design wird geöffnet...",
       describeBuild: "Beschreiben Sie, was Sie erstellen möchten...",
       selected: "{{count}} ausgewählt",
       clearVisibleSelection: "Klare sichtbare Auswahl",
@@ -5002,6 +5004,7 @@ const designRawLiteralOverrides = {
       newDesign: "新しいDesign",
       newDesignLower: "新しいデザイン",
       createDesignProject: "デザインプロジェクトを作成する",
+      openingDesign: "デザインを開いています...",
       describeBuild: "作成したいものを説明してください...",
       selected: "{{count}} が選択されました",
       clearVisibleSelection: "表示されている選択範囲をクリアします",
@@ -5151,6 +5154,7 @@ const designRawLiteralOverrides = {
       newDesign: "새로운 Design",
       newDesignLower: "새로운 디자인",
       createDesignProject: "디자인 프로젝트 만들기",
+      openingDesign: "디자인을 여는 중...",
       describeBuild: "만들고 싶은 것을 설명하세요...",
       selected: "{{count}} 선택됨",
       clearVisibleSelection: "보이는 선택 항목 지우기",
@@ -5304,6 +5308,7 @@ const designRawLiteralOverrides = {
       newDesign: "Novo Design",
       newDesignLower: "Novo design",
       createDesignProject: "Crie um projeto de design",
+      openingDesign: "Abrindo design...",
       describeBuild: "Descreva o que você quer criar...",
       selected: "{{count}} selecionado",
       clearVisibleSelection: "Limpar seleção visível",
@@ -5454,6 +5459,7 @@ const designRawLiteralOverrides = {
       newDesign: "नया Design",
       newDesignLower: "नया डिज़ाइन",
       createDesignProject: "एक डिज़ाइन प्रोजेक्ट बनाएं",
+      openingDesign: "डिज़ाइन खोला जा रहा है...",
       describeBuild: "बताएँ कि आप क्या बनाना चाहते हैं...",
       selected: "{{count}} चयनित",
       clearVisibleSelection: "स्पष्ट दृश्यमान चयन",
@@ -5603,6 +5609,7 @@ const designRawLiteralOverrides = {
       newDesign: "جديد Design",
       newDesignLower: "تصميم جديد",
       createDesignProject: "إنشاء مشروع تصميم",
+      openingDesign: "جارٍ فتح التصميم...",
       describeBuild: "صف ما تريد إنشاءه...",
       selected: "تم تحديد {{count}}",
       clearVisibleSelection: "مسح التحديد المرئي",
@@ -8132,8 +8139,6 @@ const designModeFeatureOverrides = {
 const designCanvasFeatureOverrides = {
   "zh-TW": {
     designEditor: {
-      inspectorLockedTitle: "產生中，檢查器已鎖定",
-      inspectorLockedDescription: "第一個畫面準備好後即可使用控制項。",
       toasts: {
         propsCopied: "屬性已複製",
         propsPasted: "屬性已貼上",
@@ -8164,8 +8169,6 @@ const designCanvasFeatureOverrides = {
   },
   "zh-CN": {
     designEditor: {
-      inspectorLockedTitle: "生成期间检查器已锁定",
-      inspectorLockedDescription: "第一个屏幕准备好后即可使用控件。",
       toasts: {
         propsCopied: "属性已复制",
         propsPasted: "属性已粘贴",
@@ -8227,9 +8230,6 @@ const designCanvasFeatureOverrides = {
   },
   "es-ES": {
     designEditor: {
-      inspectorLockedTitle: "Inspector bloqueado durante la generación",
-      inspectorLockedDescription:
-        "Los controles se desbloquean cuando la primera pantalla esté lista.",
       toasts: {
         propsCopied: "Propiedades copiadas",
         propsPasted: "Propiedades pegadas",
@@ -8291,9 +8291,6 @@ const designCanvasFeatureOverrides = {
   },
   "fr-FR": {
     designEditor: {
-      inspectorLockedTitle: "Inspecteur verrouillé pendant la génération",
-      inspectorLockedDescription:
-        "Les contrôles se déverrouillent lorsque le premier écran est prêt.",
       toasts: {
         propsCopied: "Propriétés copiées",
         propsPasted: "Propriétés collées",
@@ -8355,9 +8352,6 @@ const designCanvasFeatureOverrides = {
   },
   "de-DE": {
     designEditor: {
-      inspectorLockedTitle: "Inspektor während der Generierung gesperrt",
-      inspectorLockedDescription:
-        "Die Steuerelemente werden freigeschaltet, sobald der erste Screen bereit ist.",
       toasts: {
         propsCopied: "Eigenschaften kopiert",
         propsPasted: "Eigenschaften eingefügt",
@@ -8420,9 +8414,6 @@ const designCanvasFeatureOverrides = {
   },
   "ja-JP": {
     designEditor: {
-      inspectorLockedTitle: "生成中はインスペクターがロックされています",
-      inspectorLockedDescription:
-        "最初の画面の準備ができるとコントロールが使えます。",
       toasts: {
         propsCopied: "プロパティをコピーしました",
         propsPasted: "プロパティを貼り付けました",
@@ -8484,9 +8475,6 @@ const designCanvasFeatureOverrides = {
   },
   "ko-KR": {
     designEditor: {
-      inspectorLockedTitle: "생성 중에는 인스펙터가 잠겨 있습니다",
-      inspectorLockedDescription:
-        "첫 화면이 준비되면 컨트롤이 잠금 해제됩니다.",
       toasts: {
         propsCopied: "속성이 복사됨",
         propsPasted: "속성이 붙여넣어짐",
@@ -8548,9 +8536,6 @@ const designCanvasFeatureOverrides = {
   },
   "pt-BR": {
     designEditor: {
-      inspectorLockedTitle: "Inspetor bloqueado durante a geração",
-      inspectorLockedDescription:
-        "Os controles são desbloqueados quando a primeira tela estiver pronta.",
       toasts: {
         propsCopied: "Propriedades copiadas",
         propsPasted: "Propriedades coladas",
@@ -8612,9 +8597,6 @@ const designCanvasFeatureOverrides = {
   },
   "hi-IN": {
     designEditor: {
-      inspectorLockedTitle: "जनरेट करते समय इंस्पेक्टर लॉक है",
-      inspectorLockedDescription:
-        "पहली स्क्रीन तैयार होने पर नियंत्रण अनलॉक हो जाएंगे.",
       toasts: {
         propsCopied: "गुण कॉपी किए गए",
         propsPasted: "गुण चिपकाए गए",
@@ -8676,9 +8658,6 @@ const designCanvasFeatureOverrides = {
   },
   "ar-SA": {
     designEditor: {
-      inspectorLockedTitle: "المفتش مقفل أثناء الإنشاء",
-      inspectorLockedDescription:
-        "تُفتح عناصر التحكم عندما تكون الشاشة الأولى جاهزة.",
       toasts: {
         propsCopied: "تم نسخ الخصائص",
         propsPasted: "تم لصق الخصائص",

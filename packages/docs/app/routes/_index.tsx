@@ -438,35 +438,36 @@ function ActionSurfaceSection({
   frameworkCode: string;
   localizedPath: (path: string) => string;
 }) {
+  const t = useT();
   const actionBenefits = [
     {
-      title: "One action definition",
-      body: "UI, agent, HTTP, MCP, A2A, and CLI all call the same operation.",
+      titleKey: "home.actionSurface.benefits.oneActionDefinition.title",
+      bodyKey: "home.actionSurface.benefits.oneActionDefinition.body",
       icon: IconGitBranch,
     },
     {
-      title: "Scoped by default",
-      body: "Auth, sharing, governance, and audit logs travel with the work.",
+      titleKey: "home.actionSurface.benefits.scopedByDefault.title",
+      bodyKey: "home.actionSurface.benefits.scopedByDefault.body",
       icon: IconLock,
     },
     {
-      title: "Headed or headless",
-      body: "Run as an app, an agent workflow, a queue, or a scheduled task.",
+      titleKey: "home.actionSurface.benefits.headedOrHeadless.title",
+      bodyKey: "home.actionSurface.benefits.headedOrHeadless.body",
       icon: IconServer,
     },
     {
-      title: "Context-rich input",
-      body: "Chat, voice, skills, instructions, and UI state stay in the loop.",
+      titleKey: "home.actionSurface.benefits.contextRichInput.title",
+      bodyKey: "home.actionSurface.benefits.contextRichInput.body",
       icon: IconMicrophone,
     },
     {
-      title: "Open agent protocols",
-      body: "A2A, MCP, MCP apps, and external agents are framework-level primitives.",
+      titleKey: "home.actionSurface.benefits.openAgentProtocols.title",
+      bodyKey: "home.actionSurface.benefits.openAgentProtocols.body",
       icon: IconPlugConnected,
     },
     {
-      title: "Observable by design",
-      body: "Traces, evals, feedback, and audit history make agent work inspectable.",
+      titleKey: "home.actionSurface.benefits.observableByDesign.title",
+      bodyKey: "home.actionSurface.benefits.observableByDesign.body",
       icon: IconActivity,
     },
   ];
@@ -476,15 +477,13 @@ function ActionSurfaceSection({
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center">
         <div className="min-w-0">
           <p className="mb-4 text-sm font-semibold text-[var(--docs-accent)]">
-            Deeply agentic, not AI-adjacent
+            {t("home.actionSurface.eyebrow")}
           </p>
           <h2 className="m-0 max-w-xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
-            One action gives you the whole app surface
+            {t("home.actionSurface.title")}
           </h2>
           <p className="mt-6 max-w-xl text-base leading-relaxed text-white/62 md:text-lg">
-            Define an operation once. Agent-Native turns it into the UI action,
-            agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped
-            permission check, and audit trail.
+            {t("home.actionSurface.body")}
           </p>
           <div className="mt-8">
             <CodeBlock code={frameworkCode} lang="typescript" />
@@ -501,7 +500,7 @@ function ActionSurfaceSection({
                 })
               }
             >
-              See actions
+              {t("home.actionSurface.seeActions")}
               <IconCode size={16} stroke={1.8} aria-hidden />
             </Link>
             <Link
@@ -515,7 +514,7 @@ function ActionSurfaceSection({
                 })
               }
             >
-              Read the framework guide
+              {t("home.actionSurface.frameworkGuide")}
               <span aria-hidden>→</span>
             </Link>
           </div>
@@ -527,7 +526,7 @@ function ActionSurfaceSection({
               const Icon = item.icon;
               return (
                 <div
-                  key={item.title}
+                  key={item.titleKey}
                   className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-4 rounded-lg border border-white/10 bg-white/[0.03] p-4"
                 >
                   <div className="flex size-11 items-center justify-center rounded-md bg-black text-[var(--docs-accent)]">
@@ -535,10 +534,10 @@ function ActionSurfaceSection({
                   </div>
                   <div className="min-w-0">
                     <h3 className="m-0 text-base font-semibold text-white">
-                      {item.title}
+                      {t(item.titleKey)}
                     </h3>
                     <p className="m-0 mt-1 text-sm leading-relaxed text-white/58 md:text-base">
-                      {item.body}
+                      {t(item.bodyKey)}
                     </p>
                   </div>
                 </div>
@@ -551,17 +550,75 @@ function ActionSurfaceSection({
   );
 }
 
+function AppsSection({
+  localizedPath,
+}: {
+  localizedPath: (path: string) => string;
+}) {
+  const t = useT();
+
+  return (
+    <section
+      id="apps"
+      className="border-t border-[var(--docs-border)] py-20 px-6"
+    >
+      <div className="mb-12 text-center">
+        <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+          {t("home.templates.title")}
+        </h2>
+        <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
+          {t("home.templates.eyebrow")}
+        </p>
+      </div>
+
+      <div className="templates-side-scroll -mx-6 flex snap-x gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10 [scroll-padding-left:2.5rem]">
+        {homepageTemplates.map((template) => (
+          <div
+            key={template.name}
+            className="template-rail-card w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]"
+          >
+            <TemplateCard template={template} />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-10 text-center">
+        <Link
+          data-an-prefetch="render"
+          to={localizedPath("/apps")}
+          className="primary-button"
+          onClick={() =>
+            trackEvent("click cta", {
+              label: "view_all_apps",
+              location: "apps_section_footer",
+            })
+          }
+        >
+          {t("home.templates.cta")}
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
   const t = useT();
   const { locale } = useLocale();
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
   const chatCommand = "npx @agent-native/core@latest create my-app";
-  const quickStartCode = `# ${t("home.code.quickStartComment")}
-${chatCommand}
-cd my-app
-pnpm install
-pnpm action hello --name Builder
-pnpm agent "Call hello for Builder"`;
   const frameworkCode = `// ${t("home.code.frameworkComment")}
 export default defineAction({
   description: "${t("home.code.frameworkDescription")}",
@@ -663,6 +720,8 @@ export default defineAction({
           </div>
         </section>
 
+        <AppsSection localizedPath={localizedPath} />
+
         <ActionSurfaceSection
           frameworkCode={frameworkCode}
           localizedPath={localizedPath}
@@ -674,234 +733,19 @@ export default defineAction({
         >
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Built-in modules for agentic apps
+              {t("home.modules.title")}
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Human-verified pieces for the production parts agents should not
-              invent from scratch. Use them as-is, inspect the source, or
-              replace the module when your app needs something different.
+              {t("home.modules.body")}
             </p>
           </div>
 
           <ModulesRail allModulesPath={localizedPath("/modules")} />
         </section>
 
-        {/* Apps - breaks out of max-width on ultra-wide screens */}
-        <section
-          id="apps"
-          className="border-t border-[var(--docs-border)] py-20 px-6"
-        >
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              {t("home.templates.title")}
-            </h2>
-            <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-              {t("home.templates.eyebrow")}
-            </p>
-            <div className="mt-8">
-              <Link
-                data-an-prefetch="render"
-                to={localizedPath("/apps")}
-                className="primary-button"
-                onClick={() =>
-                  trackEvent("click cta", {
-                    label: "view_all_apps",
-                    location: "apps_section_header",
-                  })
-                }
-              >
-                {t("home.templates.cta")}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                  <polyline points="12 5 19 12 12 19" />
-                </svg>
-              </Link>
-            </div>
-          </div>
-
-          <div className="templates-side-scroll -mx-6 flex snap-x gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10 [scroll-padding-left:2.5rem]">
-            {homepageTemplates.map((template) => (
-              <div
-                key={template.name}
-                className="template-rail-card w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]"
-              >
-                <TemplateCard template={template} />
-              </div>
-            ))}
-            <div className="template-rail-card template-rail-cta w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]">
-              <Link
-                data-an-prefetch="render"
-                to={localizedPath("/apps")}
-                className="flex min-h-full w-full flex-col items-center justify-center gap-5 px-6 py-8 text-center no-underline hover:no-underline"
-                onClick={() =>
-                  trackEvent("click cta", {
-                    label: "view_all_apps",
-                    location: "apps_scroll_end",
-                  })
-                }
-              >
-                <div>
-                  <h3 className="mb-3 text-2xl font-semibold tracking-tight text-[var(--fg)]">
-                    {t("home.templates.cta")}
-                  </h3>
-                </div>
-                <span className="primary-button">
-                  {t("home.templates.cta")}
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                    <polyline points="12 5 19 12 12 19" />
-                  </svg>
-                </span>
-              </Link>
-            </div>
-          </div>
-        </section>
-
         <BatteriesIncludedCloud />
 
         <div className="mx-auto max-w-[1200px] px-6">
-          {/* The best of both worlds */}
-          <section className="border-t border-[var(--docs-border)] py-20">
-            <div className="mb-12 text-center">
-              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                {t("home.comparison.title")}
-              </h2>
-              <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                {t("home.comparison.body")}
-              </p>
-            </div>
-
-            <div className="approaches-table-outer">
-              <div className="approaches-table-wrapper">
-                <div className="approaches-table-scroll">
-                  <table className="approaches-table">
-                    <thead>
-                      <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                        <th className="approaches-th approaches-col-dim"></th>
-                        <th className="approaches-th approaches-col-muted">
-                          {t("home.comparison.columns.saas")}
-                        </th>
-                        <th className="approaches-th approaches-col-muted">
-                          {t("home.comparison.columns.agents")}
-                        </th>
-                        <th className="approaches-th approaches-col-muted">
-                          {t("home.comparison.columns.internal")}
-                        </th>
-                        <th className="approaches-th">
-                          {t("home.comparison.columns.native")}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">
-                          {t("home.comparison.rows.ui")}
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          {t("home.comparison.cells.polishedButRigid")}
-                        </td>
-                        <td className="approaches-td approaches-td--bad">
-                          {t("home.comparison.cells.none")}
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          {t("home.comparison.cells.mixedQuality")}
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          {t("home.comparison.cells.fullUi")}
-                        </td>
-                      </tr>
-                      <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">
-                          {t("home.comparison.rows.ai")}
-                        </td>
-                        <td className="approaches-td approaches-td--bad">
-                          {t("home.comparison.cells.boltedOn")}
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          {t("home.comparison.cells.powerful")}
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          {t("home.comparison.cells.shallowlyConnected")}
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          {t("home.comparison.cells.agentFirst")}
-                        </td>
-                      </tr>
-                      <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">
-                          {t("home.comparison.rows.customization")}
-                        </td>
-                        <td className="approaches-td approaches-td--bad">
-                          {t("home.comparison.cells.cant")}
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          {t("home.comparison.cells.instructionsAndSkills")}
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          {t("home.comparison.cells.fullHighMaintenance")}
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          {t("home.comparison.cells.agentModifies")}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="approaches-td approaches-td--dim">
-                          {t("home.comparison.rows.ownership")}
-                        </td>
-                        <td className="approaches-td approaches-td--bad">
-                          {t("home.comparison.cells.rented")}
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          {t("home.comparison.cells.somewhatYours")}
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          {t("home.comparison.cells.youOwnCode")}
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          {t("home.comparison.cells.youOwnCode")}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Quick Start */}
-          <section className="border-t border-[var(--docs-border)] py-20">
-            <div className="mb-12 text-center">
-              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                {t("home.quickStart.title")}
-              </h2>
-              <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-                {t("home.quickStart.body")}
-              </p>
-            </div>
-
-            <div className="mx-auto max-w-2xl">
-              <CodeBlock code={quickStartCode} lang="bash" />
-            </div>
-          </section>
-
           {/* Bottom CTA */}
           <section className="border-t border-[var(--docs-border)] py-20 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
@@ -950,20 +794,6 @@ export default defineAction({
               >
                 {t("home.finalCta.secondaryCta")}
               </Link>
-              <a
-                href="https://github.com/BuilderIO/agent-native"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-                onClick={() =>
-                  trackEvent("click cta", {
-                    label: "github",
-                    location: "footer",
-                  })
-                }
-              >
-                {t("home.finalCta.githubCta")}
-              </a>
             </div>
           </section>
         </div>

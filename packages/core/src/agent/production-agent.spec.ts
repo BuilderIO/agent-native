@@ -2840,10 +2840,13 @@ describe("runAgentLoop", () => {
       {
         type: "tool_done",
         tool: "bigquery",
+        input: { sql: "select nope" },
         result: JSON.stringify({
           error: "bigquery_query_failed",
           message: "nope",
         }),
+        isError: true,
+        completedSideEffect: false,
       },
       { type: "text", text: "BigQuery returned: nope" },
       { type: "done" },
@@ -3036,7 +3039,10 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual({
       type: "tool_done",
       tool: "mcp__x__fail",
+      input: {},
       result: "Error calling MCP tool mcp__x__fail: boom",
+      isError: true,
+      completedSideEffect: false,
     });
     expect(seenMessages[1].at(-1)).toMatchObject({
       role: "user",

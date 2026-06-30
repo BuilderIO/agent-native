@@ -86,8 +86,8 @@ const enUS = {
   home: {
     hero: {
       badge: "Open source framework",
-      titleLine1: "Build agentic",
-      titleAccent: "apps",
+      titleLine1: "The framework for",
+      titleAccent: "agentic apps",
       body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context. Start headless, add a UI when you need one, or fork a working app and make it yours.",
       primaryCta: "Start building",
       secondaryCta: "Browse apps",
@@ -99,6 +99,106 @@ const enUS = {
       frameworkComment:
         "One action powers the agent, UI, HTTP, MCP, A2A, and CLI.",
       frameworkDescription: "Say hello from the local app-agent loop.",
+    },
+    actionSurface: {
+      eyebrow: "Deeply agentic, not AI-adjacent",
+      title: "One action gives you the whole app surface",
+      body: "Define an operation once. Agent-Native turns it into the UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check, and audit trail.",
+      seeActions: "See actions",
+      frameworkGuide: "Read the framework guide",
+      benefits: {
+        oneActionDefinition: {
+          title: "One action definition",
+          body: "UI, agent, HTTP, MCP, A2A, and CLI all call the same operation.",
+        },
+        scopedByDefault: {
+          title: "Scoped by default",
+          body: "Auth, sharing, governance, and audit logs travel with the work.",
+        },
+        headedOrHeadless: {
+          title: "Headed or headless",
+          body: "Run as an app, an agent workflow, a queue, or a scheduled task.",
+        },
+        contextRichInput: {
+          title: "Context-rich input",
+          body: "Chat, voice, skills, instructions, and UI state stay in the loop.",
+        },
+        openAgentProtocols: {
+          title: "Open agent protocols",
+          body: "A2A, MCP, MCP apps, and external agents are framework-level primitives.",
+        },
+        observableByDesign: {
+          title: "Observable by design",
+          body: "Traces, evals, feedback, and audit history make agent work inspectable.",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "Modular framework",
+      title: "Built-in modules for agentic apps",
+      body: "Human-verified pieces for the production parts agents should not invent from scratch. Use them as-is, inspect the source, or replace the module when your app needs something different.",
+      pageBody:
+        "Agent-Native ships human-verified pieces for the production work agents should not improvise from scratch. Use them as-is, inspect the source, or replace the module when your product needs something different.",
+      viewAll: "View all modules",
+      browseApps: "Browse apps built from modules",
+      items: {
+        autoStateSyncing: {
+          title: "Auto state syncing",
+          body: "Agent changes update the UI, and the UI state stays visible to the agent without another bridge.",
+        },
+        actions: {
+          title: "Actions",
+          body: "Define work once and use it from the UI, agent, HTTP, MCP, A2A, and CLI.",
+        },
+        sqlStateOrm: {
+          title: "SQL state and ORM",
+          body: "Durable app data, application state, migrations, and provider-agnostic schemas.",
+        },
+        dbAdmin: {
+          title: "DB admin",
+          body: "Agent-readable schemas, query surfaces, migrations, and admin tools without a custom back office.",
+        },
+        authGovernance: {
+          title: "Auth and governance",
+          body: "Login, organizations, multi-tenancy, permissions, approvals, and policy hooks.",
+        },
+        sharing: {
+          title: "Sharing",
+          body: "Share links, scoped access, public/private resources, comments, and review surfaces.",
+        },
+        realtimeCollaboration: {
+          title: "Realtime collaboration",
+          body: "Multi-user editing, live presence, optimistic UI, and server-backed reconciliation.",
+        },
+        agentInteroperability: {
+          title: "Agent interoperability",
+          body: "A2A, MCP, MCP apps, external agents, harness agents, and cross-app handoffs.",
+        },
+        automationsQueues: {
+          title: "Automations and queues",
+          body: "Event-triggered work, scheduled tasks, background runs, and reliable mutations.",
+        },
+        agentUiSurface: {
+          title: "Agent UI surface",
+          body: "Chat, skills, instructions, generative UI, voice input, and agent-visible context.",
+        },
+        observability: {
+          title: "Observability",
+          body: "Tracing, evals, feedback, experiments, and proof that agents did what they claimed.",
+        },
+        workspaces: {
+          title: "Workspaces",
+          body: "Composable headed or headless apps that discover each other and coordinate over A2A.",
+        },
+        sourceOwnership: {
+          title: "Source ownership",
+          body: "Docs and source live where agents can inspect, fork, eject, patch, or replace them.",
+        },
+        auditLogs: {
+          title: "Audit logs",
+          body: "A durable record of human and agent changes, scoped to the resources users can access.",
+        },
+      },
     },
     framework: {
       title: "The framework for agent-native apps",
@@ -131,13 +231,13 @@ const enUS = {
       },
     },
     templates: {
-      title: "Fork a working app",
+      title: "Try an Agent-Native app",
       eyebrow: "100% free and open source",
       cta: "Browse apps",
     },
     skills: {
-      title: "Try it with a skill",
-      body: "Add visual planning and PR recaps to Claude Code, Codex, Cursor, Pi, OpenCode, or VS Code with one command.",
+      title: "Skill-backed apps",
+      body: "Add app-backed skills like visual planning and PR recaps to Claude Code, Codex, Cursor, Pi, OpenCode, or VS Code with one command.",
       planBody:
         "Reviewable plans with diagrams, wireframes, file maps, and comments before code changes.",
       recapBody:
@@ -145,8 +245,8 @@ const enUS = {
       cta: "Browse the Skills Guide",
     },
     connected: {
-      title: "Agents and UIs — fully connected",
-      body: "The agent and the UI are equal citizens of the same system. Every action works both ways — click it or ask for it.",
+      title: "Agents and apps share the same core",
+      body: "The agent and the app are equal citizens of the same system. Every action works both ways: click it or ask for it.",
       tabs: {
         agentSees: {
           title: "The agent sees everything",
@@ -208,9 +308,9 @@ const enUS = {
       body: "One command creates a local app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
     },
     finalCta: {
-      title: "Software you own, built for the agentic era",
+      title: "Software built for the agentic era",
       body: "Start with a command or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
-      primaryCta: "Start with an Action",
+      primaryCta: "Start with an action",
       secondaryCta: "Read the Docs",
       githubCta: "View on GitHub",
     },

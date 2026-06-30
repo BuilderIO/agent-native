@@ -49,7 +49,6 @@ import {
   IconLetterSpacing,
   IconLineHeight,
   IconLink,
-  IconLock,
   IconMaximize,
   IconMinus,
   IconPhoto,
@@ -163,7 +162,7 @@ interface EditPanelProps {
   ) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
-  readOnly?: boolean;
+  canEdit?: boolean;
   /** Active file id — forwarded to InspectorAiActions for agent context. */
   fileId?: string;
   /** Active file name (e.g. "index.html") — forwarded to InspectorAiActions. */
@@ -6246,7 +6245,7 @@ export function EditPanel({
   onAutoLayoutConvert,
   onExport,
   exporting = false,
-  readOnly = false,
+  canEdit = true,
   fileId,
   filename,
   activeContent,
@@ -6305,41 +6304,6 @@ export function EditPanel({
   const scrolledRecentlyRef = useRef(false);
   const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  if (readOnly) {
-    return (
-      <div
-        className={cn(
-          "shrink-0 bg-[var(--design-editor-panel-bg)]",
-          "flex h-full min-h-0 flex-col overflow-hidden",
-        )}
-        style={{ width }}
-      >
-        <div className="flex min-h-8 shrink-0 items-center border-b border-border/90 px-3">
-          <h2 className="min-w-0 truncate text-[12px] font-semibold text-foreground">
-            {t("editPanel.properties")}
-          </h2>
-        </div>
-        <div className="flex min-h-0 flex-1 items-center justify-center px-5">
-          <div
-            className="max-w-[188px] text-center"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground/60">
-              <IconLock className="size-4" aria-hidden="true" />
-            </div>
-            <h3 className="text-[12px] font-semibold leading-snug text-foreground">
-              {t("designEditor.inspectorLockedTitle")}
-            </h3>
-            <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground/70">
-              {t("designEditor.inspectorLockedDescription")}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -6531,7 +6495,7 @@ export function EditPanel({
                     designId={designId}
                     fileId={fileId}
                     filename={filename}
-                    canEdit={!readOnly}
+                    canEdit={canEdit}
                   />
                 </section>
               </>

@@ -54,7 +54,8 @@ export function emptyBoardHtml(): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  body { margin: 0; position: relative; background: transparent; overflow: visible; }
+  html, body { background: transparent; }
+  body { margin: 0; position: relative; overflow: visible; }
 </style>
 </head>
 <body>

@@ -52,6 +52,8 @@ import {
   DesignCanvas,
   LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT,
   appendHitTestResponder,
+  type IframeContextMenuPayload,
+  type IframeHotkeyPayload,
 } from "./DesignCanvas";
 import {
   DEVICE_FRAME_VIEWPORTS,
@@ -90,7 +92,7 @@ interface ScreenFile {
 
 type ScreenSourceType = "localhost" | "fusion" | "inline";
 type ScreenPreviewState = "live" | "snapshot" | "preview";
-type MultiScreenCanvasTool =
+export type MultiScreenCanvasTool =
   | "move"
   | "frame"
   | "rect"
@@ -286,6 +288,22 @@ interface MultiScreenCanvasProps {
    * Called when the user hovers an element on the board surface.
    */
   onBoardElementHover?: (info: ElementInfo | null) => void;
+  onBoardElementClear?: () => void;
+  onBoardElementDblClickText?: (info: ElementInfo) => void;
+  onBoardIframeHotkey?: (event: IframeHotkeyPayload) => void;
+  onBoardIframeContextMenu?: (event: IframeContextMenuPayload) => void;
+  onBoardTextEditingStateChange?: (state: {
+    active: boolean;
+    selector?: string;
+    hasRange?: boolean;
+  }) => void;
+  boardClearSelectionRequest?: number;
+  boardSelectedSelector?: string | null;
+  boardSelectedSelectorCandidates?: string[];
+  boardHoveredSelector?: string | null;
+  boardHoveredSelectorCandidates?: string[];
+  boardLockedSelectors?: string[];
+  boardHiddenSelectors?: string[];
   /**
    * Called when a drag / reorder / reparent / drop-into-container or delete
    * occurs on a board element.  Target file is boardFileId.
@@ -401,6 +419,22 @@ export function isDirectScreenHoverTarget(
       ? (target as Element)
       : null;
   return !!element && !element.closest("[data-screen-content]");
+}
+
+export function shouldBoardSurfaceCapturePointerEvents(args: {
+  tool: MultiScreenCanvasTool;
+  gestureActive?: boolean;
+}) {
+  if (args.gestureActive) return false;
+  const tool = normalizeCanvasTool(args.tool);
+  return tool === "move" || tool === "scale";
+}
+
+export function hasBoardSurfaceContent(html: string | undefined) {
+  if (!html) return false;
+  const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  const content = bodyMatch?.[1] ?? html;
+  return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
 function getChromeHandleTransition(chromeSettling: boolean) {
@@ -685,6 +719,18 @@ export function MultiScreenCanvas({
   boardIsActive = false,
   onBoardElementSelect,
   onBoardElementHover,
+  onBoardElementClear,
+  onBoardElementDblClickText,
+  onBoardIframeHotkey,
+  onBoardIframeContextMenu,
+  onBoardTextEditingStateChange,
+  boardClearSelectionRequest,
+  boardSelectedSelector,
+  boardSelectedSelectorCandidates,
+  boardHoveredSelector,
+  boardHoveredSelectorCandidates,
+  boardLockedSelectors,
+  boardHiddenSelectors,
   onBoardVisualStructureChange,
   onBoardVisualStyleChange,
   onBoardVisualDuplicateChange,
@@ -3732,6 +3778,10 @@ export function MultiScreenCanvas({
   const penActive = effectiveTool === "pen";
   const creationToolActive = Boolean(getDraftCreationTool(effectiveTool));
   const canvasGestureActive = isDragging || isPanning;
+  const boardSurfaceInteractive = shouldBoardSurfaceCapturePointerEvents({
+    tool: effectiveTool,
+    gestureActive: canvasGestureActive,
+  });
   const displayedPenPath = penGesturePreview
     ? penGesturePreview
     : activePenPath && penPointer && activePenPath.nodes.length > 0
@@ -3839,6 +3889,7 @@ export function MultiScreenCanvas({
       >
         {boardFileId &&
           boardFileContent !== undefined &&
+          hasBoardSurfaceContent(boardFileContent) &&
           (() => {
             const boardGeo = boardFrameGeometry ?? {
               x: 0,
@@ -3849,11 +3900,13 @@ export function MultiScreenCanvas({
             // Clamp board canvas to the DesignCanvas max safe dimension.
             const boardW = Math.min(boardGeo.width, 16384);
             const boardH = Math.min(boardGeo.height, 16384);
+            const boardContentKey = `${boardFileId}:${boardFileContent.length}:${hashString(boardFileContent)}`;
             return (
               // Overflow-hidden wrapper so the board iframe never bleeds outside
               // its declared logical surface. z-index 0 keeps it below screen
               // iframes (which have their own stacking context above this).
               <div
+                className="[&_.design-canvas-iframe-wrapper]:shadow-none [&_.design-canvas-iframe-wrapper]:ring-0"
                 style={{
                   position: "absolute",
                   left: SURFACE_PADDING,
@@ -3861,18 +3914,42 @@ export function MultiScreenCanvas({
                   width: boardW,
                   height: boardH,
                   overflow: "hidden",
-                  pointerEvents: "auto",
+                  pointerEvents: boardSurfaceInteractive ? "auto" : "none",
+                  background: "transparent",
                   // Board sits behind all screen iframes.
                   zIndex: 0,
                 }}
               >
                 <DesignCanvas
                   content={boardFileContent}
-                  contentKey={boardFileId}
+                  contentKey={boardContentKey}
                   zoom={100}
                   deviceFrame="none"
+                  embeddedFrame={{
+                    viewportWidth: Math.max(1, Math.round(boardW)),
+                    viewportHeight: Math.max(1, Math.round(boardH)),
+                    displayWidth: Math.max(1, Math.round(boardW)),
+                    displayHeight: Math.max(1, Math.round(boardH)),
+                    fluid: true,
+                  }}
+                  editorChromeScaleX={canvasZoom / 100}
+                  editorChromeScaleY={canvasZoom / 100}
                   editMode={boardEditMode}
                   interactMode={false}
+                  scaleMode={boardIsActive && effectiveTool === "scale"}
+                  clearSelectionRequest={boardClearSelectionRequest}
+                  selectedSelector={
+                    boardIsActive ? (boardSelectedSelector ?? null) : null
+                  }
+                  selectedSelectorCandidates={
+                    boardIsActive ? (boardSelectedSelectorCandidates ?? []) : []
+                  }
+                  hoveredSelector={boardHoveredSelector ?? null}
+                  hoveredSelectorCandidates={
+                    boardHoveredSelectorCandidates ?? []
+                  }
+                  lockedSelectors={boardLockedSelectors ?? []}
+                  hiddenSelectors={boardHiddenSelectors ?? []}
                   // Board owns the global window runtime bridge only when it is
                   // the active surface (activeFileId === boardFileId). This is
                   // the XOR counterpart to the active screen's
@@ -3886,10 +3963,15 @@ export function MultiScreenCanvas({
                   registerRuntimeBridge={boardIsActive}
                   onElementSelect={onBoardElementSelect ?? (() => {})}
                   onElementHover={onBoardElementHover ?? (() => {})}
+                  onClearSelection={onBoardElementClear}
+                  onIframeHotkey={onBoardIframeHotkey}
+                  onIframeContextMenu={onBoardIframeContextMenu}
                   onVisualStructureChange={onBoardVisualStructureChange}
                   onVisualStyleChange={onBoardVisualStyleChange}
                   onVisualDuplicateChange={onBoardVisualDuplicateChange}
                   onTextContentChange={onBoardTextContentChange}
+                  onTextEditingStateChange={onBoardTextEditingStateChange}
+                  onElementDblClickText={onBoardElementDblClickText}
                   tweakValues={{}}
                 />
               </div>

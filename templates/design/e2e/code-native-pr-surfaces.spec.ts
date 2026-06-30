@@ -276,6 +276,23 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
   await page
     .getByRole("button", { name: "Collapse motion dock", exact: true })
     .click();
+  await expect
+    .poll(
+      async () => {
+        const [dockCount, launcherVisible, dockHeight] = await Promise.all([
+          page.locator('[aria-label="Motion dock"]').count(),
+          expandMotionDockButton.isVisible(),
+          page
+            .locator('[aria-label="Motion dock"]')
+            .first()
+            .evaluate((node) => (node as HTMLElement).style.height)
+            .catch(() => "missing"),
+        ]);
+        return dockCount === 1 && launcherVisible && dockHeight !== "0px";
+      },
+      { timeout: 150, intervals: [20, 20, 20, 20, 20] },
+    )
+    .toBe(true);
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
   await page
     .getByRole("button", { name: "Expand motion dock", exact: true })

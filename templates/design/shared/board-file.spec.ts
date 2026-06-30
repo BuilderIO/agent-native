@@ -55,6 +55,7 @@ describe("emptyBoardHtml", () => {
     expect(html).toContain("</body>");
     expect(html).toContain("margin: 0");
     expect(html).toContain("position: relative");
+    expect(html).toContain("html, body { background: transparent; }");
     expect(html).toContain("background: transparent");
     expect(html).toContain("overflow: visible");
   });

@@ -1,4 +1,4 @@
-import { useLocale } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -29,22 +29,20 @@ export const meta = () =>
 
 export default function ModulesPage() {
   const { locale } = useLocale();
+  const t = useT();
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-[1200px] overflow-x-clip px-4 py-20 sm:px-6">
       <div className="mb-12 text-center">
         <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-          Modular framework
+          {t("home.modules.pageEyebrow")}
         </p>
         <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-          Built-in modules for agentic apps
+          {t("home.modules.title")}
         </h1>
         <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          Agent-Native ships human-verified pieces for the production work
-          agents should not improvise from scratch. Use them as-is, inspect the
-          source, or replace the module when your product needs something
-          different.
+          {t("home.modules.pageBody")}
         </p>
       </div>
 
@@ -56,7 +54,7 @@ export default function ModulesPage() {
           to={localizedPath("/apps")}
           className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >
-          Browse apps built from modules
+          {t("home.modules.browseApps")}
           <span aria-hidden>→</span>
         </Link>
       </div>

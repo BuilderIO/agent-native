@@ -464,8 +464,6 @@ const messages = {
       dialogDescriptionFile:
         "描述您想在「{{file}}」中變更的內容。代理會先呼叫 view-screen，再透過程式碼編輯器套用編輯。",
     },
-    inspectorLockedTitle: "產生中，檢查器已鎖定",
-    inspectorLockedDescription: "第一個畫面準備好後即可使用控制項。",
   },
   layersPanel: {
     title: "圖層",
@@ -632,6 +630,7 @@ const messages = {
     newDesign: "新Design",
     newDesignLower: "新設計",
     createDesignProject: "建立一個設計專案",
+    openingDesign: "正在開啟設計...",
     describeBuild: "描述您想要建置的內容...",
     selected: "已選取 {{count}}",
     clearVisibleSelection: "清晰可見的選取",

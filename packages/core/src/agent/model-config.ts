@@ -140,7 +140,7 @@ export const AGENT_MODEL_CONFIG = {
     defaultModel: FRAMEWORK_DEFAULT_BUILDER_MODEL,
     supportedModels: [
       "auto",
-      "claude-opus-4-7",
+      "claude-opus-4-8",
       FRAMEWORK_DEFAULT_BUILDER_MODEL,
       "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,

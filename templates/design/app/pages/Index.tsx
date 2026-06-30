@@ -46,6 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
@@ -82,6 +83,7 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
@@ -268,8 +270,11 @@ export default function Index() {
         ...options,
       });
 
+      setNewDesignHandoffPending(true);
       setShowNewPrompt(false);
-      navigate(`/design/${id}`);
+      window.requestAnimationFrame(() => {
+        window.setTimeout(() => navigate(`/design/${id}`), 0);
+      });
     },
     [createDesign, navigate, newDesignSystemId, resolveDefaultDesignSystemId],
   );
@@ -401,15 +406,27 @@ export default function Index() {
           />
         </div>
       ) : null}
-      <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
-        <IconPlus className="w-3.5 h-3.5" />
-        {t("home.newDesign")}
+      <Button
+        size="sm"
+        onClick={openNewDesign}
+        disabled={newDesignHandoffPending}
+        className="cursor-pointer"
+      >
+        {newDesignHandoffPending ? (
+          <Spinner className="w-3.5 h-3.5" />
+        ) : (
+          <IconPlus className="w-3.5 h-3.5" />
+        )}
+        {newDesignHandoffPending
+          ? t("home.openingDesign")
+          : t("home.newDesign")}
       </Button>
     </div>,
   );
 
   return (
     <>
+      {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <main className="px-4 sm:px-6 py-6 sm:py-10">
         {isLoading ? (
           <LoadingSkeleton />
@@ -483,11 +500,16 @@ export default function Index() {
               {/* New design card */}
               <button
                 onClick={openNewDesign}
+                disabled={newDesignHandoffPending}
                 className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
               >
                 <div className="aspect-video flex items-center justify-center bg-muted/30">
                   <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                    <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                    {newDesignHandoffPending ? (
+                      <Spinner className="w-6 h-6 text-muted-foreground/70" />
+                    ) : (
+                      <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                    )}
                   </div>
                 </div>
                 <div className="p-4">
@@ -617,6 +639,7 @@ export default function Index() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={setNewDesignSystemId}
+        loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
           navigate("/design-systems/setup");
@@ -797,6 +820,22 @@ function DesignThumbnail({ html }: { html: string | null }) {
           pointerEvents: "none",
         }}
       />
+    </div>
+  );
+}
+
+function NewDesignHandoffOverlay() {
+  const t = useT();
+  return (
+    <div
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-background/70 backdrop-blur-sm"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 text-sm font-medium text-foreground shadow-lg">
+        <Spinner className="size-4 text-muted-foreground" />
+        {t("home.openingDesign")}
+      </div>
     </div>
   );
 }

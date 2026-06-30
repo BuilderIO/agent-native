@@ -1738,11 +1738,12 @@ function compactCodeLayerTreeNodes(
       nextAncestors,
     );
     const compactedNode: CodeLayerTreeNode = { ...node, children };
-    const promotedNodes =
-      isCollapsibleDocumentShellNode(compactedNode, nodesById) &&
-      children.length > 0
-        ? children
-        : [compactedNode];
+    const promotedNodes = isCollapsibleDocumentShellNode(
+      compactedNode,
+      nodesById,
+    )
+      ? children
+      : [compactedNode];
 
     for (const promotedNode of promotedNodes) {
       if (siblingIds.has(promotedNode.id)) continue;

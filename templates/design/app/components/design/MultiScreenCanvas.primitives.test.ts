@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   getPrimitiveDropTargetForPoint,
+  hasBoardSurfaceContent,
   ParsedScreenPrimitive,
   primitiveLocalToBoardRect,
   primitiveParseCache,
   resolveNodeScreenId,
+  shouldBoardSurfaceCapturePointerEvents,
   type FrameGeometry,
 } from "./MultiScreenCanvas";
 
@@ -65,6 +67,51 @@ function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
 // ---------------------------------------------------------------------------
 beforeEach(() => {
   primitiveParseCache.clear();
+});
+
+describe("board surface pointer capture", () => {
+  it("treats empty board documents as having no surface content", () => {
+    expect(
+      hasBoardSurfaceContent(
+        `<!doctype html><html><head><style>body{margin:0}</style></head><body>
+        </body></html>`,
+      ),
+    ).toBe(false);
+    expect(
+      hasBoardSurfaceContent(
+        `<!doctype html><html><body><div data-agent-native-node-id="shape"></div></body></html>`,
+      ),
+    ).toBe(true);
+  });
+
+  it("captures only direct board edit tools", () => {
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "move" })).toBe(true);
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "scale" })).toBe(
+      true,
+    );
+    expect(
+      shouldBoardSurfaceCapturePointerEvents({
+        tool: "move",
+        gestureActive: true,
+      }),
+    ).toBe(false);
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "hand" })).toBe(
+      false,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "rect" })).toBe(
+      false,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "rectangle" })).toBe(
+      false,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "pen" })).toBe(false);
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "comment" })).toBe(
+      false,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "draw" })).toBe(
+      false,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

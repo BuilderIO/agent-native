@@ -409,9 +409,9 @@ export function MotionDock({
         "flex flex-col overflow-hidden border-t bg-background transition-[height,opacity,transform,border-color] duration-200 ease-out select-none will-change-transform",
         isOpen
           ? "translate-y-0 border-border opacity-100"
-          : "translate-y-full border-transparent opacity-0 pointer-events-none",
+          : "translate-y-full border-transparent opacity-100 pointer-events-none",
       )}
-      style={{ height: isOpen ? dockHeight : 0 }}
+      style={{ height: dockHeight }}
     >
       {/* Resize handle */}
       <div

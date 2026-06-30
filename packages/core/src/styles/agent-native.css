@@ -526,6 +526,57 @@
   }
 }
 
+/* Guided questions size themselves from the rendered container, not viewport
+   breakpoints, so they stay readable in narrow chat sidebars. */
+.guided-question-flow {
+  container-type: inline-size;
+  container-name: guided-question-flow;
+}
+
+.guided-question-flow-options {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container guided-question-flow (min-width: 42rem) {
+  .guided-question-flow-inner {
+    padding: 2rem;
+  }
+
+  .guided-question-flow-header {
+    margin-bottom: 1.5rem;
+  }
+
+  .guided-question-flow-title {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+
+  .guided-question-flow-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guided-question-flow-footer {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+  }
+}
+
+@container guided-question-flow (max-width: 24rem) {
+  .guided-question-flow-description {
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+
+  .guided-question-flow-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guided-question-flow-footer > :last-child {
+    justify-content: flex-end;
+  }
+}
+
 /* Connect AI card: use the card width, not the viewport, so narrow embedded
    sidebars stack the copy and actions before the secondary button clips. */
 .agent-builder-setup-card {

@@ -148,7 +148,7 @@ describe("readAgentAppModelDefaultSettings", () => {
   it("reads user scope when no org and normalizes the appId casing for the key", async () => {
     userStore.set(userK("a@b.com", agentAppModelDefaultSettingsKey("mail")), {
       engine: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
     const s = await readAgentAppModelDefaultSettings(
       { userEmail: "a@b.com" },
@@ -213,7 +213,7 @@ describe("writeAgentAppModelDefaultSettings", () => {
   it("omits updatedBy when not supplied", async () => {
     await writeAgentAppModelDefaultSettings({ userEmail: "a@b.com" }, "mail", {
       engine: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
     const stored = userStore.get(
       userK("a@b.com", agentAppModelDefaultSettingsKey("mail")),

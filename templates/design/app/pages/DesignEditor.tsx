@@ -507,13 +507,20 @@ function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
   return typeof update === "function" ? update(current) : update;
 }
 
-export function shouldLockInspectorForInitialGeneration(args: {
+export function shouldLimitEditorChromeUntilContentReady(args: {
   fileCount: number;
+  hasActiveCanvasContent: boolean;
   generating: boolean;
   pendingGenerationActive: boolean;
 }) {
-  const { fileCount, generating, pendingGenerationActive } = args;
-  return fileCount === 0 && (generating || pendingGenerationActive);
+  const {
+    fileCount,
+    generating,
+    hasActiveCanvasContent,
+    pendingGenerationActive,
+  } = args;
+  if (fileCount === 0) return true;
+  return !hasActiveCanvasContent && (generating || pendingGenerationActive);
 }
 
 export function shouldEscapeToOverview(args: {
@@ -2700,6 +2707,13 @@ function AgentNativeMenuMark({ className }: { className?: string }) {
 
 type DesignLeftPanel = "file" | "agent" | "assets" | "tools" | "tokens";
 
+const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
+  "file",
+  "assets",
+  "tools",
+  "tokens",
+]);
+
 function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
   if (value === "extensions") return "tools";
   return value === "file" ||
@@ -2713,10 +2727,12 @@ function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
 
 function DesignWorkspaceRail({
   activePanel,
+  disabledPanels,
   projectMenu,
   onPanelChange,
 }: {
   activePanel: DesignLeftPanel;
+  disabledPanels?: ReadonlySet<DesignLeftPanel>;
   projectMenu: ReactNode;
   onPanelChange: (panel: DesignLeftPanel) => void;
 }) {
@@ -2765,16 +2781,27 @@ function DesignWorkspaceRail({
       <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
         {items.map((item) => {
           const active = item.panel === activePanel;
+          const disabled = disabledPanels?.has(item.panel) ?? false;
           return (
             <Tooltip key={item.panel}>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   aria-label={item.label}
+                  aria-disabled={disabled || undefined}
                   aria-current={active ? "page" : undefined}
-                  onClick={() => onPanelChange(item.panel)}
+                  tabIndex={disabled ? -1 : undefined}
+                  onClick={(event) => {
+                    if (disabled) {
+                      event.preventDefault();
+                      return;
+                    }
+                    onPanelChange(item.panel);
+                  }}
                   className={cn(
                     "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1.5 rounded-none text-[10px] font-medium leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    disabled &&
+                      "cursor-default opacity-35 hover:text-muted-foreground",
                     active && "text-foreground",
                   )}
                 >
@@ -2784,6 +2811,8 @@ function DesignWorkspaceRail({
                       active
                         ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
                         : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                      disabled &&
+                        "group-hover:bg-transparent group-hover:text-muted-foreground",
                     )}
                   >
                     {item.icon}
@@ -5397,12 +5426,6 @@ export default function DesignEditor() {
     setReviewAuditLoading(false);
   }, [activeFile?.id, reviewFileId]);
 
-  const initialGenerationReadOnly = shouldLockInspectorForInitialGeneration({
-    fileCount: files.length,
-    generating,
-    pendingGenerationActive,
-  });
-
   const selectedScreenIds = useMemo(
     () =>
       getSelectedScreenIdsForEditorState({
@@ -6498,9 +6521,20 @@ export default function DesignEditor() {
       : (activeFile?.content ?? ""));
   const activeContent =
     typeof activeContentSource === "string" ? activeContentSource : "";
+  const initialGenerationChromeLimited =
+    shouldLimitEditorChromeUntilContentReady({
+      fileCount: files.length,
+      generating,
+      hasActiveCanvasContent: Boolean(activeFile && activeContent.trim()),
+      pendingGenerationActive,
+    });
   useLayoutEffect(() => {
     latestActiveContentRef.current = activeContent;
   }, [activeContent]);
+  useEffect(() => {
+    if (!initialGenerationChromeLimited || activeLeftPanel === "agent") return;
+    setActiveLeftPanel("agent");
+  }, [activeLeftPanel, initialGenerationChromeLimited]);
   const fileContentById = useMemo(() => {
     const map = new Map<string, string>();
     for (const file of files) {
@@ -7361,7 +7395,7 @@ export default function DesignEditor() {
   );
 
   const handlePrimitiveCreated = useCallback(
-    (screenId: string, nodeId: string) => {
+    (screenId: string, nodeId: string, options?: { selectFrame?: boolean }) => {
       // B2/B4 fix: stay in overview mode after drawing a primitive.  The user
       // drew a shape on the board — they should remain on the board with the
       // new primitive selected, matching Figma behaviour.  We activate the
@@ -7376,7 +7410,9 @@ export default function DesignEditor() {
         setSelectedElement(null);
         setHoveredElement(null);
         setSelectedLayerIdsState([nodeId]);
-        setOverviewSelectedScreenIds([screenId]);
+        setOverviewSelectedScreenIds(
+          options?.selectFrame === false ? [] : [screenId],
+        );
         setActiveTool("move");
         setMode("edit");
       });
@@ -7393,7 +7429,7 @@ export default function DesignEditor() {
         scheduleBeginTextEditForScreen(screenId, textNodeId);
       }
     },
-    [clearPendingOverviewLayerSelectionTimer],
+    [clearPendingOverviewLayerSelectionTimer, scheduleBeginTextEditForScreen],
   );
 
   /**
@@ -7407,33 +7443,14 @@ export default function DesignEditor() {
       if (!boardFileId || !canEditDesign) return false;
       const result = handleCreatePrimitive(boardFileId, primitive);
       if (!result) return false;
-
-      // Make the board the active surface so it owns the global runtime bridge
-      // before any begin-text-edit fires — mirroring the in-screen
-      // handlePrimitiveCreated, which flushSyncs setActiveFileId(screenId)
-      // before begin-text-edit.  Without this, the FIRST text drawn on a board
-      // that is not yet active misses immediate editing because
-      // window.__designCanvasBeginTextEdit is unregistered (or owned by a
-      // screen) at the moment the timeout runs.
-      flushSync(() => {
-        setActiveFileId(boardFileId);
-      });
-
-      // For TEXT primitives drawn on the board surface, immediately enter
-      // text-editing mode via begin-text-edit. The target is the board file,
-      // so use the same iframe-targeted retry path as screen primitives.
-      if (primitive.kind === "text") {
-        const textNodeId =
-          pendingTextEditNodeIdRef.current ?? primitive.nodeId ?? null;
-        pendingTextEditNodeIdRef.current = null;
-        if (textNodeId) {
-          scheduleBeginTextEditForScreen(boardFileId, textNodeId);
-        }
+      const nodeId = typeof result === "string" ? result : primitive.nodeId;
+      if (nodeId) {
+        handlePrimitiveCreated(boardFileId, nodeId, { selectFrame: false });
       }
 
       return result;
     },
-    [boardFileId, canEditDesign, handleCreatePrimitive, setActiveFileId],
+    [boardFileId, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
   );
 
   const handleOverviewScreenSelectionChange = useCallback(
@@ -13748,7 +13765,7 @@ ${serializedHtml}
   );
 
   const leftContentWidth = Math.max(leftSidebarWidth, 320);
-  const motionDockLauncherHidden = motionDockMounted || motionDockOpen;
+  const motionDockLauncherHidden = motionDockOpen;
   const motionDockLauncher =
     !embedded && activeFile ? (
       <div
@@ -14176,6 +14193,11 @@ ${serializedHtml}
           <div className="relative flex min-h-0 shrink-0 border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]">
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
+              disabledPanels={
+                initialGenerationChromeLimited
+                  ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
+                  : undefined
+              }
               projectMenu={projectMenu}
               onPanelChange={setActiveLeftPanel}
             />
@@ -14515,6 +14537,43 @@ ${serializedHtml}
                       boardIsActive={activeFileId === boardFileId}
                       boardFileContent={boardFileContent}
                       boardFrameGeometry={boardFrameGeometry}
+                      boardClearSelectionRequest={overviewClearSelectionRequest}
+                      boardSelectedSelector={
+                        activeFileId === boardFileId
+                          ? selectedCanvasSelector
+                          : null
+                      }
+                      boardSelectedSelectorCandidates={
+                        activeFileId === boardFileId
+                          ? selectedCanvasSelectorCandidates
+                          : []
+                      }
+                      boardHoveredSelector={
+                        hoveredElementScreenId === boardFileId
+                          ? hoveredCanvasSelector
+                          : null
+                      }
+                      boardHoveredSelectorCandidates={
+                        hoveredElementScreenId === boardFileId
+                          ? hoveredCanvasSelectorCandidates
+                          : []
+                      }
+                      boardLockedSelectors={
+                        boardFileId
+                          ? getLayerSelectorsForFile(
+                              boardFileId,
+                              lockedLayerIds,
+                            )
+                          : []
+                      }
+                      boardHiddenSelectors={
+                        boardFileId
+                          ? getLayerSelectorsForFile(
+                              boardFileId,
+                              hiddenLayerIds,
+                            )
+                          : []
+                      }
                       onBoardDrawPrimitive={
                         canEditDesign ? handleBoardDrawPrimitive : undefined
                       }
@@ -14529,6 +14588,20 @@ ${serializedHtml}
                         boardFileId
                           ? (info) =>
                               handleScreenElementHover(boardFileId, info)
+                          : undefined
+                      }
+                      onBoardElementClear={
+                        boardFileId
+                          ? () => handleScreenElementClear(boardFileId)
+                          : undefined
+                      }
+                      onBoardIframeHotkey={handleIframeHotkey}
+                      onBoardIframeContextMenu={handleIframeContextMenu}
+                      onBoardTextEditingStateChange={setTextEditingState}
+                      onBoardElementDblClickText={
+                        boardFileId
+                          ? (info) =>
+                              handleScreenElementDblClickText(boardFileId, info)
                           : undefined
                       }
                       onBoardVisualStyleChange={
@@ -14961,7 +15034,7 @@ ${serializedHtml}
         )}
 
         {/* Right rail */}
-        {!embedded ? (
+        {!embedded && !initialGenerationChromeLimited ? (
           <div
             className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]"
             style={{ width: rightSidebarWidth }}
@@ -14986,7 +15059,7 @@ ${serializedHtml}
                   onActiveTabChange={setActiveInspectorTab}
                   tweaks={tweaks}
                   tweakValues={tweakSelections}
-                  readOnly={initialGenerationReadOnly}
+                  canEdit={canEditDesign}
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFile?.updatedAt ?? null}
                   onComponentPropApplied={handleComponentPropApplied}

@@ -3137,6 +3137,7 @@ export async function runAgentLoop(opts: {
         send({
           type: "tool_done",
           tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
           result,
           completedSideEffect: false,
         });
@@ -3160,6 +3161,7 @@ export async function runAgentLoop(opts: {
         send({
           type: "tool_done",
           tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
           result,
           completedSideEffect: false,
         });
@@ -3185,6 +3187,7 @@ export async function runAgentLoop(opts: {
         send({
           type: "tool_done",
           tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
           result,
           isError: true,
           completedSideEffect: false,
@@ -3266,6 +3269,7 @@ export async function runAgentLoop(opts: {
           send({
             type: "tool_done",
             tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
             result,
             completedSideEffect: false,
           });
@@ -3304,6 +3308,7 @@ export async function runAgentLoop(opts: {
         send({
           type: "tool_done",
           tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
           result,
           completedSideEffect: false,
         });
@@ -3367,6 +3372,7 @@ export async function runAgentLoop(opts: {
           send({
             type: "tool_done",
             tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
             result,
             completedSideEffect: false,
           });
@@ -3420,6 +3426,7 @@ export async function runAgentLoop(opts: {
             send({
               type: "tool_done",
               tool: toolCall.name,
+              input: toolCall.input as Record<string, unknown>,
               result,
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
@@ -3447,6 +3454,7 @@ export async function runAgentLoop(opts: {
           send({
             type: "tool_done",
             tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
             result,
             isError: true,
             completedSideEffect: false,
@@ -3507,6 +3515,7 @@ export async function runAgentLoop(opts: {
         send({
           type: "tool_done",
           tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
           result,
           isError: true,
           completedSideEffect: false,
@@ -3537,6 +3546,7 @@ export async function runAgentLoop(opts: {
         send({
           type: "tool_done",
           tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
           result,
           isError: true,
           completedSideEffect: false,
@@ -3560,6 +3570,7 @@ export async function runAgentLoop(opts: {
         send({
           type: "tool_done",
           tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
           result,
           isError: true,
           completedSideEffect: false,
@@ -3784,6 +3795,7 @@ export async function runAgentLoop(opts: {
       send({
         type: "tool_done",
         tool: toolCall.name,
+        input: toolCall.input as Record<string, unknown>,
         result,
         ...(isError ? { isError: true } : {}),
         ...(isError ? { completedSideEffect: false } : {}),

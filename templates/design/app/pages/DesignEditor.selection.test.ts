@@ -25,7 +25,7 @@ import {
   isScreenRootElementInfo,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
-  shouldLockInspectorForInitialGeneration,
+  shouldLimitEditorChromeUntilContentReady,
   shouldEscapeToOverview,
   sortCodeLayerIdsByTreeOrder,
 } from "./DesignEditor";
@@ -469,25 +469,36 @@ describe("DesignEditor escape semantics", () => {
   });
 });
 
-describe("DesignEditor initial generation inspector lock", () => {
-  it("locks the inspector only while an empty design is generating", () => {
+describe("DesignEditor initial generation chrome", () => {
+  it("limits editor chrome until generated content is ready", () => {
     expect(
-      shouldLockInspectorForInitialGeneration({
+      shouldLimitEditorChromeUntilContentReady({
         fileCount: 0,
+        hasActiveCanvasContent: false,
         generating: true,
         pendingGenerationActive: false,
       }),
     ).toBe(true);
     expect(
-      shouldLockInspectorForInitialGeneration({
+      shouldLimitEditorChromeUntilContentReady({
         fileCount: 0,
+        hasActiveCanvasContent: false,
+        generating: false,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldLimitEditorChromeUntilContentReady({
+        fileCount: 1,
+        hasActiveCanvasContent: false,
         generating: false,
         pendingGenerationActive: true,
       }),
     ).toBe(true);
     expect(
-      shouldLockInspectorForInitialGeneration({
+      shouldLimitEditorChromeUntilContentReady({
         fileCount: 1,
+        hasActiveCanvasContent: true,
         generating: true,
         pendingGenerationActive: true,
       }),

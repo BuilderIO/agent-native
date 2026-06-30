@@ -333,6 +333,13 @@ describe("code-layer projection", () => {
     expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
   });
 
+  it("omits empty unnamed document shell rows from the layer tree", () => {
+    const html = `<!doctype html><html><head></head><body></body></html>`;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+
+    expect(tree).toEqual([]);
+  });
+
   it("keeps explicitly named document shell rows in the layer tree", () => {
     const html = `
       <!doctype html>

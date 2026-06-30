@@ -3525,27 +3525,25 @@ const AssistantChatInner = forwardRef<
                   </div>
                 ) : null}
                 {guidedQuestions && guidedQuestions.length > 0 && (
-                  <div className="shrink-0 px-3 pb-2 pt-1">
-                    <div className="rounded-lg border border-border bg-card/60 shadow-sm">
-                      <GuidedQuestionFlow
-                        questions={guidedQuestions}
-                        onSubmit={handleGuidedQuestionsSubmit}
-                        onSkip={handleGuidedQuestionsSkip}
-                        {...(guidedQuestionsTitle
-                          ? { title: guidedQuestionsTitle }
-                          : {})}
-                        {...(guidedQuestionsDescription
-                          ? { description: guidedQuestionsDescription }
-                          : {})}
-                        {...(guidedQuestionsSkipLabel
-                          ? { skipLabel: guidedQuestionsSkipLabel }
-                          : {})}
-                        {...(guidedQuestionsSubmitLabel
-                          ? { submitLabel: guidedQuestionsSubmitLabel }
-                          : {})}
-                        className="h-auto items-stretch justify-stretch bg-transparent"
-                      />
-                    </div>
+                  <div className="shrink-0 px-3 pb-2">
+                    <GuidedQuestionFlow
+                      questions={guidedQuestions}
+                      onSubmit={handleGuidedQuestionsSubmit}
+                      onSkip={handleGuidedQuestionsSkip}
+                      {...(guidedQuestionsTitle
+                        ? { title: guidedQuestionsTitle }
+                        : {})}
+                      {...(guidedQuestionsDescription
+                        ? { description: guidedQuestionsDescription }
+                        : {})}
+                      {...(guidedQuestionsSkipLabel
+                        ? { skipLabel: guidedQuestionsSkipLabel }
+                        : {})}
+                      {...(guidedQuestionsSubmitLabel
+                        ? { submitLabel: guidedQuestionsSubmitLabel }
+                        : {})}
+                      className="h-auto items-stretch justify-stretch bg-transparent"
+                    />
                   </div>
                 )}
                 {showPlanModeCallout && (

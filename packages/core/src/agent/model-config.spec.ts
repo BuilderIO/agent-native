@@ -93,22 +93,20 @@ describe("agent model config catalog", () => {
     );
   });
 
-  it("includes claude-opus-4-8 in direct Anthropic catalogs", () => {
+  it("includes claude-opus-4-8 in current Anthropic catalogs", () => {
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
     expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
       "claude-opus-4-8",
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
-      "claude-opus-4-8",
-    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
   });
 
   it("keeps the Builder catalog aligned to the gateway allow-list", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("auto");
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-sonnet-5");
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-7");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
-      "claude-opus-4-8",
+      "claude-opus-4-7",
     );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("z-ai-glm-4-5");
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
