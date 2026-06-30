@@ -37,3 +37,93 @@ templates/clips/app/i18n/pt-BR|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/pt-BR|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/zh-CN|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/zh-TW|sharePage.agentNativeClips|Agent-Native Clips
+templates/design/app/i18n/ar-SA|designEditor.askAgent|Ask agent
+templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/ar-SA|designEditor.tokens.add|Add token
+templates/design/app/i18n/ar-SA|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/ar-SA|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/ar-SA|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/ar-SA|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/ar-SA|designEditor.tokens.newToken|New token
+templates/design/app/i18n/ar-SA|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/de-DE|designEditor.askAgent|Ask agent
+templates/design/app/i18n/de-DE|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/de-DE|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/de-DE|designEditor.tokens.add|Add token
+templates/design/app/i18n/de-DE|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/de-DE|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/de-DE|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/de-DE|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/de-DE|designEditor.tokens.newToken|New token
+templates/design/app/i18n/de-DE|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/es-ES|designEditor.askAgent|Ask agent
+templates/design/app/i18n/es-ES|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/es-ES|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/es-ES|designEditor.tokens.add|Add token
+templates/design/app/i18n/es-ES|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/es-ES|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/es-ES|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/es-ES|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/es-ES|designEditor.tokens.newToken|New token
+templates/design/app/i18n/es-ES|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/fr-FR|designEditor.askAgent|Ask agent
+templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/fr-FR|designEditor.tokens.add|Add token
+templates/design/app/i18n/fr-FR|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/fr-FR|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/fr-FR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/fr-FR|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/fr-FR|designEditor.tokens.newToken|New token
+templates/design/app/i18n/fr-FR|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/hi-IN|designEditor.askAgent|Ask agent
+templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/hi-IN|designEditor.tokens.add|Add token
+templates/design/app/i18n/hi-IN|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/hi-IN|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/hi-IN|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/hi-IN|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/hi-IN|designEditor.tokens.newToken|New token
+templates/design/app/i18n/hi-IN|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/ja-JP|designEditor.askAgent|Ask agent
+templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/ja-JP|designEditor.tokens.add|Add token
+templates/design/app/i18n/ja-JP|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/ja-JP|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/ja-JP|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/ja-JP|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/ja-JP|designEditor.tokens.newToken|New token
+templates/design/app/i18n/ja-JP|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/ko-KR|designEditor.askAgent|Ask agent
+templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/ko-KR|designEditor.tokens.add|Add token
+templates/design/app/i18n/ko-KR|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/ko-KR|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/ko-KR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/ko-KR|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/ko-KR|designEditor.tokens.newToken|New token
+templates/design/app/i18n/ko-KR|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/pt-BR|designEditor.askAgent|Ask agent
+templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/pt-BR|designEditor.tokens.add|Add token
+templates/design/app/i18n/pt-BR|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/pt-BR|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/pt-BR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/pt-BR|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/pt-BR|designEditor.tokens.newToken|New token
+templates/design/app/i18n/pt-BR|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/zh-CN|designEditor.askAgent|Ask agent
+templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreateFailed|Could not create component
+templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreated|Component created
+templates/design/app/i18n/zh-CN|designEditor.tokens.add|Add token
+templates/design/app/i18n/zh-CN|designEditor.tokens.applying|Applying…
+templates/design/app/i18n/zh-CN|designEditor.tokens.cssVar|CSS variable
+templates/design/app/i18n/zh-CN|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
+templates/design/app/i18n/zh-CN|designEditor.tokens.empty|No tokens yet
+templates/design/app/i18n/zh-CN|designEditor.tokens.newToken|New token
+templates/design/app/i18n/zh-CN|designEditor.tokens.refresh|Refresh tokens

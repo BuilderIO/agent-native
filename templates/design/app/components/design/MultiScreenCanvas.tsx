@@ -32,7 +32,7 @@ import {
   type PenNode,
   type PenPath,
 } from "@shared/pen-path";
-import { IconCopy, IconMaximize } from "@tabler/icons-react";
+import { IconCopy, IconMaximize, IconPlus } from "@tabler/icons-react";
 import {
   memo,
   useRef,
@@ -64,6 +64,14 @@ interface ScreenFile {
   height?: number;
   url?: string;
   previewUrl?: string;
+  /**
+   * When set, renders multiple side-by-side breakpoint frames (mobile-first,
+   * §6.4). Each entry is a pixel width; the active breakpoint determines the
+   * edit scope (Tailwind prefix: base / md: / lg: / xl:).
+   */
+  breakpointWidths?: number[];
+  /** Id of the currently active breakpoint frame for this screen. */
+  activeBreakpointWidth?: number;
 }
 
 type ScreenSourceType = "localhost" | "fusion" | "inline";
@@ -169,6 +177,19 @@ interface MultiScreenCanvasProps {
   onScreenSelectionChange?: (ids: string[]) => void;
   selectAllRequest?: number;
   clearSelectionRequest?: number;
+  /**
+   * Called when the user clicks the + affordance on a screen's breakpoint
+   * row to add the next standard breakpoint width (390 / 768 / 1280).
+   */
+  onAddBreakpoint?: (screenId: string, widthPx: number) => void;
+  /**
+   * Called when the user clicks a breakpoint frame header to make it the
+   * active edit scope.
+   */
+  onActiveBreakpointChange?: (
+    screenId: string,
+    widthPx: number | undefined,
+  ) => void;
   onSelectionChange?: (selectedIds: string[]) => void;
 }
 
@@ -506,6 +527,8 @@ export function MultiScreenCanvas({
   onScreenSelectionChange,
   selectAllRequest,
   clearSelectionRequest,
+  onAddBreakpoint,
+  onActiveBreakpointChange,
   onSelectionChange,
 }: MultiScreenCanvasProps) {
   const t = useT();
@@ -3081,6 +3104,16 @@ export function MultiScreenCanvas({
               onStartResize={beginResize}
               onStartRotate={beginRotate}
               onStartDuplicateGesture={beginDuplicateGesture}
+              onAddBreakpoint={
+                onAddBreakpoint
+                  ? (widthPx) => onAddBreakpoint(screen.id, widthPx)
+                  : undefined
+              }
+              onActiveBreakpointChange={
+                onActiveBreakpointChange
+                  ? (widthPx) => onActiveBreakpointChange(screen.id, widthPx)
+                  : undefined
+              }
             />
           );
         })}
@@ -3567,6 +3600,21 @@ function isPoint(point: Point | undefined): point is Point {
   return !!point;
 }
 
+/** Standard Tailwind breakpoint widths, mobile-first (base / md: / lg: / xl:). */
+const STANDARD_BREAKPOINT_WIDTHS = [390, 768, 1280] as const;
+
+/** Derive the Tailwind prefix for a given frame width. */
+function breakpointLabel(widthPx: number): string {
+  if (widthPx <= 640) return "Mobile";
+  if (widthPx <= 1024) return "Tablet";
+  return "Desktop";
+}
+
+/** Suggest the next standard breakpoint not yet in the set. */
+function nextBreakpointWidth(existing: number[]): number | undefined {
+  return STANDARD_BREAKPOINT_WIDTHS.find((w) => !existing.includes(w));
+}
+
 interface ScreenProps {
   screen: ScreenFile;
   metadata: ResolvedScreenMetadata;
@@ -3597,6 +3645,8 @@ interface ScreenProps {
     display: string,
     e: React.MouseEvent<HTMLElement>,
   ) => void;
+  onAddBreakpoint?: (widthPx: number) => void;
+  onActiveBreakpointChange?: (widthPx: number | undefined) => void;
 }
 
 const Screen = memo(function Screen({
@@ -3621,6 +3671,8 @@ const Screen = memo(function Screen({
   onStartRotate,
   onStartDuplicateGesture,
   screenContent,
+  onAddBreakpoint,
+  onActiveBreakpointChange,
 }: ScreenProps) {
   const t = useT();
   const display = metadata.title ?? prettyScreenName(screen.filename);
@@ -3942,6 +3994,25 @@ const Screen = memo(function Screen({
           onStartRotate={(e) => onStartRotate(screen.id, e)}
         />
       </div>
+
+      {/* Multi-breakpoint preview row (§6.4 — Framer/Figma-Sites style).
+          Rendered as a sibling row to the right of the primary frame when
+          the screen has breakpointWidths set. Each frame shares the same
+          srcdoc content at a different viewport width. The active breakpoint
+          is highlighted and clicking a frame header sets the edit scope. */}
+      {screen.breakpointWidths && screen.breakpointWidths.length > 0 ? (
+        <BreakpointPreviewRow
+          screen={screen}
+          primaryGeometry={geometry}
+          previewUrl={previewUrl}
+          activeBreakpointWidth={screen.activeBreakpointWidth}
+          penActive={penActive}
+          creationToolActive={creationToolActive}
+          chromeScale={chromeScale}
+          onActiveBreakpointChange={onActiveBreakpointChange}
+          onAddBreakpoint={onAddBreakpoint}
+        />
+      ) : null}
     </div>
   );
 }, areScreenPropsEqual);
@@ -3969,6 +4040,174 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.onStartResize === next.onStartResize &&
     prev.onStartRotate === next.onStartRotate &&
     prev.onStartDuplicateGesture === next.onStartDuplicateGesture
+  );
+}
+
+// ── Breakpoint preview row (§6.4) ────────────────────────────────────────────
+
+/** Gap between adjacent breakpoint frames in canvas pixels. */
+const BREAKPOINT_FRAME_GAP = 24;
+
+function BreakpointPreviewRow({
+  screen,
+  primaryGeometry,
+  previewUrl,
+  activeBreakpointWidth,
+  penActive,
+  creationToolActive,
+  chromeScale,
+  onActiveBreakpointChange,
+  onAddBreakpoint,
+}: {
+  screen: ScreenFile;
+  primaryGeometry: FrameGeometry;
+  previewUrl: string | undefined;
+  activeBreakpointWidth: number | undefined;
+  penActive: boolean;
+  creationToolActive: boolean;
+  chromeScale: number;
+  onActiveBreakpointChange?: (widthPx: number | undefined) => void;
+  onAddBreakpoint?: (widthPx: number) => void;
+}) {
+  const breakpointWidths = screen.breakpointWidths ?? [];
+  // Scale factor used to shrink additional frames to match the primary frame height
+  const scaleY = primaryGeometry.height / (primaryGeometry.width || 1);
+  // Place additional frames to the right of the primary, starting after the gap
+  let offsetX = primaryGeometry.width + BREAKPOINT_FRAME_GAP;
+
+  const nextWidth = nextBreakpointWidth(breakpointWidths);
+
+  return (
+    <>
+      {breakpointWidths.map((widthPx) => {
+        // Scale the additional frame proportionally (same height as primary)
+        const frameWidth = Math.round(widthPx * scaleY);
+        const frameHeight = primaryGeometry.height;
+        const isActive = activeBreakpointWidth === widthPx;
+        const currentOffsetX = offsetX;
+        offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
+
+        return (
+          <div
+            key={widthPx}
+            data-frame-shell
+            data-breakpoint-frame
+            className="pointer-events-auto absolute"
+            // Positioned relative to the parent Screen wrapper, which is already
+            // absolute at left: SURFACE_PADDING + geometry.x / top:
+            // SURFACE_PADDING + geometry.y - FRAME_LABEL_HEIGHT. Re-adding those
+            // surface/primary terms here would double-offset every breakpoint
+            // frame (~240px+ down-right), so we offset only within the wrapper.
+            style={{
+              left: currentOffsetX,
+              top: -FRAME_LABEL_HEIGHT,
+              width: frameWidth,
+              zIndex: primaryGeometry.z,
+            }}
+          >
+            {/* Frame label row */}
+            <div
+              className={cn(
+                "flex h-7 w-full items-center justify-between gap-1 px-1 cursor-pointer select-none",
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                onActiveBreakpointChange?.(isActive ? undefined : widthPx);
+              }}
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    isActive
+                      ? "bg-[var(--design-editor-accent-color)]"
+                      : "bg-muted-foreground/40",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "truncate text-[11px] font-medium",
+                    isActive
+                      ? "text-[var(--design-editor-accent-color)]"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {breakpointLabel(widthPx)}
+                </span>
+                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50">
+                  {widthPx}px
+                </span>
+              </div>
+            </div>
+            {/* Frame card */}
+            <div
+              className={cn(
+                "relative block overflow-hidden rounded-lg border bg-white shadow-lg transition-colors",
+                isActive
+                  ? "border-[var(--design-editor-accent-color)]"
+                  : "border-border",
+              )}
+              style={{ width: frameWidth, height: frameHeight }}
+            >
+              <iframe
+                src={previewUrl}
+                srcDoc={previewUrl ? undefined : screen.content}
+                sandbox="allow-scripts"
+                loading="lazy"
+                className="pointer-events-none border-0"
+                style={{
+                  width: widthPx,
+                  height: Math.round(
+                    widthPx * (primaryGeometry.height / primaryGeometry.width),
+                  ),
+                  transform: `scale(${frameWidth / widthPx}, ${frameHeight / Math.round(widthPx * (primaryGeometry.height / primaryGeometry.width))})`,
+                  transformOrigin: "top left",
+                }}
+                title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
+              />
+              {creationToolActive || penActive ? (
+                <span className="absolute inset-0 z-20 cursor-crosshair" />
+              ) : null}
+              <span className="pointer-events-none absolute inset-0 rounded-[7px] border border-black/5" />
+            </div>
+          </div>
+        );
+      })}
+
+      {/* + affordance: add the next standard breakpoint */}
+      {onAddBreakpoint && nextWidth !== undefined ? (
+        <div
+          className="pointer-events-auto absolute flex items-center"
+          // Same wrapper-relative coordinate space as the breakpoint frames
+          // above — no SURFACE_PADDING / primaryGeometry.x/y terms or it would
+          // double-offset.
+          style={{
+            left: offsetX,
+            top: -FRAME_LABEL_HEIGHT + primaryGeometry.height / 2,
+            zIndex: primaryGeometry.z,
+          }}
+        >
+          <button
+            type="button"
+            className={cn(
+              "flex size-7 items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-sm transition-colors",
+              "hover:border-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+            )}
+            style={{
+              transform: `scale(${chromeScale})`,
+              transformOrigin: "center",
+            }}
+            title={`Add ${breakpointLabel(nextWidth)} breakpoint (${nextWidth}px)`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddBreakpoint(nextWidth);
+            }}
+          >
+            <IconPlus className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -4968,12 +5207,17 @@ function resolveScreenMetadata(
   getterMetadata?: ScreenMetadata,
   previewDeviceFrame: DeviceFrameType = "none",
 ): ResolvedScreenMetadata {
-  const metadata = { ...screen, ...keyedMetadata, ...getterMetadata };
+  // Normalize content to a string up front: a screen whose content has not yet
+  // loaded (or is otherwise not a plain string) must not crash the overview
+  // render via the content.trim()/slice() helpers below.
+  const safeScreen: ScreenFile =
+    typeof screen.content === "string" ? screen : { ...screen, content: "" };
+  const metadata = { ...safeScreen, ...keyedMetadata, ...getterMetadata };
   const previewUrl =
     metadata.url ??
     metadata.previewUrl ??
-    screen.previewUrl ??
-    getPreviewUrl(screen.content);
+    safeScreen.previewUrl ??
+    getPreviewUrl(safeScreen.content);
   const deviceViewport =
     previewDeviceFrame === "none"
       ? undefined
@@ -4987,11 +5231,11 @@ function resolveScreenMetadata(
   return {
     source:
       normalizeSource(metadata.sourceType ?? metadata.source) ??
-      deriveSource(screen, previewUrl),
+      deriveSource(safeScreen, previewUrl),
     previewState:
       normalizePreviewState(
         metadata.lod ?? metadata.previewState ?? metadata.status,
-      ) ?? derivePreviewState(screen, previewUrl),
+      ) ?? derivePreviewState(safeScreen, previewUrl),
     title: metadata.title,
     width,
     height,
@@ -5067,7 +5311,11 @@ function derivePreviewState(
 }
 
 function getPreviewUrl(content: string) {
-  return getUrl(content.trim())?.toString();
+  // Tolerate non-string content (e.g. a screen whose content has not loaded):
+  // a missing URL is correct here, a crash is not.
+  return getUrl(
+    typeof content === "string" ? content.trim() : undefined,
+  )?.toString();
 }
 
 function getUrl(value: string | undefined) {

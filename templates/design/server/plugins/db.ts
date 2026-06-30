@@ -121,6 +121,96 @@ CREATE INDEX IF NOT EXISTS design_systems_owner_org_updated_idx ON design_system
 CREATE INDEX IF NOT EXISTS design_shares_resource_principal_idx ON design_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design_system_shares (resource_id, principal_type, principal_id)`,
     },
+    // v12: component_index — real-app component metadata (name, file path,
+    // export name, parsed prop types, cva/tailwind-variants variants, Storybook
+    // stories, runtime selectors). Ownable; access-checked via accessFilter /
+    // assertAccess.
+    {
+      version: 12,
+      sql: `CREATE TABLE IF NOT EXISTS component_index (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL,
+    source_ref TEXT,
+    name TEXT NOT NULL,
+    file_path TEXT,
+    export_name TEXT,
+    props TEXT,
+    variants TEXT,
+    stories TEXT,
+    runtime_selectors TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
+    // v13: motion_timeline — CSS-first keyframe animation tracks scoped to one
+    // design + source + screen/file. tracks JSON is the editing representation;
+    // the compiled CSS block (managed <style data-agent-native-motion>) is the
+    // runtime truth. compiled_hash guards drift between the two. Ownable.
+    {
+      version: 13,
+      sql: `CREATE TABLE IF NOT EXISTS motion_timeline (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL,
+    source_ref TEXT,
+    file_path TEXT,
+    tracks TEXT NOT NULL DEFAULT '[]',
+    duration_ms INTEGER NOT NULL DEFAULT 300,
+    default_ease TEXT NOT NULL DEFAULT 'ease',
+    compiled_hash TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
+    // v14: design_state — design states (alternate x-data/DOM snapshots for
+    // Default / Loading / Empty / Error), static data fixtures, and live
+    // captures of running-app route + props + API data. Ownable.
+    {
+      version: 14,
+      sql: `CREATE TABLE IF NOT EXISTS design_state (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL,
+    source_ref TEXT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'state',
+    breakpoint TEXT NOT NULL DEFAULT 'auto',
+    route TEXT,
+    fixture_data TEXT,
+    capture_data TEXT,
+    preview_ref TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
+    // v15: design_review_snapshot — cached a11y audit results and visual diff
+    // data keyed by design + optional base/compare design_versions pair.
+    // status: 'pending' | 'ready' | 'error'. Ownable.
+    {
+      version: 15,
+      sql: `CREATE TABLE IF NOT EXISTS design_review_snapshot (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL,
+    base_version_id TEXT,
+    compare_version_id TEXT,
+    source_ref TEXT,
+    a11y_findings TEXT,
+    visual_diff TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
   ],
   { table: "design_migrations" },
 );
