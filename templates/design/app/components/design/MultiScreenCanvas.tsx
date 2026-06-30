@@ -257,7 +257,7 @@ interface MultiScreenCanvasProps {
    *
    * Replaces the legacy onCreateBoardObject.
    */
-  onBoardDrawPrimitive?: (primitive: CanvasPrimitiveInsert) => void;
+  onBoardDrawPrimitive?: (primitive: CanvasPrimitiveInsert) => boolean | string;
   // ── Board edit callbacks (active-target model) ───────────────────────────
   /**
    * When true the board <DesignCanvas> is in edit mode.
@@ -1235,7 +1235,8 @@ export function MultiScreenCanvas({
             return;
           }
           const sourceMetadata = getResolvedMetadata(sourceScreen);
-          const scaleX = sourceGeometry.width / Math.max(1, sourceMetadata.width);
+          const scaleX =
+            sourceGeometry.width / Math.max(1, sourceMetadata.width);
           const scaleY =
             sourceGeometry.height / Math.max(1, sourceMetadata.height);
           boardX = sourceGeometry.x + iframeX * scaleX;
@@ -1811,10 +1812,17 @@ export function MultiScreenCanvas({
             width: 1,
             height: 1,
           });
-          handler(boardPrimitive);
+          const persisted = handler(boardPrimitive);
+          if (!persisted) return null;
           // Return a sentinel PersistedDraftPrimitive so the caller can remove
           // the draft. The sentinel frameId "__board__" is detected downstream.
-          return { frameId: "__board__", nodeId: draft.id };
+          return {
+            frameId: "__board__",
+            nodeId:
+              (typeof persisted === "string"
+                ? persisted
+                : boardPrimitive.nodeId) ?? draft.id,
+          };
         }
         return null;
       }
@@ -3746,9 +3754,15 @@ export function MultiScreenCanvas({
           transformOrigin: "top left",
         }}
       >
-        {boardFileId && boardFileContent !== undefined && (
+        {boardFileId &&
+          boardFileContent !== undefined &&
           (() => {
-            const boardGeo = boardFrameGeometry ?? { x: 0, y: 0, width: 8192, height: 8192 };
+            const boardGeo = boardFrameGeometry ?? {
+              x: 0,
+              y: 0,
+              width: 8192,
+              height: 8192,
+            };
             // Clamp board canvas to the DesignCanvas max safe dimension.
             const boardW = Math.min(boardGeo.width, 16384);
             const boardH = Math.min(boardGeo.height, 16384);
@@ -3787,8 +3801,7 @@ export function MultiScreenCanvas({
                 />
               </div>
             );
-          })()
-        )}
+          })()}
 
         {canvasFrames.map(({ screen, metadata, geometry }) => {
           return (
@@ -5815,7 +5828,6 @@ function createDraftId(tool: DraftCreationTool) {
     .toString(36)
     .slice(2, 8)}`;
 }
-
 
 function cloneDraftPrimitive(draft: DraftPrimitive): DraftPrimitive {
   return {

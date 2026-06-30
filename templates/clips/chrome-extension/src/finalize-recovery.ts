@@ -43,6 +43,18 @@ export function publicRecordingStatusUrl(
   return url.toString();
 }
 
+export function authenticatedRecordingStatusUrl(
+  uploadUrl: string,
+  recordingId: string,
+): string {
+  const url = new URL(uploadUrl);
+  const match = url.pathname.match(/^(.*)\/api\/uploads\/[^/]+\/chunk$/);
+  const basePath = match?.[1] ?? "";
+  url.pathname = `${basePath}/api/uploads/${encodeURIComponent(recordingId)}/status`;
+  url.search = "";
+  return url.toString();
+}
+
 function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
@@ -141,45 +153,68 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
   );
   const attempts = Math.max(1, Math.ceil(timeoutMs / intervalMs));
   let url: string;
+  let authenticatedUrl: string | null = null;
   try {
     url = publicRecordingStatusUrl(args.uploadUrl, args.recordingId);
+    authenticatedUrl = args.authToken
+      ? authenticatedRecordingStatusUrl(args.uploadUrl, args.recordingId)
+      : null;
   } catch {
     return null;
   }
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
+    const urls = authenticatedUrl
+      ? [
+          { url: authenticatedUrl, authenticated: true },
+          { url, authenticated: false },
+        ]
+      : [{ url, authenticated: false }];
+
+    for (const endpoint of urls) {
       const headers: Record<string, string> = {
         Accept: "application/json",
         "X-Agent-Native-Frontend": "1",
       };
-      if (args.authToken) headers.Authorization = `Bearer ${args.authToken}`;
-      const response = await fetchWithTimeout(
-        fetchImpl,
-        url,
-        {
-          method: "GET",
-          headers,
-          credentials: "include",
-          cache: "no-store",
-        },
-        args.fetchTimeoutMs ?? DEFAULT_READY_RECOVERY_FETCH_TIMEOUT_MS,
-      );
-
-      if (response.ok) {
-        const payload = await response.json().catch(() => null);
-        const probe = readyRecordingFromPublicPayload(
-          payload,
-          args.recordingId,
-        );
-        if (probe.ready) return probe.result;
-        if (probe.terminal) return null;
-      } else if (response.status >= 400 && response.status < 500) {
-        return null;
+      if (endpoint.authenticated && args.authToken) {
+        headers.Authorization = `Bearer ${args.authToken}`;
       }
-    } catch {
-      // Keep polling: the final chunk request may have failed for the same
-      // transient network/gateway reason that makes this probe briefly fail.
+
+      try {
+        const response = await fetchWithTimeout(
+          fetchImpl,
+          endpoint.url,
+          {
+            method: "GET",
+            headers,
+            credentials: "include",
+            cache: "no-store",
+          },
+          args.fetchTimeoutMs ?? DEFAULT_READY_RECOVERY_FETCH_TIMEOUT_MS,
+        );
+
+        if (response.ok) {
+          const payload = await response.json().catch(() => null);
+          const probe = readyRecordingFromPublicPayload(
+            payload,
+            args.recordingId,
+          );
+          if (probe.ready) return probe.result;
+          if (probe.terminal) return null;
+          break;
+        }
+
+        if (
+          response.status >= 400 &&
+          response.status < 500 &&
+          !endpoint.authenticated &&
+          !authenticatedUrl
+        ) {
+          return null;
+        }
+      } catch {
+        // Try the public endpoint fallback below, then keep polling.
+      }
     }
 
     if (attempt < attempts - 1) await sleepImpl(intervalMs);

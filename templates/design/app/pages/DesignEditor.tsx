@@ -7232,8 +7232,9 @@ export default function DesignEditor() {
    */
   const handleBoardDrawPrimitive = useCallback(
     (primitive: CanvasPrimitiveInsert) => {
-      if (!boardFileId || !canEditDesign) return;
-      handleCreatePrimitive(boardFileId, primitive);
+      if (!boardFileId || !canEditDesign) return false;
+      const result = handleCreatePrimitive(boardFileId, primitive);
+      if (!result) return false;
 
       // For TEXT primitives drawn on the board surface, immediately enter
       // text-editing mode via begin-text-edit.  The board DesignCanvas uses
@@ -7260,6 +7261,8 @@ export default function DesignEditor() {
           }, 50);
         }
       }
+
+      return result;
     },
     [boardFileId, canEditDesign, handleCreatePrimitive],
   );
@@ -11435,25 +11438,9 @@ ${serializedHtml}
 
   const layerPanelFiles = useMemo<LayersPanelFile[]>(
     () =>
-      files.map((file) => ({
-        id: file.id,
-        name: prettyScreenName(file.filename),
-        filename: file.filename,
-        fileType: file.fileType,
-        detail: file.filename,
-        locked: lockedLayerIds.has(file.id),
-        hidden: hiddenLayerIds.has(file.id),
-        lockable: true,
-        hideable: true,
-        renamable: true,
-      })),
-    [files, hiddenLayerIds, lockedLayerIds],
-  );
-  const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(
-    () =>
-      files.map((file) => {
-        const model = codeLayerModelByFileId.get(file.id);
-        return {
+      files
+        .filter((file) => !isBoardFile(file.filename))
+        .map((file) => ({
           id: file.id,
           name: prettyScreenName(file.filename),
           filename: file.filename,
@@ -11464,13 +11451,33 @@ ${serializedHtml}
           lockable: true,
           hideable: true,
           renamable: true,
-          layers: codeLayerTreeToPanelNodes(
-            model?.tree ?? [],
-            lockedLayerIds,
-            hiddenLayerIds,
-          ),
-        };
-      }),
+        })),
+    [files, hiddenLayerIds, lockedLayerIds],
+  );
+  const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(
+    () =>
+      files
+        .filter((file) => !isBoardFile(file.filename))
+        .map((file) => {
+          const model = codeLayerModelByFileId.get(file.id);
+          return {
+            id: file.id,
+            name: prettyScreenName(file.filename),
+            filename: file.filename,
+            fileType: file.fileType,
+            detail: file.filename,
+            locked: lockedLayerIds.has(file.id),
+            hidden: hiddenLayerIds.has(file.id),
+            lockable: true,
+            hideable: true,
+            renamable: true,
+            layers: codeLayerTreeToPanelNodes(
+              model?.tree ?? [],
+              lockedLayerIds,
+              hiddenLayerIds,
+            ),
+          };
+        }),
     [codeLayerModelByFileId, files, hiddenLayerIds, lockedLayerIds],
   );
 
@@ -13971,7 +13978,13 @@ ${serializedHtml}
                       }
                       onBoardVisualStructureChange={
                         boardFileId
-                          ? (selector, anchorSelector, placement, info, details) =>
+                          ? (
+                              selector,
+                              anchorSelector,
+                              placement,
+                              info,
+                              details,
+                            ) =>
                               handleScreenVisualStructureChange(
                                 boardFileId,
                                 selector,

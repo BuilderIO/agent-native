@@ -463,6 +463,18 @@ function assertAllowedExtension(relPath: string): void {
   }
 }
 
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  let count = 0;
+  let index = haystack.indexOf(needle);
+  while (index !== -1) {
+    count += 1;
+    if (count > 1) return count;
+    index = haystack.indexOf(needle, index + 1);
+  }
+  return count;
+}
+
 export async function startDesignConnectBridge(
   manifest: DesignConnectManifest,
 ): Promise<DesignConnectBridge> {
@@ -650,15 +662,31 @@ export async function startDesignConnectBridge(
               return;
             }
 
-            if (!existing.includes(search)) {
+            if (search.length === 0) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "search string must not be empty",
+              });
+              return;
+            }
+
+            const occurrenceCount = countOccurrences(existing, search);
+            if (occurrenceCount === 0) {
               sendJson(res, 422, {
                 ok: false,
                 error: "search string not found in file",
               });
               return;
             }
+            if (occurrenceCount > 1) {
+              sendJson(res, 422, {
+                ok: false,
+                error:
+                  "search string is ambiguous; it appears more than once in the file",
+              });
+              return;
+            }
 
-            // Replace only the first occurrence to mirror surgical edit behaviour.
             const updated = existing.replace(search, replace);
             await fs.writeFile(absolutePath, updated, "utf8");
             sendJson(res, 200, { ok: true, relPath, method: "patch" });

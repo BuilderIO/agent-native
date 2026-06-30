@@ -464,6 +464,40 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("apply-edit returns 422 when search string is ambiguous", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const { bridgeToken } = bridge;
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const authHeader = { "x-bridge-token": bridgeToken };
+      const original = "a { color: red; }\nb { color: red; }\n";
+
+      fs.writeFileSync(path.join(root, "style.css"), original, "utf8");
+
+      const result = await postJson(
+        `${base}/apply-edit`,
+        { relPath: "style.css", search: "color: red;", replace: "x" },
+        authHeader,
+      );
+      expect(result.status).toBe(422);
+      expect(String(result.body["error"])).toContain("ambiguous");
+      expect(fs.readFileSync(path.join(root, "style.css"), "utf8")).toBe(
+        original,
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
   it("rejects write-file for non-HTML/CSS extensions", async () => {
     const root = tmpDir();
     const port = await freePort();

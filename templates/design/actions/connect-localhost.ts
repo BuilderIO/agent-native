@@ -41,6 +41,41 @@ function normalizeUrl(value: string, label: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  if (
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized === "[::1]"
+  ) {
+    return true;
+  }
+  const parts = normalized.split(".");
+  return (
+    parts.length === 4 &&
+    parts[0] === "127" &&
+    parts.every((part) => /^\d+$/.test(part) && Number(part) <= 255)
+  );
+}
+
+function normalizeBridgeUrl(value: string): string {
+  const normalized = normalizeUrl(value, "bridgeUrl");
+  const parsed = new URL(normalized);
+  if (parsed.username || parsed.password) {
+    throw new Error("bridgeUrl must not include credentials");
+  }
+  if (parsed.pathname !== "/" && parsed.pathname !== "") {
+    throw new Error("bridgeUrl must not include a path");
+  }
+  if (!isLoopbackHostname(parsed.hostname)) {
+    throw new Error("bridgeUrl must use localhost or a loopback IP address");
+  }
+  parsed.search = "";
+  parsed.hash = "";
+  parsed.pathname = "";
+  return parsed.toString().replace(/\/$/, "");
+}
+
 export default defineAction({
   description:
     "Register or refresh a localhost Design source connection produced by `agent-native design connect`. Stores the dev server URL, bridge URL, route manifest, and operation capabilities so the UI can later list local-code artboards.",
@@ -97,7 +132,7 @@ export default defineAction({
     const db = getDb();
     const devServerUrl = normalizeUrl(args.devServerUrl, "devServerUrl");
     const bridgeUrl = args.bridgeUrl
-      ? normalizeUrl(args.bridgeUrl, "bridgeUrl")
+      ? normalizeBridgeUrl(args.bridgeUrl)
       : undefined;
     const rawRoutes = args.routeManifest?.routes ?? args.routes ?? [];
     const routes = rawRoutes.map((route) => ({

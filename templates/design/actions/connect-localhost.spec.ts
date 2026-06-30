@@ -96,4 +96,15 @@ describe("connect-localhost", () => {
 
     expect(updatedSet?.bridgeToken).toBe("new_bridge_token");
   });
+
+  it("rejects non-loopback bridge URLs", async () => {
+    await expect(
+      action.run({
+        id: "conn_1",
+        devServerUrl: "http://localhost:5173",
+        bridgeUrl: "https://example.com:7666",
+        rootPath: "/tmp/app",
+      }),
+    ).rejects.toThrow(/loopback/);
+  });
 });
