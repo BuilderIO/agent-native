@@ -147,6 +147,41 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).toContain("open");
   });
 
+  it("does not open from native select controls when contenteditable is allowed", () => {
+    function ShortcutHarness() {
+      const [open, setOpen] = React.useState(false);
+      useCommandMenuShortcut(() => setOpen(true), {
+        allowContentEditable: true,
+      });
+      return (
+        <>
+          <select aria-label="Component prop">
+            <option>One</option>
+          </select>
+          <span>{open ? "open" : "closed"}</span>
+        </>
+      );
+    }
+
+    act(() => {
+      root.render(<ShortcutHarness />);
+    });
+
+    const select = document.querySelector("select");
+    expect(select).toBeTruthy();
+    act(() => {
+      select!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "k",
+          metaKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+
+    expect(document.body.textContent).toContain("closed");
+  });
+
   it("opens from contenteditable before editor handlers stop propagation", () => {
     function ShortcutHarness() {
       const [open, setOpen] = React.useState(false);

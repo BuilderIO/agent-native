@@ -673,12 +673,13 @@ export function useCommandMenuShortcut(
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        // Don't trigger if user is typing in an input/textarea
+        // Don't trigger if user is typing in a native form control.
         const target = e.target instanceof HTMLElement ? e.target : null;
         const isContentEditable = target?.isContentEditable;
         if (
           target?.tagName === "INPUT" ||
           target?.tagName === "TEXTAREA" ||
+          target?.tagName === "SELECT" ||
           (!options.allowContentEditable && isContentEditable)
         ) {
           return;
