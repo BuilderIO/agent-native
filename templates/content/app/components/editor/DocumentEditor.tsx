@@ -41,6 +41,7 @@ import {
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
+  documentSyncStatusQueryKey,
   useDocumentSyncStatus,
   usePushDocumentToNotion,
 } from "@/hooks/use-notion";
@@ -778,16 +779,18 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       // the debounce and the next save, reading the previous content.
       // Pulls remain driven by the polling refetch in useDocumentSyncStatus.
       if (autoSync) {
-        const status = queryClient.getQueryData<DocumentSyncStatus>([
-          "document-sync",
-          documentId,
-        ]);
+        const status = queryClient.getQueryData<DocumentSyncStatus>(
+          documentSyncStatusQueryKey(documentId, { autoSync }),
+        );
         if (status?.pageId && !status.hasConflict) {
           try {
             const next = await pushDocumentToNotion.mutateAsync({
               documentId,
             });
-            queryClient.setQueryData(["document-sync", documentId], next);
+            queryClient.setQueryData(
+              documentSyncStatusQueryKey(documentId, { autoSync }),
+              next,
+            );
           } catch {
             // Non-fatal — next polling refetch will surface any error.
           }

@@ -455,4 +455,20 @@ describe("formatReport", () => {
     expect(formatted).toContain("reason: Missing eval gate");
     expect(formatted).toContain("PASS: 1/1 evals passed, 1 skipped");
   });
+
+  it("does not label fully skipped reports as passing", async () => {
+    const skipped = defineEval({
+      name: "skipped",
+      input: { prompt: "x" },
+      skipReason: "Missing eval gate",
+      scorers: [],
+    });
+    const report = await runEvals([skipped], fakeRunner({ text: "ok" }), {
+      persist: false,
+    });
+
+    const formatted = formatReport(report);
+
+    expect(formatted).toContain("SKIPPED: 0/0 evals passed, 1 skipped");
+  });
 });

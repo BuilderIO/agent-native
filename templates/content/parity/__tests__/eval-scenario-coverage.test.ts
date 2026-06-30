@@ -110,4 +110,35 @@ describe("Content parity eval scenarios", () => {
     expect(row.status).toBe("passed");
     expect(row.scores.every((score) => score.passed)).toBe(true);
   });
+
+  it("requires every expected tool for multi-action parity scenarios", async () => {
+    process.env.CONTENT_PARITY_EVALS = "1";
+
+    const scenario = parityEvalScenarios.find(
+      (candidate) => candidate.id === "database-bulk-row-reliability",
+    )!;
+    const evalCase = scenarioToEval(scenario);
+    const row = await scoreEval(evalCase, {
+      runAgent: vi.fn(async () => ({
+        text: scenario.successSignals.join("\n"),
+        toolCalls: ["duplicate-database-items"],
+        ok: true,
+        runId: "content-parity:missing-tool-test",
+        durationMs: 1,
+      })),
+      engine: {} as never,
+      model: "test-model",
+      analyzeContext: vi.fn(),
+    });
+
+    const expectedToolsScore = row.scores.find(
+      (score) => score.scorer === "expected_tools",
+    );
+    expect(expectedToolsScore).toMatchObject({
+      passed: false,
+      score: 0,
+    });
+    expect(expectedToolsScore?.reason).toContain("delete-database-items");
+    expect(row.status).toBe("failed");
+  });
 });

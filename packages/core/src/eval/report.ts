@@ -56,10 +56,15 @@ export function formatReport(report: EvalRunReport): string {
 
   lines.push("");
   lines.push("  ─────");
-  const verdict = report.failed === 0 ? "PASS" : "FAIL";
   const skipped = report.skipped ?? 0;
   const executedTotal = report.total - skipped;
   const executedPassed = report.passed - skipped;
+  const verdict =
+    executedTotal === 0 && skipped > 0
+      ? "SKIPPED"
+      : report.failed === 0
+        ? "PASS"
+        : "FAIL";
   lines.push(
     `  ${verdict}: ${executedPassed}/${executedTotal} evals passed` +
       (skipped > 0 ? `, ${skipped} skipped` : "") +

@@ -33,7 +33,23 @@ function invalidateDocumentQueries(
   documentId: string,
 ) {
   queryClient.invalidateQueries({ queryKey: ["action"] });
-  queryClient.invalidateQueries({ queryKey: ["document-sync", documentId] });
+  queryClient.invalidateQueries({
+    queryKey: documentSyncStatusQueryKey(documentId),
+  });
+  queryClient.invalidateQueries({
+    queryKey: documentSyncStatusQueryKey(documentId, { autoSync: true }),
+  });
+}
+
+export function documentSyncStatusQueryKey(
+  documentId: string,
+  options?: { autoSync?: boolean },
+) {
+  return [
+    "action",
+    "refresh-notion-sync-status",
+    { documentId, autoSync: !!options?.autoSync },
+  ] as const;
 }
 
 export function useNotionConnection() {
@@ -121,7 +137,9 @@ export function useDisconnectNotion() {
         queryClient.invalidateQueries({
           queryKey: ["action", "connect-notion-status"],
         });
-        queryClient.invalidateQueries({ queryKey: ["document-sync"] });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "refresh-notion-sync-status"],
+        });
       },
     },
   );

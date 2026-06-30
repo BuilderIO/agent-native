@@ -79,10 +79,11 @@ jobs:
           const skipped = report.skipped ?? report.results.filter((row) => row.status === "skipped").length;
           const executed = report.total - skipped;
           const executedPassed = report.passed - skipped;
+          const status = executed === 0 && skipped > 0 ? "SKIPPED" : data.ok ? "PASS" : "FAIL";
           const lines = [
             `### ${title}`,
             "",
-            `Status: ${data.ok ? "PASS" : "FAIL"}`,
+            `Status: ${status}`,
             "",
             `Executed: ${executedPassed}/${executed} passed; skipped: ${skipped}; failed: ${report.failed}.`,
             "",

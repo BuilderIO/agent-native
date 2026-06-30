@@ -169,6 +169,8 @@ export default defineAction({
 
     return {
       ...(await getContentDatabaseResponse(database.id)),
+      duplicatedItemId: duplicates[0]?.duplicatedItemId,
+      duplicatedDocumentId: duplicates[0]?.duplicatedDocumentId,
       duplicatedItemIds: duplicates.map(
         (duplicate) => duplicate.duplicatedItemId,
       ),

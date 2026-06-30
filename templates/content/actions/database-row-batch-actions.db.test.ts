@@ -190,6 +190,8 @@ describe("database row batch actions", () => {
 
     expect(result.duplicatedItemIds).toHaveLength(2);
     expect(result.duplicatedDocumentIds).toHaveLength(2);
+    expect(result.duplicatedItemId).toBe(result.duplicatedItemIds?.[0]);
+    expect(result.duplicatedDocumentId).toBe(result.duplicatedDocumentIds?.[0]);
     expect(result.sourceItemIds).toEqual([rows[1].itemId, rows[2].itemId]);
     expect(result.sourceDocumentIds).toEqual([
       rows[1].documentId,

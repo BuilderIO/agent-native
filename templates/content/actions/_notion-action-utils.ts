@@ -12,15 +12,11 @@ export function getCurrentNotionOwner() {
 
 export async function getNotionDocumentOwner(documentId: string) {
   const userEmail = getCurrentNotionOwner();
-  const access = await assertAccess("document", documentId, "editor", {
+  await assertAccess("document", documentId, "editor", {
     userEmail,
     orgId: getRequestOrgId(),
-  }).catch(() => null);
-  const owner = access?.resource?.ownerEmail;
-  if (typeof owner !== "string" || owner.length === 0) {
-    throw new Error(`Document "${documentId}" not found`);
-  }
-  return owner;
+  });
+  return userEmail;
 }
 
 export function resolveDocumentId(args: { documentId?: string; id?: string }) {

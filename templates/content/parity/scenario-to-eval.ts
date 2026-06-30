@@ -18,14 +18,14 @@ function expectedToolScorer(expectedTools: string[]) {
         missing: expectedTools.filter((tool) => !usedTools.has(tool)),
       };
     },
-    generateScore({ used }) {
-      return expectedTools.length === 0 || used.length > 0 ? 1 : 0;
+    generateScore({ missing }) {
+      return expectedTools.length === 0 || missing.length === 0 ? 1 : 0;
     },
     generateReason({ analysis: { used, missing } }) {
-      if (used.length > 0) {
-        return `Agent called expected tool(s): ${used.join(", ")}`;
+      if (missing.length === 0) {
+        return `Agent called all expected tool(s): ${used.join(", ")}`;
       }
-      return `Missing expected tool(s): ${missing.join(", ")}`;
+      return `Called expected tool(s): ${used.join(", ") || "none"}; missing: ${missing.join(", ")}`;
     },
   });
 }
