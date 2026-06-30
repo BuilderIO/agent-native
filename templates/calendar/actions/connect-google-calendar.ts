@@ -52,9 +52,14 @@ export default defineAction({
     if (returnPath) params.set("return", returnPath);
 
     const url = `${path}?${params.toString()}`;
+    const label = args.addAccount
+      ? "Add Google Calendar account"
+      : "Connect Google Calendar";
     return {
       provider: "google_calendar",
       url,
+      label,
+      markdown: `[${label}](${url})`,
       message:
         "Open this link in the signed-in Calendar browser session to connect Google Calendar. Do not fetch it from the agent backend.",
       requiresUserGesture: true,

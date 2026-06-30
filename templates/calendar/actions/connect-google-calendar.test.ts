@@ -12,6 +12,8 @@ describe("connect-google-calendar action", () => {
 
     expect(result).toMatchObject({
       provider: "google_calendar",
+      label: "Connect Google Calendar",
+      markdown: expect.stringContaining("[Connect Google Calendar]("),
       requiresUserGesture: true,
       message: expect.stringContaining("Open this link"),
     });
