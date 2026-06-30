@@ -87,10 +87,12 @@ export interface MotionTrackWire {
  *     track list.  Called when the dock is closed or the timeline is
  *     discarded.
  *
- * Easing is deliberately simple: linear interpolation between keyframe
- * values (CSS handles easing when the compiled CSS is actually applied;
- * preview is a live visualisation, not a perfect recreation of the final
- * animation).
+ * Interpolation is linear between the surrounding keyframes and understands
+ * plain numbers with units, CSS function values (translateY/scale/blur/…), and
+ * colors (hex / rgb(a) / hsl(a)) so presets preview smoothly instead of
+ * snapping at the midpoint. CSS still owns the real easing when the compiled
+ * animation is applied; the preview is a live visualisation, not a perfect
+ * recreation of the final animation.
  */
 const MOTION_PREVIEW_BRIDGE_SCRIPT = `
 <script data-agent-native-motion-preview-bridge>
@@ -102,14 +104,197 @@ const MOTION_PREVIEW_BRIDGE_SCRIPT = `
   // Map of nodeId -> property -> original inline style value.
   var originalInlineValues = {};
 
-  function lerp(a, b, ratio) {
-    var numA = parseFloat(a);
-    var numB = parseFloat(b);
-    if (Number.isFinite(numA) && Number.isFinite(numB)) {
-      var suffix = a.replace(/^-?[\\d.]+/, '') || b.replace(/^-?[\\d.]+/, '');
-      return (numA + (numB - numA) * ratio).toFixed(4).replace(/\\.?0+$/, '') + suffix;
+  function camelizeProp(prop) {
+    return String(prop).replace(/-([a-z])/g, function(_m, c) { return c.toUpperCase(); });
+  }
+
+  function formatNum(n) {
+    if (!Number.isFinite(n)) return '0';
+    return (Math.round(n * 10000) / 10000).toString();
+  }
+
+  function clamp255(x) { return x < 0 ? 0 : x > 255 ? 255 : x; }
+  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+  function parseAlpha(s) {
+    if (typeof s === 'string' && s.indexOf('%') >= 0) return parseFloat(s) / 100;
+    return parseFloat(s);
+  }
+
+  function hueToRgb(p, q, h) {
+    if (h < 0) h += 1;
+    if (h > 1) h -= 1;
+    if (h < 1 / 6) return p + (q - p) * 6 * h;
+    if (h < 1 / 2) return q;
+    if (h < 2 / 3) return p + (q - p) * (2 / 3 - h) * 6;
+    return p;
+  }
+
+  function hslToRgb(h, s, l) {
+    h = (((h % 360) + 360) % 360) / 360;
+    s = clamp01(s);
+    l = clamp01(l);
+    if (s === 0) return [l * 255, l * 255, l * 255];
+    var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    var p = 2 * l - q;
+    return [
+      hueToRgb(p, q, h + 1 / 3) * 255,
+      hueToRgb(p, q, h) * 255,
+      hueToRgb(p, q, h - 1 / 3) * 255
+    ];
+  }
+
+  // Parse a CSS color (hex, rgb/rgba, hsl/hsla) into [r, g, b, a] or null.
+  function parseColor(str) {
+    if (typeof str !== 'string') return null;
+    var s = str.trim();
+    var hex = /^#([0-9a-fA-F]{3,8})$/.exec(s);
+    if (hex) {
+      var h = hex[1];
+      if (h.length === 3 || h.length === 4) {
+        return [
+          parseInt(h.charAt(0) + h.charAt(0), 16),
+          parseInt(h.charAt(1) + h.charAt(1), 16),
+          parseInt(h.charAt(2) + h.charAt(2), 16),
+          h.length === 4 ? parseInt(h.charAt(3) + h.charAt(3), 16) / 255 : 1
+        ];
+      }
+      if (h.length === 6 || h.length === 8) {
+        return [
+          parseInt(h.slice(0, 2), 16),
+          parseInt(h.slice(2, 4), 16),
+          parseInt(h.slice(4, 6), 16),
+          h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1
+        ];
+      }
+      return null;
     }
-    // Non-numeric: snap to b after the midpoint.
+    var rgb = /^rgba?\\(([^)]+)\\)$/i.exec(s);
+    if (rgb) {
+      var rp = rgb[1].split(/[\\s,\\/]+/).filter(function(x) { return x.length; });
+      if (rp.length >= 3) {
+        return [parseFloat(rp[0]), parseFloat(rp[1]), parseFloat(rp[2]), rp.length >= 4 ? parseAlpha(rp[3]) : 1];
+      }
+      return null;
+    }
+    var hsl = /^hsla?\\(([^)]+)\\)$/i.exec(s);
+    if (hsl) {
+      var hp = hsl[1].split(/[\\s,\\/]+/).filter(function(x) { return x.length; });
+      if (hp.length >= 3) {
+        var c = hslToRgb(parseFloat(hp[0]), parseFloat(hp[1]) / 100, parseFloat(hp[2]) / 100);
+        return [c[0], c[1], c[2], hp.length >= 4 ? parseAlpha(hp[3]) : 1];
+      }
+      return null;
+    }
+    return null;
+  }
+
+  function lerpColorArr(a, b, ratio) {
+    return [
+      a[0] + (b[0] - a[0]) * ratio,
+      a[1] + (b[1] - a[1]) * ratio,
+      a[2] + (b[2] - a[2]) * ratio,
+      a[3] + (b[3] - a[3]) * ratio
+    ];
+  }
+
+  function formatColor(c) {
+    var r = Math.round(clamp255(c[0]));
+    var g = Math.round(clamp255(c[1]));
+    var b = Math.round(clamp255(c[2]));
+    var a = clamp01(c[3]);
+    if (a >= 1) return 'rgb(' + r + ', ' + g + ', ' + b + ')';
+    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + (Math.round(a * 1000) / 1000) + ')';
+  }
+
+  // Split a value into literal + typed (number / color) segments so two values
+  // that share a skeleton (e.g. 'translateY(16px)' / 'translateY(0px)') can be
+  // interpolated component-wise instead of snapping at the midpoint.
+  function tokenizeSegments(str) {
+    if (typeof str !== 'string') return null;
+    var segs = [];
+    var i = 0;
+    var n = str.length;
+    var litStart = 0;
+    var colorRe = /^(#[0-9a-fA-F]{3,8}|rgba?\\([^)]*\\)|hsla?\\([^)]*\\))/i;
+    var numRe = /^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)/;
+    while (i < n) {
+      var rest = str.slice(i);
+      var cm = colorRe.exec(rest);
+      if (cm) {
+        var parsed = parseColor(cm[0]);
+        if (parsed) {
+          if (i > litStart) segs.push({ lit: str.slice(litStart, i) });
+          segs.push({ type: 'color', value: parsed });
+          i += cm[0].length;
+          litStart = i;
+          continue;
+        }
+      }
+      // Skip a number when the previous char is a letter — it belongs to an
+      // identifier such as translate3d / matrix3d, not a numeric argument.
+      var prevCh = i > 0 ? str.charAt(i - 1) : '';
+      if (!/[a-zA-Z]/.test(prevCh)) {
+        var nm = numRe.exec(rest);
+        if (nm) {
+          var numText = nm[0];
+          var unit = '';
+          var um = /^[a-z%]+/i.exec(str.slice(i + numText.length));
+          if (um) unit = um[0];
+          if (i > litStart) segs.push({ lit: str.slice(litStart, i) });
+          segs.push({ type: 'num', value: parseFloat(numText), unit: unit });
+          i += numText.length + unit.length;
+          litStart = i;
+          continue;
+        }
+      }
+      i++;
+    }
+    if (n > litStart) segs.push({ lit: str.slice(litStart, n) });
+    return segs;
+  }
+
+  function segShape(segs) {
+    var parts = [];
+    for (var i = 0; i < segs.length; i++) {
+      var s = segs[i];
+      parts.push(s.lit !== undefined ? ('L' + s.lit) : ('T' + s.type));
+    }
+    return parts.join('\\u0000');
+  }
+
+  // Interpolate two keyframe values. Handles plain numbers (with units), CSS
+  // function values (translate/scale/blur/…), numbers embedded in gradients,
+  // and colors (hex / rgb(a) / hsl(a)). Falls back to a midpoint snap only for
+  // genuinely non-interpolable keywords (e.g. none -> block).
+  function lerp(a, b, ratio) {
+    a = a == null ? '' : String(a);
+    b = b == null ? '' : String(b);
+    if (a === b) return a;
+    var ca = parseColor(a);
+    var cb = parseColor(b);
+    if (ca && cb) return formatColor(lerpColorArr(ca, cb, ratio));
+    var aSegs = tokenizeSegments(a);
+    var bSegs = tokenizeSegments(b);
+    if (aSegs && bSegs && aSegs.length === bSegs.length && segShape(aSegs) === segShape(bSegs)) {
+      var out = '';
+      var ok = true;
+      var touched = false;
+      for (var k = 0; k < aSegs.length; k++) {
+        var seg = aSegs[k];
+        if (seg.lit !== undefined) { out += seg.lit; continue; }
+        var other = bSegs[k];
+        if (!other || other.type !== seg.type) { ok = false; break; }
+        touched = true;
+        if (seg.type === 'color') {
+          out += formatColor(lerpColorArr(seg.value, other.value, ratio));
+        } else {
+          out += formatNum(seg.value + (other.value - seg.value) * ratio) + (seg.unit || other.unit);
+        }
+      }
+      if (ok && touched) return out;
+    }
+    // Non-interpolable (keywords, mismatched shapes): snap at the midpoint.
     return ratio < 0.5 ? a : b;
   }
 
@@ -139,14 +324,17 @@ const MOTION_PREVIEW_BRIDGE_SCRIPT = `
       if (!el) continue;
       var value = interpolate(track.keyframes, t);
       if (value === '') continue;
+      // Normalize kebab properties (e.g. background-color) to the camelCase
+      // CSSOM accessor; el.style['background-color'] = … is unreliable.
+      var prop = camelizeProp(track.property);
       if (!originalInlineValues[track.targetNodeId]) originalInlineValues[track.targetNodeId] = {};
-      if (!(track.property in originalInlineValues[track.targetNodeId])) {
-        originalInlineValues[track.targetNodeId][track.property] = el.style[track.property] || '';
+      if (!(prop in originalInlineValues[track.targetNodeId])) {
+        originalInlineValues[track.targetNodeId][prop] = el.style[prop] || '';
       }
-      el.style[track.property] = value;
+      el.style[prop] = value;
       if (!touchedProps[track.targetNodeId]) touchedProps[track.targetNodeId] = [];
-      if (touchedProps[track.targetNodeId].indexOf(track.property) === -1) {
-        touchedProps[track.targetNodeId].push(track.property);
+      if (touchedProps[track.targetNodeId].indexOf(prop) === -1) {
+        touchedProps[track.targetNodeId].push(prop);
       }
     }
   }
@@ -453,6 +641,197 @@ const NAV_BRIDGE_SCRIPT = `
 })();
 </script>
 `;
+
+/**
+ * Lightweight hit-test bridge: injected into every screen srcdoc iframe so
+ * MultiScreenCanvas can ask "what container is under this point?" during a
+ * cross-screen drag without needing to synthesise DOM events.
+ *
+ * Protocol (parent → iframe via postMessage):
+ *   { type: 'agent-native:hit-test', correlationId: string, x: number, y: number }
+ *   where x/y are in this iframe's viewport coordinate space.
+ *
+ * Reply (iframe → window.parent):
+ *   { type: 'agent-native:hit-test-result', correlationId: string,
+ *     anchorNodeId: string, placement: 'before'|'after'|'inside' }
+ *
+ * Reads DOM only — no mutations, no event interception. The container-drop and
+ * placement logic is intentionally kept in sync with the corresponding helpers
+ * inside EDITOR_CHROME_BRIDGE_SCRIPT (search for "// keep in sync with
+ * LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT" comments there).
+ */
+export const LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT = `
+<script data-agent-native-hit-test-bridge>
+(function() {
+  // keep in sync with EDITOR_CHROME_BRIDGE_SCRIPT container/leaf/text tag lists
+  var BRIDGE_CONTAINER_TAGS = ['div','section','main','header','footer','nav','article','aside','form','ul','ol','figure','fieldset','details','dialog','blockquote','table','tbody','thead','tr'];
+  var BRIDGE_LEAF_TAGS = ['img','video','picture','audio','canvas','svg','path','input','textarea','select','br','hr','iframe'];
+  var BRIDGE_TEXT_TAGS = ['p','h1','h2','h3','h4','h5','h6','span','a','strong','em','label','li'];
+
+  function isOverlayElement(el) {
+    return Boolean(el && el.closest && el.closest('[data-agent-native-edit-overlay]'));
+  }
+
+  function isLayerInteractionBlocked(el) {
+    if (!el) return false;
+    if (el.closest && el.closest('[data-agent-native-locked="true"],[data-agent-native-hidden="true"]')) return true;
+    return false;
+  }
+
+  // keep in sync with EDITOR_CHROME_BRIDGE_SCRIPT isContainerDropTarget
+  function isContainerDropTarget(el) {
+    if (!el || el === document.documentElement) return false;
+    if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
+    if (el === document.body) return true;
+    var tag = (el.tagName || '').toLowerCase();
+    if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1) return false;
+    var cs = window.getComputedStyle(el);
+    if (cs.display === 'flex' || cs.display === 'inline-flex' || cs.display === 'grid' || cs.display === 'inline-grid') return true;
+    return BRIDGE_CONTAINER_TAGS.indexOf(tag) !== -1;
+  }
+
+  // keep in sync with EDITOR_CHROME_BRIDGE_SCRIPT elementFromEditorPoint
+  function elementFromEditorPoint(clientX, clientY) {
+    var target = document.elementFromPoint(clientX, clientY);
+    if (!target || target.nodeType !== 1) return null;
+    if (isLayerInteractionBlocked(target)) return null;
+    // Skip injected bridge overlays so they don't shadow real content.
+    if (isOverlayElement(target)) return null;
+    return target;
+  }
+
+  // keep in sync with EDITOR_CHROME_BRIDGE_SCRIPT parentFlowAxis
+  function parentFlowAxis(parent) {
+    var cs = window.getComputedStyle(parent);
+    if (cs.display === 'flex' || cs.display === 'inline-flex') {
+      var isRow = cs.flexDirection && cs.flexDirection.indexOf('row') === 0;
+      var wraps = cs.flexWrap === 'wrap' || cs.flexWrap === 'wrap-reverse';
+      if (isRow && !wraps) return 'x';
+      return 'y';
+    }
+    if (cs.display === 'grid' || cs.display === 'inline-grid') {
+      var cols = (cs.gridTemplateColumns || '').split(' ').filter(Boolean).length;
+      return cols > 1 ? 'x' : 'y';
+    }
+    return 'y';
+  }
+
+  // keep in sync with EDITOR_CHROME_BRIDGE_SCRIPT edgePlacementForRect
+  function edgePlacementForRect(rect, axis, clientX, clientY) {
+    var size = axis === 'x' ? rect.width : rect.height;
+    if (!size) return null;
+    var offset = axis === 'x' ? clientX - rect.left : clientY - rect.top;
+    if (offset < size * 0.22) return 'before';
+    if (offset > size * 0.78) return 'after';
+    return null;
+  }
+
+  function draggableElementChildren(parent) {
+    return Array.prototype.slice.call(parent.children).filter(function(child) {
+      return child.nodeType === 1 && !isOverlayElement(child) && !isLayerInteractionBlocked(child);
+    });
+  }
+
+  function getNodeId(el) {
+    if (!el) return '';
+    return (
+      el.getAttribute('data-agent-native-node-id') ||
+      el.getAttribute('data-code-layer-id') ||
+      el.getAttribute('data-layer-id') ||
+      el.getAttribute('data-builder-id') ||
+      el.id ||
+      ''
+    );
+  }
+
+  /**
+   * Resolve the deepest container element under (x, y) and a placement hint,
+   * mirroring reorderTargetForPoint from EDITOR_CHROME_BRIDGE_SCRIPT but
+   * without a dragged element (we only need the anchor + placement).
+   *
+   * keep in sync with EDITOR_CHROME_BRIDGE_SCRIPT reorderTargetForPoint
+   */
+  function resolveHitTarget(clientX, clientY) {
+    var hit = elementFromEditorPoint(clientX, clientY);
+    if (!hit || hit === document.documentElement) return null;
+
+    if (isContainerDropTarget(hit)) {
+      var containerRect = hit.getBoundingClientRect();
+      var edgeAxis = hit.parentElement ? parentFlowAxis(hit.parentElement) : parentFlowAxis(hit);
+      var edgePlacement = edgePlacementForRect(containerRect, edgeAxis, clientX, clientY);
+      if (!edgePlacement) {
+        return { anchor: hit, placement: 'inside' };
+      }
+      return { anchor: hit, placement: edgePlacement };
+    }
+
+    // Non-container: use sibling before/after placement.
+    var hitParent = hit.parentElement;
+    if (hitParent) {
+      var hitAxis = parentFlowAxis(hitParent);
+      var hitRect = hit.getBoundingClientRect();
+      var hitCenter = hitAxis === 'x'
+        ? hitRect.left + hitRect.width / 2
+        : hitRect.top + hitRect.height / 2;
+      var hitPointer = hitAxis === 'x' ? clientX : clientY;
+      return {
+        anchor: hit,
+        placement: hitPointer < hitCenter ? 'before' : 'after',
+      };
+    }
+
+    // Fallback: body-level, treat as inside.
+    if (hit === document.body || !hit.parentElement) {
+      return { anchor: document.body, placement: 'inside' };
+    }
+
+    return null;
+  }
+
+  window.addEventListener('message', function(e) {
+    if (e.source !== window.parent) return;
+    if (!e.data || e.data.type !== 'agent-native:hit-test') return;
+    var correlationId = e.data.correlationId;
+    var x = Number(e.data.x);
+    var y = Number(e.data.y);
+    if (!correlationId) return;
+    var result = resolveHitTarget(x, y);
+    var anchorNodeId = result ? getNodeId(result.anchor) : '';
+    var placement = result ? result.placement : 'inside';
+    try {
+      window.parent.postMessage({
+        type: 'agent-native:hit-test-result',
+        correlationId: correlationId,
+        anchorNodeId: anchorNodeId,
+        placement: placement,
+      }, '*');
+    } catch (_err) {}
+  });
+})();
+</script>
+`;
+
+/**
+ * Append the LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT into a complete HTML string.
+ * Injects before </body> when present, before </html> as a fallback, or appends
+ * at the end. This is the seam MultiScreenCanvas uses to add the hit-test
+ * responder to each screen srcdoc without rebuilding the entire document.
+ */
+export function appendHitTestResponder(html: string): string {
+  if (html.includes("</body>")) {
+    return html.replace(
+      "</body>",
+      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT + "</body>",
+    ); // i18n-ignore generated iframe HTML injection
+  }
+  if (html.includes("</html>")) {
+    return html.replace(
+      "</html>",
+      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT + "</html>",
+    ); // i18n-ignore generated iframe HTML injection
+  }
+  return html + LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT;
+}
 
 const EDITOR_BRIDGE_VAR_NAMES = [
   "--design-editor-accent-color",
