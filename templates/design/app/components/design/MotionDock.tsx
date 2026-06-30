@@ -769,18 +769,17 @@ function AddTrackMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
-        <DropdownMenuLabel className="truncate text-[10px] text-muted-foreground">
+      <DropdownMenuContent align="start" className="w-48 p-1">
+        <DropdownMenuLabel className="truncate px-2 py-1 text-[10px] font-medium leading-none text-muted-foreground">
           Animate “{selectedTarget.label}”
         </DropdownMenuLabel>
-        <DropdownMenuSeparator />
+        <DropdownMenuSeparator className="my-1" />
         {MOTION_PROPERTY_PRESETS.map((preset) => (
           <DropdownMenuItem
             key={`${preset.property}-${preset.label}`}
-            className="text-[12px]"
+            className="h-7 px-2 text-[12px] leading-none"
             onSelect={() => onCreateTrack(preset)}
           >
-            <IconDiamond className="size-3 text-primary/70" />
             {preset.label}
           </DropdownMenuItem>
         ))}

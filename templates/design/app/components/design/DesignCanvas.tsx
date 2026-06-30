@@ -1569,6 +1569,10 @@ export function DesignCanvas({
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
   const embeddedFrameFluid = embeddedFrame?.fluid === true;
+  const iframeBackgroundColor = getEmbeddedIframeBackgroundColor({
+    embeddedFrameBackground,
+    transparentBackground,
+  });
 
   // Per-breakpoint override: when previewWidthPx is set it takes priority over
   // the deviceFrame width so the caller can render the same source at an
@@ -1618,12 +1622,11 @@ export function DesignCanvas({
             ? "localhost" // inferred — content is a URL
             : "inline")
         }
+        allowTransparency={transparentBackground || undefined}
         className="block h-full w-full border-0 bg-transparent"
         style={{
-          backgroundColor: getEmbeddedIframeBackgroundColor({
-            embeddedFrameBackground,
-            transparentBackground,
-          }),
+          background: iframeBackgroundColor,
+          backgroundColor: iframeBackgroundColor,
         }}
         title={t("designEditor.designPreview")}
       />
