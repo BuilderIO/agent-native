@@ -3365,15 +3365,26 @@ export function MultiScreenCanvas({
     [flushPendingWheelGesture],
   );
 
-  const handleWheelEvent = useCallback(
-    (event: WheelEvent) => {
+  const enqueueWheelGestureFromClient = useCallback(
+    (args: {
+      deltaX: number;
+      deltaY: number;
+      deltaMode: number;
+      clientX: number;
+      clientY: number;
+      ctrlKey: boolean;
+      metaKey: boolean;
+      shiftKey: boolean;
+    }) => {
       const rect = surfaceRef.current?.getBoundingClientRect();
       if (!rect) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const delta = getWheelDelta(event);
+      const delta = getWheelDeltaFromValues(
+        args.deltaX,
+        args.deltaY,
+        args.deltaMode,
+      );
 
-      if (event.ctrlKey || event.metaKey) {
+      if (args.ctrlKey || args.metaKey) {
         const zoomDeltaY = clamp(
           delta.y,
           -MAX_WHEEL_ZOOM_DELTA,
@@ -3382,26 +3393,47 @@ export function MultiScreenCanvas({
         enqueueWheelGesture({
           mode: "zoom",
           deltaY: zoomDeltaY,
-          cursor: { x: event.clientX - rect.left, y: event.clientY - rect.top },
-          clientX: event.clientX,
-          clientY: event.clientY,
+          cursor: {
+            x: args.clientX - rect.left,
+            y: args.clientY - rect.top,
+          },
+          clientX: args.clientX,
+          clientY: args.clientY,
         });
         return;
       }
 
       const deltaX = clamp(
-        event.shiftKey && delta.x === 0 ? delta.y : delta.x,
+        args.shiftKey && delta.x === 0 ? delta.y : delta.x,
         -MAX_WHEEL_PAN_DELTA,
         MAX_WHEEL_PAN_DELTA,
       );
       const deltaY = clamp(
-        event.shiftKey && delta.x === 0 ? 0 : delta.y,
+        args.shiftKey && delta.x === 0 ? 0 : delta.y,
         -MAX_WHEEL_PAN_DELTA,
         MAX_WHEEL_PAN_DELTA,
       );
       enqueueWheelGesture({ mode: "pan", deltaX, deltaY });
     },
     [enqueueWheelGesture],
+  );
+
+  const handleWheelEvent = useCallback(
+    (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      enqueueWheelGestureFromClient({
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      });
+    },
+    [enqueueWheelGestureFromClient],
   );
 
   useEffect(() => {
@@ -3417,6 +3449,44 @@ export function MultiScreenCanvas({
       });
     };
   }, [handleWheelEvent]);
+
+  useEffect(() => {
+    const handleEmbeddedWheelMessage = (event: MessageEvent) => {
+      if (!event.data || event.data.type !== "embedded-canvas-wheel") return;
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      const sourceIframe = Array.from(
+        surface.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      ).find((iframe) => iframe.contentWindow === event.source);
+      if (!sourceIframe) return;
+
+      const rect = sourceIframe.getBoundingClientRect();
+      const scaleX =
+        sourceIframe.clientWidth > 0
+          ? rect.width / sourceIframe.clientWidth
+          : 1;
+      const scaleY =
+        sourceIframe.clientHeight > 0
+          ? rect.height / sourceIframe.clientHeight
+          : 1;
+      enqueueWheelGestureFromClient({
+        deltaX: Number(event.data.deltaX) || 0,
+        deltaY: Number(event.data.deltaY) || 0,
+        deltaMode: Number(event.data.deltaMode) || WheelEvent.DOM_DELTA_PIXEL,
+        clientX: rect.left + (Number(event.data.clientX) || 0) * scaleX,
+        clientY: rect.top + (Number(event.data.clientY) || 0) * scaleY,
+        ctrlKey: Boolean(event.data.ctrlKey),
+        metaKey: Boolean(event.data.metaKey),
+        shiftKey: Boolean(event.data.shiftKey),
+      });
+    };
+
+    window.addEventListener("message", handleEmbeddedWheelMessage);
+    return () =>
+      window.removeEventListener("message", handleEmbeddedWheelMessage);
+  }, [enqueueWheelGestureFromClient]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -6060,12 +6130,15 @@ function getSelectableBounds(geometry: FrameGeometry): BoundsRect {
   };
 }
 
-function getWheelDelta(event: WheelEvent) {
-  const multiplier =
-    event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 800 : 1;
+function getWheelDeltaFromValues(
+  deltaX: number,
+  deltaY: number,
+  deltaMode: number,
+) {
+  const multiplier = deltaMode === 1 ? 16 : deltaMode === 2 ? 800 : 1;
   return {
-    x: event.deltaX * multiplier,
-    y: event.deltaY * multiplier,
+    x: deltaX * multiplier,
+    y: deltaY * multiplier,
   };
 }
 

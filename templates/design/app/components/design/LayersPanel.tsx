@@ -1000,7 +1000,11 @@ function LayerRow({
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
   const dragEligible = selectable && !node.locked && !node.hidden;
   const draggable = dragEligible && Boolean(onMoveLayer);
-  const canDropInside = layerCanDropInside(node, hasChildren);
+  const canDropInside = layerCanDropInside(
+    node,
+    hasChildren,
+    canAcceptChildren,
+  );
   const activeDrop =
     dropIndicator?.targetId === node.id ? dropIndicator.placement : null;
   // Tracks whether the user pressed Escape to cancel rename so that the
@@ -1868,9 +1872,14 @@ function ElementLayerGlyph({ className }: { className?: string }) {
   );
 }
 
-function layerCanDropInside(node: LayersPanelNode, hasChildren: boolean) {
+function layerCanDropInside(
+  node: LayersPanelNode,
+  hasChildren: boolean,
+  canAcceptChildren: boolean,
+) {
   return (
     hasChildren ||
+    canAcceptChildren ||
     Boolean(node.layout?.isFlexContainer || node.layout?.isGridContainer) ||
     node.type === "file" ||
     node.type === "screen" ||

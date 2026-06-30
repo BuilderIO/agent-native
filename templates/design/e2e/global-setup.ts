@@ -16,7 +16,9 @@ export const E2E_EMAIL = "e2e@local.test";
 export const E2E_PASSWORD = "password-e2e-1234";
 export const SEED_TITLE = "E2E Seed Design";
 
-const AUTH_DIR = path.join(import.meta.dirname, ".auth");
+const AUTH_DIR = process.env.E2E_AUTH_DIR
+  ? path.resolve(process.env.E2E_AUTH_DIR)
+  : path.join(import.meta.dirname, ".auth");
 const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;

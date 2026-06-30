@@ -778,6 +778,18 @@ interface CodingHandoffResult {
   fileCount?: number;
 }
 
+interface CanvasLayerClipboardEntry {
+  html: string;
+  rootNodeId?: string;
+  sourceFileId: string;
+}
+
+interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
+  node: CodeLayerNode;
+  sourceIndex: number;
+  tree: CodeLayerTreeNode[];
+}
+
 export interface MotionTimelineRow {
   id: string | null;
   designId: string;
@@ -1351,7 +1363,12 @@ function normalizedDesignFileType(
 
 function nextBlankScreenFilename(files: DesignFile[]): string {
   const existing = new Set(files.map((file) => file.filename));
-  let index = files.length + 1;
+  const screenCount = files.filter(
+    (file) =>
+      normalizedDesignFileType(file.fileType) === "html" &&
+      !isBoardFile(file.filename),
+  ).length;
+  let index = screenCount + 1;
   let candidate = `screen-${index}.html`;
   while (existing.has(candidate)) {
     index += 1;
@@ -1461,6 +1478,9 @@ function appendCanvasPrimitiveToHtml(
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
       const markerId = `${nodeId}-arrow`;
+      const explicitPathData = primitive.pathData?.trim()
+        ? primitive.pathData
+        : null;
       const points = primitive.points?.length
         ? primitive.points
         : [
@@ -1471,7 +1491,7 @@ function appendCanvasPrimitiveToHtml(
       const originY = Math.min(...points.map((point) => point.y));
       path.setAttribute(
         "d",
-        primitive.pathData ??
+        explicitPathData ??
           points
             .map((point, index) => {
               const command = index === 0 ? "M" : "L";
@@ -1518,7 +1538,13 @@ function appendCanvasPrimitiveToHtml(
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.setAttribute("data-an-primitive", primitive.kind);
+      svg.setAttribute(
+        "viewBox",
+        explicitPathData
+          ? `${left} ${top} ${width} ${height}`
+          : `0 0 ${width} ${height}`,
+      );
       svg.setAttribute(
         "style",
         [
@@ -1690,44 +1716,126 @@ function cloneHtmlLayerAtPosition(
   layerHtml: string,
   position: { x: number; y: number },
 ): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const layerDoc = new DOMParser().parseFromString(
-      `<template>${layerHtml}</template>`,
-      "text/html",
-    );
-    const source =
-      layerDoc.querySelector("template")?.content.firstElementChild ??
-      layerDoc.body.firstElementChild;
-    if (!source || !doc.body) return null;
-    const clone = doc.importNode(source, true) as HTMLElement | SVGElement;
-    const clonedNodes = [
-      clone,
-      ...Array.from(clone.querySelectorAll("[data-agent-native-node-id]")),
-    ] as Array<HTMLElement | SVGElement>;
-    clonedNodes.forEach((node, index) => {
+  return (
+    insertClonedHtmlLayers(content, [layerHtml], {
+      positions: [position],
+    })?.content ?? null
+  );
+}
+
+function styleHost(element: Element): (HTMLElement | SVGElement) | null {
+  return element instanceof HTMLElement || element instanceof SVGElement
+    ? element
+    : null;
+}
+
+function clearRootLayerPosition(element: Element) {
+  const host = styleHost(element);
+  if (!host) return;
+  host.style.position = "";
+  host.style.left = "";
+  host.style.top = "";
+  host.style.right = "";
+  host.style.bottom = "";
+}
+
+function setRootLayerPosition(
+  element: Element,
+  position: { x: number; y: number },
+) {
+  const host = styleHost(element);
+  if (!host) return;
+  // Use explicit style property assignments rather than prepending a raw
+  // string. Prepending creates duplicate CSS properties in the same style
+  // attribute, and in CSS the LAST occurrence wins, so existing left/top
+  // values from the cloned element would override the new position.
+  host.style.position = "absolute";
+  host.style.left = `${Math.max(0, Math.round(position.x))}px`;
+  host.style.top = `${Math.max(0, Math.round(position.y))}px`;
+  host.style.right = "";
+  host.style.bottom = "";
+}
+
+function prepareClonedHtmlLayer(
+  doc: Document,
+  layerHtml: string,
+): { element: Element; rootNodeId: string } | null {
+  const layerDoc = new DOMParser().parseFromString(
+    `<template>${layerHtml}</template>`,
+    "text/html",
+  );
+  const source =
+    layerDoc.querySelector("template")?.content.firstElementChild ??
+    layerDoc.body.firstElementChild;
+  if (!source) return null;
+  const clone = doc.importNode(source, true) as Element;
+  const rootNodeId = uniqueLayerId("copy");
+  clone.setAttribute("data-agent-native-node-id", rootNodeId);
+  Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
+    (node) => {
       node.setAttribute(
         "data-agent-native-node-id",
-        uniqueLayerId(index === 0 ? "copy" : "copy-child"),
+        uniqueLayerId("copy-child"),
       );
+    },
+  );
+  return { element: clone, rootNodeId };
+}
+
+function insertClonedHtmlLayers(
+  content: string,
+  layerHtmls: string[],
+  options: {
+    targetSelectors?: string[];
+    anchorSelectors?: string[];
+    placement?: "before" | "after" | "inside";
+    stripRootPosition?: boolean;
+    positions?: Array<{ x: number; y: number } | null | undefined>;
+  } = {},
+): { content: string; rootNodeIds: string[] } | null {
+  if (typeof window === "undefined" || layerHtmls.length === 0) return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    if (!doc.body) return null;
+    const fragment = doc.createDocumentFragment();
+    const rootNodeIds: string[] = [];
+    layerHtmls.forEach((layerHtml, index) => {
+      const prepared = prepareClonedHtmlLayer(doc, layerHtml);
+      if (!prepared) return;
+      const position = options.positions?.[index];
+      if (position) {
+        setRootLayerPosition(prepared.element, position);
+      } else if (options.stripRootPosition) {
+        clearRootLayerPosition(prepared.element);
+      }
+      rootNodeIds.push(prepared.rootNodeId);
+      fragment.appendChild(prepared.element);
     });
-    if (clone instanceof HTMLElement || clone instanceof SVGElement) {
-      // Use explicit style property assignments rather than prepending a raw
-      // string. Prepending creates duplicate CSS properties in the same style
-      // attribute, and in CSS the LAST occurrence wins, so existing left/top
-      // values from the cloned element would override the new position.
-      const cloneStyle = (clone as HTMLElement | SVGElement).style;
-      cloneStyle.position = "absolute";
-      cloneStyle.left = `${Math.max(0, Math.round(position.x))}px`;
-      cloneStyle.top = `${Math.max(0, Math.round(position.y))}px`;
-      // Clear conflicting properties that could shift the element away from
-      // the intended position.
-      cloneStyle.right = "";
-      cloneStyle.bottom = "";
+    if (rootNodeIds.length === 0) return null;
+
+    const target = queryFirstSelector(doc, options.targetSelectors ?? []);
+    const anchor =
+      queryFirstSelector(doc, options.anchorSelectors ?? []) ?? target;
+    const placement = options.placement ?? "after";
+    if (!anchor) {
+      doc.body.appendChild(fragment);
+    } else if (placement === "inside") {
+      anchor.appendChild(fragment);
+    } else if (placement === "before") {
+      if (anchor.parentElement)
+        anchor.parentElement.insertBefore(fragment, anchor);
+      else doc.body.appendChild(fragment);
+    } else {
+      if (anchor.parentElement) {
+        anchor.parentElement.insertBefore(fragment, anchor.nextSibling);
+      } else {
+        doc.body.appendChild(fragment);
+      }
     }
-    doc.body.appendChild(clone);
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    return {
+      content: `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`,
+      rootNodeIds,
+    };
   } catch {
     return null;
   }
@@ -1771,52 +1879,13 @@ function insertClonedHtmlLayer(
     placement?: "before" | "after" | "inside";
   },
 ): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const layerDoc = new DOMParser().parseFromString(
-      `<template>${cloneHtml}</template>`,
-      "text/html",
-    );
-    const source =
-      layerDoc.querySelector("template")?.content.firstElementChild ??
-      layerDoc.body.firstElementChild;
-    if (!source || !doc.body) return null;
-    const clone = doc.importNode(source, true) as HTMLElement | SVGElement;
-    const clonedNodes = [
-      clone,
-      ...Array.from(clone.querySelectorAll("[data-agent-native-node-id]")),
-    ] as Array<HTMLElement | SVGElement>;
-    clonedNodes.forEach((node, index) => {
-      node.setAttribute(
-        "data-agent-native-node-id",
-        uniqueLayerId(index === 0 ? "copy" : "copy-child"),
-      );
-    });
-
-    const target = queryFirstSelector(doc, options.targetSelectors);
-    const anchor =
-      queryFirstSelector(doc, options.anchorSelectors ?? []) ?? target;
-    const placement = options.placement ?? "after";
-    if (!anchor) {
-      doc.body.appendChild(clone);
-    } else if (placement === "inside") {
-      anchor.appendChild(clone);
-    } else if (placement === "before") {
-      if (anchor.parentElement)
-        anchor.parentElement.insertBefore(clone, anchor);
-      else doc.body.appendChild(clone);
-    } else {
-      if (anchor.parentElement) {
-        anchor.parentElement.insertBefore(clone, anchor.nextSibling);
-      } else {
-        doc.body.appendChild(clone);
-      }
-    }
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return null;
-  }
+  return (
+    insertClonedHtmlLayers(content, [cloneHtml], {
+      targetSelectors: options.targetSelectors,
+      anchorSelectors: options.anchorSelectors,
+      placement: options.placement,
+    })?.content ?? null
+  );
 }
 
 function getElementOuterHtml(content: string, selector: string): string | null {
@@ -1856,6 +1925,55 @@ function extractLayerPosition(
   } catch {
     return null;
   }
+}
+
+function postBeginTextEditToPreviewIframes(
+  screenId: string | null,
+  nodeId: string,
+): boolean {
+  if (typeof document === "undefined" || !nodeId) return false;
+  const iframes = Array.from(
+    document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    ),
+  );
+  const targetIframes = iframes.filter(
+    (iframe) => screenId && iframe.dataset.screenIframeId === screenId,
+  );
+  const orderedIframes = targetIframes.length > 0 ? targetIframes : iframes;
+  const selector = `[data-agent-native-node-id="${nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"][data-agent-native-text-editing]`;
+  if (
+    orderedIframes.some((iframe) => {
+      try {
+        return iframe.contentDocument?.querySelector(selector);
+      } catch {
+        return false;
+      }
+    })
+  ) {
+    return true;
+  }
+  orderedIframes.forEach((iframe) => {
+    iframe.contentWindow?.postMessage(
+      { type: "begin-text-edit", nodeId, force: true },
+      "*",
+    );
+  });
+  return false;
+}
+
+function scheduleBeginTextEditForScreen(
+  screenId: string | null,
+  nodeId: string,
+) {
+  if (typeof window === "undefined") return;
+  let sawEditing = false;
+  [50, 150, 300, 600, 900, 1200, 1800, 2400, 3200, 4200].forEach((delay) => {
+    window.setTimeout(() => {
+      if (sawEditing) return;
+      sawEditing = postBeginTextEditToPreviewIframes(screenId, nodeId);
+    }, delay);
+  });
 }
 
 function removeElementFromHtml(
@@ -3640,6 +3758,7 @@ export default function DesignEditor() {
     useState(0);
   const [hasCanvasClipboard, setHasCanvasClipboard] = useState(false);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
+  const copiedLayerEntriesRef = useRef<CanvasLayerClipboardEntry[]>([]);
   const copiedLayerHtmlRef = useRef<string | null>(null);
   // Cascade offset for repeated keyboard pastes so successive clones don't stack
   // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
@@ -7205,9 +7324,7 @@ export default function DesignEditor() {
       // enter text-edit mode — fixing the "click to add text should let me
       // type immediately" bug. The ref is read once and cleared.
       if (primitive.kind === "text") {
-        const textNodeId =
-          typeof result === "string" ? result : (primitive.nodeId ?? null);
-        pendingTextEditNodeIdRef.current = textNodeId;
+        pendingTextEditNodeIdRef.current = primitive.nodeId ?? null;
       } else {
         pendingTextEditNodeIdRef.current = null;
       }
@@ -7252,17 +7369,15 @@ export default function DesignEditor() {
       });
       // viewMode stays at "overview" — no setViewMode("single") call here.
 
-      // Immediately enter text-editing for newly created TEXT primitives so the
-      // user can start typing without a second click (fixes auto-size flow too).
-      // We read-and-clear the ref set by handleCreatePrimitive just above. The
-      // 50 ms delay gives React a tick to commit the new content into the active
-      // screen's iframe before the bridge tries to find the element by nodeId.
-      const textNodeId = pendingTextEditNodeIdRef.current;
+      // Immediately enter text-editing for newly created TEXT primitives. In
+      // overview mode the target iframe may become active and receive the
+      // inserted HTML over separate renders, so post directly to the target
+      // iframe with a few short retries instead of relying on a single global
+      // bridge callback.
+      const textNodeId = pendingTextEditNodeIdRef.current ?? nodeId;
       pendingTextEditNodeIdRef.current = null;
       if (textNodeId) {
-        setTimeout(() => {
-          (window as any).__designCanvasBeginTextEdit?.(textNodeId);
-        }, 50);
+        scheduleBeginTextEditForScreen(screenId, textNodeId);
       }
     },
     [clearPendingOverviewLayerSelectionTimer],
@@ -7281,28 +7396,14 @@ export default function DesignEditor() {
       if (!result) return false;
 
       // For TEXT primitives drawn on the board surface, immediately enter
-      // text-editing mode via begin-text-edit.  The board DesignCanvas uses
-      // registerRuntimeBridge=false so window.__designCanvasBeginTextEdit is
-      // not set; instead we broadcast the message to all preview iframes — the
-      // one that contains the new nodeId will handle it, others ignore it.
-      // The 50 ms delay lets the board iframe receive its content update first.
+      // text-editing mode via begin-text-edit. The target is the board file,
+      // so use the same iframe-targeted retry path as screen primitives.
       if (primitive.kind === "text") {
         const textNodeId =
           pendingTextEditNodeIdRef.current ?? primitive.nodeId ?? null;
         pendingTextEditNodeIdRef.current = null;
         if (textNodeId) {
-          setTimeout(() => {
-            document
-              .querySelectorAll<HTMLIFrameElement>(
-                "iframe[data-design-preview-iframe]",
-              )
-              .forEach((iframe) => {
-                iframe.contentWindow?.postMessage(
-                  { type: "begin-text-edit", nodeId: textNodeId },
-                  "*",
-                );
-              });
-          }, 50);
+          scheduleBeginTextEditForScreen(boardFileId, textNodeId);
         }
       }
 
@@ -8994,27 +9095,167 @@ export default function DesignEditor() {
     ],
   );
 
-  const handleCopySelection = useCallback(async () => {
-    if (!selectedElement?.selector) return;
-    const html = getElementOuterHtml(
-      getFreshActiveContent(),
-      selectedElement.selector,
+  const getSelectedLayerSnapshots = useCallback(() => {
+    const fileIds = new Set(files.map((file) => file.id));
+    const candidateIds = selectedLayerIdsState.filter(
+      (layerId) =>
+        layerId && !layerId.startsWith("__") && !fileIds.has(layerId),
     );
-    if (!html) return;
-    copiedLayerHtmlRef.current = html;
+    if (
+      selectedElementLayerId &&
+      !candidateIds.includes(selectedElementLayerId)
+    ) {
+      candidateIds.push(selectedElementLayerId);
+    }
+
+    const snapshots: SelectedCanvasLayerSnapshot[] = [];
+    for (const file of files) {
+      const content = getScreenContent(file.id);
+      if (!content) continue;
+      const projection = buildCodeLayerProjection(content);
+      const tree = buildCodeLayerTree(projection);
+      for (const layerId of candidateIds) {
+        const node = projection.nodes.find(
+          (candidate) =>
+            candidate.id === layerId ||
+            candidate.dataAttributes["data-agent-native-node-id"] === layerId,
+        );
+        if (!node?.source) continue;
+        snapshots.push({
+          html: content.slice(node.source.start, node.source.end),
+          rootNodeId:
+            node.dataAttributes["data-agent-native-node-id"] ?? node.id,
+          sourceFileId: file.id,
+          node,
+          sourceIndex: node.source.start,
+          tree,
+        });
+      }
+    }
+
+    if (snapshots.length === 0 && activeFile && selectedElement?.selector) {
+      const content = getFreshActiveContent();
+      const projection = buildCodeLayerProjection(content);
+      const tree = buildCodeLayerTree(projection);
+      const node = resolveCodeLayerNodeFromElementInfo(
+        projection,
+        selectedElement,
+      );
+      const html = node?.source
+        ? content.slice(node.source.start, node.source.end)
+        : getElementOuterHtml(content, selectedElement.selector);
+      if (html && node) {
+        snapshots.push({
+          html,
+          rootNodeId:
+            node.dataAttributes["data-agent-native-node-id"] ??
+            selectedElement.sourceId ??
+            selectedElement.id,
+          sourceFileId: activeFile.id,
+          node,
+          sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
+          tree,
+        });
+      }
+    }
+
+    const selectedKeys = new Set(
+      snapshots.map(
+        (snapshot) => `${snapshot.sourceFileId}:${snapshot.node.id}`,
+      ),
+    );
+    const topLevelSnapshots = snapshots.filter(
+      (snapshot) =>
+        !collectCodeLayerAncestors(snapshot.tree, snapshot.node.id).some(
+          (ancestorId) =>
+            selectedKeys.has(`${snapshot.sourceFileId}:${ancestorId}`),
+        ),
+    );
+    const fileOrder = new Map(files.map((file, index) => [file.id, index]));
+    return topLevelSnapshots.sort((a, b) => {
+      const fileDelta =
+        (fileOrder.get(a.sourceFileId) ?? 0) -
+        (fileOrder.get(b.sourceFileId) ?? 0);
+      if (fileDelta !== 0) return fileDelta;
+      return a.sourceIndex - b.sourceIndex;
+    });
+  }, [
+    activeFile,
+    files,
+    getFreshActiveContent,
+    getScreenContent,
+    selectedElement,
+    selectedElementLayerId,
+    selectedLayerIdsState,
+  ]);
+
+  const getCanvasClipboardEntries = useCallback(() => {
+    if (copiedLayerEntriesRef.current.length > 0) {
+      return copiedLayerEntriesRef.current;
+    }
+    return copiedLayerHtmlRef.current
+      ? [
+          {
+            html: copiedLayerHtmlRef.current,
+            sourceFileId: activeFile?.id ?? "",
+          },
+        ]
+      : [];
+  }, [activeFile?.id]);
+
+  const selectInsertedLayers = useCallback(
+    (screenId: string, content: string, rootNodeIds: string[]) => {
+      const projection = buildCodeLayerProjection(content);
+      const insertedNodes = rootNodeIds
+        .map((rootNodeId) =>
+          projection.nodes.find(
+            (node) =>
+              node.id === rootNodeId ||
+              node.dataAttributes["data-agent-native-node-id"] === rootNodeId,
+          ),
+        )
+        .filter((node): node is CodeLayerNode => Boolean(node));
+      if (insertedNodes.length === 0) return;
+      setActiveFileId(screenId);
+      setSelectedLayerIdsState(insertedNodes.map((node) => node.id));
+      const lastNode = insertedNodes[insertedNodes.length - 1];
+      setSelectedElement(
+        lastNode ? elementInfoFromCodeLayerNode(lastNode) : null,
+      );
+      setActiveTool("move");
+      setMode("edit");
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds([screenId]);
+      }
+    },
+    [],
+  );
+
+  const handleCopySelection = useCallback(async () => {
+    const entries = getSelectedLayerSnapshots().map((snapshot) => ({
+      html: snapshot.html,
+      rootNodeId: snapshot.rootNodeId,
+      sourceFileId: snapshot.sourceFileId,
+    }));
+    if (entries.length === 0) return;
+    const clipboardText = entries.map((entry) => entry.html).join("\n");
+    copiedLayerEntriesRef.current = entries;
+    copiedLayerHtmlRef.current = clipboardText;
     pasteCascadeRef.current = 0;
     setHasCanvasClipboard(true);
     try {
-      await navigator.clipboard.writeText(html);
+      await navigator.clipboard.writeText(clipboardText);
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
-  }, [getFreshActiveContent, selectedElement, t]);
+  }, [getSelectedLayerSnapshots, t]);
 
   const handlePasteSelection = useCallback(
     (position?: { x: number; y: number }) => {
-      if (!activeFile || !canEditDesign || !copiedLayerHtmlRef.current) return;
+      const entries = getCanvasClipboardEntries();
+      if (!activeFile || !canEditDesign || entries.length === 0) return;
       const baseContent = getFreshActiveContent();
+      const layerHtmls = entries.map((entry) => entry.html);
 
       // B7 fix: when an element is selected and no explicit canvas position was
       // given, insert the clone as an in-flow sibling right AFTER the selected
@@ -9024,38 +9265,19 @@ export default function DesignEditor() {
       // selected or a "Paste here" position is provided.
       if (!position && selectedElement?.selector) {
         const selector = selectedCanvasSelector ?? selectedElement.selector;
-        // Strip position properties from the pasted clone so it becomes an
-        // in-flow sibling (not absolute).
-        const strippedHtml = (() => {
-          try {
-            const parser = new DOMParser();
-            const tmp = parser.parseFromString(
-              `<template>${copiedLayerHtmlRef.current!}</template>`,
-              "text/html",
-            );
-            const root =
-              tmp.querySelector("template")?.content.firstElementChild ??
-              tmp.body.firstElementChild;
-            if (root && root instanceof HTMLElement) {
-              root.style.position = "";
-              root.style.left = "";
-              root.style.top = "";
-              root.style.right = "";
-              root.style.bottom = "";
-            }
-            return root?.outerHTML ?? copiedLayerHtmlRef.current!;
-          } catch {
-            return copiedLayerHtmlRef.current!;
-          }
-        })();
-
-        const nextContent = insertClonedHtmlLayer(baseContent, strippedHtml, {
+        const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
           targetSelectors: [selector],
           placement: "after",
+          stripRootPosition: true,
         });
-        if (nextContent) {
+        if (result) {
           pasteCascadeRef.current += 1;
-          applyLocalContentUpdate(nextContent);
+          applyLocalContentUpdate(result.content);
+          selectInsertedLayers(
+            activeFile.id,
+            result.content,
+            result.rootNodeIds,
+          );
           return;
         }
         // Fall through to position-based clone if insert failed.
@@ -9064,59 +9286,154 @@ export default function DesignEditor() {
       // Explicit positions (e.g. "Paste here" at the cursor) are honored as-is.
       // Keyboard pastes land near the source layer and cascade so repeats don't
       // stack exactly.
-      const targetPosition =
-        position ??
-        (() => {
-          const src = extractLayerPosition(copiedLayerHtmlRef.current!);
-          const offset = pasteCascadeRef.current * 16;
-          return src
-            ? { x: src.x + 10 + offset, y: src.y + 10 + offset }
-            : { x: 120 + offset, y: 120 + offset };
-        })();
-      const nextContent = cloneHtmlLayerAtPosition(
-        baseContent,
-        copiedLayerHtmlRef.current,
-        targetPosition,
+      const sourcePositions = entries.map((entry) =>
+        extractLayerPosition(entry.html),
       );
-      if (!nextContent) return;
+      const positionedSources = sourcePositions.filter(
+        (source): source is { x: number; y: number } => Boolean(source),
+      );
+      const minSourceX = positionedSources.length
+        ? Math.min(...positionedSources.map((source) => source.x))
+        : 0;
+      const minSourceY = positionedSources.length
+        ? Math.min(...positionedSources.map((source) => source.y))
+        : 0;
+      const cascadeOffset = pasteCascadeRef.current * 16;
+      const positions = entries.map((_, index) => {
+        const source = sourcePositions[index];
+        if (position) {
+          return source && positionedSources.length
+            ? {
+                x: position.x + source.x - minSourceX,
+                y: position.y + source.y - minSourceY,
+              }
+            : { x: position.x + index * 16, y: position.y + index * 16 };
+        }
+        return source
+          ? {
+              x: source.x + 10 + cascadeOffset,
+              y: source.y + 10 + cascadeOffset,
+            }
+          : {
+              x: 120 + cascadeOffset + index * 16,
+              y: 120 + cascadeOffset + index * 16,
+            };
+      });
+      const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
+        positions,
+      });
+      if (!result) return;
       if (!position) pasteCascadeRef.current += 1;
-      applyLocalContentUpdate(nextContent);
+      applyLocalContentUpdate(result.content);
+      selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
     },
     [
       activeFile,
       applyLocalContentUpdate,
       canEditDesign,
+      getCanvasClipboardEntries,
       getFreshActiveContent,
+      selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
     ],
   );
 
   const handlePasteOverSelection = useCallback(() => {
-    if (!activeFile || !copiedLayerHtmlRef.current) return;
+    const entries = getCanvasClipboardEntries();
+    if (!activeFile || entries.length === 0) return;
     const baseContent = getFreshActiveContent();
     if (selectedElement?.boundingRect) {
       const { x, y } = selectedElement.boundingRect;
-      const nextContent = cloneHtmlLayerAtPosition(
+      const result = insertClonedHtmlLayers(
         baseContent,
-        copiedLayerHtmlRef.current,
-        { x, y },
+        entries.map((entry) => entry.html),
+        {
+          positions: entries.map((_, index) => ({
+            x: x + index * 16,
+            y: y + index * 16,
+          })),
+        },
       );
-      if (!nextContent) return;
-      applyLocalContentUpdate(nextContent);
+      if (!result) return;
+      applyLocalContentUpdate(result.content);
+      selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
     } else {
       handlePasteSelection();
     }
   }, [
     activeFile,
     applyLocalContentUpdate,
+    getCanvasClipboardEntries,
     getFreshActiveContent,
     handlePasteSelection,
+    selectInsertedLayers,
     selectedElement,
   ]);
 
   const handleDuplicateSelection = useCallback(() => {
     if (!canEditDesign) return;
+    const snapshots = getSelectedLayerSnapshots();
+    if (snapshots.length > 0) {
+      const selectedIds: string[] = [];
+      const selectedScreenIds: string[] = [];
+      let lastActiveNode: CodeLayerNode | null = null;
+
+      for (const file of files) {
+        const group = snapshots.filter(
+          (snapshot) => snapshot.sourceFileId === file.id,
+        );
+        if (group.length === 0) continue;
+        let content = getScreenContent(file.id);
+        const insertedRootNodeIds: string[] = [];
+        for (const snapshot of [...group].sort(
+          (a, b) => b.sourceIndex - a.sourceIndex,
+        )) {
+          const projection = buildCodeLayerProjection(content);
+          const anchorNode =
+            projection.nodes.find(
+              (node) =>
+                node.id === snapshot.node.id ||
+                node.dataAttributes["data-agent-native-node-id"] ===
+                  snapshot.rootNodeId,
+            ) ?? snapshot.node;
+          const result = insertClonedHtmlLayers(content, [snapshot.html], {
+            targetSelectors: codeLayerSelectorAliases(anchorNode),
+            placement: "after",
+            stripRootPosition: true,
+          });
+          if (!result) continue;
+          content = result.content;
+          insertedRootNodeIds.unshift(...result.rootNodeIds);
+        }
+        if (insertedRootNodeIds.length === 0) continue;
+        applyFileContentUpdate(file.id, content, { refreshPreview: false });
+        selectedScreenIds.push(file.id);
+        const finalProjection = buildCodeLayerProjection(content);
+        insertedRootNodeIds.forEach((rootNodeId) => {
+          const insertedNode = finalProjection.nodes.find(
+            (node) =>
+              node.id === rootNodeId ||
+              node.dataAttributes["data-agent-native-node-id"] === rootNodeId,
+          );
+          if (!insertedNode) return;
+          selectedIds.push(insertedNode.id);
+          if (file.id === activeFile?.id) lastActiveNode = insertedNode;
+        });
+      }
+
+      if (selectedIds.length > 0) {
+        setSelectedLayerIdsState(selectedIds);
+        setSelectedElement(
+          lastActiveNode ? elementInfoFromCodeLayerNode(lastActiveNode) : null,
+        );
+        if (viewModeRef.current === "overview") {
+          setOverviewSelectedScreenIds(selectedScreenIds);
+        }
+        return;
+      }
+    }
+
     if (selectedElement?.selector) {
       const baseContent = getFreshActiveContent();
       const html = getElementOuterHtml(baseContent, selectedElement.selector);
@@ -9164,9 +9481,13 @@ export default function DesignEditor() {
     if (activeFile) handleDuplicateScreen(activeFile.id);
   }, [
     activeFile,
+    applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign,
+    files,
     getFreshActiveContent,
+    getScreenContent,
+    getSelectedLayerSnapshots,
     handleDuplicateScreen,
     selectedCanvasSelector,
     selectedElement,
@@ -9175,65 +9496,89 @@ export default function DesignEditor() {
 
   const handleDeleteSelection = useCallback(() => {
     if (!canEditDesign) return;
-    const baseContent = getFreshActiveContent();
-    // Multi-select delete: when several DOM/code layers are selected in the
-    // panel, remove all of them — not just the single focused element. Compose
-    // the removals against the running content (re-projecting each pass) so
-    // nested selections resolve correctly and earlier removals aren't clobbered.
-    const candidateIds = selectedLayerIdsState.filter(
-      (layerId) =>
-        layerId &&
-        !layerId.startsWith("__") &&
-        !files.some((file) => file.id === layerId),
-    );
-    if (candidateIds.length > 1) {
-      let content = baseContent;
-      const removedSelectors: string[] = [];
-      for (const layerId of candidateIds) {
+    const snapshots = getSelectedLayerSnapshots();
+    if (snapshots.length > 0) {
+      const activeRuntimeSelectors: string[] = [];
+      let didDelete = false;
+      for (const file of files) {
+        const group = snapshots.filter(
+          (snapshot) => snapshot.sourceFileId === file.id,
+        );
+        if (group.length === 0) continue;
+        const originalContent = getScreenContent(file.id);
+        let content = originalContent;
         const projection = buildCodeLayerProjection(content);
-        const node =
-          projection.nodes.find((candidate) => candidate.id === layerId) ??
-          resolveCodeLayerNodeFromBridge(projection, layerId, layerId);
-        if (!node) continue;
-        const next = removeCodeLayerNodeFromHtml(content, node);
-        if (!next) continue;
-        const selector = preferredCodeLayerSelector(node);
-        if (selector) removedSelectors.push(selector);
-        content = next;
+        const tree = buildCodeLayerTree(projection);
+        const selectedNodeIds = new Set(
+          group.map((snapshot) => snapshot.node.id),
+        );
+        const nodes = group
+          .map((snapshot) =>
+            projection.nodes.find(
+              (node) =>
+                node.id === snapshot.node.id ||
+                node.dataAttributes["data-agent-native-node-id"] ===
+                  snapshot.rootNodeId,
+            ),
+          )
+          .filter((node): node is CodeLayerNode => Boolean(node?.source))
+          .filter(
+            (node) =>
+              !collectCodeLayerAncestors(tree, node.id).some((ancestorId) =>
+                selectedNodeIds.has(ancestorId),
+              ),
+          )
+          .sort((a, b) => (b.source?.start ?? 0) - (a.source?.start ?? 0));
+        if (nodes.length === 0) continue;
+        const removedSelectors: string[] = [];
+        for (const node of nodes) {
+          const next = removeCodeLayerNodeFromHtml(content, node);
+          if (!next) continue;
+          const selector = preferredCodeLayerSelector(node);
+          if (selector) removedSelectors.push(selector);
+          content = next;
+        }
+        if (content === originalContent) continue;
+        if (file.id === activeFile?.id) {
+          activeRuntimeSelectors.push(...removedSelectors);
+        }
+        didDelete = true;
+        applyFileContentUpdate(file.id, content, { refreshPreview: false });
       }
-      if (content !== baseContent) {
-        removedSelectors.forEach((selector) => deleteRuntimeElement(selector));
-        applyLocalContentUpdate(content, { refreshPreview: false });
-        setSelectedElement(null);
-        setSelectedLayerIdsState([]);
-        return;
+      if (!didDelete) return;
+      activeRuntimeSelectors.forEach((selector) =>
+        deleteRuntimeElement(selector),
+      );
+      setSelectedElement(null);
+      setSelectedLayerIdsState([]);
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds([]);
       }
-      // Nothing resolved (stale ids) — fall through to the single path.
+      return;
     }
 
     if (!selectedElement?.selector) return;
-    const projection = buildCodeLayerProjection(baseContent);
-    const targetNode = resolveCodeLayerNodeFromElementInfo(
-      projection,
-      selectedElement,
+    const baseContent = getFreshActiveContent();
+    const nextContent = removeElementFromHtml(
+      baseContent,
+      selectedElement.selector,
     );
-    const nextContent =
-      (targetNode
-        ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
-        : null) ?? removeElementFromHtml(baseContent, selectedElement.selector);
     if (!nextContent) return;
     deleteRuntimeElement(selectedElement.selector);
     applyLocalContentUpdate(nextContent, { refreshPreview: false });
     setSelectedElement(null);
     setSelectedLayerIdsState([]);
   }, [
+    activeFile?.id,
+    applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign,
     deleteRuntimeElement,
     files,
     getFreshActiveContent,
+    getScreenContent,
+    getSelectedLayerSnapshots,
     selectedElement,
-    selectedLayerIdsState,
   ]);
 
   // Wrap the current multi-layer selection into a new group container.
@@ -14299,6 +14644,7 @@ ${serializedHtml}
                           <DesignCanvas
                             content={screenContent}
                             contentKey={screenContentKey}
+                            screenId={screen.id}
                             zoom={100}
                             deviceFrame="none"
                             sourceType={designSourceType}

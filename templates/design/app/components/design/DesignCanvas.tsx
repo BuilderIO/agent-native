@@ -374,6 +374,8 @@ interface DesignCanvasProps {
   designTitle?: string;
   /** Stable id for comment pins, usually scoped to the active screen. */
   commentContextId?: string;
+  /** Stable id of the screen containing this canvas when rendered in overview. */
+  screenId?: string;
   /** Human-readable label for comment-pin prompts. */
   commentContextLabel?: string;
   /**
@@ -506,6 +508,7 @@ export function DesignCanvas({
   designId,
   designTitle,
   commentContextId,
+  screenId,
   commentContextLabel,
   onPrototypeNavigate,
   motionTracks,
@@ -1098,7 +1101,10 @@ export function DesignCanvas({
   const beginTextEdit = useCallback((nodeId: string) => {
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow || !nodeId) return;
-    iframe.contentWindow.postMessage({ type: "begin-text-edit", nodeId }, "*");
+    iframe.contentWindow.postMessage(
+      { type: "begin-text-edit", nodeId, force: true },
+      "*",
+    );
   }, []);
 
   const sendStyleChange = useCallback(
@@ -1342,6 +1348,7 @@ export function DesignCanvas({
             : "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         }
         data-design-preview-iframe
+        data-screen-iframe-id={screenId ?? undefined}
         data-design-source-type={
           sourceType ??
           (externalPreviewUrl

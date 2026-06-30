@@ -3468,17 +3468,20 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     }
   }
 
-  function beginTextEditingFromEvent(e) {
+  function beginTextEditingFromEvent(e, forceTextEditing) {
     if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target))
       return;
-    if (!textEditingEnabled) {
+    if (!textEditingEnabled && !forceTextEditing) {
       stopNativeInteraction(e);
       return;
     }
     stopNativeInteraction(e);
-    var target = findTextEditTarget(
-      elementFromEditorPoint(e.clientX, e.clientY),
-    );
+    var eventTarget =
+      e && e.target && e.target.nodeType === 1 ? e.target : null;
+    var target =
+      findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) ||
+      findTextEditTarget(eventTarget) ||
+      eventTarget;
     if (!target || target.nodeType !== 1) return;
     // Anchor the selection identity to the nearest source-backed element. Text
     // editing still operates on the actual target text node, but a later
@@ -3725,7 +3728,8 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     // text-element creation so the user can type right away and the autosize
     // CSS (width:max-content or similar) takes effect from the first keystroke.
     if (e.data.type === "begin-text-edit") {
-      if (readOnly || !textEditingEnabled) return;
+      var forceBeginTextEdit = e.data.force === true;
+      if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
       var nodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       if (!nodeId) return;
@@ -3749,14 +3753,17 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       var bteCenterY = bteRect.top + bteRect.height / 2;
       // Delegate to the canonical path so all state, events, and postMessages
       // stay consistent with a normal double-click text edit.
-      beginTextEditingFromEvent({
-        clientX: bteCenterX,
-        clientY: bteCenterY,
-        target: textTarget,
-        preventDefault: function () {},
-        stopPropagation: function () {},
-        stopImmediatePropagation: function () {},
-      } as unknown as MouseEvent);
+      beginTextEditingFromEvent(
+        {
+          clientX: bteCenterX,
+          clientY: bteCenterY,
+          target: textTarget,
+          preventDefault: function () {},
+          stopPropagation: function () {},
+          stopImmediatePropagation: function () {},
+        } as unknown as MouseEvent,
+        forceBeginTextEdit,
+      );
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {

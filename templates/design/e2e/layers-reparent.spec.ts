@@ -133,6 +133,55 @@ test.describe.serial("layers menu structure operations", () => {
     }
   });
 
+  test("dragging onto an empty container reparents inside and persists after reload", async ({
+    page,
+  }) => {
+    await clickLayerRow(page, "Alpha Button");
+    await openLayerSearch(page, "");
+    const containerLevel = await rowLevel(page, "E2E Token Sample");
+
+    await layerRow(page, "Alpha Button").dragTo(
+      layerRow(page, "E2E Token Sample"),
+      {
+        targetPosition: { x: 96, y: 16 },
+      },
+    );
+
+    await expect(layerRow(page, "E2E Token Sample")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect
+      .poll(async () => rowLevel(page, "Alpha Button"))
+      .toBe(containerLevel + 1);
+    await expect
+      .poll(async () => {
+        const names = await visibleLayerNames(page);
+        return (
+          names.indexOf("E2E Token Sample") < names.indexOf("Alpha Button")
+        );
+      })
+      .toBe(true);
+
+    await gotoEditor(page, designId);
+    await revealLayerRow(page, "E2E Token Sample");
+    const persistedContainerLevel = await rowLevel(page, "E2E Token Sample");
+    await expandLayerRow(page, "E2E Token Sample");
+    await expect(layerRow(page, "Alpha Button")).toBeVisible();
+    await expect
+      .poll(async () => {
+        const names = await visibleLayerNames(page);
+        return (
+          names.indexOf("E2E Token Sample") >= 0 &&
+          names.indexOf("E2E Token Sample") < names.indexOf("Alpha Button")
+        );
+      })
+      .toBe(true);
+    await expect
+      .poll(async () => rowLevel(page, "Alpha Button"))
+      .toBe(persistedContainerLevel + 1);
+  });
+
   test("locking a layer keeps panel selection but blocks canvas selection", async ({
     page,
   }) => {
@@ -256,8 +305,19 @@ async function waitForLayerRowButton(page: Page, name: string) {
 
 async function expandLayerRow(page: Page, name: string): Promise<void> {
   const row = layerRow(page, name);
+  await expect(row).toBeVisible();
   if ((await row.getAttribute("aria-expanded")) === "true") return;
-  await row.getByRole("button", { name: "Expand layer" }).click();
+  const toggle = row.getByRole("button", { name: "Expand layer" });
+  await expect(toggle).toBeVisible();
+  await toggle.click({ force: true });
+  await expect(row).toHaveAttribute("aria-expanded", "true");
+}
+
+async function revealLayerRow(page: Page, name: string): Promise<void> {
+  await openLayerSearch(page, name);
+  await clickLayerRow(page, name);
+  await openLayerSearch(page, "");
+  await expect(layerRow(page, name)).toBeVisible();
 }
 
 async function additiveSelectLayerRow(page: Page, name: string): Promise<void> {

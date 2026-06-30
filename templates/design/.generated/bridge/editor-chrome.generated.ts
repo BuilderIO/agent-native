@@ -2658,17 +2658,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
     }
-    function beginTextEditingFromEvent(e) {
+    function beginTextEditingFromEvent(e, forceTextEditing) {
       if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target))
         return;
-      if (!textEditingEnabled) {
+      if (!textEditingEnabled && !forceTextEditing) {
         stopNativeInteraction(e);
         return;
       }
       stopNativeInteraction(e);
-      var target = findTextEditTarget(
-        elementFromEditorPoint(e.clientX, e.clientY)
-      );
+      var eventTarget = e && e.target && e.target.nodeType === 1 ? e.target : null;
+      var target = findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) || findTextEditTarget(eventTarget) || eventTarget;
       if (!target || target.nodeType !== 1) return;
       selectedEl = selectionTargetForHit(target) || target;
       var originalText = target.textContent || "";
@@ -2886,7 +2885,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "begin-text-edit") {
-        if (readOnly || !textEditingEnabled) return;
+        var forceBeginTextEdit = e.data.force === true;
+        if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
         var nodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
         if (!nodeId) return;
         var nodeTarget = document.querySelector(
@@ -2899,17 +2899,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         var bteRect = textTarget.getBoundingClientRect();
         var bteCenterX = bteRect.right - 2;
         var bteCenterY = bteRect.top + bteRect.height / 2;
-        beginTextEditingFromEvent({
-          clientX: bteCenterX,
-          clientY: bteCenterY,
-          target: textTarget,
-          preventDefault: function() {
+        beginTextEditingFromEvent(
+          {
+            clientX: bteCenterX,
+            clientY: bteCenterY,
+            target: textTarget,
+            preventDefault: function() {
+            },
+            stopPropagation: function() {
+            },
+            stopImmediatePropagation: function() {
+            }
           },
-          stopPropagation: function() {
-          },
-          stopImmediatePropagation: function() {
-          }
-        });
+          forceBeginTextEdit
+        );
         return;
       }
       if (e.data.type === "set-editor-chrome-scale") {

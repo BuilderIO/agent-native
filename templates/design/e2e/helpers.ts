@@ -25,7 +25,10 @@ import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
  */
 
 export async function readSeedDesignId(): Promise<string> {
-  const seedPath = path.join(import.meta.dirname, ".auth", "seed.json");
+  const authDir = process.env.E2E_AUTH_DIR
+    ? path.resolve(process.env.E2E_AUTH_DIR)
+    : path.join(import.meta.dirname, ".auth");
+  const seedPath = path.join(authDir, "seed.json");
   const raw = await readFile(seedPath, "utf8");
   const { designId } = JSON.parse(raw) as { designId: string };
   if (!designId) throw new Error("no seeded designId - global-setup failed");
