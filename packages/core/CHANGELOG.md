@@ -1,5 +1,120 @@
 # @agent-native/core
 
+## 0.82.0
+
+### Minor Changes
+
+- fe9fd99: Add optional `resumable` capability to `FileUploadProvider` for streaming uploads. Providers that implement `startSession`, `relayChunk`, and `completeSession` can receive video chunks during recording instead of waiting for a fully assembled file after stop. The Builder.io provider implements this via the GCS resumable upload protocol. Also exports `ResumableUploadSession` and `ResumableChunkResult` types.
+
+## 0.81.3
+
+### Patch Changes
+
+- 3807702: Fix MCP App embed rendering in ChatGPT/Codex hosts:
+  - Stop the `openai:set_globals` storm that left embeds stuck blanking by
+    guarding the bridge sync on a signature that ignores host `maxHeight`, and
+    by not re-blanking once the app frame has launched.
+  - Size embeds to their content: the embedded app reports its real
+    `scrollHeight` via `agentNative.contentHeight` and the shell sizes the iframe
+    to that (plus chrome) instead of the host max, so plans no longer render far
+    too tall or too short.
+  - Suppress empty embeds: when a tool whose descriptor declares an embed widget
+    produces no embeddable content, the result is marked `isError` so the host
+    shows the text result without an empty widget box. This also keeps read-only
+    and comment-mutation tools from rendering an embed for results that produce
+    no plan surface.
+  - Bump the embed shell resource version so hosts refetch the updated shell.
+
+## 0.81.2
+
+### Patch Changes
+
+- ea1cc47: Keep OAuth state and environment status checks aligned with scoped workspace credentials.
+
+## 0.81.1
+
+### Patch Changes
+
+- ec433c3: Add a close (X) button to the left of the Chat tab in the agent pane header that closes the agent chat, and hide the open-agent button while the agent pane is open.
+
+## 0.81.0
+
+### Minor Changes
+
+- 3164729: Add secure localhost bridge write endpoints to the design connect bridge.
+
+  `startDesignConnectBridge` now mints a cryptographically random per-session
+  `bridgeToken` (exposed on the returned `DesignConnectBridge` object) and
+  serves three new token-gated POST endpoints on the same localhost-only server:
+  - `POST /read-file` — reads any file within the root (no extension restriction)
+  - `POST /write-file` — writes `.html`, `.htm`, or `.css` files within the root
+  - `POST /apply-edit` — patches an existing file via `{search, replace}` or
+    replaces it entirely via `{content}`
+
+  All three endpoints require the `X-Bridge-Token` header to match the minted
+  token (constant-time comparison). Path confinement is enforced via
+  `fs.realpath` on both the root and the target parent directory, blocking
+  directory traversal and symlink escape attacks. The token is never serialised
+  into the public `/manifest.json` response.
+
+  The `DesignConnectManifest` capabilities array now marks `readFile`,
+  `applyEdit`, and `writeFile` as `"available"` (previously `"planned"`).
+
+### Patch Changes
+
+- 3164729: Builder waitlist submissions now include a use-case field so Forms and Slack routing can distinguish background coding requests from Design publish requests.
+- 3164729: Fix bridge token registration so design localhost write-back works end-to-end.
+
+  `registerConnectionWithServer` is a new exported function that POSTs the
+  bridge's real `bridgeToken` (minted by `startDesignConnectBridge`) to the
+  design app's `connect-localhost` action endpoint on startup. This stores the
+  token on the `designLocalhostConnections` row so `grant-localhost-write-consent`
+  can read it instead of minting an unrelated token, which previously caused every
+  bridge write to return 401.
+
+  `DesignConnectArgs` gains an optional `appUrl` field (populated by the new
+  `--app-url <url>` CLI flag or the `AGENT_NATIVE_URL` / `DESIGN_APP_URL` env
+  vars) that controls where self-registration is sent. Registration is
+  best-effort: if no app URL is configured or the request fails, the bridge
+  continues running normally.
+
+- 3164729: Register Figma as a Design provider API so Design actions can browse and render Figma library components through scoped `FIGMA_ACCESS_TOKEN` credentials.
+- 3164729: Make the Connect AI setup card adapt to narrow chat sidebars with container queries.
+- 3164729: Keep reserved organization switcher slots stable with a disabled loading placeholder.
+- 3164729: Redirect relative PGlite data directories to writable `/tmp` paths on serverless runtimes.
+- 3164729: Make the default shared share button outline trigger transparent at rest.
+
+## 0.80.11
+
+### Patch Changes
+
+- abf0681: Stop chat reconnect from falsely reporting "stopped before finishing" on long but healthy runs. The active-run reconnect now treats the stuck threshold as an idle deadline that resets on every streamed event, instead of a one-shot cap on total reconnect duration — so a long-running tool (e.g. image generation) that keeps emitting activity heartbeats is never aborted with a no-progress error just for running longer than the threshold. Also surfaces active tool progress while reconnecting, and waits for interrupted write-tool results before re-running them so long-running tools do not appear stopped or duplicate work.
+
+## 0.80.10
+
+### Patch Changes
+
+- d26a679: Design connect: document the per-element provenance contract (`data-source-file` / `data-source-line` / `data-source-column` / `data-component-name`, plus `data-loc` shorthand) used to map a selected element back to its source location, and surface it in `design connect --help`. The `resolveNodeToFile` bridge capability now carries a reason string describing this contract.
+- d26a679: Harden the app-backed skill installer for visual-plan feedback: built-in skill folders now stage writes before replacing existing installs, include first-time install command metadata, and make `skills update` point first-time users to `skills add` for setup and MCP registration.
+
+## 0.80.9
+
+### Patch Changes
+
+- 82c138c: Expose app main surfaces as named CSS query containers so templates can reflow against the available app pane instead of the viewport.
+- 82c138c: ShareButton can render optional custom tabs beside the default share-link panel.
+- 82c138c: Improve the exported Design skills with a clearer generation quality bar, updated variant-screen flow guidance, and more grounded visual-edit review instructions.
+- 82c138c: Remove the extension viewer notification bell and place the vertical more menu before Share.
+- 82c138c: Allow guided question options to submit immediately when selected, with optional per-question submit and skip message copy.
+- 82c138c: Add a local Clips Screen Memory MCP stdio server for querying recent on-device screen context.
+- 82c138c: Avoid CORS preflights for cross-origin session replay uploads so hosted apps can send recordings to the first-party analytics collector.
+
+## 0.80.8
+
+### Patch Changes
+
+- 24deb20: Reduce noisy browser Sentry captures by filtering public-site source-less errors that only report their page URL as a Sentry tag, delaying reconnect aborts until active runs are truly stuck on the server clock, and recovering assistant-ui duplicate message-id append races before they escape.
+
 ## 0.80.7
 
 ### Patch Changes

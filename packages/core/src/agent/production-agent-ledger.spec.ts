@@ -229,6 +229,146 @@ describe("tool-call result ledger", () => {
     );
   });
 
+  it("waits briefly for a late zombie ledger result before re-executing", async () => {
+    readLedgerMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce("late zombie result");
+
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "slow" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "save this" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-late",
+              name: "save-data",
+              input: { content: "slow" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-late",
+              toolName: "save-data",
+              toolInput: '{"content":"slow"}',
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-late-zombie",
+    });
+
+    expect(readLedgerMock).toHaveBeenCalledTimes(2);
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "save-data",
+        label: "Waiting for previous save-data result.",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        result: expect.stringContaining("late zombie result"),
+      }),
+    );
+  });
+
+  it("does not re-execute a write tool when the run is aborted during the ledger wait", async () => {
+    // Regression: waitForInterruptedToolLedgerEntry returns null both when no
+    // entry exists AND when the run is aborted mid-wait. The caller must not
+    // treat an aborted wait as a cache miss and start a fresh execution — that
+    // would spawn a duplicate zombie side effect (e.g. a second image
+    // generation / double charge). Abort the run while the ledger is being
+    // polled and assert the action never runs.
+    const controller = new AbortController();
+    readLedgerMock.mockImplementation(async () => {
+      controller.abort();
+      return null;
+    });
+
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "aborted" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "save this" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-abort",
+              name: "save-data",
+              input: { content: "aborted" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-abort",
+              toolName: "save-data",
+              toolInput: '{"content":"aborted"}',
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: controller.signal,
+      threadId: "thread-aborted-wait",
+    }).catch(() => {
+      // An aborted run may surface as a rejection depending on loop teardown;
+      // the invariant under test is simply that the action never executed.
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+  });
+
   it("returns a completed journal result without re-executing a write tool", async () => {
     currentTurnEventsMock.mockResolvedValue([
       {

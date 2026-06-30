@@ -10,6 +10,17 @@ import {
 } from "../server/lib/design-export.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
+const METADATA_ARCHIVE_DIR = "agent-native-metadata";
+
+function safeArchivePath(filename: string, fallback: string): string {
+  const normalized = filename
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((part) => part && part !== "." && part !== "..")
+    .join("/");
+  return normalized || fallback;
+}
+
 export default defineAction({
   description:
     "Export a design project as a ZIP file containing all design files and a README. " +
@@ -34,7 +45,8 @@ export default defineAction({
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
 
-    // Add README
+    // Add generated metadata under a reserved folder so valid design files named
+    // README.md or design-data.json can still export at the project root.
     const readme = [
       `# ${row.title}`,
       "",
@@ -48,18 +60,21 @@ export default defineAction({
       ...files.map((f) => `- ${f.filename} (${f.fileType})`),
     ].join("\n");
 
-    zip.file("README.md", readme);
+    zip.file(`${METADATA_ARCHIVE_DIR}/README.md`, readme);
 
-    // Add all design files organized by type
-    for (const file of files) {
-      const folder =
-        file.fileType === "asset" ? "assets" : (file.fileType ?? "html");
-      zip.file(`${folder}/${file.filename}`, file.content ?? "");
+    // Preserve design-relative paths so exported HTML keeps working with
+    // sibling CSS/assets. Strip traversal segments defensively for legacy rows.
+    for (const [index, file] of files.entries()) {
+      const filename = safeArchivePath(
+        file.filename,
+        `design-file-${index + 1}.txt`,
+      );
+      zip.file(filename, file.content ?? "");
     }
 
     // Add design data if present
     if (row.data) {
-      zip.file("design-data.json", row.data);
+      zip.file(`${METADATA_ARCHIVE_DIR}/design-data.json`, row.data);
     }
 
     // Generate ZIP

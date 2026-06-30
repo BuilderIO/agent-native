@@ -360,9 +360,10 @@ export function FindTimePanel({
       )}
 
       <div
+        data-takeover={isTakeover ? "true" : undefined}
         className={cn(
-          "grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]",
-          isTakeover && "xl:grid-cols-[minmax(0,1fr)_280px]",
+          "calendar-find-time-panel-grid grid gap-3",
+          isTakeover && "calendar-find-time-panel-grid-takeover",
         )}
       >
         <div className="min-w-0 overflow-x-auto rounded-md border border-border">

@@ -371,6 +371,12 @@ npx @agent-native/core@latest skills add visual-edit
 `localhost:1234/onboarding/1`、`/onboarding/2`、`/onboarding/3` 這樣的編號流程
 會在 overview 模式中保持為分開的有序畫面。
 
+`/visual-edit` 入口路由可以在檢視者登入前載入，公開的 `/design/:id` 連結也
+可以在沒有 session 時以唯讀方式渲染公開 design。持久保存畫面版面、產生新畫
+面或分享仍會建立帳號綁定的 Design 資料：未登入使用者會經過
+`/_agent-native/sign-in?return=...`，然後 Design 會在開啟分享對話框前，把專
+案保存或複製到該帳號。
+
 若要取得穩定的圖層名稱，請在有意義的元素上加入
 `data-agent-native-layer-name`。Design 會優先使用它，然後才使用語意/文字
 後備，並且可以透過編輯該屬性來持久保存圖層重新命名。Inline HTML 支援本

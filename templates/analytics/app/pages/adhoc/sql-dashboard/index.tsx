@@ -28,7 +28,7 @@ import {
 import {
   IconArchive,
   IconClock,
-  IconDots,
+  IconDotsVertical,
   IconEye,
   IconEyeOff,
   IconGripVertical,
@@ -1391,7 +1391,7 @@ export default function SqlDashboardPage() {
                   className="text-muted-foreground hover:text-foreground"
                   aria-label={t("sqlDashboard.dashboardActions")}
                 >
-                  <IconDots className="h-4 w-4" />
+                  <IconDotsVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>

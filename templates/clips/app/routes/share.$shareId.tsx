@@ -229,6 +229,8 @@ const CLIPS_SOURCE_URL =
 const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
 const CLIPS_AGENT_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
+const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
+const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
 
 type ViewerPlatform = "mac" | "windows";
 
@@ -453,17 +455,13 @@ export default function ShareRoute() {
       return;
     }
 
-    const progress = Number(recording.uploadProgress ?? 0);
     const timeoutMs =
-      recording.status === "processing" || progress >= 95 ? 12_000 : 30_000;
+      recording.status === "processing"
+        ? PROCESSING_STUCK_TIMEOUT_MS
+        : UPLOAD_STUCK_TIMEOUT_MS;
     const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
     return () => clearTimeout(handle);
-  }, [
-    recording?.id,
-    recording?.status,
-    recording?.videoUrl,
-    recording?.uploadProgress,
-  ]);
+  }, [recording?.id, recording?.status, recording?.videoUrl]);
 
   usePlayerShortcuts({ playerRef });
 

@@ -628,6 +628,13 @@ const messages = {
     videosCount: "{{count}} 個影片",
   },
   library: {
+    drafts: "草稿",
+    allLibraries: "所有資料庫",
+    noDrafts: "尚無草稿。",
+    noMatchingDrafts: "沒有符合的草稿。",
+    recentDrafts: "最近草稿",
+    viewAllDrafts: "查看所有草稿",
+    draftAsset: "草稿資產",
     addedToReferences: "已新增到參考。",
     addedAssetsToReferences: "已將 {{count}} 個資產新增到參考。",
     add: "新增",

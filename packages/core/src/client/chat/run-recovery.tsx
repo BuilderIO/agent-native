@@ -195,7 +195,7 @@ export function BuilderConnectCta({
   if (variant === "compact") {
     if (configured) {
       return (
-        <span className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
+        <span className="agent-builder-setup-card__builder-button inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
           <IconCheck size={11} className="text-emerald-500" />
           {orgName ? `Connected to ${orgName}` : "Connected"}
         </span>
@@ -203,12 +203,12 @@ export function BuilderConnectCta({
     }
 
     return (
-      <div className="flex min-w-0 flex-col items-start gap-1 sm:items-end">
+      <div className="agent-builder-setup-card__builder-cta flex min-w-0 flex-col items-start gap-1 sm:items-end">
         <button
           type="button"
           onClick={() => start()}
           disabled={connecting}
-          className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
           aria-busy={connecting}
         >
           {connecting ? (
@@ -433,6 +433,8 @@ export function BuilderSetupCard({
     <div
       ref={cardRef}
       className={cn(
+        "agent-builder-setup-card",
+        sidebarLayout && "agent-builder-setup-card--sidebar",
         fullWidth
           ? "w-full pb-2"
           : sidebarLayout
@@ -441,8 +443,8 @@ export function BuilderSetupCard({
       )}
     >
       <div className="rounded-lg border border-border/80 bg-background/80 p-3 shadow-sm backdrop-blur">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
+        <div className="agent-builder-setup-card__content flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="agent-builder-setup-card__copy min-w-0">
             <h3 className="text-[13px] font-medium text-foreground">
               Connect AI
             </h3>
@@ -452,7 +454,7 @@ export function BuilderSetupCard({
           </div>
           <div
             className={cn(
-              "flex shrink-0",
+              "agent-builder-setup-card__actions flex shrink-0",
               sidebarLayout
                 ? "flex-col items-start gap-0 sm:items-center"
                 : "flex-nowrap items-center gap-2",
@@ -463,7 +465,7 @@ export function BuilderSetupCard({
               type="button"
               onClick={() => setKeyOpen((open) => !open)}
               className={cn(
-                "inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
+                "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
                 sidebarLayout
                   ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                   : "h-8 border border-border bg-background px-3 text-foreground hover:bg-accent",

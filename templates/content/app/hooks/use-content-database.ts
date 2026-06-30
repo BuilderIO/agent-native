@@ -23,6 +23,8 @@ import type {
   PrepareBuilderSourceExecutionRequest,
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
+  ProcessBuilderBodyHydrationRequest,
+  ProcessBuilderBodyHydrationResponse,
   RefreshContentDatabaseSourceRequest,
   ReviewContentDatabaseSourceChangeSetRequest,
   SetContentDatabaseSourceWriteModeRequest,
@@ -439,6 +441,28 @@ export function useRefreshContentDatabaseSource(documentId: string) {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
+    },
+  });
+}
+
+export function useProcessBuilderBodyHydration(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ProcessBuilderBodyHydrationResponse,
+    ProcessBuilderBodyHydrationRequest
+  >("process-builder-body-hydration", {
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+      if (variables?.documentId) {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: variables.documentId }],
+        });
+      }
     },
   });
 }
