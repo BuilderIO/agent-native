@@ -3169,7 +3169,7 @@ function StrokeLayerControl({
           min={0}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -3622,7 +3622,7 @@ function TypographyProperties({
           min={1}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -3641,7 +3641,7 @@ function TypographyProperties({
           step={0.1}
           precision={2}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
         <ScrubInput
@@ -3655,7 +3655,7 @@ function TypographyProperties({
           unit="px"
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>

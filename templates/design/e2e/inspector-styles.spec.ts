@@ -262,6 +262,8 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   const label = page.locator(`label[for="${cssAttrValue(id!)}"]`);
   await label.hover();
   await expect(page.getByRole("tooltip")).toHaveText("X-position");
+  await expect(label).toHaveCSS("border-top-right-radius", "0px");
+  await expect(label).toHaveCSS("border-bottom-right-radius", "0px");
 
   await dragScrubInputLabel(page, "X-position", 16);
 
@@ -271,6 +273,27 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   await expect
     .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
     .toMatch(/px$/);
+
+  const rotationInput = page.locator('input[aria-label="Rotation" i]');
+  await expect(rotationInput).toBeVisible();
+  const rotationId = await rotationInput.first().getAttribute("id");
+  expect(rotationId).toBeTruthy();
+  const rotationLabel = page.locator(
+    `label[for="${cssAttrValue(rotationId!)}"]`,
+  );
+  await expect(rotationLabel.locator("svg")).toBeVisible();
+  await expect(rotationLabel).toHaveCSS("border-top-right-radius", "0px");
+  await expect(rotationLabel).toHaveCSS("border-bottom-right-radius", "0px");
+
+  const constraintsTrigger = page.getByRole("button", {
+    name: "Constraints",
+  });
+  await expect(constraintsTrigger).toBeVisible();
+  await constraintsTrigger.click();
+  await expect(
+    page.getByRole("combobox", { name: "Horizontal" }),
+  ).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Vertical" })).toBeVisible();
 });
 
 test("export rows add, remove, and reset when selection changes", async ({
