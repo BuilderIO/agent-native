@@ -112,7 +112,11 @@ export function EmbeddedExtension({
     onReadyRef.current?.();
   };
   const [height, setHeight] = useState<number>(initialHeight);
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(
+    () =>
+      typeof document !== "undefined" &&
+      document.documentElement.classList.contains("dark"),
+  );
   // (audit H4) Mirror ExtensionViewer's role-aware gating; deny-by-default until
   // the iframe's render binding announcement arrives.
   const bridgeContextRef = useRef<BridgePolicyContext>({
@@ -370,6 +374,13 @@ export function EmbeddedExtension({
         onLoad={() => {
           iframeRef.current?.contentWindow?.postMessage(
             { type: "agent-native-slot-context", context: context ?? {} },
+            "*",
+          );
+          // Re-assert theme once the iframe document is live. The src bakes in
+          // the initial dark state, but this covers the race where isDark
+          // settled before the iframe's message listener existed.
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: "agent-native-theme-update", isDark },
             "*",
           );
           // Fallback readiness signal in case the extension never reports a
