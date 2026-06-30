@@ -1,7 +1,7 @@
 import {
   IconChevronDown,
   IconPlus,
-  IconSettings,
+  IconFilter,
   IconStar,
   IconStarFilled,
   IconTrash,
@@ -570,7 +570,7 @@ function ExtensionSortMenu({
               className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
               aria-label={copy.sortOptions}
             >
-              <IconSettings className="h-3.5 w-3.5" />
+              <IconFilter className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
