@@ -1437,28 +1437,30 @@ const editorStyles = `
 .re-bubble-toolbar {
   display: flex;
   align-items: center;
-  background: hsl(0 0% 15%);
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
   border-radius: 6px;
   padding: 3px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(255 255 255 / 0.06);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
 }
 .re-bubble-btn {
   padding: 3px 6px;
   border-radius: 4px;
   font-size: 12px;
-  color: rgba(255,255,255,0.75);
+  color: hsl(var(--muted-foreground));
   background: none;
   border: none;
   cursor: pointer;
   line-height: 1;
 }
 .re-bubble-btn:hover {
-  background: rgba(255,255,255,0.12);
-  color: white;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
 }
 .re-bubble-btn--active {
-  background: rgba(255,255,255,0.18);
-  color: white;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
 }
 
 /* Slash command menu */

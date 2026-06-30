@@ -182,7 +182,7 @@ export default defineAction({
       description: "Open the Agent-Native Plan visual answer surface.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Visual Answer",
-      height: 860,
+      height: 900,
     }),
   },
   // Render the answer's diagram/wireframe/api-spec/data-model blocks INLINE in

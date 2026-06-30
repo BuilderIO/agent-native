@@ -117,11 +117,7 @@ export function RevenueComparisonChart({
                     return `$${v}`;
                   }}
                 />
-                <ReferenceLine
-                  y={0}
-                  stroke={chartAxisStroke}
-                  strokeWidth={1}
-                />
+                <ReferenceLine y={0} stroke={chartAxisStroke} strokeWidth={1} />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend
                   wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
