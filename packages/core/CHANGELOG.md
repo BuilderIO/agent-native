@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.81.1
+
+### Patch Changes
+
+- ec433c3: Add a close (X) button to the left of the Chat tab in the agent pane header that closes the agent chat, and hide the open-agent button while the agent pane is open.
+
 ## 0.81.0
 
 ### Minor Changes
