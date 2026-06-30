@@ -26,7 +26,7 @@ card's **Apply fill** button persists that fill via the `apply-shader-fill` acti
   `shared/shader-fill.ts` so `descriptor.colors` can never inject CSS.
 
 Sections (a), (b), (d), and (f) below remain optional ways to surface shaders in
-*other* inspector seams (the colour picker fill type, the effects panel, the
+_other_ inspector seams (the colour picker fill type, the effects panel, the
 artboard WebGL bridge, design-system tokens) and are not required for the
 card-based apply path that ships today.
 
