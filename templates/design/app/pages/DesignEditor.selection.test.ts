@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
+  getFreshActiveFileContent,
+  getFreshScreenContent,
   getDesignEditorShareUrl,
+  getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
   getLocalhostRouteSourceFile,
   getOverviewCanvasZoom,
@@ -17,6 +20,7 @@ import {
   getSelectedScreenIdsForEditorState,
   shouldLockInspectorForInitialGeneration,
   shouldEscapeToOverview,
+  sortCodeLayerIdsByTreeOrder,
 } from "./DesignEditor";
 
 describe("DesignEditor overview selection state", () => {
@@ -203,6 +207,32 @@ describe("DesignEditor localhost route source", () => {
 });
 
 describe("DesignEditor layer move source snapshots", () => {
+  it("prefers the latest local active content snapshot during rapid edits", () => {
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "stale react content",
+        latestContent: null,
+        lastLocalContent: "fresh local content",
+      }),
+    ).toBe("fresh local content");
+
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "stale react content",
+        latestContent: "remote or local latest content",
+        lastLocalContent: "older local content",
+      }),
+    ).toBe("remote or local latest content");
+
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "current react content",
+        latestContent: null,
+        lastLocalContent: null,
+      }),
+    ).toBe("current react content");
+  });
+
   it("uses the progressive source snapshot before active file content", () => {
     expect(
       getLayerMoveSourceContent({
@@ -234,6 +264,72 @@ describe("DesignEditor layer move source snapshots", () => {
         sourceContentMap: new Map(),
       }),
     ).toBe("other file");
+  });
+
+  it("orders same-file multi-layer moves by tree order", () => {
+    const tree = [
+      {
+        id: "parent",
+        children: [
+          { id: "heading", children: [] },
+          {
+            id: "content",
+            children: [
+              { id: "button", children: [] },
+              { id: "caption", children: [] },
+            ],
+          },
+        ],
+      },
+    ] as any;
+
+    expect(
+      sortCodeLayerIdsByTreeOrder(["caption", "heading", "missing"], tree),
+    ).toEqual(["heading", "caption", "missing"]);
+  });
+
+  it("iterates after-drops in reverse so same-anchor inserts keep tree order", () => {
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "after")).toEqual([
+      "c",
+      "b",
+      "a",
+    ]);
+
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "before")).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "inside")).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("uses the fresh active snapshot when resolving overview screen content", () => {
+    const fileContentById = new Map([
+      ["active", "stale persisted active"],
+      ["other", "other screen content"],
+    ]);
+
+    expect(
+      getFreshScreenContent({
+        screenId: "active",
+        activeFileId: "active",
+        freshActiveContent: "fresh active content",
+        fileContentById,
+      }),
+    ).toBe("fresh active content");
+
+    expect(
+      getFreshScreenContent({
+        screenId: "other",
+        activeFileId: "active",
+        freshActiveContent: "fresh active content",
+        fileContentById,
+      }),
+    ).toBe("other screen content");
   });
 });
 

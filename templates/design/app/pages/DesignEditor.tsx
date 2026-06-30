@@ -434,6 +434,32 @@ export function getLayerMoveSourceContent(args: {
   );
 }
 
+export function getFreshActiveFileContent(args: {
+  activeContent: string;
+  latestContent?: string | null;
+  lastLocalContent?: string | null;
+}) {
+  return args.latestContent ?? args.lastLocalContent ?? args.activeContent;
+}
+
+export function getFreshScreenContent(args: {
+  screenId: string;
+  activeFileId?: string | null;
+  freshActiveContent: string;
+  fileContentById: ReadonlyMap<string, string>;
+}) {
+  return args.screenId === args.activeFileId
+    ? args.freshActiveContent
+    : (args.fileContentById.get(args.screenId) ?? "");
+}
+
+export function getLayerMoveIterationOrder<T>(
+  orderedIds: readonly T[],
+  placement: "before" | "after" | "inside",
+): T[] {
+  return placement === "after" ? [...orderedIds].reverse() : [...orderedIds];
+}
+
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
   return typeof update === "function" ? update(current) : update;
 }
@@ -2096,6 +2122,36 @@ function collectCodeLayerAncestors(
   return [];
 }
 
+export function sortCodeLayerIdsByTreeOrder(
+  ids: readonly string[],
+  tree: readonly CodeLayerTreeNode[],
+): string[] {
+  const treeOrder = new Map<string, number>();
+  let index = 0;
+  const visit = (nodes: readonly CodeLayerTreeNode[]) => {
+    for (const node of nodes) {
+      treeOrder.set(node.id, index);
+      index += 1;
+      visit(node.children);
+    }
+  };
+  visit(tree);
+
+  const originalOrder = new Map(
+    ids.map((id, originalIndex) => [id, originalIndex]),
+  );
+  return [...ids].sort((a, b) => {
+    const aOrder = treeOrder.get(a);
+    const bOrder = treeOrder.get(b);
+    if (aOrder === undefined && bOrder === undefined) {
+      return (originalOrder.get(a) ?? 0) - (originalOrder.get(b) ?? 0);
+    }
+    if (aOrder === undefined) return 1;
+    if (bOrder === undefined) return -1;
+    return aOrder - bOrder;
+  });
+}
+
 function findCodeLayerNodeInProjection(
   projection: CodeLayerProjection,
   previousNode: CodeLayerNode,
@@ -3212,6 +3268,14 @@ export default function DesignEditor() {
         contentRedoStackRef.current.length > 0 ||
         geometryRedoStackRef.current.length > 0,
     );
+  }, []);
+  const clearLocalUndoRedoStacks = useCallback(() => {
+    contentUndoStackRef.current = [];
+    contentRedoStackRef.current = [];
+    geometryUndoStackRef.current = [];
+    geometryRedoStackRef.current = [];
+    historyOrderRef.current = [];
+    redoOrderRef.current = [];
   }, []);
   const persistedSelectionStateRef = useRef<string | null>(null);
   const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
@@ -4873,6 +4937,7 @@ export default function DesignEditor() {
   // The last content this client itself wrote into the Y.Doc (inline-style
   // edits) — so the reconcile/observe doesn't treat our own echo as external.
   const lastLocalContentRef = useRef<string | null>(null);
+  const latestActiveContentRef = useRef<string | null>(null);
   // Freshest known DB `updatedAt` for the active file, kept in a ref so the
   // Yjs observe handler can advance the reconcile watermark without re-subscribing.
   const documentFileUpdatedAtRef = useRef<string | null>(null);
@@ -4916,8 +4981,8 @@ export default function DesignEditor() {
       setCollabContentFileId(null);
       lastAppliedFileUpdatedAtRef.current = null;
       lastLocalContentRef.current = null;
-      contentUndoStackRef.current = [];
-      contentRedoStackRef.current = [];
+      latestActiveContentRef.current = null;
+      clearLocalUndoRedoStacks();
       clearStaleAgentCollabRecovery();
       syncUndoRedoState();
       return;
@@ -4928,13 +4993,14 @@ export default function DesignEditor() {
       setCollabContentFileId(null);
       lastAppliedFileUpdatedAtRef.current = null;
       lastLocalContentRef.current = null;
-      contentUndoStackRef.current = [];
-      contentRedoStackRef.current = [];
+      latestActiveContentRef.current = null;
+      clearLocalUndoRedoStacks();
       clearStaleAgentCollabRecovery();
       syncUndoRedoState();
     }
   }, [
     activeFileId,
+    clearLocalUndoRedoStacks,
     clearStaleAgentCollabRecovery,
     syncUndoRedoState,
     viewMode,
@@ -4956,6 +5022,7 @@ export default function DesignEditor() {
       setCollabContent(pendingLocalContent);
       setCollabContentFileId(fileId);
       lastLocalContentRef.current = pendingLocalContent;
+      latestActiveContentRef.current = pendingLocalContent;
       setContentRenderRevision((revision) => revision + 1);
       ydoc.transact(() => {
         ytext.delete(0, ytext.length);
@@ -4975,6 +5042,7 @@ export default function DesignEditor() {
         setCollabContent(storedContent);
         setCollabContentFileId(fileId);
         lastLocalContentRef.current = storedContent;
+        latestActiveContentRef.current = storedContent;
         setContentRenderRevision((revision) => revision + 1);
         ydoc.transact(() => {
           ytext.delete(0, ytext.length);
@@ -4987,6 +5055,7 @@ export default function DesignEditor() {
       // confirms or applies the current DB content.
       setCollabContent(text);
       setCollabContentFileId(fileId);
+      latestActiveContentRef.current = text;
       setContentRenderRevision((revision) => revision + 1);
     }
   }, [
@@ -5029,6 +5098,7 @@ export default function DesignEditor() {
         setCollabContent(pendingLocalContent);
         setCollabContentFileId(fileId);
         lastLocalContentRef.current = pendingLocalContent;
+        latestActiveContentRef.current = pendingLocalContent;
         setContentRenderRevision((revision) => revision + 1);
         ydoc.transact(() => {
           ytext.delete(0, ytext.length);
@@ -5038,6 +5108,7 @@ export default function DesignEditor() {
       }
       setCollabContent(next);
       setCollabContentFileId(fileId);
+      latestActiveContentRef.current = next;
       if (isLocalEdit) {
         lastLocalContentRef.current = next;
       } else {
@@ -5142,6 +5213,7 @@ export default function DesignEditor() {
       setCollabContent(dbContent);
       setCollabContentFileId(activeFile.id);
       lastLocalContentRef.current = dbContent;
+      latestActiveContentRef.current = dbContent;
       if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
       setContentRenderRevision((revision) => revision + 1);
 
@@ -5195,6 +5267,7 @@ export default function DesignEditor() {
             setCollabContent(expectedContent);
             setCollabContentFileId(expectedFileId);
             lastLocalContentRef.current = expectedContent;
+            latestActiveContentRef.current = expectedContent;
             lastAppliedFileUpdatedAtRef.current = expectedUpdatedAt;
             setContentRenderRevision((revision) => revision + 1);
 
@@ -5220,6 +5293,7 @@ export default function DesignEditor() {
     setCollabContent(dbContent);
     setCollabContentFileId(activeFile.id);
     lastLocalContentRef.current = dbContent;
+    latestActiveContentRef.current = dbContent;
     if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
     setContentRenderRevision((revision) => revision + 1);
 
@@ -5411,6 +5485,9 @@ export default function DesignEditor() {
       : (activeFile?.content ?? ""));
   const activeContent =
     typeof activeContentSource === "string" ? activeContentSource : "";
+  useLayoutEffect(() => {
+    latestActiveContentRef.current = activeContent;
+  }, [activeContent]);
   const fileContentById = useMemo(() => {
     const map = new Map<string, string>();
     for (const file of files) {
@@ -5420,9 +5497,16 @@ export default function DesignEditor() {
   }, [files]);
   const getScreenContent = useCallback(
     (screenId: string) =>
-      screenId === activeFile?.id
-        ? activeContent
-        : (fileContentById.get(screenId) ?? ""),
+      getFreshScreenContent({
+        screenId,
+        activeFileId: activeFile?.id,
+        freshActiveContent: getFreshActiveFileContent({
+          activeContent,
+          latestContent: latestActiveContentRef.current,
+          lastLocalContent: lastLocalContentRef.current,
+        }),
+        fileContentById,
+      }),
     [activeContent, activeFile?.id, fileContentById],
   );
   const pageStyles = useMemo(
@@ -5729,6 +5813,7 @@ export default function DesignEditor() {
       setCollabContent(nextContent);
       setCollabContentFileId(activeFile.id);
       lastLocalContentRef.current = nextContent;
+      latestActiveContentRef.current = nextContent;
       if (id) {
         queryClient.setQueryData(
           ["action", "get-design", { id }],
@@ -6557,7 +6642,10 @@ export default function DesignEditor() {
       // advance lastLocalContentRef.current to resolvedNextContent below, the
       // next synchronous call reads the previous call's result and the patches
       // compose. Falls back to activeContent when the ref is unset (file switch).
-      const baseContent = lastLocalContentRef.current ?? activeContent;
+      const baseContent =
+        latestActiveContentRef.current ??
+        lastLocalContentRef.current ??
+        activeContent;
       const [firstProperty, firstValue] = entries[0];
       const projection = buildCodeLayerProjection(baseContent);
       const targetInfo = options.elementInfo ?? selectedElement;
@@ -6744,6 +6832,7 @@ export default function DesignEditor() {
       // Mark as our own write so the get-design reconcile + Yjs observe don't
       // treat the echo as an external edit and fight the live value.
       lastLocalContentRef.current = resolvedNextContent;
+      latestActiveContentRef.current = resolvedNextContent;
       // Write the edit into the shared Y.Doc so other open clients see it live
       // through Yjs (not only via the slower update-file → applyText round-trip).
       // Use LOCAL_EDIT_ORIGIN so the UndoManager captures this transaction.
@@ -6830,6 +6919,16 @@ export default function DesignEditor() {
     [commitVisualStyles, selectedElement?.selector],
   );
 
+  const getFreshActiveContent = useCallback(
+    () =>
+      getFreshActiveFileContent({
+        activeContent,
+        latestContent: latestActiveContentRef.current,
+        lastLocalContent: lastLocalContentRef.current,
+      }),
+    [activeContent],
+  );
+
   const handleVisualStyleChange = useCallback(
     (
       selector: string,
@@ -6858,7 +6957,8 @@ export default function DesignEditor() {
     ) => {
       if (!canEditDesign) return false;
       if (!activeFile) return false;
-      const projection = buildCodeLayerProjection(activeContent);
+      const baseContent = getFreshActiveContent();
+      const projection = buildCodeLayerProjection(baseContent);
       const resolveBridgeNode = (targetSelector: string, sourceId?: string) =>
         resolveCodeLayerNodeFromBridge(projection, targetSelector, sourceId);
       const targetInfo = elementInfo
@@ -6875,7 +6975,7 @@ export default function DesignEditor() {
         anchorSelector,
         details?.anchorSourceId,
       );
-      const patch = applyVisualEdit(activeContent, {
+      const patch = applyVisualEdit(baseContent, {
         kind: "moveNode",
         target: targetNode ? { nodeId: targetNode.id } : { selector },
         anchor: anchorNode
@@ -6923,7 +7023,13 @@ export default function DesignEditor() {
       }
       return true;
     },
-    [activeContent, activeFile, applyLocalContentUpdate, canEditDesign, t],
+    [
+      activeFile,
+      applyLocalContentUpdate,
+      canEditDesign,
+      getFreshActiveContent,
+      t,
+    ],
   );
 
   const handleVisualDuplicateChange = useCallback(
@@ -6940,7 +7046,8 @@ export default function DesignEditor() {
     ) => {
       if (!canEditDesign) return false;
       if (!activeFile) return false;
-      const projection = buildCodeLayerProjection(activeContent);
+      const baseContent = getFreshActiveContent();
+      const projection = buildCodeLayerProjection(baseContent);
       const targetInfo = elementInfo
         ? {
             ...elementInfo,
@@ -6960,7 +7067,7 @@ export default function DesignEditor() {
         details?.anchorSelector,
         details?.anchorSourceId,
       );
-      const nextContent = insertClonedHtmlLayer(activeContent, cloneHtml, {
+      const nextContent = insertClonedHtmlLayer(baseContent, cloneHtml, {
         targetSelectors: targetNode
           ? codeLayerSelectorAliases(targetNode)
           : [selector],
@@ -6994,7 +7101,13 @@ export default function DesignEditor() {
       }
       return true;
     },
-    [activeContent, activeFile, applyLocalContentUpdate, canEditDesign, t],
+    [
+      activeFile,
+      applyLocalContentUpdate,
+      canEditDesign,
+      getFreshActiveContent,
+      t,
+    ],
   );
 
   const handleTextContentChange = useCallback(
@@ -7006,7 +7119,8 @@ export default function DesignEditor() {
     ) => {
       if (!canEditDesign) return;
       if (!activeFile) return;
-      const projection = buildCodeLayerProjection(activeContent);
+      const baseContent = getFreshActiveContent();
+      const projection = buildCodeLayerProjection(baseContent);
       const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
       const targetNode = targetInfo
         ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
@@ -7014,10 +7128,10 @@ export default function DesignEditor() {
       const isEmpty = value.trim().length === 0;
       const removedContent =
         isEmpty && targetNode
-          ? removeCodeLayerNodeFromHtml(activeContent, targetNode)
+          ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
           : null;
       const patch = !removedContent
-        ? applyVisualEdit(activeContent, {
+        ? applyVisualEdit(baseContent, {
             kind: "textContent",
             target: targetNode ? { nodeId: targetNode.id } : { selector },
             value,
@@ -7027,12 +7141,7 @@ export default function DesignEditor() {
       const nextContent =
         removedContent ??
         (patch?.result.status === "applied" ? patch.content : null) ??
-        updateElementContentInHtml(
-          activeContent,
-          selector,
-          value,
-          details?.html,
-        );
+        updateElementContentInHtml(baseContent, selector, value, details?.html);
       if (!nextContent) {
         toast.error(
           codeLayerPatchMessage(
@@ -7081,7 +7190,13 @@ export default function DesignEditor() {
           : previous;
       });
     },
-    [activeContent, activeFile, applyLocalContentUpdate, canEditDesign, t],
+    [
+      activeFile,
+      applyLocalContentUpdate,
+      canEditDesign,
+      getFreshActiveContent,
+      t,
+    ],
   );
 
   const handleScreenVisualStyleChange = useCallback(
@@ -7402,7 +7517,10 @@ export default function DesignEditor() {
 
   const handleCopySelection = useCallback(async () => {
     if (!selectedElement?.selector) return;
-    const html = getElementOuterHtml(activeContent, selectedElement.selector);
+    const html = getElementOuterHtml(
+      getFreshActiveContent(),
+      selectedElement.selector,
+    );
     if (!html) return;
     copiedLayerHtmlRef.current = html;
     pasteCascadeRef.current = 0;
@@ -7412,11 +7530,12 @@ export default function DesignEditor() {
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
-  }, [activeContent, selectedElement, t]);
+  }, [getFreshActiveContent, selectedElement, t]);
 
   const handlePasteSelection = useCallback(
     (position?: { x: number; y: number }) => {
       if (!activeFile || !canEditDesign || !copiedLayerHtmlRef.current) return;
+      const baseContent = getFreshActiveContent();
 
       // B7 fix: when an element is selected and no explicit canvas position was
       // given, insert the clone as an in-flow sibling right AFTER the selected
@@ -7451,7 +7570,7 @@ export default function DesignEditor() {
           }
         })();
 
-        const nextContent = insertClonedHtmlLayer(activeContent, strippedHtml, {
+        const nextContent = insertClonedHtmlLayer(baseContent, strippedHtml, {
           targetSelectors: [selector],
           placement: "after",
         });
@@ -7476,7 +7595,7 @@ export default function DesignEditor() {
             : { x: 120 + offset, y: 120 + offset };
         })();
       const nextContent = cloneHtmlLayerAtPosition(
-        activeContent,
+        baseContent,
         copiedLayerHtmlRef.current,
         targetPosition,
       );
@@ -7485,10 +7604,10 @@ export default function DesignEditor() {
       applyLocalContentUpdate(nextContent);
     },
     [
-      activeContent,
       activeFile,
       applyLocalContentUpdate,
       canEditDesign,
+      getFreshActiveContent,
       selectedCanvasSelector,
       selectedElement,
     ],
@@ -7496,10 +7615,11 @@ export default function DesignEditor() {
 
   const handlePasteOverSelection = useCallback(() => {
     if (!activeFile || !copiedLayerHtmlRef.current) return;
+    const baseContent = getFreshActiveContent();
     if (selectedElement?.boundingRect) {
       const { x, y } = selectedElement.boundingRect;
       const nextContent = cloneHtmlLayerAtPosition(
-        activeContent,
+        baseContent,
         copiedLayerHtmlRef.current,
         { x, y },
       );
@@ -7509,9 +7629,9 @@ export default function DesignEditor() {
       handlePasteSelection();
     }
   }, [
-    activeContent,
     activeFile,
     applyLocalContentUpdate,
+    getFreshActiveContent,
     handlePasteSelection,
     selectedElement,
   ]);
@@ -7519,7 +7639,8 @@ export default function DesignEditor() {
   const handleDuplicateSelection = useCallback(() => {
     if (!canEditDesign) return;
     if (selectedElement?.selector) {
-      const html = getElementOuterHtml(activeContent, selectedElement.selector);
+      const baseContent = getFreshActiveContent();
+      const html = getElementOuterHtml(baseContent, selectedElement.selector);
       if (!html) {
         toast.error(t("designEditor.toasts.duplicateElementFailed"));
         return;
@@ -7550,7 +7671,7 @@ export default function DesignEditor() {
           return html;
         }
       })();
-      const nextContent = insertClonedHtmlLayer(activeContent, strippedHtml, {
+      const nextContent = insertClonedHtmlLayer(baseContent, strippedHtml, {
         targetSelectors: [selector],
         placement: "after",
       });
@@ -7563,10 +7684,10 @@ export default function DesignEditor() {
     }
     if (activeFile) handleDuplicateScreen(activeFile.id);
   }, [
-    activeContent,
     activeFile,
     applyLocalContentUpdate,
     canEditDesign,
+    getFreshActiveContent,
     handleDuplicateScreen,
     selectedCanvasSelector,
     selectedElement,
@@ -7575,6 +7696,7 @@ export default function DesignEditor() {
 
   const handleDeleteSelection = useCallback(() => {
     if (!canEditDesign) return;
+    const baseContent = getFreshActiveContent();
     // Multi-select delete: when several DOM/code layers are selected in the
     // panel, remove all of them — not just the single focused element. Compose
     // the removals against the running content (re-projecting each pass) so
@@ -7586,7 +7708,7 @@ export default function DesignEditor() {
         !files.some((file) => file.id === layerId),
     );
     if (candidateIds.length > 1) {
-      let content = activeContent;
+      let content = baseContent;
       const removedSelectors: string[] = [];
       for (const layerId of candidateIds) {
         const projection = buildCodeLayerProjection(content);
@@ -7600,7 +7722,7 @@ export default function DesignEditor() {
         if (selector) removedSelectors.push(selector);
         content = next;
       }
-      if (content !== activeContent) {
+      if (content !== baseContent) {
         removedSelectors.forEach((selector) => deleteRuntimeElement(selector));
         applyLocalContentUpdate(content, { refreshPreview: false });
         setSelectedElement(null);
@@ -7611,27 +7733,26 @@ export default function DesignEditor() {
     }
 
     if (!selectedElement?.selector) return;
-    const projection = buildCodeLayerProjection(activeContent);
+    const projection = buildCodeLayerProjection(baseContent);
     const targetNode = resolveCodeLayerNodeFromElementInfo(
       projection,
       selectedElement,
     );
     const nextContent =
       (targetNode
-        ? removeCodeLayerNodeFromHtml(activeContent, targetNode)
-        : null) ??
-      removeElementFromHtml(activeContent, selectedElement.selector);
+        ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
+        : null) ?? removeElementFromHtml(baseContent, selectedElement.selector);
     if (!nextContent) return;
     deleteRuntimeElement(selectedElement.selector);
     applyLocalContentUpdate(nextContent, { refreshPreview: false });
     setSelectedElement(null);
     setSelectedLayerIdsState([]);
   }, [
-    activeContent,
     applyLocalContentUpdate,
     canEditDesign,
     deleteRuntimeElement,
     files,
+    getFreshActiveContent,
     selectedElement,
     selectedLayerIdsState,
   ]);
@@ -7639,6 +7760,7 @@ export default function DesignEditor() {
   // Wrap the current multi-layer selection into a new group container.
   const handleGroupSelection = useCallback(() => {
     if (!canEditDesign || !activeFile) return;
+    const baseContent = getFreshActiveContent();
     // Collect the DOM-node layer ids that belong to the active screen.
     // Build a set of ids present in the active content so stale ids from
     // other files (which can persist in selectedLayerIdsState after a
@@ -7648,14 +7770,14 @@ export default function DesignEditor() {
     // selection.
     const fileIds = new Set(files.map((f) => f.id));
     const activeNodeIdSet = buildActiveFileNodeIdSet(
-      buildCodeLayerProjection(activeContent),
+      buildCodeLayerProjection(baseContent),
     );
     const nodeIds = selectedLayerIdsState.filter(
       (id) =>
         !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
     );
     if (nodeIds.length < 2) return;
-    const patch = applyVisualEdit(activeContent, {
+    const patch = applyVisualEdit(baseContent, {
       kind: "wrapNodes",
       targetIds: nodeIds,
       autoLayout: false,
@@ -7684,11 +7806,11 @@ export default function DesignEditor() {
       }
     }
   }, [
-    activeContent,
     activeFile,
     applyLocalContentUpdate,
     canEditDesign,
     files,
+    getFreshActiveContent,
     selectedLayerIdsState,
     t,
   ]);
@@ -7696,12 +7818,13 @@ export default function DesignEditor() {
   // Unwrap the currently selected single-container layer.
   const handleUngroupSelection = useCallback(() => {
     if (!canEditDesign || !activeFile) return;
+    const baseContent = getFreshActiveContent();
     // Filter to active-file nodes only (mirrors handleGroupSelection fix).
     // A stale id from another file must not be passed to unwrap or it will
     // fail with "conflict" even though the actual selection is valid.
     const fileIds = new Set(files.map((f) => f.id));
     const activeNodeIdSet = buildActiveFileNodeIdSet(
-      buildCodeLayerProjection(activeContent),
+      buildCodeLayerProjection(baseContent),
     );
     const nodeIds = selectedLayerIdsState.filter(
       (id) =>
@@ -7709,7 +7832,7 @@ export default function DesignEditor() {
     );
     const targetId = nodeIds[0];
     if (!targetId) return;
-    const patch = applyVisualEdit(activeContent, {
+    const patch = applyVisualEdit(baseContent, {
       kind: "unwrap",
       targetId,
     });
@@ -7727,11 +7850,11 @@ export default function DesignEditor() {
     setSelectedElement(null);
     setSelectedLayerIdsState([]);
   }, [
-    activeContent,
     activeFile,
     applyLocalContentUpdate,
     canEditDesign,
     files,
+    getFreshActiveContent,
     selectedLayerIdsState,
     t,
   ]);
@@ -7748,7 +7871,8 @@ export default function DesignEditor() {
       opts?: { direction?: "row" | "column"; gap?: string },
     ) => {
       if (!canEditDesign || !activeFile) return;
-      const patch = applyVisualEdit(activeContent, {
+      const baseContent = getFreshActiveContent();
+      const patch = applyVisualEdit(baseContent, {
         kind: "autoLayout",
         targetId: targetNodeId,
         enabled: true,
@@ -7777,7 +7901,13 @@ export default function DesignEditor() {
         setSelectedElement(elementInfoFromCodeLayerNode(containerNode));
       }
     },
-    [activeContent, activeFile, applyLocalContentUpdate, canEditDesign, t],
+    [
+      activeFile,
+      applyLocalContentUpdate,
+      canEditDesign,
+      getFreshActiveContent,
+      t,
+    ],
   );
 
   /**
@@ -10090,10 +10220,11 @@ ${serializedHtml}
       ) {
         return;
       }
+      const freshActiveContent = getFreshActiveContent();
       const destFile = files.find((file) => file.id === targetOwner.fileId);
       const destContent =
         targetOwner.fileId === activeFile?.id
-          ? activeContent
+          ? freshActiveContent
           : (destFile?.content ?? "");
       if (!destContent) return;
 
@@ -10124,10 +10255,26 @@ ${serializedHtml}
         }
       }
 
+      const targetTreeForMove =
+        targetOwner.fileId === activeFile?.id
+          ? buildCodeLayerTree(buildCodeLayerProjection(freshActiveContent))
+          : targetOwner.tree;
+      const orderedSameFileDragIds = sortCodeLayerIdsByTreeOrder(
+        sameFileDragIds,
+        targetTreeForMove,
+      );
+      const movedIdOrder = [
+        ...orderedSameFileDragIds,
+        ...crossFileDrags.map((drag) => drag.draggedId),
+      ];
+
       // --- Same-file moves (existing path) ---
       let nextDestContent = destContent;
       let moved = false;
-      for (const draggedId of sameFileDragIds) {
+      for (const draggedId of getLayerMoveIterationOrder(
+        orderedSameFileDragIds,
+        intent.placement,
+      )) {
         const patch = applyVisualEdit(nextDestContent, {
           kind: "moveNode",
           target: { nodeId: draggedId },
@@ -10158,7 +10305,7 @@ ${serializedHtml}
         const currentSourceContent = getLayerMoveSourceContent({
           sourceFileId,
           activeFileId: activeFile?.id,
-          activeContent,
+          activeContent: freshActiveContent,
           sourceFileContent: srcFile.content,
           sourceContentMap,
         });
@@ -10207,7 +10354,7 @@ ${serializedHtml}
       const finalDestTree = finalDestProjection
         ? buildCodeLayerTree(finalDestProjection)
         : [];
-      const movedNodesAfterMove = intent.draggedIds
+      const movedNodesAfterMove = movedIdOrder
         .map((draggedId) => movedNodeSnapshots.get(draggedId))
         .map((node) =>
           node && finalDestProjection
@@ -10249,14 +10396,14 @@ ${serializedHtml}
       }
     },
     [
-      activeContent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
       canMoveLayer,
       codeLayerOwnerByNodeId,
-      files,
       effectiveCodeLayerState,
+      files,
+      getFreshActiveContent,
       t,
     ],
   );
@@ -10406,7 +10553,7 @@ ${serializedHtml}
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
         owner.fileId === activeFile?.id
-          ? activeContent
+          ? getFreshActiveContent()
           : (sourceFile?.content ?? "");
       if (!sourceContent) return;
       const nextContent = setCodeLayerAttributeInHtml(
@@ -10422,12 +10569,12 @@ ${serializedHtml}
       setSelectedLayerIdsState([layerId]);
     },
     [
-      activeContent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
       codeLayerOwnerByNodeId,
       files,
+      getFreshActiveContent,
       queryClient,
       t,
       updateFileMutation,
@@ -10455,7 +10602,7 @@ ${serializedHtml}
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
         owner.fileId === activeFile?.id
-          ? activeContent
+          ? getFreshActiveContent()
           : (sourceFile?.content ?? "");
       if (!sourceContent) return;
       const nextContent = setCodeLayerAttributeInHtml(
@@ -10471,12 +10618,12 @@ ${serializedHtml}
       applyLockedState();
     },
     [
-      activeContent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
       codeLayerOwnerByNodeId,
       files,
+      getFreshActiveContent,
     ],
   );
 
@@ -10501,7 +10648,7 @@ ${serializedHtml}
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
         owner.fileId === activeFile?.id
-          ? activeContent
+          ? getFreshActiveContent()
           : (sourceFile?.content ?? "");
       if (!sourceContent) return;
       const nextContent = setCodeLayerAttributeInHtml(
@@ -10517,12 +10664,12 @@ ${serializedHtml}
       applyHiddenState();
     },
     [
-      activeContent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
       codeLayerOwnerByNodeId,
       files,
+      getFreshActiveContent,
     ],
   );
 
