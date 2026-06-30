@@ -195,15 +195,6 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
     },
     {
-      path: "/modules",
-      title: "Agent-Native Modules",
-      description:
-        "Built-in modules for building agentic applications with Agent-Native.",
-      markdown:
-        "# Agent-Native Modules\n\nBuilt-in modules for building agentic applications with Agent-Native.\n",
-      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/modules.tsx")),
-    },
-    {
       path: "/apps",
       title: "Agent-Native Apps",
       description: "Ready-to-fork apps built with Agent-Native.",

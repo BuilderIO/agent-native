@@ -13,7 +13,6 @@ import { Link } from "react-router";
 
 import CodeBlock from "../components/CodeBlock";
 import { sitePathForLocale } from "../components/docs-locale";
-import { ModulesRail } from "../components/module-catalog";
 import Seascape from "../components/Seascape";
 import {
   featuredTemplates,
@@ -476,9 +475,6 @@ function ActionSurfaceSection({
     <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center">
         <div className="min-w-0">
-          <p className="mb-4 text-sm font-semibold text-[var(--docs-accent)]">
-            {t("home.actionSurface.eyebrow")}
-          </p>
           <h2 className="m-0 max-w-xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
             {t("home.actionSurface.title")}
           </h2>
@@ -520,30 +516,28 @@ function ActionSurfaceSection({
           </div>
         </div>
 
-        <div className="rounded-lg border border-white/14 bg-white/[0.03] p-4">
-          <div className="grid gap-3">
-            {actionBenefits.map((item) => {
-              const Icon = item.icon;
-              return (
-                <div
-                  key={item.titleKey}
-                  className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-4 rounded-lg border border-white/10 bg-white/[0.03] p-4"
-                >
-                  <div className="flex size-11 items-center justify-center rounded-md bg-black text-[var(--docs-accent)]">
-                    <Icon size={22} stroke={1.8} aria-hidden />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="m-0 text-base font-semibold text-white">
-                      {t(item.titleKey)}
-                    </h3>
-                    <p className="m-0 mt-1 text-sm leading-relaxed text-white/58 md:text-base">
-                      {t(item.bodyKey)}
-                    </p>
-                  </div>
+        <div className="grid gap-3">
+          {actionBenefits.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={item.titleKey}
+                className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-4 rounded-lg border border-white/10 bg-white/[0.03] p-4"
+              >
+                <div className="flex size-11 items-center justify-center rounded-md bg-black text-[var(--docs-accent)]">
+                  <Icon size={22} stroke={1.8} aria-hidden />
                 </div>
-              );
-            })}
-          </div>
+                <div className="min-w-0">
+                  <h3 className="m-0 text-base font-semibold text-white">
+                    {t(item.titleKey)}
+                  </h3>
+                  <p className="m-0 mt-1 text-sm leading-relaxed text-white/58 md:text-base">
+                    {t(item.bodyKey)}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -726,22 +720,6 @@ export default defineAction({
           frameworkCode={frameworkCode}
           localizedPath={localizedPath}
         />
-
-        <section
-          id="modules"
-          className="border-t border-[var(--docs-border)] py-20 px-6"
-        >
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              {t("home.modules.title")}
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              {t("home.modules.body")}
-            </p>
-          </div>
-
-          <ModulesRail allModulesPath={localizedPath("/modules")} />
-        </section>
 
         <BatteriesIncludedCloud />
 
