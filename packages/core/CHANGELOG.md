@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.81.2
+
+### Patch Changes
+
+- ea1cc47: Keep OAuth state and environment status checks aligned with scoped workspace credentials.
+
 ## 0.81.1
 
 ### Patch Changes
