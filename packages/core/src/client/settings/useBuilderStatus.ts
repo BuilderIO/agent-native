@@ -188,7 +188,6 @@ export interface BuilderConnectFlow {
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
-const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 5000;
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
@@ -447,15 +446,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isPopupClosed(opened: Window | null): boolean {
-  if (!opened) return false;
-  try {
-    return opened.closed === true;
-  } catch {
-    return false;
-  }
-}
-
 function isTrustedBuilderConnectMessageOrigin(origin: string): boolean {
   if (typeof window !== "undefined" && origin === window.location.origin) {
     return true;
@@ -693,8 +683,6 @@ export function useBuilderConnectFlow(
       const clickTrackingSource =
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
-      let openedPopup: Window | null = null;
-      let popupClosedAt: number | null = null;
       connectStartedAtRef.current = started;
       setConnecting(true);
       setError(null);
@@ -730,7 +718,6 @@ export function useBuilderConnectFlow(
           source: clickTrackingSource,
           flow: clickTrackingFlow,
         });
-        openedPopup = opened;
         if (!opened) {
           // Agent Native Desktop handles the popup in Electron and reports
           // null to the embedded webview, so null is not a blocker here.
@@ -783,7 +770,6 @@ export function useBuilderConnectFlow(
             );
           })();
         } else {
-          openedPopup = opened;
           showBuilderConnectPopupPlaceholder(opened);
           void (async () => {
             const s = await fetchStatus();
@@ -884,25 +870,6 @@ export function useBuilderConnectFlow(
           setError(
             `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
           );
-        } else if (isPopupClosed(openedPopup)) {
-          popupClosedAt ??= Date.now();
-          if (Date.now() - popupClosedAt > POPUP_CLOSED_CONFIRMATION_GRACE_MS) {
-            stopPoll();
-            connectStartedAtRef.current = null;
-            setConnecting(false);
-            trackEvent("builder connect failed", {
-              feature: "builder",
-              stage: "client",
-              reason: "popup_closed_without_status",
-              source: clickTrackingSource,
-              flow:
-                cleanTrackingParam(clickTrackingFlow) ??
-                inferBuilderConnectTrackingFlow(clickTrackingSource),
-            });
-            setError(
-              "Builder finished, but this workspace couldn't confirm the saved credentials. Refresh this page or try Connect Builder.io again.",
-            );
-          }
         } else if (Date.now() - started > POLL_TIMEOUT_MS) {
           stopPoll();
           connectStartedAtRef.current = null;
@@ -972,7 +939,6 @@ export function useBuilderConnectFlow(
         )
           ? s?.connectError
           : null;
-        stopPoll();
         setHasFetchedStatus(true);
         if (s) {
           setConfigured(false);
@@ -983,13 +949,14 @@ export function useBuilderConnectFlow(
           statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
           setOrgName(s.orgName ?? null);
         }
-        connectStartedAtRef.current = null;
-        setConnecting(false);
-        setError(
-          connectError
-            ? `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`
-            : "Builder finished, but this workspace couldn't confirm the saved credentials. Refresh this page or try Connect Builder.io again.",
-        );
+        if (connectError) {
+          stopPoll();
+          connectStartedAtRef.current = null;
+          setConnecting(false);
+          setError(
+            `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`,
+          );
+        }
         return;
       }
       stopPoll();
