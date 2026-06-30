@@ -176,13 +176,16 @@ function setStoredBoolean(key: string, value: boolean): void {
   }
 }
 
-function getStoredSortMode(key: string): SidebarSortMode {
-  if (typeof window === "undefined") return "most-used";
+function getStoredSortMode(
+  key: string,
+  fallback: SidebarSortMode = "most-used",
+): SidebarSortMode {
+  if (typeof window === "undefined") return fallback;
   const raw = window.localStorage.getItem(key);
   if (raw === "alphabetical" || raw === "manual" || raw === "most-used") {
     return raw;
   }
-  return "most-used";
+  return fallback;
 }
 
 function setStoredSortMode(key: string, value: SidebarSortMode): void {
@@ -1209,7 +1212,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [analysisHiddenFilter, setAnalysisHiddenFilter] =
     useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
-    useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
+    useState<SidebarSortMode>(() =>
+      getStoredSortMode(DASHBOARD_SORT_MODE_KEY, "alphabetical"),
+    );
   const [analysisSortMode, setAnalysisSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const popularity = usePopularity();
