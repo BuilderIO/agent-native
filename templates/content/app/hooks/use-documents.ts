@@ -18,20 +18,21 @@ export function mergeDocumentIntoListDocumentsCache(
   old: unknown,
   document: Document,
 ) {
-  const documents = Array.isArray(old)
-    ? old
-    : old && typeof old === "object" && Array.isArray((old as any).documents)
-      ? (old as any).documents
-      : null;
-  if (!documents) return old;
+  if (Array.isArray(old)) {
+    return old.map((item: Document) =>
+      item.id === document.id ? { ...item, ...document } : item,
+    );
+  }
 
-  const nextDocuments = documents.map((item: Document) =>
+  if (!old || typeof old !== "object") return old;
+  const cached = old as { documents?: unknown };
+  if (!Array.isArray(cached.documents)) return old;
+
+  const nextDocuments = cached.documents.map((item: Document) =>
     item.id === document.id ? { ...item, ...document } : item,
   );
 
-  return Array.isArray(old)
-    ? nextDocuments
-    : { ...old, documents: nextDocuments };
+  return { ...old, documents: nextDocuments };
 }
 
 export function useDocuments() {
