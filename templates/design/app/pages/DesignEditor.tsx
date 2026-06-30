@@ -15023,25 +15023,25 @@ ${serializedHtml}
                     <>
                       <div
                         aria-hidden="true"
-                        className="mb-5 w-full max-w-sm rounded-xl border border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] p-3 shadow-[0_22px_65px_-42px_rgba(0,0,0,0.85)]"
+                        className="mb-5 w-full max-w-sm rounded-xl border border-black/10 bg-[#f7f8fb] p-3 shadow-[0_22px_65px_-42px_rgba(0,0,0,0.85)] dark:border-white/12 dark:bg-[#f4f6f8]"
                       >
-                        <div className="flex h-7 items-center justify-between border-b border-[var(--design-editor-panel-divider-color)] px-1 pb-2">
+                        <div className="flex h-7 items-center justify-between border-b border-slate-950/[0.08] px-1 pb-2">
                           <div className="flex gap-1.5">
-                            <span className="size-2 rounded-full bg-foreground/12" />
-                            <span className="size-2 rounded-full bg-foreground/10" />
-                            <span className="size-2 rounded-full bg-foreground/8" />
+                            <span className="size-2 rounded-full bg-slate-950/[0.12]" />
+                            <span className="size-2 rounded-full bg-slate-950/[0.1]" />
+                            <span className="size-2 rounded-full bg-slate-950/[0.08]" />
                           </div>
-                          <span className="h-2 w-16 rounded bg-foreground/8" />
+                          <span className="h-2 w-16 rounded bg-slate-950/[0.08]" />
                         </div>
                         <div className="space-y-3 pt-4">
-                          <span className="block h-5 w-2/3 rounded bg-foreground/9" />
-                          <span className="block h-4 w-1/2 rounded bg-foreground/7" />
+                          <span className="block h-5 w-2/3 rounded bg-slate-950/[0.085]" />
+                          <span className="block h-4 w-1/2 rounded bg-slate-950/[0.07]" />
                           <div className="grid grid-cols-3 gap-2 pt-2">
-                            <span className="h-12 rounded-md bg-foreground/7" />
-                            <span className="h-12 rounded-md bg-foreground/7" />
-                            <span className="h-12 rounded-md bg-foreground/7" />
+                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
+                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
+                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
                           </div>
-                          <span className="block h-20 rounded-lg bg-foreground/7" />
+                          <span className="block h-20 rounded-lg bg-slate-950/[0.07]" />
                         </div>
                       </div>
                       <p className="mb-3 text-sm font-medium text-foreground/85">
