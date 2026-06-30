@@ -877,7 +877,7 @@ export function DocumentSidebar({
                     <button
                       key={doc.id}
                       className={cn(
-                        "flex min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm",
+                        "flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",

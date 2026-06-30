@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDocumentTree,
   filterDocumentTreeDocuments,
+  mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
 } from "./use-documents";
 
@@ -127,5 +128,35 @@ describe("mergeDocumentIntoListDocumentsCache", () => {
         updated,
       ),
     ).toEqual({ documents: [updated], cursor: null });
+  });
+});
+
+describe("mergeDocumentIntoDocumentCache", () => {
+  it("preserves fields that are only present on the get-document cache", () => {
+    const updated = {
+      ...doc("database-page", null),
+      title: "Updated title",
+    };
+    const database = {
+      id: "database",
+      documentId: "database-page",
+      title: "Database",
+      viewConfig: {
+        activeViewId: "default",
+        views: [],
+        sorts: [],
+        filters: [],
+        columnWidths: {},
+      },
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+    };
+
+    expect(
+      mergeDocumentIntoDocumentCache(
+        { ...doc("database-page", null), database },
+        updated,
+      ),
+    ).toEqual({ ...updated, database });
   });
 });

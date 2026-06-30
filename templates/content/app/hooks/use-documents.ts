@@ -14,6 +14,13 @@ import { useRestoreContentDatabase } from "./use-content-database";
 
 const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
 
+export function mergeDocumentIntoDocumentCache(
+  old: unknown,
+  document: Document,
+) {
+  return old && typeof old === "object" ? { ...old, ...document } : document;
+}
+
 export function mergeDocumentIntoListDocumentsCache(
   old: unknown,
   document: Document,
@@ -67,7 +74,7 @@ export function useUpdateDocument() {
     onSuccess: (data, variables) => {
       queryClient.setQueryData(
         ["action", "get-document", { id: variables.id }],
-        data,
+        (old: unknown) => mergeDocumentIntoDocumentCache(old, data),
       );
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
         mergeDocumentIntoListDocumentsCache(old, data),

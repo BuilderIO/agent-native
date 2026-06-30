@@ -129,7 +129,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("{showFavorites && (");
     expect(sidebar).toContain('"mb-2 min-w-0"');
     expect(sidebar).toContain(
-      '"flex min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm"',
+      '"flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm"',
     );
     expect(sidebar).toContain("width:");
     expect(sidebar).toContain('"min-w-0 flex-1 truncate"');
