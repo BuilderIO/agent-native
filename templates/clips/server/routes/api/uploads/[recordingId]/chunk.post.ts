@@ -18,6 +18,7 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
+import { getActiveFileUploadProvider } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
@@ -41,10 +42,21 @@ import {
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import {
+  getResumableSession,
+  setResumableSession,
+  type StoredResumableSession,
+} from "../../../../lib/resumable-session.js";
+import {
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../../../../lib/video-storage.js";
+
 const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECORDING_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
+
+// Netlify functions have a 6 MB buffered request cap, but binary requests
+// are base64 encoded by the gateway and effectively cap out around 4.5 MB.
+// Keep our own cap lower so dev/local failures match production.
+const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 
 const ALLOWED_RECORDING_MIME_TYPES = new Set([
   "video/webm",
@@ -123,10 +135,6 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 
-  // Netlify functions have a 6 MB buffered request cap, but binary requests
-  // are base64 encoded by the gateway and effectively cap out around 4.5 MB.
-  // Keep our own cap lower so dev/local failures match production.
-  const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
   const contentLength = Number(getHeader(event, "content-length") || 0);
   if (contentLength > MAX_CHUNK_BYTES) {
     setResponseStatus(event, 413);
@@ -172,6 +180,20 @@ export default defineEventHandler(async (event: H3Event) => {
       throw createError({ statusCode: 404, message: "Recording not found" });
     }
 
+    // Resumable streaming path — forward chunks directly to the provider.
+    const resumableSession = await getResumableSession(recordingId);
+    if (resumableSession) {
+      return handleResumableChunk(
+        event,
+        resumableSession,
+        recordingId,
+        index,
+        isFinal,
+        mimeType,
+        query,
+      );
+    }
+
     const failedUploadResponse = (reason: string, bytes?: number) => {
       setResponseStatus(
         event,
@@ -191,6 +213,7 @@ export default defineEventHandler(async (event: H3Event) => {
       );
     }
 
+    // Store chunks in application_state, assemble on finalize.
     if (await shouldRejectVideoUploadWithoutStorage()) {
       const now = new Date().toISOString();
       await db
@@ -367,10 +390,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
       await db
         .update(schema.recordings)
-        .set({
-          uploadProgress: progress,
-          updatedAt: new Date().toISOString(),
-        })
+        .set({ uploadProgress: progress, updatedAt: new Date().toISOString() })
         .where(
           and(
             eq(schema.recordings.id, recordingId),
@@ -404,21 +424,9 @@ export default defineEventHandler(async (event: H3Event) => {
       if (failedResponse) return failedResponse;
       debugLog("[chunk] isFinal — invoking finalize", { recordingId });
       try {
-        const result = await finalizeRecording.run({
-          id: recordingId,
-          durationMs: normalizeChunkUploadNumber(query.durationMs),
-          width: normalizeChunkUploadNumber(query.width),
-          height: normalizeChunkUploadNumber(query.height),
-          hasAudio:
-            query.hasAudio === undefined
-              ? undefined
-              : query.hasAudio === "1" || query.hasAudio === "true",
-          hasCamera:
-            query.hasCamera === undefined
-              ? undefined
-              : query.hasCamera === "1" || query.hasCamera === "true",
-          mimeType,
-        });
+        const result = await finalizeRecording.run(
+          buildFinalizeArgs(recordingId, mimeType, query),
+        );
         debugLog("[chunk] finalize ok", {
           recordingId,
           videoUrl: (result as any)?.videoUrl,
@@ -460,11 +468,154 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    return {
-      ok: true,
-      finalized: false,
-      index,
-      bytes: bytes.byteLength,
-    };
+    return { ok: true, finalized: false, index, bytes: bytes.byteLength };
   });
 });
+
+function buildFinalizeArgs(
+  recordingId: string,
+  mimeType: string,
+  query: Record<string, unknown>,
+) {
+  return {
+    id: recordingId,
+    durationMs: normalizeChunkUploadNumber(query.durationMs),
+    width: normalizeChunkUploadNumber(query.width),
+    height: normalizeChunkUploadNumber(query.height),
+    hasAudio:
+      query.hasAudio === undefined
+        ? undefined
+        : query.hasAudio === "1" || query.hasAudio === "true",
+    hasCamera:
+      query.hasCamera === undefined
+        ? undefined
+        : query.hasCamera === "1" || query.hasCamera === "true",
+    mimeType,
+  };
+}
+
+// Resumable streaming path: each chunk is forwarded directly to the upload
+// provider. Always returns a response — never falls through to the buffered path.
+async function handleResumableChunk(
+  event: H3Event,
+  session: StoredResumableSession,
+  recordingId: string,
+  index: number,
+  isFinal: boolean,
+  mimeType: string,
+  query: Record<string, unknown>,
+) {
+  const uploadProvider = getActiveFileUploadProvider();
+  console.log(
+    `[resumable-chunk-${recordingId}] resumable session exists - bytesUploaded=${session.bytesUploaded} index=${index} isFinal=${isFinal}`,
+  );
+
+  const raw = await readRawBody(event, false);
+  const bytes: Uint8Array = raw ?? new Uint8Array(0);
+
+  if (!isFinal && bytes.byteLength === 0) {
+    throw createError({ statusCode: 400, message: "Empty chunk body" });
+  }
+
+  if (isFinal && bytes.byteLength === 0) {
+    // 0-byte sentinel from the recorder after stop(). All data chunks have
+    // already been PUT to the provider; send Content-Range: bytes */<total>
+    // to close the session before handing off to finalize-recording.
+    const closeRes = await uploadProvider!.resumable!.relayChunk(
+      { sessionId: session.sessionId, meta: session.meta },
+      `bytes */${session.bytesUploaded}`,
+      new Uint8Array(0),
+    );
+    if (!closeRes.ok) {
+      console.error(
+        `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
+      );
+      setResponseStatus(event, 502);
+      return {
+        ok: false,
+        error: `Resumable session close failed (${closeRes.status})`,
+      };
+    }
+  } else {
+    // Idempotent replay guard: a client retry (after a lost response) can
+    // re-send a chunk we already committed. Re-PUTing it at the new offset
+    // would corrupt the file — detect the duplicate by index and skip the PUT.
+    // Chunks are strictly sequential, so any index <= last committed is a replay.
+    // A replayed non-final is acked here; a replayed final falls through to
+    // finalize, which is idempotent.
+    const isReplay = index <= (session.lastCommittedIndex ?? -1);
+    if (isReplay) {
+      console.warn(
+        `[resumable-chunk-${recordingId}] duplicate chunk ${index}, acking without re-upload`,
+      );
+      if (!isFinal) {
+        return {
+          ok: true,
+          finalized: false,
+          index,
+          bytes: bytes.byteLength,
+          duplicate: true,
+        };
+      }
+    } else {
+      // Forward the data chunk to the provider and advance offsets only after
+      // the provider confirms receipt (308 Resume Incomplete for non-final, 2xx for final).
+      const start = session.bytesUploaded;
+      const end = start + bytes.byteLength - 1;
+      const contentRange = isFinal
+        ? `bytes ${start}-${end}/${start + bytes.byteLength}`
+        : `bytes ${start}-${end}/*`;
+
+      const putT0 = Date.now();
+      const putResult = await uploadProvider!.resumable!.relayChunk(
+        { sessionId: session.sessionId, meta: session.meta },
+        contentRange,
+        bytes,
+        { mimeType: mimeType.split(";")[0].trim() },
+      );
+      console.log(
+        `[resumable-chunk-${recordingId}] PUT ${Date.now() - putT0}ms status=${putResult.status} range="${contentRange}"`,
+      );
+
+      const resultOk = isFinal
+        ? putResult.ok && putResult.status !== 308
+        : putResult.ok;
+      if (!resultOk) {
+        setResponseStatus(event, 502);
+        return {
+          ok: false,
+          error: `Chunk upload failed (${putResult.status})`,
+        };
+      }
+
+      await setResumableSession(recordingId, {
+        ...session,
+        ...(putResult.updatedMeta
+          ? { meta: { ...session.meta, ...putResult.updatedMeta } }
+          : {}),
+        bytesUploaded: start + bytes.byteLength,
+        lastCommittedIndex: index,
+      });
+
+      if (!isFinal) {
+        return { ok: true, finalized: false, index, bytes: bytes.byteLength };
+      }
+    }
+  }
+
+  // isFinal — delegate to finalize-recording, which reads the resumable
+  // session and calls provider.resumable.completeSession.
+  try {
+    const result = await finalizeRecording.run(
+      buildFinalizeArgs(recordingId, mimeType, query),
+    );
+    return { ok: true, finalized: true, ...result };
+  } catch (err) {
+    console.error(`[resumable-chunk-${recordingId}] finalize failed:`, err);
+    setResponseStatus(event, 500);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Finalize failed",
+    };
+  }
+}

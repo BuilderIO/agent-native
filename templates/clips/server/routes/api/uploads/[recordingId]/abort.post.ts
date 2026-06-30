@@ -10,6 +10,7 @@ import {
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { deleteResumableSession } from "../../../lib/resumable-session.js";
 import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -62,6 +63,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const cleared = await deleteAppStateByPrefix(
       `recording-chunks-${recordingId}-`,
     );
+    await deleteResumableSession(recordingId).catch(() => {});
 
     const now = new Date().toISOString();
     await db
