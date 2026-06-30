@@ -1,5 +1,5 @@
 import { IconDownload, IconPlus, IconX } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,7 @@ export interface ExportSettingsPanelLabels {
 export interface ExportSettingsPanelProps {
   value: ExportSettingsValue;
   onChange: (patch: Partial<ExportSettingsValue>) => void;
-  onExport: (settings: ExportSettingsValue) => void;
+  onExport: (settings: ExportSettingsValue[]) => void;
   formats?: ExportFormat[];
   labels?: Partial<ExportSettingsPanelLabels>;
   disabled?: boolean;
@@ -57,7 +57,12 @@ const DEFAULT_LABELS: ExportSettingsPanelLabels = {
 
 const DEFAULT_FORMATS: ExportFormat[] = ["png", "jpg", "svg", "pdf", "webp"];
 
-/** Preset scale options shown in the scale dropdown — matches Figma's presets */
+// Export scale bounds — must match the clamp in DesignEditor's PNG/SVG export
+// handlers so the panel never promises a range the exporter won't render.
+const MIN_EXPORT_SCALE = 0.1;
+const MAX_EXPORT_SCALE = 4;
+
+/** Preset scale options shown in the scale dropdown — matches the design editor's presets */
 const SCALE_PRESETS: { label: string; value: ExportScale }[] = [
   { label: "0.5x", value: "0.5" },
   { label: "1x", value: "1" },
@@ -103,7 +108,7 @@ function rowFromValue(v: ExportSettingsValue): ExportRow {
   };
 }
 
-/** Scale dropdown — shows Figma's 0.5x/1x/2x/3x/4x presets + Custom */
+/** Scale dropdown — shows the design editor's 0.5x/1x/2x/3x/4x presets + Custom */
 function ScaleSelect({
   scale,
   customScale,
@@ -162,15 +167,7 @@ export function ExportSettingsPanel({
   // Multi-row internal state — primary row is kept in sync with the `value` prop
   const [rows, setRows] = useState<ExportRow[]>(() => [rowFromValue(value)]);
 
-  // Keep primary row in sync when the controlled value prop changes externally
-  const primaryValue = rows[0];
-  const needsSync =
-    !primaryValue.customScale &&
-    (primaryValue.scale !== value.scale ||
-      primaryValue.format !== value.format ||
-      primaryValue.suffix !== value.suffix);
-
-  if (needsSync) {
+  useEffect(() => {
     setRows((prev) => [
       {
         ...prev[0],
@@ -180,7 +177,7 @@ export function ExportSettingsPanel({
       },
       ...prev.slice(1),
     ]);
-  }
+  }, [value.format, value.scale, value.suffix]);
 
   function patchRow(id: number, patch: Partial<ExportRow>) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -226,19 +223,15 @@ export function ExportSettingsPanel({
   }
 
   function handleExport() {
-    // Pass the primary row's settings to onExport; rows array is internal
-    const primary = rows[0];
-    if (!primary) return;
-    onExport({
-      scale: primary.scale,
-      format: primary.format,
-      suffix: primary.suffix,
-    });
+    if (rows.length === 0) return;
+    onExport(
+      rows.map((r) => ({ scale: r.scale, format: r.format, suffix: r.suffix })),
+    );
   }
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      {/* Section header: title left, "+" right — matches Figma export header */}
+      {/* Section header: title left, "+" right — matches the design editor export header */}
       <div className="flex h-6 items-center justify-between">
         <span className="text-[11px] font-medium text-muted-foreground">
           {copy.title}
@@ -254,7 +247,7 @@ export function ExportSettingsPanel({
         </button>
       </div>
 
-      {/* Export rows: [scale ▾] [format ▾] [suffix] [×] — Figma compact inline layout */}
+      {/* Export rows: [scale ▾] [format ▾] [suffix] [×] — design-editor compact inline layout */}
       {rows.map((row) => (
         <ExportRow
           key={row.id}
@@ -268,7 +261,7 @@ export function ExportSettingsPanel({
         />
       ))}
 
-      {/* Export button — full width at bottom, Figma style */}
+      {/* Export button — full width at bottom, design-editor style */}
       <Button
         type="button"
         variant="outline"
@@ -309,13 +302,20 @@ function ExportRow({
           type="number"
           value={row.scale}
           disabled={isDisabled}
-          min={0.01}
-          max={100}
+          // Bounds match the exporter's real clamp ([0.1, 4]); see
+          // DesignEditor handleDownload* . Previously the field accepted up to
+          // 100x but the exporter silently clamped to 4x with no feedback.
+          min={MIN_EXPORT_SCALE}
+          max={MAX_EXPORT_SCALE}
           step={0.5}
           onChange={(e) => {
             const parsed = parseFloat(e.target.value);
             if (!Number.isNaN(parsed) && parsed > 0) {
-              onPatchRow(row.id, { scale: parsed });
+              const clamped = Math.min(
+                MAX_EXPORT_SCALE,
+                Math.max(MIN_EXPORT_SCALE, parsed),
+              );
+              onPatchRow(row.id, { scale: clamped });
             }
           }}
           onBlur={() => {
@@ -380,7 +380,7 @@ function ExportRow({
         aria-label={labels.suffix}
       />
 
-      {/* Remove row button — matches Figma's × on each export entry */}
+      {/* Remove row button — matches the design editor's × on each export entry */}
       <button
         type="button"
         aria-label={labels.removeExport}

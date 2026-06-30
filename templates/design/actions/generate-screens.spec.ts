@@ -100,4 +100,25 @@ describe("generate-screens", () => {
       view: "editor",
     });
   });
+
+  it("rejects variant screens without a base screen", () => {
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        prompt: "Explore checkout variations",
+        screens: [{ title: "Variant A", role: "variant" }],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        prompt: "Explore checkout variations",
+        screens: [
+          { title: "Checkout", role: "screen" },
+          { title: "Variant A", role: "variant", variantOf: "Checkout" },
+        ],
+      }).success,
+    ).toBe(true);
+  });
 });

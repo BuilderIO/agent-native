@@ -164,11 +164,13 @@ export function builderCmsSourceMetadata(sourceTable: string) {
     primaryKey: "id",
     titleField: "data.title",
     naturalKeyField: "/blog/[slug]",
-    pushMode: "autosave" as const,
-    pushModeLabel: "Save revision / autosave",
+    pushMode: "none" as const,
+    pushModeLabel: "No writes",
     pushModeDescription:
-      "Local-only Builder revision staging. No Builder API write runs in this slice.",
-    allowedWriteModes: ["autosave"],
+      "Read-only Builder source. Choose a write tier before any Builder API write can run.",
+    writeMode: "read_only" as const,
+    allowPublicationTransitions: false,
+    allowedWriteModes: [],
     allowDraftWrites: false,
     allowPublishWrites: false,
     notes:
@@ -189,6 +191,22 @@ function stringFromRecord(
 ): string | null {
   for (const key of keys) {
     const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+function timestampStringFromRecord(
+  value: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return String(candidate);
+    }
     if (typeof candidate === "string" && candidate.trim()) {
       return candidate.trim();
     }
@@ -317,8 +335,12 @@ export function normalizeBuilderCmsApiEntry(
     stringFromRecord(data, ["url", "urlPath", "path"]) ??
     (slug ? `/blog/${slug.replace(/^\/+/, "")}` : `/blog/${id}`);
   const updatedAt =
-    stringFromRecord(record, ["lastUpdated", "updatedDate", "updatedAt"]) ??
-    stringFromRecord(data, ["updatedAt"]) ??
+    timestampStringFromRecord(record, [
+      "lastUpdated",
+      "updatedDate",
+      "updatedAt",
+    ]) ??
+    timestampStringFromRecord(data, ["updatedAt"]) ??
     new Date().toISOString();
 
   return {

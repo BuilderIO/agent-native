@@ -301,6 +301,9 @@ export function CanvasCommentPins({
   const containerRef = useRef<HTMLElement | null>(null);
   const lastSubmitQueuedSignalRef = useRef(submitQueuedSignal);
   const [canvasEl, setCanvasEl] = useState<HTMLElement | null>(null);
+  // Dummy tick forces a re-render (and a fresh getBoundingClientRect()) whenever
+  // the canvas scrolls or resizes, keeping pin overlays in sync.
+  const [, setLayoutTick] = useState(0);
 
   // Reset pins when the context (slide) changes — they're scoped to one view.
   useEffect(() => {
@@ -323,6 +326,32 @@ export function CanvasCommentPins({
     const t = setTimeout(findCanvas, 50);
     return () => clearTimeout(t);
   }, [active, canvasSelector, contextId]);
+
+  // Re-render when the canvas element moves in the viewport (scroll or resize),
+  // so getBoundingClientRect() returns fresh coordinates for pin overlays.
+  useEffect(() => {
+    const canvas = containerRef.current ?? canvasEl;
+    if (!canvas) return;
+
+    const bump = () => setLayoutTick((t) => t + 1);
+
+    // ResizeObserver fires when the canvas element's own size changes.
+    const ro = new ResizeObserver(bump);
+    ro.observe(canvas);
+
+    // Scroll listeners on the canvas's scrollable ancestor(s) and window cover
+    // both page-level scrolling and container-level panning.
+    const scrollTarget =
+      canvas.closest<HTMLElement>("[class*='overflow']") ?? window;
+    scrollTarget.addEventListener("scroll", bump, { passive: true });
+    window.addEventListener("resize", bump, { passive: true });
+
+    return () => {
+      ro.disconnect();
+      scrollTarget.removeEventListener("scroll", bump);
+      window.removeEventListener("resize", bump);
+    };
+  }, [canvasEl]);
 
   const dropPinAt = useCallback(
     (clientX: number, clientY: number, target?: HTMLElement | null) => {
@@ -538,13 +567,24 @@ export function CanvasCommentPins({
     setActivePinId(null);
   };
 
+  // Refs for drag-detection on the click overlay (Bug 3 fix).
+  // A pin is only dropped on a completed click, not on any drag gesture.
+  const overlayDownPos = useRef<{ x: number; y: number } | null>(null);
+  const overlayDidDrag = useRef(false);
+
   if (!active && pins.length === 0) return null;
 
   // Render pins as portaled overlays positioned on top of the canvas
   const canvas = containerRef.current ?? canvasEl;
   if (!canvas) return null;
   const rect = canvas.getBoundingClientRect();
-  const summaryLeft = Math.min(rect.right - 8, window.innerWidth - 8);
+  // Clamp summaryLeft so the w-64 (256px) panel, which is shifted left by
+  // -translate-x-full, never overflows the left viewport edge.
+  // 264 = 256 (panel width) + 8 (minimum margin from the viewport left edge).
+  const summaryLeft = Math.max(
+    264,
+    Math.min(rect.right - 8, window.innerWidth - 8),
+  );
   const summaryTop = Math.max(rect.top + 8, 72);
 
   return (
@@ -565,13 +605,25 @@ export function CanvasCommentPins({
             height: rect.height,
           }}
           onPointerDown={(e) => {
-            e.preventDefault();
+            overlayDownPos.current = { x: e.clientX, y: e.clientY };
+            overlayDidDrag.current = false;
             e.stopPropagation();
-            dropPinAt(e.clientX, e.clientY);
+          }}
+          onPointerMove={(e) => {
+            if (overlayDownPos.current) {
+              const dx = e.clientX - overlayDownPos.current.x;
+              const dy = e.clientY - overlayDownPos.current.y;
+              if (dx * dx + dy * dy > 16) overlayDidDrag.current = true;
+            }
           }}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            if (!overlayDidDrag.current) {
+              dropPinAt(e.clientX, e.clientY);
+            }
+            overlayDownPos.current = null;
+            overlayDidDrag.current = false;
           }}
         />
       )}
@@ -714,96 +766,120 @@ export function CanvasCommentPins({
 
             {/* Inline composer. z-[260] keeps it above the shadcn floating-UI
              * tier (z-[250] — Tooltip, Popover, Dialog overlay, etc.) so a
-             * stray tooltip that pops over the pin can't swallow Send clicks. */}
-            {isActive && !pin.submitted && (
-              <div
-                data-pin-popover
-                className="absolute z-[260] left-3 top-1 w-72 rounded-lg border border-border bg-popover shadow-xl p-2"
-              >
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-foreground">
-                    {t("visualEditor.editDesign")}
-                  </p>
-                  <PinStatusBadge status={status} />
-                </div>
-                <Textarea
-                  autoFocus
-                  value={pin.draft || ""}
-                  onChange={(e) =>
-                    updatePin(pin.id, {
-                      draft: e.target.value,
-                      queued: false,
-                    })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      submitPin(pin);
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      removePin(pin.id);
-                    }
-                  }}
-                  placeholder={t("visualEditor.tellAgentWhatToChange")}
-                  className="resize-none text-xs min-h-[60px]"
-                />
-                <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-                  {status.detail}
-                </p>
-                {pin.targetAnchorId && (
-                  <div className="mt-1 truncate rounded-md bg-muted/45 px-2 py-1 text-[10px] text-muted-foreground">
-                    {t("visualEditor.anchorLabel", {
-                      id: pin.targetAnchorId,
-                    })}
-                  </div>
-                )}
-                {pin.targetText && (
-                  <div className="text-[10px] text-muted-foreground mt-1 italic line-clamp-1">
-                    {t("visualEditor.nearText", { text: pin.targetText })}
-                  </div>
-                )}
-                <div className="flex items-center justify-between mt-2">
-                  <span className="text-[10px] text-muted-foreground">
-                    {t("visualEditor.submitShortcut", {
-                      mod: /Mac|iPhone|iPad/.test(navigator.userAgent)
-                        ? "⌘"
-                        : "Ctrl",
-                    })}
-                  </span>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 px-2 text-[10px] cursor-pointer"
-                      onClick={() => removePin(pin.id)}
-                    >
-                      <IconX className="w-3 h-3" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 gap-1 px-2 text-[10px] cursor-pointer"
-                      onClick={() => queuePin(pin)}
-                      disabled={!(pin.draft || "").trim()}
-                    >
-                      {t("visualEditor.queue")}
-                    </Button>
-                    {submitMode === "direct" && (
-                      <Button
-                        size="sm"
-                        className="h-6 gap-1 px-2 text-[10px] cursor-pointer"
-                        onClick={() => submitPin(pin)}
-                        disabled={!(pin.draft || "").trim()}
-                      >
-                        <IconSend className="w-3 h-3" />
-                        {t("visualEditor.send")}
-                      </Button>
+             * stray tooltip that pops over the pin can't swallow Send clicks.
+             * Composer is flipped horizontally and/or vertically when the pin
+             * is near a viewport edge so it stays fully on-screen. */}
+            {isActive &&
+              !pin.submitted &&
+              (() => {
+                const composerW = 288; // w-72
+                const composerH = 220; // estimated height
+                const flipX = left + 12 + composerW > window.innerWidth;
+                const flipY = top + 4 + composerH > window.innerHeight;
+                return (
+                  <div
+                    data-pin-popover
+                    className="absolute z-[260] w-72 rounded-lg border border-border bg-popover shadow-xl p-2"
+                    style={{
+                      ...(flipX
+                        ? { right: "calc(100% + 4px)", left: "auto" }
+                        : { left: "0.75rem" }),
+                      ...(flipY
+                        ? { bottom: "calc(100% + 4px)", top: "auto" }
+                        : { top: "0.25rem" }),
+                    }}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-foreground">
+                        {t("visualEditor.editDesign")}
+                      </p>
+                      <PinStatusBadge status={status} />
+                    </div>
+                    <Textarea
+                      autoFocus
+                      value={pin.draft || ""}
+                      onChange={(e) =>
+                        updatePin(pin.id, {
+                          draft: e.target.value,
+                          queued: false,
+                        })
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          submitPin(pin);
+                        }
+                        if (e.key === "Escape") {
+                          // Stop propagation so the window Escape listener (which
+                          // calls onClose) does not also fire. Collapse the composer
+                          // back to the pin dot while preserving the draft text —
+                          // the pin and any typed draft survive. A second Escape
+                          // with no composer open exits pin mode, matching Figma.
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setActivePinId(null);
+                        }
+                      }}
+                      placeholder={t("visualEditor.tellAgentWhatToChange")}
+                      className="resize-none text-xs min-h-[60px]"
+                    />
+                    <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                      {status.detail}
+                    </p>
+                    {pin.targetAnchorId && (
+                      <div className="mt-1 truncate rounded-md bg-muted/45 px-2 py-1 text-[10px] text-muted-foreground">
+                        {t("visualEditor.anchorLabel", {
+                          id: pin.targetAnchorId,
+                        })}
+                      </div>
                     )}
+                    {pin.targetText && (
+                      <div className="text-[10px] text-muted-foreground mt-1 italic line-clamp-1">
+                        {t("visualEditor.nearText", { text: pin.targetText })}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-[10px] text-muted-foreground">
+                        {t("visualEditor.submitShortcut", {
+                          mod: /Mac|iPhone|iPad/.test(navigator.userAgent)
+                            ? "⌘"
+                            : "Ctrl",
+                        })}
+                      </span>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-[10px] cursor-pointer"
+                          onClick={() => removePin(pin.id)}
+                        >
+                          <IconX className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 gap-1 px-2 text-[10px] cursor-pointer"
+                          onClick={() => queuePin(pin)}
+                          disabled={!(pin.draft || "").trim()}
+                        >
+                          {t("visualEditor.queue")}
+                        </Button>
+                        {submitMode === "direct" && (
+                          <Button
+                            size="sm"
+                            className="h-6 gap-1 px-2 text-[10px] cursor-pointer"
+                            onClick={() => submitPin(pin)}
+                            disabled={!(pin.draft || "").trim()}
+                          >
+                            <IconSend className="w-3 h-3" />
+                            {t("visualEditor.send")}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
+                );
+              })()}
           </div>
         );
       })}

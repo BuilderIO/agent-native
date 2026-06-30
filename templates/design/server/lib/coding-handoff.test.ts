@@ -91,6 +91,26 @@ describe("coding handoff helpers", () => {
     expect(markdown).toContain("--color-accent: #F97316;");
   });
 
+  it("injects resolved tweak tokens after the full :root block", () => {
+    const payload = buildDesignHandoffPayload({
+      design: { id: "d", title: "Nested CSS", projectType: "prototype" },
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content:
+            '<head><style>:root { --image: url("}"); --color: red; }</style></head>',
+        },
+      ],
+      resolvedCssVars: { "--color": "blue" },
+    });
+
+    expect(payload.files[0].content).toContain('--image: url("}")');
+    expect(payload.files[0].content).toContain(
+      "--color: blue; /* applied-design-tokens */\n}</style>",
+    );
+  });
+
   it("leaves files untouched when no resolved tokens are passed", () => {
     const payload = buildDesignHandoffPayload({
       design: { id: "d", title: "Plain", projectType: "prototype" },

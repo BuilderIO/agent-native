@@ -121,7 +121,9 @@ export function SqlChartCard({
   const [expanded, setExpanded] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
-    eagerLoad || panel.chartType === "section",
+    eagerLoad ||
+      panel.chartType === "section" ||
+      panel.chartType === "extension",
   );
   const cardRef = useRef<HTMLDivElement | null>(null);
   const chartQueryKey = useMemo(
@@ -159,7 +161,9 @@ export function SqlChartCard({
       setShouldLoadData(true);
       return;
     }
-    if (panel.chartType === "section") {
+    // Sections are layout-only and extensions render their own iframe — neither
+    // waits on the intersection observer that gates SQL panels.
+    if (panel.chartType === "section" || panel.chartType === "extension") {
       setShouldLoadData(true);
       return;
     }
@@ -264,6 +268,88 @@ export function SqlChartCard({
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {t("sqlDashboard.deleteSectionDescription", {
+                    title: panel.title,
+                  })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    setConfirmOpen(false);
+                    onRemove();
+                  }}
+                >
+                  {t("sidebar.delete")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Extension panels render their sandboxed iframe full-bleed with no card chrome
+  // or title — the extension owns its own UI. Editable dashboards still get a
+  // hover overlay for delete/drag. Editing routes through the agent (the manual
+  // panel editor has no extension picker), so no inline edit action here.
+  if (panel.chartType === "extension") {
+    return (
+      <div
+        ref={setCardNodeRef}
+        style={isDragSource ? { zIndex: 50 } : undefined}
+        data-dragging={isDragSource ? "true" : undefined}
+        className="dashboard-extension-card group relative h-full"
+      >
+        <SqlChart panel={panel} resolvedSql={resolvedSql} loadData />
+        {editable ? (
+          <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="p-1 rounded bg-background/80 text-muted-foreground hover:text-foreground"
+                      aria-label={t("sqlDashboard.panelOptions")}
+                    >
+                      <IconDotsVertical className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("sqlDashboard.panelOptions")}
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setConfirmOpen(true);
+                  }}
+                >
+                  <IconTrash className="h-4 w-4 mr-2" />
+                  {t("sidebar.delete")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <PanelDragHandle
+              panelId={panel.id}
+              label={t("sqlDashboard.dragToReorder")}
+              className="p-1 rounded bg-background/80 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+              iconClassName="h-3.5 w-3.5"
+            />
+          </div>
+        ) : null}
+        {editable ? (
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t("sqlDashboard.deletePanelTitle")}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("sqlDashboard.deletePanelDescription", {
                     title: panel.title,
                   })}
                 </AlertDialogDescription>

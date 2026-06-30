@@ -7,8 +7,7 @@ import { getDb, schema } from "../server/db/index.js";
 import type { ContentDatabaseResponse } from "../shared/api.js";
 import {
   findOpenSourceChangeSet,
-  getContentDatabaseSourceSnapshot,
-  getExistingSource,
+  getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
   sourceChangeSetKey,
 } from "./_database-source-utils.js";
@@ -20,24 +19,29 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
   }),
   run: async (args): Promise<ContentDatabaseResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const source = await getExistingSource(database.id);
+    const source = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
     if (!source || source.sourceType !== "builder-cms") {
       throw new Error("Attach a Builder CMS source before staging a revision.");
     }
 
-    const snapshot = await getContentDatabaseSourceSnapshot(database);
-    const pendingOutboundChanges =
-      snapshot?.changeSets.filter(
-        (changeSet) =>
-          changeSet.direction === "outbound" &&
-          changeSet.state === "pending_push",
-      ) ?? [];
+    const pendingOutboundChanges = source.changeSets.filter(
+      (changeSet) =>
+        changeSet.direction === "outbound" &&
+        changeSet.state === "pending_push",
+    );
 
     if (pendingOutboundChanges.length === 0) {
       throw new Error("No pending local Builder changes to stage.");

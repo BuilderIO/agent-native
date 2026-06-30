@@ -534,6 +534,9 @@ export interface ActionEntry {
    *  Defaults to true; false lets safe metadata/read actions run with
    *  `ctx.userEmail` undefined when auth resolution returns 401/403. */
   requiresAuth?: boolean;
+  /** Max HTTP request body in bytes; the route 413s on `Content-Length` before
+   *  parsing. For public, no-auth POST actions. */
+  maxBodyBytes?: number;
   /** Whether the action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool surface (in-app assistant,
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
@@ -888,6 +891,13 @@ export interface ProductionAgentOptions {
    *  timeout. When reached, the client receives an internal auto-continuation
    *  signal instead of a user-facing warning. */
   runSoftTimeoutMs?: number;
+  /**
+   * Opt this app into durable Netlify background-function agent-chat runs. This
+   * is a runtime opt-in layered on top of the hosted-runtime + A2A_SECRET gates;
+   * single-template Netlify deploys must also enable the deploy-time
+   * `AGENT_CHAT_DURABLE_BACKGROUND` flag so the background function is emitted.
+   */
+  durableBackgroundRuns?: boolean;
   /** Called when a run starts, with the send function for emitting events and the threadId */
   onRunStart?: (
     send: (event: AgentChatEvent) => void,
@@ -3991,7 +4001,10 @@ export function createProductionAgentHandler(
     // The foreground POST decides whether to dispatch into a background
     // function. The background worker itself never re-dispatches.
     const dispatchToBackground =
-      !isBackgroundWorker && isAgentChatDurableBackgroundEnabled();
+      !isBackgroundWorker &&
+      isAgentChatDurableBackgroundEnabled({
+        appOptIn: options.durableBackgroundRuns === true,
+      });
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();

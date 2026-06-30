@@ -16,6 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -207,7 +208,7 @@ export function DesignExtensionsPanel({
   const installExtension = async (extensionId: string) => {
     setInstallingId(extensionId);
     try {
-      await fetch(
+      const res = await fetch(
         agentNativePath(
           `/_agent-native/slots/${encodeURIComponent(slotId)}/install`,
         ),
@@ -217,20 +218,23 @@ export function DesignExtensionsPanel({
           body: JSON.stringify({ extensionId }),
         },
       );
-    } finally {
-      setInstallingId(null);
+      if (!res.ok) throw new Error(`Install failed: ${res.status}`);
       queryClient.invalidateQueries({
         queryKey: ["design-editor-extension-slot"],
       });
       queryClient.invalidateQueries({
         queryKey: ["design-editor-extension-slot-available"],
       });
+    } catch {
+      toast.error(t("designEditor.extensionsInstallError"));
+    } finally {
+      setInstallingId(null);
     }
   };
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      {/* Section header — 32 px tall, matches PanelSection / Figma inspector headers */}
+      {/* Section header — 32 px tall, matches PanelSection / design inspector headers */}
       <div className="flex min-h-8 shrink-0 items-center gap-1.5 border-b border-border/60 px-3">
         <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
           {t("designEditor.extensions")}

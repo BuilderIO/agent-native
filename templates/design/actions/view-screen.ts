@@ -26,9 +26,8 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const [navigation, designVariants, designSelection] = await Promise.all([
+    const [navigation, designSelection] = await Promise.all([
       readAppStateForCurrentTab("navigation"),
-      readAppState("design-variants"),
       readAppStateForCurrentTab("design-selection"),
     ]);
     const designId =
@@ -43,6 +42,14 @@ export default defineAction({
         : undefined) ?? (await readAppState("show-questions"));
     const generationSession = designId
       ? await readAppState(designGenerationSessionKey(designId))
+      : undefined;
+    const designVariants = designId
+      ? await readAppState("design-variants").then((value) => {
+          if (!value || typeof value !== "object") return undefined;
+          return (value as { designId?: unknown }).designId === designId
+            ? value
+            : undefined;
+        })
       : undefined;
 
     const screen: Record<string, unknown> = {};
@@ -95,10 +102,9 @@ export default defineAction({
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
-          activeScreen:
-            files.find((file) => file.id === activeFileId) ??
-            files.find((file) => file.filename === activeFilename) ??
-            null,
+          activeScreen: activeFileId
+            ? (files.find((file) => file.id === activeFileId) ?? null)
+            : (files.find((file) => file.filename === activeFilename) ?? null),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
       }
@@ -114,7 +120,21 @@ export default defineAction({
         'A variant picker is open. Wait for the user to choose a direction before generating further. In an inline MCP app their pick returns to you automatically; if it opened as a browser tab (a CLI or code editor), they paste an auto-copied summary or just tell you which one (e.g. "use variant A"). Once you know the choice, read the saved index.html with get-design-snapshot. Do not call generate-design while this picker is open.';
     }
     if (generationSession) {
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const startedAt =
+        typeof (generationSession as { startedAt?: unknown }).startedAt ===
+        "string"
+          ? new Date(
+              (generationSession as { startedAt: string }).startedAt,
+            ).getTime()
+          : 0;
+      const isStale =
+        startedAt > 0 && Date.now() - startedAt > GENERATION_SESSION_TTL_MS;
       screen.generationSession = generationSession;
+      if (isStale) {
+        screen.generationSessionNote =
+          "This generation session may be stale or abandoned (started more than 10 minutes ago). Verify saved screens via the design file list rather than assuming generation is still in progress.";
+      }
     }
 
     if (Object.keys(screen).length === 0) {

@@ -398,8 +398,8 @@ iframe-backed screens on the infinite canvas.
 - Each screen is a URL-backed iframe, not copied HTML.
 - Each screen keeps URL metadata: \`connectionId\`, \`routeId\`, \`path\`,
   \`url\`, \`bridgeUrl\`, title, and viewport size.
-- Start in Design's screen overview mode. In overview, screens are static like
-  Figma frames; full-screen focus is for scrolling and app interaction.
+- Start in Design's screen overview mode. In overview, screens are static
+  design frames; full-screen focus is for scrolling and app interaction.
 - Alt-drag duplicates a screen. For localhost screens, duplication copies the
   iframe frame and URL metadata; change the copy's path/query for a new state.
 - Flow visualization is multiple URL states: \`/checkout?step=shipping\`,
@@ -465,6 +465,21 @@ route from the latest localhost manifest.
 \`\`\`bash
 pnpm action navigate --view editor --designId "<design-id>" --editorView overview
 \`\`\`
+
+## Open The Design Surface
+
+- Use the \`link\`, \`deepLink\`, or MCP App embed returned by Design actions so
+  the user sees the canvas. In Codex Desktop or VS Code, prefer opening that
+  Design URL in the available preview/webview panel; otherwise surface the
+  "Open design" link.
+- If the user is working in VS Code, the Agent Native extension can open the
+  same URL via
+  \`vscode://builder.agent-native/open?url=<encoded-design-url>\`. Its
+  \`Agent Native: Open Design Canvas\` command also starts the local bridge and
+  opens hosted Design in the VS Code side panel.
+- After \`add-localhost-screens\`, confirm the Design editor is in overview mode
+  with the requested URL-backed frames visible. Do not stop at "screens added"
+  when the user asked to inspect or edit visually.
 
 ## Editing URLs
 
@@ -930,7 +945,7 @@ and move any frame whose label, connector, or annotation crosses another frame.
 When in doubt, use larger values — the canvas auto-zooms to fit everything.
 
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
-present, sprinkle Figma-style notes near the frames they explain: a short
+present, sprinkle design-review notes near the frames they explain: a short
 heading, supporting text, and bullets — plain text layers, never bordered or
 shadowed cards, and never a box around a frame. The renderer spaces notes away
 from frames, so place each note by the frame it describes. Use an arrow only to
@@ -1405,8 +1420,10 @@ The local-files contract:
   \`id\` and \`label\`; and \`Code\` / \`AnnotatedCode\` / \`Diff\` are whitespace-sensitive
   — encode multiline code as JSON string attributes such as \`code={"const x =\\n  y"}\`
   (a static template literal is accepted only when it has no \`\${...}\`
-  interpolation). \`plan local check\` validates these required fields against the
-  renderer schema.
+  interpolation). \`plan local check\` is a quick OFFLINE lint (a subset of the
+  renderer schema), so a green \`check\` does not guarantee the plan renders;
+  \`plan local verify\` is the authoritative validation against the real renderer
+  schema.
 - **Write a local MDX folder.** Use \`plans/<slug>/\` to check the artifact into the
   repo, or a repo-ignored/temporary folder such as \`.agent-native/plans/<slug>/\`
   or \`/tmp/agent-native-plans/<slug>/\` when it should not be checked in. The
@@ -1431,9 +1448,16 @@ The local-files contract:
   running local Plan app.
 - **Headless verify.** Run
   \`npx @agent-native/core@latest plan local verify --dir <plan-dir> --kind <plan|recap>\`.
-  It starts the bridge, checks the private-network preflight and JSON payload,
-  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch the
-  \`bridgeUrl\` from the verify/serve JSON to read the concrete validation error.
+  It starts the bridge, checks the private-network preflight and JSON payload, AND
+  validates the content against the real renderer schema via the Plan app's
+  \`validate-local-plan-source\` action. A non-\`ok\` result with
+  \`validation.valid: false\` lists the renderer's exact schema-path issues (e.g.
+  \`blocks[1].data.tabs[0]...\`); fix those before handing off. If \`validation.ran\`
+  is \`false\`, the Plan app did not expose the validate endpoint (older/unreachable
+  deploy) — point \`--app-url\` at a current Plan app (e.g. a local
+  \`http://localhost:8096\`) for the authoritative check. If the browser hangs on
+  "Loading plan", fetch the \`bridgeUrl\` from the verify/serve JSON to read the
+  concrete validation error.
 - **Never call hosted tools for that plan/recap.** Do not call
   \`create-visual-plan\`, \`create-ui-plan\`, \`create-prototype-plan\`,
   \`create-plan-design\`, \`create-visual-recap\`, \`create-visual-questions\`,

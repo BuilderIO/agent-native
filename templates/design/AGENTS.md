@@ -101,6 +101,11 @@ patterns live in `.agents/skills/`.
   progress. External MCP hosts should use `present-design-variants` so the same
   picker opens inline instead of writing `application_state` directly.
 - Use framework sharing actions for design and design-system visibility/grants.
+- `/visual-edit` is a public entry route and public `/design/:id` links may
+  render read-only public designs without a session. Do not open anonymous write
+  actions: save, share, generation, localhost connection, and screen persistence
+  should send signed-out visitors through `/_agent-native/sign-in?return=...`,
+  then save or copy the design into the authenticated account before sharing.
 - When the user asks to download/export, use export actions or point to the
   editor download menu.
 - Design source modes are `inline`, `localhost`, and `fusion`. Inline is the
@@ -122,8 +127,10 @@ patterns live in `.agents/skills/`.
 - `navigate` moves the UI and is auto-deleted after the client consumes it.
 - `design-selection` includes active screen, selected element, overview mode,
   inspector tab, zoom, and screen list for the current tab.
-- `design-generation-session:<designId>` contains visible multi-screen
-  generation frames created by `generate-screens`.
+- `design-generation-session:<designId>` contains agent-facing multi-screen
+  generation planning state created by `generate-screens` (canvas region
+  assignments and per-frame instructions consumed by `generate-design` and
+  `view-screen`; not rendered as canvas overlays).
 - `show-design-questions` opens focused pre-generation questions in the main
   design canvas (`show-questions` application state).
 - `design-variants` contains in-progress candidates for the variant picker.

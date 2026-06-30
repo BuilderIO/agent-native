@@ -22,7 +22,12 @@ describe("source mode helpers", () => {
     expect(makeLocalhostRouteId("/settings/profile")).toBe(
       "route-settings-profile",
     );
-    expect(makeLocalhostRouteId("/design/:id")).toBe("route-design-id");
+    expect(makeLocalhostRouteId("/design/:id")).toBe("route-design-pid");
+    // Param routes and literal-hyphen routes must NOT collide:
+    expect(makeLocalhostRouteId("/design-id")).toBe("route-design-id");
+    // Wildcard catch-alls stay distinct from their base path:
+    expect(makeLocalhostRouteId("/users")).toBe("route-users");
+    expect(makeLocalhostRouteId("/users/*")).toBe("route-users-w");
     expect(makeLocalhostRouteId("/*")).toBe("route-wildcard");
     expect(titleFromRoutePath("/design/:id")).toBe("Design Id");
     expect(titleFromRoutePath("/*")).toBe("Wildcard");

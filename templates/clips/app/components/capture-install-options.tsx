@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { appPath, useT } from "@agent-native/core/client";
 import {
   IconBrandApple,
   IconBrandChrome,
@@ -8,7 +8,6 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { type ReactNode } from "react";
-import { Link } from "react-router";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
@@ -91,8 +90,8 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
         </div>
       )}
 
-      <Link
-        to={desktopHref}
+      <a
+        href={appPath(desktopHref)}
         className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
       >
         <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -104,7 +103,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
             {t("captureInstall.desktopDescription")}
           </span>
         </span>
-      </Link>
+      </a>
     </div>
   );
 }
@@ -120,7 +119,7 @@ export function CaptureInstallButton({
   if (!clipsChromeExtensionEnabled) {
     return (
       <Button asChild className={className} {...buttonProps}>
-        <Link to={desktopHref}>{children}</Link>
+        <a href={appPath(desktopHref)}>{children}</a>
       </Button>
     );
   }
@@ -149,9 +148,9 @@ export function CaptureInstallInlineLink({
 }: CaptureInstallInlineLinkProps) {
   if (!clipsChromeExtensionEnabled) {
     return (
-      <Link to={desktopHref} className={className}>
+      <a href={appPath(desktopHref)} className={className}>
         {children}
-      </Link>
+      </a>
     );
   }
 

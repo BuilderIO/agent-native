@@ -102,7 +102,7 @@ const designContextRecordSchema = z.record(z.string(), z.unknown()).refine(
 
 export default defineAction({
   description:
-    "Create a full-fidelity branded design plan with a Design tab (Figma-style canvas) and optional Prototype tab. For a document-first plan use create-visual-plan; for a wireframe-canvas plan use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a functional prototype use create-prototype-plan. Use design.md, .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with data-design-id targets. Publish via this tool; never deliver the plan as inline chat text.",
+    "Create a full-fidelity branded design plan with a Design tab (editable design canvas) and optional Prototype tab. For a document-first plan use create-visual-plan; for a wireframe-canvas plan use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a functional prototype use create-prototype-plan. Use design.md, .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with data-design-id targets. Publish via this tool; never deliver the plan as inline chat text.",
   schema: z
     .object({
       title: z.string().optional().describe("Short design plan title"),

@@ -287,13 +287,13 @@ export function ShaderFillsPanel({
     );
   }
 
-  // ── Browse view: Figma-style title + search + Created by you + By Figma ───
+  // ── Browse view: design-editor title + search + Created by you + Library presets ───
   return (
     <div className="flex flex-col">
       {/* Header: "Shader fills" title + + button + × button */}
       <div className="flex h-6 items-center gap-1 px-3">
         <span className="flex-1 truncate text-[11px] font-semibold text-foreground">
-          {"Shader fills" /* i18n-ignore Figma panel title */}
+          {"Shader fills" /* i18n-ignore design panel title */}
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -351,7 +351,7 @@ export function ShaderFillsPanel({
         {!search && (
           <section className="mb-3">
             <p className="mb-1.5 text-[10px] font-semibold text-muted-foreground">
-              {"Created by you" /* i18n-ignore Figma section */}
+              {"Created by you" /* i18n-ignore design section */}
             </p>
             {/* 2-col grid — "Create new" tile occupies the first cell */}
             <div className="grid grid-cols-2 gap-2">
@@ -372,18 +372,18 @@ export function ShaderFillsPanel({
                 </span>
                 <IconPlus className="size-4" />
                 <span className="text-[10px]">
-                  {"Create new" /* i18n-ignore Figma create tile */}
+                  {"Create new" /* i18n-ignore design create tile */}
                 </span>
               </button>
             </div>
           </section>
         )}
 
-        {/* ── By Figma — 2-col preset thumbnail grid ── */}
+        {/* ── Library presets — 2-col preset thumbnail grid ── */}
         <section>
           {!search && (
             <p className="mb-1.5 text-[10px] font-semibold text-muted-foreground">
-              {"By Figma" /* i18n-ignore Figma section */}
+              {"Library presets" /* i18n-ignore design section */}
             </p>
           )}
           {filtered.length === 0 ? (

@@ -480,7 +480,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         mixBlendMode: cs.mixBlendMode,
         zIndex: cs.zIndex,
       },
-      boundingRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      boundingRect: { x: rect.x + (window.scrollX || window.pageXOffset || 0), y: rect.y + (window.scrollY || window.pageYOffset || 0), width: rect.width, height: rect.height },
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4000) : undefined,
       isFlexContainer: cs.display === 'flex' || cs.display === 'inline-flex',
@@ -789,13 +789,34 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       overlay.style.display = 'none';
       return;
     }
+    // For the selection overlay, prefer the CSS box + rotation transform so
+    // the handles hug the rotated element rather than its inflated AABB.
+    if (overlay === selectionOverlay) {
+      var elCs = window.getComputedStyle(el);
+      var elLeft = readPx(el.style.left || elCs.left);
+      var elTop = readPx(el.style.top || elCs.top);
+      var elW = readPx(el.style.width || elCs.width);
+      var elH = readPx(el.style.height || elCs.height);
+      var elRot = currentRotation(el);
+      // Convert element-local left/top to viewport coords by walking to the
+      // nearest positioned ancestor (same reference frame as getBoundingClientRect).
+      var parentRect = (el.offsetParent || document.documentElement).getBoundingClientRect();
+      overlay.style.display = 'block';
+      overlay.style.left = (parentRect.left + elLeft) + 'px';
+      overlay.style.top = (parentRect.top + elTop) + 'px';
+      overlay.style.width = elW + 'px';
+      overlay.style.height = elH + 'px';
+      overlay.style.transform = elRot ? 'rotate(' + elRot + 'deg)' : '';
+      overlay.style.transformOrigin = '0 0';
+      updatePaddingOverlay(el);
+      return;
+    }
     var rect = el.getBoundingClientRect();
     overlay.style.display = 'block';
     overlay.style.top = rect.top + 'px';
     overlay.style.left = rect.left + 'px';
     overlay.style.width = rect.width + 'px';
     overlay.style.height = rect.height + 'px';
-    if (overlay === selectionOverlay) updatePaddingOverlay(el);
   }
 
   function refreshOverlays() {
@@ -902,7 +923,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var key = e.key;
     var normalized = key && key.length === 1 ? key.toLowerCase() : key;
     var primary = e.metaKey || e.ctrlKey;
-    if (key === 'Escape' || key === 'Enter' || key === 'Tab') return true;
+    if (key === 'Escape' || key === 'Enter') return true;
+    // Forward Tab only when an element is actively selected so the iframe does
+    // not intercept Tab when the user is tabbing through browser UI with nothing
+    // selected (preserves native keyboard accessibility).
+    if (key === 'Tab') return !!selectedEl;
     if (key === 'Delete' || key === 'Backspace') return !primary;
     if (/^Arrow/.test(key || '')) return !e.altKey;
     if (primary) {
@@ -955,7 +980,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 
   function isInlineEditableDescendant(el) {
     if (!el || !el.tagName) return false;
+    // Allowlist covers inline markup AND common block-level text containers
+    // (p, h1-h6, li, etc.) so that paragraphs with inline markup like
+    // <p>Hello <strong>world</strong></p> can be double-click edited.
     return [
+      // Inline formatting
       'a',
       'abbr',
       'b',
@@ -972,7 +1001,25 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       'sup',
       'time',
       'u',
-      'wbr'
+      'wbr',
+      // Block-level text containers
+      'p',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'li',
+      'ul',
+      'ol',
+      'dl',
+      'dt',
+      'dd',
+      'label',
+      'caption',
+      'td',
+      'th'
     ].indexOf(el.tagName.toLowerCase()) !== -1;
   }
 
@@ -999,14 +1046,27 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       if (selectedEl && node === selectedEl) break;
       node = node.parentElement;
     }
-    return candidate || hit;
+    // Return null (not the raw hit) when no text-editable ancestor is found.
+    // Falling back to the raw hit element makes non-text nodes like <img> or
+    // <canvas> contenteditable, which leaves the editor in a broken state.
+    return candidate || null;
   }
 
   function selectElementAtEvent(e) {
     stopNativeInteraction(e);
     blurActiveTextEditor();
+    // Suppress the first click in a double-click sequence — the dblclick
+    // handler (beginTextEditingFromEvent) will fire immediately after and a
+    // spurious element-select would cause inspector flicker.
+    if (e.detail >= 2) return;
     var target = elementFromEditorPoint(e.clientX, e.clientY);
-    if (!target) return;
+    if (!target || target === document.body || target === document.documentElement) {
+      // Click on empty canvas: clear the current selection (matches Figma).
+      selectedEl = null;
+      selectionOverlay.style.display = 'none';
+      window.parent.postMessage({ type: 'clear-selection' }, '*');
+      return;
+    }
     selectedEl = target;
     var info = getElementInfo(selectedEl);
     positionOverlay(selectionOverlay, selectedEl);
@@ -1225,7 +1285,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   function parentFlowAxis(parent) {
     var cs = window.getComputedStyle(parent);
     if (cs.display === 'flex' || cs.display === 'inline-flex') {
-      return cs.flexDirection && cs.flexDirection.indexOf('row') === 0 ? 'x' : 'y';
+      var isRow = cs.flexDirection && cs.flexDirection.indexOf('row') === 0;
+      // Wrapping row containers need Y-axis awareness for inter-row targeting;
+      // fall back to column-axis insertion so the heuristic picks the right row.
+      var wraps = cs.flexWrap === 'wrap' || cs.flexWrap === 'wrap-reverse';
+      if (isRow && !wraps) return 'x';
+      return 'y';
     }
     if (cs.display === 'grid' || cs.display === 'inline-grid') {
       var cols = (cs.gridTemplateColumns || '').split(' ').filter(Boolean).length;
@@ -1243,6 +1308,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       hit !== document.documentElement &&
       hit !== el &&
       !el.contains(hit) &&
+      !hit.contains(el) &&
       !isOverlayElement(hit)
     ) {
       var hitChildren = draggableElementChildren(hit).filter(function(child) {
@@ -1336,10 +1402,10 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     }
   }
 
-	  function postVisualStructureChange(el, target) {
+	  function postVisualStructureChange(el, target, origin) {
 	    if (!el || !target || !target.anchor) return;
 	    var requestId = 'move-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-	    pendingStructureMove = { requestId: requestId, el: el, target: target };
+	    pendingStructureMove = { requestId: requestId, el: el, target: target, origin: origin || null };
 	    window.parent.postMessage({
 	      type: 'visual-structure-change',
 	      requestId: requestId,
@@ -1383,10 +1449,13 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
     }
     if (isFlowReorderCandidate(selectedEl)) {
-      var currentTarget = reorderTargetForPoint(selectedEl, e.clientX, e.clientY);
+      // Snapshot the element being reordered so a concurrent select-element or
+      // clear-selection postMessage cannot mutate the wrong element mid-drag.
+      var reorderEl = selectedEl;
+      var currentTarget = reorderTargetForPoint(reorderEl, e.clientX, e.clientY);
       showInsertionGuideFor(currentTarget);
       function onReorderMove(ev) {
-        currentTarget = reorderTargetForPoint(selectedEl, ev.clientX, ev.clientY);
+        currentTarget = reorderTargetForPoint(reorderEl, ev.clientX, ev.clientY);
         showInsertionGuideFor(currentTarget);
         showTransformBadge(currentTarget ? 'Move layer' : 'Move', ev.clientX, ev.clientY);
       }
@@ -1395,12 +1464,31 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         document.removeEventListener('mouseup', onReorderUp, true);
 	        hideTransformBadge();
 	        hideInsertionGuide();
-	        if (!currentTarget) return;
-	        if (duplicatedForDrag) {
-	          applyRuntimeReorder(selectedEl, currentTarget);
-	          postVisualDuplicateChange(originalSelectedEl, selectedEl, currentTarget);
+	        if (!currentTarget) {
+	          // No valid drop target — clean up the clone if one was inserted so
+	          // no ghost element is left in the DOM.
+	          if (duplicatedForDrag && reorderEl && reorderEl !== originalSelectedEl) {
+	            if (reorderEl.parentElement) reorderEl.parentElement.removeChild(reorderEl);
+	            selectedEl = originalSelectedEl;
+	            positionOverlay(selectionOverlay, selectedEl);
+	            window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	          }
+	          return;
 	        }
-	        else postVisualStructureChange(selectedEl, currentTarget);
+	        if (duplicatedForDrag) {
+	          applyRuntimeReorder(reorderEl, currentTarget);
+	          postVisualDuplicateChange(originalSelectedEl, reorderEl, currentTarget);
+	        } else {
+	          // Capture the pre-drag DOM anchor so we can revert if the parent
+	          // reports applied===false on the structure-ack.
+	          var prevParent = reorderEl.parentElement;
+	          var prevNextSibling = reorderEl.nextSibling;
+	          // Optimistically apply the reorder in the DOM for immediate
+	          // visual feedback; the visual-structure-ack handler will confirm
+	          // or revert once the parent processes the change.
+	          applyRuntimeReorder(reorderEl, currentTarget);
+	          postVisualStructureChange(reorderEl, currentTarget, { prevParent: prevParent, prevNextSibling: prevNextSibling });
+	        }
 	      }
       document.addEventListener('mousemove', onReorderMove, true);
       document.addEventListener('mouseup', onReorderUp, true);
@@ -1412,11 +1500,20 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var originTop = readPx(selectedEl.style.top || cs.top);
     var startX = e.clientX;
     var startY = e.clientY;
+    // Snapshot the element being moved so that a concurrent select-element or
+    // clear-selection postMessage cannot swap selectedEl mid-drag and cause
+    // mutations on the wrong element or a null-deref in onUp.
+    var dragEl = selectedEl;
+    var moved = false;
+    var DRAG_THRESHOLD = 3;
     function onMove(ev) {
+      if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
+        moved = true;
+      }
       var nextLeft = originLeft + ev.clientX - startX;
       var nextTop = originTop + ev.clientY - startY;
-      selectedEl.style.left = Math.round(nextLeft) + 'px';
-      selectedEl.style.top = Math.round(nextTop) + 'px';
+      dragEl.style.left = Math.round(nextLeft) + 'px';
+      dragEl.style.top = Math.round(nextTop) + 'px';
       showTransformBadge('X ' + Math.round(nextLeft) + '  Y ' + Math.round(nextTop), ev.clientX, ev.clientY);
       refreshOverlays();
     }
@@ -1424,14 +1521,28 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       document.removeEventListener('mousemove', onMove, true);
       document.removeEventListener('mouseup', onUp, true);
       hideTransformBadge();
+      if (!dragEl) return;
+      if (duplicatedForDrag && !moved) {
+        // Alt-click with no real drag — remove the premature clone and restore the original selection.
+        if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+        selectedEl = originalSelectedEl;
+        positionOverlay(selectionOverlay, selectedEl);
+        window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+        return;
+      }
       if (duplicatedForDrag) {
-        postVisualDuplicateChange(originalSelectedEl, selectedEl);
+        postVisualDuplicateChange(originalSelectedEl, dragEl);
       } else {
-        postVisualStyleChange({
-          position: selectedEl.style.position,
-          left: selectedEl.style.left,
-          top: selectedEl.style.top,
-        });
+        window.parent.postMessage({
+          type: 'visual-style-change',
+          selector: getSelector(dragEl),
+          styles: {
+            position: dragEl.style.position,
+            left: dragEl.style.left,
+            top: dragEl.style.top,
+          },
+          payload: getElementInfo(dragEl),
+        }, '*');
       }
     }
     document.addEventListener('mousemove', onMove, true);
@@ -1445,18 +1556,36 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     e.stopPropagation();
     ensurePositionable(selectedEl);
     var cs = window.getComputedStyle(selectedEl);
+    // Bug fix: use CSS width/height (not getBoundingClientRect) for the resize
+    // origin dimensions so that rotated elements don't use the inflated
+    // axis-aligned bounding box as the starting size.
+    var originW = readPx(selectedEl.style.width || cs.width);
+    var originH = readPx(selectedEl.style.height || cs.height);
     var origin = {
       left: readPx(selectedEl.style.left || cs.left),
       top: readPx(selectedEl.style.top || cs.top),
-      width: selectedEl.getBoundingClientRect().width,
-      height: selectedEl.getBoundingClientRect().height,
-      ratio: selectedEl.getBoundingClientRect().width / Math.max(1, selectedEl.getBoundingClientRect().height),
+      width: originW,
+      height: originH,
+      ratio: originW / Math.max(1, originH),
     };
     var startX = e.clientX;
     var startY = e.clientY;
+    // Snapshot the element so a concurrent clear-selection postMessage cannot
+    // cause a null-deref in onMove/onUp.
+    var resizeEl = selectedEl;
+    // Capture the element rotation once at drag-start so per-move projection is
+    // cheap and consistent even if the transform changes during the drag.
+    var resizeTheta = currentRotation(resizeEl) * Math.PI / 180;
     function nextRect(ev) {
-      var dx = ev.clientX - startX;
-      var dy = ev.clientY - startY;
+      var screenDx = ev.clientX - startX;
+      var screenDy = ev.clientY - startY;
+      // Project the screen-space pointer delta into the element's local
+      // (un-rotated) coordinate frame so handles behave relative to the
+      // visible rotated box rather than screen axes.
+      var cosT = Math.cos(resizeTheta);
+      var sinT = Math.sin(resizeTheta);
+      var dx = screenDx * cosT + screenDy * sinT;
+      var dy = -screenDx * sinT + screenDy * cosT;
       var left = origin.left;
       var top = origin.top;
       var width = origin.width;
@@ -1471,12 +1600,31 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         height = origin.height - dy;
       }
       if (handle.indexOf('s') !== -1) height = origin.height + dy;
-      width = Math.max(8, width);
-      height = Math.max(8, height);
-      if ((ev.shiftKey || scaleToolEnabled) && handle.length === 2) {
+      // Apply Shift / scaleToolEnabled aspect-ratio lock BEFORE the min-size
+      // clamp so the ratio is computed from unclamped values (bug fix).
+      if (ev.shiftKey && handle.length === 2) {
         if (Math.abs(dx) > Math.abs(dy)) height = width / origin.ratio;
         else width = height * origin.ratio;
       }
+      if (scaleToolEnabled) {
+        // Scale tool: enforce aspect ratio on all 8 handles, not just corners.
+        if (handle === 'e' || handle === 'w') {
+          height = width / origin.ratio;
+        } else if (handle === 'n' || handle === 's') {
+          width = height * origin.ratio;
+        } else if (handle.length === 2) {
+          if (Math.abs(dx) > Math.abs(dy)) height = width / origin.ratio;
+          else width = height * origin.ratio;
+        }
+      }
+      // Clamp after ratio correction.
+      width = Math.max(8, width);
+      height = Math.max(8, height);
+      // Re-anchor the pinned edge for w/n handles after aspect-ratio lock and
+      // clamping so the opposite (e/s) edge stays fixed regardless of whether
+      // the dimension change was driven by raw dx/dy or by the ratio lock.
+      if (handle.indexOf('w') !== -1) left = origin.left + (origin.width - width);
+      if (handle.indexOf('n') !== -1) top = origin.top + (origin.height - height);
       if (ev.altKey) {
         if (handle.indexOf('w') !== -1 || handle.indexOf('e') !== -1) left = origin.left - (width - origin.width) / 2;
         if (handle.indexOf('n') !== -1 || handle.indexOf('s') !== -1) top = origin.top - (height - origin.height) / 2;
@@ -1484,11 +1632,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       return { left: left, top: top, width: width, height: height };
     }
     function onMove(ev) {
+      if (!resizeEl) return;
       var rect = nextRect(ev);
-      selectedEl.style.left = Math.round(rect.left) + 'px';
-      selectedEl.style.top = Math.round(rect.top) + 'px';
-      selectedEl.style.width = Math.round(rect.width) + 'px';
-      selectedEl.style.height = Math.round(rect.height) + 'px';
+      resizeEl.style.left = Math.round(rect.left) + 'px';
+      resizeEl.style.top = Math.round(rect.top) + 'px';
+      resizeEl.style.width = Math.round(rect.width) + 'px';
+      resizeEl.style.height = Math.round(rect.height) + 'px';
       showTransformBadge(Math.round(rect.width) + ' x ' + Math.round(rect.height), ev.clientX, ev.clientY);
       refreshOverlays();
     }
@@ -1496,13 +1645,19 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       document.removeEventListener('mousemove', onMove, true);
       document.removeEventListener('mouseup', onUp, true);
       hideTransformBadge();
-      postVisualStyleChange({
-        position: selectedEl.style.position,
-        left: selectedEl.style.left,
-        top: selectedEl.style.top,
-        width: selectedEl.style.width,
-        height: selectedEl.style.height,
-      });
+      if (!resizeEl) return;
+      window.parent.postMessage({
+        type: 'visual-style-change',
+        selector: getSelector(resizeEl),
+        styles: {
+          position: resizeEl.style.position,
+          left: resizeEl.style.left,
+          top: resizeEl.style.top,
+          width: resizeEl.style.width,
+          height: resizeEl.style.height,
+        },
+        payload: getElementInfo(resizeEl),
+      }, '*');
     }
     document.addEventListener('mousemove', onMove, true);
     document.addEventListener('mouseup', onUp, true);
@@ -1513,16 +1668,22 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     if (isLayerInteractionBlocked(selectedEl)) return;
     e.preventDefault();
     e.stopPropagation();
+    // getBoundingClientRect is correct here — we only need the element center
+    // for angle math, and the element's visual position is what we want.
     var rect = selectedEl.getBoundingClientRect();
     var center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     var originAngle = Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180 / Math.PI;
     var originRotation = currentRotation(selectedEl);
+    // Snapshot so a concurrent clear-selection postMessage cannot cause a
+    // null-deref in onMove/onUp.
+    var rotateEl = selectedEl;
     function onMove(ev) {
+      if (!rotateEl) return;
       var pointerAngle = Math.atan2(ev.clientY - center.y, ev.clientX - center.x) * 180 / Math.PI;
       var next = originRotation + pointerAngle - originAngle;
       if (ev.shiftKey) next = Math.round(next / 15) * 15;
       next = Math.round(next);
-      selectedEl.style.transform = mergeRotation(selectedEl, next);
+      rotateEl.style.transform = mergeRotation(rotateEl, next);
       showTransformBadge(next + 'deg', ev.clientX, ev.clientY);
       refreshOverlays();
     }
@@ -1530,9 +1691,13 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       document.removeEventListener('mousemove', onMove, true);
       document.removeEventListener('mouseup', onUp, true);
       hideTransformBadge();
-      postVisualStyleChange({
-        transform: selectedEl.style.transform,
-      });
+      if (!rotateEl) return;
+      window.parent.postMessage({
+        type: 'visual-style-change',
+        selector: getSelector(rotateEl),
+        styles: { transform: rotateEl.style.transform },
+        payload: getElementInfo(rotateEl),
+      }, '*');
     }
     document.addEventListener('mousemove', onMove, true);
     document.addEventListener('mouseup', onUp, true);
@@ -1840,10 +2005,20 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	      var move = pendingStructureMove;
 	      pendingStructureMove = null;
 	      if (e.data.applied) {
-	        applyRuntimeReorder(move.el, move.target);
-	        selectedEl = move.el;
-	        positionOverlay(selectionOverlay, selectedEl);
-	        window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        if (move.el && move.el.isConnected) {
+	          applyRuntimeReorder(move.el, move.target);
+	          selectedEl = move.el;
+	          positionOverlay(selectionOverlay, selectedEl);
+	          window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        }
+	      } else {
+	        // Revert the optimistic reorder to its pre-drag position.
+	        if (move.el && move.el.isConnected && move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
+	          move.origin.prevParent.insertBefore(move.el, move.origin.prevNextSibling);
+	          selectedEl = move.el;
+	          positionOverlay(selectionOverlay, selectedEl);
+	          window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        }
 	      }
 	      return;
 	    }
@@ -2531,7 +2706,7 @@ export function DesignCanvas({
         sandbox={
           externalPreviewUrl
             ? "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"
-            : "allow-scripts allow-popups allow-popups-to-escape-sandbox"
+            : "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         }
         data-design-preview-iframe
         className="block h-full w-full border-0 bg-transparent"
@@ -2542,6 +2717,7 @@ export function DesignCanvas({
         visible={!!drawMode}
         canvasInteractive={!pinMode}
         queuedAnnotationCount={queuedAnnotationPins.length}
+        zoom={zoom}
         onClose={() => onExitDrawMode?.()}
         onSend={(annotations, instruction, canvasSize) => {
           const summary = annotations

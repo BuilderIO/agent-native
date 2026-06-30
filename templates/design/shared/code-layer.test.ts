@@ -51,6 +51,45 @@ describe("code-layer projection", () => {
     ]);
   });
 
+  it("keeps deep repeated tree paths distinct", () => {
+    const html = `
+      <main>
+        <div><div><div><div><div><button>First</button></div></div></div></div></div>
+        <div><div><div><div><div><button>Second</button></div></div></div></div></div>
+      </main>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const buttonPaths = projection.nodes
+      .filter((node) => node.tag === "button")
+      .map((node) => node.path);
+
+    expect(buttonPaths).toHaveLength(2);
+    expect(new Set(buttonPaths).size).toBe(2);
+    expect(buttonPaths[0]).not.toBe(buttonPaths[1]);
+  });
+
+  it("classifies inline flex and inline grid layout containers", () => {
+    const html = `
+      <main class="inline-flex" style="gap: 16px">
+        <section class="inline-grid">
+          <button>Buy now</button>
+        </section>
+      </main>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const main = projection.nodes.find((node) => node.tag === "main");
+    const section = projection.nodes.find((node) => node.tag === "section");
+    const button = projection.nodes.find((node) => node.tag === "button");
+
+    expect(main?.layout.display).toBe("inline-flex");
+    expect(section?.layout.display).toBe("inline-grid");
+    expect(section?.layout.parentDisplay).toBe("inline-flex");
+    expect(section?.layout.parentGap).toBe("16px");
+    expect(button?.layout.parentDisplay).toBe("inline-grid");
+  });
+
   it("uses explicit DOM layer-name attributes before readable fallbacks", () => {
     const html = `
       <main data-layer-name="Fallback main">
@@ -72,7 +111,7 @@ describe("code-layer projection", () => {
     expect(button?.layerNameSource).toBe("semantic");
   });
 
-  it("builds a Figma-like DOM layer tree from projection parentage", () => {
+  it("builds a design-editor DOM layer tree from projection parentage", () => {
     const html = `
       <main data-agent-native-layer-name="Page">
         <section data-layer-name="Hero">
@@ -448,6 +487,27 @@ describe("applyVisualEdit", () => {
     expect(patch.content).toBe(
       `<main><section data-layer-name="First"><button class="secondary">First</button></section><section data-layer-name="Second"><button class="secondary" style="color: #111">Second</button></section></main>`,
     );
+  });
+
+  it("applies edits through deep repeated tree paths", () => {
+    const html = `<main><div><div><div><div><div><button>First</button></div></div></div></div></div><div><div><div><div><div><button>Second</button></div></div></div></div></div></main>`;
+    const projection = buildCodeLayerProjection(html);
+    const secondButton = projection.nodes.find(
+      (node) => node.tag === "button" && node.textSnippet === "Second",
+    );
+
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: secondButton?.selector ?? "" },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      `<button style="color: #111">Second</button>`,
+    );
+    expect(patch.content).toContain(`<button>First</button>`);
   });
 
   it("rejects moving a node into itself or its descendant", () => {

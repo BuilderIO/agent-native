@@ -141,6 +141,22 @@ export type LocalPlanBridgeServer = {
   result: LocalPlanServeResult;
 };
 
+export type RendererValidationIssue = {
+  path: string;
+  message: string;
+};
+
+export type RendererValidation = {
+  /** Whether the renderer validate endpoint was reachable and answered. */
+  ran: boolean;
+  endpoint: string;
+  /** Renderer verdict — present only when `ran` is true. */
+  valid?: boolean;
+  issues?: RendererValidationIssue[];
+  /** Transport/endpoint error when `ran` is false (unreachable, 404, old deploy). */
+  error?: string;
+};
+
 export type LocalPlanVerifyResult = {
   ok: boolean;
   dir: string;
@@ -165,6 +181,7 @@ export type LocalPlanVerifyResult = {
     mdxFiles?: string[];
     error?: string;
   };
+  validation: RendererValidation;
   warnings: string[];
 };
 
@@ -1023,16 +1040,21 @@ function lintColumnsBlocks(
     const start = match.index;
     const openingEnd = findJsxOpeningTagEnd(scanSource, start);
     if (openingEnd < 0) continue;
-    const opening = scanSource.slice(start, openingEnd + 1);
-    if (/\bcolumns\s*=/.test(opening)) {
-      addValidationIssue(
-        issues,
-        file,
-        source,
-        start,
-        'Columns must use <Column> children, not a columns= prop. Use <Columns><Column label="Before">...</Column><Column label="After">...</Column></Columns>.',
-      );
-    }
+    const opening = source.slice(start, openingEnd + 1);
+    const columnsAttr = readJsxAttribute(opening, "columns");
+    if (!columnsAttr) continue;
+    const entries =
+      columnsAttr.kind === "expression"
+        ? extractTopLevelObjectLiterals(columnsAttr.value)
+        : null;
+    if (entries && entries.length > 0) continue;
+    addValidationIssue(
+      issues,
+      file,
+      source,
+      start,
+      'Columns must use <Column> children or a columns={[{ id, label, blocks }]} array, not a bare columns= prop. Use <Columns><Column label="Before">...</Column><Column label="After">...</Column></Columns>.',
+    );
   }
 }
 
@@ -1318,6 +1340,120 @@ function hasRequiredEnumLiteral(
   return allowed.includes(trimmed.slice(1, -1).trim());
 }
 
+// Shared per-item checks so the top-level `<Checklist items={[…]} />` tag and
+// blocks authored as JSON inside a container's `tabs={[…]}` / `columns={[…]}`
+// array enforce the SAME required fields. `listBase` is the absolute offset of
+// the items array in the original source so line numbers point near the item.
+function checkChecklistItemList(
+  items: Array<{ source: string; start: number }>,
+  listBase: number,
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  items.forEach((item, index) => {
+    const base = listBase + item.start;
+    if (!hasRequiredStaticId(item.source)) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        base,
+        `Checklist items[${index}].id is required by the Plan renderer schema; add a stable string id.`,
+      );
+    }
+    if (!hasRequiredStaticString(item.source, "label")) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        base,
+        `Checklist items[${index}].label is required by the Plan renderer schema; add a non-empty string label.`,
+      );
+    }
+  });
+}
+
+function checkQuestionObjectList(
+  questionObjects: Array<{ source: string; start: number }>,
+  listBase: number,
+  tag: string,
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  questionObjects.forEach((question, questionIndex) => {
+    const questionBase = listBase + question.start;
+    if (!hasRequiredStaticId(question.source)) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        questionBase,
+        `${tag} questions[${questionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
+      );
+    }
+    if (!hasRequiredStaticString(question.source, "title")) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        questionBase,
+        `${tag} questions[${questionIndex}].title is required by the Plan renderer schema; add a non-empty string title.`,
+      );
+    }
+    if (
+      !hasRequiredEnumLiteral(question.source, "mode", [
+        "single",
+        "multi",
+        "freeform",
+      ])
+    ) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        questionBase,
+        `${tag} questions[${questionIndex}].mode is required by the Plan renderer schema; use "single", "multi", or "freeform".`,
+      );
+    }
+    const options = readTopLevelObjectProperty(question.source, "options");
+    if (!options) return;
+    const optionObjects = extractTopLevelObjectLiterals(options.value);
+    if (!optionObjects) {
+      addValidationIssue(
+        issues,
+        file,
+        source,
+        questionBase + options.valueStart,
+        `${tag} questions[${questionIndex}].options must be an inline array of object literals.`,
+      );
+      return;
+    }
+    optionObjects.forEach((option, optionIndex) => {
+      const optionBase = questionBase + options.valueStart + option.start;
+      if (!hasRequiredStaticId(option.source)) {
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          optionBase,
+          `${tag} questions[${questionIndex}].options[${optionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
+        );
+      }
+      if (!hasRequiredStaticString(option.source, "label")) {
+        addValidationIssue(
+          issues,
+          file,
+          source,
+          optionBase,
+          `${tag} questions[${questionIndex}].options[${optionIndex}].label is required by the Plan renderer schema; add a non-empty string label.`,
+        );
+      }
+    });
+  });
+}
+
 function lintChecklistShape(
   file: string,
   source: string,
@@ -1354,27 +1490,7 @@ function lintChecklistShape(
       );
       continue;
     }
-    objects.forEach((item, index) => {
-      const base = start + items.start + item.start;
-      if (!hasRequiredStaticId(item.source)) {
-        addValidationIssue(
-          issues,
-          file,
-          source,
-          base,
-          `Checklist items[${index}].id is required by the Plan renderer schema; add a stable string id.`,
-        );
-      }
-      if (!hasRequiredStaticString(item.source, "label")) {
-        addValidationIssue(
-          issues,
-          file,
-          source,
-          base,
-          `Checklist items[${index}].label is required by the Plan renderer schema; add a non-empty string label.`,
-        );
-      }
-    });
+    checkChecklistItemList(objects, start + items.start, file, source, issues);
   }
 }
 
@@ -1424,81 +1540,171 @@ function lintQuestionFormShape(
       );
       continue;
     }
-    questionObjects.forEach((question, questionIndex) => {
-      const questionBase = start + questions.start + question.start;
-      if (!hasRequiredStaticId(question.source)) {
-        addValidationIssue(
-          issues,
+    checkQuestionObjectList(
+      questionObjects,
+      start + questions.start,
+      tag,
+      file,
+      source,
+      issues,
+    );
+  }
+}
+
+function staticStringLiteralValue(
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  if (quote !== '"' && quote !== "'" && quote !== "`") return undefined;
+  if (!trimmed.endsWith(quote) || trimmed.length < 2) return undefined;
+  if (quote === "`" && /\$\{/.test(trimmed)) return undefined;
+  return trimmed.slice(1, -1);
+}
+
+// Container blocks authored with a JSON attribute array (`<TabsBlock tabs={[…]}
+// />`) carry their children as nested block objects, not top-level JSX tags, so
+// the tag-based linters above never inspect them — the exact "false green" the
+// renderer catches because it validates the whole parsed block tree. Walk those
+// nested `blocks: [...]` arrays and enforce the same per-block required fields,
+// recursing through nested containers. This is still a subset of the renderer
+// schema (which is why `verify` is the authority), but it closes the common
+// nested checklist / question-form / missing-id case offline.
+const NESTED_CONTAINER_TAGS: ReadonlyArray<{ tag: string; attr: string }> = [
+  { tag: "TabsBlock", attr: "tabs" },
+  { tag: "Tabs", attr: "tabs" },
+  { tag: "Columns", attr: "columns" },
+];
+
+function lintNestedContainerEntry(
+  entrySource: string,
+  entryBase: number,
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const blocksProp = readTopLevelObjectProperty(entrySource, "blocks");
+  if (!blocksProp) return;
+  const blockObjects = extractTopLevelObjectLiterals(blocksProp.value);
+  if (!blockObjects) return;
+  const blocksBase = entryBase + blocksProp.valueStart;
+  for (const block of blockObjects) {
+    lintNestedBlock(
+      block.source,
+      blocksBase + block.start,
+      file,
+      source,
+      issues,
+    );
+  }
+}
+
+function lintNestedBlock(
+  blockSource: string,
+  blockBase: number,
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const typeProp = readTopLevelObjectProperty(blockSource, "type");
+  const type = staticStringLiteralValue(typeProp?.value);
+  if (!hasRequiredStaticId(blockSource)) {
+    addValidationIssue(
+      issues,
+      file,
+      source,
+      blockBase,
+      `Nested ${type ?? "block"} is missing a required string \`id\`; the Plan renderer schema validates every nested block.`,
+    );
+  }
+  const dataProp = readTopLevelObjectProperty(blockSource, "data");
+  if (!dataProp) return;
+  const dataBase = blockBase + dataProp.valueStart;
+
+  if (type === "checklist") {
+    const itemsProp = readTopLevelObjectProperty(dataProp.value, "items");
+    if (!itemsProp) return;
+    const items = extractTopLevelObjectLiterals(itemsProp.value);
+    if (items) {
+      checkChecklistItemList(
+        items,
+        dataBase + itemsProp.valueStart,
+        file,
+        source,
+        issues,
+      );
+    }
+    return;
+  }
+  // visual-questions shares question-form's schema; lint both.
+  if (type === "question-form" || type === "visual-questions") {
+    const questionsProp = readTopLevelObjectProperty(
+      dataProp.value,
+      "questions",
+    );
+    if (!questionsProp) return;
+    const questionObjects = extractTopLevelObjectLiterals(questionsProp.value);
+    if (questionObjects) {
+      checkQuestionObjectList(
+        questionObjects,
+        dataBase + questionsProp.valueStart,
+        type,
+        file,
+        source,
+        issues,
+      );
+    }
+    return;
+  }
+  if (type === "tabs" || type === "columns") {
+    const innerAttr = type === "tabs" ? "tabs" : "columns";
+    const innerProp = readTopLevelObjectProperty(dataProp.value, innerAttr);
+    if (!innerProp) return;
+    const innerEntries = extractTopLevelObjectLiterals(innerProp.value);
+    if (!innerEntries) return;
+    const innerBase = dataBase + innerProp.valueStart;
+    for (const entry of innerEntries) {
+      lintNestedContainerEntry(
+        entry.source,
+        innerBase + entry.start,
+        file,
+        source,
+        issues,
+      );
+    }
+  }
+}
+
+function lintNestedContainerBlocks(
+  file: string,
+  source: string,
+  issues: LocalPlanValidationIssue[],
+) {
+  const scanSource = maskCodeRegions(source);
+  for (const { tag, attr } of NESTED_CONTAINER_TAGS) {
+    const re = new RegExp(`<${tag}\\b`, "g");
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(scanSource))) {
+      const start = match.index;
+      const openingEnd = findJsxOpeningTagEnd(scanSource, start);
+      if (openingEnd < 0) continue;
+      const opening = source.slice(start, openingEnd + 1);
+      const attrValue = readJsxAttribute(opening, attr);
+      if (!attrValue || attrValue.kind !== "expression") continue;
+      const entries = extractTopLevelObjectLiterals(attrValue.value);
+      if (!entries) continue;
+      const entriesBase = start + attrValue.start;
+      for (const entry of entries) {
+        lintNestedContainerEntry(
+          entry.source,
+          entriesBase + entry.start,
           file,
           source,
-          questionBase,
-          `${tag} questions[${questionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
-        );
-      }
-      if (!hasRequiredStaticString(question.source, "title")) {
-        addValidationIssue(
           issues,
-          file,
-          source,
-          questionBase,
-          `${tag} questions[${questionIndex}].title is required by the Plan renderer schema; add a non-empty string title.`,
         );
       }
-      if (
-        !hasRequiredEnumLiteral(question.source, "mode", [
-          "single",
-          "multi",
-          "freeform",
-        ])
-      ) {
-        addValidationIssue(
-          issues,
-          file,
-          source,
-          questionBase,
-          `${tag} questions[${questionIndex}].mode is required by the Plan renderer schema; use "single", "multi", or "freeform".`,
-        );
-      }
-      const options = readTopLevelObjectProperty(question.source, "options");
-      if (!options) return;
-      const optionObjects = extractTopLevelObjectLiterals(options.value);
-      if (!optionObjects) {
-        addValidationIssue(
-          issues,
-          file,
-          source,
-          start + questions.start + question.start + options.valueStart,
-          `${tag} questions[${questionIndex}].options must be an inline array of object literals.`,
-        );
-        return;
-      }
-      optionObjects.forEach((option, optionIndex) => {
-        const optionBase =
-          start +
-          questions.start +
-          question.start +
-          options.valueStart +
-          option.start;
-        if (!hasRequiredStaticId(option.source)) {
-          addValidationIssue(
-            issues,
-            file,
-            source,
-            optionBase,
-            `${tag} questions[${questionIndex}].options[${optionIndex}].id is required by the Plan renderer schema; add a stable string id.`,
-          );
-        }
-        if (!hasRequiredStaticString(option.source, "label")) {
-          addValidationIssue(
-            issues,
-            file,
-            source,
-            optionBase,
-            `${tag} questions[${questionIndex}].options[${optionIndex}].label is required by the Plan renderer schema; add a non-empty string label.`,
-          );
-        }
-      });
-    });
+    }
   }
 }
 
@@ -1523,6 +1729,7 @@ export function validateLocalPlanFiles(
     lintColumnsBlocks(entry.file, source, issues);
     lintChecklistShape(entry.file, entry.source, issues);
     lintQuestionFormShape(entry.file, entry.source, issues);
+    lintNestedContainerBlocks(entry.file, entry.source, issues);
   }
   return issues;
 }
@@ -1703,10 +1910,13 @@ function buildLocalPlanBridgePayload(input: {
   kind?: LocalPlanKind;
   title?: string;
   brief?: string;
+  // `verify` brings the bridge up only to exercise transport + the authoritative
+  // renderer check, so it must not be short-circuited by the weaker offline lint.
+  skipSourceValidation?: boolean;
 }): LocalPlanBridgePayload {
   const dir = path.resolve(input.dir);
   const files = readLocalPlanFiles(dir);
-  assertLocalPlanFilesValid(files);
+  if (!input.skipSourceValidation) assertLocalPlanFilesValid(files);
   const parsed = stripFrontmatter(files.planMdx);
   const kind = input.kind || normalizeKind(parsed.frontmatter.kind);
   const title =
@@ -1792,6 +2002,7 @@ export async function startLocalPlanBridge(input: {
   open?: boolean;
   urlFile?: string | false;
   openUrl?: (url: string) => OpenLocalUrlResult;
+  skipSourceValidation?: boolean;
 }): Promise<LocalPlanBridgeServer> {
   const dir = path.resolve(input.dir);
   const initialPayload = buildLocalPlanBridgePayload({
@@ -1799,6 +2010,7 @@ export async function startLocalPlanBridge(input: {
     kind: input.kind,
     title: input.title,
     brief: input.brief,
+    skipSourceValidation: input.skipSourceValidation,
   });
   const token = input.token || crypto.randomBytes(24).toString("base64url");
   const host = input.host || "127.0.0.1";
@@ -1832,6 +2044,7 @@ export async function startLocalPlanBridge(input: {
           kind: input.kind,
           title: input.title,
           brief: input.brief,
+          skipSourceValidation: input.skipSourceValidation,
         }),
       );
     } catch (error) {
@@ -1918,6 +2131,107 @@ function localPlanBridgeWarnings(input: {
   return warnings;
 }
 
+const VALIDATE_LOCAL_PLAN_ACTION = "validate-local-plan-source";
+
+/**
+ * Ask the Plan app to validate the folder against its real renderer schema
+ * (`parsePlanMdxFolder` + `planContentSchema`) via the public, no-DB
+ * `validate-local-plan-source` action. This is what makes `verify`
+ * authoritative: the hand-rolled `check` lint can disagree with the renderer,
+ * but this runs the renderer's own parser. Degrades gracefully (`ran: false`)
+ * when the endpoint is unreachable or a Plan app predates the action, so an
+ * old deploy never turns into a hard failure.
+ */
+export async function fetchRendererValidation(input: {
+  appUrl: string;
+  files: LocalPlanFiles;
+  fetchFn?: typeof fetch;
+}): Promise<RendererValidation> {
+  const fetchFn = input.fetchFn ?? fetch;
+  const endpoint = planActionEndpoint(input.appUrl, VALIDATE_LOCAL_PLAN_ACTION);
+  try {
+    const response = await fetchActionWithTimeout(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ mdx: localPlanMdxFolder(input.files) }),
+      },
+      fetchFn,
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      return {
+        ran: false,
+        endpoint,
+        error: `${VALIDATE_LOCAL_PLAN_ACTION} failed ${response.status} ${
+          response.statusText
+        }: ${sanitizeHttpDetail(detail, 300)}`,
+      };
+    }
+    const json = (await response.json().catch(() => null)) as
+      | (Record<string, unknown> & { result?: Record<string, unknown> })
+      | null;
+    const body =
+      json && isRecord(json.result) ? json.result : (json ?? undefined);
+    if (!body || typeof body.valid !== "boolean") {
+      return {
+        ran: false,
+        endpoint,
+        error: `${VALIDATE_LOCAL_PLAN_ACTION} returned an unexpected payload.`,
+      };
+    }
+    const issues = Array.isArray(body.issues)
+      ? body.issues.filter(isRecord).map((issue) => ({
+          path: typeof issue.path === "string" ? issue.path : "",
+          message:
+            typeof issue.message === "string" ? issue.message : "Invalid value",
+        }))
+      : [];
+    return { ran: true, endpoint, valid: body.valid, issues };
+  } catch (err) {
+    return {
+      ran: false,
+      endpoint,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function rendererValidationWarnings(
+  validation: RendererValidation,
+  offlineIssues: LocalPlanValidationIssue[],
+): string[] {
+  if (!validation.ran) {
+    const base = `Plan content was NOT validated against the renderer schema (${
+      validation.error ?? "validate endpoint unavailable"
+    }). Fell back to the offline lint. Run against a Plan app that exposes ${VALIDATE_LOCAL_PLAN_ACTION} (e.g. --app-url http://localhost:8096) for authoritative validation.`;
+    if (offlineIssues.length === 0) return [base];
+    const preview = offlineIssues
+      .slice(0, 8)
+      .map((issue) => `${issue.file}:${issue.line} ${issue.message}`)
+      .join("; ");
+    const overflow =
+      offlineIssues.length > 8 ? ` (+${offlineIssues.length - 8} more)` : "";
+    return [base, `Offline lint rejected this plan: ${preview}${overflow}`];
+  }
+  if (validation.valid) return [];
+  const issues = validation.issues ?? [];
+  const preview = issues
+    .slice(0, 8)
+    .map((issue) =>
+      issue.path ? `${issue.path}: ${issue.message}` : issue.message,
+    )
+    .join("; ");
+  const overflow = issues.length > 8 ? ` (+${issues.length - 8} more)` : "";
+  return [
+    `Renderer schema rejected this plan — it will not render. ${preview}${overflow}`,
+  ];
+}
+
 export async function verifyLocalPlanBridge(input: {
   dir: string;
   kind?: LocalPlanKind;
@@ -1931,6 +2245,7 @@ export async function verifyLocalPlanBridge(input: {
   fetchFn?: typeof fetch;
 }): Promise<LocalPlanVerifyResult> {
   const fetchFn = input.fetchFn ?? fetch;
+  const files = readLocalPlanFiles(input.dir);
   const bridge = await startLocalPlanBridge({
     dir: input.dir,
     kind: input.kind,
@@ -1941,6 +2256,9 @@ export async function verifyLocalPlanBridge(input: {
     port: input.port,
     token: input.token,
     urlFile: input.urlFile,
+    // Don't let the weaker offline lint abort the bridge before the authoritative
+    // renderer check runs — verify reports the renderer's verdict, not the lint's.
+    skipSourceValidation: true,
   });
 
   try {
@@ -1972,8 +2290,21 @@ export async function verifyLocalPlanBridge(input: {
       preflight.status === 204 &&
       preflight.headers.get("access-control-allow-origin") === "*" &&
       preflight.headers.get("access-control-allow-private-network") === "true";
+    const validation = await fetchRendererValidation({
+      appUrl: bridge.result.appUrl,
+      files,
+      fetchFn,
+    });
+    // The renderer's verdict is authoritative and gates `ok`. When it could not
+    // run (old/unreachable Plan app), fall back to the offline lint as the
+    // content signal so verify still catches the common cases offline instead
+    // of silently passing unvalidated content.
+    const offlineIssues = validation.ran ? [] : validateLocalPlanFiles(files);
+    const contentOk = validation.ran
+      ? validation.valid === true
+      : offlineIssues.length === 0;
     return {
-      ok: bridgeOk && preflightOk,
+      ok: bridgeOk && preflightOk && contentOk,
       dir: bridge.result.dir,
       url: bridge.result.url,
       ...(bridge.result.urlFile ? { urlFile: bridge.result.urlFile } : {}),
@@ -2000,10 +2331,14 @@ export async function verifyLocalPlanBridge(input: {
         ...(mdxFiles ? { mdxFiles } : {}),
         ...(payload?.error ? { error: payload.error } : {}),
       },
-      warnings: localPlanBridgeWarnings({
-        appUrl: bridge.result.appUrl,
-        bridgeUrl: bridge.result.bridgeUrl,
-      }),
+      validation,
+      warnings: [
+        ...localPlanBridgeWarnings({
+          appUrl: bridge.result.appUrl,
+          bridgeUrl: bridge.result.bridgeUrl,
+        }),
+        ...rendererValidationWarnings(validation, offlineIssues),
+      ],
     };
   } finally {
     await new Promise<void>((resolve) => bridge.server.close(() => resolve()));
@@ -2090,7 +2425,9 @@ function runCheck(args: Record<string, string | boolean>): void {
   const result = {
     ok: true,
     noDb: true,
-    validation: "passed",
+    validation: "lint-passed",
+    validationScope: "offline-lint",
+    note: "Quick offline lint only — NOT the full Plan renderer schema. A green here does not guarantee the plan renders. Run `plan local verify` against a Plan app for authoritative validation before handing off.",
     dir: files.dir,
     title: parsed.frontmatter.title || firstHeading(parsed.body),
     kind: normalizeKind(parsed.frontmatter.kind),

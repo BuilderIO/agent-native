@@ -1,5 +1,63 @@
 # @agent-native/skills
 
+## 0.2.164
+
+### Patch Changes
+
+- Updated dependencies [24deb20]
+  - @agent-native/core@0.80.8
+
+## 0.2.163
+
+### Patch Changes
+
+- Updated dependencies [72ef787]
+  - @agent-native/core@0.80.7
+
+## 0.2.162
+
+### Patch Changes
+
+- Updated dependencies [f52eeb1]
+- Updated dependencies [f52eeb1]
+  - @agent-native/core@0.80.6
+
+## 0.2.161
+
+### Patch Changes
+
+- 8a43376: Make MCP install/connect idempotent for Codex `config.toml`. The writer now
+  recognizes a server's sub-tables (`[mcp_servers.<name>.http_headers]`,
+  `[mcp_servers.<name>.env]`, …) as part of its footprint, so re-installing or
+  reconnecting a server clears stale sub-tables instead of leaving one behind as a
+  duplicate TOML key. Same-URL alias cleanup removes the whole footprint too, and
+  the AGENTS.md / CLAUDE.md managed-instruction writers collapse any pre-existing
+  duplicate blocks into a single block.
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+  - @agent-native/core@0.80.5
+
+## 0.2.160
+
+### Patch Changes
+
+- Updated dependencies [fa56720]
+  - @agent-native/core@0.80.4
+
+## 0.2.159
+
+### Patch Changes
+
+- Updated dependencies [995dd3b]
+- Updated dependencies [995dd3b]
+  - @agent-native/core@0.80.3
+
 ## 0.2.158
 
 ### Patch Changes

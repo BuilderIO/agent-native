@@ -284,6 +284,18 @@ describe("nfm converter — structural parsing", () => {
     expect(docToNfm(doc)).toBe(source);
   });
 
+  it("models content references as source-preserving atoms", () => {
+    const source =
+      '<ContentReference sourcePath="../symbols/docs-tip.builder.mdx" title="Docs Tip" />';
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("contentReference");
+    expect(doc.content[0].attrs?.sourcePath).toBe(
+      "../symbols/docs-tip.builder.mdx",
+    );
+    expect(doc.content[0].attrs?.title).toBe("Docs Tip");
+    expect(docToNfm(doc)).toBe(source);
+  });
+
   it("marks local MDX components with JSX props as unsupported previews", () => {
     const source = "<Chart compact columns={3} items={[1, 2, 3]} />";
     const doc = nfmToDoc(source);

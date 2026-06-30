@@ -36,18 +36,18 @@ export {
   type ExportSettingsValue,
 } from "./ExportSettingsPanel";
 export {
-  FigmaColorPicker,
-  type FigmaColorMode,
-  type FigmaColorPickerLabels,
-  type FigmaColorPickerProps,
-  type FigmaFillRow,
-  type FigmaFillRowPatch,
-  type FigmaFillType,
-  type FigmaGradientStop,
-  type FigmaGradientStopPatch,
-  type FigmaGradientType,
-  type FigmaPaintType,
-} from "./FigmaColorPicker";
+  DesignColorPicker,
+  type DesignColorMode,
+  type DesignColorPickerLabels,
+  type DesignColorPickerProps,
+  type DesignFillRow,
+  type DesignFillRowPatch,
+  type DesignFillType,
+  type DesignGradientStop,
+  type DesignGradientStopPatch,
+  type DesignGradientType,
+  type DesignPaintType,
+} from "./DesignColorPicker";
 export {
   GradientEditor,
   defaultGradient,

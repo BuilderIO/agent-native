@@ -56,7 +56,7 @@ When the user asks for a dashboard:
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
 3. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
-5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section.
+5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; instead they require `config.extensionId` (see "Embedding An Extension As A Panel").
 6. Persist with `update-dashboard`, not raw SQL or settings writes.
 7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
@@ -84,6 +84,37 @@ dashboard-like app that needs behavior the built-in renderer cannot express. In
 production mode, call `create-extension` automatically and then tell the user
 that the request needed a bespoke surface, so you built it as an extension
 rather than forcing it into a native dashboard config.
+
+## Embedding An Extension As A Panel
+
+Use `chartType: "extension"` to embed an existing extension as a dashboard
+panel. This is different from the section above: there you replace the whole
+dashboard with an extension; here you drop a single extension widget into one
+panel slot alongside normal SQL charts. The panel renders the extension's
+sandboxed iframe instead of running a query, so it skips `source` and `sql` and
+instead requires `config.extensionId` (the id of an extension that already
+exists — create it first with `create-extension`). Validation rejects an
+extension panel without a non-empty `config.extensionId`.
+
+```jsonc
+{
+  "id": "pipeline-widget",
+  "title": "Pipeline Widget",
+  "chartType": "extension",
+  "width": 3,
+  "config": { "extensionId": "<existing-extension-id>" },
+}
+```
+
+Notes:
+
+- The panel renders full-bleed (no card chrome/title) and does not receive the
+  dashboard's filters/variables/date range — it's a standalone widget for now.
+- Access is scoped per viewer: embedding does NOT grant access to the extension
+  (same model as ExtensionSlots). If you share a dashboard more broadly than the
+  embedded extension, viewers without access to that extension see an
+  "extension unavailable" message instead of the content. Share the extension to
+  the same audience as the dashboard so all viewers can see it.
 
 ## Config Shape
 
@@ -207,7 +238,7 @@ type PanelPatch = {
   title?: string;
   sql?: string;
   source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus";
-  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout";
+  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout" | "extension";
   width?: number;
   columns?: number;
   tab?: string;
@@ -219,8 +250,9 @@ type PanelInput = PanelPatch & {
   id: string;
   title: string;
   chartType: NonNullable<PanelPatch["chartType"]>;
-  source?: PanelPatch["source"]; // required for non-section panels
-  sql?: string; // required for non-section panels
+  source?: PanelPatch["source"]; // required for non-section / non-extension panels
+  sql?: string; // required for non-section / non-extension panels
+  // For chartType "extension": config.extensionId is required (the extension to embed).
 };
 
 type PanelFilter = {
@@ -449,6 +481,12 @@ pnpm action set-resource-visibility --resourceType dashboard --resourceId weekly
 ```
 
 Writes require editor access; deletes require admin access. Owners always satisfy access checks.
+
+If a dashboard embeds an extension panel (`chartType: "extension"`), sharing the
+dashboard does not share the extension. Share the referenced extension to the
+same audience (`share-resource --resourceType extension ...`) so all dashboard
+viewers can see the embedded content; otherwise they get an "extension
+unavailable" placeholder.
 
 ## Important Rules
 

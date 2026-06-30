@@ -28,13 +28,15 @@ type DashboardPatch = {
   columns?: number;
   filters?: unknown[];
   variables?: Record<string, string>;
+  /** Id of another dashboard to nest this one under in the sidebar. */
+  parentId?: string;
 };
 
 type PanelPatch = {
   title?: string;
   sql?: string;
   source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus";
-  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout";
+  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout" | "extension";
   width?: number;
   columns?: number;
   tab?: string;
@@ -113,6 +115,7 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atTop();',
   'dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"sql":"SELECT date, COUNT(*) AS value FROM analytics_events GROUP BY date ORDER BY date"}).nextTo("retention-over-time");',
   'dashboard.insertPanel({"id":"row-chart","title":"Row Chart","source":"first-party","chartType":"bar","width":1,"sql":"SELECT name, COUNT(*) AS value FROM analytics_events GROUP BY name"}).atRow(2);',
+  'dashboard.insertPanel({"id":"pipeline-widget","title":"Pipeline Widget","chartType":"extension","width":3,"config":{"extensionId":"<existing-extension-id>"}}).atBottom();',
 ] as const;
 
 export type DashboardMutationOperation =

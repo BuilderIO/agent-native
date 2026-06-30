@@ -392,8 +392,124 @@ function codexMcpHeader(name: string): string {
   return `[mcp_servers.${tomlQuote(name)}]`;
 }
 
-function legacyCodexMcpHeader(name: string): string | null {
-  return /^[A-Za-z0-9_-]+$/.test(name) ? `[mcp_servers.${name}]` : null;
+/**
+ * Parse a TOML table-header line such as `[mcp_servers."plan".http_headers]`
+ * or `[mcp_servers.plan] # local note` into its decoded dotted-key components
+ * (`["mcp_servers", "plan", "http_headers"]`). Returns `null` when the line is
+ * not a single `[table]` header — blank lines, key/value pairs, comments,
+ * invalid trailing content, and `[[array-of-tables]]` headers all return `null`,
+ * so the result doubles as a reliable "is this line a table boundary?" check.
+ *
+ * Handles bare keys (`A-Za-z0-9_-`) and quoted keys (basic `"..."` with `\`
+ * escapes, and literal `'...'`), tolerating whitespace around the dot
+ * separators per the TOML spec. Quoted-key escape handling mirrors the inverse
+ * of `tomlQuote` (`\"` → `"`, `\\` → `\`).
+ */
+function parseTomlTableHeader(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (trimmed.length < 2 || trimmed[0] !== "[") return null;
+  // `[[array-of-tables]]` is a different construct — leave it untouched.
+  if (trimmed[1] === "[") return null;
+
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  let closeIndex = -1;
+  for (let i = 1; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (quote === '"') {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') quote = null;
+      continue;
+    }
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "]") {
+      closeIndex = i;
+      break;
+    }
+  }
+  if (closeIndex < 0) return null;
+  const trailing = trimmed.slice(closeIndex + 1).trim();
+  if (trailing && !trailing.startsWith("#")) return null;
+
+  const inner = trimmed.slice(1, closeIndex);
+  const keys: string[] = [];
+  const isWs = (c: string) => c === " " || c === "\t";
+  const isBare = (c: string) => /[A-Za-z0-9_-]/.test(c);
+  let i = 0;
+  let expectKey = true;
+  while (i < inner.length) {
+    while (i < inner.length && isWs(inner[i])) i++;
+    if (i >= inner.length) break;
+    const ch = inner[i];
+    if (ch === ".") {
+      if (expectKey) return null; // leading or doubled dot
+      expectKey = true;
+      i++;
+      continue;
+    }
+    if (!expectKey) return null; // two keys with no dot between them
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i++;
+      let key = "";
+      while (i < inner.length && inner[i] !== quote) {
+        if (quote === '"' && inner[i] === "\\" && i + 1 < inner.length) {
+          const next = inner[i + 1];
+          key += next === '"' ? '"' : next === "\\" ? "\\" : `\\${next}`;
+          i += 2;
+          continue;
+        }
+        key += inner[i];
+        i++;
+      }
+      if (i >= inner.length) return null; // unterminated quote
+      i++; // consume the closing quote
+      keys.push(key);
+      expectKey = false;
+    } else if (isBare(ch)) {
+      let key = "";
+      while (i < inner.length && isBare(inner[i])) {
+        key += inner[i];
+        i++;
+      }
+      keys.push(key);
+      expectKey = false;
+    } else {
+      return null; // unexpected character — not a table header
+    }
+  }
+  if (expectKey) return null; // empty header or trailing dot
+  return keys.length ? keys : null;
+}
+
+/**
+ * The MCP server name a TOML table header belongs to, or `undefined` when the
+ * header is not under `[mcp_servers.*]`. The server's own table
+ * (`[mcp_servers.<name>]`) AND every sub-table of it
+ * (`[mcp_servers.<name>.http_headers]`, `[mcp_servers.<name>.env]`, …) resolve
+ * to the same `<name>`, so callers can treat a server and all its sub-tables as
+ * one removable unit. This is what prevents a re-install from orphaning a stale
+ * `[mcp_servers.<name>.http_headers]` sub-table that would then collide with the
+ * freshly written inline `http_headers` (a TOML duplicate-key error).
+ */
+function codexServerNameOfHeader(line: string): string | undefined {
+  const keys = parseTomlTableHeader(line);
+  if (!keys || keys.length < 2 || keys[0] !== "mcp_servers") return undefined;
+  return keys[1];
 }
 
 /** Build a `[mcp_servers.<name>]` block for an HTTP-type MCP server. */
@@ -439,11 +555,16 @@ export function buildCodexLocalBlock(
 }
 
 /**
- * Replace (or append) the `[mcp_servers.<name>]` block in a TOML file
- * without disturbing other content. A block is the header line plus every
- * following line until the next top-level `[` table header or EOF. Pass
- * `block === null` to remove the block. Identical algorithm to `mcp.ts`'s
- * `writeCodexBlock` so the two never diverge.
+ * Replace (or append) the entire `[mcp_servers.<name>]` footprint in a TOML
+ * file without disturbing other content. The footprint is the server's own
+ * table AND every sub-table of it (`[mcp_servers.<name>.http_headers]`,
+ * `[mcp_servers.<name>.env]`, …), each spanning its header line plus every
+ * following line until the next table header or EOF. Removing the whole
+ * footprint — wherever the pieces sit in the file — is what keeps a re-install
+ * from leaving a stale sub-table that collides with the freshly written inline
+ * block (a TOML duplicate-key error). Matches both the canonical quoted header
+ * and the legacy bare header. Pass `block === null` to remove the footprint.
+ * Identical algorithm to `mcp.ts`'s `writeCodexBlock` so the two never diverge.
  */
 export function writeCodexBlock(
   file: string,
@@ -457,22 +578,18 @@ export function writeCodexBlock(
     content = "";
   }
 
-  const headers = new Set(
-    [codexMcpHeader(name), legacyCodexMcpHeader(name)].filter(
-      Boolean,
-    ) as string[],
-  );
   const lines = content.split(/\r?\n/);
   const out: string[] = [];
   let i = 0;
   let removed = false;
   while (i < lines.length) {
     const line = lines[i];
-    if (headers.has(line.trim())) {
-      // Skip this block entirely (header + body until next table header).
+    if (codexServerNameOfHeader(line) === name) {
+      // Skip this table and its body (until the next table header), covering
+      // the server table itself and any of its sub-tables.
       removed = true;
       i++;
-      while (i < lines.length && !/^\s*\[/.test(lines[i])) i++;
+      while (i < lines.length && parseTomlTableHeader(lines[i]) === null) i++;
       continue;
     }
     out.push(line);
@@ -496,12 +613,9 @@ export function writeCodexBlock(
 export function codexHasBlock(file: string, name: string): boolean {
   try {
     const content = fs.readFileSync(file, "utf-8");
-    const headers = new Set(
-      [codexMcpHeader(name), legacyCodexMcpHeader(name)].filter(
-        Boolean,
-      ) as string[],
-    );
-    return content.split(/\r?\n/).some((line) => headers.has(line.trim()));
+    return content
+      .split(/\r?\n/)
+      .some((line) => codexServerNameOfHeader(line) === name);
   } catch {
     return false;
   }
@@ -620,8 +734,11 @@ export function removeJsonSameUrlDuplicates(
 
 /**
  * After writing the canonical `keepName` Codex block, remove any OTHER
- * `[mcp_servers.*]` blocks in the same TOML file whose `url =` line
- * normalises to the same value as `mcpUrl`. Returns removed entry names.
+ * `[mcp_servers.*]` servers in the same TOML file whose `url =` line normalises
+ * to the same value as `mcpUrl`. A server's entire footprint is removed — its
+ * own table AND any sub-tables (`.http_headers`, `.env`, …), even when they are
+ * not contiguous — so cleanup never leaves an orphaned sub-table behind.
+ * Returns removed entry names in first-seen order.
  */
 export function removeCodexSameUrlDuplicates(
   file: string,
@@ -638,52 +755,71 @@ export function removeCodexSameUrlDuplicates(
   if (!targetCanonical) return [];
 
   const lines = content.split(/\r?\n/);
-  const out: string[] = [];
-  const removed: string[] = [];
+
+  // Pass 1: map each server name to the canonical URL declared on its own
+  // table, preserving first-seen order. Sub-tables don't carry the URL, so they
+  // only register the name.
+  const serverUrls = new Map<string, string | undefined>();
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    const quoted = trimmed.match(/^\[mcp_servers\."((?:\\.|[^"])*)"\]$/);
-    const bare = trimmed.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]$/);
-    const serverName = quoted
-      ? quoted[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\")
-      : bare?.[1];
-    if (serverName !== undefined && serverName !== keepName) {
-      // Collect the block
-      const block: string[] = [line];
+    const keys = parseTomlTableHeader(lines[i]);
+    const name =
+      keys && keys.length >= 2 && keys[0] === "mcp_servers"
+        ? keys[1]
+        : undefined;
+    if (name === undefined) {
       i++;
-      while (i < lines.length && !/^\s*\[/.test(lines[i])) {
-        block.push(lines[i]);
-        i++;
-      }
-      // Check url in block
-      const urlMatch = block
+      continue;
+    }
+    const isServerTable = keys!.length === 2;
+    const body: string[] = [];
+    i++;
+    while (i < lines.length && parseTomlTableHeader(lines[i]) === null) {
+      body.push(lines[i]);
+      i++;
+    }
+    if (isServerTable) {
+      const urlMatch = body
         .join("\n")
         .match(/^\s*url\s*=\s*"((?:\\.|[^"])*)"/m);
       const blockUrl = urlMatch
         ? urlMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\")
         : undefined;
-      if (canonicalUrl(blockUrl) === targetCanonical) {
-        removed.push(serverName);
-        // Skip this block (don't push to out)
-        continue;
-      }
-      // Not a duplicate — keep it
-      for (const l of block) out.push(l);
+      serverUrls.set(name, canonicalUrl(blockUrl));
+    } else if (!serverUrls.has(name)) {
+      serverUrls.set(name, undefined);
+    }
+  }
+
+  const removeSet = new Set<string>();
+  for (const [name, canonical] of serverUrls) {
+    if (name !== keepName && canonical && canonical === targetCanonical) {
+      removeSet.add(name);
+    }
+  }
+  if (removeSet.size === 0) return [];
+
+  // Pass 2: rebuild, dropping every table/sub-table belonging to a removed
+  // server.
+  const out: string[] = [];
+  i = 0;
+  while (i < lines.length) {
+    const name = codexServerNameOfHeader(lines[i]);
+    if (name !== undefined && removeSet.has(name)) {
+      i++;
+      while (i < lines.length && parseTomlTableHeader(lines[i]) === null) i++;
       continue;
     }
-    out.push(line);
+    out.push(lines[i]);
     i++;
   }
 
-  if (removed.length === 0) return [];
   const next = out
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\n*$/, "\n");
   writeFileAtomic(file, next);
-  return removed;
+  return [...removeSet];
 }
 
 /**

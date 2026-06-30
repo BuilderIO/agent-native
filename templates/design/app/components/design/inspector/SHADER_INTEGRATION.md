@@ -8,30 +8,30 @@ Do NOT rely on line numbers — they drift. Use the search strings instead.
 
 ---
 
-## (a) FigmaColorPicker.tsx — Add `"shader"` fill type
+## (a) DesignColorPicker.tsx — Add `"shader"` fill type
 
-**File:** `app/components/design/inspector/FigmaColorPicker.tsx`
+**File:** `app/components/design/inspector/DesignColorPicker.tsx`
 
-### 1. Extend `FigmaFillType`
+### 1. Extend `DesignFillType`
 
 Search for:
 
 ```ts
-export type FigmaFillType = "solid" | "gradient" | "image";
+export type DesignFillType = "solid" | "gradient" | "image";
 ```
 
 Replace with:
 
 ```ts
-export type FigmaFillType = "solid" | "gradient" | "image" | "shader";
+export type DesignFillType = "solid" | "gradient" | "image" | "shader";
 ```
 
-### 2. Extend `FigmaPaintType`
+### 2. Extend `DesignPaintType`
 
 Search for:
 
 ```ts
-export type FigmaPaintType =
+export type DesignPaintType =
   | "solid"
   | "linear"
   | "radial"
@@ -43,7 +43,7 @@ export type FigmaPaintType =
 Replace with:
 
 ```ts
-export type FigmaPaintType =
+export type DesignPaintType =
   | "solid"
   | "linear"
   | "radial"
@@ -53,7 +53,7 @@ export type FigmaPaintType =
   | "shader";
 ```
 
-### 3. Add `canUseShaders` prop to `FigmaColorPickerProps`
+### 3. Add `canUseShaders` prop to `DesignColorPickerProps`
 
 Search for:
 
@@ -407,10 +407,10 @@ shader token picker.
 
 ## Integration Checklist
 
-- [ ] `FigmaColorPicker.tsx` — `FigmaFillType` includes `"shader"`
-- [ ] `FigmaColorPicker.tsx` — `FigmaPaintType` includes `"shader"`
-- [ ] `FigmaColorPicker.tsx` — shader button renders in paint-type row
-- [ ] `FigmaColorPicker.tsx` — `ShaderControls` renders when `paintType === "shader"`
+- [ ] `DesignColorPicker.tsx` — `DesignFillType` includes `"shader"`
+- [ ] `DesignColorPicker.tsx` — `DesignPaintType` includes `"shader"`
+- [ ] `DesignColorPicker.tsx` — shader button renders in paint-type row
+- [ ] `DesignColorPicker.tsx` — `ShaderControls` renders when `paintType === "shader"`
 - [ ] `EditPanel.tsx` — `ShaderEffectRow` renders in `EffectsProperties`
 - [ ] `EditPanel.tsx` — "Add Shader" option in effects dropdown
 - [ ] `actions/apply-shader.ts` exists

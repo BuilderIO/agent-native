@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client";
 import {
+  DEFAULT_ASSIGNED_REGION_GAP,
+  DEFAULT_ASSIGNED_REGION_HEIGHT,
+  DEFAULT_ASSIGNED_REGION_MAX_COLUMNS,
+  DEFAULT_ASSIGNED_REGION_WIDTH,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
   appendPolylinePoint,
   computeMoveSnap,
@@ -85,6 +89,7 @@ interface CanvasToolProps {
 
 export interface CanvasPrimitiveInsert {
   kind: DraftPrimitiveKind;
+  nodeId?: string;
   geometry: FrameGeometry;
   points?: Point[];
   pathData?: string;
@@ -93,6 +98,11 @@ export interface CanvasPrimitiveInsert {
   stroke?: string;
   strokeWidth?: number;
   autoSize?: boolean;
+}
+
+interface PersistedDraftPrimitive {
+  frameId: string;
+  nodeId: string;
 }
 
 interface ScreenMetadata {
@@ -136,7 +146,7 @@ interface MultiScreenCanvasProps {
   onCreatePrimitive?: (
     screenId: string,
     primitive: CanvasPrimitiveInsert,
-  ) => boolean;
+  ) => boolean | string;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
@@ -149,10 +159,11 @@ interface MultiScreenCanvasProps {
   ) => ReactNode;
   selectAllRequest?: number;
   clearSelectionRequest?: number;
+  onSelectionChange?: (selectedIds: string[]) => void;
 }
 
 /**
- * Figma-style overview canvas. Renders every file in the design as a movable,
+ * design-editor overview canvas. Renders every file in the design as a movable,
  * resizable frame inside an infinite, pannable surface.
  */
 const SCREEN_WIDTH = 320;
@@ -193,6 +204,8 @@ interface DuplicatePreview {
   display: string;
   x: number;
   y: number;
+  width: number;
+  height: number;
   canDuplicate: boolean;
   moved: boolean;
 }
@@ -351,6 +364,7 @@ interface DraftCreateDragState {
   tool: DraftCreationTool;
   originClient: Point;
   originCanvas: Point;
+  originFrameId?: string;
   points: Point[];
   hasMoved: boolean;
 }
@@ -404,6 +418,7 @@ export function MultiScreenCanvas({
   renderScreenContent,
   selectAllRequest,
   clearSelectionRequest,
+  onSelectionChange,
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -534,8 +549,14 @@ export function MultiScreenCanvas({
     frameGeometryRef.current = frameGeometry;
   }, [frameGeometry]);
 
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange;
+  }, [onSelectionChange]);
+
   useEffect(() => {
     selectedIdsRef.current = selectedIds;
+    onSelectionChangeRef.current?.(selectedIds);
   }, [selectedIds]);
 
   useEffect(() => {
@@ -691,20 +712,37 @@ export function MultiScreenCanvas({
     [getCurrentDraftEntries, getCurrentFrameEntries],
   );
 
-  const getFrameAtClientPoint = useCallback(
-    (clientX: number, clientY: number) => {
-      const point = canvasPointFromClient(clientX, clientY);
-      return getCurrentFrameEntries()
+  const getFrameEntryAtPoint = useCallback(
+    (point: Point) =>
+      getCurrentFrameEntries()
         .map((entry, index) => ({ ...entry, index }))
-        .filter((entry) =>
-          rectContainsPoint(getSelectableBounds(entry.geometry), point),
-        )
+        .filter((entry) => {
+          const bounds = {
+            left: entry.geometry.x,
+            top: entry.geometry.y,
+            right: entry.geometry.x + entry.geometry.width,
+            bottom: entry.geometry.y + entry.geometry.height,
+          };
+          const local = rotatePointAroundCenter(
+            point,
+            getFrameCenter(entry.geometry),
+            entry.geometry.rotation ?? 0,
+          );
+          return rectContainsPoint(bounds, local);
+        })
         .sort(
           (a, b) =>
             (b.geometry.z ?? 0) - (a.geometry.z ?? 0) || b.index - a.index,
-        )[0]?.id;
+        )[0],
+    [getCurrentFrameEntries],
+  );
+
+  const getFrameAtClientPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const point = canvasPointFromClient(clientX, clientY);
+      return getFrameEntryAtPoint(point)?.id;
     },
-    [canvasPointFromClient, getCurrentFrameEntries],
+    [canvasPointFromClient, getFrameEntryAtPoint],
   );
 
   const deleteSelectedItems = useCallback(() => {
@@ -889,12 +927,22 @@ export function MultiScreenCanvas({
 
         const hitIds = getCurrentFrameEntries()
           .filter((entry) =>
-            rectIntersects(rect, getSelectableBounds(entry.geometry)),
+            rotatedRectIntersects(
+              rect,
+              getSelectableBounds(entry.geometry),
+              getFrameCenter(entry.geometry),
+              entry.geometry.rotation ?? 0,
+            ),
           )
           .map((entry) => entry.id);
         const hitDraftIds = getCurrentDraftEntries()
           .filter((entry) =>
-            rectIntersects(rect, getSelectableBounds(entry.geometry)),
+            rotatedRectIntersects(
+              rect,
+              getSelectableBounds(entry.geometry),
+              getFrameCenter(entry.geometry),
+              entry.geometry.rotation ?? 0,
+            ),
           )
           .map((entry) => entry.id);
         updateSelectedIds(() =>
@@ -932,26 +980,40 @@ export function MultiScreenCanvas({
   );
 
   const getTargetFrameForDraft = useCallback(
-    (draft: DraftPrimitive) =>
-      getCurrentFrameEntries()
-        .filter(({ geometry }) =>
-          rectContainsPoint(
-            {
-              left: geometry.x,
-              top: geometry.y,
-              right: geometry.x + geometry.width,
-              bottom: geometry.y + geometry.height,
-            },
-            getFrameCenter(draft.geometry),
-          ),
-        )
-        .sort((a, b) => (b.geometry.z ?? 0) - (a.geometry.z ?? 0))[0],
+    (draft: DraftPrimitive, preferredFrameId?: string) => {
+      const entries = getCurrentFrameEntries();
+      const preferred = preferredFrameId
+        ? entries.find((entry) => entry.id === preferredFrameId)
+        : undefined;
+      if (preferred) return preferred;
+
+      return entries
+        .filter(({ geometry }) => {
+          const bounds = {
+            left: geometry.x,
+            top: geometry.y,
+            right: geometry.x + geometry.width,
+            bottom: geometry.y + geometry.height,
+          };
+          const draftCenter = getFrameCenter(draft.geometry);
+          const local = rotatePointAroundCenter(
+            draftCenter,
+            getFrameCenter(geometry),
+            geometry.rotation ?? 0,
+          );
+          return rectContainsPoint(bounds, local);
+        })
+        .sort((a, b) => (b.geometry.z ?? 0) - (a.geometry.z ?? 0))[0];
+    },
     [getCurrentFrameEntries],
   );
 
   const persistDraftPrimitive = useCallback(
-    (draft: DraftPrimitive) => {
-      const targetFrame = getTargetFrameForDraft(draft);
+    (
+      draft: DraftPrimitive,
+      preferredFrameId?: string,
+    ): PersistedDraftPrimitive | null => {
+      const targetFrame = getTargetFrameForDraft(draft, preferredFrameId);
       if (!targetFrame || !onCreatePrimitive) return null;
       const targetScreen = screens.find(
         (screen) => screen.id === targetFrame.id,
@@ -970,7 +1032,13 @@ export function MultiScreenCanvas({
         targetMetadata,
       );
       const persisted = onCreatePrimitive(targetFrame.id, localPrimitive);
-      return persisted ? targetFrame.id : null;
+      if (!persisted) return null;
+      return {
+        frameId: targetFrame.id,
+        nodeId:
+          (typeof persisted === "string" ? persisted : localPrimitive.nodeId) ??
+          draft.id,
+      };
     },
     [
       getScreenMetadata,
@@ -982,14 +1050,14 @@ export function MultiScreenCanvas({
   );
 
   const commitDraftPrimitive = useCallback(
-    (nextDraft: DraftPrimitive) => {
-      const persistedFrameId = persistDraftPrimitive(nextDraft);
-      if (persistedFrameId) {
+    (nextDraft: DraftPrimitive, preferredFrameId?: string) => {
+      const persisted = persistDraftPrimitive(nextDraft, preferredFrameId);
+      if (persisted) {
         updateDraftPrimitives((current) =>
           current.filter((draft) => draft.id !== nextDraft.id),
         );
         updateSelectedDraftIds(() => []);
-        updateSelectedIds(() => [persistedFrameId]);
+        updateSelectedIds(() => [persisted.nodeId]);
         return;
       }
 
@@ -1185,6 +1253,7 @@ export function MultiScreenCanvas({
       e.stopPropagation();
 
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
+      const originFrameId = getFrameEntryAtPoint(originCanvas)?.id;
       const initialGeometry = getDraftGeometryForTool(
         tool,
         originCanvas,
@@ -1204,6 +1273,7 @@ export function MultiScreenCanvas({
         tool,
         originClient: { x: e.clientX, y: e.clientY },
         originCanvas,
+        originFrameId,
         points: initialPoints ?? [],
         hasMoved: false,
       };
@@ -1267,12 +1337,18 @@ export function MultiScreenCanvas({
         }
 
         let endCanvas = getCanvasPoint(ev.clientX, ev.clientY);
+        const canvasMoved =
+          Math.hypot(
+            endCanvas.x - state.originCanvas.x,
+            endCanvas.y - state.originCanvas.y,
+          ) >= 0.5;
         const releaseMoved =
           state.hasMoved ||
           Math.hypot(
             ev.clientX - state.originClient.x,
             ev.clientY - state.originClient.y,
-          ) >= DRAG_THRESHOLD;
+          ) >= DRAG_THRESHOLD ||
+          canvasMoved;
         state.hasMoved = releaseMoved;
         let points = state.tool === "pen" ? state.points : undefined;
         if (state.tool === "pen") {
@@ -1303,7 +1379,7 @@ export function MultiScreenCanvas({
           toolProps,
           fallbackText: t("designEditor.tools.text"),
         });
-        commitDraftPrimitive(nextDraft);
+        commitDraftPrimitive(nextDraft, state.originFrameId);
         if (activeTool === undefined) {
           setLocalActiveTool("move");
         }
@@ -1325,6 +1401,7 @@ export function MultiScreenCanvas({
       commitDraftPrimitive,
       finishDrag,
       getCanvasPoint,
+      getFrameEntryAtPoint,
       installDragListeners,
       onActiveToolChange,
       onCreateScreenFrame,
@@ -1422,25 +1499,35 @@ export function MultiScreenCanvas({
       const handleMouseUp = () => {
         const state = dragState.current;
         if (state?.type === "draft-move" && state.hasMoved) {
-          const persisted: Array<{ draftId: string; frameId: string }> = [];
+          const persisted: Array<{
+            draftId: string;
+            frameId: string;
+            nodeId: string;
+          }> = [];
           draftPrimitivesRef.current.forEach((draft) => {
             if (!state.targetIds.includes(draft.id)) return;
-            const frameId = persistDraftPrimitive(draft);
-            if (frameId) persisted.push({ draftId: draft.id, frameId });
+            const result = persistDraftPrimitive(draft);
+            if (result) {
+              persisted.push({
+                draftId: draft.id,
+                frameId: result.frameId,
+                nodeId: result.nodeId,
+              });
+            }
           });
 
           if (persisted.length > 0) {
             const persistedDraftIds = new Set(
               persisted.map((entry) => entry.draftId),
             );
-            const lastFrameId = persisted[persisted.length - 1]?.frameId;
             updateDraftPrimitives((current) =>
               current.filter((draft) => !persistedDraftIds.has(draft.id)),
             );
             updateSelectedDraftIds((current) =>
               current.filter((draftId) => !persistedDraftIds.has(draftId)),
             );
-            if (lastFrameId) updateSelectedIds(() => [lastFrameId]);
+            const lastNodeId = persisted[persisted.length - 1]?.nodeId;
+            if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
           }
         }
         finishDrag();
@@ -1611,6 +1698,11 @@ export function MultiScreenCanvas({
       if (e.button !== 0 || e.shiftKey) return;
       e.preventDefault();
       e.stopPropagation();
+      // Frame mousedowns stop propagation, so they never reach handleMouseDown.
+      // Clear stale suppression here too so a prior gesture can't swallow this
+      // frame's selecting click. This gesture re-arms suppression on mouse-up
+      // only if it actually moves.
+      suppressNextPick.current = false;
 
       const currentSelectedIds = selectedIdsRef.current;
       const targetIds = currentSelectedIds.includes(id)
@@ -1618,6 +1710,7 @@ export function MultiScreenCanvas({
         : [id];
       if (!currentSelectedIds.includes(id)) {
         updateSelectedIds(() => [id]);
+        onPick(id);
       }
       updateSelectedDraftIds(() => []);
 
@@ -1715,6 +1808,7 @@ export function MultiScreenCanvas({
       finishDrag,
       getCurrentFrameEntries,
       installDragListeners,
+      onPick,
       showTransformFeedback,
       updateFrameGeometry,
       updateSelectedDraftIds,
@@ -1783,6 +1877,8 @@ export function MultiScreenCanvas({
           {
             preserveAspectRatio: ev.shiftKey,
             resizeFromCenter: ev.altKey,
+            minWidth: 1,
+            minHeight: 1,
           },
         );
         const snap = computeResizeSnap(
@@ -2002,10 +2098,15 @@ export function MultiScreenCanvas({
         y: surfaceRect ? e.clientY - surfaceRect.top + 16 : e.clientY,
       };
 
+      const previewWidth = sourceFrame?.geometry.width ?? SCREEN_WIDTH;
+      const previewHeight = sourceFrame?.geometry.height ?? SCREEN_HEIGHT;
+
       setDuplicatePreview({
         display,
         x: previewPoint.x,
         y: previewPoint.y,
+        width: previewWidth,
+        height: previewHeight,
         canDuplicate: !!onDuplicate,
         moved: false,
       });
@@ -2019,6 +2120,8 @@ export function MultiScreenCanvas({
           display,
           x: rect ? ev.clientX - rect.left + 16 : ev.clientX,
           y: rect ? ev.clientY - rect.top + 16 : ev.clientY,
+          width: previewWidth,
+          height: previewHeight,
           canDuplicate: !!onDuplicate,
           moved,
         });
@@ -2028,7 +2131,13 @@ export function MultiScreenCanvas({
         setDuplicatePreview(null);
         window.removeEventListener("mousemove", handleMouseMove);
         window.removeEventListener("mouseup", handleMouseUp);
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define
+        window.removeEventListener("blur", handleBlur);
         duplicateCleanup.current = null;
+      };
+
+      const handleBlur = () => {
+        cleanupDuplicateGesture();
       };
 
       const handleMouseUp = (ev: MouseEvent) => {
@@ -2069,12 +2178,17 @@ export function MultiScreenCanvas({
       duplicateCleanup.current = cleanupDuplicateGesture;
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mouseup", handleMouseUp);
+      window.addEventListener("blur", handleBlur);
     },
     [canvasPointFromClient, getCurrentFrameEntries, onDuplicate, onPick],
   );
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // Clear any stale pick-suppression left over from a prior resize/rotate/move
+      // gesture that never received its trailing frame click — otherwise it would
+      // silently swallow this unrelated interaction.
+      suppressNextPick.current = false;
       const target = e.target as HTMLElement;
       const onFrame = !!target.closest("[data-frame-shell]");
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
@@ -2334,11 +2448,19 @@ export function MultiScreenCanvas({
         return;
       }
 
-      if (event.key === "Enter" || event.key === "Escape") {
+      if (event.key === "Enter") {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
         finishPenPath(path);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        clearActivePenPath();
         return;
       }
 
@@ -2566,10 +2688,10 @@ export function MultiScreenCanvas({
           style={{
             left: duplicatePreview.x,
             top: duplicatePreview.y,
-            width: SCREEN_WIDTH * Math.min(scale, 1),
-            height: SCREEN_HEIGHT * Math.min(scale, 1),
-            maxWidth: SCREEN_WIDTH,
-            maxHeight: SCREEN_HEIGHT,
+            width: duplicatePreview.width * Math.min(scale, 1),
+            height: duplicatePreview.height * Math.min(scale, 1),
+            maxWidth: duplicatePreview.width,
+            maxHeight: duplicatePreview.height,
           }}
         >
           <div className="flex h-full w-full items-start justify-between rounded-lg bg-muted/20 p-2">
@@ -2986,8 +3108,13 @@ function Screen({
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           if (penActive || creationToolActive) return;
+          if (e.altKey) {
+            onStartDuplicateGesture(screen, display, e);
+            return;
+          }
           if (e.shiftKey) {
             e.stopPropagation();
+            onPick(screen.id, e);
             return;
           }
           onStartFrameDrag(screen.id, e);
@@ -3016,7 +3143,7 @@ function Screen({
         <button
           type="button"
           className={cn(
-            "flex h-5 max-w-[46%] shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "relative z-40 flex h-5 max-w-[46%] shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "group-hover/frame:opacity-100 group-focus-within/frame:opacity-100",
             emphasized && "opacity-100",
@@ -3143,7 +3270,7 @@ function Screen({
         <ResizeHandles
           active={selectionOutlined}
           enabled={!penActive && !creationToolActive && handlesEnabled}
-          showRotate={false}
+          showRotate
           chromeScale={chromeScale}
           onStartResize={(handle, e) => onStartResize(screen.id, handle, e)}
           onStartRotate={(e) => onStartRotate(screen.id, e)}
@@ -3349,6 +3476,11 @@ interface BoundsRect {
 }
 
 function getInitialFrameGeometry(index: number): FrameGeometry {
+  // Seed default frames with the actual screen dimensions and the 3-column grid
+  // the overview centering math (which uses SCREEN_WIDTH/SCREEN_GAP) expects, so
+  // a design without persisted geometry opens centered. (The larger
+  // assigned-region grid is only for the agent's generation planning, not the
+  // editor's default placement.)
   const column = index % 3;
   const row = Math.floor(index / 3);
   return {
@@ -3400,6 +3532,12 @@ function isEditableHotkeyTarget(target: EventTarget | null) {
     ].join(","),
   );
   if (!editable) return false;
+  if (
+    editable.getAttribute("role") === "textbox" ||
+    editable.hasAttribute("data-hotkeys-scope")
+  ) {
+    return true;
+  }
   if (editable instanceof HTMLElement && editable.isContentEditable) {
     return true;
   }
@@ -3468,6 +3606,84 @@ function rectContainsPoint(bounds: BoundsRect, point: Point) {
     point.y >= bounds.top &&
     point.y <= bounds.bottom
   );
+}
+
+/** Rotate `point` into the local (unrotated) space of a frame whose center is
+ *  `center` and whose CSS transform is `rotate(degrees deg)`. Passing the
+ *  inverse rotation maps world-space coordinates into the frame's local space
+ *  so unrotated bounds tests remain correct. */
+function rotatePointAroundCenter(
+  point: Point,
+  center: Point,
+  degrees: number,
+): Point {
+  if (!degrees) return point;
+  const rad = (-degrees * Math.PI) / 180; // inverse rotation
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+}
+
+/** Test whether a marquee rect (in canvas space) intersects an OBB described by
+ *  `bounds` (unrotated AABB) that has been rotated `degrees` around `center`.
+ *  We map the four marquee corners into the frame's local space and check
+ *  whether any corner is inside the bounds; we also check the reverse (any
+ *  frame corner inside the marquee) to handle the case where the marquee is
+ *  entirely contained within the rotated frame. */
+function rotatedRectIntersects(
+  rect: MarqueeRect,
+  bounds: BoundsRect,
+  center: Point,
+  degrees: number,
+): boolean {
+  if (!degrees) {
+    return rectIntersects(rect, bounds);
+  }
+  // Four corners of the marquee rect in canvas space.
+  const marqueeCorners: Point[] = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ];
+  // Test: any marquee corner inside the unrotated frame bounds?
+  for (const corner of marqueeCorners) {
+    const local = rotatePointAroundCenter(corner, center, degrees);
+    if (rectContainsPoint(bounds, local)) return true;
+  }
+  // Four corners of the unrotated frame in canvas space (rotate them outward).
+  const frameCorners: Point[] = [
+    { x: bounds.left, y: bounds.top },
+    { x: bounds.right, y: bounds.top },
+    { x: bounds.right, y: bounds.bottom },
+    { x: bounds.left, y: bounds.bottom },
+  ];
+  const rad = (degrees * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const marqueeRight = rect.x + rect.width;
+  const marqueeBottom = rect.y + rect.height;
+  // Test: any rotated frame corner inside the marquee rect?
+  for (const fc of frameCorners) {
+    const dx = fc.x - center.x;
+    const dy = fc.y - center.y;
+    const wx = center.x + dx * cos - dy * sin;
+    const wy = center.y + dx * sin + dy * cos;
+    if (
+      wx >= rect.x &&
+      wx <= marqueeRight &&
+      wy >= rect.y &&
+      wy <= marqueeBottom
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry) {
@@ -3703,6 +3919,7 @@ function draftPrimitiveToInsert(
     : undefined;
   return {
     kind: draft.kind,
+    nodeId: draft.id,
     geometry: localGeometry,
     points: draft.points?.map(toLocalPoint),
     pathData: scaledPenPath ? serializePenPath(scaledPenPath) : undefined,

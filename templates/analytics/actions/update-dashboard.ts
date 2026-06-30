@@ -277,6 +277,14 @@ export function validateDashboardConfig(
   if (typeof config.name !== "string" || config.name.trim().length === 0) {
     return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
   }
+  if (config.parentId !== undefined && config.parentId !== null) {
+    if (
+      typeof config.parentId !== "string" ||
+      config.parentId.trim().length === 0
+    ) {
+      return "config.parentId must be a non-empty dashboard id (or omitted) — it nests this dashboard under that parent in the sidebar";
+    }
+  }
   // Filter ID collisions cause two controls to read/write the same URL param.
   // For paired start/end dates use a single date-range filter — the FilterBar
   // expands it to <id>Start / <id>End at runtime, so the SQL can still
@@ -326,12 +334,15 @@ export function validateDashboardConfig(
     if (!p || typeof p !== "object") {
       return `panel[${i}] must be an object`;
     }
-    // Section panels are pure layout dividers, so source and sql are optional.
-    // Width stays required for backward-compatible dashboard payloads.
+    // Section panels are pure layout dividers and extension panels render their
+    // own iframe, so both make source and sql optional. Width stays required for
+    // backward-compatible dashboard payloads.
     const isSection = p.chartType === "section";
-    const required = isSection
-      ? (["id", "title", "chartType", "width"] as const)
-      : (["id", "title", "sql", "source", "chartType", "width"] as const);
+    const isExtension = p.chartType === "extension";
+    const required =
+      isSection || isExtension
+        ? (["id", "title", "chartType", "width"] as const)
+        : (["id", "title", "sql", "source", "chartType", "width"] as const);
     for (const field of required) {
       const v = p[field];
       if (field === "width") {
@@ -344,8 +355,18 @@ export function validateDashboardConfig(
         return `panel[${i}].${field} is required (non-empty string)`;
       }
     }
-    if (!isSection && !validSources.has(p.source as string)) {
+    if (!isSection && !isExtension && !validSources.has(p.source as string)) {
       return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
+    }
+    if (isExtension) {
+      const cfg = p.config as Record<string, unknown> | undefined;
+      const extensionId =
+        cfg && typeof cfg.extensionId === "string"
+          ? cfg.extensionId.trim()
+          : "";
+      if (!extensionId) {
+        return `panel[${i}].config.extensionId is required for extension panels (the id of the extension to render inline)`;
+      }
     }
     if (
       isSection &&
@@ -374,9 +395,10 @@ export async function validatePanelSql(
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
-    // Sections are layout-only — no SQL to dry-run. heatmap, callout, and other
-    // query panels still validate normally below.
-    if (p.chartType === "section") continue;
+    // Sections are layout-only and extensions render their own iframe — neither
+    // has SQL to dry-run. heatmap, callout, and other query panels still
+    // validate normally below.
+    if (p.chartType === "section" || p.chartType === "extension") continue;
     if (p.source === "amplitude") {
       const raw = typeof p.sql === "string" ? p.sql : "";
       if (raw.trim()) {

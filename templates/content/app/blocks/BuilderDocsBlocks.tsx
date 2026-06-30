@@ -26,6 +26,8 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { ContentReferencePreview } from "@/components/editor/ContentReferencePreview";
+
 function SidecarBadge({ rawRef }: { rawRef: string }) {
   return (
     <div className="mt-2 truncate text-[11px] text-muted-foreground">
@@ -180,7 +182,15 @@ export function BuilderSymbolRead({
       </div>
       <div className="mt-1 text-xs text-muted-foreground">
         {data.model || "model unknown"} / {data.entry || "entry unknown"}
+        {data.dynamic ? " / dynamic" : ""}
       </div>
+      {data.source ? (
+        <ContentReferencePreview
+          sourcePath={data.source}
+          title="Symbol source"
+          className="mb-0"
+        />
+      ) : null}
       <SidecarBadge rawRef={data.rawRef} />
     </section>
   );

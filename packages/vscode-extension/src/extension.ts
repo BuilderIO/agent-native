@@ -15,6 +15,7 @@ type OpenResult = {
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentUrl: string | undefined;
 let lastOpenedUrl: string | undefined;
+const DESIGN_APP_URL = "https://design.agent-native.com";
 
 export function activate(context: vscode.ExtensionContext): void {
   const controller = new AgentNativeController(context);
@@ -162,8 +163,9 @@ class AgentNativeController {
     const terminal = vscode.window.createTerminal("Agent Native Design");
     terminal.show();
     terminal.sendText(command);
+    this.openWebview(DESIGN_APP_URL);
     await vscode.window.showInformationMessage(
-      "Agent Native Design bridge is starting. Open the Design app and choose Localhost to connect.",
+      "Agent Native Design bridge is starting. Design is opening in a side panel; choose Localhost to connect.",
     );
     return command;
   }

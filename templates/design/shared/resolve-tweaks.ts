@@ -24,8 +24,8 @@ export type TweakSelections = Record<string, string | number | boolean>;
  * assignments. Rules (must match the editor's historical inline behavior):
  *
  *  - booleans  -> "1" / "0"
- *  - numbers   -> `${value}` plus "px" when the CSS var name contains "radius",
- *                 otherwise unitless
+ *  - numbers   -> `${value}` plus `t.unit` when provided, falling back to "px"
+ *                 when the CSS var name contains "radius", otherwise unitless
  *  - strings   -> the string as-is
  *
  * Tweaks without a `cssVar` are skipped (they don't map to a property).
@@ -42,7 +42,8 @@ export function resolveTweaksToCssVars(
     if (typeof v === "boolean") {
       out[t.cssVar] = v ? "1" : "0";
     } else if (typeof v === "number") {
-      const unit = t.cssVar.toLowerCase().includes("radius") ? "px" : "";
+      const unit =
+        t.unit ?? (t.cssVar.toLowerCase().includes("radius") ? "px" : "");
       out[t.cssVar] = `${v}${unit}`;
     } else {
       out[t.cssVar] = String(v);

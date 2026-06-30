@@ -42,23 +42,35 @@ function designDeepLink(designId: string): string {
   });
 }
 
-const requestedScreenSchema = z.object({
-  frameId: z.string().optional(),
-  title: z.string().min(1),
-  filename: z
-    .string()
-    .optional()
-    .describe("Target filename for this screen, such as onboarding.html"),
-  role: z.enum(["screen", "variant"]).optional().default("screen"),
-  variantOf: z.string().optional(),
-});
+const requestedScreenSchema = z
+  .object({
+    frameId: z.string().optional(),
+    title: z.string().min(1),
+    filename: z
+      .string()
+      .optional()
+      .describe("Target filename for this screen, such as onboarding.html"),
+    role: z.enum(["screen", "variant"]).optional().default("screen"),
+    variantOf: z.string().optional(),
+  })
+  .superRefine((screen, ctx) => {
+    if (screen.role === "variant" && !screen.variantOf) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["variantOf"],
+        message:
+          "variant screens require variantOf to identify the base screen",
+      });
+    }
+  });
 
 export default defineAction({
   description:
-    "Start a visible multi-agent generation session on the Design canvas. " +
+    "Start a multi-screen generation session on the Design canvas. " +
     "Use this before generating multiple screens or variations in parallel: it " +
-    "assigns non-overlapping canvas regions, publishes named agent/frame " +
-    "status to application state, and returns per-frame generation instructions. " +
+    "assigns non-overlapping canvas regions and returns per-frame generation " +
+    "instructions including canvasFrame placements. The session state is " +
+    "agent-facing planning state consumed by generate-design and view-screen. " +
     "After this action, fan out calls to generate-design for each returned " +
     "frame, passing the returned canvasFrame values to generate-design so " +
     "screens appear in the infinite overview canvas.",
@@ -101,10 +113,39 @@ export default defineAction({
       origin: { x: 0, y: 0 },
       columns: screens.length <= 3 ? screens.length : 3,
     });
+
+    const seenFilenames = new Map<string, number>();
+    // Dedupe any filename (explicit or auto-generated) so two screens can never
+    // resolve to the same target file — otherwise generate-design silently
+    // overwrites the first screen's output with the second's.
+    const dedupeFilename = (base: string): string => {
+      if (!seenFilenames.has(base)) {
+        seenFilenames.set(base, 1);
+        return base;
+      }
+      const count = seenFilenames.get(base)! + 1;
+      seenFilenames.set(base, count);
+      const dot = base.lastIndexOf(".");
+      return dot > 0
+        ? `${base.slice(0, dot)}-${count}${base.slice(dot)}`
+        : `${base}-${count}`;
+    };
+    const requestedTargets = screens.map((screen, index) => {
+      if (screen.filename) return dedupeFilename(screen.filename);
+      const slug =
+        screen.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 48) || `screen-${index + 1}`;
+      return dedupeFilename(`${slug}.html`);
+    });
+
     const frames: DesignGenerationFrame[] = screens.map((screen, index) => {
       const frameId = screen.frameId ?? nanoid();
       return {
         frameId,
+        filename: requestedTargets[index],
         agentId: `agent-${frameId}`,
         agentName: AGENT_NAMES[index % AGENT_NAMES.length] ?? "Agent",
         agentColor:
@@ -127,6 +168,7 @@ export default defineAction({
       prompt,
       contextRefs,
       frames,
+      startedAt: new Date().toISOString(),
     };
 
     await writeAppState(
@@ -142,15 +184,7 @@ export default defineAction({
 
     const targets = frames.map((frame, index) => {
       const requested = screens[index]!;
-      const filename =
-        requested.filename ??
-        `${
-          requested.title
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-+|-+$/g, "")
-            .slice(0, 48) || `screen-${index + 1}`
-        }.html`;
+      const filename = requestedTargets[index]!;
       return {
         frameId: frame.frameId,
         title: requested.title,

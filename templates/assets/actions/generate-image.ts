@@ -46,6 +46,8 @@ import {
 import { readImageModelDefault } from "./_image-model-default.js";
 import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 
+const IMAGE_GENERATION_TOOL_TIMEOUT_MS = 12 * 60_000;
+
 function resolveModelForTier(
   tier: ImageQualityTier | undefined,
   category: ImageCategory | undefined,
@@ -125,6 +127,7 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
+  timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
   run: async (input, context?: ActionRunContext) => {
     const imageModelDefault = await readImageModelDefault();
     const libraryId = input.libraryId;

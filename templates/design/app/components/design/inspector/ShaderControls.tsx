@@ -151,7 +151,7 @@ function ParamLabel({ children }: { children: React.ReactNode }) {
 }
 
 // ---------------------------------------------------------------------------
-// Color swatch button — Figma style: rounded rect swatch + hex label inline
+// Color swatch button — design-editor style: rounded rect swatch + hex label inline
 // ---------------------------------------------------------------------------
 
 interface ColorSwatchProps {
@@ -161,6 +161,14 @@ interface ColorSwatchProps {
 }
 
 function ColorSwatch({ color, label, onChange }: ColorSwatchProps) {
+  // <input type="color"> only accepts 6-digit hex; strip any alpha suffix before
+  // passing as value, then reattach it when the user picks a new color so alpha
+  // is preserved rather than silently dropped.
+  const sixDigit =
+    color.length === 9 && color.startsWith("#") ? color.slice(0, 7) : color;
+  const alphaSuffix =
+    color.length === 9 && color.startsWith("#") ? color.slice(7) : "";
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -178,8 +186,8 @@ function ColorSwatch({ color, label, onChange }: ColorSwatchProps) {
           </span>
           <input
             type="color"
-            value={color}
-            onChange={(e) => onChange(e.target.value)}
+            value={sixDigit}
+            onChange={(e) => onChange(e.target.value + alphaSuffix)}
             className="sr-only"
             aria-label={label}
           />
@@ -387,11 +395,12 @@ export function ShaderControls({
       }
     }
 
+    setAnimated(false);
     onChange({
       preset: newPreset.name,
       params: defaults,
       colors: newPreset.defaultColors ?? undefined,
-      speed: descriptor.speed,
+      speed: 0,
       frame: descriptor.frame,
     });
   }

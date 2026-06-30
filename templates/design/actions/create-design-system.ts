@@ -3,7 +3,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -66,12 +66,23 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Check only this user's owned systems. Shared systems should not prevent
-    // the first system a user creates from becoming their default.
+    // Check only this user's owned systems within the same org. Shared systems
+    // should not prevent the first system a user creates from becoming their
+    // default, and systems in other orgs must not suppress the default in this org.
     const existing = await db
       .select({ id: schema.designSystems.id })
       .from(schema.designSystems)
-      .where(eq(schema.designSystems.ownerEmail, ownerEmail))
+      .where(
+        orgId
+          ? and(
+              eq(schema.designSystems.ownerEmail, ownerEmail),
+              eq(schema.designSystems.orgId, orgId),
+            )
+          : and(
+              eq(schema.designSystems.ownerEmail, ownerEmail),
+              isNull(schema.designSystems.orgId),
+            ),
+      )
       .limit(1);
 
     const isDefault = existing.length === 0;
