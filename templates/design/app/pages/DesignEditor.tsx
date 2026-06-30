@@ -3432,7 +3432,10 @@ export default function DesignEditor() {
   const canEditDesign = canShareDesign || designAccessRole === "editor";
   const canEditDesignRef = useRef(canEditDesign);
   const pendingLocalFileContentsRef = useRef<
-    Map<string, { content: string; startedAt: number }>
+    Map<
+      string,
+      { content: string; startedAt: number; baseUpdatedAt?: string | null }
+    >
   >(new Map());
   const [
     pendingLocalFileContentsRevision,
@@ -3440,12 +3443,25 @@ export default function DesignEditor() {
   ] = useState(0);
 
   const markPendingLocalFileContent = useCallback(
-    (fileId: string, content: string) => {
+    (fileId: string, content: string, baseUpdatedAt?: string | null) => {
       const current = pendingLocalFileContentsRef.current.get(fileId);
-      if (current?.content === content) return;
+      if (current?.content === content) {
+        if (
+          baseUpdatedAt !== undefined &&
+          current.baseUpdatedAt === undefined
+        ) {
+          pendingLocalFileContentsRef.current.set(fileId, {
+            ...current,
+            baseUpdatedAt,
+          });
+          setPendingLocalFileContentsRevision((revision) => revision + 1);
+        }
+        return;
+      }
       pendingLocalFileContentsRef.current.set(fileId, {
         content,
         startedAt: Date.now(),
+        baseUpdatedAt,
       });
       setPendingLocalFileContentsRevision((revision) => revision + 1);
     },
@@ -3908,6 +3924,12 @@ export default function DesignEditor() {
     for (const file of serverFiles) {
       const pending = pendingLocalFileContentsRef.current.get(file.id);
       if (pending && (file.content ?? "") === pending.content) {
+        if (
+          pending.baseUpdatedAt !== undefined &&
+          file.updatedAt === pending.baseUpdatedAt
+        ) {
+          continue;
+        }
         pendingLocalFileContentsRef.current.delete(file.id);
         changed = true;
       }
@@ -5500,7 +5522,11 @@ export default function DesignEditor() {
         redoOrderRef.current = [];
         syncUndoRedoState();
       }
-      markPendingLocalFileContent(activeFile.id, nextContent);
+      markPendingLocalFileContent(
+        activeFile.id,
+        nextContent,
+        activeFile.updatedAt,
+      );
       setCollabContent(nextContent);
       setCollabContentFileId(activeFile.id);
       lastLocalContentRef.current = nextContent;
@@ -5574,7 +5600,8 @@ export default function DesignEditor() {
         applyLocalContentUpdate(nextContent, options);
         return;
       }
-      markPendingLocalFileContent(fileId, nextContent);
+      const previousFile = files.find((file) => file.id === fileId);
+      markPendingLocalFileContent(fileId, nextContent, previousFile?.updatedAt);
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
         if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
           return old;
@@ -5595,6 +5622,7 @@ export default function DesignEditor() {
     [
       activeFile?.id,
       applyLocalContentUpdate,
+      files,
       id,
       markPendingLocalFileContent,
       queryClient,
@@ -7863,7 +7891,11 @@ export default function DesignEditor() {
         um.undo();
         if (ydoc && activeFile) {
           const next = ydoc.getText("content").toString();
-          markPendingLocalFileContent(activeFile.id, next);
+          markPendingLocalFileContent(
+            activeFile.id,
+            next,
+            activeFile.updatedAt,
+          );
           lastLocalContentRef.current = next;
           queueFileContentSave(activeFile.id, next, {
             syncCollab: !(ydoc && isSynced),
@@ -7969,7 +8001,11 @@ export default function DesignEditor() {
         um.redo();
         if (ydoc && activeFile) {
           const next = ydoc.getText("content").toString();
-          markPendingLocalFileContent(activeFile.id, next);
+          markPendingLocalFileContent(
+            activeFile.id,
+            next,
+            activeFile.updatedAt,
+          );
           lastLocalContentRef.current = next;
           queueFileContentSave(activeFile.id, next, {
             syncCollab: !(ydoc && isSynced),
