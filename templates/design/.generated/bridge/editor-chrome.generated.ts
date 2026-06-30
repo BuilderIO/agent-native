@@ -327,6 +327,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         },
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
         htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4e3) : void 0,
+        childElementCount: el.children ? el.children.length : 0,
         isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
         isFlexChild: parentDisplay === "flex" || parentDisplay === "inline-flex",
         parentDisplay,
@@ -1455,6 +1456,30 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function hasTextContent(el) {
       return !!(el && el.textContent && el.textContent.trim().length > 0);
+    }
+    function hasTextCharacters(el) {
+      return !!(el && el.textContent && el.textContent.length > 0);
+    }
+    function setSelectionOverlayResizeChromeVisible(visible) {
+      selectionOverlay.querySelectorAll(
+        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]"
+      ).forEach(function(node) {
+        if (!(node instanceof HTMLElement)) return;
+        node.style.display = visible ? "" : "none";
+      });
+    }
+    function updateTextEditingChrome(target, originalMinWidth) {
+      target.style.outline = "";
+      target.style.outlineOffset = "";
+      if (hasTextCharacters(target)) {
+        target.style.minWidth = originalMinWidth;
+        positionOverlay(selectionOverlay, target);
+        setSelectionOverlayResizeChromeVisible(false);
+        return;
+      }
+      target.style.minWidth = originalMinWidth || "1px";
+      selectionOverlay.style.display = "none";
+      setSelectionOverlayResizeChromeVisible(false);
     }
     function isInlineEditableDescendant(el) {
       if (!el || !el.tagName) return false;
@@ -2672,15 +2697,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       selectedEl = selectionTargetForHit(target) || target;
       var originalText = target.textContent || "";
       var originalHtml = target.innerHTML || "";
+      var originalMinWidth = target.style.minWidth;
       var committed = false;
       activeTextEditEl = target;
       target.setAttribute("contenteditable", "true");
       target.setAttribute("data-agent-native-text-editing", "true");
       target.style.cursor = "text";
-      target.style.outline = "1.5px solid var(--design-editor-accent-color)";
-      target.style.outlineOffset = "2px";
       setTextEditingPointerPassthrough(true);
-      positionOverlay(selectionOverlay, target);
+      updateTextEditingChrome(target, originalMinWidth);
       window.parent.postMessage(
         { type: "element-select", payload: getElementInfo(target) },
         "*"
@@ -2696,6 +2720,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.removeEventListener("blur", onBlur, true);
         target.removeEventListener("keydown", onKeyDown, true);
         target.removeEventListener("paste", onPaste, true);
+        target.removeEventListener("input", onInput, true);
         target.removeEventListener("keyup", onSelectionChange, true);
         target.removeEventListener("mouseup", onSelectionChange, true);
         document.removeEventListener("selectionchange", onSelectionChange);
@@ -2704,7 +2729,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.style.cursor = "";
         target.style.outline = "";
         target.style.outlineOffset = "";
+        target.style.minWidth = originalMinWidth;
         setTextEditingPointerPassthrough(false);
+        setSelectionOverlayResizeChromeVisible(true);
         if (activeTextEditEl === target) activeTextEditEl = null;
         postTextEditingState(target, false);
         if (!commit) {
@@ -2725,7 +2752,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function onKeyDown(ev) {
         if (ev.key === "Escape") {
           ev.preventDefault();
-          finish(false);
+          finish(true);
           target.blur();
           return;
         }
@@ -2740,13 +2767,21 @@ export const editorChromeBridgeScript: string = `"use strict";
         insertPlainTextAtSelection(
           ev.clipboardData && ev.clipboardData.getData("text/plain") || ""
         );
+        updateTextEditingChrome(target, originalMinWidth);
+        postTextEditingState(target, true);
+      }
+      function onInput() {
+        updateTextEditingChrome(target, originalMinWidth);
+        postTextEditingState(target, true);
       }
       function onSelectionChange() {
+        updateTextEditingChrome(target, originalMinWidth);
         postTextEditingState(target, true);
       }
       target.addEventListener("blur", onBlur, true);
       target.addEventListener("keydown", onKeyDown, true);
       target.addEventListener("paste", onPaste, true);
+      target.addEventListener("input", onInput, true);
       target.addEventListener("keyup", onSelectionChange, true);
       target.addEventListener("mouseup", onSelectionChange, true);
       document.addEventListener("selectionchange", onSelectionChange);

@@ -90,6 +90,18 @@ interface ScreenFile {
   activeBreakpointWidth?: number;
 }
 
+const FALLBACK_BOARD_IFRAME_BACKGROUND = "hsl(0 0% 10%)";
+
+function readDesignEditorCanvasBackground(target?: Element | null): string {
+  if (typeof window === "undefined") return FALLBACK_BOARD_IFRAME_BACKGROUND;
+  const source = target ?? document.documentElement;
+  return (
+    getComputedStyle(source)
+      .getPropertyValue("--design-editor-canvas-bg")
+      .trim() || FALLBACK_BOARD_IFRAME_BACKGROUND
+  );
+}
+
 type ScreenSourceType = "localhost" | "fusion" | "inline";
 type ScreenPreviewState = "live" | "snapshot" | "preview";
 export type MultiScreenCanvasTool =
@@ -738,6 +750,9 @@ export function MultiScreenCanvas({
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const [boardIframeBackground, setBoardIframeBackground] = useState(
+    readDesignEditorCanvasBackground,
+  );
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
@@ -785,6 +800,28 @@ export function MultiScreenCanvas({
     useState<PrimitiveDropTarget | null>(null);
   const primitiveDropTargetRef = useRef<PrimitiveDropTarget | null>(null);
   const onPrimitiveReparentRef = useRef(onPrimitiveReparent);
+
+  useEffect(() => {
+    const updateBoardIframeBackground = () => {
+      setBoardIframeBackground(
+        readDesignEditorCanvasBackground(surfaceRef.current),
+      );
+    };
+    updateBoardIframeBackground();
+    if (typeof MutationObserver === "undefined") return undefined;
+    const observer = new MutationObserver(updateBoardIframeBackground);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+    if (document.body) {
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["class", "style"],
+      });
+    }
+    return () => observer.disconnect();
+  }, []);
 
   // Cross-screen element drag state — driven by postMessage from the source iframe.
   interface CrossScreenDragGhost {
@@ -3933,7 +3970,7 @@ export function MultiScreenCanvas({
                   height: boardH,
                   overflow: "hidden",
                   pointerEvents: boardSurfaceInteractive ? "auto" : "none",
-                  background: "transparent",
+                  background: boardIframeBackground,
                   // Board sits behind all screen iframes.
                   zIndex: 0,
                 }}
@@ -3943,6 +3980,7 @@ export function MultiScreenCanvas({
                   contentKey={boardContentKey}
                   zoom={100}
                   deviceFrame="none"
+                  embeddedFrameBackground={boardIframeBackground}
                   transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
@@ -5965,7 +6003,7 @@ function createDraftPrimitive({
       id,
       kind: "text",
       geometry,
-      text: toolProps?.text ?? fallbackText,
+      text: toolProps?.text ?? "",
       fill: toolProps?.fill,
       stroke: toolProps?.stroke,
       autoSize: !moved,

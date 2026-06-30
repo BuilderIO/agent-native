@@ -303,6 +303,7 @@ interface DesignCanvasProps {
     contentOffsetX?: number;
     contentOffsetY?: number;
   };
+  embeddedFrameBackground?: string;
   transparentBackground?: boolean;
   editorChromeScaleX?: number;
   editorChromeScaleY?: number;
@@ -454,6 +455,12 @@ function getExternalPreviewUrl(content: string): string | null {
 const TRANSPARENT_EMBEDDED_FRAME_STYLE =
   "<style data-agent-native-transparent-frame>html,body{background:transparent!important;}body{background-color:transparent!important;}</style>";
 
+function embeddedFrameBackgroundStyle(background: string | undefined): string {
+  const trimmed = background?.trim();
+  if (!trimmed || /[;{}<>]/.test(trimmed)) return "";
+  return `<style data-agent-native-frame-background>html,body{background:${trimmed}!important;}body{background-color:${trimmed}!important;}</style>`;
+}
+
 function embeddedContentOffsetStyle(x: number, y: number): string {
   if (x === 0 && y === 0) return "";
   return `<style data-agent-native-content-offset>[data-agent-native-node-id]{translate:${Math.round(x)}px ${Math.round(y)}px;}</style>`;
@@ -497,6 +504,7 @@ export function DesignCanvas({
   onZoomChange,
   deviceFrame,
   embeddedFrame,
+  embeddedFrameBackground,
   transparentBackground = false,
   editorChromeScaleX = 1,
   editorChromeScaleY = editorChromeScaleX,
@@ -633,7 +641,11 @@ export function DesignCanvas({
       embeddedWheelBridge +
       editorChromeBridge;
     const frameStyle = [
-      transparentBackground ? TRANSPARENT_EMBEDDED_FRAME_STYLE : "",
+      embeddedFrameBackground
+        ? embeddedFrameBackgroundStyle(embeddedFrameBackground)
+        : transparentBackground
+          ? TRANSPARENT_EMBEDDED_FRAME_STYLE
+          : "",
       embeddedContentOffsetStyle(
         embeddedFrame?.contentOffsetX ?? 0,
         embeddedFrame?.contentOffsetY ?? 0,
@@ -661,6 +673,7 @@ export function DesignCanvas({
     isEmbeddedFrame,
     embeddedFrame?.contentOffsetX,
     embeddedFrame?.contentOffsetY,
+    embeddedFrameBackground,
     renderedContent,
     transparentBackground,
   ]);
@@ -1390,7 +1403,7 @@ export function DesignCanvas({
             : "inline")
         }
         className="block h-full w-full border-0 bg-transparent"
-        style={{ backgroundColor: "transparent" }}
+        style={{ backgroundColor: embeddedFrameBackground ?? "transparent" }}
         title={t("designEditor.designPreview")}
       />
       {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}

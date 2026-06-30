@@ -1958,6 +1958,38 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     return !!(el && el.textContent && el.textContent.trim().length > 0);
   }
 
+  function hasTextCharacters(el: Element | null): boolean {
+    return !!(el && el.textContent && el.textContent.length > 0);
+  }
+
+  function setSelectionOverlayResizeChromeVisible(visible: boolean): void {
+    selectionOverlay
+      .querySelectorAll(
+        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]",
+      )
+      .forEach(function (node) {
+        if (!(node instanceof HTMLElement)) return;
+        node.style.display = visible ? "" : "none";
+      });
+  }
+
+  function updateTextEditingChrome(
+    target: HTMLElement,
+    originalMinWidth: string,
+  ): void {
+    target.style.outline = "";
+    target.style.outlineOffset = "";
+    if (hasTextCharacters(target)) {
+      target.style.minWidth = originalMinWidth;
+      positionOverlay(selectionOverlay, target);
+      setSelectionOverlayResizeChromeVisible(false);
+      return;
+    }
+    target.style.minWidth = originalMinWidth || "1px";
+    selectionOverlay.style.display = "none";
+    setSelectionOverlayResizeChromeVisible(false);
+  }
+
   function isInlineEditableDescendant(el: Element | null): boolean {
     if (!el || !el.tagName) return false;
     // Allowlist covers inline markup AND common block-level text containers
@@ -3492,15 +3524,14 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     selectedEl = selectionTargetForHit(target) || target;
     var originalText = target.textContent || "";
     var originalHtml = target.innerHTML || "";
+    var originalMinWidth = target.style.minWidth;
     var committed = false;
     activeTextEditEl = target;
     target.setAttribute("contenteditable", "true");
     target.setAttribute("data-agent-native-text-editing", "true");
     target.style.cursor = "text";
-    target.style.outline = "1.5px solid var(--design-editor-accent-color)";
-    target.style.outlineOffset = "2px";
     setTextEditingPointerPassthrough(true);
-    positionOverlay(selectionOverlay, target);
+    updateTextEditingChrome(target, originalMinWidth);
     (window.parent as Window).postMessage(
       { type: "element-select", payload: getElementInfo(target) },
       "*",
@@ -3517,6 +3548,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       target.removeEventListener("blur", onBlur, true);
       target.removeEventListener("keydown", onKeyDown, true);
       target.removeEventListener("paste", onPaste, true);
+      target.removeEventListener("input", onInput, true);
       target.removeEventListener("keyup", onSelectionChange, true);
       target.removeEventListener("mouseup", onSelectionChange, true);
       document.removeEventListener("selectionchange", onSelectionChange);
@@ -3525,7 +3557,9 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       target.style.cursor = "";
       target.style.outline = "";
       target.style.outlineOffset = "";
+      target.style.minWidth = originalMinWidth;
       setTextEditingPointerPassthrough(false);
+      setSelectionOverlayResizeChromeVisible(true);
       if (activeTextEditEl === target) activeTextEditEl = null;
       postTextEditingState(target, false);
       if (!commit) {
@@ -3548,7 +3582,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     function onKeyDown(ev) {
       if (ev.key === "Escape") {
         ev.preventDefault();
-        finish(false);
+        finish(true);
         target.blur();
         return;
       }
@@ -3564,15 +3598,24 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       insertPlainTextAtSelection(
         (ev.clipboardData && ev.clipboardData.getData("text/plain")) || "",
       );
+      updateTextEditingChrome(target, originalMinWidth);
+      postTextEditingState(target, true);
+    }
+
+    function onInput() {
+      updateTextEditingChrome(target, originalMinWidth);
+      postTextEditingState(target, true);
     }
 
     function onSelectionChange() {
+      updateTextEditingChrome(target, originalMinWidth);
       postTextEditingState(target, true);
     }
 
     target.addEventListener("blur", onBlur, true);
     target.addEventListener("keydown", onKeyDown, true);
     target.addEventListener("paste", onPaste, true);
+    target.addEventListener("input", onInput, true);
     target.addEventListener("keyup", onSelectionChange, true);
     target.addEventListener("mouseup", onSelectionChange, true);
     document.addEventListener("selectionchange", onSelectionChange);
