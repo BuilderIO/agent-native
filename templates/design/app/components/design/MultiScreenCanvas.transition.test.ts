@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getChromeBorderTransition,
+  getPreviewDeviceFrameGeometry,
   getSelectionBoxTransition,
   isDirectScreenHoverTarget,
 } from "./MultiScreenCanvas";
@@ -32,5 +33,25 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
 
     expect(isDirectScreenHoverTarget(frame, frame)).toBe(true);
     expect(isDirectScreenHoverTarget(screenContentChild, frame)).toBe(false);
+  });
+
+  it("updates both dimensions when switching to a concrete device preview", () => {
+    expect(
+      getPreviewDeviceFrameGeometry({
+        currentGeometry: { x: 12, y: 24, width: 320, height: 640, z: 4 },
+        metadata: { width: 390, height: 844 },
+        previewDeviceFrame: "mobile",
+      }),
+    ).toEqual({ x: 12, y: 24, width: 390, height: 844, z: 4 });
+  });
+
+  it("keeps responsive preview width flexible while matching source aspect", () => {
+    expect(
+      getPreviewDeviceFrameGeometry({
+        currentGeometry: { x: 0, y: 0, width: 640, height: 640 },
+        metadata: { width: 1280, height: 800 },
+        previewDeviceFrame: "none",
+      }),
+    ).toEqual({ x: 0, y: 0, width: 640, height: 400 });
   });
 });

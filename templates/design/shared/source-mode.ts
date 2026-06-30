@@ -1,5 +1,25 @@
 export const DESIGN_SOURCE_TYPES = ["inline", "localhost", "fusion"] as const;
 
+/**
+ * Source-level provenance for a selected DOM element, populated from
+ * data attributes emitted by the connected app's build-time transform
+ * (e.g. @vitejs/plugin-react jsxDEV source maps or a Babel source plugin).
+ *
+ * - data-source-file / data-loc "file:line:col" → sourceFile
+ * - data-source-line / data-loc                 → line
+ * - data-source-column / data-loc               → column
+ * - data-component-name                         → component
+ *
+ * All fields are optional because cross-origin localhost iframes cannot be
+ * read (same-origin policy), and inline screens may not carry these attrs.
+ */
+export interface ElementProvenance {
+  sourceFile?: string;
+  line?: number;
+  column?: number;
+  component?: string;
+}
+
 export type DesignSourceType = (typeof DESIGN_SOURCE_TYPES)[number];
 
 export const DESIGN_BRIDGE_OPERATIONS = [

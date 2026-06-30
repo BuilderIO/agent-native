@@ -15,8 +15,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   applyVisualEdit,
+  type AutoLayoutEditIntent,
   type CodeLayerSource,
   type EditIntent,
+  type UnwrapEditIntent,
+  type WrapNodesEditIntent,
 } from "../shared/code-layer.js";
 
 type VisualEditActionSource = CodeLayerSource & { html?: string };
@@ -110,6 +113,50 @@ const intentSchema = z.preprocess(
       anchor: targetSchema,
       placement: z.enum(["before", "after", "inside"]),
     }),
+    z.object({
+      kind: z.literal("wrapNodes"),
+      targetIds: z
+        .array(z.string())
+        .min(1)
+        .describe(
+          "data-agent-native-node-id values of sibling nodes to group. All must share a common parent.",
+        ),
+      autoLayout: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true the wrapper gets display:flex; flex-direction:column; gap:8px and absolute positioning is stripped from each wrapped child.",
+        ),
+    }) satisfies z.ZodType<WrapNodesEditIntent>,
+    z.object({
+      kind: z.literal("unwrap"),
+      targetId: z
+        .string()
+        .describe(
+          "data-agent-native-node-id of the wrapper to remove, promoting its children to the wrapper's parent.",
+        ),
+    }) satisfies z.ZodType<UnwrapEditIntent>,
+    z.object({
+      kind: z.literal("autoLayout"),
+      targetId: z
+        .string()
+        .describe(
+          "data-agent-native-node-id of the container to convert to/from auto-layout.",
+        ),
+      enabled: z
+        .boolean()
+        .describe(
+          "true = enable auto-layout (display:flex + direction + gap, strip absolute positioning from direct children); false = set display:block.",
+        ),
+      direction: z
+        .enum(["row", "column"])
+        .optional()
+        .describe("Flex direction when enabling. Defaults to column."),
+      gap: z
+        .string()
+        .optional()
+        .describe("Gap value when enabling. Defaults to 8px."),
+    }) satisfies z.ZodType<AutoLayoutEditIntent>,
   ]),
 );
 

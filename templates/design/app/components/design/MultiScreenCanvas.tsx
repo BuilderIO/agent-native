@@ -135,6 +135,7 @@ interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  fullViewScreenIds?: string[];
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
@@ -158,6 +159,13 @@ interface MultiScreenCanvasProps {
     primitive: CanvasPrimitiveInsert,
   ) => boolean | string;
   onPrimitiveCreated?: (screenId: string, nodeId: string) => void;
+  onPrimitiveReparent?: (args: {
+    sourceNodeId: string;
+    sourceScreenId: string;
+    targetNodeId: string;
+    targetScreenId: string;
+    placement: "inside";
+  }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
@@ -482,6 +490,7 @@ export function MultiScreenCanvas({
   zoom,
   activeId,
   selectedScreenIds,
+  fullViewScreenIds,
   activeScreenHasHoveredChild = false,
   hoveredChildScreenId,
   directlyHoveredScreenId,
@@ -499,6 +508,7 @@ export function MultiScreenCanvas({
   onGeometryCommit,
   onCreatePrimitive,
   onPrimitiveCreated,
+  onPrimitiveReparent,
   onCreateScreenFrame,
   onDeleteSelection,
   onZoomChange,
@@ -518,6 +528,7 @@ export function MultiScreenCanvas({
   const frameGeometryRef = useRef(frameGeometry);
   const onGeometryChangeRef = useRef(onGeometryChange);
   const onGeometryCommitRef = useRef(onGeometryCommit);
+  const screensRef = useRef(screens);
   const [draftPrimitives, setDraftPrimitives] = useState<DraftPrimitive[]>([]);
   const draftPrimitivesRef = useRef(draftPrimitives);
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
@@ -552,6 +563,10 @@ export function MultiScreenCanvas({
     null,
   );
   const [dragCursor, setDragCursor] = useState<string | null>(null);
+  const [primitiveDropTarget, setPrimitiveDropTarget] =
+    useState<PrimitiveDropTarget | null>(null);
+  const primitiveDropTargetRef = useRef<PrimitiveDropTarget | null>(null);
+  const onPrimitiveReparentRef = useRef(onPrimitiveReparent);
   const suppressNextPick = useRef(false);
   const feedbackTimerRef = useRef<number | null>(null);
   const pendingWheelGestureRef = useRef<PendingWheelGesture | null>(null);
@@ -582,6 +597,14 @@ export function MultiScreenCanvas({
   useEffect(() => {
     onGeometryCommitRef.current = onGeometryCommit;
   }, [onGeometryCommit]);
+
+  useEffect(() => {
+    onPrimitiveReparentRef.current = onPrimitiveReparent;
+  }, [onPrimitiveReparent]);
+
+  useEffect(() => {
+    screensRef.current = screens;
+  }, [screens]);
 
   useEffect(() => {
     activePenPathRef.current = activePenPath;
@@ -734,15 +757,13 @@ export function MultiScreenCanvas({
         const metadata = getResolvedMetadata(screen);
         const currentGeometry =
           current[screen.id] ?? getInitialFrameGeometry(index, metadata);
-        const nextHeight = getOverviewFrameHeight(
-          currentGeometry.width,
+        const nextGeometry = getPreviewDeviceFrameGeometry({
+          currentGeometry,
           metadata,
-        );
-        if (currentGeometry.height === nextHeight) return;
-        next[screen.id] = {
-          ...currentGeometry,
-          height: nextHeight,
-        };
+          previewDeviceFrame,
+        });
+        if (sameFrameGeometry(currentGeometry, nextGeometry)) return;
+        next[screen.id] = nextGeometry;
         changed = true;
       });
 
@@ -787,9 +808,17 @@ export function MultiScreenCanvas({
     if (!surfaceRef.current || screens.length === 0) return;
     const rect = surfaceRef.current.getBoundingClientRect();
     const scale = zoomRef.current / 100;
-    const frames = screens.map((screen, index) =>
-      getInitialFrameGeometry(index, getResolvedMetadata(screen)),
-    );
+    const frames = screens.map((screen, index) => {
+      const metadata = getResolvedMetadata(screen);
+      const currentGeometry =
+        frameGeometryRef.current[screen.id] ??
+        getInitialFrameGeometry(index, metadata);
+      return getPreviewDeviceFrameGeometry({
+        currentGeometry,
+        metadata,
+        previewDeviceFrame,
+      });
+    });
     const bounds = getFrameGroupBounds(
       frames.map((geometry, index) => ({
         id: screens[index]?.id ?? String(index),
@@ -1036,6 +1065,31 @@ export function MultiScreenCanvas({
     [],
   );
 
+  const updatePrimitiveDropTarget = useCallback(
+    (target: PrimitiveDropTarget | null) => {
+      primitiveDropTargetRef.current = target;
+      setPrimitiveDropTarget(target);
+    },
+    [],
+  );
+
+  const findPrimitiveDropTarget = useCallback(
+    (
+      point: Point,
+      draggedNodeId: string | null,
+    ): PrimitiveDropTarget | null => {
+      if (!onPrimitiveReparentRef.current) return null;
+      return getPrimitiveDropTargetForPoint(
+        point,
+        draggedNodeId,
+        screensRef.current,
+        frameGeometryRef.current,
+        getResolvedMetadata,
+      );
+    },
+    [getResolvedMetadata],
+  );
+
   const finishDrag = useCallback(() => {
     if (feedbackTimerRef.current !== null) {
       window.clearTimeout(feedbackTimerRef.current);
@@ -1049,6 +1103,8 @@ export function MultiScreenCanvas({
     setAlignmentGuides([]);
     setTransformBadge(null);
     setDragCursor(null);
+    primitiveDropTargetRef.current = null;
+    setPrimitiveDropTarget(null);
     dragCleanup.current?.();
   }, []);
 
@@ -1773,40 +1829,94 @@ export function MultiScreenCanvas({
           ev.clientX,
           ev.clientY,
         );
+
+        // Primitive drop-into-container detection: check if the dragged draft
+        // is hovering over a committed container primitive on any screen.
+        const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
+        const primitiveTarget = findPrimitiveDropTarget(canvasPoint, null);
+        updatePrimitiveDropTarget(primitiveTarget);
       };
 
       const handleMouseUp = () => {
         const state = dragState.current;
+        const dropTarget = primitiveDropTargetRef.current;
         if (state?.type === "draft-move" && state.hasMoved) {
-          const persisted: Array<{
-            draftId: string;
-            frameId: string;
-            nodeId: string;
-          }> = [];
-          draftPrimitivesRef.current.forEach((draft) => {
-            if (!state.targetIds.includes(draft.id)) return;
-            const result = persistDraftPrimitive(draft);
-            if (result) {
-              persisted.push({
-                draftId: draft.id,
-                frameId: result.frameId,
-                nodeId: result.nodeId,
-              });
-            }
-          });
+          if (dropTarget) {
+            // Drop into a container primitive: persist the draft into the
+            // target's screen, then call onPrimitiveReparent to nest it.
+            const persisted: Array<{
+              draftId: string;
+              frameId: string;
+              nodeId: string;
+            }> = [];
+            draftPrimitivesRef.current.forEach((draft) => {
+              if (!state.targetIds.includes(draft.id)) return;
+              // Persist into the target's screen (not just any containing frame)
+              const result = persistDraftPrimitive(draft, dropTarget.screenId);
+              if (result) {
+                persisted.push({
+                  draftId: draft.id,
+                  frameId: result.frameId,
+                  nodeId: result.nodeId,
+                });
+              }
+            });
 
-          if (persisted.length > 0) {
-            const persistedDraftIds = new Set(
-              persisted.map((entry) => entry.draftId),
-            );
-            updateDraftPrimitives((current) =>
-              current.filter((draft) => !persistedDraftIds.has(draft.id)),
-            );
-            updateSelectedDraftIds((current) =>
-              current.filter((draftId) => !persistedDraftIds.has(draftId)),
-            );
-            const lastNodeId = persisted[persisted.length - 1]?.nodeId;
-            if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
+            if (persisted.length > 0) {
+              const persistedDraftIds = new Set(
+                persisted.map((entry) => entry.draftId),
+              );
+              updateDraftPrimitives((current) =>
+                current.filter((draft) => !persistedDraftIds.has(draft.id)),
+              );
+              updateSelectedDraftIds((current) =>
+                current.filter((draftId) => !persistedDraftIds.has(draftId)),
+              );
+              // Reparent each persisted node into the container primitive.
+              persisted.forEach((entry) => {
+                onPrimitiveReparentRef.current?.({
+                  sourceNodeId: entry.nodeId,
+                  sourceScreenId: entry.frameId,
+                  targetNodeId: dropTarget.nodeId,
+                  targetScreenId: dropTarget.screenId,
+                  placement: "inside",
+                });
+              });
+              const lastNodeId = persisted[persisted.length - 1]?.nodeId;
+              if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
+            }
+          } else {
+            // Normal drop: persist into whichever screen contains the draft.
+            const persisted: Array<{
+              draftId: string;
+              frameId: string;
+              nodeId: string;
+            }> = [];
+            draftPrimitivesRef.current.forEach((draft) => {
+              if (!state.targetIds.includes(draft.id)) return;
+              const result = persistDraftPrimitive(draft);
+              if (result) {
+                persisted.push({
+                  draftId: draft.id,
+                  frameId: result.frameId,
+                  nodeId: result.nodeId,
+                });
+              }
+            });
+
+            if (persisted.length > 0) {
+              const persistedDraftIds = new Set(
+                persisted.map((entry) => entry.draftId),
+              );
+              updateDraftPrimitives((current) =>
+                current.filter((draft) => !persistedDraftIds.has(draft.id)),
+              );
+              updateSelectedDraftIds((current) =>
+                current.filter((draftId) => !persistedDraftIds.has(draftId)),
+              );
+              const lastNodeId = persisted[persisted.length - 1]?.nodeId;
+              if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
+            }
           }
         }
         finishDrag();
@@ -1815,12 +1925,15 @@ export function MultiScreenCanvas({
       installDragListeners(handleMouseMove, handleMouseUp);
     },
     [
+      findPrimitiveDropTarget,
       finishDrag,
+      getCanvasPoint,
       getCurrentCanvasEntries,
       installDragListeners,
       persistDraftPrimitive,
       showTransformFeedback,
       updateDraftPrimitives,
+      updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
     ],
@@ -2068,11 +2181,51 @@ export function MultiScreenCanvas({
           ev.clientX,
           ev.clientY,
         );
+
+        // When all dragged ids are committed primitive nodeIds (not screen
+        // frames), check for a container primitive drop target to highlight.
+        const currentFrameIds = Object.keys(frameGeometryRef.current);
+        const allCommitted = state.targetIds.every(
+          (targetId) => !currentFrameIds.includes(targetId),
+        );
+        if (allCommitted) {
+          const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
+          updatePrimitiveDropTarget(
+            findPrimitiveDropTarget(canvasPoint, state.primaryId),
+          );
+        }
       };
 
       const handleMouseUp = () => {
         const state = dragState.current;
+        const dropTarget = primitiveDropTargetRef.current;
         if (state?.type === "move" && state.hasMoved) {
+          // If all dragged ids are committed primitive nodeIds (not screen
+          // frames), attempt a primitive reparent on drop.
+          const currentFrameIds = Object.keys(frameGeometryRef.current);
+          const allCommitted = state.targetIds.every(
+            (targetId) => !currentFrameIds.includes(targetId),
+          );
+          if (allCommitted && dropTarget) {
+            const sourceScreenId = resolveNodeScreenId(
+              state.primaryId,
+              screensRef.current,
+            );
+            if (sourceScreenId) {
+              onPrimitiveReparentRef.current?.({
+                sourceNodeId: state.primaryId,
+                sourceScreenId,
+                targetNodeId: dropTarget.nodeId,
+                targetScreenId: dropTarget.screenId,
+                placement: "inside",
+              });
+              suppressNextPick.current = true;
+              finishDrag();
+              return;
+            }
+          }
+
+          // Normal screen-frame geometry commit.
           const after = cloneFrameGeometryById(frameGeometryRef.current);
           onGeometryCommitRef.current?.(
             frameGeometryWithOverrides(after, state.originFrames),
@@ -2087,12 +2240,15 @@ export function MultiScreenCanvas({
     },
     [
       activeId,
+      findPrimitiveDropTarget,
       finishDrag,
+      getCanvasPoint,
       getCurrentFrameEntries,
       installDragListeners,
       onPick,
       showTransformFeedback,
       updateFrameGeometry,
+      updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
     ],
@@ -2957,6 +3113,7 @@ export function MultiScreenCanvas({
         : appendPenNode(activePenPath, createCornerNode(penPointer))
       : activePenPath;
   const selectedIdSet = new Set(selectedIds);
+  const fullViewIdSet = new Set(fullViewScreenIds ?? []);
   const selectedDraftIdSet = new Set(selectedDraftIds);
   const surfaceCursor = isPanning
     ? "grabbing"
@@ -3063,6 +3220,7 @@ export function MultiScreenCanvas({
               screenContent={screenContentById.get(screen.id)}
               isActive={screen.id === activeId}
               isSelected={selectedIdSet.has(screen.id)}
+              showFullView={fullViewIdSet.has(screen.id)}
               isDirectlyHovered={screen.id === directlyHoveredScreenId}
               hasHoveredChild={
                 (screen.id === activeId && activeScreenHasHoveredChild) ||
@@ -3199,6 +3357,29 @@ export function MultiScreenCanvas({
             top: pan.y + (SURFACE_PADDING + marquee.y) * scale,
             width: Math.max(1, marquee.width * scale),
             height: Math.max(1, marquee.height * scale),
+          }}
+        />
+      ) : null}
+
+      {primitiveDropTarget ? (
+        <span
+          data-primitive-drop-target
+          className="pointer-events-none absolute z-40 rounded-sm"
+          style={{
+            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
+            left:
+              pan.x +
+              (SURFACE_PADDING + primitiveDropTarget.boardRect.x) * scale,
+            top:
+              pan.y +
+              (SURFACE_PADDING + primitiveDropTarget.boardRect.y) * scale,
+            width: Math.max(1, primitiveDropTarget.boardRect.width * scale),
+            height: Math.max(1, primitiveDropTarget.boardRect.height * scale),
+            // Match the in-screen inside-guide style: 2px accent border + 14%
+            // accent fill. Uses the same CSS variable as the DesignCanvas guide.
+            border: "2px solid var(--design-editor-accent-color)",
+            background:
+              "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)",
           }}
         />
       ) : null}
@@ -3573,6 +3754,7 @@ interface ScreenProps {
   geometry: FrameGeometry;
   isActive: boolean;
   isSelected: boolean;
+  showFullView: boolean;
   isDirectlyHovered: boolean;
   hasHoveredChild: boolean;
   groupSelected: boolean;
@@ -3605,6 +3787,7 @@ const Screen = memo(function Screen({
   geometry,
   isActive,
   isSelected,
+  showFullView,
   isDirectlyHovered,
   hasHoveredChild,
   groupSelected,
@@ -3633,6 +3816,7 @@ const Screen = memo(function Screen({
     !creationToolActive &&
     !canvasGestureActive;
   const emphasized = isSelected || frameDirectlyHovered;
+  const fullViewVisible = emphasized || showFullView;
   const activeOrEmphasized = isActive || emphasized;
   const selectionOutlined = isSelected && !groupSelected;
   const showHoverChrome =
@@ -3760,7 +3944,7 @@ const Screen = memo(function Screen({
           className={cn(
             "absolute top-1/2 z-40 flex h-5 shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            emphasized && "opacity-100",
+            fullViewVisible && "opacity-100",
             fullViewOutsideFrame ? "left-full" : "right-1",
           )}
           style={{
@@ -3858,26 +4042,12 @@ const Screen = memo(function Screen({
         }}
       >
         <span
-          data-screen-hover-outline
-          className={cn(
-            "pointer-events-none absolute border transition-opacity",
-            showHoverChrome
-              ? "border-[var(--design-editor-accent-color)] opacity-100"
-              : "border-transparent opacity-0",
-          )}
-          style={{
-            inset: -5 * chromeScale,
-            borderRadius: 13 * chromeScale,
-            borderWidth: 1.5 * chromeScale,
-            transition: getChromeBorderTransition(chromeSettling),
-          }}
-        />
-        <span
           data-screen-content
           className={cn(
             "relative block h-full w-full overflow-hidden rounded-lg border bg-white shadow-2xl transition-colors",
-            "border-border",
-            showHoverChrome && "border-muted-foreground/60",
+            showHoverChrome
+              ? "border-[var(--design-editor-accent-color)]"
+              : "border-border",
           )}
           style={{ pointerEvents: screenContentInteractive ? "auto" : "none" }}
         >
@@ -3954,6 +4124,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     sameFrameGeometry(prev.geometry, next.geometry) &&
     prev.isActive === next.isActive &&
     prev.isSelected === next.isSelected &&
+    prev.showFullView === next.showFullView &&
     prev.isDirectlyHovered === next.isDirectlyHovered &&
     prev.hasHoveredChild === next.hasHoveredChild &&
     prev.groupSelected === next.groupSelected &&
@@ -4276,6 +4447,30 @@ function getOverviewFrameHeight(width: number, metadata?: ScreenViewportSize) {
   const sourceHeight =
     metadata?.height && metadata.height > 0 ? metadata.height : 2560;
   return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
+}
+
+export function getPreviewDeviceFrameGeometry({
+  currentGeometry,
+  metadata,
+  previewDeviceFrame,
+}: {
+  currentGeometry: FrameGeometry;
+  metadata?: { width: number; height: number };
+  previewDeviceFrame: DeviceFrameType;
+}): FrameGeometry {
+  if (previewDeviceFrame === "none") {
+    return {
+      ...currentGeometry,
+      height: getOverviewFrameHeight(currentGeometry.width, metadata),
+    };
+  }
+
+  const viewport = DEVICE_FRAME_VIEWPORTS[previewDeviceFrame];
+  return {
+    ...currentGeometry,
+    width: Math.max(1, Math.round(metadata?.width ?? viewport.width)),
+    height: Math.max(1, Math.round(metadata?.height ?? viewport.height)),
+  };
 }
 
 function getScreenPreviewViewport(
@@ -5084,4 +5279,258 @@ function getUrl(value: string | undefined) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+// ---------------------------------------------------------------------------
+// Primitive-into-primitive drop target detection
+// ---------------------------------------------------------------------------
+
+/** A committed container primitive that can accept a dropped primitive. */
+export interface PrimitiveDropTarget {
+  /** The node's data-agent-native-node-id value. */
+  nodeId: string;
+  /** The screen frame id (ScreenFile.id) that owns this primitive. */
+  screenId: string;
+  /** The primitive's bounding rect in board/canvas space. */
+  boardRect: FrameGeometry;
+}
+
+/**
+ * Parsed representation of a committed primitive found in a screen's HTML.
+ * Geometry is in screen-local CSS pixels (as written by appendCanvasPrimitiveToHtml).
+ */
+export interface ParsedScreenPrimitive {
+  nodeId: string;
+  screenId: string;
+  /** Position relative to screen body (CSS px). */
+  localLeft: number;
+  localTop: number;
+  localWidth: number;
+  localHeight: number;
+  isContainer: boolean;
+}
+
+/** Simple LRU-style cache to avoid re-parsing the same screen HTML on every
+ *  mousemove frame.  Keyed by `screenId:contentLength:prefix48` so that edits
+ *  that keep the same character count (e.g. agent replacing one node-id with
+ *  another of equal length) still invalidate the entry. */
+export const primitiveParseCache = new Map<string, ParsedScreenPrimitive[]>();
+const PRIMITIVE_PARSE_CACHE_MAX = 64;
+
+export function parsePrimitivesFromScreen(
+  screen: ScreenFile,
+): ParsedScreenPrimitive[] {
+  const cacheKey = `${screen.id}:${screen.content.length}:${screen.content.slice(0, 48)}`;
+  const cached = primitiveParseCache.get(cacheKey);
+  if (cached) return cached;
+
+  const result: ParsedScreenPrimitive[] = [];
+  if (typeof DOMParser === "undefined" || !screen.content) {
+    return result;
+  }
+
+  try {
+    const doc = new DOMParser().parseFromString(screen.content, "text/html");
+    const nodes = doc.querySelectorAll("[data-agent-native-node-id]");
+    nodes.forEach((el) => {
+      const nodeId = el.getAttribute("data-agent-native-node-id");
+      if (!nodeId) return;
+
+      const htmlEl = el as HTMLElement;
+      const style = htmlEl.style;
+      const tag = el.tagName.toLowerCase();
+
+      // Only block elements with explicit absolute positioning are considered
+      // positioned primitives drawn by appendCanvasPrimitiveToHtml.
+      if (style.position !== "absolute") return;
+
+      const left = parseFloat(style.left) || 0;
+      const top = parseFloat(style.top) || 0;
+      const width = parseFloat(style.width) || 0;
+      const height = parseFloat(style.height) || 0;
+
+      // Validity: must have non-zero size
+      if (width <= 0 || height <= 0) return;
+
+      // Container check:
+      //   - Must be a div (not svg/path/circle/polygon/etc.)
+      //   - Must NOT be an ellipse (border-radius:50%)
+      //   - NOT a text primitive (but text divs could be containers in principle;
+      //     we exclude them by checking for display:inline-block autoSize pattern)
+      const isDiv = tag === "div";
+      const isEllipse =
+        style.borderRadius === "50%" ||
+        style.borderRadius === "50% 50% 50% 50%";
+      const isTextAutoSize = style.display === "inline-block";
+      const isContainer = isDiv && !isEllipse && !isTextAutoSize;
+
+      result.push({
+        nodeId,
+        screenId: screen.id,
+        localLeft: left,
+        localTop: top,
+        localWidth: width,
+        localHeight: height,
+        isContainer,
+      });
+    });
+  } catch {
+    // Silently ignore parse errors
+  }
+
+  if (primitiveParseCache.size >= PRIMITIVE_PARSE_CACHE_MAX) {
+    // Evict the oldest entry
+    const firstKey = primitiveParseCache.keys().next().value;
+    if (firstKey !== undefined) primitiveParseCache.delete(firstKey);
+  }
+  primitiveParseCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * Convert a screen-local primitive rect to board/canvas coordinates.
+ *
+ * appendCanvasPrimitiveToHtml stores positions in screen-local CSS pixels
+ * scaled from the board draft geometry:
+ *   localX = (boardX - frame.x) * (metadata.width / frame.width)
+ * Inverting:
+ *   boardX = frame.x + localX * (frame.width / metadata.width)
+ */
+export function primitiveLocalToBoardRect(
+  localLeft: number,
+  localTop: number,
+  localWidth: number,
+  localHeight: number,
+  frameGeometry: FrameGeometry,
+  metadata: { width: number; height: number },
+): FrameGeometry {
+  const scaleX = frameGeometry.width / Math.max(1, metadata.width);
+  const scaleY = frameGeometry.height / Math.max(1, metadata.height);
+  return {
+    x: frameGeometry.x + localLeft * scaleX,
+    y: frameGeometry.y + localTop * scaleY,
+    width: Math.max(1, localWidth * scaleX),
+    height: Math.max(1, localHeight * scaleY),
+  };
+}
+
+/**
+ * Find the topmost committed container primitive at `point` (canvas coords),
+ * excluding `draggedNodeId` and any of its descendants.
+ *
+ * Descendants are detected geometrically: a primitive whose board rect is
+ * fully enclosed by the dragged node's board rect is treated as a descendant
+ * and excluded. This avoids a circular parent-child relationship on drop.
+ *
+ * Returns null if no valid target found.
+ */
+export function getPrimitiveDropTargetForPoint(
+  point: Point,
+  draggedNodeId: string | null,
+  screens: ScreenFile[],
+  frameGeometryById: FrameGeometryById,
+  getMetadata: (screen: ScreenFile) => { width: number; height: number },
+): PrimitiveDropTarget | null {
+  // Pre-compute the dragged node's board rect so we can exclude its descendants.
+  let draggedBoardRect: FrameGeometry | null = null;
+  if (draggedNodeId) {
+    outer: for (const screen of screens) {
+      const frameGeometry = frameGeometryById[screen.id];
+      if (!frameGeometry) continue;
+      const metadata = getMetadata(screen);
+      const primitives = parsePrimitivesFromScreen(screen);
+      for (const prim of primitives) {
+        if (prim.nodeId === draggedNodeId) {
+          draggedBoardRect = primitiveLocalToBoardRect(
+            prim.localLeft,
+            prim.localTop,
+            prim.localWidth,
+            prim.localHeight,
+            frameGeometry,
+            metadata,
+          );
+          break outer;
+        }
+      }
+    }
+  }
+
+  let best: PrimitiveDropTarget | null = null;
+
+  for (const screen of screens) {
+    const frameGeometry = frameGeometryById[screen.id];
+    if (!frameGeometry) continue;
+
+    const frameBounds = {
+      left: frameGeometry.x,
+      top: frameGeometry.y,
+      right: frameGeometry.x + frameGeometry.width,
+      bottom: frameGeometry.y + frameGeometry.height,
+    };
+    if (!rectContainsPoint(frameBounds, point)) {
+      continue;
+    }
+
+    const metadata = getMetadata(screen);
+    const primitives = parsePrimitivesFromScreen(screen);
+
+    for (const prim of primitives) {
+      if (!prim.isContainer) continue;
+      if (draggedNodeId && prim.nodeId === draggedNodeId) continue;
+
+      const boardRect = primitiveLocalToBoardRect(
+        prim.localLeft,
+        prim.localTop,
+        prim.localWidth,
+        prim.localHeight,
+        frameGeometry,
+        metadata,
+      );
+
+      // Exclude geometric descendants: a primitive whose board rect is fully
+      // contained within the dragged node's board rect is a child/descendant
+      // and cannot be a valid reparent target (would create a cycle).
+      if (
+        draggedBoardRect &&
+        boardRect.x >= draggedBoardRect.x &&
+        boardRect.y >= draggedBoardRect.y &&
+        boardRect.x + boardRect.width <=
+          draggedBoardRect.x + draggedBoardRect.width &&
+        boardRect.y + boardRect.height <=
+          draggedBoardRect.y + draggedBoardRect.height
+      ) {
+        continue;
+      }
+
+      if (
+        point.x >= boardRect.x &&
+        point.x <= boardRect.x + boardRect.width &&
+        point.y >= boardRect.y &&
+        point.y <= boardRect.y + boardRect.height
+      ) {
+        // Later in the DOM = higher paint order = topmost visually.
+        // We take the last match within each screen (DOM order).
+        best = { nodeId: prim.nodeId, screenId: screen.id, boardRect };
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Resolve which screen (ScreenFile.id) owns a committed primitive nodeId by
+ * scanning all screen HTML for the given data-agent-native-node-id value.
+ */
+export function resolveNodeScreenId(
+  nodeId: string,
+  screens: ScreenFile[],
+): string | null {
+  for (const screen of screens) {
+    const primitives = parsePrimitivesFromScreen(screen);
+    if (primitives.some((p) => p.nodeId === nodeId)) {
+      return screen.id;
+    }
+  }
+  return null;
 }

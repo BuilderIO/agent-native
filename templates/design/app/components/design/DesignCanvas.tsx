@@ -260,7 +260,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var chromeTransitionStyle = document.createElement('style');
     chromeTransitionStyle.textContent =
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
-      '[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}';
+      '[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}' +
+      '[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}' +
+      '[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}' +
+      '[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}' +
+      '[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
     (document.head || document.documentElement).appendChild(chromeTransitionStyle);
   })();
 
@@ -484,6 +488,40 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         reason: 'Parent layout context decides whether movement means gap, order, alignment, or wrapper structure.',
       });
     }
+    // --- provenance: read source-location attributes when present ---
+    // These are emitted by connected apps via @vitejs/plugin-react jsxDEV or a
+    // Babel source plugin.  Cross-origin localhost iframes cannot be read (CSP /
+    // same-origin policy), so this will be undefined in that case — expected.
+    var provenance = undefined;
+    var dataSourceFile = el.getAttribute('data-source-file');
+    var dataSourceLine = el.getAttribute('data-source-line');
+    var dataSourceColumn = el.getAttribute('data-source-column');
+    var dataComponentName = el.getAttribute('data-component-name');
+    var dataLoc = el.getAttribute('data-loc');
+    // data-loc may encode "file:line:col" (Babel source plugin convention).
+    // Only parse it when data-source-file is absent, to avoid double-reads.
+    if (!dataSourceFile && dataLoc) {
+      var locParts = dataLoc.split(':');
+      // Expect at least "file:line" or "file:line:col"; guard against bare ids.
+      if (locParts.length >= 2) {
+        var maybeFile = locParts[0];
+        var maybeLine = Number(locParts[locParts.length >= 3 ? locParts.length - 2 : locParts.length - 1]);
+        var maybeCol = locParts.length >= 3 ? Number(locParts[locParts.length - 1]) : undefined;
+        // Only treat as provenance when file part looks path-like.
+        if (maybeFile && maybeFile.length > 0 && !isNaN(maybeLine)) {
+          dataSourceFile = maybeFile;
+          dataSourceLine = String(maybeLine);
+          if (maybeCol !== undefined && !isNaN(maybeCol)) dataSourceColumn = String(maybeCol);
+        }
+      }
+    }
+    if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName) {
+      provenance = {};
+      if (dataSourceFile) provenance.sourceFile = dataSourceFile;
+      if (dataSourceLine) { var ln = parseInt(dataSourceLine, 10); if (!isNaN(ln)) provenance.line = ln; }
+      if (dataSourceColumn) { var col = parseInt(dataSourceColumn, 10); if (!isNaN(col)) provenance.column = col; }
+      if (dataComponentName) provenance.component = dataComponentName;
+    }
     return {
       tagName: el.tagName.toLowerCase(),
       id: el.id || undefined,
@@ -559,6 +597,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       confidence: capabilities.reduce(function(best, item) {
         return Math.max(best, item.confidence || 0);
       }, 0),
+      provenance: provenance,
     };
   }
 
@@ -635,16 +674,21 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     if (pos.indexOf('e') !== -1) rotate.style.right = '-26px';
     selectionOverlay.appendChild(rotate);
   });
-  var paddingOverlay = document.createElement('div');
-  paddingOverlay.setAttribute('data-agent-native-padding-overlay', '');
-  paddingOverlay.style.cssText = 'position:absolute;border:1px dashed var(--design-editor-accent-strong-color);border-radius:2px;pointer-events:none;';
-  selectionOverlay.appendChild(paddingOverlay);
+  var spacingOverlay = document.createElement('div');
+  spacingOverlay.setAttribute('data-agent-native-spacing-overlay', '');
+  spacingOverlay.style.cssText = 'position:absolute;inset:0;display:none;pointer-events:none;';
+  selectionOverlay.appendChild(spacingOverlay);
   document.body.appendChild(selectionOverlay);
 
   var transformBadge = document.createElement('div');
   transformBadge.setAttribute('data-agent-native-transform-badge', '');
   transformBadge.style.cssText = 'position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid hsl(var(--border));border-radius:4px;background:hsl(var(--background) / 0.96);color:hsl(var(--foreground));font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px color-mix(in srgb, hsl(var(--foreground)) 16%, transparent);';
   document.body.appendChild(transformBadge);
+
+  var spacingBadge = document.createElement('div');
+  spacingBadge.setAttribute('data-agent-native-spacing-badge', '');
+  spacingBadge.style.cssText = 'position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);';
+  document.body.appendChild(spacingBadge);
 
   var insertionGuide = document.createElement('div');
   insertionGuide.setAttribute('data-agent-native-insertion-guide', '');
@@ -661,14 +705,26 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	  var activeTextEditEl = null;
 	  var textEditPointerState = null;
 	  var pendingStructureMove = null;
+  var pendingShieldDrag = null;
+  var suppressNextShieldClick = false;
+  var suppressNextShieldClickTimer = null;
+  var selectedSpacingHovered = false;
+  var hoveredSpacingHandleKey = '';
+  var spacingHandleStateByKey = {};
+  var spacingHandleNodesByKey = {};
+  var spacingDrag = null;
 	  var lockedSelectors = [];
 	  var hiddenSelectors = [];
 
   function clearRuntimeSelection() {
     selectedEl = null;
     hoveredEl = null;
+    selectedSpacingHovered = false;
+    hoveredSpacingHandleKey = '';
+    spacingDrag = null;
     selectionOverlay.style.display = 'none';
     highlightOverlay.style.display = 'none';
+    hideSpacingOverlay();
     hideMeasurements();
   }
 
@@ -849,22 +905,365 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     refreshOverlays();
   }
 
-  function updatePaddingOverlay(el) {
-    if (!el) {
-      paddingOverlay.style.display = 'none';
+  function hideSpacingOverlay() {
+    spacingOverlay.style.display = 'none';
+    spacingOverlay.innerHTML = '';
+    spacingHandleStateByKey = {};
+    spacingHandleNodesByKey = {};
+    if (!spacingDrag) spacingBadge.style.display = 'none';
+  }
+
+  function visibleLayoutChildren(el) {
+    if (!el || !el.children) return [];
+    return Array.prototype.slice.call(el.children).filter(function(child) {
+      if (!child || child.nodeType !== 1 || isOverlayElement(child) || isLayerInteractionBlocked(child)) return false;
+      var cs = window.getComputedStyle(child);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || cs.position === 'fixed') return false;
+      var rect = child.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+  }
+
+  function spacingColor(kind) {
+    return kind === 'gap' ? '#ff4fd8' : 'var(--design-editor-accent-color)';
+  }
+
+  function spacingFill(kind, orientation) {
+    var tint = kind === 'gap' ? 'rgba(255, 79, 216, 0.28)' : 'rgba(46, 168, 255, 0.24)';
+    var stripe = kind === 'gap' ? 'rgba(255, 79, 216, 0.58)' : 'rgba(46, 168, 255, 0.52)';
+    var angle = orientation === 'vertical' ? '135deg' : '45deg';
+    return 'repeating-linear-gradient(' + angle + ', ' + stripe + ' 0 1px, ' + tint + ' 1px 4px, transparent 4px 7px)';
+  }
+
+  function clampSpacingValue(value) {
+    var rounded = Math.round(value);
+    if (!Number.isFinite(rounded)) return 0;
+    return Math.max(0, Math.min(999, rounded));
+  }
+
+  function makeSpacingHandle(config) {
+    var region = config.region;
+    if (!region || region.width <= 0 || region.height <= 0) return null;
+    return {
+      key: config.key,
+      groupKey: config.groupKey || config.key,
+      kind: config.kind,
+      property: config.property,
+      oppositeProperty: config.oppositeProperty || '',
+      side: config.side || '',
+      orientation: config.orientation,
+      value: clampSpacingValue(config.value),
+      region: {
+        x: Math.round(region.x),
+        y: Math.round(region.y),
+        width: Math.max(1, Math.round(region.width)),
+        height: Math.max(1, Math.round(region.height)),
+      },
+      line: config.line,
+    };
+  }
+
+  function childLocalRect(child, containerRect) {
+    var rect = child.getBoundingClientRect();
+    return {
+      left: rect.left - containerRect.left,
+      top: rect.top - containerRect.top,
+      right: rect.right - containerRect.left,
+      bottom: rect.bottom - containerRect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  function childRectsOverlap(a, b, axis) {
+    if (axis === 'x') {
+      return Math.max(a.top, b.top) < Math.min(a.bottom, b.bottom);
+    }
+    return Math.max(a.left, b.left) < Math.min(a.right, b.right);
+  }
+
+  function buildPaddingSpacingHandles(el, rect, cs) {
+    var handles = [];
+    var borderTop = readPx(cs.borderTopWidth);
+    var borderRight = readPx(cs.borderRightWidth);
+    var borderBottom = readPx(cs.borderBottomWidth);
+    var borderLeft = readPx(cs.borderLeftWidth);
+    var paddingTop = readPx(cs.paddingTop);
+    var paddingRight = readPx(cs.paddingRight);
+    var paddingBottom = readPx(cs.paddingBottom);
+    var paddingLeft = readPx(cs.paddingLeft);
+    var sx = chromeScaleX();
+    var sy = chromeScaleY();
+    var line = Math.max(1, chromeLineScale());
+    var hLineWidth = Math.max(8, Math.min(24, rect.width * 0.18)) * sx;
+    var vLineHeight = Math.max(8, Math.min(24, rect.height * 0.18)) * sy;
+    var innerLeft = borderLeft;
+    var innerTop = borderTop;
+    var innerWidth = Math.max(1, rect.width - borderLeft - borderRight);
+    var innerHeight = Math.max(1, rect.height - borderTop - borderBottom);
+    if (paddingTop > 0) {
+      handles.push(makeSpacingHandle({
+        key: 'padding:top',
+        kind: 'padding',
+        property: 'paddingTop',
+        oppositeProperty: 'paddingBottom',
+        side: 'top',
+        orientation: 'horizontal',
+        value: paddingTop,
+        region: { x: innerLeft, y: innerTop, width: innerWidth, height: paddingTop },
+        line: {
+          x: rect.width / 2 - hLineWidth / 2,
+          y: innerTop + paddingTop / 2 - line / 2,
+          width: hLineWidth,
+          height: line,
+        },
+      }));
+    }
+    if (paddingBottom > 0) {
+      handles.push(makeSpacingHandle({
+        key: 'padding:bottom',
+        kind: 'padding',
+        property: 'paddingBottom',
+        oppositeProperty: 'paddingTop',
+        side: 'bottom',
+        orientation: 'horizontal',
+        value: paddingBottom,
+        region: { x: innerLeft, y: rect.height - borderBottom - paddingBottom, width: innerWidth, height: paddingBottom },
+        line: {
+          x: rect.width / 2 - hLineWidth / 2,
+          y: rect.height - borderBottom - paddingBottom / 2 - line / 2,
+          width: hLineWidth,
+          height: line,
+        },
+      }));
+    }
+    if (paddingLeft > 0) {
+      handles.push(makeSpacingHandle({
+        key: 'padding:left',
+        kind: 'padding',
+        property: 'paddingLeft',
+        oppositeProperty: 'paddingRight',
+        side: 'left',
+        orientation: 'vertical',
+        value: paddingLeft,
+        region: { x: innerLeft, y: innerTop, width: paddingLeft, height: innerHeight },
+        line: {
+          x: innerLeft + paddingLeft / 2 - line / 2,
+          y: rect.height / 2 - vLineHeight / 2,
+          width: line,
+          height: vLineHeight,
+        },
+      }));
+    }
+    if (paddingRight > 0) {
+      handles.push(makeSpacingHandle({
+        key: 'padding:right',
+        kind: 'padding',
+        property: 'paddingRight',
+        oppositeProperty: 'paddingLeft',
+        side: 'right',
+        orientation: 'vertical',
+        value: paddingRight,
+        region: { x: rect.width - borderRight - paddingRight, y: innerTop, width: paddingRight, height: innerHeight },
+        line: {
+          x: rect.width - borderRight - paddingRight / 2 - line / 2,
+          y: rect.height / 2 - vLineHeight / 2,
+          width: line,
+          height: vLineHeight,
+        },
+      }));
+    }
+    return handles.filter(Boolean);
+  }
+
+  function buildGapSpacingHandles(el, rect, cs) {
+    var children = visibleLayoutChildren(el);
+    if (children.length < 2) return [];
+    var handles = [];
+    var sx = chromeScaleX();
+    var sy = chromeScaleY();
+    var line = Math.max(1, chromeLineScale());
+    var hLineWidth = 10 * sx;
+    var vLineHeight = 10 * sy;
+    var isFlex = cs.display === 'flex' || cs.display === 'inline-flex';
+    var isGrid = cs.display === 'grid' || cs.display === 'inline-grid';
+    if (!isFlex && !isGrid) return handles;
+    var primaryAxis = isFlex && cs.flexDirection && cs.flexDirection.indexOf('column') === 0 ? 'y' : 'x';
+    var childRects = children.map(function(child) {
+      return childLocalRect(child, rect);
+    });
+
+    function addAxisGaps(axis, property, groupKey) {
+      var cssGap = readPx(cs[property]);
+      if (cssGap <= 0) return;
+      var sorted = childRects.slice().sort(function(a, b) {
+        return axis === 'x' ? a.left - b.left : a.top - b.top;
+      });
+      var count = 0;
+      for (var i = 0; i < sorted.length - 1; i += 1) {
+        var a = sorted[i];
+        var b = sorted[i + 1];
+        if (!childRectsOverlap(a, b, axis)) continue;
+        var gap = axis === 'x' ? b.left - a.right : b.top - a.bottom;
+        if (gap <= 1) continue;
+        if (axis === 'x') {
+          var top = Math.max(a.top, b.top);
+          var bottom = Math.min(a.bottom, b.bottom);
+          var height = Math.max(1, bottom - top);
+          handles.push(makeSpacingHandle({
+            key: groupKey + ':' + count,
+            groupKey: groupKey,
+            kind: 'gap',
+            property: property,
+            orientation: 'vertical',
+            value: cssGap,
+            region: { x: a.right, y: top, width: gap, height: height },
+            line: {
+              x: a.right + gap / 2 - line / 2,
+              y: top + height / 2 - vLineHeight / 2,
+              width: line,
+              height: vLineHeight,
+            },
+          }));
+        } else {
+          var left = Math.max(a.left, b.left);
+          var right = Math.min(a.right, b.right);
+          var width = Math.max(1, right - left);
+          handles.push(makeSpacingHandle({
+            key: groupKey + ':' + count,
+            groupKey: groupKey,
+            kind: 'gap',
+            property: property,
+            orientation: 'horizontal',
+            value: cssGap,
+            region: { x: left, y: a.bottom, width: width, height: gap },
+            line: {
+              x: left + width / 2 - hLineWidth / 2,
+              y: a.bottom + gap / 2 - line / 2,
+              width: hLineWidth,
+              height: line,
+            },
+          }));
+        }
+        count += 1;
+      }
+    }
+
+    if (primaryAxis === 'x') {
+      addAxisGaps('x', 'columnGap', 'gap:column');
+      if (isGrid) addAxisGaps('y', 'rowGap', 'gap:row');
+    } else {
+      addAxisGaps('y', 'rowGap', 'gap:row');
+      if (isGrid) addAxisGaps('x', 'columnGap', 'gap:column');
+    }
+    return handles.filter(Boolean);
+  }
+
+  function buildSpacingHandles(el) {
+    if (!el || !document.documentElement.contains(el)) return [];
+    if (Math.abs(currentRotation(el)) > 0.01) return [];
+    var children = visibleLayoutChildren(el);
+    if (children.length === 0) return [];
+    var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return [];
+    var cs = window.getComputedStyle(el);
+    return buildPaddingSpacingHandles(el, rect, cs).concat(buildGapSpacingHandles(el, rect, cs));
+  }
+
+  function showSpacingBadgeForHandle(handle, value) {
+    if (!selectedEl || !handle) {
+      spacingBadge.style.display = 'none';
       return;
     }
-    var cs = window.getComputedStyle(el);
-    var top = readPx(cs.paddingTop) + readPx(cs.borderTopWidth);
-    var right = readPx(cs.paddingRight) + readPx(cs.borderRightWidth);
-    var bottom = readPx(cs.paddingBottom) + readPx(cs.borderBottomWidth);
-    var left = readPx(cs.paddingLeft) + readPx(cs.borderLeftWidth);
-    var hasPadding = top > 0 || right > 0 || bottom > 0 || left > 0;
-    paddingOverlay.style.display = hasPadding ? 'block' : 'none';
-    paddingOverlay.style.top = top + 'px';
-    paddingOverlay.style.right = right + 'px';
-    paddingOverlay.style.bottom = bottom + 'px';
-    paddingOverlay.style.left = left + 'px';
+    var rect = selectedEl.getBoundingClientRect();
+    var x = rect.left + handle.region.x + handle.region.width / 2;
+    var y = rect.top + handle.region.y + handle.region.height / 2;
+    spacingBadge.textContent = String(clampSpacingValue(value));
+    spacingBadge.style.display = 'block';
+    spacingBadge.style.background = spacingColor(handle.kind);
+    spacingBadge.style.left = x + 'px';
+    spacingBadge.style.top = y + 'px';
+    spacingBadge.style.transform = 'translate(-50%, -50%)';
+  }
+
+  function renderSpacingHandle(handle, activeGroupKey) {
+    if (!handle) return;
+    spacingHandleStateByKey[handle.key] = handle;
+    var highlighted = Boolean(activeGroupKey && handle.groupKey === activeGroupKey);
+    var lineNode = document.createElement('span');
+    lineNode.setAttribute('data-agent-native-spacing-line', handle.kind);
+    lineNode.style.display = 'block';
+    lineNode.style.left = handle.line.x + 'px';
+    lineNode.style.top = handle.line.y + 'px';
+    lineNode.style.width = Math.max(1, handle.line.width) + 'px';
+    lineNode.style.height = Math.max(1, handle.line.height) + 'px';
+    lineNode.style.background = spacingColor(handle.kind);
+    spacingOverlay.appendChild(lineNode);
+
+    var regionNode = document.createElement('span');
+    regionNode.setAttribute('data-agent-native-spacing-region', handle.kind);
+    regionNode.setAttribute('data-orientation', handle.orientation);
+    regionNode.setAttribute('data-spacing-key', handle.key);
+    regionNode.style.display = 'block';
+    regionNode.style.left = handle.region.x + 'px';
+    regionNode.style.top = handle.region.y + 'px';
+    regionNode.style.width = handle.region.width + 'px';
+    regionNode.style.height = handle.region.height + 'px';
+    regionNode.style.background = highlighted ? spacingFill(handle.kind, handle.orientation) : 'transparent';
+    regionNode.style.outline = highlighted ? '1px solid ' + spacingColor(handle.kind) : '0';
+    regionNode.style.outlineOffset = '-1px';
+    regionNode.addEventListener('mouseenter', function() {
+      hoveredSpacingHandleKey = handle.key;
+      selectedSpacingHovered = true;
+      updateSpacingOverlay(selectedEl);
+    });
+    regionNode.addEventListener('mouseleave', function() {
+      if (spacingDrag) return;
+      hoveredSpacingHandleKey = '';
+      updateSpacingOverlay(selectedEl);
+    });
+    regionNode.addEventListener('mousedown', function(event) {
+      startSpacingDrag(handle.key, event);
+    }, true);
+    spacingHandleNodesByKey[handle.key] = regionNode;
+    spacingOverlay.appendChild(regionNode);
+  }
+
+  function updateSpacingOverlay(el) {
+    if (el && el !== selectedEl) {
+      hideSpacingOverlay();
+      return;
+    }
+    if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+      hideSpacingOverlay();
+      return;
+    }
+    if (!selectedSpacingHovered && !hoveredSpacingHandleKey && !spacingDrag) {
+      hideSpacingOverlay();
+      return;
+    }
+    var handles = buildSpacingHandles(selectedEl);
+    if (handles.length === 0) {
+      hideSpacingOverlay();
+      return;
+    }
+    spacingOverlay.style.display = 'block';
+    spacingOverlay.innerHTML = '';
+    spacingHandleStateByKey = {};
+    spacingHandleNodesByKey = {};
+    var activeHandle =
+      (spacingDrag && spacingDrag.handle) ||
+      handles.find(function(handle) { return handle.key === hoveredSpacingHandleKey; }) ||
+      null;
+    var activeGroupKey = activeHandle ? activeHandle.groupKey : '';
+    handles.forEach(function(handle) {
+      renderSpacingHandle(handle, activeGroupKey);
+    });
+    if (activeHandle) {
+      showSpacingBadgeForHandle(activeHandle, spacingDrag ? spacingDrag.currentValue : activeHandle.value);
+    } else {
+      spacingBadge.style.display = 'none';
+    }
   }
 
   function applyEditorChromeScale() {
@@ -874,7 +1273,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var line = chromeLineScale();
     highlightOverlay.style.borderWidth = (1.5 * line) + 'px';
     selectionOverlay.style.borderWidth = (1.5 * line) + 'px';
-    paddingOverlay.style.borderWidth = Math.max(1, 1 * line) + 'px';
+    if (selectedEl) updateSpacingOverlay(selectedEl);
 
     selectionOverlay.querySelectorAll('[data-agent-native-edge-handle]').forEach(function(edge) {
       var pos = edge.getAttribute('data-agent-native-edge-handle');
@@ -936,7 +1335,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         overlay.style.height = elH + 'px';
         overlay.style.transform = 'rotate(' + elRot + 'deg)';
         overlay.style.transformOrigin = '0 0';
-        updatePaddingOverlay(el);
+        updateSpacingOverlay(el);
         return;
       }
     }
@@ -947,7 +1346,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     overlay.style.width = rect.width + 'px';
     overlay.style.height = rect.height + 'px';
     overlay.style.transform = '';
-    if (overlay === selectionOverlay) updatePaddingOverlay(el);
+    if (overlay === selectionOverlay) updateSpacingOverlay(el);
   }
 
   function refreshOverlays() {
@@ -1024,6 +1423,13 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         hoverRect.top + hoverRect.height / 2 - (selectedRect.top + selectedRect.height / 2)
       )) + 'px'
     );
+  }
+
+  function dragEventNames(e) {
+    var pointerGesture = e && e.type && e.type.indexOf('pointer') === 0;
+    return pointerGesture
+      ? { move: 'pointermove', up: 'pointerup' }
+      : { move: 'mousemove', up: 'mouseup' };
   }
 
   function elementFromEditorPoint(clientX, clientY) {
@@ -1190,6 +1596,14 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   function selectElementAtEvent(e) {
     stopNativeInteraction(e);
     blurActiveTextEditor();
+    if (suppressNextShieldClick) {
+      suppressNextShieldClick = false;
+      if (suppressNextShieldClickTimer !== null) {
+        clearTimeout(suppressNextShieldClickTimer);
+        suppressNextShieldClickTimer = null;
+      }
+      return;
+    }
     // Suppress the first click in a double-click sequence — the dblclick
     // handler (beginTextEditingFromEvent) will fire immediately after and a
     // spurious element-select would cause inspector flicker.
@@ -1197,15 +1611,27 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var target = elementFromEditorPoint(e.clientX, e.clientY);
     if (!target || target === document.body || target === document.documentElement) {
       // Click on empty canvas: clear the current selection (matches Figma).
-      selectedEl = null;
-      selectionOverlay.style.display = 'none';
+      clearRuntimeSelection();
       window.parent.postMessage({ type: 'clear-selection' }, '*');
       return;
     }
+    selectedSpacingHovered = false;
+    hoveredSpacingHandleKey = '';
     selectedEl = selectionTargetForHit(target);
     var info = getElementInfo(selectedEl);
     positionOverlay(selectionOverlay, selectedEl);
     window.parent.postMessage({ type: 'element-select', payload: info }, '*');
+  }
+
+  function suppressNextShieldClickBriefly() {
+    suppressNextShieldClick = true;
+    if (suppressNextShieldClickTimer !== null) {
+      clearTimeout(suppressNextShieldClickTimer);
+    }
+    suppressNextShieldClickTimer = setTimeout(function() {
+      suppressNextShieldClick = false;
+      suppressNextShieldClickTimer = null;
+    }, 250);
   }
 
   function openContextMenuAtEvent(e) {
@@ -1214,6 +1640,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var target = elementFromEditorPoint(e.clientX, e.clientY);
     var info = null;
     if (target) {
+      selectedSpacingHovered = false;
+      hoveredSpacingHandleKey = '';
       selectedEl = selectionTargetForHit(target);
       info = getElementInfo(selectedEl);
       positionOverlay(selectionOverlay, selectedEl);
@@ -1319,6 +1747,81 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     }, '*');
   }
 
+  function spacingValueFromPointer(handle, originValue, startX, startY, clientX, clientY) {
+    var delta =
+      handle.orientation === 'vertical' ? clientX - startX : clientY - startY;
+    if (handle.kind === 'padding' && (handle.side === 'right' || handle.side === 'bottom')) {
+      delta = -delta;
+    }
+    return clampSpacingValue(originValue + delta);
+  }
+
+  function applySpacingDragValue(target, handle, value, mirrorOpposite) {
+    if (!target || !handle) return;
+    target.style[handle.property] = value + 'px';
+    if (handle.kind === 'padding' && mirrorOpposite && handle.oppositeProperty) {
+      target.style[handle.oppositeProperty] = value + 'px';
+    }
+  }
+
+  function startSpacingDrag(key, e) {
+    var handle = spacingHandleStateByKey[key];
+    if (!selectedEl || !handle || isLayerInteractionBlocked(selectedEl)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    var events = dragEventNames(e);
+    var dragEl = selectedEl;
+    var originValue = handle.value;
+    var startX = e.clientX;
+    var startY = e.clientY;
+    hoveredSpacingHandleKey = key;
+    selectedSpacingHovered = true;
+    spacingDrag = {
+      handle: handle,
+      currentValue: originValue,
+      mirrorOpposite: !!e.altKey,
+    };
+    showSpacingBadgeForHandle(handle, originValue);
+
+    function onMove(ev) {
+      if (!dragEl || !document.documentElement.contains(dragEl)) return;
+      var nextValue = spacingValueFromPointer(handle, originValue, startX, startY, ev.clientX, ev.clientY);
+      spacingDrag = {
+        handle: handle,
+        currentValue: nextValue,
+        mirrorOpposite: !!ev.altKey,
+      };
+      applySpacingDragValue(dragEl, handle, nextValue, !!ev.altKey);
+      positionOverlay(selectionOverlay, dragEl);
+      showSpacingBadgeForHandle(handle, nextValue);
+    }
+
+    function onUp(ev) {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      if (!dragEl || !document.documentElement.contains(dragEl)) {
+        spacingDrag = null;
+        return;
+      }
+      var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
+      var mirrorOpposite = spacingDrag ? spacingDrag.mirrorOpposite : !!ev.altKey;
+      applySpacingDragValue(dragEl, handle, finalValue, mirrorOpposite);
+      selectedEl = dragEl;
+      spacingDrag = null;
+      var styles = {};
+      styles[handle.property] = finalValue + 'px';
+      if (handle.kind === 'padding' && mirrorOpposite && handle.oppositeProperty) {
+        styles[handle.oppositeProperty] = finalValue + 'px';
+      }
+      postVisualStyleChange(styles);
+      positionOverlay(selectionOverlay, dragEl);
+    }
+
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+  }
+
 	  function postTextContentChange(el, value, html) {
 	    window.parent.postMessage({
 	      type: 'text-content-change',
@@ -1404,7 +1907,14 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   }
 
   function isOverlayElement(el) {
-    return Boolean(el && el.getAttribute && el.getAttribute('data-agent-native-edit-overlay'));
+    // Use closest() so that children of overlay elements (e.g. spacing-region
+    // spans inside selectionOverlay that have pointer-events:auto via a CSS rule
+    // and can therefore still be returned by elementFromPoint even when the
+    // parent overlay has pointer-events:none set inline) are also treated as
+    // overlay elements and never used as drag-drop anchor targets.
+    return Boolean(
+      el && el.closest && el.closest('[data-agent-native-edit-overlay]')
+    );
   }
 
   function draggableElementChildren(parent) {
@@ -1418,9 +1928,40 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     if (el === document.body || el === document.documentElement) return false;
     var cs = window.getComputedStyle(el);
     if (cs.position === 'absolute' || cs.position === 'fixed') return false;
-    var parent = el.parentElement;
-    if (parent === document.body && draggableElementChildren(parent).length <= 2) return false;
-    return draggableElementChildren(parent).filter(function(child) { return child !== el; }).length > 0;
+    return true;
+  }
+
+  // keep in sync with EditPanel.tsx CONTAINER_TAGS/LEAF_TAGS (~line 1574)
+  var BRIDGE_CONTAINER_TAGS = ['div', 'section', 'main', 'header', 'footer', 'nav', 'article', 'aside', 'form', 'ul', 'ol', 'figure', 'fieldset', 'details', 'dialog', 'blockquote', 'table', 'tbody', 'thead', 'tr'];
+  var BRIDGE_LEAF_TAGS = ['img', 'video', 'picture', 'audio', 'canvas', 'svg', 'path', 'input', 'textarea', 'select', 'br', 'hr', 'iframe'];
+  var BRIDGE_TEXT_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 'strong', 'em', 'label', 'li'];
+
+  function isContainerDropTarget(el) {
+    if (!el || el === document.documentElement) return false;
+    if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
+    if (el === document.body) return true;
+    var tag = (el.tagName || '').toLowerCase();
+    // Reject leaf/text tags — they cannot accept children
+    if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1) return false;
+    var cs = window.getComputedStyle(el);
+    if (
+      cs.display === 'flex' ||
+      cs.display === 'inline-flex' ||
+      cs.display === 'grid' ||
+      cs.display === 'inline-grid'
+    ) {
+      return true;
+    }
+    return BRIDGE_CONTAINER_TAGS.indexOf(tag) !== -1;
+  }
+
+  function edgePlacementForRect(rect, axis, clientX, clientY) {
+    var size = axis === 'x' ? rect.width : rect.height;
+    if (!size) return null;
+    var offset = axis === 'x' ? clientX - rect.left : clientY - rect.top;
+    if (offset < size * 0.22) return 'before';
+    if (offset > size * 0.78) return 'after';
+    return null;
   }
 
   function parentFlowAxis(parent) {
@@ -1445,18 +1986,19 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var hit = elementFromEditorPoint(clientX, clientY);
     if (
       hit &&
-      hit !== document.body &&
       hit !== document.documentElement &&
       hit !== el &&
       !el.contains(hit) &&
-      !hit.contains(el) &&
       !isOverlayElement(hit)
     ) {
-      var hitChildren = draggableElementChildren(hit).filter(function(child) {
-        return child !== el;
-      });
-      if (hitChildren.length === 0) {
-        return { anchor: hit, placement: 'inside', axis: parentFlowAxis(hit) };
+      if (isContainerDropTarget(hit)) {
+        var containerRect = hit.getBoundingClientRect();
+        var edgeAxis = hit.parentElement ? parentFlowAxis(hit.parentElement) : parentFlowAxis(hit);
+        var edgePlacement = edgePlacementForRect(containerRect, edgeAxis, clientX, clientY);
+        if (!edgePlacement) {
+          return { anchor: hit, placement: 'inside', axis: parentFlowAxis(hit) };
+        }
+        return { anchor: hit, placement: edgePlacement, axis: edgeAxis };
       }
       var hitParent = hit.parentElement;
       if (hitParent) {
@@ -1503,6 +2045,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     insertionGuide.style.display = 'block';
     insertionGuide.style.background = 'var(--design-editor-accent-color)';
     insertionGuide.style.border = '0';
+    insertionGuide.style.borderRadius = '999px';
     insertionGuide.style.boxShadow = '0 0 0 1px var(--design-editor-accent-color)';
     if (target.placement === 'inside') {
       insertionGuide.style.left = rect.left + 'px';
@@ -1511,6 +2054,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       insertionGuide.style.height = rect.height + 'px';
       insertionGuide.style.background = 'color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)';
       insertionGuide.style.border = '2px solid var(--design-editor-accent-color)';
+      insertionGuide.style.borderRadius = '4px';
       insertionGuide.style.boxShadow = 'none';
       return;
     }
@@ -1578,6 +2122,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     if (isLayerInteractionBlocked(selectedEl)) return;
     e.preventDefault();
     e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    var events = dragEventNames(e);
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
     if (e.altKey && selectedEl !== document.body && selectedEl !== document.documentElement) {
@@ -1601,8 +2147,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         showTransformBadge(currentTarget ? 'Move layer' : 'Move', ev.clientX, ev.clientY);
       }
       function onReorderUp() {
-        document.removeEventListener('mousemove', onReorderMove, true);
-        document.removeEventListener('mouseup', onReorderUp, true);
+        document.removeEventListener(events.move, onReorderMove, true);
+        document.removeEventListener(events.up, onReorderUp, true);
 	        hideTransformBadge();
 	        hideInsertionGuide();
 	        if (!currentTarget) {
@@ -1630,9 +2176,9 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	          applyRuntimeReorder(reorderEl, currentTarget);
 	          postVisualStructureChange(reorderEl, currentTarget, { prevParent: prevParent, prevNextSibling: prevNextSibling });
 	        }
-	      }
-      document.addEventListener('mousemove', onReorderMove, true);
-      document.addEventListener('mouseup', onReorderUp, true);
+      }
+      document.addEventListener(events.move, onReorderMove, true);
+      document.addEventListener(events.up, onReorderUp, true);
       return;
     }
     ensurePositionable(selectedEl);
@@ -1659,8 +2205,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       refreshOverlays();
     }
     function onUp() {
-      document.removeEventListener('mousemove', onMove, true);
-      document.removeEventListener('mouseup', onUp, true);
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
       hideTransformBadge();
       if (!dragEl) return;
       if (duplicatedForDrag && !moved) {
@@ -1686,8 +2232,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         }, '*');
       }
     }
-    document.addEventListener('mousemove', onMove, true);
-    document.addEventListener('mouseup', onUp, true);
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
   }
 
   function startResize(handle, e) {
@@ -1864,7 +2410,68 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     document.addEventListener('mouseup', onUp, true);
   }
 
+  function clearPendingShieldDrag() {
+    if (!pendingShieldDrag) return;
+    document.removeEventListener(pendingShieldDrag.move, pendingShieldDrag.onMove, true);
+    document.removeEventListener(pendingShieldDrag.up, pendingShieldDrag.onUp, true);
+    pendingShieldDrag = null;
+  }
+
+  function beginPotentialShieldDrag(e) {
+    stopNativeInteraction(e);
+    if (e.button !== 0 || activeTextEditEl) return;
+    var events = dragEventNames(e);
+    var hit = elementFromEditorPoint(e.clientX, e.clientY);
+    if (!hit || hit === document.body || hit === document.documentElement) return;
+    var dragTarget =
+      selectedEl &&
+      document.documentElement.contains(selectedEl) &&
+      selectedEl.contains(hit)
+        ? selectedEl
+        : selectionTargetForHit(hit);
+    if (
+      !dragTarget ||
+      dragTarget === document.body ||
+      dragTarget === document.documentElement ||
+      isLayerInteractionBlocked(dragTarget)
+    ) {
+      return;
+    }
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var didStartDrag = false;
+    function selectDragTarget() {
+      selectedEl = dragTarget;
+      positionOverlay(selectionOverlay, selectedEl);
+      window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+    }
+    function onMove(ev) {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
+      clearPendingShieldDrag();
+      didStartDrag = true;
+      selectDragTarget();
+      suppressNextShieldClickBriefly();
+      startMove(ev);
+    }
+    function onUp(ev) {
+      clearPendingShieldDrag();
+      if (didStartDrag) return;
+      if (ev) stopNativeInteraction(ev);
+      selectDragTarget();
+      suppressNextShieldClickBriefly();
+    }
+    clearPendingShieldDrag();
+    pendingShieldDrag = { move: events.move, up: events.up, onMove: onMove, onUp: onUp };
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+  }
+
   selectionOverlay.addEventListener('mousedown', function(e) {
+    var spacingKey = e.target && e.target.getAttribute && e.target.getAttribute('data-spacing-key');
+    if (spacingKey) {
+      startSpacingDrag(spacingKey, e);
+      return;
+    }
     var resizeHandle = e.target && e.target.getAttribute && e.target.getAttribute('data-agent-native-edit-handle');
     if (!resizeHandle && e.target && e.target.getAttribute) {
       resizeHandle = e.target.getAttribute('data-agent-native-edge-handle');
@@ -1880,6 +2487,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     }
     startMove(e);
   }, true);
+
+  shieldOverlay.addEventListener('pointerdown', beginPotentialShieldDrag, true);
 
   ['pointerdown','pointerup','mousedown','mouseup','auxclick'].forEach(function(type) {
     shieldOverlay.addEventListener(type, stopNativeInteraction, true);
@@ -2050,10 +2659,25 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     hoveredEl = elementFromEditorPoint(e.clientX, e.clientY);
     if (!hoveredEl) {
       highlightOverlay.style.display = 'none';
+      if (!spacingDrag) {
+        selectedSpacingHovered = false;
+        hoveredSpacingHandleKey = '';
+        updateSpacingOverlay(selectedEl);
+      }
       hideMeasurements();
       return;
     }
     if (hoveredEl && hoveredEl.closest('[data-agent-native-text-editing]')) return;
+    if (!spacingDrag) {
+      selectedSpacingHovered = Boolean(
+        selectedEl &&
+          hoveredEl &&
+          (hoveredEl === selectedEl ||
+            (selectedEl.contains && selectedEl.contains(hoveredEl))),
+      );
+      if (!selectedSpacingHovered) hoveredSpacingHandleKey = '';
+      updateSpacingOverlay(selectedEl);
+    }
     if (hoveredEl === selectedEl) {
       highlightOverlay.style.display = 'none';
     } else {
@@ -2071,6 +2695,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   shieldOverlay.addEventListener('pointerleave', function(e) {
     stopNativeInteraction(e);
     hoveredEl = null;
+    if (!spacingDrag) {
+      selectedSpacingHovered = false;
+      hoveredSpacingHandleKey = '';
+      updateSpacingOverlay(selectedEl);
+    }
     highlightOverlay.style.display = 'none';
     hideMeasurements();
     window.parent.postMessage({ type: 'element-hover', payload: null }, '*');
@@ -2130,6 +2759,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         } catch (_err) {}
       }
       if (!target) return;
+      selectedSpacingHovered = false;
+      hoveredSpacingHandleKey = '';
       selectedEl = target;
       positionOverlay(selectionOverlay, target);
       if (hoveredEl === selectedEl) highlightOverlay.style.display = 'none';
@@ -2540,9 +3171,15 @@ export function DesignCanvas({
         const placement = String(e.data.placement || "after");
         const requestId =
           typeof e.data.requestId === "string" ? e.data.requestId : undefined;
+        const sourceId =
+          typeof e.data.sourceId === "string" ? e.data.sourceId : undefined;
+        const anchorSourceId =
+          typeof e.data.anchorSourceId === "string"
+            ? e.data.anchorSourceId
+            : undefined;
         if (
-          selector &&
-          anchorSelector &&
+          (selector || sourceId) &&
+          (anchorSelector || anchorSourceId) &&
           (placement === "before" ||
             placement === "after" ||
             placement === "inside")
@@ -2554,14 +3191,8 @@ export function DesignCanvas({
             e.data.payload,
             {
               requestId,
-              sourceId:
-                typeof e.data.sourceId === "string"
-                  ? e.data.sourceId
-                  : undefined,
-              anchorSourceId:
-                typeof e.data.anchorSourceId === "string"
-                  ? e.data.anchorSourceId
-                  : undefined,
+              sourceId,
+              anchorSourceId,
             },
           );
           if (requestId) {

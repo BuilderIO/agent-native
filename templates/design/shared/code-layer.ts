@@ -324,11 +324,55 @@ export interface MoveNodeEditIntent {
   placement: "before" | "after" | "inside";
 }
 
+/**
+ * GROUP: wrap sibling nodes sharing a parent inside a new <div> wrapper.
+ * The wrapper is inserted at the position of the first target; targets are
+ * reparented into it in source order. The new wrapper gets a fresh
+ * data-agent-native-node-id and data-agent-native-layer-name="Group".
+ *
+ * When autoLayout is true the wrapper also receives
+ * `display:flex; flex-direction:column; gap:8px` and
+ * position/left/top/right/bottom are stripped from each wrapped child.
+ *
+ * Returns "unsupported" if the targets don't share a common parent.
+ */
+export interface WrapNodesEditIntent {
+  kind: "wrapNodes";
+  targetIds: string[];
+  autoLayout?: boolean;
+}
+
+/**
+ * UNGROUP: replace the wrapper node with its children, spliced into the
+ * wrapper's parent at the wrapper's position, then remove the wrapper.
+ */
+export interface UnwrapEditIntent {
+  kind: "unwrap";
+  targetId: string;
+}
+
+/**
+ * CONVERT an existing container to/from auto-layout.
+ * When enabled, sets display:flex (+ flex-direction, gap) on the target and
+ * strips position:absolute/left/top/right/bottom from its DIRECT children.
+ * When !enabled, sets display:block (turns auto-layout off).
+ */
+export interface AutoLayoutEditIntent {
+  kind: "autoLayout";
+  targetId: string;
+  enabled: boolean;
+  direction?: "row" | "column";
+  gap?: string;
+}
+
 export type EditIntent =
   | StyleEditIntent
   | ClassEditIntent
   | TextEditIntent
-  | MoveNodeEditIntent;
+  | MoveNodeEditIntent
+  | WrapNodesEditIntent
+  | UnwrapEditIntent
+  | AutoLayoutEditIntent;
 
 export interface EditIntentResolution {
   status: "resolved" | "conflict" | "unsupported";
@@ -372,6 +416,8 @@ export interface PatchResult {
   after?: PatchNodeSummary;
   changed: boolean;
   message?: string;
+  /** For wrapNodes: the data-agent-native-node-id of the newly created wrapper. */
+  wrapperNodeId?: string;
 }
 
 export interface ApplyVisualEditResult {
@@ -2393,6 +2439,374 @@ function applyMoveNodeEdit(
   };
 }
 
+/** Generate a fresh unique data-agent-native-node-id value not already in the set. */
+function freshNodeId(usedIds: Set<string>, basis: string): string {
+  const base = `an-${hashStable(basis)}`;
+  let value = base;
+  let suffix = 1;
+  while (usedIds.has(value)) {
+    value = `an-${hashStable(`${base}:${suffix}`)}`;
+    suffix += 1;
+  }
+  usedIds.add(value);
+  return value;
+}
+
+/**
+ * Strip the given CSS property names from an inline style attribute value.
+ * Returns the new style string (may be empty if all declarations were removed).
+ */
+function stripStyleProperties(
+  styleValue: string | null,
+  propertiesToRemove: string[],
+): string {
+  if (!styleValue) return "";
+  const toRemove = new Set(propertiesToRemove.map((p) => p.toLowerCase()));
+  const remaining = parseStyleDeclarations(styleValue).filter(
+    (decl) => !toRemove.has(decl.property),
+  );
+  return serializeStyleDeclarations(remaining);
+}
+
+/** Absolute-positioning properties stripped when converting a child to auto-layout flow. */
+const AUTO_LAYOUT_STRIP_PROPS = [
+  "position",
+  "left",
+  "top",
+  "right",
+  "bottom",
+] as const;
+
+/**
+ * Apply display:flex + direction + gap to a raw open-tag string and return it.
+ * Only touches the style attribute.
+ */
+function addAutoLayoutStyleToOpenTag(
+  openTag: string,
+  element: ParsedElement,
+  html: string,
+  direction: "row" | "column",
+  gap: string,
+): string {
+  const currentStyle = attributeValue(element, "style");
+  let declarations = parseStyleDeclarations(currentStyle);
+  const setOrReplace = (prop: string, val: string) => {
+    const existing = declarations.find((d) => d.property === prop);
+    if (existing) {
+      existing.value = val;
+    } else {
+      declarations.push({ property: prop, value: val });
+    }
+  };
+  setOrReplace("display", "flex");
+  setOrReplace("flex-direction", direction);
+  setOrReplace("gap", gap);
+  const nextStyle = serializeStyleDeclarations(declarations);
+  // We work on a scratch copy relative to element boundaries
+  const attr = getAttribute(element, "style");
+  if (attr) {
+    return `${openTag.slice(0, attr.start - element.start)}${attr.name}="${escapeHtmlAttribute(nextStyle)}"${openTag.slice(attr.end - element.start)}`;
+  }
+  // Insert before closing >
+  const closeChar = openTag.endsWith("/>")
+    ? openTag.length - 2
+    : openTag.length - 1;
+  return `${openTag.slice(0, closeChar)} style="${escapeHtmlAttribute(nextStyle)}"${openTag.slice(closeChar)}`;
+}
+
+/**
+ * Strip absolute-positioning properties from a child's inline style, applying
+ * the edit directly to the html string at the child element's source spans.
+ * Returns the updated html string.
+ */
+function stripAbsolutePositioningFromChild(
+  html: string,
+  child: ParsedElement,
+): string {
+  const currentStyle = attributeValue(child, "style");
+  if (!currentStyle) return html;
+  const nextStyle = stripStyleProperties(currentStyle, [
+    ...AUTO_LAYOUT_STRIP_PROPS,
+  ]);
+  return replaceOrInsertAttribute(html, child, "style", nextStyle);
+}
+
+/**
+ * GROUP: wrap targetted sibling elements (sharing a common parent) in a new
+ * <div> wrapper. Targets must all share the same parent element.
+ */
+function applyWrapNodes(
+  html: string,
+  build: ProjectionBuild,
+  intent: WrapNodesEditIntent,
+):
+  | { content: string; capability: EditCapability; wrapperNodeId: string }
+  | PatchResultStatus {
+  const { targetIds, autoLayout = false } = intent;
+  if (targetIds.length === 0) return "unsupported";
+
+  // Resolve all target nodes via nodeId attribute matching.
+  const targetElements: ParsedElement[] = [];
+  for (const id of targetIds) {
+    const node = build.projection.nodes.find(
+      (n) =>
+        n.dataAttributes["data-agent-native-node-id"] === id || n.id === id,
+    );
+    if (!node) return "conflict";
+    const el = build.elementByNodeId.get(node.id);
+    if (!el) return "conflict";
+    targetElements.push(el);
+  }
+
+  // All targets must share the same parent.
+  const parentIndexes = new Set(targetElements.map((el) => el.parentIndex));
+  if (parentIndexes.size !== 1) return "unsupported";
+  const sharedParentIndex = [...parentIndexes][0];
+
+  // Sort targets by their source position (ascending).
+  targetElements.sort((a, b) => a.start - b.start);
+
+  // Collect existing node ids so we can generate a unique one.
+  const usedIds = new Set(
+    build.projection.nodes.flatMap((n) => {
+      const id = n.dataAttributes["data-agent-native-node-id"];
+      return id ? [id] : [];
+    }),
+  );
+
+  const wrapperNodeId = freshNodeId(
+    usedIds,
+    `wrap:${targetElements.map((el) => el.start).join(":")}`,
+  );
+
+  // Collect the source fragments for all targets.
+  const fragments = targetElements.map((el) => {
+    let frag = html.slice(el.start, el.end);
+    // If autoLayout, strip positioning from each wrapped child.
+    if (autoLayout) {
+      // We need a ParsedElement that reflects the fragment's own positions.
+      // Re-parse the fragment to find the root element and strip its style.
+      const fragElements = parseHtmlElements(frag);
+      const root = fragElements.find((fe) => fe.parentIndex === undefined);
+      if (root) {
+        frag = stripAbsolutePositioningFromChild(frag, root);
+      }
+    }
+    return frag;
+  });
+
+  const autoLayoutStyle = autoLayout
+    ? ` style="display: flex; flex-direction: column; gap: 8px"`
+    : "";
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="Group"${autoLayoutStyle}>`;
+  const wrapperClose = `</div>`;
+  const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
+
+  // Build the replacement: remove all targets from html (back to front) then
+  // insert the wrapper at the first target's position.
+  // Sort by position descending to remove safely.
+  const sorted = [...targetElements].sort((a, b) => b.start - a.start);
+
+  // Remove all targets from the html (back to front).
+  let result = html;
+  let firstTargetStart = targetElements[0]!.start;
+
+  for (const el of sorted) {
+    const start = el.start;
+    const end = el.end;
+    if (start < firstTargetStart) {
+      firstTargetStart = start;
+    }
+    result = `${result.slice(0, start)}${result.slice(end)}`;
+  }
+
+  // Re-compute firstTargetStart relative to the modified string: all removals
+  // before it shift it. Count how many bytes were removed before firstTargetStart.
+  let bytesRemovedBefore = 0;
+  for (const el of targetElements) {
+    if (el.start < targetElements[0]!.start) {
+      bytesRemovedBefore += el.end - el.start;
+    }
+  }
+  const insertAt = firstTargetStart - bytesRemovedBefore;
+
+  result = `${result.slice(0, insertAt)}${wrapperContent}${result.slice(insertAt)}`;
+
+  return {
+    content: result,
+    capability: {
+      kind: "structure",
+      operations: ["moveNode"],
+      confidence: 0.82,
+    },
+    wrapperNodeId,
+  };
+}
+
+/**
+ * UNGROUP: replace the wrapper node with its children, spliced into the
+ * wrapper's parent at the wrapper's position, then remove the wrapper.
+ */
+function applyUnwrap(
+  html: string,
+  build: ProjectionBuild,
+  intent: UnwrapEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const { targetId } = intent;
+  const node = build.projection.nodes.find(
+    (n) =>
+      n.dataAttributes["data-agent-native-node-id"] === targetId ||
+      n.id === targetId,
+  );
+  if (!node) return "conflict";
+  if (!node.source) return "needsAgent";
+
+  const element = build.elementByNodeId.get(node.id);
+  if (!element) return "conflict";
+  if (element.selfClosing || element.contentStart >= element.contentEnd) {
+    // Nothing to unwrap from an empty/void element.
+    return "unsupported";
+  }
+
+  // The children's source content is the element's inner HTML.
+  const innerContent = html.slice(element.contentStart, element.contentEnd);
+
+  // Replace the whole element (start..end) with its inner content.
+  const result = `${html.slice(0, element.start)}${innerContent}${html.slice(element.end)}`;
+
+  return {
+    content: result,
+    capability: {
+      kind: "structure",
+      operations: ["moveNode"],
+      confidence: 0.82,
+    },
+  };
+}
+
+/**
+ * CONVERT: toggle auto-layout (display:flex) on an existing container.
+ */
+function applyAutoLayout(
+  html: string,
+  build: ProjectionBuild,
+  intent: AutoLayoutEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const { targetId, enabled, direction = "column", gap = "8px" } = intent;
+  const node = build.projection.nodes.find(
+    (n) =>
+      n.dataAttributes["data-agent-native-node-id"] === targetId ||
+      n.id === targetId,
+  );
+  if (!node) return "conflict";
+  if (!node.source) return "needsAgent";
+
+  const element = build.elementByNodeId.get(node.id);
+  if (!element) return "conflict";
+
+  if (!enabled) {
+    // Turn off auto-layout: set display:block.
+    const currentStyle = attributeValue(element, "style");
+    let declarations = parseStyleDeclarations(currentStyle);
+    const displayDecl = declarations.find((d) => d.property === "display");
+    if (displayDecl) {
+      displayDecl.value = "block";
+    } else {
+      declarations.push({ property: "display", value: "block" });
+    }
+    const nextStyle = serializeStyleDeclarations(declarations);
+    return {
+      content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+      capability: {
+        kind: "style",
+        properties: ["display"],
+        confidence: 0.9,
+      },
+    };
+  }
+
+  // Enable auto-layout: set display:flex + direction + gap on the container.
+  let result = html;
+
+  // Build a stable element finder for `element` that survives re-parses after
+  // style mutations. We collect all stable identifier attribute values present
+  // on the initial element (STABLE_NODE_ID_ATTRIBUTES + HTML id), then match
+  // any of them in subsequent parses. This handles the case where the node has
+  // no data-agent-native-node-id attribute and was resolved by its projection
+  // hash id — a data-attribute-only search would silently miss it.
+  const stableAttrPairs: Array<[string, string]> = [];
+  for (const attrName of STABLE_NODE_ID_ATTRIBUTES) {
+    const v = attributeValue(element, attrName);
+    if (v) stableAttrPairs.push([attrName, v]);
+  }
+  const htmlIdValue = attributeValue(element, "id");
+  const findElementInParsed = (
+    elements: ParsedElement[],
+  ): ParsedElement | undefined => {
+    for (const attrPair of stableAttrPairs) {
+      const found = elements.find(
+        (fe) => attributeValue(fe, attrPair[0]) === attrPair[1],
+      );
+      if (found) return found;
+    }
+    if (htmlIdValue) {
+      return elements.find((fe) => attributeValue(fe, "id") === htmlIdValue);
+    }
+    return undefined;
+  };
+
+  // Set container styles.
+  const setContainerStyle = (prop: VisualStyleProperty, val: string): void => {
+    // Re-parse after each mutation so attribute positions stay valid.
+    const elements = parseHtmlElements(result);
+    const el = findElementInParsed(elements);
+    if (!el) return;
+    const currentStyle2 = attributeValue(el, "style");
+    let declarations2 = parseStyleDeclarations(currentStyle2);
+    const existing = declarations2.find((d) => d.property === prop);
+    if (existing) {
+      existing.value = val;
+    } else {
+      declarations2.push({ property: prop, value: val });
+    }
+    result = replaceOrInsertAttribute(
+      result,
+      el,
+      "style",
+      serializeStyleDeclarations(declarations2),
+    );
+  };
+
+  setContainerStyle("display", "flex");
+  setContainerStyle("flex-direction", direction);
+  setContainerStyle("gap", gap);
+
+  // Strip absolute positioning from direct children.
+  // Re-parse to get up-to-date child positions.
+  const updatedElements = parseHtmlElements(result);
+  // Find the target element again using the same stable-attribute strategy.
+  const updatedTarget = findElementInParsed(updatedElements);
+
+  if (updatedTarget) {
+    // Process children in reverse order so offsets stay valid.
+    const childIndexes = [...updatedTarget.childIndexes].reverse();
+    for (const childIndex of childIndexes) {
+      const child = updatedElements[childIndex];
+      if (!child) continue;
+      result = stripAbsolutePositioningFromChild(result, child);
+    }
+  }
+
+  return {
+    content: result,
+    capability: {
+      kind: "style",
+      properties: ["display", "flex-direction", "gap"],
+      confidence: 0.88,
+    },
+  };
+}
+
 function findAfterNode(
   projection: CodeLayerProjection,
   before: CodeLayerNode,
@@ -2436,6 +2850,121 @@ export function applyVisualEdit(
   }
 
   const initial = buildProjection(html, source);
+
+  // --- Structural intents that don't resolve a single target node ---
+
+  if (intent.kind === "wrapNodes") {
+    const wrapEdit = applyWrapNodes(html, initial, intent);
+    if (typeof wrapEdit === "string") {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: {
+          ...patchResult(
+            wrapEdit,
+            source,
+            intent,
+            false,
+            wrapEdit === "unsupported"
+              ? "wrapNodes requires all targets to share a common parent element."
+              : "Could not resolve one or more target nodes for wrapNodes.",
+          ),
+        },
+      };
+    }
+    const nextProjection = buildCodeLayerProjection(wrapEdit.content, {
+      source,
+    });
+    return {
+      content: wrapEdit.content,
+      projection: nextProjection,
+      result: {
+        ...patchResult(
+          "applied",
+          source,
+          intent,
+          wrapEdit.content !== html,
+          wrapEdit.content === html
+            ? "No source change was needed."
+            : "Nodes wrapped.",
+        ),
+        wrapperNodeId: wrapEdit.wrapperNodeId,
+      },
+    };
+  }
+
+  if (intent.kind === "unwrap") {
+    const unwrapEdit = applyUnwrap(html, initial, intent);
+    if (typeof unwrapEdit === "string") {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          unwrapEdit,
+          source,
+          intent,
+          false,
+          unwrapEdit === "conflict"
+            ? `Could not resolve unwrap target "${intent.targetId}".`
+            : "Cannot unwrap a self-closing or empty element.",
+        ),
+      };
+    }
+    const nextProjection = buildCodeLayerProjection(unwrapEdit.content, {
+      source,
+    });
+    return {
+      content: unwrapEdit.content,
+      projection: nextProjection,
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        unwrapEdit.content !== html,
+        unwrapEdit.content === html
+          ? "No source change was needed."
+          : "Node unwrapped.",
+      ),
+    };
+  }
+
+  if (intent.kind === "autoLayout") {
+    const alEdit = applyAutoLayout(html, initial, intent);
+    if (typeof alEdit === "string") {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          alEdit,
+          source,
+          intent,
+          false,
+          alEdit === "conflict"
+            ? `Could not resolve autoLayout target "${intent.targetId}".`
+            : "Cannot apply autoLayout to this element.",
+        ),
+      };
+    }
+    const nextProjection = buildCodeLayerProjection(alEdit.content, { source });
+    return {
+      content: alEdit.content,
+      projection: nextProjection,
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        alEdit.content !== html,
+        alEdit.content === html
+          ? "No source change was needed."
+          : intent.enabled
+            ? "Auto-layout enabled."
+            : "Auto-layout disabled.",
+      ),
+    };
+  }
+
+  // --- Target-resolved intents (style / class / textContent / moveNode) ---
+
   const resolution = resolveTarget(initial, intent.target);
   if (resolution.status !== "resolved" || !resolution.node) {
     return {
@@ -2570,5 +3099,142 @@ export function applyVisualEdit(
       before,
       after,
     ),
+  };
+}
+
+export interface MoveNodeBetweenDocumentsOptions {
+  nodeId: string;
+  anchorNodeId?: string;
+  placement?: "before" | "after" | "inside";
+}
+
+export interface MoveNodeBetweenDocumentsResult {
+  sourceHtml: string;
+  destHtml: string;
+  status: "applied" | "unsupported";
+  message?: string;
+}
+
+/**
+ * Move a node (by data-agent-native-node-id) from sourceHtml into destHtml.
+ * The node's serialized subtree is removed from sourceHtml and inserted into
+ * destHtml relative to anchorNodeId (default: append to <body> or end of doc).
+ * Any node ids in the moved subtree that already exist in destHtml are
+ * re-stamped to stay unique. No external dependencies.
+ */
+export function moveNodeBetweenDocuments(
+  sourceHtml: string,
+  destHtml: string,
+  opts: MoveNodeBetweenDocumentsOptions,
+): MoveNodeBetweenDocumentsResult {
+  const { nodeId, anchorNodeId, placement = "inside" } = opts;
+
+  // --- Locate the node in sourceHtml ---
+  const sourceElements = parseHtmlElements(sourceHtml);
+  const sourceTarget = sourceElements.find(
+    (el) => attributeValue(el, "data-agent-native-node-id") === nodeId,
+  );
+  if (!sourceTarget) {
+    return {
+      sourceHtml,
+      destHtml,
+      status: "unsupported",
+      message: `Node with data-agent-native-node-id="${nodeId}" not found in sourceHtml.`,
+    };
+  }
+
+  // --- Extract the subtree fragment ---
+  let fragment = sourceHtml.slice(sourceTarget.start, sourceTarget.end);
+
+  // --- Collect all existing node ids in destHtml to avoid collisions ---
+  const destElements = parseHtmlElements(destHtml);
+  const destUsedIds = new Set<string>(
+    destElements
+      .map((el) => attributeValue(el, "data-agent-native-node-id"))
+      .filter((v): v is string => v !== null),
+  );
+
+  // --- Re-stamp any colliding node ids in the fragment ---
+  // We do this by parsing the fragment as its own HTML and replacing ids.
+  const fragElements = parseHtmlElements(fragment);
+  // Build replacement map: old id → new id
+  const idRemap = new Map<string, string>();
+  for (const fragEl of fragElements) {
+    const existingId = attributeValue(fragEl, "data-agent-native-node-id");
+    if (!existingId) continue;
+    if (destUsedIds.has(existingId)) {
+      const newId = freshNodeId(
+        destUsedIds,
+        `moved:${existingId}:${fragEl.start}`,
+      );
+      idRemap.set(existingId, newId);
+    } else {
+      destUsedIds.add(existingId);
+    }
+  }
+
+  // Apply id remaps to the fragment (back to front by attribute position).
+  if (idRemap.size > 0) {
+    const remapEdits: Array<{ start: number; end: number; value: string }> = [];
+    for (const fragEl of fragElements) {
+      const attr = getAttribute(fragEl, "data-agent-native-node-id");
+      if (!attr || typeof attr.value !== "string") continue;
+      const newId = idRemap.get(attr.value);
+      if (!newId) continue;
+      remapEdits.push({
+        start: attr.start,
+        end: attr.end,
+        value: `data-agent-native-node-id="${escapeHtmlAttribute(newId)}"`,
+      });
+    }
+    // Apply back to front.
+    remapEdits.sort((a, b) => b.start - a.start);
+    for (const edit of remapEdits) {
+      fragment = `${fragment.slice(0, edit.start)}${edit.value}${fragment.slice(edit.end)}`;
+    }
+  }
+
+  // --- Remove node from sourceHtml ---
+  const nextSourceHtml = `${sourceHtml.slice(0, sourceTarget.start)}${sourceHtml.slice(sourceTarget.end)}`;
+
+  // --- Insert fragment into destHtml ---
+  let nextDestHtml: string;
+
+  if (anchorNodeId) {
+    const anchor = destElements.find(
+      (el) => attributeValue(el, "data-agent-native-node-id") === anchorNodeId,
+    );
+    if (!anchor) {
+      return {
+        sourceHtml,
+        destHtml,
+        status: "unsupported",
+        message: `Anchor node with data-agent-native-node-id="${anchorNodeId}" not found in destHtml.`,
+      };
+    }
+    const insertAt =
+      placement === "before"
+        ? anchor.start
+        : placement === "after"
+          ? anchor.end
+          : anchor.selfClosing
+            ? anchor.end
+            : anchor.contentEnd;
+    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+  } else {
+    // Default: find <body> and append inside it, or append at end of doc.
+    const bodyEl = destElements.find((el) => el.tag === "body");
+    const insertAt = bodyEl
+      ? bodyEl.selfClosing
+        ? bodyEl.end
+        : bodyEl.contentEnd
+      : destHtml.length;
+    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+  }
+
+  return {
+    sourceHtml: nextSourceHtml,
+    destHtml: nextDestHtml,
+    status: "applied",
   };
 }

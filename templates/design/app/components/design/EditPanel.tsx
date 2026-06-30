@@ -59,6 +59,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -117,6 +118,7 @@ import {
 } from "./inspector";
 import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
+import { InspectorAiActions } from "./inspector/InspectorAiActions";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
@@ -137,9 +139,17 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
   readOnly?: boolean;
+  /** Active file id — forwarded to InspectorAiActions for agent context. */
+  fileId?: string;
+  /** Active file name (e.g. "index.html") — forwarded to InspectorAiActions. */
+  filename?: string;
 }
 
 /**
@@ -2959,10 +2969,15 @@ function FlexContainerControls({
   element,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -2982,6 +2997,47 @@ function FlexContainerControls({
   // alone is a no-op against a block element.
   const ensureFlex = () => {
     if (!isFlex) onStyleChange("display", "flex");
+  };
+
+  /**
+   * Handle the Flow control switching between flex and normal-flow (block).
+   *
+   * For 'flex': ensures display:flex is set (ensureFlex path).
+   * For 'block': sets display:block and leaves children unchanged — mirrors
+   * the { kind:"autoLayout", enabled:false } substrate intent exactly.
+   */
+  const handleDisplayChange = (nextDisplay: "flex" | "block") => {
+    if (nextDisplay === "flex") {
+      ensureFlex();
+      return;
+    }
+    // Turn auto-layout off: set display:block, leaving children unchanged.
+    // This is the direct equivalent of the autoLayout substrate with enabled:false.
+    onStyleChange("display", "block");
+  };
+
+  /**
+   * "Convert to auto layout" — enables flex on a non-flex container and strips
+   * position:absolute from direct children (full reflow via the autoLayout
+   * substrate intent). Falls back to a style-only patch when no substrate
+   * handler is wired (e.g. read-only or non-editable contexts).
+   */
+  const handleConvertToAutoLayout = () => {
+    if (onAutoLayoutConvert && element.sourceId) {
+      onAutoLayoutConvert(element.sourceId, { direction: "row", gap: "8px" });
+      return;
+    }
+    // Fallback: set display:flex on the parent only (no child strip).
+    commitStylePatch(
+      {
+        display: "flex",
+        flexDirection: "row",
+        gap: "8px",
+        alignItems: "flex-start",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
   };
   const padding = {
     top: parseNumericValue(styles.paddingTop || "0"),
@@ -3029,8 +3085,22 @@ function FlexContainerControls({
 
   return (
     <div className="space-y-2">
+      {/* Convert to auto layout — shown when the container is not yet flex */}
+      {!isFlex ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 w-full gap-1.5 text-[11px]"
+          onClick={handleConvertToAutoLayout}
+        >
+          <IconLayoutSettings className="size-3.5 shrink-0" />
+          {"Convert to auto layout" /* i18n-ignore design inspector action */}
+        </Button>
+      ) : null}
       <AutoLayoutMatrix
         value={autoLayoutValue}
+        onDisplayChange={handleDisplayChange}
         onDirectionChange={(direction) => {
           ensureFlex();
           onStyleChange(
@@ -3214,10 +3284,15 @@ function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
+  onAutoLayoutConvert?: (
+    targetNodeId: string,
+    opts?: { direction?: "row" | "column"; gap?: string },
+  ) => void;
 }) {
   const t = useT();
   const flexChild = isParentFlex(element);
@@ -3310,6 +3385,7 @@ function LayoutContextProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
+        onAutoLayoutConvert={onAutoLayoutConvert}
       />
       {childControls}
     </PanelSection>
@@ -4671,11 +4747,17 @@ export function EditPanel({
   onRequestTweaks,
   onStyleChange,
   onStylesChange,
+  onAutoLayoutConvert,
   onExport,
   exporting = false,
   readOnly = false,
+  fileId,
+  filename,
 }: EditPanelProps) {
   const t = useT();
+  // Source designId from the URL so we don't need to thread it as a prop
+  // through DesignEditor. The design editor always mounts under /design/:id.
+  const { id: designId } = useParams<{ id: string }>();
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
     DEFAULT_EXPORT_SETTINGS,
   );
@@ -4846,6 +4928,7 @@ export function EditPanel({
                   element={selectedElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  onAutoLayoutConvert={onAutoLayoutConvert}
                 />
                 <AppearanceProperties
                   element={selectedElement}
@@ -4882,6 +4965,17 @@ export function EditPanel({
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
+                {/* AI edit request block — collapsible, collapsed by default */}
+                <section className="shrink-0 border-t border-[var(--design-editor-control-border)]">
+                  <InspectorAiActions
+                    selector={selectedElement.selector}
+                    sourceId={selectedElement.sourceId}
+                    designId={designId}
+                    fileId={fileId}
+                    filename={filename}
+                    canEdit={!readOnly}
+                  />
+                </section>
               </>
             )}
             {onExport ? (

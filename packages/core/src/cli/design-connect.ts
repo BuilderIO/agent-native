@@ -367,7 +367,14 @@ export async function prepareDesignConnectManifest(
       reason:
         operation === "writeFile"
           ? "The bridge advertises the contract before enabling local file writes."
-          : undefined,
+          : operation === "resolveNodeToFile"
+            ? // resolveNodeToFile maps a runtime DOM node id (from the editor's
+              // 'select' payload) to { file, line, component } provenance.  The
+              // bridge endpoint exists; per-element provenance data must be
+              // emitted by the connected app at build time — see the provenance
+              // note in the help text below.
+              "Requires the connected app to emit data-source-file / data-source-line / data-component-name attributes (e.g. via @vitejs/plugin-react jsxDEV or a Babel source plugin)."
+            : undefined,
     })),
   };
 }
@@ -442,7 +449,26 @@ Options:
   --route-manifest <path> Non-destructive route manifest output path
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
-  --dry-run               Print what would be exposed without writing files`);
+  --dry-run               Print what would be exposed without writing files
+
+Element provenance (resolveNodeToFile):
+  The design editor can map a selected DOM element back to its source file,
+  line, and React component name when the connected app emits provenance
+  attributes at build time.  Add one of the following to your app's build:
+
+  • @vitejs/plugin-react with jsxDEV enabled (development mode default):
+      Sets data-source-file and data-source-line on each JSX element
+      automatically when using the Babel transform.
+
+  • A Babel source plugin (e.g. babel-plugin-react-source or a custom plugin):
+      Emits data-source-file="src/Button.tsx" data-source-line="12"
+      data-source-column="4" data-component-name="Button" on each element.
+
+  • data-loc="src/Button.tsx:12:4" shorthand attribute (Babel source convention):
+      The bridge parses this as { sourceFile, line, column } automatically.
+
+  Without these attributes the editor still works; provenance is simply absent.
+  Cross-origin localhost iframes cannot be read regardless of attributes (CSP).`);
 }
 
 export async function runDesign(argv: string[]) {

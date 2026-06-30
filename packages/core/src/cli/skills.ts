@@ -3073,6 +3073,7 @@ interface SkillInstallMetadata {
   contentHash: string;
   mcpUrl: string;
   installedAt: string;
+  installCommand: string;
   updateCommand: string;
   planMode?: PlanInstallMode;
 }
@@ -3489,30 +3490,48 @@ function writeSkillFolder(
   bundle: SkillFolderBundle,
   installedAt = new Date().toISOString(),
 ): void {
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
-  for (const [rel, content] of Object.entries(bundle.files)) {
-    const target = path.join(dir, rel);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content, "utf-8");
-  }
-  const metadata: SkillInstallMetadata = {
-    schemaVersion: 1,
-    source: "agent-native",
-    appSkillId: bundle.appSkillId,
-    displayName: bundle.displayName,
-    skillName: bundle.skillName,
-    contentHash: bundle.contentHash,
-    mcpUrl: bundle.mcpUrl,
-    installedAt,
-    updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
-    ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
-  };
-  fs.writeFileSync(
-    path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
-    `${JSON.stringify(metadata, null, 2)}\n`,
-    "utf-8",
+  const parent = path.dirname(dir);
+  const tempDir = path.join(
+    parent,
+    `.${path.basename(dir)}.${process.pid}.${Date.now()}.tmp`,
   );
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.mkdirSync(tempDir, { recursive: true });
+    for (const [rel, content] of Object.entries(bundle.files)) {
+      const target = path.join(tempDir, rel);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, content, "utf-8");
+    }
+    const metadata: SkillInstallMetadata = {
+      schemaVersion: 1,
+      source: "agent-native",
+      appSkillId: bundle.appSkillId,
+      displayName: bundle.displayName,
+      skillName: bundle.skillName,
+      contentHash: bundle.contentHash,
+      mcpUrl: bundle.mcpUrl,
+      installedAt,
+      installCommand: `npx @agent-native/core@latest skills add ${bundle.skillName}`,
+      updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
+      ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
+    };
+    fs.writeFileSync(
+      path.join(tempDir, AGENT_NATIVE_SKILL_METADATA_FILE),
+      `${JSON.stringify(metadata, null, 2)}\n`,
+      "utf-8",
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.renameSync(tempDir, dir);
+  } catch (error: any) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+    throw new Error(
+      `Cannot write Agent Native skill folder ${dir}: ${error?.message ?? error}`,
+      { cause: error },
+    );
+  }
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
@@ -6228,7 +6247,9 @@ function runSkillsStatusOrUpdate(
     const target = parsed.target ? ` for ${parsed.target}` : "";
     const hint = isScaffoldGuidanceTarget(parsed.target)
       ? `Run this from a generated Agent Native app or workspace root.\n`
-      : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
+      : update
+        ? `The update command only refreshes skill folders that already exist; it does not do first-time install, MCP registration, or auth. Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" for one-step setup.\n`
+        : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
     process.stdout.write(
       `No installed Agent Native skill copies found${target}.\n${hint}`,
     );
