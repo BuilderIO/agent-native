@@ -1828,6 +1828,110 @@ export function MultiScreenCanvas({
     [],
   );
 
+  const requestSelectableElementInfos = useCallback(
+    (screenId: string): Promise<ElementInfo[]> => {
+      const targetIframe = surfaceRef.current?.querySelector<HTMLIFrameElement>(
+        `[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+      );
+      const targetContentWindow = targetIframe?.contentWindow;
+      if (!targetContentWindow) return Promise.resolve([]);
+      const correlationId = `rects-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 6)}`;
+      return new Promise((resolve) => {
+        const timer = window.setTimeout(() => {
+          window.removeEventListener("message", listener);
+          resolve([]);
+        }, 80);
+        const listener = (event: MessageEvent) => {
+          if (
+            !event.data ||
+            event.data.type !== "agent-native:selectable-rects-result" ||
+            event.data.correlationId !== correlationId
+          ) {
+            return;
+          }
+          window.clearTimeout(timer);
+          window.removeEventListener("message", listener);
+          const payload: unknown[] = Array.isArray(event.data.payload)
+            ? event.data.payload
+            : [];
+          resolve(
+            payload.filter((item): item is ElementInfo => {
+              if (!item || typeof item !== "object") return false;
+              const candidate = item as Partial<ElementInfo>;
+              return (
+                typeof candidate.tagName === "string" &&
+                !!candidate.boundingRect &&
+                typeof candidate.boundingRect.width === "number" &&
+                typeof candidate.boundingRect.height === "number"
+              );
+            }),
+          );
+        };
+        window.addEventListener("message", listener);
+        targetContentWindow.postMessage(
+          { type: "agent-native:collect-selectable-rects", correlationId },
+          "*",
+        );
+      });
+    },
+    [],
+  );
+
+  const collectLayerMarqueeCandidates = useCallback(async () => {
+    const frameCandidates = await Promise.all(
+      getCurrentFrameEntries().map(async (entry) => {
+        const screen = screensRef.current.find((item) => item.id === entry.id);
+        if (!screen) return [] as CanvasLayerMarqueeCandidate[];
+        const iframe = surfaceRef.current?.querySelector<HTMLIFrameElement>(
+          `[data-screen-iframe-id="${CSS.escape(entry.id)}"]`,
+        );
+        const metadata = getResolvedMetadata(screen);
+        const viewportWidth = iframe?.clientWidth || metadata.width;
+        const viewportHeight = iframe?.clientHeight || metadata.height;
+        const scaleX = entry.geometry.width / Math.max(1, viewportWidth);
+        const scaleY = entry.geometry.height / Math.max(1, viewportHeight);
+        const infos = await requestSelectableElementInfos(entry.id);
+        return infos.map((info) => ({
+          screenId: entry.id,
+          info,
+          geometry: {
+            x: entry.geometry.x + info.boundingRect.x * scaleX,
+            y: entry.geometry.y + info.boundingRect.y * scaleY,
+            width: info.boundingRect.width * scaleX,
+            height: info.boundingRect.height * scaleY,
+          },
+          frameGeometry: entry.geometry,
+        }));
+      }),
+    );
+    const boardCandidates =
+      boardFileId && boardFrameGeometry
+        ? await (async () => {
+            const infos = await requestSelectableElementInfos(boardFileId);
+            return infos.map((info) => ({
+              screenId: boardFileId,
+              info,
+              geometry: {
+                x: boardFrameGeometry.x + info.boundingRect.x,
+                y: boardFrameGeometry.y + info.boundingRect.y,
+                width: info.boundingRect.width,
+                height: info.boundingRect.height,
+              },
+              frameGeometry: boardFrameGeometry,
+            }));
+          })()
+        : [];
+    return [...frameCandidates.flat(), ...boardCandidates];
+  }, [
+    boardFileId,
+    boardFrameGeometry,
+    getCurrentFrameEntries,
+    getResolvedMetadata,
+    requestSelectableElementInfos,
+  ]);
+
   const scheduleFeedbackClear = useCallback(() => {
     if (feedbackTimerRef.current !== null) {
       window.clearTimeout(feedbackTimerRef.current);
