@@ -6084,6 +6084,7 @@ function GroupSelectionBox({
       chromeScale={chromeScale}
       chromeSettling={chromeSettling}
       showRotate={false}
+      filled
       onStartResize={onStartResize}
       onStartRotate={() => {}}
     />
@@ -6139,6 +6140,7 @@ function SelectionBox({
   geometry,
   chromeScale,
   chromeSettling,
+  filled = false,
   showRotate = true,
   onStartResize,
   onStartRotate,
@@ -6146,6 +6148,7 @@ function SelectionBox({
   geometry: FrameGeometry;
   chromeScale: number;
   chromeSettling: boolean;
+  filled?: boolean;
   showRotate?: boolean;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
@@ -6160,6 +6163,9 @@ function SelectionBox({
         top: SURFACE_PADDING + geometry.y,
         width: geometry.width,
         height: geometry.height,
+        background: filled
+          ? "var(--design-editor-selection-color)"
+          : "transparent",
         borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
         transition: getSelectionBoxTransition(chromeSettling),

@@ -7215,7 +7215,9 @@ export function EditPanel({
                           event.stopPropagation();
                           reviewPanelProps.onRunAudit?.();
                         }}
-                        aria-label={"Run audit" /* i18n-ignore design inspector action */}
+                        aria-label={
+                          "Run audit" /* i18n-ignore design inspector action */
+                        }
                       >
                         <IconRefresh
                           className={cn(

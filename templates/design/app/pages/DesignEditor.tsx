@@ -561,6 +561,13 @@ export function getFreshScreenContent(args: {
     : (args.fileContentById.get(args.screenId) ?? "");
 }
 
+export function shouldReplacePreviewAfterVisualStyleCommit(args: {
+  runtimeApplied?: boolean;
+  runtimeStyleApplied: boolean;
+}) {
+  return !args.runtimeApplied && !args.runtimeStyleApplied;
+}
+
 export function getLayerMoveIterationOrder<T>(
   orderedIds: readonly T[],
   placement: "before" | "after" | "inside",
@@ -8958,7 +8965,10 @@ export default function DesignEditor() {
           syncCollab: !(ydoc && isSynced),
         });
         if (
-          !runtimeStyleApplied &&
+          shouldReplacePreviewAfterVisualStyleCommit({
+            runtimeApplied: options.runtimeApplied,
+            runtimeStyleApplied,
+          }) &&
           !replacePreviewContent(resolvedNextContent, selector)
         ) {
           setContentRenderRevision((revision) => revision + 1);

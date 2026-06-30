@@ -27,6 +27,7 @@ import {
   isScreenRootElementInfo,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
+  shouldReplacePreviewAfterVisualStyleCommit,
   shouldLimitEditorChromeUntilContentReady,
   shouldEscapeToOverview,
   sortCodeLayerIdsByTreeOrder,
@@ -51,6 +52,35 @@ describe("DesignEditor overview selection state", () => {
         viewMode: "single",
       }),
     ).toEqual(["screen-active"]);
+  });
+});
+
+describe("DesignEditor visual style preview replacement", () => {
+  it("skips runtime document replacement for iframe-origin style commits", () => {
+    expect(
+      shouldReplacePreviewAfterVisualStyleCommit({
+        runtimeApplied: true,
+        runtimeStyleApplied: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("replaces the runtime document for inspector-origin style commits when no runtime bridge handled it", () => {
+    expect(
+      shouldReplacePreviewAfterVisualStyleCommit({
+        runtimeApplied: false,
+        runtimeStyleApplied: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("skips runtime document replacement when a runtime bridge already applied inspector styles", () => {
+    expect(
+      shouldReplacePreviewAfterVisualStyleCommit({
+        runtimeApplied: false,
+        runtimeStyleApplied: true,
+      }),
+    ).toBe(false);
   });
 });
 
