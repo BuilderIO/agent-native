@@ -64,6 +64,16 @@ describe("apply-component-prop-edit schema", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("accepts an optional fileId so non-index screens can be targeted (Bug 2)", () => {
+    const parsed = action.schema.safeParse({
+      ...base,
+      fileId: "file_about",
+      edit: { kind: "alpineData", value: "{ variant: 'outline' }" },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.fileId).toBe("file_about");
+  });
 });
 
 // ---------------------------------------------------------------------------
