@@ -2384,7 +2384,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       insertionGuide.style.height = rect.height + 'px';
       insertionGuide.style.background = 'color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)';
       insertionGuide.style.border = '2px solid var(--design-editor-accent-color)';
-      insertionGuide.style.borderRadius = '4px';
+      insertionGuide.style.borderRadius = '2px';
       insertionGuide.style.boxShadow = 'none';
       return;
     }

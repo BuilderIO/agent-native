@@ -170,7 +170,7 @@ export interface LayersPanelProps {
   canMoveLayer?: (intent: LayersPanelMoveIntent) => boolean;
 }
 
-interface FlatLayerRow {
+export interface FlatLayerRow {
   node: LayersPanelNode;
   rowKey: string;
   depth: number;
@@ -412,6 +412,65 @@ function collectAncestorIds(
   return Array.from(ancestors);
 }
 
+export function getLayerSelectionAnchorFromExternalSelection(args: {
+  selectedIds: readonly string[];
+  selectableVisibleIds: readonly string[];
+}): string | null {
+  const selectableVisibleIdSet = new Set(args.selectableVisibleIds);
+  return (
+    [...args.selectedIds]
+      .reverse()
+      .find((id) => selectableVisibleIdSet.has(id)) ?? null
+  );
+}
+
+export function getTreeOrderedLayerIds(
+  ids: readonly string[],
+  visibleRows: readonly FlatLayerRow[],
+): string[] {
+  const idSet = new Set(ids.filter((id) => id && !id.startsWith("__")));
+  const orderedIds = visibleRows
+    .map((row) => row.node.id)
+    .filter((id) => idSet.has(id));
+  const orderedIdSet = new Set(orderedIds);
+  return [
+    ...orderedIds,
+    ...ids.filter((id) => id && !id.startsWith("__") && !orderedIdSet.has(id)),
+  ];
+}
+
+export function getDraggedLayerIdsForRows(args: {
+  selectedIds: readonly string[];
+  nodeId: string;
+  visibleRows: readonly FlatLayerRow[];
+}): string[] {
+  const rawDraggedIds = args.selectedIds.includes(args.nodeId)
+    ? getTreeOrderedLayerIds(args.selectedIds, args.visibleRows)
+    : [args.nodeId];
+  const draggedIdSet = new Set(rawDraggedIds);
+  return rawDraggedIds.filter((id) => {
+    const rowForId = args.visibleRows.find((row) => row.node.id === id);
+    return !rowForId?.ancestorIds.some((ancestorId) =>
+      draggedIdSet.has(ancestorId),
+    );
+  });
+}
+
+export function shouldResyncLayerSelectionAnchor(args: {
+  selectionSignature: string;
+  lastPanelSelectionSignature: string;
+  currentAnchor: string | null;
+  selectableVisibleIds: readonly string[];
+}) {
+  const anchorStillVisible =
+    args.currentAnchor !== null &&
+    args.selectableVisibleIds.includes(args.currentAnchor);
+  return (
+    args.selectionSignature !== args.lastPanelSelectionSignature ||
+    !anchorStillVisible
+  );
+}
+
 function layerCanShowBadge(node: LayersPanelNode) {
   return (
     node.type === "file" ||
@@ -451,6 +510,7 @@ export function LayersPanel({
   const labels = useMemo(() => mergeLabels(labelsProp, t), [labelsProp, t]);
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedIdsRef = useRef<readonly string[]>(selectedIds);
+  const lastPanelSelectionSignatureRef = useRef(selectedIds.join("\0"));
   const expandedIdSet = useMemo(() => new Set(expandedIds), [expandedIds]);
   const lastSelectionAnchorRef = useRef<string | null>(selectedIds[0] ?? null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -486,9 +546,35 @@ export function LayersPanel({
     [roots, selectedIdSet],
   );
 
+  const selectableVisibleIds = useMemo(
+    () =>
+      visibleRows
+        .map(({ node }) => node)
+        .filter((node) => node.selectable !== false)
+        .map((node) => node.id),
+    [visibleRows],
+  );
+
   useLayoutEffect(() => {
     selectedIdsRef.current = selectedIds;
-  }, [selectedIds]);
+    const signature = selectedIds.join("\0");
+    if (
+      !shouldResyncLayerSelectionAnchor({
+        selectionSignature: signature,
+        lastPanelSelectionSignature: lastPanelSelectionSignatureRef.current,
+        currentAnchor: lastSelectionAnchorRef.current,
+        selectableVisibleIds,
+      })
+    ) {
+      return;
+    }
+    lastPanelSelectionSignatureRef.current = signature;
+    lastSelectionAnchorRef.current =
+      getLayerSelectionAnchorFromExternalSelection({
+        selectedIds,
+        selectableVisibleIds,
+      });
+  }, [selectableVisibleIds, selectedIds]);
 
   useEffect(() => {
     if (selectedAncestorIds.length === 0) return;
@@ -521,15 +607,6 @@ export function LayersPanel({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [selectedScrollRowKey]);
-
-  const selectableVisibleIds = useMemo(
-    () =>
-      visibleRows
-        .map(({ node }) => node)
-        .filter((node) => node.selectable !== false)
-        .map((node) => node.id),
-    [visibleRows],
-  );
 
   const selectNode = useCallback(
     (
@@ -582,6 +659,7 @@ export function LayersPanel({
       if (!options.range) {
         lastSelectionAnchorRef.current = id;
       }
+      lastPanelSelectionSignatureRef.current = nextIds.join("\0");
       onSelectionChange(nextIds, { id, selectedIds: nextIds, ...options });
     },
     [onSelectionChange, selectableVisibleIds],
@@ -948,12 +1026,15 @@ function LayerRow({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const focusVisibleButton = (nextIndex: number) => {
+    const getFocusableButtons = () => {
       const tree = event.currentTarget.closest('[role="tree"]');
-      if (!tree) return false;
-      const buttons = Array.from(
+      if (!tree) return [];
+      return Array.from(
         tree.querySelectorAll<HTMLButtonElement>("[data-layer-row-button]"),
       ).filter((button) => !button.disabled);
+    };
+    const focusVisibleButton = (nextIndex: number) => {
+      const buttons = getFocusableButtons();
       const target =
         buttons[Math.max(0, Math.min(buttons.length - 1, nextIndex))];
       target?.focus();
@@ -971,6 +1052,8 @@ function LayerRow({
     const currentIndex = visibleRows.findIndex(
       (visibleRow) => visibleRow.rowKey === row.rowKey,
     );
+    const focusableButtons = getFocusableButtons();
+    const currentFocusableIndex = focusableButtons.indexOf(event.currentTarget);
 
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       event.preventDefault();
@@ -990,12 +1073,12 @@ function LayerRow({
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      focusVisibleButton(currentIndex + 1);
+      focusVisibleButton(currentFocusableIndex + 1);
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      focusVisibleButton(currentIndex - 1);
+      focusVisibleButton(currentFocusableIndex - 1);
       return;
     }
     if (event.key === "Home") {
@@ -1005,7 +1088,7 @@ function LayerRow({
     }
     if (event.key === "End") {
       event.preventDefault();
-      focusVisibleButton(visibleRows.length - 1);
+      focusVisibleButton(focusableButtons.length - 1);
       return;
     }
     if (event.key === "ArrowRight" && hasChildren && !isExpanded) {
@@ -1015,9 +1098,13 @@ function LayerRow({
     }
     if (event.key === "ArrowRight" && hasChildren && isExpanded) {
       event.preventDefault();
-      const child = visibleRows[currentIndex + 1];
+      const nextButton = focusableButtons[currentFocusableIndex + 1];
+      const childId = nextButton?.dataset.layerNodeId;
+      const child = childId
+        ? visibleRows.find((visibleRow) => visibleRow.node.id === childId)
+        : null;
       if (child?.ancestorIds.includes(node.id)) {
-        focusVisibleButton(currentIndex + 1);
+        focusVisibleButton(currentFocusableIndex + 1);
       }
       return;
     }
@@ -1038,17 +1125,10 @@ function LayerRow({
       event.preventDefault();
       return;
     }
-    const rawDraggedIds = selectedIds.includes(node.id)
-      ? selectedIds.filter((id) => !id.startsWith("__"))
-      : [node.id];
-    // Remove any node whose ancestor is also being dragged to avoid double-moves.
-    // When a parent is moved, its children move with it automatically.
-    const draggedIdSet = new Set(rawDraggedIds);
-    const draggedIds = rawDraggedIds.filter((id) => {
-      const rowForId = visibleRows.find((r) => r.node.id === id);
-      return !rowForId?.ancestorIds.some((ancestorId) =>
-        draggedIdSet.has(ancestorId),
-      );
+    const draggedIds = getDraggedLayerIdsForRows({
+      selectedIds,
+      nodeId: node.id,
+      visibleRows,
     });
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-design-layer-id", node.id);
