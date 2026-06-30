@@ -372,6 +372,29 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["builder-source-review-readonly"],
   },
   {
+    id: "source-sync.builder-body-hydration-worker",
+    surface: "source-sync",
+    label: "Process queued Builder CMS body hydration work",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect:
+      "Queued Builder body hydration entries are processed into readable Content document/database body state.",
+    uiImplementation:
+      "Editor and database views trigger bounded queue processing through the shared action surface after source sync exposes hydration work.",
+    status: "action-backed",
+    actions: ["process-builder-body-hydration"],
+    exception:
+      "This action is intentionally hidden from the model with agentTool: false because it is an internal bounded queue worker; agents should use source refresh, review, and execution actions rather than manually driving hydration internals.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/_database-source-utils.test.ts"],
+  },
+  {
     id: "source-sync.builder-documents",
     surface: "source-sync",
     label: "List, pull, check, and push Builder docs/blog MDX documents",
