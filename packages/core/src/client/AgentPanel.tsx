@@ -85,6 +85,8 @@ import {
   getInitialAgentSidebarOpen,
   setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -3027,25 +3029,43 @@ export function focusAgentChat() {
  * Dispatches a custom event that AgentSidebar listens for.
  */
 export function AgentToggleButton({ className }: { className?: string }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (detail && typeof detail.open === "boolean") setOpen(detail.open);
+    };
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
+    return () =>
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
+  }, []);
+  const label = open ? "Close agent" : "Toggle agent";
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            aria-label="Toggle agent"
+            aria-label={label}
             onClick={() =>
-              window.dispatchEvent(new Event("agent-panel:toggle"))
+              window.dispatchEvent(
+                new Event(open ? "agent-panel:close" : "agent-panel:toggle"),
+              )
             }
             className={cn(
               "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               className,
             )}
           >
-            <IconMessageDots size={20} aria-hidden />
+            {open ? (
+              <IconX size={20} aria-hidden />
+            ) : (
+              <IconMessageDots size={20} aria-hidden />
+            )}
           </button>
         </TooltipTrigger>
-        <TooltipContent>Toggle agent</TooltipContent>
+        <TooltipContent>{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
