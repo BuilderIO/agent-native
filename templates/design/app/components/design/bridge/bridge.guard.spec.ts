@@ -269,3 +269,68 @@ it(
     }
   },
 );
+
+it(
+  "editor chrome bridge keeps marquee selection alive across host clear-selection replay",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #target { position: absolute; left: 280px; top: 260px; width: 120px; height: 90px; background: #e9eef8; }
+    </style>
+  </head>
+  <body>
+    <div id="target">Target</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const marquee = page.locator(
+        '[data-agent-native-edit-overlay="marquee-selection"]',
+      );
+      await page.mouse.move(32, 32);
+      await page.mouse.down();
+      await page.mouse.move(120, 110);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="marquee-selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.evaluate(() => {
+        window.postMessage({ type: "clear-selection" }, "*");
+      });
+      await page.waitForTimeout(30);
+      const duringReplay = await marquee.evaluate(
+        (el) => window.getComputedStyle(el).display,
+      );
+
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+      const afterPointerUp = await marquee.evaluate(
+        (el) => window.getComputedStyle(el).display,
+      );
+
+      expect(duringReplay).toBe("block");
+      expect(afterPointerUp).toBe("none");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);

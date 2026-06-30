@@ -229,17 +229,36 @@ describe("board surface pointer capture", () => {
     );
   });
 
-  it("keeps inactive board iframe content keys tied to full content", () => {
+  it("keeps inactive board iframe content keys stable across local edits", () => {
+    const before = `<body><div data-agent-native-node-id="rect" style="left:1px"></div></body>`;
+    const after = `<body><div data-agent-native-node-id="rect" style="left:2px"></div></body>`;
+
     expect(
       getBoardContentKey({
         boardFileId: "board",
-        boardFileContent: "<body><div>before</div></body>",
+        boardFileContent: before,
+        boardIsActive: false,
+      }),
+    ).toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: after,
+        boardIsActive: false,
+      }),
+    );
+  });
+
+  it("changes inactive board iframe content keys when layer ids change", () => {
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div></body>`,
         boardIsActive: false,
       }),
     ).not.toBe(
       getBoardContentKey({
         boardFileId: "board",
-        boardFileContent: "<body><div>after</div></body>",
+        boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
         boardIsActive: false,
       }),
     );

@@ -2835,7 +2835,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       ) {
         return;
       }
-      activeMarqueeSelection.moved = true;
+      if (!activeMarqueeSelection.moved) {
+        activeMarqueeSelection.moved = true;
+        suppressNextShieldClickBriefly();
+      }
       stopNativeInteraction(ev);
       updateMarqueeSelection(ev);
     }
@@ -4783,6 +4786,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       return;
     }
     if (e.data.type === "clear-selection") {
+      // During marquee drag, empty hit sets are replayed back from the host as a
+      // clear-selection state. Keep the drag-owned rectangle alive until pointer-up.
+      if (activeMarqueeSelection) return;
       clearRuntimeSelection();
       return;
     }

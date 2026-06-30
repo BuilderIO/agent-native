@@ -2110,7 +2110,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         ) <= 3) {
           return;
         }
-        activeMarqueeSelection.moved = true;
+        if (!activeMarqueeSelection.moved) {
+          activeMarqueeSelection.moved = true;
+          suppressNextShieldClickBriefly();
+        }
         stopNativeInteraction(ev);
         updateMarqueeSelection(ev);
       }
@@ -3677,6 +3680,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "clear-selection") {
+        if (activeMarqueeSelection) return;
         clearRuntimeSelection();
         return;
       }

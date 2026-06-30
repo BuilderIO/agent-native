@@ -678,10 +678,7 @@ export function getBoardContentKey(args: {
   boardFileContent: string;
   boardIsActive: boolean;
 }) {
-  if (args.boardIsActive) {
-    return `${args.boardFileId}:active:${getBoardContentLayerSignature(args.boardFileContent)}`;
-  }
-  return `${args.boardFileId}:${args.boardFileContent.length}:${hashString(args.boardFileContent)}`;
+  return `${args.boardFileId}:layers:${getBoardContentLayerSignature(args.boardFileContent)}`;
 }
 
 function getChromeHandleTransition(chromeSettling: boolean) {
