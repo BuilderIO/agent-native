@@ -21,7 +21,11 @@ import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { DeviceFrame } from "./DeviceFrame";
-import type { ElementInfo, DeviceFrameType } from "./types";
+import type {
+  ElementInfo,
+  ElementSelectionIntent,
+  DeviceFrameType,
+} from "./types";
 
 /**
  * Allowlist check for Fusion (Builder-hosted) frame origins.
@@ -313,7 +317,7 @@ interface DesignCanvasProps {
   interactMode: boolean;
   readOnly?: boolean;
   scaleMode?: boolean;
-  onElementSelect: (info: ElementInfo) => void;
+  onElementSelect: (info: ElementInfo, intent?: ElementSelectionIntent) => void;
   onElementHover: (info: ElementInfo | null) => void;
   onClearSelection?: () => void;
   onVisualStyleChange?: (
@@ -366,6 +370,7 @@ interface DesignCanvasProps {
   pinMode?: boolean;
   selectedSelector?: string | null;
   selectedSelectorCandidates?: string[];
+  selectedSelectorGroups?: string[][];
   hoveredSelector?: string | null;
   hoveredSelectorCandidates?: string[];
   lockedSelectors?: string[];
@@ -550,6 +555,7 @@ export function DesignCanvas({
   pinMode,
   selectedSelector,
   selectedSelectorCandidates = [],
+  selectedSelectorGroups = [],
   hoveredSelector,
   hoveredSelectorCandidates = [],
   lockedSelectors = [],
@@ -733,7 +739,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
-        onElementSelect(e.data.payload);
+        onElementSelect(e.data.payload, e.data.intent);
       }
       if (e.data.type === "element-hover") {
         onElementHover(e.data.payload);
@@ -1015,6 +1021,13 @@ export function DesignCanvas({
       "*",
     );
     iframe.contentWindow?.postMessage(
+      {
+        type: "select-elements",
+        selectorGroups: selectedSelectorGroups,
+      },
+      "*",
+    );
+    iframe.contentWindow?.postMessage(
       hoveredSelector
         ? {
             type: "hover-element",
@@ -1060,6 +1073,7 @@ export function DesignCanvas({
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
+    selectedSelectorGroups,
     shaderFillPreview,
     tweakValues,
   ]);

@@ -59,6 +59,7 @@ import {
   DEVICE_FRAME_VIEWPORTS,
   type DeviceFrameType,
   type ElementInfo,
+  type ElementSelectionIntent,
 } from "./types";
 
 // Re-export so consumers of MultiScreenCanvas can use the same script without
@@ -215,6 +216,11 @@ interface MultiScreenCanvasProps {
     widthPx: number | undefined,
   ) => void;
   onSelectionChange?: (selectedIds: string[]) => void;
+  onLayerMarqueeSelectionChange?: (
+    selectedIds: string[],
+    intent: ElementSelectionIntent,
+  ) => void;
+  selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
   /**
    * Called when the user drags an element out of the active screen's iframe
    * and drops it onto a different screen.  The bridge in the source iframe
@@ -283,7 +289,10 @@ interface MultiScreenCanvasProps {
    * DesignEditor should set boardFileId as the active file and push the
    * selection to the inspector.
    */
-  onBoardElementSelect?: (info: ElementInfo) => void;
+  onBoardElementSelect?: (
+    info: ElementInfo,
+    intent?: ElementSelectionIntent,
+  ) => void;
   /**
    * Called when the user hovers an element on the board surface.
    */
@@ -541,6 +550,13 @@ export interface CrossScreenHitTestResult {
   placement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
   anchorRect?: CrossScreenHitTestAnchorRect;
+}
+
+interface CanvasLayerMarqueeCandidate {
+  screenId: string;
+  info: ElementInfo;
+  geometry: FrameGeometry;
+  frameGeometry: FrameGeometry;
 }
 
 export interface CrossScreenDropGuide {
@@ -856,6 +872,8 @@ export function MultiScreenCanvas({
   onAddBreakpoint,
   onActiveBreakpointChange,
   onSelectionChange,
+  onLayerMarqueeSelectionChange,
+  selectedLayerSelectorGroupsByScreen = {},
   onCrossScreenElementDrop,
   boardFileId,
   boardFileContent,

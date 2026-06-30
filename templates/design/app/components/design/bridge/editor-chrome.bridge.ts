@@ -810,10 +810,7 @@ declare var __DESIGN_CANVAS_SCREEN_ID__: string;
 
   function makePassiveSelectionOverlay(): HTMLElement {
     var overlay = document.createElement("div");
-    overlay.setAttribute(
-      "data-agent-native-edit-overlay",
-      "multi-selection",
-    );
+    overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
     overlay.style.cssText =
       "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
     document.body.appendChild(overlay);
@@ -4011,6 +4008,53 @@ declare var __DESIGN_CANVAS_SCREEN_ID__: string;
     }
     if (e.data.type === "clear-selection") {
       clearRuntimeSelection();
+      return;
+    }
+    if (e.data.type === "agent-native:collect-selectable-rects") {
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:selectable-rects-result",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          payload: collectSelectableElementInfos(),
+        },
+        "*",
+      );
+      return;
+    }
+    if (e.data.type === "select-elements") {
+      var passiveTargets: Element[] = [];
+      var selectorGroups: unknown[] = Array.isArray(e.data.selectorGroups)
+        ? e.data.selectorGroups
+        : [];
+      selectorGroups.forEach(function (group) {
+        var selectors: string[] = [];
+        if (Array.isArray(group)) {
+          group.forEach(function (selector) {
+            if (
+              typeof selector === "string" &&
+              selector &&
+              selectors.indexOf(selector) === -1
+            ) {
+              selectors.push(selector);
+            }
+          });
+        }
+        for (var i = 0; i < selectors.length; i += 1) {
+          try {
+            var matches = document.querySelectorAll(selectors[i]);
+            for (var j = 0; j < matches.length; j += 1) {
+              if (!isLayerInteractionBlocked(matches[j])) {
+                passiveTargets.push(matches[j]);
+                return;
+              }
+            }
+          } catch (_err) {}
+        }
+      });
+      setPassiveSelectionElements(passiveTargets);
       return;
     }
     if (e.data.type === "select-element") {
