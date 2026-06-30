@@ -2394,3 +2394,32 @@
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* Embed mode (set by entry.client.tsx on `?embedded=1`). The app shell is
+ * fixed-viewport (`h-screen` + `overflow-hidden`), so inside the iframe
+ * scrollHeight equals the iframe height and the embed can't size to content.
+ * Flow the shell -> reader chain so frame.ts reports the real height. Scoped to
+ * [data-embed]; covers the AgentSidebar wrapper too since the chain spans
+ * several containers. */
+html[data-embed="1"],
+html[data-embed="1"] body,
+html[data-embed="1"] #root {
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+html[data-embed="1"] .agent-layout-shell,
+html[data-embed="1"] .agent-layout-main-surface,
+html[data-embed="1"] .agent-sidebar-root,
+html[data-embed="1"] .agent-sidebar-content,
+html[data-embed="1"] .plans-workspace,
+html[data-embed="1"] .plan-content-surface,
+html[data-embed="1"] [data-agent-sidebar],
+html[data-embed="1"] [data-agent-sidebar-content] {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
