@@ -5,13 +5,15 @@
  * auto-title bridge into a single call. Application state is already
  * session-scoped, and we additionally filter the referenced recordings through
  * `accessFilter` so we never return a request for a recording the user can't
- * access.
+ * access. Only requests for `status = "ready"` recordings are returned — the
+ * bridge ignores non-ready recordings, so excluding them avoids sending large
+ * transcript blobs for recordings the hook will skip this tick.
  */
 
 import { defineAction } from "@agent-native/core";
 import { listAppState } from "@agent-native/core/application-state";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -45,6 +47,7 @@ export default defineAction({
         and(
           accessFilter(schema.recordings, schema.recordingShares),
           inArray(schema.recordings.id, recordingIds),
+          eq(schema.recordings.status, "ready"),
         ),
       );
 
