@@ -665,7 +665,7 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
             onClick={handleSetLink}
             style={{
               fontSize: 11,
-              color: "#60a5fa",
+              color: "hsl(var(--primary))",
               padding: "2px 6px",
               fontWeight: 500,
               background: "none",
@@ -689,7 +689,7 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
                   style={{
                     width: 1,
                     height: 16,
-                    background: "rgba(255,255,255,0.2)",
+                    background: "hsl(var(--border))",
                     margin: "0 2px",
                   }}
                 />

@@ -1537,10 +1537,10 @@ audio.media-block__content {
   flex-direction: column;
   gap: 0.18rem;
   max-width: 22rem;
-  border: 0;
+  border: 1px solid hsl(var(--border));
   border-radius: 8px;
-  background: hsl(0 0% 15%);
-  color: white;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
   padding: 0.6rem 0.75rem;
   box-shadow: 0 10px 24px hsl(0 0% 0% / 0.22);
 }

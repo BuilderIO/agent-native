@@ -335,7 +335,7 @@ function SyncIndicator({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-white/[0.06] bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
+        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-border bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
         sidebarCollapsed
           ? "md:start-[calc(3.5rem+1rem)]"
           : "md:start-[calc(14rem+1rem)]",
