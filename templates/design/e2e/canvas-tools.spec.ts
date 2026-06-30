@@ -53,6 +53,8 @@ test.beforeEach(async ({ page, request }, workerInfo) => {
   await gotoEditor(page, designId);
 });
 
+test.use({ viewport: { width: 1440, height: 1000 } });
+
 test.afterEach(async ({ request }) => {
   if (!designId) return;
   await postAction(request, "delete-design", { id: designId }).catch(() => {});
@@ -74,7 +76,7 @@ function homeLayerRow(page: Page): Locator {
 }
 
 function screenShell(page: Page, name = "Home"): Locator {
-  return page.locator("[data-frame-shell]").filter({ hasText: name }).first();
+  return page.locator("[data-screen-shell]").filter({ hasText: name }).first();
 }
 
 async function dragBetween(
@@ -82,6 +84,7 @@ async function dragBetween(
   from: { x: number; y: number },
   to: { x: number; y: number },
 ): Promise<void> {
+  await page.waitForTimeout(250);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 12 });
@@ -100,6 +103,11 @@ async function createDraftPrimitive(
   },
 ): Promise<void> {
   await toolButton(page, toolName).click();
+  await expect(toolButton(page, toolName)).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.waitForTimeout(150);
   await dragBetween(page, drag.start, drag.end);
   await expect(toolButton(page, "Move")).toHaveAttribute(
     "aria-pressed",
@@ -247,6 +255,11 @@ test("frame insertion creates a new screen and can return to Home", async ({
   if (!cardBox) throw new Error("no home screen card box");
 
   await toolButton(page, "Frame").click();
+  await expect(toolButton(page, "Frame")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.waitForTimeout(150);
   await dragBetween(
     page,
     {
@@ -275,6 +288,8 @@ test("pen escape cancels the in-progress path and enter commits vector art", asy
   if (!cardBox) throw new Error("no home screen card box");
 
   await toolButton(page, "Pen").click();
+  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
+  await page.waitForTimeout(150);
   await page.mouse.click(
     cardBox.x + cardBox.width * 0.3,
     cardBox.y + cardBox.height * 0.3,

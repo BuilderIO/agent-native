@@ -1659,6 +1659,17 @@ function layerNameFor(
 }
 
 function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
+  // Canvas primitives (drawn shapes / board objects) carry their kind via
+  // data-an-primitive so the layers panel shows a true shape/text/frame icon
+  // instead of the generic code glyph. The marker wins over tag heuristics:
+  // these primitives are <div>s, which would otherwise classify as "element".
+  const primitiveKind = node.dataAttributes["data-an-primitive"];
+  if (primitiveKind) {
+    if (primitiveKind === "text") return "text";
+    if (primitiveKind === "frame") return "frame";
+    if (primitiveKind === "image") return "image";
+    return "shape";
+  }
   if (TEXT_LAYER_TAGS.has(node.tag)) return "text";
   if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
   if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";
@@ -3369,6 +3380,47 @@ export function applyVisualEdit(
       after,
     ),
   };
+}
+
+/**
+ * Attributes injected by the editor at runtime that must NOT appear in
+ * on-disk source files. These are stripped before any write-back so that
+ * the saved file stays clean and matches what a developer would author.
+ *
+ * - `data-agent-native-node-id` — stable selection id stamped by the editor.
+ * - `data-agent-native-layer-name` is intentionally kept: it is a
+ *   developer-authored attribute (the canonical layer-name hint) and is
+ *   useful in committed source.  Only ephemeral runtime stamps are removed.
+ */
+const EDITOR_ONLY_ATTRIBUTES: readonly string[] = ["data-agent-native-node-id"];
+
+/**
+ * Strip editor-only runtime attributes from an HTML string, returning clean
+ * source suitable for writing back to disk.
+ *
+ * Currently removes `data-agent-native-node-id` (and any future attributes
+ * listed in EDITOR_ONLY_ATTRIBUTES). The function operates on the raw HTML
+ * string with a regex that handles both quoted forms and unquoted values, and
+ * is safe to apply to already-clean source (idempotent).
+ *
+ * @param html  The raw HTML string, potentially containing editor stamps.
+ * @returns     A new string with all editor-only attributes removed.
+ */
+export function stripEditorOnlyAttributes(html: string): string {
+  if (!html || typeof html !== "string") return html ?? "";
+  let result = html;
+  for (const attr of EDITOR_ONLY_ATTRIBUTES) {
+    // Match the attribute with optional surrounding whitespace. The value may
+    // be double-quoted, single-quoted, or unquoted (no spaces / > chars).
+    // A leading \s+ is required so we only strip the attribute name+value pair
+    // and leave surrounding markup intact.
+    const re = new RegExp(
+      `\\s+${attr.replace(/-/g, "\\-")}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s"'=><\`]+)`,
+      "gi",
+    );
+    result = result.replace(re, "");
+  }
+  return result;
 }
 
 export interface MoveNodeBetweenDocumentsOptions {

@@ -249,6 +249,7 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
+      pendingOptions?: { skipQuestions?: boolean },
     ) => {
       // Derive a short title from the prompt — first line, ~40 chars max,
       // word-boundary truncated. The full prompt still drives generation;
@@ -266,6 +267,7 @@ export default function Index() {
         files,
         title,
         designSystemId,
+        skipQuestions: pendingOptions?.skipQuestions,
         ...options,
       });
 
@@ -425,7 +427,9 @@ export default function Index() {
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
+            onStarterPrompt={(prompt) =>
+              handleSubmitPrompt(prompt, [], {}, { skipQuestions: true })
+            }
           />
         ) : (
           <>

@@ -245,6 +245,17 @@ const enUS = {
   },
   designEditor: {
     askAgent: "Ask agent",
+    leftRail: {
+      file: "File",
+      agent: "Agent",
+      assets: "Assets",
+      tools: "Tools",
+      tokens: "Tokens",
+      label: "Design workspace",
+    },
+    applyToSource: "Apply to source",
+    applyToSourcePath: "Apply to source ({{path}})",
+    writingToSource: "Writing…",
     tokens: {
       title: "Tokens",
       newToken: "New token",
@@ -252,6 +263,16 @@ const enUS = {
       value: "Value",
       add: "Add token",
       refresh: "Refresh tokens",
+      import: "Import tokens",
+      importTitle: "Import tokens",
+      importHint:
+        "Use design.md, CSS, theme files, or the current design before adding tokens by hand.",
+      files: "Files",
+      folder: "Folder",
+      current: "Current",
+      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
+      importPasted: "Import pasted tokens",
+      importedCount: "Imported {{count}} tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -481,6 +502,7 @@ const enUS = {
     hide: "Hide layer",
     show: "Show layer",
     rename: "Rename layer",
+    deleteBoardObject: "Delete board object",
     selected: "{{count}} selected",
   },
   multiScreenCanvas: {
@@ -8136,6 +8158,7 @@ const designCanvasFeatureOverrides = {
       hide: "隱藏圖層",
       show: "顯示圖層",
       rename: "重新命名圖層",
+      deleteBoardObject: "刪除畫布物件",
       selected: "已選取 {{count}} 個",
     },
   },
@@ -8198,6 +8221,7 @@ const designCanvasFeatureOverrides = {
       hide: "隐藏图层",
       show: "显示图层",
       rename: "重命名图层",
+      deleteBoardObject: "删除画布对象",
       selected: "已选择 {{count}} 个",
     },
   },
@@ -8261,6 +8285,7 @@ const designCanvasFeatureOverrides = {
       hide: "Ocultar capa",
       show: "Mostrar capa",
       rename: "Renombrar capa",
+      deleteBoardObject: "Eliminar objeto del lienzo",
       selected: "{{count}} seleccionadas",
     },
   },
@@ -8324,6 +8349,7 @@ const designCanvasFeatureOverrides = {
       hide: "Masquer le calque",
       show: "Afficher le calque",
       rename: "Renommer le calque",
+      deleteBoardObject: "Supprimer l’objet du canevas",
       selected: "{{count}} sélectionnés",
     },
   },
@@ -8388,6 +8414,7 @@ const designCanvasFeatureOverrides = {
       hide: "Ebene ausblenden",
       show: "Ebene anzeigen",
       rename: "Ebene umbenennen",
+      deleteBoardObject: "Canvas-Objekt löschen",
       selected: "{{count}} ausgewählt",
     },
   },
@@ -8451,6 +8478,7 @@ const designCanvasFeatureOverrides = {
       hide: "レイヤーを非表示",
       show: "レイヤーを表示",
       rename: "レイヤー名を変更",
+      deleteBoardObject: "キャンバスオブジェクトを削除",
       selected: "{{count}} 件選択",
     },
   },
@@ -8514,6 +8542,7 @@ const designCanvasFeatureOverrides = {
       hide: "레이어 숨기기",
       show: "레이어 표시",
       rename: "레이어 이름 변경",
+      deleteBoardObject: "캔버스 오브젝트 삭제",
       selected: "{{count}}개 선택됨",
     },
   },
@@ -8577,6 +8606,7 @@ const designCanvasFeatureOverrides = {
       hide: "Ocultar camada",
       show: "Mostrar camada",
       rename: "Renomear camada",
+      deleteBoardObject: "Excluir objeto da tela",
       selected: "{{count}} selecionadas",
     },
   },
@@ -8640,6 +8670,7 @@ const designCanvasFeatureOverrides = {
       hide: "परत छिपाएं",
       show: "परत दिखाएं",
       rename: "परत का नाम बदलें",
+      deleteBoardObject: "कैनवास ऑब्जेक्ट हटाएं",
       selected: "{{count}} चयनित",
     },
   },
@@ -8703,6 +8734,7 @@ const designCanvasFeatureOverrides = {
       hide: "إخفاء الطبقة",
       show: "إظهار الطبقة",
       rename: "إعادة تسمية الطبقة",
+      deleteBoardObject: "حذف كائن اللوحة",
       selected: "{{count}} محددة",
     },
   },
@@ -9593,11 +9625,319 @@ const designLocalSourceEditOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
+const designLeftRailOverrides = {
+  "zh-TW": {
+    designEditor: {
+      applyToSource: "套用至來源",
+      applyToSourcePath: "套用至來源（{{path}}）",
+      writingToSource: "寫入中…",
+      leftRail: {
+        file: "檔案",
+        agent: "代理",
+        assets: "資源",
+        tools: "工具",
+        tokens: "權杖",
+        label: "設計工作區",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      applyToSource: "应用到源文件",
+      applyToSourcePath: "应用到源文件（{{path}}）",
+      writingToSource: "正在写入…",
+      leftRail: {
+        file: "文件",
+        agent: "代理",
+        assets: "资源",
+        tools: "工具",
+        tokens: "设计令牌",
+        label: "设计工作区",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      applyToSource: "Aplicar al código fuente",
+      applyToSourcePath: "Aplicar al código fuente ({{path}})",
+      writingToSource: "Escribiendo…",
+      leftRail: {
+        file: "Archivo",
+        agent: "Agente",
+        assets: "Recursos",
+        tools: "Herramientas",
+        tokens: "Tokens de diseño",
+        label: "Espacio de trabajo de diseño",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      applyToSource: "Appliquer à la source",
+      applyToSourcePath: "Appliquer à la source ({{path}})",
+      writingToSource: "Écriture…",
+      leftRail: {
+        file: "Fichier",
+        agent: "Agent",
+        assets: "Ressources",
+        tools: "Outils",
+        tokens: "Jetons",
+        label: "Espace de travail Design",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      applyToSource: "Auf Quelle anwenden",
+      applyToSourcePath: "Auf Quelle anwenden ({{path}})",
+      writingToSource: "Wird geschrieben…",
+      leftRail: {
+        file: "Datei",
+        agent: "Agent",
+        assets: "Ressourcen",
+        tools: "Werkzeuge",
+        tokens: "Design-Tokens",
+        label: "Design-Arbeitsbereich",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      applyToSource: "ソースに適用",
+      applyToSourcePath: "ソースに適用（{{path}}）",
+      writingToSource: "書き込み中…",
+      leftRail: {
+        file: "ファイル",
+        agent: "エージェント",
+        assets: "アセット",
+        tools: "ツール",
+        tokens: "トークン",
+        label: "デザインワークスペース",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      applyToSource: "소스에 적용",
+      applyToSourcePath: "소스에 적용({{path}})",
+      writingToSource: "쓰는 중…",
+      leftRail: {
+        file: "파일",
+        agent: "에이전트",
+        assets: "에셋",
+        tools: "도구",
+        tokens: "토큰",
+        label: "디자인 작업공간",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      applyToSource: "Aplicar à origem",
+      applyToSourcePath: "Aplicar à origem ({{path}})",
+      writingToSource: "Gravando…",
+      leftRail: {
+        file: "Arquivo",
+        agent: "Agente",
+        assets: "Recursos",
+        tools: "Ferramentas",
+        tokens: "Tokens de design",
+        label: "Área de trabalho de design",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      applyToSource: "स्रोत पर लागू करें",
+      applyToSourcePath: "स्रोत पर लागू करें ({{path}})",
+      writingToSource: "लिखा जा रहा है…",
+      leftRail: {
+        file: "फ़ाइल",
+        agent: "एजेंट",
+        assets: "एसेट",
+        tools: "उपकरण",
+        tokens: "टोकन",
+        label: "डिज़ाइन कार्यक्षेत्र",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      applyToSource: "تطبيق على المصدر",
+      applyToSourcePath: "تطبيق على المصدر ({{path}})",
+      writingToSource: "جارٍ الكتابة…",
+      leftRail: {
+        file: "ملف",
+        agent: "الوكيل",
+        assets: "الأصول",
+        tools: "الأدوات",
+        tokens: "الرموز",
+        label: "مساحة عمل التصميم",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designTokenImportOverrides = {
+  "zh-TW": {
+    designEditor: {
+      tokens: {
+        import: "匯入權杖",
+        importTitle: "匯入權杖",
+        importHint:
+          "先使用 design.md、CSS、主題檔案或目前設計，再手動新增權杖。",
+        files: "檔案",
+        folder: "資料夾",
+        current: "目前",
+        importPasted: "匯入貼上的權杖",
+        importedCount: "已匯入 {{count}} 個權杖",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      tokens: {
+        import: "导入设计令牌",
+        importTitle: "导入设计令牌",
+        importHint:
+          "先使用 design.md、CSS、主题文件或当前设计，再手动添加令牌。",
+        files: "文件",
+        folder: "文件夹",
+        current: "当前",
+        importPasted: "导入粘贴的令牌",
+        importedCount: "已导入 {{count}} 个令牌",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      tokens: {
+        import: "Importar tokens",
+        importTitle: "Importar tokens",
+        importHint:
+          "Usa design.md, CSS, archivos de tema o el diseño actual antes de añadir tokens a mano.",
+        files: "Archivos",
+        folder: "Carpeta",
+        current: "Actual",
+        importPasted: "Importar tokens pegados",
+        importedCount: "{{count}} tokens importados",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      tokens: {
+        import: "Importer des jetons",
+        importTitle: "Importer des jetons",
+        importHint:
+          "Utilisez design.md, CSS, les fichiers de thème ou le design actuel avant d'ajouter des jetons à la main.",
+        files: "Fichiers",
+        folder: "Dossier",
+        current: "Actuel",
+        importPasted: "Importer les jetons collés",
+        importedCount: "{{count}} jetons importés",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      tokens: {
+        import: "Tokens importieren",
+        importTitle: "Tokens importieren",
+        importHint:
+          "Nutze zuerst design.md, CSS, Theme-Dateien oder das aktuelle Design, bevor du Tokens manuell hinzufügst.",
+        files: "Dateien",
+        folder: "Ordner",
+        current: "Aktuell",
+        importPasted: "Eingefügte Tokens importieren",
+        importedCount: "{{count}} Tokens importiert",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      tokens: {
+        import: "トークンをインポート",
+        importTitle: "トークンをインポート",
+        importHint:
+          "手入力の前に design.md、CSS、テーマファイル、または現在のデザインを使います。",
+        files: "ファイル",
+        folder: "フォルダー",
+        current: "現在",
+        importPasted: "貼り付けたトークンをインポート",
+        importedCount: "{{count}} 個のトークンをインポートしました",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      tokens: {
+        import: "토큰 가져오기",
+        importTitle: "토큰 가져오기",
+        importHint:
+          "수동으로 추가하기 전에 design.md, CSS, 테마 파일 또는 현재 디자인을 사용하세요.",
+        files: "파일",
+        folder: "폴더",
+        current: "현재",
+        importPasted: "붙여넣은 토큰 가져오기",
+        importedCount: "{{count}}개 토큰을 가져왔습니다",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      tokens: {
+        import: "Importar tokens",
+        importTitle: "Importar tokens",
+        importHint:
+          "Use design.md, CSS, arquivos de tema ou o design atual antes de adicionar tokens manualmente.",
+        files: "Arquivos",
+        folder: "Pasta",
+        current: "Atual",
+        importPasted: "Importar tokens colados",
+        importedCount: "{{count}} tokens importados",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      tokens: {
+        import: "टोकन इम्पोर्ट करें",
+        importTitle: "टोकन इम्पोर्ट करें",
+        importHint:
+          "हाथ से जोड़ने से पहले design.md, CSS, theme files या current design इस्तेमाल करें।",
+        files: "फाइलें",
+        folder: "फोल्डर",
+        current: "मौजूदा",
+        importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
+        importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      tokens: {
+        import: "استيراد الرموز",
+        importTitle: "استيراد الرموز",
+        importHint:
+          "استخدم design.md أو CSS أو ملفات السمة أو التصميم الحالي قبل إضافة الرموز يدويا.",
+        files: "ملفات",
+        folder: "مجلد",
+        current: "الحالي",
+        importPasted: "استيراد الرموز الملصقة",
+        importedCount: "تم استيراد {{count}} رمزا",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
     mergePartialMessages(
       zhTW,
+      designLeftRailOverrides["zh-TW"],
+      designTokenImportOverrides["zh-TW"],
       designModeFeatureOverrides["zh-TW"],
       designShapeToolOverrides["zh-TW"],
       designPublicShareOverrides["zh-TW"],
@@ -9610,6 +9950,8 @@ export const messagesByLocale = {
       designLocaleOverrides["zh-CN"],
       designRawLiteralOverrides["zh-CN"],
       designExactEnglishOverrides["zh-CN"],
+      designLeftRailOverrides["zh-CN"],
+      designTokenImportOverrides["zh-CN"],
       designModeFeatureOverrides["zh-CN"],
       designCanvasFeatureOverrides["zh-CN"],
       designShapeToolOverrides["zh-CN"],
@@ -9662,6 +10004,8 @@ export const messagesByLocale = {
       designLocaleOverrides["es-ES"],
       designRawLiteralOverrides["es-ES"],
       designExactEnglishOverrides["es-ES"],
+      designLeftRailOverrides["es-ES"],
+      designTokenImportOverrides["es-ES"],
       designModeFeatureOverrides["es-ES"],
       designCanvasFeatureOverrides["es-ES"],
       designShapeToolOverrides["es-ES"],
@@ -9714,6 +10058,8 @@ export const messagesByLocale = {
       designLocaleOverrides["fr-FR"],
       designRawLiteralOverrides["fr-FR"],
       designExactEnglishOverrides["fr-FR"],
+      designLeftRailOverrides["fr-FR"],
+      designTokenImportOverrides["fr-FR"],
       designModeFeatureOverrides["fr-FR"],
       designCanvasFeatureOverrides["fr-FR"],
       designShapeToolOverrides["fr-FR"],
@@ -9766,6 +10112,8 @@ export const messagesByLocale = {
       designLocaleOverrides["de-DE"],
       designRawLiteralOverrides["de-DE"],
       designExactEnglishOverrides["de-DE"],
+      designLeftRailOverrides["de-DE"],
+      designTokenImportOverrides["de-DE"],
       designModeFeatureOverrides["de-DE"],
       designCanvasFeatureOverrides["de-DE"],
       designShapeToolOverrides["de-DE"],
@@ -9818,6 +10166,8 @@ export const messagesByLocale = {
       designLocaleOverrides["ja-JP"],
       designRawLiteralOverrides["ja-JP"],
       designExactEnglishOverrides["ja-JP"],
+      designLeftRailOverrides["ja-JP"],
+      designTokenImportOverrides["ja-JP"],
       designModeFeatureOverrides["ja-JP"],
       designCanvasFeatureOverrides["ja-JP"],
       designShapeToolOverrides["ja-JP"],
@@ -9871,6 +10221,8 @@ export const messagesByLocale = {
       designLocaleOverrides["ko-KR"],
       designRawLiteralOverrides["ko-KR"],
       designExactEnglishOverrides["ko-KR"],
+      designLeftRailOverrides["ko-KR"],
+      designTokenImportOverrides["ko-KR"],
       designModeFeatureOverrides["ko-KR"],
       designCanvasFeatureOverrides["ko-KR"],
       designShapeToolOverrides["ko-KR"],
@@ -9922,6 +10274,8 @@ export const messagesByLocale = {
       designLocaleOverrides["pt-BR"],
       designRawLiteralOverrides["pt-BR"],
       designExactEnglishOverrides["pt-BR"],
+      designLeftRailOverrides["pt-BR"],
+      designTokenImportOverrides["pt-BR"],
       designModeFeatureOverrides["pt-BR"],
       designCanvasFeatureOverrides["pt-BR"],
       designShapeToolOverrides["pt-BR"],
@@ -9974,6 +10328,8 @@ export const messagesByLocale = {
       designLocaleOverrides["hi-IN"],
       designRawLiteralOverrides["hi-IN"],
       designExactEnglishOverrides["hi-IN"],
+      designLeftRailOverrides["hi-IN"],
+      designTokenImportOverrides["hi-IN"],
       designModeFeatureOverrides["hi-IN"],
       designCanvasFeatureOverrides["hi-IN"],
       designShapeToolOverrides["hi-IN"],
@@ -10026,6 +10382,8 @@ export const messagesByLocale = {
       designLocaleOverrides["ar-SA"],
       designRawLiteralOverrides["ar-SA"],
       designExactEnglishOverrides["ar-SA"],
+      designLeftRailOverrides["ar-SA"],
+      designTokenImportOverrides["ar-SA"],
       designModeFeatureOverrides["ar-SA"],
       designCanvasFeatureOverrides["ar-SA"],
       designShapeToolOverrides["ar-SA"],

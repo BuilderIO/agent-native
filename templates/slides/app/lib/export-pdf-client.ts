@@ -20,7 +20,7 @@ import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
  * setting the attribute and re-assigning the same src. This is the root
  * cause of the "blank images in exported PDF" bug Rochkind reported.
  */
-async function preloadImagesWithCors(root: HTMLElement): Promise<void> {
+export async function preloadImagesWithCors(root: HTMLElement): Promise<void> {
   const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
   await Promise.all(
     imgs.map(async (img) => {
@@ -57,6 +57,33 @@ async function preloadImagesWithCors(root: HTMLElement): Promise<void> {
         );
       }
     }),
+  );
+}
+
+export function findSlideExportSource(
+  slideId: string,
+  slideIndex: number,
+  slideCount: number,
+): HTMLElement {
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      `[data-slide-canvas="${CSS.escape(slideId)}"]`,
+    ),
+  );
+  // Don't silently drop missing slides — a collapsed sidebar (mobile
+  // default) would otherwise produce a partial export with no warning.
+  if (candidates.length === 0) {
+    throw new Error(
+      `Slide ${slideIndex + 1} of ${slideCount} is not currently rendered. Open the slide sidebar and try again.`,
+    );
+  }
+
+  // A given slide can appear multiple times (sidebar thumbnail + active
+  // editor canvas); pick the one with the largest natural width so we
+  // capture full-resolution pixels even when the visible copy is scaled
+  // down via CSS transform.
+  return candidates.reduce((best, el) =>
+    el.offsetWidth > best.offsetWidth ? el : best,
   );
 }
 
@@ -99,25 +126,7 @@ export async function exportDeckAsPdf(
 
   for (let i = 0; i < slideIds.length; i++) {
     const slideId = slideIds[i];
-    // A given slide can appear multiple times (sidebar thumbnail + active
-    // editor canvas); pick the one with the largest natural width so we
-    // capture full-resolution pixels even when the visible copy is scaled
-    // down via CSS transform.
-    const candidates = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        `[data-slide-canvas="${CSS.escape(slideId)}"]`,
-      ),
-    );
-    // Don't silently drop missing slides — a collapsed sidebar (mobile
-    // default) would otherwise produce a partial PDF with no warning.
-    if (candidates.length === 0) {
-      throw new Error(
-        `Slide ${i + 1} of ${slideIds.length} is not currently rendered. Open the slide sidebar and try again.`,
-      );
-    }
-    const source = candidates.reduce((best, el) =>
-      el.offsetWidth > best.offsetWidth ? el : best,
-    );
+    const source = findSlideExportSource(slideId, i, slideIds.length);
 
     // Force CORS-enabled re-fetch on every cross-origin <img> before
     // capture — otherwise the canvas tainting check inside modern-screenshot

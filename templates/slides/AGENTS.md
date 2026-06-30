@@ -54,6 +54,15 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 - `navigate` moves the UI to decks, slides, imports, and exports.
 - Use app actions for full deck/slide data instead of relying on ambient context.
 
+## Export Behavior
+
+- Browser PowerPoint export uses the rendered slide DOM to generate native,
+  editable PPTX text/shapes/images. Do not replace it with full-slide images
+  unless the user explicitly asks for non-editable visual snapshots.
+- Google Slides export is a PPTX import workflow: generate the same editable
+  PPTX and have the user import it into Google Slides. Creating a native Google
+  Slides file directly requires a separate Google Slides API batchUpdate path.
+
 ## Skills
 
 Read the relevant skill before deeper work:

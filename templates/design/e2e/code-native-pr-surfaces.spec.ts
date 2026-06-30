@@ -108,7 +108,6 @@ async function tokenSampleBackground(page: Page): Promise<string> {
 }
 
 async function openTokensPanel(page: Page): Promise<void> {
-  await page.getByRole("tab", { name: "Tweaks", exact: true }).click();
   await page.getByRole("button", { name: "Tokens", exact: true }).click();
   await expect(page.getByText("E2e Accent Color", { exact: true })).toBeVisible(
     { timeout: 20_000 },
@@ -245,12 +244,43 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
     .toContain("focus-visible:ring-2");
 });
 
-test("Motion dock can add a first track and Write to CSS", async ({ page }) => {
+test("Motion dock autosaves track edits to CSS and reopens them", async ({
+  page,
+}) => {
   await selectByText(page, "Alpha Button");
 
+  await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
+  const expandMotionDockButton = page.getByRole("button", {
+    name: "Expand motion dock",
+    exact: true,
+  });
+  await expect(expandMotionDockButton).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [triggerBox, layersBox] = await Promise.all([
+        expandMotionDockButton.boundingBox(),
+        page.locator('aside[aria-label="Layers"]').boundingBox(),
+      ]);
+      if (!triggerBox || !layersBox) return false;
+      return (
+        Math.abs(triggerBox.x - layersBox.x) <= 2 &&
+        Math.abs(triggerBox.width - layersBox.width) <= 2 &&
+        Math.abs(
+          triggerBox.y + triggerBox.height - (layersBox.y + layersBox.height),
+        ) <= 2
+      );
+    })
+    .toBe(true);
+  await expandMotionDockButton.click();
+  await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
+  await page
+    .getByRole("button", { name: "Collapse motion dock", exact: true })
+    .click();
+  await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
   await page
     .getByRole("button", { name: "Expand motion dock", exact: true })
     .click();
+  await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await expect(
     page.getByText("Pick a property to add the first track.", { exact: false }),
   ).toBeVisible();
@@ -260,21 +290,17 @@ test("Motion dock can add a first track and Write to CSS", async ({ page }) => {
     .getByRole("button", { name: "Add track", exact: true })
     .last()
     .click();
-  await page
-    .getByRole("menuitem", { name: "Fade (opacity)", exact: true })
-    .click();
+  await waitForAction(page, "apply-motion-edit", async () => {
+    await page
+      .getByRole("menuitem", { name: "Fade (opacity)", exact: true })
+      .click();
+  });
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
   await expect(page.getByText("opacity", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Keyframe at 0%")).toBeVisible();
   await expect(page.getByLabel("Keyframe at 100%")).toBeVisible();
-
-  const writeButton = page.getByRole("button", { name: /Write to CSS/ });
-  await expect(writeButton).toBeEnabled();
-  await waitForAction(page, "apply-motion-edit", async () => {
-    await writeButton.click();
-  });
 
   await gotoEditor(page, designId);
   await expect
@@ -290,6 +316,26 @@ test("Motion dock can add a first track and Write to CSS", async ({ page }) => {
         .textContent(),
     )
     .toContain("e2e-alpha-button");
+
+  const reopenMotionDockButton = page.getByRole("button", {
+    name: "Expand motion dock",
+    exact: true,
+  });
+  await expect(reopenMotionDockButton).toBeVisible();
+  await reopenMotionDockButton.click();
+  await expect(
+    motionDock.getByRole("button", { name: "Alpha Button" }),
+  ).toBeVisible();
+  await expect(page.getByText("opacity", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Keyframe at 0%")).toBeVisible();
+  await expect(page.getByLabel("Keyframe at 100%")).toBeVisible();
+
+  await gotoEditor(page, designId);
+  await expect
+    .poll(() =>
+      designFrame(page).locator("style[data-agent-native-motion]").count(),
+    )
+    .toBe(1);
 });
 
 test("breakpoint default buttons set the active preview width", async ({
@@ -323,7 +369,7 @@ test("shader fill preview opens when the paint surface is reachable", async ({
 }) => {
   await selectByText(page, "Alpha Button");
 
-  await page.getByRole("tab", { name: "Extensions", exact: true }).click();
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
   await page.getByRole("button", { name: /Shader Fills/ }).click();
   await expect(
     page.getByRole("button", { name: "Browse Shaders", exact: true }),

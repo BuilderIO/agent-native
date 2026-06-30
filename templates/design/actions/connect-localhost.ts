@@ -41,6 +41,41 @@ function normalizeUrl(value: string, label: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  if (
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized === "[::1]"
+  ) {
+    return true;
+  }
+  const parts = normalized.split(".");
+  return (
+    parts.length === 4 &&
+    parts[0] === "127" &&
+    parts.every((part) => /^\d+$/.test(part) && Number(part) <= 255)
+  );
+}
+
+function normalizeBridgeUrl(value: string): string {
+  const normalized = normalizeUrl(value, "bridgeUrl");
+  const parsed = new URL(normalized);
+  if (parsed.username || parsed.password) {
+    throw new Error("bridgeUrl must not include credentials");
+  }
+  if (parsed.pathname !== "/" && parsed.pathname !== "") {
+    throw new Error("bridgeUrl must not include a path");
+  }
+  if (!isLoopbackHostname(parsed.hostname)) {
+    throw new Error("bridgeUrl must use localhost or a loopback IP address");
+  }
+  parsed.search = "";
+  parsed.hash = "";
+  parsed.pathname = "";
+  return parsed.toString().replace(/\/$/, "");
+}
+
 export default defineAction({
   description:
     "Register or refresh a localhost Design source connection produced by `agent-native design connect`. Stores the dev server URL, bridge URL, route manifest, and operation capabilities so the UI can later list local-code artboards.",
@@ -77,6 +112,12 @@ export default defineAction({
       .array(capabilitySchema)
       .optional()
       .describe("Bridge operation capabilities."),
+    bridgeToken: z
+      .string()
+      .optional()
+      .describe(
+        "The bridge's real auth token minted at bridge start. Stored on the connection so grant-localhost-write-consent can read it without minting its own.",
+      ),
     status: z
       .enum(["connected", "detected", "manual", "error"])
       .optional()
@@ -91,7 +132,7 @@ export default defineAction({
     const db = getDb();
     const devServerUrl = normalizeUrl(args.devServerUrl, "devServerUrl");
     const bridgeUrl = args.bridgeUrl
-      ? normalizeUrl(args.bridgeUrl, "bridgeUrl")
+      ? normalizeBridgeUrl(args.bridgeUrl)
       : undefined;
     const rawRoutes = args.routeManifest?.routes ?? args.routes ?? [];
     const routes = rawRoutes.map((route) => ({
@@ -115,18 +156,24 @@ export default defineAction({
       args.capabilities ??
       DESIGN_BRIDGE_OPERATIONS.map((operation) => ({
         operation,
-        status:
-          operation === "readFile" ||
-          operation === "applyEdit" ||
-          operation === "writeFile"
-            ? ("planned" as const)
-            : ("available" as const),
-        reason:
-          operation === "writeFile"
-            ? "Local file writes require the next bridge hardening pass."
-            : undefined,
+        status: "available" as const,
       }));
 
+    const existing = await db
+      .select({
+        id: schema.designLocalhostConnections.id,
+        bridgeToken: schema.designLocalhostConnections.bridgeToken,
+      })
+      .from(schema.designLocalhostConnections)
+      .where(
+        and(
+          eq(schema.designLocalhostConnections.id, id),
+          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+
+    const nextBridgeToken = args.bridgeToken?.trim() || undefined;
     const values = {
       id,
       name: args.name ?? new URL(devServerUrl).host,
@@ -136,23 +183,13 @@ export default defineAction({
       rootPath: routeManifest.rootPath ?? null,
       routeManifest: JSON.stringify(routeManifest),
       capabilities: JSON.stringify(capabilities),
+      bridgeToken: nextBridgeToken ?? existing[0]?.bridgeToken ?? null,
       status: args.status,
       lastSeenAt: now,
       ownerEmail,
       orgId: getRequestOrgId() ?? null,
       updatedAt: now,
     };
-
-    const existing = await db
-      .select({ id: schema.designLocalhostConnections.id })
-      .from(schema.designLocalhostConnections)
-      .where(
-        and(
-          eq(schema.designLocalhostConnections.id, id),
-          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
-        ),
-      )
-      .limit(1);
 
     if (existing[0]) {
       await db

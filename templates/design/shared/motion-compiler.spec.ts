@@ -14,6 +14,8 @@ import {
   assertSafeMotionCssProperty,
   assertSafeMotionCssToken,
   compile,
+  extractManagedMotionCss,
+  parse,
 } from "./motion-compiler";
 import type { MotionTimeline } from "./motion-timeline";
 
@@ -255,5 +257,50 @@ describe("compile — property is emitted safely", () => {
     unsafeDefaultEase.defaultEase = "url(javascript:alert(1))";
 
     expect(() => compile(unsafeDefaultEase)).toThrow(/Invalid defaultEase/);
+  });
+});
+
+describe("parse — managed style fallback", () => {
+  it("recovers editable tracks from a managed motion style block", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0].targetNodeId = "alpha-button";
+    timeline.tracks[0].keyframes = [
+      { t: 0, value: "0", ease: "ease-out" },
+      { t: 1, value: "1" },
+    ];
+
+    const { css } = compile(timeline);
+    const managedCss = extractManagedMotionCss(
+      `<html><head><style data-agent-native-motion>\n${css}\n</style></head></html>`,
+    );
+
+    expect(managedCss).toBe(css);
+    expect(parse(managedCss ?? "")).toEqual([
+      {
+        targetNodeId: "alpha-button",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 1, value: "1", ease: "ease" },
+        ],
+      },
+    ]);
+  });
+
+  it("uses the exact selector node id when animation names are sanitized", () => {
+    const timeline = makeTimeline("transform");
+    timeline.tracks[0].targetNodeId = "hero:button";
+    timeline.tracks[0].keyframes = [
+      { t: 0, value: "translateY(16px)" },
+      { t: 1, value: "translateY(0px)" },
+    ];
+
+    const { css } = compile(timeline);
+
+    expect(css).toContain("@keyframes an-motion-hero_button--transform");
+    expect(parse(css)[0]).toMatchObject({
+      targetNodeId: "hero:button",
+      property: "transform",
+    });
   });
 });

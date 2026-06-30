@@ -25,7 +25,7 @@ const WebContentSearchSchema = z.object({
 
 export default defineAction({
   description:
-    "Inspect provider API docs/spec metadata, or fetch any public API documentation page, OpenAPI spec, changelog, or web page. Use this before provider-api-request when the exact GitHub endpoint, payload shape, pagination, or API version is uncertain.",
+    "Inspect provider API docs/spec metadata, or fetch any public API documentation page, OpenAPI spec, changelog, or web page. Use this before provider-api-request when the exact GitHub/Figma endpoint, payload shape, pagination, or API version is uncertain.",
   schema: z.object({
     provider: ProviderSchema.describe(
       "Provider whose API docs/spec to inspect.",

@@ -86,6 +86,9 @@ import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
 
+const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
+const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
+
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
@@ -562,10 +565,8 @@ export default function RecordingPage() {
       .finally(() => playerDataQ.refetch());
   }, [recording?.id, recording?.status, transcriptStatus, role, playerDataQ]);
 
-  // After 30 seconds of non-ready status (without an explicit failure), flip
-  // a local flag so we can stop pretending this is normal and show an error.
-  // Even a 10-minute recording's finalize completes in a few seconds with
-  // the SQL fallback, so anything past 30s means something is wrong.
+  // Long browser-extension clips can still be uploading chunks or assembling
+  // for more than 30s. Keep polling before surfacing a stuck-state fallback.
   useEffect(() => {
     if (!recording) {
       setProcessingTimeout(false);
@@ -579,7 +580,11 @@ export default function RecordingPage() {
       setProcessingTimeout(false);
       return;
     }
-    const handle = setTimeout(() => setProcessingTimeout(true), 30_000);
+    const timeoutMs =
+      recording.status === "processing"
+        ? PROCESSING_STUCK_TIMEOUT_MS
+        : UPLOAD_STUCK_TIMEOUT_MS;
+    const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
     return () => clearTimeout(handle);
   }, [recording?.status, recording?.videoUrl, recordingId]);
 

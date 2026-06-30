@@ -464,6 +464,10 @@
   container: analytics-session-detail / inline-size;
 }
 
+.analytics-session-detail-timeline {
+  display: none;
+}
+
 @container analytics-session-detail (min-width: 760px) {
   .analytics-session-detail-header {
     flex-direction: row;
@@ -475,6 +479,10 @@
 @container analytics-session-detail (min-width: 1040px) {
   .analytics-session-detail-workbench {
     grid-template-columns: minmax(0, 1fr) 330px;
+  }
+
+  .analytics-session-detail-timeline {
+    display: flex;
   }
 }
 

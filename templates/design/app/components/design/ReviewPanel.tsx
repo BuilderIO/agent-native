@@ -37,7 +37,6 @@ import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
@@ -393,7 +392,7 @@ function A11ySection({
   return (
     <section aria-labelledby="review-a11y-heading">
       {/* Section header */}
-      <div className="flex h-8 items-center justify-between px-3">
+      <div className="flex h-7 items-center justify-between">
         <div className="flex items-center gap-1.5">
           <IconShieldCheck className="size-3.5 text-muted-foreground" />
           <span
@@ -440,7 +439,7 @@ function A11ySection({
             size="sm"
             disabled={loading}
             onClick={onRunAudit}
-            className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+            className="h-6 gap-1 rounded-md px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
           >
             {loading ? (
               <IconRefresh className="size-3 animate-spin" />
@@ -452,12 +451,12 @@ function A11ySection({
         )}
       </div>
 
-      <Separator className="mx-3" />
+      <Separator />
 
-      <div className="px-1 py-1">
+      <div className="py-1">
         {/* Error state */}
         {auditError && (
-          <div className="flex items-center gap-2 rounded px-2 py-1.5">
+          <div className="flex min-h-7 items-center gap-2 rounded-[5px] px-2">
             <IconAlertCircle className="size-3.5 shrink-0 text-destructive" />
             <span className="text-[11px] text-muted-foreground">
               {auditError}
@@ -467,23 +466,15 @@ function A11ySection({
 
         {/* Not yet run */}
         {notRun && (
-          <div className="flex flex-col items-center gap-2 py-5 text-center">
-            <IconShieldCheck className="size-5 text-muted-foreground/30" />
-            <p className="text-[11px] leading-snug text-muted-foreground/60">
-              No audit has been run yet.
-              {onRunAudit && (
-                <>
-                  {" "}
-                  Click <strong>Run</strong> to scan this design.
-                </>
-              )}
-            </p>
+          <div className="flex h-7 items-center gap-2 rounded-[5px] px-2 text-muted-foreground/55">
+            <IconShieldCheck className="size-3.5 shrink-0" />
+            <span className="truncate text-[11px]">Audit not run</span>
           </div>
         )}
 
         {/* Loading */}
         {loading && !hasFindings && (
-          <div className="flex items-center gap-2 px-2 py-3">
+          <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconRefresh className="size-3.5 animate-spin text-muted-foreground/50" />
             <span className="text-[11px] text-muted-foreground/60">
               Scanning…
@@ -493,7 +484,7 @@ function A11ySection({
 
         {/* All clear */}
         {!loading && !auditError && !notRun && !hasFindings && (
-          <div className="flex items-center gap-2 px-2 py-3">
+          <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconCheck className="size-3.5 text-emerald-500" />
             <span className="text-[11px] text-muted-foreground">
               No issues found.
@@ -518,7 +509,7 @@ function A11ySection({
 
         {/* Audit timestamp */}
         {auditedAt && (
-          <p className="mt-1.5 px-2 text-[10px] text-muted-foreground/40">
+          <p className="mt-1 px-2 text-[10px] text-muted-foreground/40">
             Last audited{" "}
             {new Date(auditedAt).toLocaleString(undefined, {
               dateStyle: "short",
@@ -551,7 +542,7 @@ function VersionLabel({
     <select
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value || null)}
-      className="h-6 max-w-[120px] flex-1 truncate rounded border border-border bg-transparent px-1.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+      className="h-6 max-w-[120px] flex-1 truncate rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
       aria-label={placeholder}
     >
       <option value="">{placeholder}</option>
@@ -567,7 +558,7 @@ function VersionLabel({
 function DiffRow({ entry }: { entry: VisualDiffEntry }) {
   const cfg = DIFF_KIND_CONFIG[entry.kind];
   return (
-    <div className="flex items-center gap-2 rounded px-2 py-1 hover:bg-accent/40">
+    <div className="flex h-7 items-center gap-2 rounded-[5px] px-2 hover:bg-[var(--design-editor-layer-hover-color)]">
       <Badge
         variant="outline"
         className={cn("h-4 shrink-0 px-1 text-[9px] font-medium", cfg.badge)}
@@ -604,7 +595,7 @@ function VisualDiffSection({
 
   return (
     <section aria-labelledby="review-diff-heading">
-      <div className="flex h-8 items-center gap-1.5 px-3">
+      <div className="flex h-7 items-center gap-1.5">
         <IconArrowsLeftRight className="size-3.5 text-muted-foreground" />
         <span
           id="review-diff-heading"
@@ -622,9 +613,9 @@ function VisualDiffSection({
         )}
       </div>
 
-      <Separator className="mx-3" />
+      <Separator />
 
-      <div className="px-3 py-2 space-y-2">
+      <div className="space-y-1.5 py-1">
         {/* Version selectors */}
         {hasVersions && (
           <div className="flex items-center gap-1.5">
@@ -649,7 +640,7 @@ function VisualDiffSection({
 
         {/* States */}
         {diffError && (
-          <div className="flex items-center gap-2">
+          <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconAlertCircle className="size-3.5 shrink-0 text-destructive" />
             <span className="text-[11px] text-muted-foreground">
               {diffError}
@@ -658,7 +649,7 @@ function VisualDiffSection({
         )}
 
         {loading && (
-          <div className="flex items-center gap-2">
+          <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconRefresh className="size-3.5 animate-spin text-muted-foreground/50" />
             <span className="text-[11px] text-muted-foreground/60">
               Comparing…
@@ -667,15 +658,13 @@ function VisualDiffSection({
         )}
 
         {!loading && !diffError && noVersionsSelected && !hasDiff && (
-          <p className="text-[11px] text-muted-foreground/50">
-            {hasVersions
-              ? "Select two versions above to see what changed."
-              : "No versions saved yet. Save a version to compare."}
-          </p>
+          <div className="flex h-7 items-center rounded-[5px] px-2 text-[11px] text-muted-foreground/55">
+            {hasVersions ? "Choose versions to diff" : "No versions yet"}
+          </div>
         )}
 
         {!loading && !diffError && !noVersionsSelected && !hasDiff && (
-          <div className="flex items-center gap-2">
+          <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconCheck className="size-3.5 text-emerald-500" />
             <span className="text-[11px] text-muted-foreground">
               No structural changes detected.
@@ -730,37 +719,29 @@ export function ReviewPanel({
 }: ReviewPanelProps) {
   return (
     <div
-      className={cn("flex flex-col overflow-hidden text-[11px]", className)}
+      className={cn("flex flex-col gap-2 text-[11px]", className)}
       data-testid="review-panel"
     >
-      <ScrollArea className="flex-1">
-        <div className="py-1">
-          <A11ySection
-            findings={findings}
-            loading={auditLoading}
-            auditedAt={auditedAt}
-            auditError={auditError}
-            onRunAudit={onRunAudit}
-            onFindingClick={onFindingClick}
-            fixSource={fixSource}
-            onFixApplied={onFixApplied}
-          />
+      <A11ySection
+        findings={findings}
+        loading={auditLoading}
+        auditedAt={auditedAt}
+        auditError={auditError}
+        onRunAudit={onRunAudit}
+        onFindingClick={onFindingClick}
+        fixSource={fixSource}
+        onFixApplied={onFixApplied}
+      />
 
-          <div className="my-2 mx-3">
-            <Separator />
-          </div>
-
-          <VisualDiffSection
-            diff={visualDiff}
-            versionOptions={versionOptions}
-            baseVersionId={baseVersionId}
-            compareVersionId={compareVersionId}
-            onVersionChange={onVersionChange}
-            loading={diffLoading}
-            diffError={diffError}
-          />
-        </div>
-      </ScrollArea>
+      <VisualDiffSection
+        diff={visualDiff}
+        versionOptions={versionOptions}
+        baseVersionId={baseVersionId}
+        compareVersionId={compareVersionId}
+        onVersionChange={onVersionChange}
+        loading={diffLoading}
+        diffError={diffError}
+      />
     </div>
   );
 }

@@ -195,19 +195,31 @@
 
   window.addEventListener("resize", () => applyBubbleGeom());
 
-  function requestState(): void {
+  function readCurrentParts(
+    callback: (parts: OverlayPart[] | null) => void,
+  ): void {
     try {
       chrome.runtime.sendMessage(
         { type: "CLIPS_CONTENT_HELLO" },
         (response) => {
-          if (chrome.runtime.lastError) return;
+          if (chrome.runtime.lastError) {
+            callback(null);
+            return;
+          }
           const parts = (response as { parts?: unknown } | undefined)?.parts;
-          reconcile(Array.isArray(parts) ? (parts as OverlayPart[]) : []);
+          callback(Array.isArray(parts) ? (parts as OverlayPart[]) : []);
         },
       );
     } catch {
-      /* worker asleep; will resync on next message */
+      callback(null);
     }
+  }
+
+  function requestState(): void {
+    readCurrentParts((parts) => {
+      if (parts) reconcile(parts);
+      /* worker asleep; will resync on next message */
+    });
   }
 
   // Only wake the service worker (via requestState) when a recording is actually
@@ -396,14 +408,23 @@
   function mountDeferredCountdown(): void {
     countdownDeferred = false;
     clearTimeout(countdownFallbackTimer);
-    hideConnecting();
-    setBubbleHidden(false);
-    const container = document.getElementById(
-      CONTAINER_ID,
-    ) as HTMLDivElement | null;
-    if (container && !document.getElementById(partFrameId("countdown"))) {
-      mountPart(container, "countdown");
-    }
+    readCurrentParts((parts) => {
+      if (!parts?.includes("countdown")) {
+        hideConnecting();
+        setBubbleHidden(false);
+        if (parts) reconcile(parts);
+        return;
+      }
+
+      hideConnecting();
+      setBubbleHidden(false);
+      const container = document.getElementById(
+        CONTAINER_ID,
+      ) as HTMLDivElement | null;
+      if (container && !document.getElementById(partFrameId("countdown"))) {
+        mountPart(container, "countdown");
+      }
+    });
   }
 
   function reconcile(parts: OverlayPart[]): void {
@@ -491,6 +512,11 @@
     if (data.kind === "camera-ready") {
       cameraReady = true;
       if (countdownDeferred) mountDeferredCountdown();
+      return;
+    }
+    if (data.kind === "countdown-finished") {
+      document.getElementById(partFrameId("countdown"))?.remove();
+      hideConnecting();
       return;
     }
     if (data.kind === "bubble-drag-start") {

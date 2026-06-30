@@ -211,6 +211,45 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
     },
+    // v16: localhost source connections and write-consent grants. The schema
+    // existed before this migration in source, but fresh/existing DBs still
+    // need the concrete tables and the bridge_token column used by localhost
+    // write-back.
+    {
+      version: 16,
+      sql: `CREATE TABLE IF NOT EXISTS design_localhost_connections (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'localhost',
+    dev_server_url TEXT NOT NULL,
+    bridge_url TEXT,
+    root_path TEXT,
+    route_manifest TEXT NOT NULL DEFAULT '{}',
+    capabilities TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'connected',
+    last_seen_at TEXT,
+    bridge_token TEXT,
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS bridge_token TEXT;
+CREATE TABLE IF NOT EXISTS design_localhost_write_grants (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL,
+    connection_id TEXT NOT NULL,
+    root_path TEXT NOT NULL,
+    bridge_token TEXT NOT NULL,
+    granted_until TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  );
+CREATE INDEX IF NOT EXISTS design_localhost_connections_owner_idx ON design_localhost_connections (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS design_localhost_write_grants_lookup_idx ON design_localhost_write_grants (design_id, connection_id, owner_email)`,
+    },
   ],
   { table: "design_migrations" },
 );

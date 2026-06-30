@@ -39,9 +39,9 @@ const BARE_PREFIXES = ["/present/"];
 
 /**
  * Routes where the page renders its own toolbar instead of the global Header.
- * The Sidebar + AgentSidebar still render. The Header is hidden so the page
- * can supply a richer custom toolbar (e.g. DesignEditor mode/zoom/device,
- * shared ExtensionViewer / ExtensionsListPage chrome).
+ * The Header is hidden so the page can supply richer custom chrome (e.g.
+ * DesignEditor mode/zoom/device, shared ExtensionViewer / ExtensionsListPage
+ * chrome). The editor owns its agent surface inside its Figma-style left rail.
  */
 const EDITOR_PREFIXES = ["/design/", "/extensions"];
 
@@ -111,6 +111,22 @@ export function Layout({ children }: LayoutProps) {
             >
               {children}
             </main>
+          </div>
+        </MobileSidebarContext.Provider>
+      </HeaderActionsProvider>
+    );
+  }
+
+  if (isDesignEditor) {
+    return (
+      <HeaderActionsProvider>
+        <MobileSidebarContext.Provider value={null}>
+          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+            <div className="agent-layout-main-surface design-editor-main-surface flex h-full flex-1 flex-col overflow-hidden">
+              <main className="agent-native-app-main flex-1 overflow-hidden">
+                {children}
+              </main>
+            </div>
           </div>
         </MobileSidebarContext.Provider>
       </HeaderActionsProvider>

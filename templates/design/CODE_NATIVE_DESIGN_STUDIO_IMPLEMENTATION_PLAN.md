@@ -396,7 +396,7 @@ Requirements:
 - diamond keyframes
 - play/scrub controls
 - auto-keyframe control
-- primary `Write to CSS` action
+- autosave status for managed CSS persistence
 - compact Motion/Keyframe inspector section
 - no separate motion app/screen
 

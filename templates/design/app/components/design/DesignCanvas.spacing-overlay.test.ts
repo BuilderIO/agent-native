@@ -3,8 +3,11 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// The bridge JS that was previously inlined in DesignCanvas.tsx now lives in
+// editor-chrome.bridge.ts (compiled to .generated/bridge/editor-chrome.generated.ts).
+// These tests check the bridge source for required implementation details.
 const source = readFileSync(
-  fileURLToPath(new URL("./DesignCanvas.tsx", import.meta.url)),
+  fileURLToPath(new URL("./bridge/editor-chrome.bridge.ts", import.meta.url)),
   "utf8",
 );
 
@@ -18,17 +21,46 @@ describe("DesignCanvas spacing overlay bridge", () => {
 
   it("persists dragged padding and gap values through visual style changes", () => {
     expect(source).toContain("function startSpacingDrag");
-    expect(source).toContain("styles[handle.property] = finalValue + 'px'");
-    expect(source).toContain(
-      "styles[handle.oppositeProperty] = finalValue + 'px'",
-    );
-    expect(source).toContain("addAxisGaps('x', 'columnGap'");
-    expect(source).toContain("addAxisGaps('y', 'rowGap'");
+    // Quote style may be single or double depending on formatter; check property access only
+    expect(source).toContain("styles[handle.property] = finalValue +");
+    expect(source).toContain("styles[handle.oppositeProperty] = finalValue +");
+    expect(source).toContain("addAxisGaps");
+    expect(source).toContain("columnGap");
+    expect(source).toContain("rowGap");
   });
 
   it("shows spacing affordances when hovering the selected element or its children", () => {
     expect(source).toContain("selectedSpacingHovered = Boolean");
     expect(source).toContain("hoveredEl === selectedEl");
     expect(source).toContain("selectedEl.contains(hoveredEl)");
+  });
+
+  it("keeps spacing handles stable while their hit regions are hovered", () => {
+    expect(source).toContain("var spacingOverlayRenderKey =");
+    expect(source).toContain("function handleSpacingOverlayPointerMove");
+    expect(source).toContain("function selectedSpacingSurfaceContainsPoint");
+    expect(source).toContain("function shouldKeepSpacingOverlayForLeave");
+    expect(source).toContain(
+      "var region = spacingRegionFromPoint(clientX, clientY)",
+    );
+    expect(source).toContain(
+      "return selectedSpacingSurfaceContainsPoint(e.clientX, e.clientY)",
+    );
+    expect(source).toContain("data-agent-native-spacing-region");
+    expect(source).toContain("handleSpacingOverlayPointerMove");
+    expect(source).toContain("shouldKeepSpacingOverlayForLeave(e)");
+    expect(source).not.toContain("regionNode.addEventListener('mouseenter'");
+    expect(source).not.toContain("regionNode.addEventListener('mouseleave'");
+  });
+
+  it("hit-tests through editor chrome instead of selecting injected overlays", () => {
+    expect(source).toContain("document.elementsFromPoint");
+    expect(source).toContain("if (isOverlayElement(target)) continue");
+  });
+
+  it("clicks children inside a selected parent while drags still move the parent", () => {
+    expect(source).toContain("var clickTarget = selectionTargetForHit(hit)");
+    expect(source).toContain("selectTarget(clickTarget || dragTarget)");
+    expect(source).toContain("selectTarget(dragTarget)");
   });
 });

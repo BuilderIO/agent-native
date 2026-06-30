@@ -4,6 +4,7 @@ import {
   readSeedDesignId,
   gotoEditor,
   designFrame,
+  enterDirectMode,
   selectByText,
   inspectorInputCount,
   dragCanvasByText,
@@ -40,6 +41,49 @@ test("editor renders the toolbar and the design iframe content", async ({
   expect(nodeCount).toBeGreaterThanOrEqual(5);
 });
 
+test("share dialog uses compact editor panel chrome", async ({
+  page,
+}, testInfo) => {
+  await page
+    .getByRole("button", { name: /^share$/i })
+    .first()
+    .click();
+
+  const shareOptions = page.getByRole("tablist", { name: "Share options" });
+  await expect(shareOptions).toBeVisible();
+
+  const tabListBox = await shareOptions.boundingBox();
+  expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    340,
+  );
+  expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    28,
+  );
+
+  const sendTab = page.getByRole("tab", { name: "Send to agent" });
+  const sendTabBox = await sendTab.boundingBox();
+  expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    26,
+  );
+
+  await sendTab.click();
+  await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy agent prompt" }),
+  ).toBeVisible();
+
+  const popover = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: shareOptions })
+    .first();
+  const popoverBox = await popover.boundingBox();
+  expect(popoverBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    650,
+  );
+
+  await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
+});
+
 test("screen overview resizes previews from the device selector", async ({
   page,
 }) => {
@@ -64,7 +108,7 @@ test("screen overview keeps the name readable when frame header space is tight",
   page,
 }) => {
   const screenShell = page
-    .locator("[data-frame-shell]")
+    .locator("[data-screen-shell]")
     .filter({ has: page.locator("[data-screen-card]") })
     .first();
   await expect(screenShell).toBeVisible();
@@ -119,7 +163,7 @@ test("screen overview lets users select elements inside the active screen", asyn
     .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
     .first();
   const activeScreenShell = page
-    .locator("[data-frame-shell]")
+    .locator("[data-screen-shell]")
     .filter({ has: activeScreenCard })
     .first();
   const frameTitle = activeScreenShell.locator("[data-frame-title]");
@@ -258,6 +302,48 @@ test("selected element handles stay above hover chrome", async ({ page }) => {
   expect(overlayChrome.selectionZ).toBeGreaterThan(overlayChrome.highlightZ);
   expect(overlayChrome.handleZ).toBeGreaterThan(0);
   expect(overlayChrome.handleBackground).not.toBe("rgba(0, 0, 0, 0)");
+});
+
+test("spacing handles stay visible at rest and remain draggable", async ({
+  page,
+}) => {
+  await enterDirectMode(page);
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+
+  const container = designFrame(page).locator("main").first();
+  const box = await container.boundingBox();
+  if (!box) throw new Error("missing fixture container bounds");
+
+  await page.mouse.click(box.x + 12, box.y + 12);
+  const selected = await waitForBridge(page, "element-select");
+  expect(
+    (selected?.payload?.tagName ?? selected?.tagName ?? "").toUpperCase(),
+  ).toBe("MAIN");
+
+  await page.mouse.move(box.x + box.width / 2, box.y + 12);
+  const topPaddingHandle = designFrame(page).locator(
+    '[data-spacing-key="padding:top"]',
+  );
+  await expect(topPaddingHandle).toBeVisible({ timeout: 5_000 });
+
+  const handleBox = await topPaddingHandle.boundingBox();
+  if (!handleBox) throw new Error("missing top padding handle bounds");
+  const handleX = handleBox.x + handleBox.width / 2;
+  const handleY = handleBox.y + handleBox.height / 2;
+
+  await page.mouse.move(handleX, handleY);
+  await page.waitForTimeout(500);
+  await expect(topPaddingHandle).toBeVisible();
+
+  await page.evaluate(() => ((window as any).__bridge = []));
+  await page.mouse.down();
+  await page.mouse.move(handleX, handleY + 14, { steps: 4 });
+  await page.mouse.up();
+
+  const styleChange = await waitForBridge(page, "visual-style-change");
+  const styles = styleChange?.styles ?? {};
+  expect(styles.paddingTop ?? "").toMatch(/px$/);
 });
 
 test("selecting a different element changes the selection", async ({

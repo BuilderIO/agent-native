@@ -347,7 +347,7 @@ The CSS is the runtime truth; the JSON `tracks` only aid editing.
 
 - **UI (matches the motion artboard):** a full-width, collapsible **Motion dock**
   at the bottom of `DesignEditor.tsx` (animated layer rows, property tracks, time
-  ruler, diamond keyframes, play/scrub, auto-keyframe toggle, **Write to CSS**),
+  ruler, diamond keyframes, play/scrub, auto-keyframe toggle, autosave status),
   with the canvas still visible above; a compact **Motion section** in the
   inspector for the selected keyframe (numeric + easing + transform/opacity).
 - **Preview:** scrubbing sends preview-only bridge messages (`motion-preview` /
@@ -360,8 +360,8 @@ The CSS is the runtime truth; the JSON `tracks` only aid editing.
 **Real-app superset:** write keyframes into real CSS modules, optional
 `motion`-react round-trip, Dev Mode export.
 
-**Acceptance:** scrubbing never writes; **Write to CSS** is one atomic action with
-diff/rollback proof; multiple layers and tracks animate.
+**Acceptance:** scrubbing never writes; timeline edits autosave through one atomic
+action with diff/rollback proof; multiple layers and tracks animate.
 
 ### 6.4 States, responsive & captures
 
@@ -615,7 +615,7 @@ motion edits safely, use review outputs, and offer Builder migration CTAs.
    runtime + source-write + fallback + diff proof.
 
 **First user-visible milestone:** on an inline design, edit a token (live, persisted)
-and add a keyframe animation that **Write to CSS** commits with a visible diff —
+and add a keyframe animation that autosaves to managed CSS with a visible diff —
 "visual edit becomes persisted code/CSS" without the whole real-app stack.
 
 ---
@@ -659,7 +659,7 @@ and add a keyframe animation that **Write to CSS** commits with a visible diff �
   (Mobile) is untouched; the Desktop frame reflects the cascade; reset-to-base clears
   the override; the same flow works on an inline design and a real-app URL.
 - **Alpine smoke:** edit layout/styles; preview + persist a CSS-var token change;
-  add simple keyframes and Write to CSS; run a basic a11y scan; see the real-app CTA
+  add simple keyframes that autosave to managed CSS; run a basic a11y scan; see the real-app CTA
   for full component controls.
 
 ---

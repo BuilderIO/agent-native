@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
+  findMovedCodeLayerNodeInProjection,
   getFreshActiveFileContent,
   getFreshScreenContent,
   getDesignEditorShareUrl,
@@ -14,7 +15,11 @@ import {
   getOverviewEnterTarget,
   getOverviewScreenIdsFromLayerSelection,
   getOverviewZoomScale,
+  parseInlineStyleAttribute,
+  refreshElementInfoFromContent,
+  removeUndoRedoOrderKind,
   getSidebarCodeLayerSelectionState,
+  hydrateMotionDockTracks,
   isScreenRootElementInfo,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
@@ -72,6 +77,15 @@ describe("DesignEditor overview layer selection", () => {
       }),
     ).toEqual(["screen-b"]);
   });
+
+  it("returns an empty overview selection when only nested layers remain selected", () => {
+    expect(
+      getOverviewScreenIdsFromLayerSelection({
+        fileIds: ["screen-a", "screen-b"],
+        layerIds: ["hero-title", "element:runtime"],
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("DesignEditor overview enter target", () => {
@@ -104,15 +118,16 @@ describe("DesignEditor overview enter target", () => {
 });
 
 describe("DesignEditor sidebar code layer selection", () => {
-  it("preserves all-screens view when selecting a nested layer", () => {
+  it("keeps the owning screen selected when selecting a nested layer in overview", () => {
     expect(
       getSidebarCodeLayerSelectionState({
         currentViewMode: "overview",
+        ownerFileId: "screen-a",
         overviewSelectedScreenIds: ["previous-screen"],
       }),
     ).toEqual({
       viewMode: "overview",
-      overviewSelectedScreenIds: [],
+      overviewSelectedScreenIds: ["screen-a"],
     });
   });
 
@@ -151,6 +166,45 @@ describe("DesignEditor screen root hover", () => {
         isFlexContainer: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("DesignEditor motion timeline hydration", () => {
+  it("labels persisted motion tracks from the active code-layer projection", () => {
+    const projection = buildCodeLayerProjection(`
+      <button
+        data-agent-native-node-id="e2e-alpha-button"
+        data-agent-native-layer-name="Alpha Button"
+      >
+        Alpha Button
+      </button>
+    `);
+
+    expect(
+      hydrateMotionDockTracks(
+        [
+          {
+            targetNodeId: "e2e-alpha-button",
+            property: "opacity",
+            keyframes: [
+              { t: 0, value: "0" },
+              { t: 1, value: "1" },
+            ],
+          },
+        ],
+        projection,
+      ),
+    ).toEqual([
+      {
+        targetNodeId: "e2e-alpha-button",
+        label: "Alpha Button",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ]);
   });
 });
 
@@ -305,6 +359,27 @@ describe("DesignEditor layer move source snapshots", () => {
       "b",
       "c",
     ]);
+  });
+
+  it("resolves cross-file moved nodes by remapped destination ids first", () => {
+    const previousProjection = buildCodeLayerProjection(
+      `<main><section data-agent-native-node-id="shared">Card</section></main>`,
+    );
+    const nextProjection = buildCodeLayerProjection(
+      `<main><section data-agent-native-node-id="moved-shared">Card</section></main>`,
+    );
+    const previousNode = previousProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+
+    expect(previousNode).toBeTruthy();
+    expect(
+      findMovedCodeLayerNodeInProjection(
+        nextProjection,
+        previousNode!,
+        "moved-shared",
+      )?.dataAttributes["data-agent-native-node-id"],
+    ).toBe("moved-shared");
   });
 
   it("uses the fresh active snapshot when resolving overview screen content", () => {
@@ -500,6 +575,114 @@ describe("DesignEditor element canonicalization", () => {
     });
 
     expect(node).toBeNull();
+  });
+
+  it("refreshes selected element styles from current source content", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: [],
+      computedStyles: { color: "red" },
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Hero",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section data-agent-native-node-id="hero" style="color: blue; background-color: yellow">Hero</section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.computedStyles.color).toBe("blue");
+    expect(refreshed?.computedStyles["background-color"]).toBe("yellow");
+    expect(refreshed?.computedStyles.backgroundColor).toBe("yellow");
+  });
+
+  it("does not retain stale computed styles after the source style is removed", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: [],
+      computedStyles: { color: "red" },
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Hero",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section data-agent-native-node-id="hero">Hero</section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.computedStyles.color).toBeUndefined();
+  });
+
+  it("preserves live computed styles for class-backed source nodes", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: ["hero"],
+      computedStyles: { color: "rgb(10, 20, 30)", fontSize: "32px" },
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Hero",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section class="hero" data-agent-native-node-id="hero">Hero</section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.computedStyles.color).toBe("rgb(10, 20, 30)");
+    expect(refreshed?.computedStyles.fontSize).toBe("32px");
+  });
+
+  it("drops stale class-backed computed styles when the source class is removed", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: ["hero"],
+      computedStyles: { color: "rgb(10, 20, 30)", fontSize: "32px" },
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Hero",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section data-agent-native-node-id="hero">Hero</section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.classes).toEqual([]);
+    expect(refreshed?.computedStyles.color).toBeUndefined();
+    expect(refreshed?.computedStyles.fontSize).toBeUndefined();
+  });
+
+  it("parses inline style declarations without carrying stale properties", () => {
+    expect(parseInlineStyleAttribute(" color : red ; width: 20px; ")).toEqual({
+      color: "red",
+      width: "20px",
+    });
+    expect(parseInlineStyleAttribute("")).toEqual({});
+  });
+});
+
+describe("DesignEditor undo order helpers", () => {
+  it("removes stale active content entries without disturbing file content or geometry entries", () => {
+    expect(
+      removeUndoRedoOrderKind(
+        ["content", "geometry", "file-content", "content", "geometry"],
+        "content",
+      ),
+    ).toEqual(["geometry", "file-content", "geometry"]);
   });
 });
 

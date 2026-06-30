@@ -220,6 +220,12 @@ export default defineAction({
             string | number | boolean
           >)
         : {};
+    const tokenImportSources =
+      designData.tokenImportSources &&
+      typeof designData.tokenImportSources === "object" &&
+      !Array.isArray(designData.tokenImportSources)
+        ? (designData.tokenImportSources as Record<string, string>)
+        : {};
 
     // Cast tweaks array to the shape resolveTweaksToCssVars expects
     type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
@@ -232,7 +238,10 @@ export default defineAction({
       ...Object.keys(tweakSelections).filter(isDirectCssVarSelectionKey),
     ]);
     for (const [cssVar, value] of Object.entries(resolvedOverrides)) {
-      rawTokens.set(cssVar, { value, source: "Tweaks" });
+      rawTokens.set(cssVar, {
+        value,
+        source: tokenImportSources[cssVar] ?? "Tweaks",
+      });
     }
 
     // ------------------------------------------------------------------

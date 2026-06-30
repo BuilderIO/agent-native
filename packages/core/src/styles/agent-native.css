@@ -537,6 +537,60 @@
   }
 }
 
+/* Connect AI card: use the card width, not the viewport, so narrow embedded
+   sidebars stack the copy and actions before the secondary button clips. */
+.agent-builder-setup-card {
+  min-inline-size: min(18rem, 100%);
+}
+
+.agent-builder-setup-card--sidebar {
+  container-type: inline-size;
+  container-name: agent-builder-setup;
+}
+
+@container agent-builder-setup (max-width: 560px) {
+  .agent-builder-setup-card__content {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agent-builder-setup-card__actions {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .agent-builder-setup-card__builder-cta {
+    align-items: stretch;
+    flex: 1 1 11rem;
+  }
+
+  .agent-builder-setup-card__builder-button,
+  .agent-builder-setup-card__key-button {
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .agent-builder-setup-card__key-button {
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    flex: 1 1 8rem;
+    height: 2rem;
+    padding-inline: 0.75rem;
+  }
+}
+
+@container agent-builder-setup (max-width: 360px) {
+  .agent-builder-setup-card__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .agent-composer-area--hero {
   padding-inline: 0;
   padding-block: 0.5rem;

@@ -28,6 +28,21 @@ function postToolbarSize(height: number): void {
   }
 }
 
+function postCountdownFinished(): void {
+  try {
+    window.parent.postMessage(
+      {
+        source: "clips-overlay",
+        kind: "countdown-finished",
+        part: "countdown",
+      },
+      "*",
+    );
+  } catch {
+    /* parent gone */
+  }
+}
+
 type OverlayState = {
   phase: OverlayPhase;
   baseElapsedMs: number;
@@ -244,6 +259,7 @@ function initCountdown(): void {
       if (!doneSent) {
         doneSent = true;
         send("CLIPS_OVERLAY_COUNTDOWN_DONE");
+        postCountdownFinished();
       }
       return;
     }

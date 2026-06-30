@@ -154,6 +154,7 @@ export function ConnectBuilderCard({
             orgName,
             pageUrl: window.location.href,
             source: "connect_builder_card",
+            useCase: "builder_agent_background_coding",
           }),
         },
       );

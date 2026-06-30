@@ -12,6 +12,8 @@ export interface NavigationState {
   editorView?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
+  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -44,6 +46,8 @@ export interface DesignEditorCommand {
   viewMode?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
+  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -80,6 +84,19 @@ function normalizeInspectorTab(
     : undefined;
 }
 
+function normalizeLeftPanel(
+  value: unknown,
+): "file" | "agent" | "assets" | "tools" | "tokens" | undefined {
+  if (value === "extensions") return "tools";
+  return value === "file" ||
+    value === "agent" ||
+    value === "assets" ||
+    value === "tools" ||
+    value === "tokens"
+    ? value
+    : undefined;
+}
+
 function normalizeDesignTool(value: unknown): string | undefined {
   return typeof value === "string" &&
     DESIGN_EDITOR_TOOLS.includes(value as (typeof DESIGN_EDITOR_TOOLS)[number])
@@ -96,6 +113,8 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   if (editorView) params.set("view", editorView);
   const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
   if (inspectorTab) params.set("inspector", inspectorTab);
+  const leftPanel = normalizeLeftPanel(cmd.leftPanel ?? cmd.panel);
+  if (leftPanel) params.set("panel", leftPanel);
   const screen = cmd.fileId ?? cmd.screenId ?? cmd.filename ?? cmd.screen;
   if (screen) params.set("screen", screen);
   if (typeof cmd.zoom === "number" && Number.isFinite(cmd.zoom)) {
@@ -117,6 +136,9 @@ export function editorCommandFromNavigate(
   if (cmd.view !== "editor" || !cmd.designId) return null;
   const editorView = normalizeEditorView(cmd.editorView);
   const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
+  const leftPanel =
+    normalizeLeftPanel(cmd.leftPanel ?? cmd.panel) ??
+    normalizeLeftPanel(cmd.inspectorTab ?? cmd.inspector);
   const command: DesignEditorCommand = {
     designId: cmd.designId,
     issuedAt: Date.now(),
@@ -124,6 +146,7 @@ export function editorCommandFromNavigate(
   };
   if (editorView) command.editorView = editorView;
   if (inspectorTab) command.inspectorTab = inspectorTab;
+  if (leftPanel) command.leftPanel = leftPanel;
   if (cmd.fileId) command.fileId = cmd.fileId;
   if (cmd.screenId) command.screenId = cmd.screenId;
   if (cmd.filename) command.filename = cmd.filename;

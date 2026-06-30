@@ -23,6 +23,7 @@ interface ExportMenuProps {
   deckTitle: string;
   onDuplicate: () => void;
   onExportPdf: () => void;
+  onExportPptx: () => Promise<void> | void;
   onShareLink?: () => void;
   onShareTeam?: () => void;
 }
@@ -32,6 +33,7 @@ export function ExportMenu({
   deckTitle,
   onDuplicate,
   onExportPdf,
+  onExportPptx,
   onShareLink,
   onShareTeam,
 }: ExportMenuProps) {
@@ -66,30 +68,9 @@ export function ExportMenu({
     }
   };
 
-  const fetchPptxExport = async () => {
-    const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deckId }),
-    });
-    if (!res.ok) {
-      throw new Error(
-        await readErrorMessage(res, t("editorExport.pptxFailed")),
-      );
-    }
-    return {
-      blob: await res.blob(),
-      filename: filenameFromDisposition(
-        res.headers.get("content-disposition"),
-        ".pptx",
-      ),
-    };
-  };
-
   const handleExportPptx = async () => {
     try {
-      const { blob, filename } = await fetchPptxExport();
-      triggerBlobDownload(blob, filename);
+      await onExportPptx();
     } catch (err) {
       console.error("Export failed:", err);
       toast({
@@ -105,8 +86,7 @@ export function ExportMenu({
 
   const handleExportGoogleSlides = async () => {
     try {
-      const { blob, filename } = await fetchPptxExport();
-      triggerBlobDownload(blob, filename);
+      await onExportPptx();
       toast({
         title: t("editorExport.googleSlidesDownloaded"),
         description: t("editorExport.googleSlidesImportHint"),

@@ -83,6 +83,11 @@ describe("db/client dialect detection", () => {
 });
 
 describe("pgliteDataDirFromUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
   it("maps pglite URLs to PGlite dataDir values", async () => {
     const { pgliteDataDirFromUrl } = await import("./client.js");
 
@@ -90,6 +95,22 @@ describe("pgliteDataDirFromUrl", () => {
     expect(pgliteDataDirFromUrl("pglite:///tmp/pglite")).toBe("/tmp/pglite");
     expect(pgliteDataDirFromUrl("pglite:memory")).toBe("memory://");
     expect(pgliteDataDirFromUrl("pglite:")).toBe("./data/pglite");
+  });
+
+  it("redirects relative PGlite data dirs to writable /tmp on serverless", async () => {
+    vi.stubEnv("NETLIFY", "1");
+    const { pgliteDataDirFromUrl, pgliteRuntimeDataDir } =
+      await import("./client.js");
+
+    expect(
+      pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:./data/pglite")),
+    ).toBe("/tmp/data/pglite");
+    expect(pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:memory"))).toBe(
+      "memory://",
+    );
+    expect(
+      pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:///tmp/pglite")),
+    ).toBe("/tmp/pglite");
   });
 });
 
@@ -256,6 +277,14 @@ describe("dbOpTimeoutMs", () => {
     vi.resetModules();
   });
 
+  function stubNonServerlessEnv() {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "");
+  }
+
   it("honors a positive DB_OP_TIMEOUT_MS override", async () => {
     vi.stubEnv("DB_OP_TIMEOUT_MS", "1234");
     const { dbOpTimeoutMs } = await import("./client.js");
@@ -263,10 +292,12 @@ describe("dbOpTimeoutMs", () => {
   });
 
   it("ignores a non-positive / non-numeric override", async () => {
+    stubNonServerlessEnv();
     vi.stubEnv("DB_OP_TIMEOUT_MS", "0");
     const mod1 = await import("./client.js");
     expect(mod1.dbOpTimeoutMs()).toBe(30_000);
     vi.resetModules();
+    stubNonServerlessEnv();
     vi.stubEnv("DB_OP_TIMEOUT_MS", "not-a-number");
     const mod2 = await import("./client.js");
     expect(mod2.dbOpTimeoutMs()).toBe(30_000);

@@ -12,7 +12,7 @@
  *
  * Never writes unless all steps succeed. Scrubbing/preview is handled by the
  * separate `motion-preview` postMessage path on the frontend — this action is
- * the deliberate "Write to CSS" commit step.
+ * the durable autosave/persist path for edited timelines.
  */
 
 import { defineAction } from "@agent-native/core";
@@ -21,7 +21,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -144,7 +144,7 @@ export default defineAction({
     "Persists the motion_timeline row, compiles tracks to CSS, injects the " +
     "managed <style data-agent-native-motion> block into the design's HTML, " +
     "and updates compiledHash — all in one atomic step. " +
-    "This is the 'Write to CSS' commit path; preview/scrubbing uses the " +
+    "This is the durable timeline persist path; preview/scrubbing uses the " +
     "motion-preview postMessage bridge, NOT this action.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
@@ -259,6 +259,7 @@ export default defineAction({
     }
 
     const fileId = file.id;
+    const resolvedSourceRef = sourceRef ?? fileId;
     const currentContent =
       currentContentInput !== undefined
         ? currentContentInput
@@ -284,7 +285,7 @@ export default defineAction({
     const { css, hash } = compile({
       id: timelineId ?? "",
       designId,
-      sourceRef: sourceRef ?? null,
+      sourceRef: resolvedSourceRef,
       filePath: null,
       tracks: typedTracks,
       durationMs,
@@ -303,7 +304,7 @@ export default defineAction({
     // Resolve everything that can fail (existence + ownership) BEFORE touching
     // content, so we never persist HTML for a row that can't be written.
     const tracksJson = JSON.stringify(typedTracks);
-    const resolvedTimelineId = timelineId ?? nanoid();
+    let existingTimelineId = timelineId;
 
     let insertOwnerEmail: string | null = null;
     let insertOrgId: string | null = null;
@@ -327,19 +328,37 @@ export default defineAction({
         );
       }
     } else {
-      // Insert new row — derive ownership from the request context (same
-      // pattern as create-design-state and other create actions).
-      insertOwnerEmail = getRequestUserEmail() ?? null;
-      if (!insertOwnerEmail) throw new Error("no authenticated user");
-      insertOrgId = getRequestOrgId() ?? null;
+      const [existingForSource] = await db
+        .select({ id: schema.motionTimeline.id })
+        .from(schema.motionTimeline)
+        .where(
+          and(
+            eq(schema.motionTimeline.designId, designId),
+            eq(schema.motionTimeline.sourceRef, resolvedSourceRef),
+          ),
+        )
+        .orderBy(desc(schema.motionTimeline.updatedAt))
+        .limit(1);
+
+      if (existingForSource) {
+        existingTimelineId = existingForSource.id;
+      } else {
+        // Insert new row — derive ownership from the request context (same
+        // pattern as create-design-state and other create actions).
+        insertOwnerEmail = getRequestUserEmail() ?? null;
+        if (!insertOwnerEmail) throw new Error("no authenticated user");
+        insertOrgId = getRequestOrgId() ?? null;
+      }
     }
+
+    const resolvedTimelineId = existingTimelineId ?? nanoid();
 
     // ── 5. Persist the motion_timeline row FIRST (atomic SQL portion) ───────
     // The timeline row is written before the HTML so that a failure in the
     // HTML write step cannot leave the design content mutated without a
     // corresponding row.
     await db.transaction(async (tx) => {
-      if (timelineId) {
+      if (existingTimelineId) {
         await tx
           .update(schema.motionTimeline)
           .set({
@@ -347,15 +366,15 @@ export default defineAction({
             durationMs,
             defaultEase,
             compiledHash: hash,
-            sourceRef: sourceRef ?? null,
+            sourceRef: resolvedSourceRef,
             updatedAt: now,
           })
-          .where(eq(schema.motionTimeline.id, timelineId));
+          .where(eq(schema.motionTimeline.id, existingTimelineId));
       } else {
         await tx.insert(schema.motionTimeline).values({
           id: resolvedTimelineId,
           designId,
-          sourceRef: sourceRef ?? null,
+          sourceRef: resolvedSourceRef,
           filePath: null,
           tracks: tracksJson,
           durationMs,
@@ -379,6 +398,7 @@ export default defineAction({
       timelineId: resolvedTimelineId,
       designId,
       fileId,
+      sourceRef: resolvedSourceRef,
       trackCount: typedTracks.length,
       compiledHash: hash,
       bytesBefore,

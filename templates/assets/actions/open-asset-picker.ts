@@ -7,6 +7,7 @@ import { z } from "zod";
 import { IMAGE_QUALITY_TIERS, STYLE_STRENGTHS } from "../shared/api.js";
 
 const mediaTypeSchema = z.enum(["image", "video"]);
+const layoutSchema = z.enum(["default", "vertical"]);
 const booleanParam = z.preprocess((value) => {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return value;
@@ -77,6 +78,11 @@ const schema = z.object({
     .string()
     .optional()
     .describe("Calling app id, for audit grouping, e.g. design."),
+  layout: layoutSchema
+    .default("default")
+    .describe(
+      "Picker layout density. Use vertical when embedding in a narrow sidebar.",
+    ),
 });
 
 type OpenAssetPickerArgs = z.infer<typeof schema>;
@@ -132,6 +138,7 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   }
   if (args.includeLogo) params.set("includeLogo", "1");
   if (args.callerAppId?.trim()) params.set("callerAppId", args.callerAppId);
+  if (args.layout === "vertical") params.set("layout", "vertical");
   for (const runId of args.candidateRunIds ?? []) {
     if (runId.trim()) params.append("candidateRunIds", runId.trim());
   }
@@ -206,6 +213,7 @@ const action = defineAction({
         prompt: args.prompt ?? null,
         aspectRatio: args.aspectRatio ?? null,
         presetId: args.presetId ?? null,
+        layout: args.layout,
         _writeId: `open-asset-picker-${Date.now()}-${Math.random()
           .toString(36)
           .slice(2, 8)}`,
@@ -219,6 +227,7 @@ const action = defineAction({
       path,
       url: path,
       embed: true,
+      layout: args.layout,
       title:
         args.mediaType === "video"
           ? "Select a video asset"

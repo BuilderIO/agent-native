@@ -191,6 +191,21 @@
   }
 }
 
+.assets-picker-vertical .assets-library-dense-grid,
+.assets-picker-vertical .assets-library-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.assets-picker-vertical [role="tablist"] {
+  width: 100%;
+}
+
+.assets-picker-vertical [role="tab"] {
+  min-width: 0;
+  flex: 1 1 0;
+  padding-inline: 0.5rem;
+}
+
 @container agent-native-main (min-width: 980px) {
   .assets-brand-kit-preview-grid {
     grid-template-columns: minmax(0, 1fr) 284px;

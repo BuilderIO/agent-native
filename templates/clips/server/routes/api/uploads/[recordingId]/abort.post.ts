@@ -45,7 +45,11 @@ export default defineEventHandler(async (event: H3Event) => {
     const db = getDb();
 
     const [existing] = await db
-      .select({ id: schema.recordings.id })
+      .select({
+        id: schema.recordings.id,
+        status: schema.recordings.status,
+        videoUrl: schema.recordings.videoUrl,
+      })
       .from(schema.recordings)
       .where(
         and(
@@ -57,6 +61,10 @@ export default defineEventHandler(async (event: H3Event) => {
     if (!existing) {
       setResponseStatus(event, 404);
       return { error: "Recording not found" };
+    }
+
+    if (existing.status === "ready" && existing.videoUrl) {
+      return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
     const cleared = await deleteAppStateByPrefix(

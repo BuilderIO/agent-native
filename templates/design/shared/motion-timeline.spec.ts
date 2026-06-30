@@ -3,10 +3,9 @@
  *
  * Tests for the pure track-building helpers that back the MotionDock
  * "create the FIRST track" flow (§6.3). These are the logic that turns the dock
- * from a dead end (no path to create a track → "Write to CSS" permanently
- * disabled) into a working editor: a freshly selected element seeds a default
- * two-keyframe track via a property preset, which is then immediately
- * compilable and previewable.
+ * from a dead end into a working editor: a freshly selected element seeds a
+ * default two-keyframe track via a property preset, which is then immediately
+ * compilable, previewable, and persistable.
  */
 
 import { describe, expect, it } from "vitest";
@@ -80,7 +79,7 @@ describe("createMotionTrackFromPreset", () => {
   it("every built-in preset compiles to valid, deterministic CSS", () => {
     // This is the core guarantee of the first-track path: whatever preset the
     // user picks, the resulting timeline compiles cleanly (one @keyframes block,
-    // a reduced-motion block) so "Write to CSS" succeeds.
+    // a reduced-motion block) so autosave can persist it.
     for (const preset of MOTION_PROPERTY_PRESETS) {
       const track = createMotionTrackFromPreset("node-x", preset);
       const timeline: MotionTimeline = {
@@ -138,7 +137,7 @@ describe("hasTrackFor", () => {
 describe("first-track flow → CSS compile", () => {
   it("a single seeded track produces compilable CSS that targets the node id", () => {
     // Simulates: user selects an element (node id "abc"), picks "Fade
-    // (opacity)" from the empty-state picker → one track → Write to CSS.
+    // (opacity)" from the empty-state picker, and autosave persists one track.
     const preset = MOTION_PROPERTY_PRESETS[0];
     const track = createMotionTrackFromPreset("abc", preset);
     const { css } = compile({

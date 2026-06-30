@@ -10,7 +10,7 @@ import {
   emailToColor,
   emailToName,
   PresenceBar,
-  AgentToggleButton,
+  AgentChatSurface,
   ShareButton,
   agentNativePath,
   appBasePath,
@@ -33,6 +33,7 @@ import {
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
+import { isBoardFile } from "@shared/board-file";
 import {
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
@@ -57,6 +58,7 @@ import {
   hasCapability,
 } from "@shared/design-source-capabilities";
 import { shouldUseLiveFileContent } from "@shared/html-content";
+import type { MotionTrack } from "@shared/motion-timeline";
 import {
   resolveTweaksToCssVars,
   type TweakSelections,
@@ -81,11 +83,14 @@ import {
   IconFrame,
   IconX,
   IconPin,
+  IconAssembly,
   IconCode,
   IconArchive,
+  IconFile,
   IconPhoto,
   IconRefresh,
   IconChevronDown,
+  IconChevronRight,
   IconCheck,
   IconPointer,
   IconTypography,
@@ -139,7 +144,11 @@ import {
   type MotionTrackWire,
 } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
-import type { DesignExtensionSlotContext } from "@/components/design/DesignExtensionsPanel";
+import {
+  AssetLibraryPanel,
+  DesignExtensionsPanel,
+  type DesignExtensionSlotContext,
+} from "@/components/design/DesignExtensionsPanel";
 import {
   EditPanel,
   type InspectCodeData,
@@ -152,6 +161,10 @@ import {
   type LayersPanelMoveIntent,
   type LayersPanelNode,
 } from "@/components/design/LayersPanel";
+import {
+  LocalhostWriteConsentDialog,
+  type LocalhostWriteConsentPayload,
+} from "@/components/design/LocalhostWriteConsentDialog";
 import { LocalSourceEditBanner } from "@/components/design/LocalSourceEditBanner";
 import {
   MotionDock,
@@ -161,9 +174,11 @@ import {
   MultiScreenCanvas,
   OVERVIEW_FRAME_WIDTH,
   type CanvasPrimitiveInsert,
+  type FrameGeometry,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
+import { TokensPanel } from "@/components/design/TokensPanel";
 import type { ElementInfo, DeviceFrameType } from "@/components/design/types";
 import {
   DEVICE_FRAME_VIEWPORTS,
@@ -197,6 +212,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -244,6 +264,12 @@ const AUTO_RETRY_DELAY_MS = 1200;
 const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
 const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
+const MOTION_DOCK_TRANSITION_MS = 200;
+const MOTION_AUTOSAVE_DELAY_MS = 500;
+/** Extensions that the localhost bridge allows to be written back to source. */
+const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
+const NO_LOCALHOST_WRITE_CONTENT_MESSAGE =
+  "No content to write. Open the screen first." /* i18n-ignore */;
 const FOCUSED_SCREEN_ZOOM = 100;
 const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
@@ -341,13 +367,16 @@ export function getOverviewEnterTarget(args: {
 
 export function getSidebarCodeLayerSelectionState(args: {
   currentViewMode: "single" | "overview";
+  ownerFileId?: string | null;
   overviewSelectedScreenIds: string[];
 }) {
-  const { currentViewMode, overviewSelectedScreenIds } = args;
+  const { currentViewMode, ownerFileId, overviewSelectedScreenIds } = args;
   return {
     viewMode: currentViewMode,
     overviewSelectedScreenIds:
-      currentViewMode === "overview" ? [] : overviewSelectedScreenIds,
+      currentViewMode === "overview" && ownerFileId
+        ? [ownerFileId]
+        : overviewSelectedScreenIds,
   };
 }
 
@@ -457,6 +486,21 @@ export function getLayerMoveIterationOrder<T>(
   placement: "before" | "after" | "inside",
 ): T[] {
   return placement === "after" ? [...orderedIds].reverse() : [...orderedIds];
+}
+
+export function removeUndoRedoOrderKind<T extends string>(
+  order: readonly T[],
+  kind: T,
+): T[] {
+  return order.filter((entry) => entry !== kind);
+}
+
+type UndoRedoOrderKind = "content" | "file-content" | "geometry";
+
+function isContentUndoRedoOrderKind(
+  kind: UndoRedoOrderKind | undefined,
+): kind is "content" | "file-content" {
+  return kind === "content" || kind === "file-content";
 }
 
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
@@ -734,6 +778,83 @@ interface CodingHandoffResult {
   fileCount?: number;
 }
 
+export interface MotionTimelineRow {
+  id: string | null;
+  designId: string;
+  sourceRef: string | null;
+  filePath: string | null;
+  tracks: unknown;
+  durationMs: number;
+  defaultEase: string;
+  compiledHash: string | null;
+  cssHash?: string | null;
+  source?: "stored" | "recovered-css" | "stored-css-drift";
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+interface MotionTimelineQueryResult {
+  designId: string;
+  timelines: MotionTimelineRow[];
+  count: number;
+}
+
+function isMotionTrack(value: unknown): value is MotionTrack {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as {
+    targetNodeId?: unknown;
+    property?: unknown;
+    keyframes?: unknown;
+  };
+  return (
+    typeof candidate.targetNodeId === "string" &&
+    typeof candidate.property === "string" &&
+    Array.isArray(candidate.keyframes)
+  );
+}
+
+function normalizeMotionTracks(value: unknown): MotionTrack[] {
+  return Array.isArray(value) ? value.filter(isMotionTrack) : [];
+}
+
+function labelForMotionTrack(
+  track: MotionTrack,
+  projection: CodeLayerProjection,
+): string {
+  const node = projection.nodes.find(
+    (candidate) =>
+      candidate.dataAttributes["data-agent-native-node-id"] ===
+        track.targetNodeId || candidate.id === track.targetNodeId,
+  );
+  return node?.layerName || node?.tag || track.targetNodeId;
+}
+
+export function hydrateMotionDockTracks(
+  tracks: unknown,
+  projection: CodeLayerProjection,
+): MotionDockTrack[] {
+  return normalizeMotionTracks(tracks).map((track) => ({
+    ...track,
+    label: labelForMotionTrack(track, projection),
+  }));
+}
+
+export function motionTimelineFingerprint(
+  fileId: string,
+  timeline: MotionTimelineRow | null | undefined,
+): string {
+  if (!timeline) return `${fileId}:empty`;
+  return [
+    fileId,
+    timeline.id ?? "css",
+    timeline.updatedAt ?? "no-updated-at",
+    timeline.compiledHash ?? "no-compiled-hash",
+    timeline.cssHash ?? "no-css-hash",
+    timeline.source ?? "stored",
+    JSON.stringify(timeline.tracks),
+  ].join(":");
+}
+
 function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
   const base = agentNativePath("/_agent-native/sign-in");
   if (typeof window === "undefined") return base;
@@ -894,6 +1015,7 @@ function designEditorCommandFromSearchParams(
 ): DesignEditorCommand | null {
   const editorView = searchParams.get("view");
   const inspector = searchParams.get("inspector");
+  const leftPanel = normalizeDesignLeftPanel(searchParams.get("panel"));
   const screen =
     searchParams.get("screen") ??
     searchParams.get("fileId") ??
@@ -907,6 +1029,7 @@ function designEditorCommandFromSearchParams(
     inspector !== "design" &&
     inspector !== "tweaks" &&
     inspector !== "extensions" &&
+    !leftPanel &&
     !screen &&
     !tool
   ) {
@@ -926,6 +1049,7 @@ function designEditorCommandFromSearchParams(
   ) {
     command.inspectorTab = inspector;
   }
+  if (leftPanel) command.leftPanel = leftPanel;
   if (screen) command.screen = screen;
   if (Number.isFinite(zoom)) {
     command.zoom = zoom;
@@ -1433,6 +1557,10 @@ function appendCanvasPrimitiveToHtml(
     const element = doc.createElement("div");
     element.setAttribute("data-agent-native-node-id", nodeId);
     element.setAttribute("data-agent-native-layer-name", layerName);
+    // Kind marker so the layers panel shows a shape/text/frame icon for this
+    // primitive (rectangle/ellipse/text/frame) instead of the generic code
+    // glyph. Read by treeTypeForNode in shared/code-layer.ts.
+    element.setAttribute("data-an-primitive", primitive.kind);
     element.style.position = "absolute";
     element.style.left = `${left}px`;
     element.style.top = `${top}px`;
@@ -2054,6 +2182,36 @@ function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   };
 }
 
+function camelCaseCssProperty(property: string): string {
+  return property.replace(/-([a-z])/g, (_, letter: string) =>
+    letter.toUpperCase(),
+  );
+}
+
+function cssStyleAliases(
+  styles: Record<string, string>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [property, value] of Object.entries(styles)) {
+    result[property] = value;
+    if (property.includes("-")) {
+      result[camelCaseCssProperty(property)] = value;
+    }
+  }
+  return result;
+}
+
+function refreshedComputedStyles(
+  info: ElementInfo,
+  sourceStyles: Record<string, string>,
+  sourceClasses: readonly string[],
+): Record<string, string> {
+  const sourceWithAliases = cssStyleAliases(sourceStyles);
+  return sourceClasses.length > 0
+    ? { ...info.computedStyles, ...sourceWithAliases }
+    : sourceWithAliases;
+}
+
 function codeLayerNodeMatchesBridgeTarget(
   node: CodeLayerNode,
   selector?: string,
@@ -2143,7 +2301,7 @@ function canonicalElementInfoForCodeLayerNode(
     ...info,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
-    classes: node.classes.length > 0 ? node.classes : info.classes,
+    classes: node.classes,
     confidence: node.confidence,
     editCapabilities: info.editCapabilities?.some((capability) =>
       capability.kind.startsWith("deterministic"),
@@ -2188,27 +2346,52 @@ function codeLayerPatchMessage(
     : message;
 }
 
-function elementInfoExistsInContent(
+export function refreshElementInfoFromContent(
   content: string,
   info: ElementInfo | null,
-): boolean {
-  if (!info) return false;
+): ElementInfo | null {
+  if (!info) return null;
   const projection = buildCodeLayerProjection(content);
-  if (
+  const node =
+    resolveCodeLayerNodeFromElementInfo(projection, info) ??
     resolveCodeLayerNodeFromBridge(
       projection,
       info.selector,
       info.sourceId ?? info.id,
-    )
-  ) {
-    return true;
+    );
+  if (node) {
+    const sourceInfo = elementInfoFromCodeLayerNode(node);
+    return {
+      ...canonicalElementInfoForCodeLayerNode(info, node),
+      computedStyles: refreshedComputedStyles(
+        info,
+        sourceInfo.computedStyles,
+        sourceInfo.classes,
+      ),
+      textContent: sourceInfo.textContent,
+      isFlexChild: sourceInfo.isFlexChild,
+      isFlexContainer: sourceInfo.isFlexContainer,
+      parentDisplay: sourceInfo.parentDisplay,
+    };
   }
-  if (!info.selector || typeof window === "undefined") return false;
+  if (!info.selector || typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    return Boolean(queryUniqueSelector(doc, info.selector));
+    const element = queryUniqueSelector(doc, info.selector);
+    if (!element) return null;
+    const classes = Array.from(element.classList);
+    return {
+      ...info,
+      classes,
+      computedStyles: refreshedComputedStyles(
+        info,
+        parseInlineStyleAttribute(element.getAttribute("style")),
+        classes,
+      ),
+      textContent: element.textContent?.slice(0, 200) ?? info.textContent,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -2300,6 +2483,41 @@ function findCodeLayerNodeInProjection(
   return fallbackMatches.length === 1 ? (fallbackMatches[0] ?? null) : null;
 }
 
+export function findMovedCodeLayerNodeInProjection(
+  projection: CodeLayerProjection,
+  previousNode: CodeLayerNode,
+  movedNodeId?: string | null,
+): CodeLayerNode | null {
+  if (movedNodeId) {
+    const movedMatch = projection.nodes.find(
+      (node) =>
+        node.id === movedNodeId ||
+        node.dataAttributes["data-agent-native-node-id"] === movedNodeId ||
+        node.dataAttributes["data-code-layer-id"] === movedNodeId ||
+        node.dataAttributes["data-layer-id"] === movedNodeId ||
+        node.dataAttributes["data-builder-id"] === movedNodeId ||
+        node.dataAttributes["data-loc"] === movedNodeId ||
+        node.attributes.id === movedNodeId,
+    );
+    if (movedMatch) return movedMatch;
+  }
+  return findCodeLayerNodeInProjection(projection, previousNode);
+}
+
+export function parseInlineStyleAttribute(
+  style: string | null | undefined,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const declaration of (style ?? "").split(";")) {
+    const separator = declaration.indexOf(":");
+    if (separator <= 0) continue;
+    const property = declaration.slice(0, separator).trim();
+    const value = declaration.slice(separator + 1).trim();
+    if (property && value) result[property] = value;
+  }
+  return result;
+}
+
 function AgentNativeMenuMark({ className }: { className?: string }) {
   return (
     <svg
@@ -2323,6 +2541,110 @@ function AgentNativeMenuMark({ className }: { className?: string }) {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+type DesignLeftPanel = "file" | "agent" | "assets" | "tools" | "tokens";
+
+function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
+  if (value === "extensions") return "tools";
+  return value === "file" ||
+    value === "agent" ||
+    value === "assets" ||
+    value === "tools" ||
+    value === "tokens"
+    ? value
+    : undefined;
+}
+
+function DesignWorkspaceRail({
+  activePanel,
+  projectMenu,
+  onPanelChange,
+}: {
+  activePanel: DesignLeftPanel;
+  projectMenu: ReactNode;
+  onPanelChange: (panel: DesignLeftPanel) => void;
+}) {
+  const t = useT();
+  const items: Array<{
+    panel: DesignLeftPanel;
+    label: string;
+    icon: ReactNode;
+  }> = [
+    {
+      panel: "file",
+      label: t("designEditor.leftRail.file"),
+      icon: <IconFile className="size-[15px]" />,
+    },
+    {
+      panel: "agent",
+      label: t("designEditor.leftRail.agent"),
+      icon: <IconMessage className="size-[15px]" />,
+    },
+    {
+      panel: "assets",
+      label: t("designEditor.leftRail.assets"),
+      icon: <IconPhoto className="size-[15px]" />,
+    },
+    {
+      panel: "tools",
+      label: t("designEditor.leftRail.tools"),
+      icon: <IconTerminal2 className="size-[15px]" />,
+    },
+    {
+      panel: "tokens",
+      label: t("designEditor.leftRail.tokens"),
+      icon: <IconAssembly className="size-[15px]" />,
+    },
+  ];
+
+  return (
+    <nav
+      aria-label={t("designEditor.leftRail.label")}
+      className="flex w-[52px] shrink-0 flex-col items-center border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
+    >
+      <div className="mb-3 flex h-8 items-center justify-center">
+        {projectMenu}
+      </div>
+      <div className="mb-5 h-px w-8 bg-border/70" />
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
+        {items.map((item) => {
+          const active = item.panel === activePanel;
+          return (
+            <Tooltip key={item.panel}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={item.label}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => onPanelChange(item.panel)}
+                  className={cn(
+                    "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1.5 rounded-none text-[10px] font-medium leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    active && "text-foreground",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-lg transition-colors",
+                      active
+                        ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                        : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                    )}
+                  >
+                    {item.icon}
+                  </span>
+                  <span className="max-w-full truncate leading-none">
+                    {item.label}
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{item.label}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -2524,7 +2846,13 @@ function DesignToolbarTool({
                 ? "bg-[var(--design-editor-accent-color)] text-white"
                 : "hover:bg-white/10 hover:text-white",
             )}
-            onClick={onPrimary}
+            onClick={(event) => {
+              if (event.detail === 0) onPrimary();
+            }}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              onPrimary();
+            }}
             aria-label={label}
             aria-pressed={active}
           >
@@ -3141,6 +3469,10 @@ export default function DesignEditor() {
   const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
   const embedded = isEmbedAuthActive();
+  const designChatScope = useMemo(
+    () => (id ? ({ type: "design" as const, id } as const) : null),
+    [id],
+  );
 
   const isBuilderDesignEmbed = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -3185,6 +3517,8 @@ export default function DesignEditor() {
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>("design");
+  const [activeLeftPanel, setActiveLeftPanel] =
+    useState<DesignLeftPanel>("file");
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(256);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
@@ -3195,7 +3529,79 @@ export default function DesignEditor() {
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
+  const [createdOverviewLayerSelection, setCreatedOverviewLayerSelection] =
+    useState<{ screenId: string; layerId: string } | null>(null);
   const pendingOverviewScreenSelectionRef = useRef<string | null>(null);
+  const pendingOverviewLayerSelectionRef = useRef<string | null>(null);
+  // Tracks the nodeId of the most recently created TEXT primitive across one
+  // handleCreatePrimitive → handlePrimitiveCreated round-trip. Cleared after
+  // use. Lets handlePrimitiveCreated trigger begin-text-edit without needing
+  // the primitive kind in its signature.
+  const pendingTextEditNodeIdRef = useRef<string | null>(null);
+  const pendingOverviewLayerSelectionClearTimerRef = useRef<number | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const focusAgentComposer = () => {
+      requestAnimationFrame(() => {
+        const panel = document.querySelector("[data-design-agent-panel]");
+        const prosemirror = panel?.querySelector(
+          ".ProseMirror",
+        ) as HTMLElement | null;
+        if (prosemirror) {
+          prosemirror.focus();
+          return;
+        }
+        const textarea = panel?.querySelector("textarea") as HTMLElement | null;
+        textarea?.focus();
+      });
+    };
+    const openAgentPanel = () => {
+      setActiveLeftPanel("agent");
+      focusAgentComposer();
+    };
+    const toggleAgentPanel = () =>
+      setActiveLeftPanel((current) => {
+        const next = current === "agent" ? "file" : "agent";
+        if (next === "agent") focusAgentComposer();
+        return next;
+      });
+    window.addEventListener("agent-panel:open", openAgentPanel);
+    window.addEventListener("agent-panel:toggle", toggleAgentPanel);
+    return () => {
+      window.removeEventListener("agent-panel:open", openAgentPanel);
+      window.removeEventListener("agent-panel:toggle", toggleAgentPanel);
+    };
+  }, []);
+
+  const clearPendingOverviewLayerSelectionTimer = useCallback(() => {
+    if (pendingOverviewLayerSelectionClearTimerRef.current === null) return;
+    window.clearTimeout(pendingOverviewLayerSelectionClearTimerRef.current);
+    pendingOverviewLayerSelectionClearTimerRef.current = null;
+  }, []);
+  const schedulePendingOverviewLayerSelectionClear = useCallback(
+    (layerId: string) => {
+      clearPendingOverviewLayerSelectionTimer();
+      pendingOverviewLayerSelectionClearTimerRef.current = window.setTimeout(
+        () => {
+          if (pendingOverviewLayerSelectionRef.current === layerId) {
+            pendingOverviewLayerSelectionRef.current = null;
+          }
+          setCreatedOverviewLayerSelection((current) =>
+            current?.layerId === layerId ? null : current,
+          );
+          pendingOverviewLayerSelectionClearTimerRef.current = null;
+        },
+        1800,
+      );
+    },
+    [clearPendingOverviewLayerSelectionTimer],
+  );
+  useEffect(
+    () => clearPendingOverviewLayerSelectionTimer,
+    [clearPendingOverviewLayerSelectionTimer],
+  );
   const [lockedLayerIds, setLockedLayerIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -3220,10 +3626,63 @@ export default function DesignEditor() {
 
   // ── Motion dock state (§6.3) ────────────────────────────────────────────────
   // The MotionDock is mounted below the canvas and shown when motionDockOpen.
-  // Tracks and durationMs are local state; "Write to CSS" calls applyMotionEdit.
+  // Tracks and durationMs are local state; edits autosave via applyMotionEdit.
   const [motionDockOpen, setMotionDockOpen] = useState(false);
+  const [motionDockMounted, setMotionDockMounted] = useState(false);
+  const motionDockUnmountTimerRef = useRef<number | null>(null);
+  const [motionTimelineId, setMotionTimelineId] = useState<string | null>(null);
   const [motionTracks, setMotionTracks] = useState<MotionDockTrack[]>([]);
   const [motionDurationMs, setMotionDurationMs] = useState(1000);
+  const [motionTracksDirty, setMotionTracksDirty] = useState(false);
+  const [motionAutosaveRevision, setMotionAutosaveRevision] = useState(0);
+  const [motionHydrationFingerprint, setMotionHydrationFingerprint] = useState<
+    string | null
+  >(null);
+  const motionAutosaveRevisionRef = useRef(0);
+  const motionAutosaveFailedRevisionRef = useRef<number | null>(null);
+  const motionAutosaveTimerRef = useRef<number | null>(null);
+  const lastScheduledMotionAutosaveRevisionRef = useRef(0);
+  const previousMotionFileIdRef = useRef<string | null>(null);
+  const clearMotionDockUnmountTimer = useCallback(() => {
+    if (motionDockUnmountTimerRef.current === null) return;
+    window.clearTimeout(motionDockUnmountTimerRef.current);
+    motionDockUnmountTimerRef.current = null;
+  }, []);
+  const clearMotionAutosaveTimer = useCallback(() => {
+    if (motionAutosaveTimerRef.current === null) return;
+    window.clearTimeout(motionAutosaveTimerRef.current);
+    motionAutosaveTimerRef.current = null;
+  }, []);
+  const setMotionDockOpenAnimated = useCallback(
+    (open: boolean) => {
+      clearMotionDockUnmountTimer();
+      if (open) {
+        setMotionDockMounted(true);
+        if (typeof window === "undefined") {
+          setMotionDockOpen(true);
+          return;
+        }
+        window.requestAnimationFrame(() => setMotionDockOpen(true));
+        return;
+      }
+
+      setMotionDockOpen(false);
+      if (typeof window === "undefined") {
+        setMotionDockMounted(false);
+        return;
+      }
+      motionDockUnmountTimerRef.current = window.setTimeout(() => {
+        setMotionDockMounted(false);
+        motionDockUnmountTimerRef.current = null;
+      }, MOTION_DOCK_TRANSITION_MS);
+    },
+    [clearMotionDockUnmountTimer],
+  );
+  useEffect(
+    () => () => clearMotionDockUnmountTimer(),
+    [clearMotionDockUnmountTimer],
+  );
+  useEffect(() => () => clearMotionAutosaveTimer(), [clearMotionAutosaveTimer]);
   const [shaderFillPreview, setShaderFillPreview] = useState<{
     selector?: string;
     nodeId?: string;
@@ -3302,9 +3761,7 @@ export default function DesignEditor() {
   }, [isBuilderDesignEmbed]);
 
   const focusDesignInspectorForSelection = useCallback(() => {
-    setActiveInspectorTab((current) =>
-      current === "extensions" ? current : "design",
-    );
+    setActiveInspectorTab("design");
   }, []);
 
   useEffect(() => {
@@ -3313,9 +3770,7 @@ export default function DesignEditor() {
 
   useEffect(() => {
     if (hasSelectedElement) return;
-    setActiveInspectorTab((current) =>
-      current === "extensions" ? current : "tweaks",
-    );
+    setActiveInspectorTab("tweaks");
   }, [hasSelectedElement]);
 
   const startSidebarResize = useCallback(
@@ -3378,8 +3833,8 @@ export default function DesignEditor() {
   const suppressContentHistoryRef = useRef(false);
   const geometryUndoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
-  const historyOrderRef = useRef<Array<"content" | "geometry">>([]);
-  const redoOrderRef = useRef<Array<"content" | "geometry">>([]);
+  const historyOrderRef = useRef<UndoRedoOrderKind[]>([]);
+  const redoOrderRef = useRef<UndoRedoOrderKind[]>([]);
   const syncUndoRedoState = useCallback(() => {
     const undoManager = undoManagerRef.current;
     setCanUndo(
@@ -3393,6 +3848,23 @@ export default function DesignEditor() {
         geometryRedoStackRef.current.length > 0,
     );
   }, []);
+  const recordContentHistoryEntry = useCallback(
+    (entry: ContentHistoryEntry) => {
+      if (entry.before === entry.after) return;
+      contentUndoStackRef.current = [
+        ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        entry,
+      ];
+      contentRedoStackRef.current = [];
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "file-content",
+      ];
+      redoOrderRef.current = [];
+      syncUndoRedoState();
+    },
+    [syncUndoRedoState],
+  );
   const clearLocalUndoRedoStacks = useCallback(() => {
     contentUndoStackRef.current = [];
     contentRedoStackRef.current = [];
@@ -3408,6 +3880,18 @@ export default function DesignEditor() {
   // Dismissible localhost-source banner (reset per session).
   const [localSourceBannerDismissed, setLocalSourceBannerDismissed] =
     useState(false);
+  // Localhost write-consent dialog state. When the agent wants to write a local
+  // file and no valid grant exists for the active connection, we show the dialog
+  // with a pending payload; the user clicks "Allow writes" to mint a grant.
+  const [localhostWriteConsentOpen, setLocalhostWriteConsentOpen] =
+    useState(false);
+  const [localhostWriteConsentPayload, setLocalhostWriteConsentPayload] =
+    useState<LocalhostWriteConsentPayload | null>(null);
+  // Active localhost connection id for the consent dialog.
+  const [localhostConsentConnectionId, setLocalhostConsentConnectionId] =
+    useState<string>("");
+  // Tracks whether an "Apply to source" write is in progress.
+  const [applyToSourcePending, setApplyToSourcePending] = useState(false);
   // Shared visual-editor annotate overlays. drawMode owns the send toolbar,
   // while pinMode temporarily routes canvas clicks to comment pins that queue
   // into the same agent submission.
@@ -3819,6 +4303,8 @@ export default function DesignEditor() {
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
   const applyMotionEditMutation = useActionMutation("apply-motion-edit");
+  const applyMotionEdit = applyMotionEditMutation.mutate;
+  const motionAutosavePending = applyMotionEditMutation.isPending;
   // §6.4 breakpoint mutations — wired to MultiScreenCanvas + affordance
   const addBreakpointMutation = useActionMutation("add-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
@@ -3832,12 +4318,28 @@ export default function DesignEditor() {
     "open-component-source",
   );
 
+  // Board file migration — lazy, idempotent, triggers on design open when
+  // designs.data.boardFileId is absent.
+  const migrateBoardObjectsMutation = useActionMutation(
+    "migrate-board-objects-to-file",
+  );
+
   // §6.6 — "Make it real" migration flow (migrate-inline-design-to-app).
   // The mutation stays unconditional; the dialog gates on isSignedIn.
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
 
   // Dialog open/close state for the "Make this a real app" flow.
   const [makeRealDialogOpen, setMakeRealDialogOpen] = useState(false);
+  const [publishWaitlistPopoverOpen, setPublishWaitlistPopoverOpen] =
+    useState(false);
+  const [publishWaitlistPopoverView, setPublishWaitlistPopoverView] = useState<
+    "actions" | "waitlist"
+  >("actions");
+  const [publishWaitlistJoined, setPublishWaitlistJoined] = useState(false);
+  const [joiningPublishWaitlist, setJoiningPublishWaitlist] = useState(false);
+  const [publishWaitlistError, setPublishWaitlistError] = useState<
+    string | null
+  >(null);
 
   // Result payload returned by migrate-inline-design-to-app on success.
   // `null` = not yet migrated; populated once the Builder agent accepts the job.
@@ -4268,6 +4770,39 @@ export default function DesignEditor() {
     () => getCanvasFrameGeometry(designDataJson),
     [designDataJson],
   );
+
+  // ── Board file ─────────────────────────────────────────────────────────────
+  // The board is a reserved design_file (filename "__board__.html") whose id is
+  // stored in designs.data.boardFileId.  On design open, if boardFileId is absent,
+  // we trigger migrate-board-objects-to-file (lazy + idempotent) which creates
+  // the board file and migrates any legacy boardObjects.
+  const boardFileId = useMemo(() => {
+    const raw = (designDataJson as Record<string, unknown>).boardFileId;
+    return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+  }, [designDataJson]);
+
+  // Trigger migration on design open when boardFileId is absent.
+  const migrateBoardTriggeredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!id || !canEditDesign) return;
+    if (boardFileId) return; // already migrated
+    if (migrateBoardTriggeredRef.current === id) return;
+    migrateBoardTriggeredRef.current = id;
+    migrateBoardObjectsMutation.mutate({ designId: id } as any, {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-design", { id }],
+        });
+      },
+    });
+  }, [
+    boardFileId,
+    canEditDesign,
+    id,
+    migrateBoardObjectsMutation,
+    queryClient,
+  ]);
+
   const overviewScreens = useMemo(() => {
     const metadataByFileId = getDesignDataRecord(
       designDataJson,
@@ -4305,45 +4840,82 @@ export default function DesignEditor() {
         ? breakpointSet.breakpoints.map((bp) => bp.widthPx)
         : undefined;
 
-    return files.map((file) => {
-      const metadata = getDesignDataRecord(metadataByFileId, file.id);
-      const stringValue = (key: string) =>
-        typeof metadata[key] === "string"
-          ? (metadata[key] as string)
-          : undefined;
-      const numberValue = (key: string) =>
-        typeof metadata[key] === "number" && Number.isFinite(metadata[key])
-          ? (metadata[key] as number)
-          : undefined;
-      return {
-        id: file.id,
-        filename: file.filename,
-        content: file.content,
-        updatedAt: file.updatedAt,
-        sourceType: stringValue("sourceType"),
-        source: stringValue("source"),
-        sourceFile: stringValue("sourceFile"),
-        lod: stringValue("lod"),
-        previewState: stringValue("previewState"),
-        status: stringValue("status"),
-        title: stringValue("title"),
-        width: numberValue("width"),
-        height: numberValue("height"),
-        url: stringValue("url"),
-        previewUrl: stringValue("previewUrl"),
-        // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
-        // renders one iframe per width to the right of the primary frame.
-        breakpointWidths: bpWidths,
-        // Active breakpoint width tracked in component state; shared across all
-        // screens (a design has one active breakpoint set at a time in v1).
-        activeBreakpointWidth: bpWidths?.includes(
-          activeBreakpointWidthState ?? -1,
-        )
-          ? activeBreakpointWidthState
-          : undefined,
-      };
-    });
-  }, [designDataJson, files, activeBreakpointWidthState]);
+    // Exclude the board file — it is rendered by its own DesignCanvas instance
+    // in MultiScreenCanvas and must not appear as a screen frame.
+    return files
+      .filter((file) => !isBoardFile(file.filename))
+      .map((file) => {
+        const metadata = getDesignDataRecord(metadataByFileId, file.id);
+        const stringValue = (key: string) =>
+          typeof metadata[key] === "string"
+            ? (metadata[key] as string)
+            : undefined;
+        const numberValue = (key: string) =>
+          typeof metadata[key] === "number" && Number.isFinite(metadata[key])
+            ? (metadata[key] as number)
+            : undefined;
+        return {
+          id: file.id,
+          filename: file.filename,
+          content: file.content,
+          updatedAt: file.updatedAt,
+          sourceType: stringValue("sourceType"),
+          source: stringValue("source"),
+          sourceFile: stringValue("sourceFile"),
+          connectionId: stringValue("connectionId"),
+          lod: stringValue("lod"),
+          previewState: stringValue("previewState"),
+          status: stringValue("status"),
+          title: stringValue("title"),
+          width: numberValue("width"),
+          height: numberValue("height"),
+          url: stringValue("url"),
+          previewUrl: stringValue("previewUrl"),
+          // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
+          // renders one iframe per width to the right of the primary frame.
+          breakpointWidths: bpWidths,
+          // Active breakpoint width tracked in component state; shared across all
+          // screens (a design has one active breakpoint set at a time in v1).
+          activeBreakpointWidth: bpWidths?.includes(
+            activeBreakpointWidthState ?? -1,
+          )
+            ? activeBreakpointWidthState
+            : undefined,
+        };
+      });
+  }, [designDataJson, files, activeBreakpointWidthState, boardFileId]);
+
+  // The board file's current HTML content — sourced from the files array (which
+  // includes pending local writes).  undefined when boardFileId is not yet set.
+  const boardFileContent = useMemo(() => {
+    if (!boardFileId) return undefined;
+    const boardFile = files.find((file) => file.id === boardFileId);
+    return typeof boardFile?.content === "string" ? boardFile.content : "";
+  }, [boardFileId, files]);
+
+  // Logical canvas-space bounding box of the board iframe.  The board covers the
+  // full canvas surface, so we compute the union of all screen frame geometries.
+  // x:0/y:0 since screen geometries use canvas-space coords that start at origin.
+  const boardFrameGeometry = useMemo((): FrameGeometry | undefined => {
+    if (!boardFileId) return undefined;
+    const entries = Object.values(canvasFrameGeometryById);
+    if (entries.length === 0) return { x: 0, y: 0, width: 1920, height: 1080 };
+    let maxRight = 0;
+    let maxBottom = 0;
+    for (const geo of entries) {
+      const right = (geo.x ?? 0) + (geo.width ?? 0);
+      const bottom = (geo.y ?? 0) + (geo.height ?? 0);
+      if (right > maxRight) maxRight = right;
+      if (bottom > maxBottom) maxBottom = bottom;
+    }
+    return {
+      x: 0,
+      y: 0,
+      width: Math.min(Math.max(maxRight, 1920), 16384),
+      height: Math.min(Math.max(maxBottom, 1080), 16384),
+    };
+  }, [boardFileId, canvasFrameGeometryById]);
+
   const queueFrameGeometrySave = useCallback(
     (geometryById: CanvasFrameGeometryById) => {
       if (!id || !canEditDesignRef.current) return;
@@ -4436,6 +5008,8 @@ export default function DesignEditor() {
         },
       ];
       geometryRedoStackRef.current = [];
+      contentRedoStackRef.current = [];
+      undoManagerRef.current?.clear(false, true);
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "geometry",
@@ -4445,11 +5019,12 @@ export default function DesignEditor() {
         beforeSnapshot,
         afterSnapshot,
       );
-      if (resizedFrameIds.length > 0) {
-        writeFrameGeometrySnapshot(afterSnapshot, {
-          syncViewportFrameIds: resizedFrameIds,
-        });
-      }
+      writeFrameGeometrySnapshot(
+        afterSnapshot,
+        resizedFrameIds.length > 0
+          ? { syncViewportFrameIds: resizedFrameIds }
+          : undefined,
+      );
       syncUndoRedoState();
     },
     [syncUndoRedoState, writeFrameGeometrySnapshot],
@@ -4563,6 +5138,7 @@ export default function DesignEditor() {
       return;
     }
 
+    const shouldSkipQuestions = pending.skipQuestions === true;
     const context = [
       sourceContext,
       `Design id: "${id}"`,
@@ -4573,18 +5149,26 @@ export default function DesignEditor() {
         : "",
       fileContext,
       "",
-      ...designIntakeQuestionDirectives(id, pendingDesignSystemId),
+      ...(shouldSkipQuestions
+        ? designGenerationDirectives(id, pendingDesignSystemId)
+        : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
     ].join("\n");
 
     clearGenerationCompleteTimer();
     setGenerationIssue(null);
-    const runTabId = agentSubmit(`Create design: ${prompt}`, context, {
-      model: pending.model,
-      engine: pending.engine,
-      effort: pending.effort,
-      newTab: true,
-      images,
-    });
+    const runTabId = agentSubmit(
+      shouldSkipQuestions
+        ? `Generate design for "${design.title}": ${prompt}`
+        : `Create design: ${prompt}`,
+      context,
+      {
+        model: pending.model,
+        engine: pending.engine,
+        effort: pending.effort,
+        newTab: true,
+        images,
+      },
+    );
     setGenerationChatTabId(runTabId);
     patchPendingGeneration(id, {
       runTabId,
@@ -4619,6 +5203,25 @@ export default function DesignEditor() {
   }, [files, activeFileId]);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+  const motionTimelineQueryParams =
+    id && activeFile?.id
+      ? { designId: id, sourceRef: activeFile.id }
+      : { designId: "", sourceRef: "" };
+  const { data: motionTimelineResult } =
+    useActionQuery<MotionTimelineQueryResult>(
+      "get-motion-timeline",
+      motionTimelineQueryParams,
+      {
+        enabled: Boolean(id && activeFile?.id),
+        refetchOnMount: "always",
+      },
+    );
+  useEffect(() => {
+    if (activeFile && !embedded) return;
+    clearMotionDockUnmountTimer();
+    setMotionDockOpen(false);
+    setMotionDockMounted(false);
+  }, [activeFile, clearMotionDockUnmountTimer, embedded]);
   useEffect(() => {
     if (!reviewFileId || reviewFileId === activeFile?.id) return;
     setReviewFileId(null);
@@ -4732,16 +5335,18 @@ export default function DesignEditor() {
       if (target && !targetFile) return false;
 
       const inspectorTab =
-        command.inspectorTab === "design" ||
-        command.inspectorTab === "tweaks" ||
-        command.inspectorTab === "extensions"
+        command.inspectorTab === "design" || command.inspectorTab === "tweaks"
           ? command.inspectorTab
-          : command.inspector === "design" ||
-              command.inspector === "tweaks" ||
-              command.inspector === "extensions"
+          : command.inspector === "design" || command.inspector === "tweaks"
             ? command.inspector
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
+      const leftPanel =
+        normalizeDesignLeftPanel(command.leftPanel) ??
+        normalizeDesignLeftPanel(command.panel) ??
+        normalizeDesignLeftPanel(command.inspectorTab) ??
+        normalizeDesignLeftPanel(command.inspector);
+      if (leftPanel) setActiveLeftPanel(leftPanel);
 
       const commandTool = normalizeDesignTool(command.tool);
       const effectiveCommandTool =
@@ -4898,21 +5503,59 @@ export default function DesignEditor() {
   const handleAddScreen = useCallback(() => {
     if (!id || !canEditDesign) return;
     const filename = nextBlankScreenFilename(files);
+    const content = blankScreenHtml(prettyScreenName(filename));
     createFileMutation.mutate(
       {
         designId: id,
         filename,
-        content: blankScreenHtml(prettyScreenName(filename)),
+        content,
         fileType: "html",
       } as any,
       {
         onSuccess: (result: any) => {
           const nextId = typeof result?.id === "string" ? result.id : null;
-          queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
-          });
           if (nextId) {
+            const now = new Date().toISOString();
+            queryClient.setQueryData(
+              ["action", "get-design", { id }],
+              (old: any) => {
+                if (
+                  !old ||
+                  typeof old !== "object" ||
+                  !Array.isArray(old.files)
+                ) {
+                  return old;
+                }
+                const optimisticFile: DesignFile = {
+                  id: nextId,
+                  filename,
+                  fileType: "html",
+                  content,
+                  createdAt:
+                    typeof result?.createdAt === "string"
+                      ? result.createdAt
+                      : now,
+                  updatedAt:
+                    typeof result?.updatedAt === "string"
+                      ? result.updatedAt
+                      : now,
+                };
+                return {
+                  ...old,
+                  files: old.files.some(
+                    (file: DesignFile) => file.id === nextId,
+                  )
+                    ? old.files.map((file: DesignFile) =>
+                        file.id === nextId ? optimisticFile : file,
+                      )
+                    : [...old.files, optimisticFile],
+                };
+              },
+            );
             pendingOverviewScreenSelectionRef.current = nextId;
+            pendingOverviewLayerSelectionRef.current = null;
+            clearPendingOverviewLayerSelectionTimer();
+            setCreatedOverviewLayerSelection(null);
             setActiveFileId(nextId);
             setSelectedElement(null);
             setSelectedLayerIdsState([nextId]);
@@ -4922,6 +5565,9 @@ export default function DesignEditor() {
             viewModeRef.current = "overview";
             setViewMode("overview");
           }
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
         },
         onError: (error) => {
           toast.error(
@@ -4932,12 +5578,21 @@ export default function DesignEditor() {
         },
       },
     );
-  }, [canEditDesign, createFileMutation, files, id, queryClient, t]);
+  }, [
+    canEditDesign,
+    clearPendingOverviewLayerSelectionTimer,
+    createFileMutation,
+    files,
+    id,
+    queryClient,
+    t,
+  ]);
 
   const handleCreateScreenFrame = useCallback(
     (geometry: { x: number; y: number; width: number; height: number }) => {
       if (!id || !canEditDesign) return;
       const filename = nextBlankScreenFilename(files);
+      const content = blankScreenHtml(prettyScreenName(filename));
       const nextGeometry = {
         x: Math.round(geometry.x),
         y: Math.round(geometry.y),
@@ -4948,17 +5603,54 @@ export default function DesignEditor() {
         {
           designId: id,
           filename,
-          content: blankScreenHtml(prettyScreenName(filename)),
+          content,
           fileType: "html",
         } as any,
         {
           onSuccess: (result: any) => {
             const nextId = typeof result?.id === "string" ? result.id : null;
-            queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
             if (nextId) {
+              const now = new Date().toISOString();
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (
+                    !old ||
+                    typeof old !== "object" ||
+                    !Array.isArray(old.files)
+                  ) {
+                    return old;
+                  }
+                  const optimisticFile: DesignFile = {
+                    id: nextId,
+                    filename,
+                    fileType: "html",
+                    content,
+                    createdAt:
+                      typeof result?.createdAt === "string"
+                        ? result.createdAt
+                        : now,
+                    updatedAt:
+                      typeof result?.updatedAt === "string"
+                        ? result.updatedAt
+                        : now,
+                  };
+                  return {
+                    ...old,
+                    files: old.files.some(
+                      (file: DesignFile) => file.id === nextId,
+                    )
+                      ? old.files.map((file: DesignFile) =>
+                          file.id === nextId ? optimisticFile : file,
+                        )
+                      : [...old.files, optimisticFile],
+                  };
+                },
+              );
               pendingOverviewScreenSelectionRef.current = nextId;
+              pendingOverviewLayerSelectionRef.current = null;
+              clearPendingOverviewLayerSelectionTimer();
+              setCreatedOverviewLayerSelection(null);
               setActiveFileId(nextId);
               setSelectedElement(null);
               setSelectedLayerIdsState([nextId]);
@@ -4972,6 +5664,9 @@ export default function DesignEditor() {
                 [nextId]: nextGeometry,
               });
             }
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
           },
           onError: (error) => {
             toast.error(
@@ -4986,6 +5681,7 @@ export default function DesignEditor() {
     [
       canEditDesign,
       canvasFrameGeometryById,
+      clearPendingOverviewLayerSelectionTimer,
       createFileMutation,
       files,
       id,
@@ -5213,11 +5909,11 @@ export default function DesignEditor() {
       if (!isLocalEdit) {
         setSelectedElement((prev) => {
           if (!prev) return prev;
-          return elementInfoExistsInContent(next, prev) ? prev : null;
+          return refreshElementInfoFromContent(next, prev);
         });
         setHoveredElement((prev) => {
           if (!prev) return prev;
-          return elementInfoExistsInContent(next, prev) ? prev : null;
+          return refreshElementInfoFromContent(next, prev);
         });
       }
     };
@@ -5235,6 +5931,14 @@ export default function DesignEditor() {
     if (!ydoc || !isSynced) {
       undoManagerRef.current?.destroy();
       undoManagerRef.current = null;
+      historyOrderRef.current = removeUndoRedoOrderKind(
+        historyOrderRef.current,
+        "content",
+      );
+      redoOrderRef.current = removeUndoRedoOrderKind(
+        redoOrderRef.current,
+        "content",
+      );
       syncUndoRedoState();
       return;
     }
@@ -5268,6 +5972,14 @@ export default function DesignEditor() {
       um.off("stack-cleared", syncState);
       um.destroy();
       undoManagerRef.current = null;
+      historyOrderRef.current = removeUndoRedoOrderKind(
+        historyOrderRef.current,
+        "content",
+      );
+      redoOrderRef.current = removeUndoRedoOrderKind(
+        redoOrderRef.current,
+        "content",
+      );
       syncUndoRedoState();
     };
   }, [ydoc, isSynced, syncUndoRedoState]);
@@ -5652,6 +6364,56 @@ export default function DesignEditor() {
     () => buildCodeLayerProjection(activeContent),
     [activeContent],
   );
+  const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
+  const activeMotionHydrationFingerprint = activeFile?.id
+    ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
+    : null;
+  const activeMotionProjectionFingerprint = activeMotionHydrationFingerprint
+    ? activeMotionHydrationFingerprint
+    : null;
+
+  useEffect(() => {
+    const fileId = activeFile?.id ?? null;
+    if (previousMotionFileIdRef.current === fileId) return;
+    previousMotionFileIdRef.current = fileId;
+    clearMotionAutosaveTimer();
+    motionAutosaveRevisionRef.current = 0;
+    motionAutosaveFailedRevisionRef.current = null;
+    lastScheduledMotionAutosaveRevisionRef.current = 0;
+    setMotionTimelineId(null);
+    setMotionTracks([]);
+    setMotionDurationMs(1000);
+    setMotionTracksDirty(false);
+    setMotionAutosaveRevision(0);
+    setMotionHydrationFingerprint(null);
+  }, [activeFile?.id, clearMotionAutosaveTimer]);
+
+  useEffect(() => {
+    if (!activeFile?.id || !activeMotionProjectionFingerprint) return;
+    if (motionTracksDirty) return;
+    if (motionHydrationFingerprint === activeMotionProjectionFingerprint)
+      return;
+
+    const hydratedTracks = activeMotionTimeline
+      ? hydrateMotionDockTracks(
+          activeMotionTimeline.tracks,
+          activeCodeLayerProjection,
+        )
+      : [];
+
+    setMotionTimelineId(activeMotionTimeline?.id ?? null);
+    setMotionTracks(hydratedTracks);
+    setMotionDurationMs(activeMotionTimeline?.durationMs ?? 1000);
+    setMotionHydrationFingerprint(activeMotionProjectionFingerprint);
+  }, [
+    activeCodeLayerProjection,
+    activeFile?.id,
+    activeMotionProjectionFingerprint,
+    activeMotionTimeline,
+    motionHydrationFingerprint,
+    motionTracksDirty,
+  ]);
+
   const selectedCodeLayerNode = useMemo(() => {
     if (!selectedElement) return null;
     return resolveCodeLayerNodeFromElementInfo(
@@ -5799,11 +6561,37 @@ export default function DesignEditor() {
     return { nodeId, label };
   }, [selectedCodeLayerNode, selectedElement?.tagName]);
 
+  const markMotionTracksDirty = useCallback(() => {
+    setMotionTracksDirty(true);
+    setMotionAutosaveRevision((revision) => {
+      const next = revision + 1;
+      motionAutosaveRevisionRef.current = next;
+      motionAutosaveFailedRevisionRef.current = null;
+      return next;
+    });
+  }, []);
+
+  const handleMotionTracksChange = useCallback(
+    (tracks: MotionDockTrack[]) => {
+      setMotionTracks(tracks);
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty],
+  );
+
+  const handleMotionDurationChange = useCallback(
+    (durationMs: number) => {
+      setMotionDurationMs(durationMs);
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty],
+  );
+
   // Serialisable subset of the dock's tracks for the DesignCanvas motion-preview
   // bridge. Strips the UI-only `label` field. Only populated while the dock is
   // open so a closed dock never leaves preview overrides on the canvas; an empty
   // array makes DesignCanvas send `motion-preview-clear`. Scrubbing previews
-  // these tracks live in the iframe — it never writes (that is "Write to CSS").
+  // these tracks live in the iframe; autosave only runs for track/duration edits.
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {
     if (!motionDockOpen || motionTracks.length === 0) return [];
     return motionTracks.map(({ label: _label, ...track }) => track);
@@ -5962,21 +6750,11 @@ export default function DesignEditor() {
         !yjsHistoryAvailable &&
         previousContent !== nextContent
       ) {
-        contentUndoStackRef.current = [
-          ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-          {
-            fileId: activeFile.id,
-            before: previousContent,
-            after: nextContent,
-          },
-        ];
-        contentRedoStackRef.current = [];
-        historyOrderRef.current = [
-          ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-          "content",
-        ];
-        redoOrderRef.current = [];
-        syncUndoRedoState();
+        recordContentHistoryEntry({
+          fileId: activeFile.id,
+          before: previousContent,
+          after: nextContent,
+        });
       }
       if (options.updatedAt) {
         clearPendingLocalFileContent(activeFile.id);
@@ -6057,6 +6835,7 @@ export default function DesignEditor() {
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
+      recordContentHistoryEntry,
       syncUndoRedoState,
       ydoc,
     ],
@@ -6130,6 +6909,99 @@ export default function DesignEditor() {
     ],
   );
 
+  useEffect(() => {
+    if (!id || !activeFile?.id || !motionTracksDirty) return;
+    if (motionTracks.length === 0) return;
+    if (motionAutosavePending) return;
+    if (motionAutosaveFailedRevisionRef.current === motionAutosaveRevision)
+      return;
+    if (
+      lastScheduledMotionAutosaveRevisionRef.current ===
+        motionAutosaveRevision &&
+      motionAutosaveTimerRef.current !== null
+    ) {
+      return;
+    }
+
+    const revisionAtSchedule = motionAutosaveRevision;
+    lastScheduledMotionAutosaveRevisionRef.current = revisionAtSchedule;
+    clearMotionAutosaveTimer();
+    motionAutosaveTimerRef.current = window.setTimeout(() => {
+      motionAutosaveTimerRef.current = null;
+      if (motionAutosaveRevisionRef.current !== revisionAtSchedule) return;
+      applyMotionEdit(
+        {
+          designId: id,
+          fileId: activeFile.id,
+          timelineId: motionTimelineId ?? undefined,
+          sourceRef: activeFile.id,
+          tracks: motionTracks.map(({ label: _label, ...track }) => track),
+          durationMs: motionDurationMs,
+          currentContent: getFreshActiveFileContent({
+            activeContent,
+            latestContent: latestActiveContentRef.current,
+            lastLocalContent: lastLocalContentRef.current,
+          }),
+          includeContent: true,
+        },
+        {
+          onSuccess: (result) => {
+            const response = result as {
+              fileId?: unknown;
+              timelineId?: unknown;
+              patchedContent?: unknown;
+            };
+            if (typeof response.timelineId === "string") {
+              setMotionTimelineId(response.timelineId);
+            }
+            if (motionAutosaveRevisionRef.current === revisionAtSchedule) {
+              setMotionTracksDirty(false);
+              setMotionHydrationFingerprint(null);
+              lastScheduledMotionAutosaveRevisionRef.current = 0;
+            }
+            if (
+              typeof response.fileId === "string" &&
+              typeof response.patchedContent === "string"
+            ) {
+              applyFileContentUpdate(response.fileId, response.patchedContent, {
+                refreshPreview: response.fileId === activeFile.id,
+              });
+            }
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-motion-timeline"],
+            });
+          },
+          onError: (error) => {
+            if (motionAutosaveRevisionRef.current === revisionAtSchedule) {
+              motionAutosaveFailedRevisionRef.current = revisionAtSchedule;
+              lastScheduledMotionAutosaveRevisionRef.current = 0;
+            }
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : // i18n-ignore: fallback toast for motion autosave failure.
+                  "Motion changes could not be saved.",
+            );
+          },
+        },
+      );
+    }, MOTION_AUTOSAVE_DELAY_MS);
+  }, [
+    activeFile?.id,
+    activeContent,
+    applyFileContentUpdate,
+    applyMotionEdit,
+    clearMotionAutosaveTimer,
+    id,
+    motionAutosaveRevision,
+    motionAutosavePending,
+    motionDurationMs,
+    motionTimelineId,
+    motionTracks,
+    motionTracksDirty,
+    queryClient,
+  ]);
+
   const handleComponentPropApplied = useCallback(
     (fileId: string, nextContent: string, updatedAt?: string) => {
       applyFileContentUpdate(fileId, nextContent, {
@@ -6200,14 +7072,29 @@ export default function DesignEditor() {
       if (!canEditDesign) return false;
       const targetFile = files.find((file) => file.id === screenId);
       if (!targetFile) return false;
+      const pendingContent = pendingLocalFileContentsRef.current.get(
+        targetFile.id,
+      )?.content;
+      const storedContent = targetFile.content ?? "";
       const baseContent =
-        targetFile.id === activeFile?.id
-          ? ydoc && isSynced
-            ? ydoc.getText("content").toString()
-            : ((collabContentFileIdRef.current === activeFile.id
-                ? collabContentRef.current
-                : null) ?? activeContent)
-          : targetFile.content;
+        pendingContent ??
+        (targetFile.id === activeFile?.id
+          ? (() => {
+              const liveContent =
+                ydoc && isSynced
+                  ? ydoc.getText("content").toString()
+                  : ((collabContentFileIdRef.current === activeFile.id
+                      ? collabContentRef.current
+                      : null) ?? activeContent);
+              return shouldUseLiveFileContent({
+                liveContent,
+                storedContent,
+                fileType: targetFile.fileType,
+              })
+                ? liveContent
+                : storedContent;
+            })()
+          : storedContent);
       const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive);
       if (!nextContent) {
         toast.error(t("designEditor.toasts.primitiveInsertFailed"));
@@ -6224,6 +7111,11 @@ export default function DesignEditor() {
       if (targetFile.id === activeFile?.id) {
         applyLocalContentUpdate(nextContent, { immediateSave: true });
       } else {
+        recordContentHistoryEntry({
+          fileId: targetFile.id,
+          before: baseContent,
+          after: nextContent,
+        });
         queryClient.setQueryData(
           ["action", "get-design", { id }],
           (old: any) => {
@@ -6247,7 +7139,21 @@ export default function DesignEditor() {
         });
       }
 
-      return projectedNodeId ?? primitive.nodeId ?? true;
+      const result = projectedNodeId ?? primitive.nodeId ?? true;
+
+      // Record the nodeId when a TEXT primitive is created so the next
+      // handlePrimitiveCreated (or handleBoardDrawPrimitive) can immediately
+      // enter text-edit mode — fixing the "click to add text should let me
+      // type immediately" bug. The ref is read once and cleared.
+      if (primitive.kind === "text") {
+        const textNodeId =
+          typeof result === "string" ? result : (primitive.nodeId ?? null);
+        pendingTextEditNodeIdRef.current = textNodeId;
+      } else {
+        pendingTextEditNodeIdRef.current = null;
+      }
+
+      return result;
     },
     [
       activeContent,
@@ -6258,6 +7164,7 @@ export default function DesignEditor() {
       id,
       isSynced,
       queryClient,
+      recordContentHistoryEntry,
       saveFileContent,
       t,
       ydoc,
@@ -6271,25 +7178,112 @@ export default function DesignEditor() {
       // new primitive selected, matching Figma behaviour.  We activate the
       // target screen (so the layers panel shows its content) and select the
       // new node, but do NOT switch to single/full view.
-      pendingOverviewScreenSelectionRef.current = null;
-      setActiveFileId(screenId);
-      setSelectedElement(null);
-      setHoveredElement(null);
-      setSelectedLayerIdsState([nodeId]);
-      setOverviewSelectedScreenIds([]);
-      setActiveTool("move");
-      setMode("edit");
+      pendingOverviewScreenSelectionRef.current = screenId;
+      pendingOverviewLayerSelectionRef.current = nodeId;
+      clearPendingOverviewLayerSelectionTimer();
+      flushSync(() => {
+        setCreatedOverviewLayerSelection({ screenId, layerId: nodeId });
+        setActiveFileId(screenId);
+        setSelectedElement(null);
+        setHoveredElement(null);
+        setSelectedLayerIdsState([nodeId]);
+        setOverviewSelectedScreenIds([screenId]);
+        setActiveTool("move");
+        setMode("edit");
+      });
       // viewMode stays at "overview" — no setViewMode("single") call here.
+
+      // Immediately enter text-editing for newly created TEXT primitives so the
+      // user can start typing without a second click (fixes auto-size flow too).
+      // We read-and-clear the ref set by handleCreatePrimitive just above. The
+      // 50 ms delay gives React a tick to commit the new content into the active
+      // screen's iframe before the bridge tries to find the element by nodeId.
+      const textNodeId = pendingTextEditNodeIdRef.current;
+      pendingTextEditNodeIdRef.current = null;
+      if (textNodeId) {
+        setTimeout(() => {
+          (window as any).__designCanvasBeginTextEdit?.(textNodeId);
+        }, 50);
+      }
     },
-    [],
+    [clearPendingOverviewLayerSelectionTimer],
   );
 
-  const handleOverviewScreenSelectionChange = useCallback((ids: string[]) => {
-    const pendingId = pendingOverviewScreenSelectionRef.current;
-    if (pendingId && ids.length === 0) return;
-    if (pendingId) pendingOverviewScreenSelectionRef.current = null;
-    setOverviewSelectedScreenIds(ids);
-  }, []);
+  /**
+   * Called by MultiScreenCanvas when a draft primitive is committed in empty
+   * canvas space (outside all screen frames).  Appends the primitive to the
+   * board file content via the shared handleCreatePrimitive path so the bridge
+   * engine handles persistence identically to in-screen elements.
+   */
+  const handleBoardDrawPrimitive = useCallback(
+    (primitive: CanvasPrimitiveInsert) => {
+      if (!boardFileId || !canEditDesign) return false;
+      const result = handleCreatePrimitive(boardFileId, primitive);
+      if (!result) return false;
+
+      // For TEXT primitives drawn on the board surface, immediately enter
+      // text-editing mode via begin-text-edit.  The board DesignCanvas uses
+      // registerRuntimeBridge=false so window.__designCanvasBeginTextEdit is
+      // not set; instead we broadcast the message to all preview iframes — the
+      // one that contains the new nodeId will handle it, others ignore it.
+      // The 50 ms delay lets the board iframe receive its content update first.
+      if (primitive.kind === "text") {
+        const textNodeId =
+          pendingTextEditNodeIdRef.current ?? primitive.nodeId ?? null;
+        pendingTextEditNodeIdRef.current = null;
+        if (textNodeId) {
+          setTimeout(() => {
+            document
+              .querySelectorAll<HTMLIFrameElement>(
+                "iframe[data-design-preview-iframe]",
+              )
+              .forEach((iframe) => {
+                iframe.contentWindow?.postMessage(
+                  { type: "begin-text-edit", nodeId: textNodeId },
+                  "*",
+                );
+              });
+          }, 50);
+        }
+      }
+
+      return result;
+    },
+    [boardFileId, canEditDesign, handleCreatePrimitive],
+  );
+
+  const handleOverviewScreenSelectionChange = useCallback(
+    (ids: string[]) => {
+      const pendingId = pendingOverviewScreenSelectionRef.current;
+      const fileIds = new Set(files.map((file) => file.id));
+      if (pendingId && ids.length === 0) return;
+      if (pendingId && ids.includes(pendingId)) {
+        setOverviewSelectedScreenIds(
+          ids.filter(
+            (layerId) => fileIds.has(layerId) || layerId === pendingId,
+          ),
+        );
+        if (fileIds.has(pendingId)) {
+          pendingOverviewScreenSelectionRef.current = null;
+        }
+        return;
+      }
+      if (pendingId) {
+        pendingOverviewScreenSelectionRef.current = null;
+        pendingOverviewLayerSelectionRef.current = null;
+        clearPendingOverviewLayerSelectionTimer();
+        setCreatedOverviewLayerSelection(null);
+      }
+      setOverviewSelectedScreenIds(
+        ids.filter((layerId) => fileIds.has(layerId)),
+      );
+    },
+    [clearPendingOverviewLayerSelectionTimer, files],
+  );
+
+  const shouldPreserveBlockedOverviewLayerSelectionRef = useRef<
+    (screenId: string) => boolean
+  >(() => false);
 
   const handleMoveTool = useCallback(() => {
     if (!canEditDesign) return;
@@ -6301,36 +7295,42 @@ export default function DesignEditor() {
 
   const handleFrameTool = useCallback(() => {
     if (!canEditDesign) return;
-    setActiveTool("frame");
-    setMode("edit");
-    setDrawMode(false);
-    setPinMode(false);
-    setSelectedElement(null);
-    viewModeRef.current = "overview";
-    setViewMode("overview");
+    flushSync(() => {
+      setActiveTool("frame");
+      setMode("edit");
+      setDrawMode(false);
+      setPinMode(false);
+      setSelectedElement(null);
+      viewModeRef.current = "overview";
+      setViewMode("overview");
+    });
   }, [canEditDesign]);
 
   const handleTextTool = useCallback(() => {
     if (!canEditDesign) return;
-    setActiveTool("text");
-    viewModeRef.current = "overview";
-    setViewMode("overview");
-    setMode("edit");
-    setDrawMode(false);
-    setPinMode(false);
-    setSelectedElement(null);
-  }, [canEditDesign]);
-
-  const handleShapeTool = useCallback(
-    (tool: ShapeTool) => {
-      if (!canEditDesign) return;
-      setActiveTool(tool);
+    flushSync(() => {
+      setActiveTool("text");
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
       setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
+    });
+  }, [canEditDesign]);
+
+  const handleShapeTool = useCallback(
+    (tool: ShapeTool) => {
+      if (!canEditDesign) return;
+      flushSync(() => {
+        setActiveTool(tool);
+        viewModeRef.current = "overview";
+        setViewMode("overview");
+        setMode("edit");
+        setDrawMode(false);
+        setPinMode(false);
+        setSelectedElement(null);
+      });
     },
     [canEditDesign],
   );
@@ -6341,13 +7341,15 @@ export default function DesignEditor() {
 
   const handlePenTool = useCallback(() => {
     if (!canEditDesign) return;
-    setActiveTool("pen");
-    viewModeRef.current = "overview";
-    setViewMode("overview");
-    setMode("edit");
-    setDrawMode(false);
-    setPinMode(false);
-    setSelectedElement(null);
+    flushSync(() => {
+      setActiveTool("pen");
+      viewModeRef.current = "overview";
+      setViewMode("overview");
+      setMode("edit");
+      setDrawMode(false);
+      setPinMode(false);
+      setSelectedElement(null);
+    });
   }, [canEditDesign]);
 
   const handleHandTool = useCallback(() => {
@@ -6514,6 +7516,7 @@ export default function DesignEditor() {
       mode,
       activeTool,
       inspectorTab: activeInspectorTab,
+      leftPanel: activeLeftPanel,
       // §8 DesignNavigationState additions — dock + breakpoint context
       dock: { kind: "motion" as const, open: motionDockOpen },
       motion: {
@@ -6581,6 +7584,7 @@ export default function DesignEditor() {
       mode: selection.mode,
       activeTool: selection.activeTool,
       inspectorTab: selection.inspectorTab,
+      leftPanel: selection.leftPanel,
       dock: selection.dock,
       motion: selection.motion,
       breakpoint: selection.breakpoint,
@@ -6621,6 +7625,7 @@ export default function DesignEditor() {
     mode,
     activeTool,
     activeInspectorTab,
+    activeLeftPanel,
     overviewSelectedScreenIds,
     viewMode,
     zoom,
@@ -6730,6 +7735,23 @@ export default function DesignEditor() {
 
   const handleScreenElementSelect = useCallback(
     (screenId: string, info: ElementInfo) => {
+      const pendingLayerId = pendingOverviewLayerSelectionRef.current;
+      const pendingScreenId = pendingOverviewScreenSelectionRef.current;
+      const createdSelection = createdOverviewLayerSelection;
+      if (createdSelection?.screenId === screenId) {
+        return;
+      }
+      if (
+        (pendingLayerId || createdSelection?.layerId) &&
+        (!pendingScreenId || pendingScreenId === screenId) &&
+        isScreenRootElementInfo(info)
+      ) {
+        return;
+      }
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       const projection = getCodeLayerProjectionForScreen(screenId);
       const canonical = projection
         ? canonicalizeElementInfoFromProjection(projection, info)
@@ -6737,6 +7759,14 @@ export default function DesignEditor() {
       const node = projection
         ? resolveCodeLayerNodeFromElementInfo(projection, canonical)
         : null;
+      if (
+        shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId) &&
+        (isScreenRootElementInfo(canonical) ||
+          !node ||
+          selectedLayerIdsState.includes(node.id))
+      ) {
+        return;
+      }
       setActiveFileId(screenId);
       setSelectedElement(canonical);
       setHoveredElement(null);
@@ -6749,21 +7779,49 @@ export default function DesignEditor() {
       setMode("edit");
       focusDesignInspectorForSelection();
     },
-    [focusDesignInspectorForSelection, getCodeLayerProjectionForScreen],
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      createdOverviewLayerSelection,
+      focusDesignInspectorForSelection,
+      getCodeLayerProjectionForScreen,
+      selectedLayerIdsState,
+    ],
   );
 
-  const handleScreenElementClear = useCallback((screenId: string) => {
-    setActiveFileId(screenId);
-    setSelectedElement(null);
-    setHoveredElement(null);
-    setHoveredElementScreenId(null);
-    setSelectedLayerIdsState([]);
-    if (viewModeRef.current === "overview") {
-      setOverviewSelectedScreenIds([]);
-    }
-    setActiveTool("move");
-    setMode("edit");
-  }, []);
+  const handleScreenElementClear = useCallback(
+    (screenId: string) => {
+      const pendingLayerId = pendingOverviewLayerSelectionRef.current;
+      const pendingScreenId = pendingOverviewScreenSelectionRef.current;
+      const createdSelection = createdOverviewLayerSelection;
+      if (createdSelection?.screenId === screenId) {
+        return;
+      }
+      if (
+        (pendingLayerId || createdSelection?.layerId) &&
+        (!pendingScreenId || pendingScreenId === screenId)
+      ) {
+        return;
+      }
+      if (shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId)) {
+        return;
+      }
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
+      setActiveFileId(screenId);
+      setSelectedElement(null);
+      setHoveredElement(null);
+      setHoveredElementScreenId(null);
+      setSelectedLayerIdsState([]);
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds([]);
+      }
+      setActiveTool("move");
+      setMode("edit");
+    },
+    [clearPendingOverviewLayerSelectionTimer, createdOverviewLayerSelection],
+  );
 
   const handleElementSelect = useCallback(
     (info: ElementInfo) => {
@@ -6791,6 +7849,10 @@ export default function DesignEditor() {
 
   const handleScreenElementDblClickText = useCallback(
     (screenId: string, info: ElementInfo) => {
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       const projection = getCodeLayerProjectionForScreen(screenId);
       const canonical = projection
         ? canonicalizeElementInfoFromProjection(projection, info)
@@ -6809,7 +7871,12 @@ export default function DesignEditor() {
       setMode("edit");
       focusDesignInspectorForSelection();
     },
-    [focusDesignInspectorForSelection, getCodeLayerProjectionForScreen],
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      createdOverviewLayerSelection,
+      focusDesignInspectorForSelection,
+      getCodeLayerProjectionForScreen,
+    ],
   );
 
   const handleElementDblClickText = useCallback(
@@ -7014,7 +8081,9 @@ export default function DesignEditor() {
         createdAt: Date.now(),
       });
       const sendStyleChange = (window as any).__designCanvasSendStyle;
-      if (!options.runtimeApplied && typeof sendStyleChange === "function") {
+      const runtimeStyleApplied =
+        !options.runtimeApplied && typeof sendStyleChange === "function";
+      if (runtimeStyleApplied) {
         const selectorCandidates = targetNode
           ? codeLayerSelectorAliases(targetNode)
           : selector
@@ -7165,6 +8234,12 @@ export default function DesignEditor() {
       queueFileContentSave(activeFile.id, resolvedNextContent, {
         syncCollab: !(ydoc && isSynced),
       });
+      if (
+        !runtimeStyleApplied &&
+        !replacePreviewContent(resolvedNextContent, selector)
+      ) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
       if (resolvedNode) setSelectedLayerIdsState([resolvedNode.id]);
       setSelectedElement((prev) => {
         if (options.elementInfo) return options.elementInfo;
@@ -7192,6 +8267,7 @@ export default function DesignEditor() {
       activeBreakpointWidthState,
       canEditDesign,
       queueFileContentSave,
+      replacePreviewContent,
       selectedElement,
       t,
       ydoc,
@@ -7655,6 +8731,28 @@ export default function DesignEditor() {
         return false;
       }
       applyFileContentUpdate(screenId, patch.content, { skipPreview: true });
+      const movedNode =
+        (patch.result.after?.nodeId
+          ? patch.projection.nodes.find(
+              (node) => node.id === patch.result.after?.nodeId,
+            )
+          : null) ??
+        resolveCodeLayerNodeFromBridge(
+          patch.projection,
+          selector,
+          details?.sourceId ??
+            elementInfo?.sourceId ??
+            (targetNode
+              ? bridgeSourceIdForCodeLayerNode(targetNode)
+              : undefined),
+        );
+      if (movedNode) {
+        setActiveFileId(screenId);
+        setSelectedLayerIdsState([movedNode.id]);
+        setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
+      } else {
+        setSelectedElement(null);
+      }
       return true;
     },
     [
@@ -8389,12 +9487,14 @@ export default function DesignEditor() {
    *
    * The bridge in the source screen's iframe posts phase:"end" with the
    * selector / sourceNodeId of the dragged element.  MultiScreenCanvas maps
-   * the board point to a target screen and calls this handler.  We resolve
-   * both screens' content, identify the node by its data-agent-native-node-id
-   * (falling back to a projection lookup by selector when only the selector is
-   * available), call moveNodeBetweenDocuments to move it into the target
-   * screen's <body>, persist both files, switch the active screen to the
-   * target, and select the moved node — keeping viewMode "overview" throughout.
+   * the board point to a target screen, optionally runs a hit-test in the
+   * target iframe to resolve an anchorNodeId and placement, then calls this
+   * handler.  We resolve both screens' content, identify the node by its
+   * data-agent-native-node-id (falling back to a projection lookup by selector
+   * when only the selector is available), call moveNodeBetweenDocuments with
+   * the anchor from the hit-test (or top-level "inside" fallback), persist
+   * both files, switch the active screen to the target, and select the moved
+   * node — keeping viewMode "overview" throughout.
    */
   const handleCrossScreenElementDrop = useCallback(
     ({
@@ -8402,11 +9502,15 @@ export default function DesignEditor() {
       sourceNodeId,
       sourceScreenId,
       targetScreenId,
+      targetAnchorNodeId,
+      targetAnchorPlacement,
     }: {
       sourceSelector: string;
       sourceNodeId?: string;
       sourceScreenId: string;
       targetScreenId: string;
+      targetAnchorNodeId?: string;
+      targetAnchorPlacement?: "before" | "after" | "inside";
     }) => {
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
@@ -8436,9 +9540,16 @@ export default function DesignEditor() {
         sourceNodeId ??
         sourceSelector;
 
+      // Use hit-test anchor when the canvas supplied one; fall back to
+      // top-level body append ("inside" with no anchor = existing behaviour).
       const result = moveNodeBetweenDocuments(sourceContent, destContent, {
         nodeId: nodeAttrId,
-        placement: "inside",
+        ...(targetAnchorNodeId
+          ? {
+              anchorNodeId: targetAnchorNodeId,
+              placement: targetAnchorPlacement ?? "inside",
+            }
+          : { placement: "inside" }),
       });
       if (result.status !== "applied") {
         toast.error(
@@ -8672,11 +9783,11 @@ export default function DesignEditor() {
           // Clear stale selection if the undo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
-            return elementInfoExistsInContent(next, prev) ? prev : null;
+            return refreshElementInfoFromContent(next, prev);
           });
           setHoveredElement((prev) => {
             if (!prev) return prev;
-            return elementInfoExistsInContent(next, prev) ? prev : null;
+            return refreshElementInfoFromContent(next, prev);
           });
         }
         redoOrderRef.current = [
@@ -8686,34 +9797,49 @@ export default function DesignEditor() {
         return true;
       }
 
-      if (!activeFile) return false;
-      const entry = contentUndoStackRef.current.pop();
-      if (!entry || entry.fileId !== activeFile.id) return false;
+      const entry =
+        contentUndoStackRef.current[contentUndoStackRef.current.length - 1];
+      if (!entry) return false;
+      if (
+        entry.fileId !== activeFile?.id &&
+        !files.some((file) => file.id === entry.fileId)
+      ) {
+        return false;
+      }
+      contentUndoStackRef.current.pop();
       contentRedoStackRef.current = [
         ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         entry,
       ];
       redoOrderRef.current = [
         ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        "content",
+        "file-content",
       ];
       suppressContentHistoryRef.current = true;
       try {
-        applyLocalContentUpdate(entry.before, {
-          refreshPreview: false,
-          immediateSave: true,
-        });
+        if (entry.fileId === activeFile?.id) {
+          applyLocalContentUpdate(entry.before, {
+            refreshPreview: false,
+            immediateSave: true,
+          });
+        } else {
+          applyFileContentUpdate(entry.fileId, entry.before, {
+            refreshPreview: false,
+          });
+        }
       } finally {
         suppressContentHistoryRef.current = false;
       }
-      setSelectedElement((prev) => {
-        if (!prev) return prev;
-        return elementInfoExistsInContent(entry.before, prev) ? prev : null;
-      });
-      setHoveredElement((prev) => {
-        if (!prev) return prev;
-        return elementInfoExistsInContent(entry.before, prev) ? prev : null;
-      });
+      if (entry.fileId === activeFile?.id) {
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(entry.before, prev);
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(entry.before, prev);
+        });
+      }
       return true;
     };
     const undoGeometry = () => {
@@ -8740,7 +9866,7 @@ export default function DesignEditor() {
     const didUndo =
       preferred === "geometry"
         ? undoGeometry() || undoContent()
-        : preferred === "content"
+        : isContentUndoRedoOrderKind(preferred)
           ? undoContent() || undoGeometry()
           : undoContent() || undoGeometry();
     if (didUndo) {
@@ -8749,8 +9875,10 @@ export default function DesignEditor() {
   }, [
     ydoc,
     activeFile,
+    applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign,
+    files,
     isSynced,
     markPendingLocalFileContent,
     queueFileContentSave,
@@ -8782,11 +9910,11 @@ export default function DesignEditor() {
           // Clear stale selection if the redo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
-            return elementInfoExistsInContent(next, prev) ? prev : null;
+            return refreshElementInfoFromContent(next, prev);
           });
           setHoveredElement((prev) => {
             if (!prev) return prev;
-            return elementInfoExistsInContent(next, prev) ? prev : null;
+            return refreshElementInfoFromContent(next, prev);
           });
         }
         historyOrderRef.current = [
@@ -8796,34 +9924,49 @@ export default function DesignEditor() {
         return true;
       }
 
-      if (!activeFile) return false;
-      const entry = contentRedoStackRef.current.pop();
-      if (!entry || entry.fileId !== activeFile.id) return false;
+      const entry =
+        contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
+      if (!entry) return false;
+      if (
+        entry.fileId !== activeFile?.id &&
+        !files.some((file) => file.id === entry.fileId)
+      ) {
+        return false;
+      }
+      contentRedoStackRef.current.pop();
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         entry,
       ];
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        "content",
+        "file-content",
       ];
       suppressContentHistoryRef.current = true;
       try {
-        applyLocalContentUpdate(entry.after, {
-          refreshPreview: false,
-          immediateSave: true,
-        });
+        if (entry.fileId === activeFile?.id) {
+          applyLocalContentUpdate(entry.after, {
+            refreshPreview: false,
+            immediateSave: true,
+          });
+        } else {
+          applyFileContentUpdate(entry.fileId, entry.after, {
+            refreshPreview: false,
+          });
+        }
       } finally {
         suppressContentHistoryRef.current = false;
       }
-      setSelectedElement((prev) => {
-        if (!prev) return prev;
-        return elementInfoExistsInContent(entry.after, prev) ? prev : null;
-      });
-      setHoveredElement((prev) => {
-        if (!prev) return prev;
-        return elementInfoExistsInContent(entry.after, prev) ? prev : null;
-      });
+      if (entry.fileId === activeFile?.id) {
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(entry.after, prev);
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return refreshElementInfoFromContent(entry.after, prev);
+        });
+      }
       return true;
     };
     const redoGeometry = () => {
@@ -8850,7 +9993,7 @@ export default function DesignEditor() {
     const didRedo =
       preferred === "geometry"
         ? redoGeometry() || redoContent()
-        : preferred === "content"
+        : isContentUndoRedoOrderKind(preferred)
           ? redoContent() || redoGeometry()
           : redoContent() || redoGeometry();
     if (didRedo) {
@@ -8859,8 +10002,10 @@ export default function DesignEditor() {
   }, [
     ydoc,
     activeFile,
+    applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign,
+    files,
     isSynced,
     markPendingLocalFileContent,
     queueFileContentSave,
@@ -8935,6 +10080,10 @@ export default function DesignEditor() {
   const enterOverviewFromZoom = useCallback(() => {
     if (viewModeRef.current === "overview") return;
     viewModeRef.current = "overview";
+    pendingOverviewScreenSelectionRef.current = null;
+    pendingOverviewLayerSelectionRef.current = null;
+    clearPendingOverviewLayerSelectionTimer();
+    setCreatedOverviewLayerSelection(null);
     runEditorViewTransition(() => {
       setDrawMode(false);
       setPinMode(false);
@@ -8944,7 +10093,7 @@ export default function DesignEditor() {
       setActiveTool("move");
       setViewMode("overview");
     });
-  }, [runEditorViewTransition]);
+  }, [clearPendingOverviewLayerSelectionTimer, runEditorViewTransition]);
 
   const enterSingleScreen = useCallback(
     (fileId?: string | null) => {
@@ -8958,6 +10107,10 @@ export default function DesignEditor() {
         return;
       }
       viewModeRef.current = "single";
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       runEditorViewTransition(() => {
         if (fileId) setActiveFileId(fileId);
         setDrawMode(false);
@@ -8970,7 +10123,11 @@ export default function DesignEditor() {
         setViewMode("single");
       });
     },
-    [activeFileId, runEditorViewTransition],
+    [
+      activeFileId,
+      clearPendingOverviewLayerSelectionTimer,
+      runEditorViewTransition,
+    ],
   );
 
   useEffect(() => {
@@ -9041,14 +10198,22 @@ export default function DesignEditor() {
 
   const handleSidebarScreenSelect = useCallback(
     (screenId: string) => {
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       setOverviewSelectedScreenIds([]);
       setSelectedLayerIdsState([]);
       enterSingleScreen(screenId);
     },
-    [enterSingleScreen],
+    [clearPendingOverviewLayerSelectionTimer, enterSingleScreen],
   );
 
   const handleSidebarScreenOverview = useCallback(() => {
+    pendingOverviewScreenSelectionRef.current = null;
+    pendingOverviewLayerSelectionRef.current = null;
+    clearPendingOverviewLayerSelectionTimer();
+    setCreatedOverviewLayerSelection(null);
     setOverviewSelectedScreenIds([]);
     setSelectedLayerIdsState([]);
     if (viewModeRef.current === "overview") {
@@ -9061,7 +10226,7 @@ export default function DesignEditor() {
       return;
     }
     enterOverviewFromZoom();
-  }, [enterOverviewFromZoom]);
+  }, [clearPendingOverviewLayerSelectionTimer, enterOverviewFromZoom]);
 
   const handlePinToolToggle = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
@@ -9876,11 +11041,11 @@ ${serializedHtml}
         ? "Preparing agent prompt..."
         : codingHandoffPreviewFallback);
   const shareExportTab = (
-    <div className="space-y-5">
-      <div className="text-sm font-semibold text-muted-foreground">
+    <div className="space-y-3">
+      <div className="text-[11px] font-semibold uppercase text-muted-foreground">
         {"Format" /* i18n-ignore share export section label */}
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
         {shareExportOptions.map((option) => {
           const selected = option.value === shareExportFormat;
           const ExportIcon = option.Icon;
@@ -9890,45 +11055,47 @@ ${serializedHtml}
               type="button"
               onClick={() => setShareExportFormat(option.value)}
               className={cn(
-                "relative min-h-32 rounded-xl border bg-background p-4 text-left transition-colors hover:bg-accent/35",
+                "relative flex min-h-[76px] items-start gap-2.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-2.5 text-left transition-colors hover:bg-[var(--design-editor-panel-raised-bg)]",
                 selected
-                  ? "border-primary bg-primary/5 ring-1 ring-primary"
-                  : "border-border",
+                  ? "bg-[var(--design-editor-panel-raised-bg)] ring-1 ring-[var(--design-editor-accent-color)]"
+                  : "",
               )}
             >
-              <span className="mb-5 inline-flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                <ExportIcon className="size-5" strokeWidth={1.75} />
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--design-editor-panel-raised-bg)] text-muted-foreground">
+                <ExportIcon className="size-3.5" strokeWidth={1.75} />
               </span>
-              <span className="block text-base font-semibold text-foreground">
-                {option.title}{" "}
-                <span className="text-sm font-medium text-muted-foreground">
-                  {option.extension}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-semibold text-foreground">
+                  {option.title}{" "}
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    {option.extension}
+                  </span>
                 </span>
-              </span>
-              <span className="mt-1 block text-sm leading-5 text-muted-foreground">
-                {option.description}
+                <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                  {option.description}
+                </span>
               </span>
               <span
                 aria-hidden
                 className={cn(
-                  "absolute right-4 top-4 inline-flex size-6 items-center justify-center rounded-full border",
+                  "absolute right-2.5 top-2.5 inline-flex size-4 items-center justify-center rounded-full border",
                   selected
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-background",
+                    ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)] text-[var(--design-editor-accent-contrast-color)]"
+                    : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)]",
                 )}
               >
-                {selected ? <IconCheck className="size-4" /> : null}
+                {selected ? <IconCheck className="size-3" /> : null}
               </span>
             </button>
           );
         })}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
         <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">
+          <div className="text-[12px] font-medium text-foreground">
             {selectedShareExportOption.title}
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div className="text-[11px] text-muted-foreground">
             {selectedShareExportOption.description}
           </div>
         </div>
@@ -9936,34 +11103,34 @@ ${serializedHtml}
           type="button"
           onClick={selectedShareExportOption.onDownload}
           disabled={selectedShareExportOption.disabled}
-          className="h-10 gap-2 rounded-lg px-4"
+          className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
         >
-          <IconDownload className="size-4" />
+          <IconDownload className="size-3.5" />
           {"Download" /* i18n-ignore share export action */}
         </Button>
       </div>
     </div>
   );
   const shareSendToTab = (
-    <div className="space-y-5">
-      <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950 shadow-sm">
-        <div className="flex h-11 items-center border-b border-neutral-800 px-4">
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-md border border-neutral-800 bg-neutral-950 shadow-sm">
+        <div className="flex h-8 items-center border-b border-neutral-800 px-3">
           <div className="flex items-center gap-2">
-            <span className="size-3 rounded-full bg-red-500" />
-            <span className="size-3 rounded-full bg-yellow-400" />
-            <span className="size-3 rounded-full bg-green-500" />
+            <span className="size-2.5 rounded-full bg-red-500" />
+            <span className="size-2.5 rounded-full bg-yellow-400" />
+            <span className="size-2.5 rounded-full bg-green-500" />
           </div>
-          <div className="min-w-0 flex-1 truncate text-center text-sm font-medium text-neutral-400">
+          <div className="min-w-0 flex-1 truncate text-center text-[12px] font-medium text-neutral-400">
             {"Your agent" /* i18n-ignore terminal title */}
           </div>
-          <IconTerminal2 className="size-4 text-neutral-500" />
+          <IconTerminal2 className="size-3.5 text-neutral-500" />
         </div>
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words px-5 py-4 font-mono text-sm leading-6 text-neutral-100">
+        <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words px-3 py-3 font-mono text-[12px] leading-5 text-neutral-100">
           {`> ${codingHandoffPreviewText}`}
         </pre>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           onClick={handleSendToPrimaryAction}
@@ -9972,12 +11139,12 @@ ${serializedHtml}
               ? !activeFile || codingHandoffLoading
               : codingHandoffLoading
           }
-          className="h-10 gap-2 rounded-lg px-4"
+          className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
         >
           {downloadZipInstead ? (
-            <IconArchive className="size-4" />
+            <IconArchive className="size-3.5" />
           ) : (
-            <IconClipboard className="size-4" />
+            <IconClipboard className="size-3.5" />
           )}
           {
             downloadZipInstead
@@ -9987,20 +11154,20 @@ ${serializedHtml}
         </Button>
       </div>
 
-      <div className="space-y-4">
-        <div className="flex items-start gap-3">
+      <div className="space-y-3">
+        <div className="flex items-start gap-2.5">
           <Checkbox
             checked={downloadZipInstead}
             onCheckedChange={(checked) =>
               setDownloadZipInstead(checked === true)
             }
-            className="mt-1"
+            className="mt-0.5"
           />
           <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">
+            <div className="text-[12px] font-medium text-foreground">
               {"Download zip instead" /* i18n-ignore share send option */}
             </div>
-            <div className="mt-0.5 text-sm leading-5 text-muted-foreground">
+            <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
               {
                 "For agents without the Design connector, drop the bundle into your agent's chat manually." /* i18n-ignore share send option description */
               }
@@ -10008,8 +11175,8 @@ ${serializedHtml}
           </div>
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">
+        <div className="space-y-1.5">
+          <label className="text-[12px] font-medium text-foreground">
             {
               "Give the agent more detail on what to implement" /* i18n-ignore share send detail label */
             }{" "}
@@ -10021,12 +11188,17 @@ ${serializedHtml}
             value={codingHandoffDetail}
             onChange={(event) => setCodingHandoffDetail(event.target.value)}
             placeholder={activeFile?.filename ?? "Add implementation notes..."}
-            className="min-h-24 resize-none rounded-lg bg-background"
+            className="min-h-20 resize-none rounded-md bg-[var(--design-editor-control-bg)] text-[12px]"
           />
         </div>
       </div>
     </div>
   );
+  const designSharePopoverClassName =
+    "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
+    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-0.5 [&_[role=tablist]]:rounded-none [&_[role=tablist]]:bg-transparent [&_[role=tablist]]:p-0 " +
+    "[&_[role=tab]]:!h-6 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-2 [&_[role=tab]]:text-[11px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
+    "[&_[role=tab]:hover]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab]:hover]:text-foreground [&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:ring-0";
   const designShareTabs = {
     shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
@@ -10137,6 +11309,23 @@ ${serializedHtml}
     return state;
   }, [codeLayerModelsByFile, hiddenLayerIds, lockedLayerIds]);
   useEffect(() => {
+    shouldPreserveBlockedOverviewLayerSelectionRef.current = (
+      screenId: string,
+    ) => {
+      if (viewModeRef.current !== "overview") return false;
+      return selectedLayerIdsState.some((layerId) => {
+        const owner = codeLayerOwnerByNodeId.get(layerId);
+        if (!owner || owner.fileId !== screenId) return false;
+        return (
+          effectiveCodeLayerState.lockedIds.has(screenId) ||
+          effectiveCodeLayerState.hiddenIds.has(screenId) ||
+          effectiveCodeLayerState.lockedIds.has(layerId) ||
+          effectiveCodeLayerState.hiddenIds.has(layerId)
+        );
+      });
+    };
+  }, [codeLayerOwnerByNodeId, effectiveCodeLayerState, selectedLayerIdsState]);
+  useEffect(() => {
     const fileIds = new Set(files.map((file) => file.id));
     const allCodeLayerNodes = codeLayerModelsByFile.flatMap(
       (model) => model.projection.nodes,
@@ -10241,25 +11430,9 @@ ${serializedHtml}
 
   const layerPanelFiles = useMemo<LayersPanelFile[]>(
     () =>
-      files.map((file) => ({
-        id: file.id,
-        name: prettyScreenName(file.filename),
-        filename: file.filename,
-        fileType: file.fileType,
-        detail: file.filename,
-        locked: lockedLayerIds.has(file.id),
-        hidden: hiddenLayerIds.has(file.id),
-        lockable: true,
-        hideable: true,
-        renamable: true,
-      })),
-    [files, hiddenLayerIds, lockedLayerIds],
-  );
-  const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(
-    () =>
-      files.map((file) => {
-        const model = codeLayerModelByFileId.get(file.id);
-        return {
+      files
+        .filter((file) => !isBoardFile(file.filename))
+        .map((file) => ({
           id: file.id,
           name: prettyScreenName(file.filename),
           filename: file.filename,
@@ -10270,15 +11443,53 @@ ${serializedHtml}
           lockable: true,
           hideable: true,
           renamable: true,
-          layers: codeLayerTreeToPanelNodes(
-            model?.tree ?? [],
-            lockedLayerIds,
-            hiddenLayerIds,
-          ),
-        };
-      }),
+        })),
+    [files, hiddenLayerIds, lockedLayerIds],
+  );
+  const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(
+    () =>
+      files
+        .filter((file) => !isBoardFile(file.filename))
+        .map((file) => {
+          const model = codeLayerModelByFileId.get(file.id);
+          return {
+            id: file.id,
+            name: prettyScreenName(file.filename),
+            filename: file.filename,
+            fileType: file.fileType,
+            detail: file.filename,
+            locked: lockedLayerIds.has(file.id),
+            hidden: hiddenLayerIds.has(file.id),
+            lockable: true,
+            hideable: true,
+            renamable: true,
+            layers: codeLayerTreeToPanelNodes(
+              model?.tree ?? [],
+              lockedLayerIds,
+              hiddenLayerIds,
+            ),
+          };
+        }),
     [codeLayerModelByFileId, files, hiddenLayerIds, lockedLayerIds],
   );
+
+  // Board objects shown as top-level peer rows in the layers panel, right
+  // alongside the screen frames. Derived from the same code-layer model that
+  // feeds codeLayerOwnerByNodeId so a layer-row click resolves to the board
+  // file (sets it active + selects the element). buildCodeLayerProjection was
+  // the wrong source here: it produced different node ids that the owner map
+  // could not route, and returned no roots for the migrated board fragments.
+  const boardElements = useMemo<LayersPanelNode[] | undefined>(() => {
+    if (!boardFileId) return undefined;
+    const model = codeLayerModelByFileId.get(boardFileId);
+    if (!model?.tree?.length) return undefined;
+    const nodes = codeLayerTreeToPanelNodes(
+      model.tree,
+      lockedLayerIds,
+      hiddenLayerIds,
+    );
+    return nodes.length > 0 ? nodes : undefined;
+  }, [boardFileId, codeLayerModelByFileId, lockedLayerIds, hiddenLayerIds]);
 
   const activeLayerPanelNodes = useMemo<LayersPanelNode[]>(
     () => activeCodeLayerPanelNodes,
@@ -10293,6 +11504,18 @@ ${serializedHtml}
       ).map((node) => node.id),
     );
     const fileIds = new Set(files.map((file) => file.id));
+    const pendingOverviewScreenId = pendingOverviewScreenSelectionRef.current;
+    const pendingOverviewLayerId = pendingOverviewLayerSelectionRef.current;
+    if (pendingOverviewScreenId) {
+      validIds.add(pendingOverviewScreenId);
+      fileIds.add(pendingOverviewScreenId);
+    }
+    if (pendingOverviewLayerId) {
+      validIds.add(pendingOverviewLayerId);
+    }
+    if (createdOverviewLayerSelection) {
+      validIds.add(createdOverviewLayerSelection.layerId);
+    }
     if (selectedElementLayerId) validIds.add(selectedElementLayerId);
     files.forEach((file) => validIds.add(file.id));
     const selectedStateIds = selectedLayerIdsState.filter((layerId) =>
@@ -10305,11 +11528,13 @@ ${serializedHtml}
       viewMode === "overview" &&
       selectedStateIds.some((layerId) => fileIds.has(layerId));
     const baseSelection =
-      viewMode === "overview" && !hasOverviewCodeLayerSelection
-        ? overviewSelectedScreenIds.length > 0 || !hasOverviewFileSelection
-          ? overviewSelectedScreenIds
-          : selectedLayerIdsState
-        : selectedLayerIdsState;
+      viewMode === "overview" && createdOverviewLayerSelection
+        ? [createdOverviewLayerSelection.layerId]
+        : viewMode === "overview" && !hasOverviewCodeLayerSelection
+          ? overviewSelectedScreenIds.length > 0 || !hasOverviewFileSelection
+            ? overviewSelectedScreenIds
+            : selectedLayerIdsState
+          : selectedLayerIdsState;
     const filtered = baseSelection.filter((layerId) => validIds.has(layerId));
     if (selectedElementLayerId && !filtered.includes(selectedElementLayerId)) {
       if (filtered.length > 1) return [...filtered, selectedElementLayerId];
@@ -10319,6 +11544,7 @@ ${serializedHtml}
   }, [
     activeCodeLayerProjection.nodes,
     codeLayerModelsByFile,
+    createdOverviewLayerSelection,
     files,
     overviewSelectedScreenIds,
     selectedElementLayerId,
@@ -10330,6 +11556,59 @@ ${serializedHtml}
   useLayoutEffect(() => {
     selectedLayerIdsRef.current = selectedLayerIds;
   }, [selectedLayerIds]);
+
+  const layerPanelSelectedIds = useMemo(
+    () =>
+      viewMode === "overview" && createdOverviewLayerSelection
+        ? [createdOverviewLayerSelection.layerId]
+        : selectedLayerIds,
+    [createdOverviewLayerSelection, selectedLayerIds, viewMode],
+  );
+
+  const layerPanelExpandedIds = useMemo(() => {
+    if (viewMode !== "overview" || !createdOverviewLayerSelection) {
+      return expandedLayerIds;
+    }
+    const next = new Set(expandedLayerIds);
+    next.add(createdOverviewLayerSelection.screenId);
+    return Array.from(next);
+  }, [createdOverviewLayerSelection, expandedLayerIds, viewMode]);
+
+  useEffect(() => {
+    const pendingLayerId = pendingOverviewLayerSelectionRef.current;
+    if (!pendingLayerId) return;
+    if (!selectedLayerIdsState.includes(pendingLayerId)) {
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      return;
+    }
+    const owner = codeLayerOwnerByNodeId.get(pendingLayerId);
+    if (!owner) return;
+    schedulePendingOverviewLayerSelectionClear(pendingLayerId);
+    setActiveFileId(owner.fileId);
+    setSelectedElement(elementInfoFromCodeLayerNode(owner.node));
+    setExpandedLayerIds((current) => {
+      const next = new Set(current);
+      next.add(owner.fileId);
+      collectCodeLayerAncestors(owner.tree, pendingLayerId).forEach((id) =>
+        next.add(id),
+      );
+      return next.size === current.length ? current : Array.from(next);
+    });
+  }, [
+    clearPendingOverviewLayerSelectionTimer,
+    codeLayerOwnerByNodeId,
+    schedulePendingOverviewLayerSelectionClear,
+    selectedLayerIdsState,
+  ]);
+
+  useEffect(() => {
+    const pendingScreenId = pendingOverviewScreenSelectionRef.current;
+    if (!pendingScreenId) return;
+    if (files.some((file) => file.id === pendingScreenId)) {
+      pendingOverviewScreenSelectionRef.current = null;
+    }
+  }, [files]);
 
   useEffect(() => {
     setSelectedLayerIdsState((current) => {
@@ -10357,6 +11636,25 @@ ${serializedHtml}
       return next.size === current.length ? current : Array.from(next);
     });
   }, [activeCodeLayerTree, codeLayerOwnerByNodeId, selectedElementLayerId]);
+
+  useEffect(() => {
+    const selectedCodeLayerIds = selectedLayerIds.filter((layerId) =>
+      codeLayerOwnerByNodeId.has(layerId),
+    );
+    if (selectedCodeLayerIds.length === 0) return;
+    setExpandedLayerIds((current) => {
+      const next = new Set(current);
+      selectedCodeLayerIds.forEach((layerId) => {
+        const owner = codeLayerOwnerByNodeId.get(layerId);
+        if (!owner) return;
+        next.add(owner.fileId);
+        collectCodeLayerAncestors(owner.tree, layerId).forEach((ancestorId) =>
+          next.add(ancestorId),
+        );
+      });
+      return next.size === current.length ? current : Array.from(next);
+    });
+  }, [codeLayerOwnerByNodeId, selectedLayerIds]);
 
   useEffect(() => {
     if (!selectedElementLayerId) return;
@@ -10451,6 +11749,8 @@ ${serializedHtml}
     return defaultMatch?.id ?? "auto";
   }, [activeBreakpointWidthState, statesPanelBreakpoints]);
 
+  const publishDesignTitle = design?.title?.trim() || "Untitled design";
+
   const handleOpenDesignPreview = useCallback(() => {
     if (activeScreenPreviewUrl) {
       window.open(activeScreenPreviewUrl, "_blank", "noopener,noreferrer");
@@ -10466,6 +11766,53 @@ ${serializedHtml}
     window.open(blobUrl, "_blank", "noopener,noreferrer");
     window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   }, [activeContent, activeScreenPreviewUrl]);
+
+  const handleJoinPublishWaitlist = useCallback(async () => {
+    if (!isSignedIn) {
+      handleSignInToSave();
+      return;
+    }
+
+    setJoiningPublishWaitlist(true);
+    setPublishWaitlistError(null);
+
+    try {
+      const res = await fetch(
+        new URL(
+          agentNativePath("/_agent-native/builder/branch-waitlist"),
+          window.location.origin,
+        ).href,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pageUrl: window.location.href,
+            prompt: `Publish design "${publishDesignTitle}" as an app.`,
+            source: "design_editor_publish_app_menu",
+            useCase: "design_publish_app",
+          }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `Request failed (${res.status})`,
+        );
+      }
+
+      setPublishWaitlistJoined(true);
+    } catch (err) {
+      setPublishWaitlistError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't join the waitlist. Please try again.",
+      );
+    } finally {
+      setJoiningPublishWaitlist(false);
+    }
+  }, [handleSignInToSave, isSignedIn, publishDesignTitle]);
 
   const activeLayerId =
     selectedLayerIds[selectedLayerIds.length - 1] ??
@@ -10500,6 +11847,198 @@ ${serializedHtml}
         source: activeOverviewScreen?.source,
       })
     : undefined;
+  // Connection id for the active localhost screen — needed to mint write grants.
+  const activeLocalhostConnectionId = activeScreenIsLocalSource
+    ? ((activeOverviewScreen as { connectionId?: string } | undefined)
+        ?.connectionId ?? "")
+    : "";
+
+  /**
+   * Request consent to write a local file for the active localhost screen.
+   * If no valid grant exists, opens the consent dialog; once granted the
+   * caller should proceed to call write-local-file via the action surface.
+   *
+   * Only works when the active screen is localhost-backed and the current user
+   * has editor access. For non-localhost screens use the normal Ask-AI path.
+   *
+   * The files parameter is for display in the consent dialog only; the actual
+   * write must be performed by the caller via the write-local-file action.
+   */
+  const requestLocalhostWrite = useCallback(
+    (opts: {
+      files: string[];
+      onGranted: LocalhostWriteConsentPayload["onGranted"];
+      onCancel?: () => void;
+    }) => {
+      if (!id || !canEditDesign || !activeLocalhostConnectionId) return;
+
+      const rootPath =
+        activeScreenRouteSourceFile ?? activeLocalhostConnectionId;
+
+      setLocalhostConsentConnectionId(activeLocalhostConnectionId);
+      setLocalhostWriteConsentPayload({
+        rootPath,
+        files: opts.files,
+        onGranted: opts.onGranted,
+        onCancel: opts.onCancel ?? (() => {}),
+      });
+      setLocalhostWriteConsentOpen(true);
+    },
+    [
+      activeLocalhostConnectionId,
+      activeScreenRouteSourceFile,
+      canEditDesign,
+      id,
+    ],
+  );
+  // requestLocalhostWrite is consumed via the component instance or by
+  // connected inspector components; not all render paths call it directly.
+  void requestLocalhostWrite;
+
+  /**
+   * Derive a relative file path from the active localhost screen.
+   * Prefers `sourceFile` (the build-output relative path recorded at connect
+   * time) over the URL pathname so the path maps to the actual file on disk.
+   * Returns undefined when no usable path can be determined.
+   */
+  const activeLocalhostRelPath = useMemo<string | undefined>(() => {
+    if (!activeScreenIsLocalSource) return undefined;
+    // Prefer the explicit sourceFile (e.g. "src/index.html").
+    const sf = activeScreenRouteSourceFile;
+    if (sf?.trim()) return sf.trim();
+    // Fall back to URL pathname (e.g. "/page.html" → "page.html").
+    const url = activeOverviewScreen?.url;
+    if (!url) return undefined;
+    try {
+      const pathname = new URL(url).pathname.replace(/^\//, "");
+      return pathname || undefined;
+    } catch {
+      return undefined;
+    }
+  }, [
+    activeScreenIsLocalSource,
+    activeScreenRouteSourceFile,
+    activeOverviewScreen?.url,
+  ]);
+
+  /** True when the active localhost screen maps to an HTML/CSS file we can write. */
+  const activeLocalhostRouteIsWritable =
+    activeScreenIsLocalSource &&
+    Boolean(activeLocalhostRelPath) &&
+    LOCALHOST_WRITE_EXTENSIONS.has(
+      (activeLocalhostRelPath?.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "",
+    );
+
+  /**
+   * Strip editor-only node-id attributes from HTML source so they are not
+   * written back to the user's local file.
+   *
+   * Kept attributes (intentional user content):
+   *   - data-agent-native-layer-name  (human-readable display name)
+   *   - data-screen="…"               (prototype navigation)
+   *   - any other data-* not listed below
+   *
+   * Stripped attributes (editor plumbing only):
+   *   - data-agent-native-node-id     (stable selection id stamped by the editor)
+   *   - data-code-layer-id            (alternative layer id for localhost components)
+   */
+  function stripEditorOnlyAttributes(html: string): string {
+    if (typeof window === "undefined") return html;
+    try {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const STRIP_ATTRS = [
+        "data-agent-native-node-id",
+        "data-code-layer-id",
+      ] as const;
+      for (const attr of STRIP_ATTRS) {
+        doc.querySelectorAll(`[${attr}]`).forEach((el) => {
+          el.removeAttribute(attr);
+        });
+      }
+      // Serialise back.  Use outerHTML of <html> to preserve doctype-less
+      // fragments; for full documents prefer innerHTML wrapping.
+      const doctype = doc.doctype
+        ? new XMLSerializer().serializeToString(doc.doctype) + "\n"
+        : "";
+      const htmlEl = doc.documentElement;
+      return doctype + htmlEl.outerHTML;
+    } catch {
+      // If DOMParser fails (e.g. malformed HTML) fall back to the raw content.
+      return html;
+    }
+  }
+
+  /**
+   * "Apply to source" — write the current editor content back to the local
+   * file via the bridge. Opens the consent dialog if no grant exists yet, then
+   * calls write-local-file with a clean version of the editor content (editor-
+   * only attribute stamps stripped).
+   *
+   * Only operates on HTML/CSS routes (gated by activeLocalhostRouteIsWritable).
+   * For non-HTML routes (React/JSX/TS), keep routing to the agent chat instead.
+   */
+  const handleApplyToSource = useCallback(() => {
+    if (
+      !id ||
+      !canEditDesign ||
+      !activeLocalhostConnectionId ||
+      !activeLocalhostRelPath
+    )
+      return;
+    const relPath = activeLocalhostRelPath;
+    const connectionId = activeLocalhostConnectionId;
+    // Snapshot current editor content at call time.
+    const rawContent = latestActiveContentRef.current;
+    if (!rawContent) {
+      toast.error(NO_LOCALHOST_WRITE_CONTENT_MESSAGE);
+      return;
+    }
+    // Strip editor-only attributes before writing so the on-disk file stays
+    // clean.  Only strip for HTML routes; CSS files have no DOM attributes.
+    const ext = (relPath.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "";
+    const content =
+      ext === ".html" || ext === ".htm"
+        ? stripEditorOnlyAttributes(rawContent)
+        : rawContent;
+
+    requestLocalhostWrite({
+      files: [relPath],
+      onGranted: ({ bridgeToken, rootPath: grantedRootPath, grantId }) => {
+        void (async () => {
+          setApplyToSourcePending(true);
+          try {
+            await callAction("write-local-file", {
+              designId: id,
+              connectionId,
+              relPath,
+              content,
+            });
+            toast.success(
+              `Written to ${relPath} (grant ${grantId.slice(0, 6)}…, root ${grantedRootPath})`,
+            );
+          } catch (err) {
+            toast.error(
+              `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          } finally {
+            setApplyToSourcePending(false);
+          }
+          // Suppress unused-var warning; bridgeToken is checked by the bridge
+          // internally via the X-Bridge-Token header (set in write-local-file).
+          void bridgeToken;
+        })();
+      },
+      onCancel: () => {
+        setApplyToSourcePending(false);
+      },
+    });
+  }, [
+    id,
+    canEditDesign,
+    activeLocalhostConnectionId,
+    activeLocalhostRelPath,
+    requestLocalhostWrite,
+  ]);
 
   // canGroup: 2+ DOM-node layers selected in the active screen (not file rows).
   const fileIdSet = new Set(files.map((f) => f.id));
@@ -10644,7 +12183,11 @@ ${serializedHtml}
       // Group by source file so multiple nodes from the same source are
       // applied sequentially against the running source content.
       const sourceContentMap = new Map<string, string>();
-      for (const { draggedId, sourceFileId } of crossFileDrags) {
+      const movedNodeIdByDraggedId = new Map<string, string>();
+      for (const { draggedId, sourceFileId } of getLayerMoveIterationOrder(
+        crossFileDrags,
+        intent.placement,
+      )) {
         const srcFile = files.find((f) => f.id === sourceFileId);
         if (!srcFile) continue;
         const currentSourceContent = getLayerMoveSourceContent({
@@ -10687,6 +12230,7 @@ ${serializedHtml}
         }
         sourceContentMap.set(sourceFileId, result.sourceHtml);
         nextDestContent = result.destHtml;
+        movedNodeIdByDraggedId.set(draggedId, result.movedNodeId ?? nodeAttrId);
         moved = true;
       }
 
@@ -10700,12 +12244,16 @@ ${serializedHtml}
         ? buildCodeLayerTree(finalDestProjection)
         : [];
       const movedNodesAfterMove = movedIdOrder
-        .map((draggedId) => movedNodeSnapshots.get(draggedId))
-        .map((node) =>
-          node && finalDestProjection
-            ? findCodeLayerNodeInProjection(finalDestProjection, node)
-            : null,
-        )
+        .map((draggedId) => {
+          const node = movedNodeSnapshots.get(draggedId);
+          return node && finalDestProjection
+            ? findMovedCodeLayerNodeInProjection(
+                finalDestProjection,
+                node,
+                movedNodeIdByDraggedId.get(draggedId),
+              )
+            : null;
+        })
         .filter((node): node is CodeLayerNode => Boolean(node));
 
       if (movedNodesAfterMove.length > 0) {
@@ -10777,6 +12325,10 @@ ${serializedHtml}
       },
     ) => {
       const nextLayerIds = ids.filter((layerId) => !layerId.startsWith("__"));
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
       if (intent.additive && !intent.range) {
         const currentLayerIds = (
           intent.currentSelectedIds && intent.currentSelectedIds.length > 0
@@ -10793,14 +12345,7 @@ ${serializedHtml}
             fileIds,
             layerIds: additiveLayerIds,
           });
-          const toggledScreen =
-            getOverviewScreenIdsFromLayerSelection({
-              fileIds,
-              layerIds: [intent.id],
-            }).length > 0;
-          if (toggledScreen || selectedScreenIds.length > 0) {
-            setOverviewSelectedScreenIds(selectedScreenIds);
-          }
+          setOverviewSelectedScreenIds(selectedScreenIds);
         }
         setSelectedElement(null);
         focusDesignInspectorForSelection();
@@ -10816,11 +12361,16 @@ ${serializedHtml}
       }
       const codeLayerOwner = codeLayerOwnerByNodeId.get(selectedId);
       if (codeLayerOwner) {
+        if (viewModeRef.current === "overview") {
+          pendingOverviewScreenSelectionRef.current = codeLayerOwner.fileId;
+          pendingOverviewLayerSelectionRef.current = selectedId;
+        }
         if (codeLayerOwner.fileId !== activeFile?.id) {
           setActiveFileId(codeLayerOwner.fileId);
         }
         const nextSelectionState = getSidebarCodeLayerSelectionState({
           currentViewMode: viewModeRef.current,
+          ownerFileId: codeLayerOwner.fileId,
           overviewSelectedScreenIds,
         });
         viewModeRef.current = nextSelectionState.viewMode;
@@ -10865,6 +12415,7 @@ ${serializedHtml}
     },
     [
       activeFile?.id,
+      clearPendingOverviewLayerSelectionTimer,
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
@@ -11071,6 +12622,51 @@ ${serializedHtml}
 
   const zoomLabel = `${Math.round(zoom)}%`;
 
+  const handleTokensApplied = useCallback(
+    (resolvedCssVars: Record<string, string>) => {
+      if (!canEditDesign || !id) return;
+      setTweakSelections((prev) => ({
+        ...prev,
+        ...resolvedCssVars,
+      }));
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        let currentData: Record<string, unknown> = {};
+        if (typeof old.data === "string" && old.data) {
+          try {
+            const parsed = JSON.parse(old.data);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              !Array.isArray(parsed)
+            ) {
+              currentData = parsed;
+            }
+          } catch {
+            currentData = {};
+          }
+        }
+        const currentSelections =
+          currentData.tweakSelections &&
+          typeof currentData.tweakSelections === "object" &&
+          !Array.isArray(currentData.tweakSelections)
+            ? currentData.tweakSelections
+            : {};
+        return {
+          ...old,
+          data: JSON.stringify({
+            ...currentData,
+            tweakSelections: {
+              ...currentSelections,
+              ...resolvedCssVars,
+            },
+          }),
+        };
+      });
+    },
+    [canEditDesign, id, queryClient],
+  );
+
   // Hooks must not be called conditionally; keep navigate as an effect so the
   // render phase stays pure. This branch is unreachable in practice because the
   // design.$id.tsx route always supplies an id param.
@@ -11135,7 +12731,7 @@ ${serializedHtml}
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 shrink-0 cursor-pointer gap-0.5 rounded-md px-0 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="ml-1 h-8 shrink-0 cursor-pointer gap-0.5 rounded-md px-0 text-muted-foreground hover:bg-accent hover:text-foreground"
               aria-label={t("designEditor.devicePreview")}
             >
               {deviceFrameIcon}
@@ -11177,10 +12773,10 @@ ${serializedHtml}
         <Button
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[calc(var(--spacing)*6.4)]"
+          className="size-8 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[calc(var(--spacing)*5.5)]"
           aria-label={t("designEditor.more")}
         >
-          <AgentNativeMenuMark className="size-[calc(var(--spacing)*6.4)] text-foreground dark:text-white" />
+          <AgentNativeMenuMark className="size-[calc(var(--spacing)*5.5)] text-foreground dark:text-white" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -11455,43 +13051,124 @@ ${serializedHtml}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 cursor-pointer rounded-md text-foreground hover:bg-accent hover:text-foreground"
-                onClick={handleOpenDesignPreview}
-                disabled={!activeScreenPreviewUrl && !activeContent.trim()}
-                aria-label={t("designEditor.designPreview")}
-              >
-                <IconPlayerPlay className="size-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("designEditor.designPreview")}</TooltipContent>
-          </Tooltip>
-
-          {/* §6.6 — "Make this a real app" shortcut button (signed-in only).
-              Surfaces the migration CTA without requiring the project menu. */}
-          {isSignedIn && (
+          <Popover
+            open={publishWaitlistPopoverOpen}
+            onOpenChange={(open) => {
+              setPublishWaitlistPopoverOpen(open);
+              setPublishWaitlistPopoverView("actions");
+              if (open) {
+                setPublishWaitlistError(null);
+              }
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                  onClick={handleOpenMakeReal}
-                  disabled={migrateMutation.isPending}
-                  aria-label={"Make this a real app" /* i18n-ignore */}
-                >
-                  <IconRocket className="size-4" />
-                </Button>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 cursor-pointer gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-foreground"
+                    aria-label={"Preview or publish app" /* i18n-ignore */}
+                  >
+                    <IconPlayerPlay className="size-5" />
+                    <IconChevronDown className="size-3 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
               </TooltipTrigger>
               <TooltipContent>
-                {"Make this a real app" /* i18n-ignore */}
+                {"Preview or publish app" /* i18n-ignore */}
               </TooltipContent>
             </Tooltip>
-          )}
+            <PopoverContent
+              align="end"
+              sideOffset={8}
+              className="z-[100010] w-72 space-y-3 p-3"
+            >
+              {publishWaitlistPopoverView === "actions" ? (
+                <div className="space-y-1">
+                  <Button
+                    variant="ghost"
+                    className="h-9 w-full justify-start gap-2 px-2 text-sm"
+                    onClick={() => {
+                      handleOpenDesignPreview();
+                      setPublishWaitlistPopoverOpen(false);
+                    }}
+                    disabled={!activeScreenPreviewUrl && !activeContent.trim()}
+                  >
+                    <IconPlayerPlay className="size-4" />
+                    {t("designEditor.designPreview")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="h-9 w-full justify-start gap-2 px-2 text-sm"
+                    onClick={() => setPublishWaitlistPopoverView("waitlist")}
+                  >
+                    <IconArrowUpRight className="size-4" />
+                    {"Publish app" /* i18n-ignore */}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {
+                        publishWaitlistJoined
+                          ? "You're on the waitlist" /* i18n-ignore */
+                          : "Publish app" /* i18n-ignore */
+                      }
+                    </p>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {
+                        publishWaitlistJoined
+                          ? "We'll follow up when app publishing is ready for your workspace." /* i18n-ignore */
+                          : isSignedIn
+                            ? "Publish directly from Design is opening soon. Want early access?" /* i18n-ignore */
+                            : "Publish directly from Design is opening soon. Sign in to join the waitlist." /* i18n-ignore */
+                      }
+                    </p>
+                  </div>
+                  {publishWaitlistError ? (
+                    <p role="alert" className="text-xs text-destructive">
+                      {publishWaitlistError}
+                    </p>
+                  ) : null}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 cursor-pointer"
+                      onClick={() => setPublishWaitlistPopoverOpen(false)}
+                    >
+                      {
+                        publishWaitlistJoined
+                          ? "Done" /* i18n-ignore */
+                          : "Not now" /* i18n-ignore */
+                      }
+                    </Button>
+                    {!publishWaitlistJoined && (
+                      <Button
+                        size="sm"
+                        className="h-8 cursor-pointer"
+                        onClick={() => void handleJoinPublishWaitlist()}
+                        disabled={joiningPublishWaitlist}
+                      >
+                        {joiningPublishWaitlist ? (
+                          <>
+                            <Spinner className="mr-1.5 size-3.5" />
+                            {"Joining" /* i18n-ignore */}
+                          </>
+                        ) : isSignedIn ? (
+                          "Add me to waitlist" /* i18n-ignore */
+                        ) : (
+                          "Sign in to join" /* i18n-ignore */
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </PopoverContent>
+          </Popover>
 
           {isSignedIn ? (
             <ShareButton
@@ -11504,18 +13181,42 @@ ${serializedHtml}
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
               shareTabs={designShareTabs}
-              popoverClassName="z-[100010] w-[min(860px,92vw)] p-6"
+              popoverClassName={designSharePopoverClassName}
               triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
             />
           ) : (
             signedOutPersistenceActions
           )}
-
-          {isSignedIn && <AgentToggleButton />}
         </div>
       </div>
     </div>
   );
+
+  const leftContentWidth = Math.max(leftSidebarWidth, 320);
+  const motionDockLauncherHidden = motionDockMounted || motionDockOpen;
+  const motionDockLauncher =
+    !embedded && activeFile ? (
+      <div
+        aria-hidden={motionDockLauncherHidden ? true : undefined}
+        className={cn(
+          "overflow-hidden border-t border-[var(--design-editor-panel-divider-color)] transition-[max-height,opacity,border-color] duration-200 ease-out",
+          motionDockLauncherHidden
+            ? "max-h-0 border-transparent opacity-0"
+            : "max-h-9 opacity-100",
+        )}
+      >
+        <button
+          type="button"
+          aria-label={"Expand motion dock" /* i18n-ignore */}
+          className="flex h-8 w-full cursor-pointer items-center gap-2 bg-[var(--design-editor-panel-bg)] px-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
+          disabled={motionDockLauncherHidden}
+          onClick={() => setMotionDockOpenAnimated(true)}
+        >
+          <IconChevronRight className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">Motion</span>
+        </button>
+      </div>
+    ) : null;
 
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
@@ -11904,14 +13605,12 @@ ${serializedHtml}
                   "designEditor.shareEditorLinkDescription",
                 )}
                 shareTabs={designShareTabs}
-                popoverClassName="z-[100010] w-[min(860px,92vw)] p-6"
+                popoverClassName={designSharePopoverClassName}
                 triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
               />
             ) : !embedded ? (
               signedOutPersistenceActions
             ) : null}
-
-            {!embedded && isSignedIn && <AgentToggleButton />}
           </div>
         </div>
       </header>
@@ -11919,42 +13618,130 @@ ${serializedHtml}
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
         {!embedded ? (
-          <div
-            className="relative flex min-h-0 shrink-0 flex-col border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]"
-            style={{ width: leftSidebarWidth }}
-          >
-            <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-2">
-              {projectMenu}
-              {projectTitleControl}
-            </div>
-            <div className="min-h-0 flex-1">
-              <LayersPanel
-                screens={layerPanelFiles}
-                activeScreenId={activeFileId ?? undefined}
-                screenOverviewActive={viewMode === "overview"}
-                files={
-                  viewMode === "overview" ? overviewLayerPanelFiles : undefined
-                }
-                layers={
-                  viewMode === "overview" ? undefined : activeLayerPanelNodes
-                }
-                selectedIds={selectedLayerIds}
-                expandedIds={expandedLayerIds}
-                searchQuery={layersSearchQuery}
-                onScreenSelect={handleSidebarScreenSelect}
-                onScreenOverview={handleSidebarScreenOverview}
-                onAddScreen={handleAddScreen}
-                onSearchQueryChange={setLayersSearchQuery}
-                onExpandedIdsChange={setExpandedLayerIds}
-                onSelectionChange={handleLayerSelectionChange}
-                onRename={handleLayerRename}
-                onToggleLocked={handleToggleLayerLocked}
-                onToggleHidden={handleToggleLayerHidden}
-                onHoverLayer={handleLayerHover}
-                onLeaveLayer={handleLayerLeave}
-                onMoveLayer={handleLayerMove}
-                canMoveLayer={canMoveLayer}
-              />
+          <div className="relative flex min-h-0 shrink-0 border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]">
+            <DesignWorkspaceRail
+              activePanel={activeLeftPanel}
+              projectMenu={projectMenu}
+              onPanelChange={setActiveLeftPanel}
+            />
+            <div
+              className="flex min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out"
+              style={{ width: leftContentWidth }}
+            >
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "file" ? "flex" : "hidden",
+                )}
+              >
+                <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
+                  {projectTitleControl}
+                </div>
+                <div className="min-h-0 flex-1">
+                  <LayersPanel
+                    screens={layerPanelFiles}
+                    activeScreenId={activeFileId ?? undefined}
+                    screenOverviewActive={viewMode === "overview"}
+                    files={
+                      viewMode === "overview"
+                        ? overviewLayerPanelFiles
+                        : undefined
+                    }
+                    layers={
+                      viewMode === "overview"
+                        ? undefined
+                        : activeLayerPanelNodes
+                    }
+                    selectedIds={layerPanelSelectedIds}
+                    expandedIds={layerPanelExpandedIds}
+                    searchQuery={layersSearchQuery}
+                    footer={motionDockLauncher}
+                    onScreenSelect={handleSidebarScreenSelect}
+                    onScreenOverview={handleSidebarScreenOverview}
+                    onAddScreen={handleAddScreen}
+                    onSearchQueryChange={setLayersSearchQuery}
+                    onExpandedIdsChange={setExpandedLayerIds}
+                    onSelectionChange={handleLayerSelectionChange}
+                    onRename={handleLayerRename}
+                    onToggleLocked={handleToggleLayerLocked}
+                    onToggleHidden={handleToggleLayerHidden}
+                    onHoverLayer={handleLayerHover}
+                    onLeaveLayer={handleLayerLeave}
+                    onMoveLayer={handleLayerMove}
+                    canMoveLayer={canMoveLayer}
+                    boardElements={
+                      viewMode === "overview" ? boardElements : undefined
+                    }
+                  />
+                </div>
+              </div>
+              <div
+                data-design-agent-panel
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "agent" ? "flex" : "hidden",
+                )}
+              >
+                <AgentChatSurface
+                  mode="panel"
+                  className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
+                  emptyStateText={t("chat.emptyState")}
+                  suggestions={[
+                    t("chat.suggestionLandingPage"),
+                    t("chat.suggestionBrandMatch"),
+                    t("chat.suggestionMobile"),
+                  ]}
+                  scope={designChatScope}
+                  browserTabId={browserTabId}
+                />
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "assets" ? "flex" : "hidden",
+                )}
+              >
+                <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+                  <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                    {t("designEditor.leftRail.assets")}
+                  </h3>
+                </div>
+                <AssetLibraryPanel context={designExtensionContext} />
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "tools" ? "flex" : "hidden",
+                )}
+              >
+                <DesignExtensionsPanel
+                  context={designExtensionContext}
+                  hideAssetLibrary
+                  title={t("designEditor.leftRail.tools")}
+                />
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "tokens" ? "flex" : "hidden",
+                )}
+              >
+                {id ? (
+                  <>
+                    <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+                      <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                        {t("designEditor.tokens.title")}
+                      </h3>
+                    </div>
+                    <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                      <TokensPanel
+                        designId={id}
+                        onTokensApplied={handleTokensApplied}
+                      />
+                    </div>
+                  </>
+                ) : null}
+              </div>
             </div>
             <div
               role="separator"
@@ -12092,9 +13879,34 @@ ${serializedHtml}
                       onDismiss={() => setLocalSourceBannerDismissed(true)}
                     />
                   )}
+                {/* "Apply to source" affordance: write the current editor
+                    content back to the local HTML/CSS file via the bridge.
+                    Only shown for localhost-backed screens where the route
+                    maps to an .html/.htm/.css file and the user has editor
+                    access. Opens the consent dialog on first use. */}
+                {activeLocalhostRouteIsWritable && canEditDesign && id && (
+                  <div className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 gap-1.5 px-2 text-[11px]"
+                      disabled={applyToSourcePending}
+                      onClick={handleApplyToSource}
+                    >
+                      <IconDeviceFloppy className="size-3 shrink-0" />
+                      {applyToSourcePending
+                        ? t("designEditor.writingToSource")
+                        : activeLocalhostRelPath
+                          ? t("designEditor.applyToSourcePath", {
+                              path: activeLocalhostRelPath,
+                            })
+                          : t("designEditor.applyToSource")}
+                    </Button>
+                  </div>
+                )}
                 <div
                   ref={canvasContainerRef}
-                  className="relative mx-1 min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-canvas-bg)]"
+                  className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   onPointerMove={handleCanvasPointerMove}
                 >
                   {/* Transparent shield that blocks pointer events reaching the
@@ -12144,11 +13956,87 @@ ${serializedHtml}
                       onPrimitiveCreated={handlePrimitiveCreated}
                       onPrimitiveReparent={handleOverviewPrimitiveReparent}
                       onCrossScreenElementDrop={handleCrossScreenElementDrop}
+                      boardFileId={boardFileId}
+                      boardFileContent={boardFileContent}
+                      boardFrameGeometry={boardFrameGeometry}
+                      onBoardDrawPrimitive={
+                        canEditDesign ? handleBoardDrawPrimitive : undefined
+                      }
+                      boardEditMode={canEditDesign}
+                      onBoardElementSelect={
+                        boardFileId
+                          ? (info) =>
+                              handleScreenElementSelect(boardFileId, info)
+                          : undefined
+                      }
+                      onBoardElementHover={
+                        boardFileId
+                          ? (info) =>
+                              handleScreenElementHover(boardFileId, info)
+                          : undefined
+                      }
+                      onBoardVisualStyleChange={
+                        boardFileId
+                          ? (selector, styles, info) =>
+                              handleScreenVisualStyleChange(
+                                boardFileId,
+                                selector,
+                                styles,
+                                info,
+                              )
+                          : undefined
+                      }
+                      onBoardVisualStructureChange={
+                        boardFileId
+                          ? (
+                              selector,
+                              anchorSelector,
+                              placement,
+                              info,
+                              details,
+                            ) =>
+                              handleScreenVisualStructureChange(
+                                boardFileId,
+                                selector,
+                                anchorSelector,
+                                placement,
+                                info,
+                                details,
+                              )
+                          : undefined
+                      }
+                      onBoardVisualDuplicateChange={
+                        boardFileId
+                          ? (selector, cloneHtml, info, details) =>
+                              handleScreenVisualDuplicateChange(
+                                boardFileId,
+                                selector,
+                                cloneHtml,
+                                info,
+                                details,
+                              )
+                          : undefined
+                      }
+                      onBoardTextContentChange={
+                        boardFileId
+                          ? (selector, value, info, details) =>
+                              handleScreenTextContentChange(
+                                boardFileId,
+                                selector,
+                                value,
+                                info,
+                                details,
+                              )
+                          : undefined
+                      }
                       onCreateScreenFrame={handleCreateScreenFrame}
                       onDeleteSelection={handleDeleteOverviewSelection}
-                      onSelectionChange={setOverviewSelectedScreenIds}
+                      onSelectionChange={handleOverviewScreenSelectionChange}
                       onPick={(id) => {
                         pendingOverviewScreenSelectionRef.current = null;
+                        pendingOverviewLayerSelectionRef.current = null;
+                        clearPendingOverviewLayerSelectionTimer();
+                        setCreatedOverviewLayerSelection(null);
                         setSelectedElement(null);
                         setHoveredElement(null);
                         setSelectedLayerIdsState([id]);
@@ -12253,7 +14141,7 @@ ${serializedHtml}
                             editorChromeScaleY={overviewCanvasZoom / 100}
                             editMode={mode === "edit"}
                             interactMode={false}
-                            readOnly={!canEditDesign}
+                            readOnly={!screenIsActive || !canEditDesign}
                             scaleMode={screenIsActive && activeTool === "scale"}
                             clearSelectionRequest={
                               overviewClearSelectionRequest
@@ -12541,55 +14429,10 @@ ${serializedHtml}
                   onActiveTabChange={setActiveInspectorTab}
                   tweaks={tweaks}
                   tweakValues={tweakSelections}
-                  extensionContext={designExtensionContext}
                   readOnly={initialGenerationReadOnly}
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFile?.updatedAt ?? null}
                   onComponentPropApplied={handleComponentPropApplied}
-                  onTokensApplied={(resolvedCssVars) => {
-                    if (!canEditDesign || !id) return;
-                    setTweakSelections((prev) => ({
-                      ...prev,
-                      ...resolvedCssVars,
-                    }));
-                    queryClient.setQueryData(
-                      ["action", "get-design", { id }],
-                      (old: any) => {
-                        if (!old || typeof old !== "object") return old;
-                        let currentData: Record<string, unknown> = {};
-                        if (typeof old.data === "string" && old.data) {
-                          try {
-                            const parsed = JSON.parse(old.data);
-                            if (
-                              parsed &&
-                              typeof parsed === "object" &&
-                              !Array.isArray(parsed)
-                            ) {
-                              currentData = parsed;
-                            }
-                          } catch {
-                            currentData = {};
-                          }
-                        }
-                        const currentSelections =
-                          currentData.tweakSelections &&
-                          typeof currentData.tweakSelections === "object" &&
-                          !Array.isArray(currentData.tweakSelections)
-                            ? currentData.tweakSelections
-                            : {};
-                        return {
-                          ...old,
-                          data: JSON.stringify({
-                            ...currentData,
-                            tweakSelections: {
-                              ...currentSelections,
-                              ...resolvedCssVars,
-                            },
-                          }),
-                        };
-                      },
-                    );
-                  }}
                   onTweakChange={(tweakId, value) =>
                     setTweakSelections((prev) => {
                       if (!canEditDesign) return prev;
@@ -12671,60 +14514,21 @@ ${serializedHtml}
         ) : null}
       </div>
 
-      {/* Motion dock (§6.3) — collapsible bottom dock; visible when activeFile
-          is open and the user has opened it. Canvas remains visible above.
+      {/* Motion dock (§6.3) — bottom timeline mounted while opening, open, or
+          closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
-          canvas iframe (via canvasIframeRef); "Write to CSS" fires
-          apply-motion-edit. */}
-      {!embedded && activeFile ? (
+          canvas iframe; track/duration edits autosave through apply-motion-edit. */}
+      {!embedded && activeFile && motionDockMounted ? (
         <MotionDock
           tracks={motionTracks}
           durationMs={motionDurationMs}
           open={motionDockOpen}
-          onOpenChange={setMotionDockOpen}
-          onTracksChange={setMotionTracks}
-          onDurationChange={setMotionDurationMs}
+          onOpenChange={setMotionDockOpenAnimated}
+          onTracksChange={handleMotionTracksChange}
+          onDurationChange={handleMotionDurationChange}
           canvasIframeRef={canvasIframeRef}
           selectedTarget={motionSelectedTarget}
-          onApply={(tracks, durationMs) => {
-            if (!id) return;
-            applyMotionEditMutation.mutate(
-              {
-                designId: id,
-                fileId: activeFile.id,
-                tracks: tracks.map(({ label: _label, ...t }) => t),
-                durationMs,
-                currentContent: getFreshActiveFileContent({
-                  activeContent,
-                  latestContent: latestActiveContentRef.current,
-                  lastLocalContent: lastLocalContentRef.current,
-                }),
-                includeContent: true,
-              },
-              {
-                onSuccess: (result) => {
-                  const response = result as {
-                    fileId?: unknown;
-                    patchedContent?: unknown;
-                  };
-                  if (
-                    typeof response.fileId === "string" &&
-                    typeof response.patchedContent === "string"
-                  ) {
-                    applyFileContentUpdate(
-                      response.fileId,
-                      response.patchedContent,
-                      {
-                        refreshPreview: response.fileId === activeFile.id,
-                        persist: false,
-                      },
-                    );
-                  }
-                },
-              },
-            );
-          }}
-          applying={applyMotionEditMutation.isPending}
+          applying={motionAutosavePending}
         />
       ) : null}
 
@@ -12990,6 +14794,25 @@ ${serializedHtml}
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Localhost write-consent dialog: shown when the agent or editor wants to
+          persist an edit to a local HTML/CSS source file and no valid grant
+          exists for the active connection yet. */}
+      {id && activeLocalhostConnectionId && (
+        <LocalhostWriteConsentDialog
+          open={localhostWriteConsentOpen}
+          onOpenChange={(next) => {
+            if (!next) {
+              localhostWriteConsentPayload?.onCancel();
+              setLocalhostWriteConsentPayload(null);
+            }
+            setLocalhostWriteConsentOpen(next);
+          }}
+          designId={id}
+          connectionId={localhostConsentConnectionId}
+          payload={localhostWriteConsentPayload}
+        />
+      )}
     </div>
   );
 }

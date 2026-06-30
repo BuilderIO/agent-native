@@ -22,6 +22,7 @@ import {
   type A11yFinding,
 } from "../shared/design-review.js";
 import action from "./apply-a11y-fix.js";
+import { checkTapTargets } from "./run-design-audit.js";
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -186,6 +187,68 @@ describe("apply-a11y-fix produced content (via applyVisualEdit)", () => {
     const out = applyPlan(html, f);
     expect(out.result.status).toBe("applied");
     expect(out.content).toContain("focus-visible:ring-2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit↔fix loop: a tap-target fix must stop the finding from re-appearing
+// (regression for the "click Fix → Fixed → finding reappears on re-audit" bug)
+// ---------------------------------------------------------------------------
+
+describe("tap-target fix clears on re-audit", () => {
+  it("re-flags nothing after the inline min-size fix is applied", () => {
+    const html = `<button data-agent-native-node-id="b1" class="h-4 px-2">Go</button>`;
+
+    // 1. Audit flags the tiny tap target.
+    const before = checkTapTargets(html);
+    expect(before).toHaveLength(1);
+    expect(before[0]?.category).toBe("tap-target");
+
+    // 2. Apply the inline auto-fix the Review panel uses.
+    const plan = a11yFindingToEdit(
+      finding({
+        category: "tap-target",
+        selector: 'button[data-agent-native-node-id="b1"]',
+      }),
+    );
+    if (!plan) throw new Error("expected a fixable finding");
+    const fixed = applyVisualEdit(html, plan.edit as EditIntent, {
+      source: { kind: "inline-html" },
+    });
+    expect(fixed.content).toContain("min-h-[44px]");
+    // The original tiny class is still present — the fix only adds min-sizes.
+    expect(fixed.content).toContain("h-4");
+
+    // 3. Re-audit the fixed content: the finding must be gone (previously it
+    //    persisted because min-h-[44px] wasn't recognised as satisfying 44px).
+    expect(checkTapTargets(fixed.content)).toHaveLength(0);
+  });
+
+  it("treats equivalent ≥44px min-size declarations as satisfying the floor", () => {
+    // Arbitrary rem/em values, the Tailwind spacing scale, and full-bleed mins.
+    expect(
+      checkTapTargets(
+        `<button class="h-4 min-h-[2.75rem] min-w-[2.75rem]">a</button>`,
+      ),
+    ).toHaveLength(0);
+    expect(
+      checkTapTargets(`<a class="h-5 min-h-11 min-w-11">b</a>`),
+    ).toHaveLength(0);
+    expect(
+      checkTapTargets(`<button class="h-4 min-h-full min-w-full">c</button>`),
+    ).toHaveLength(0);
+  });
+
+  it("still flags a tiny target whose min-size is below 44px", () => {
+    // min-h-[24px] / min-h-5 (20px) must NOT silence the warning.
+    expect(
+      checkTapTargets(
+        `<button class="h-4 min-h-[24px] min-w-[24px]">x</button>`,
+      ),
+    ).toHaveLength(1);
+    expect(
+      checkTapTargets(`<a class="h-4 min-h-5 min-w-5">y</a>`),
+    ).toHaveLength(1);
   });
 });
 

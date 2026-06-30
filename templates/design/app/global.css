@@ -220,6 +220,13 @@
   box-shadow: none;
 }
 
+.agent-layout-shell .design-editor-main-surface {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
 .dark .agent-layout-shell,
 .dark .agent-sidebar-shell,
 .dark.agent-layout-shell,

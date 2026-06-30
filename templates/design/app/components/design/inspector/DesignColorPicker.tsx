@@ -139,6 +139,10 @@ export interface DesignColorPickerProps {
   onChange: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
   onImageFillChange?: (value: ImageFillValue) => void;
+  backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundRepeat?: string;
+  backgroundPosition?: string;
   label?: string;
   opacity?: number;
   onOpacityChange?: (opacity: number) => void;
@@ -684,6 +688,10 @@ export function DesignColorPicker({
   onChange,
   onPaintValueChange,
   onImageFillChange,
+  backgroundImage,
+  backgroundSize,
+  backgroundRepeat,
+  backgroundPosition,
   label: _label,
   opacity,
   onOpacityChange,
@@ -723,6 +731,27 @@ export function DesignColorPicker({
   )
     ? blendMode
     : "normal";
+  const parsedImageFill = useMemo(
+    () =>
+      backgroundImage !== undefined ||
+      backgroundSize !== undefined ||
+      backgroundRepeat !== undefined ||
+      backgroundPosition !== undefined
+        ? parseImageFillCss({
+            backgroundImage: backgroundImage ?? value,
+            backgroundSize,
+            backgroundRepeat,
+            backgroundPosition,
+          })
+        : parseImageFillCss(value),
+    [
+      backgroundImage,
+      backgroundPosition,
+      backgroundRepeat,
+      backgroundSize,
+      value,
+    ],
+  );
 
   const [mode, setMode] = useState<DesignColorMode>("hex");
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
@@ -748,10 +777,9 @@ export function DesignColorPicker({
     null,
   );
   const [selectedStopId, setSelectedStopId] = useState<string>("");
-  const [imageFill, setImageFill] = useState<ImageFillValue>({
-    url: "",
-    fit: "fill",
-  });
+  const [imageFill, setImageFill] = useState<ImageFillValue>(
+    () => parsedImageFill ?? { url: "", fit: "fill" },
+  );
   const [shaderDescriptor, setShaderDescriptor] =
     useState<ShaderDescriptor | null>(null);
 
@@ -796,16 +824,14 @@ export function DesignColorPicker({
 
   // Keep image-fill state synced when the incoming value is an image fill.
   useEffect(() => {
-    if (effectivePaintType !== "image") return;
-    const parsed = parseImageFillCss(value);
-    if (
-      parsed &&
-      (parsed.url !== imageFill.url || parsed.fit !== imageFill.fit)
-    ) {
-      setImageFill(parsed);
-    }
+    if (!parsedImageFill) return;
+    setImageFill((current) =>
+      current.url === parsedImageFill.url && current.fit === parsedImageFill.fit
+        ? current
+        : parsedImageFill,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, effectivePaintType]);
+  }, [parsedImageFill?.url, parsedImageFill?.fit]);
 
   // Ensure a selected stop id exists whenever a gradient is active.
   useEffect(() => {
@@ -987,11 +1013,14 @@ export function DesignColorPicker({
       return;
     }
     if (nextType === "image") {
-      if (onImageFillChange && imageFill.url) {
-        onImageFillChange(imageFill);
+      const nextImageFill = parsedImageFill ?? imageFill;
+      if (onImageFillChange && nextImageFill.url) {
+        onImageFillChange(nextImageFill);
         return;
       }
-      emitPaintValue(imageFill.url ? imageFillToCss(imageFill) : "transparent");
+      emitPaintValue(
+        nextImageFill.url ? imageFillToCss(nextImageFill) : "transparent",
+      );
       return;
     }
     if (nextType === "video") {

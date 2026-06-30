@@ -109,6 +109,41 @@ describe("image fill serialization", () => {
     expect(parseImageFillCss(fill)?.fit).toBe("fill");
   });
 
+  it("hydrates fit from computed-style-like longhands without a marker", () => {
+    expect(
+      parseImageFillCss({
+        backgroundImage: 'url("https://x.test/a.png")',
+        backgroundSize: "contain",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      })?.fit,
+    ).toBe("fit");
+  });
+
+  it("hydrates tile from computed-style-like longhands without a marker", () => {
+    expect(
+      parseImageFillCss({
+        backgroundImage: 'url("https://x.test/a.png")',
+        backgroundSize: "auto",
+        backgroundRepeat: "repeat",
+        backgroundPosition: "top left",
+      })?.fit,
+    ).toBe("tile");
+  });
+
+  it("hydrates tile from normalized computed background positions", () => {
+    for (const position of ["0% 0%", "left top", "0px 0px"]) {
+      expect(
+        parseImageFillCss({
+          backgroundImage: 'url("https://x.test/a.png")',
+          backgroundSize: "auto",
+          backgroundRepeat: "repeat",
+          backgroundPosition: position,
+        })?.fit,
+      ).toBe("tile");
+    }
+  });
+
   it("returns transparent for empty url", () => {
     expect(imageFillToCss({ url: "", fit: "fill" })).toBe("transparent");
   });
