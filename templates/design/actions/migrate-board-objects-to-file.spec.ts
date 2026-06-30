@@ -236,9 +236,7 @@ describe("boardObjectEntryToHtmlFragment — node id and layer attributes", () =
       createdAt: "2024-01-01T00:00:00.000Z",
     };
     const fragment = boardObjectEntryToHtmlFragment(entry);
-    expect(fragment).toContain(
-      `data-agent-native-layer-name="My Header Box"`,
-    );
+    expect(fragment).toContain(`data-agent-native-layer-name="My Header Box"`);
   });
 
   it("falls back to a kind-based default name when name is absent", () => {

@@ -1321,9 +1321,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     return handles.filter(Boolean);
   }
 
-  function buildSpacingHandles(
-    el: Element | null,
-  ): ({
+  function buildSpacingHandles(el: Element | null): ({
     key: string;
     groupKey: string;
     kind: string;
@@ -3701,6 +3699,65 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       Object.keys(e.data.payload).forEach(function (key) {
         if (e.data[key] === undefined) e.data[key] = e.data.payload[key];
       });
+    }
+    // set-read-only: toggle the bridge's readOnly state in-place without a reload.
+    // When readOnly becomes true the shield/selection/drag/edit entry points are
+    // gated so the surface is safe for background/inactive display use.
+    if (e.data.type === "set-read-only") {
+      var nextReadOnly = !!e.data.readOnly;
+      if (readOnly === nextReadOnly) return;
+      readOnly = nextReadOnly;
+      textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
+      if (readOnly) {
+        // Leave the text editor gracefully before going read-only.
+        if (activeTextEditEl) {
+          activeTextEditEl.blur();
+        }
+        clearRuntimeSelection();
+        shieldOverlay.style.pointerEvents = "none";
+      } else {
+        shieldOverlay.style.pointerEvents = "auto";
+      }
+      return;
+    }
+    // begin-text-edit: enter text-editing mode for the element identified by
+    // nodeId immediately (no double-click needed). Used after programmatic
+    // text-element creation so the user can type right away and the autosize
+    // CSS (width:max-content or similar) takes effect from the first keystroke.
+    if (e.data.type === "begin-text-edit") {
+      if (readOnly || !textEditingEnabled) return;
+      var nodeId: string =
+        typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      if (!nodeId) return;
+      var nodeTarget: Element | null = document.querySelector(
+        '[data-agent-native-node-id="' +
+          nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
+          '"]',
+      );
+      if (!nodeTarget || nodeTarget.nodeType !== 1) return;
+      // Resolve the actual editable text leaf (same logic as findTextEditTarget).
+      var textTarget: HTMLElement | null =
+        (findTextEditTarget(nodeTarget) as HTMLElement | null) ||
+        (nodeTarget as HTMLElement);
+      if (!textTarget || textTarget.nodeType !== 1) return;
+      // If we are already editing this element, do nothing.
+      if (activeTextEditEl && activeTextEditEl === textTarget) return;
+      // Synthesise coordinates at the end of the element content so the caret
+      // lands at the insertion point (right after any placeholder text).
+      var bteRect = textTarget.getBoundingClientRect();
+      var bteCenterX = bteRect.right - 2;
+      var bteCenterY = bteRect.top + bteRect.height / 2;
+      // Delegate to the canonical path so all state, events, and postMessages
+      // stay consistent with a normal double-click text edit.
+      beginTextEditingFromEvent({
+        clientX: bteCenterX,
+        clientY: bteCenterY,
+        target: textTarget,
+        preventDefault: function () {},
+        stopPropagation: function () {},
+        stopImmediatePropagation: function () {},
+      } as unknown as MouseEvent);
+      return;
     }
     if (e.data.type === "set-editor-chrome-scale") {
       // Live-update the constant-size chrome scale WITHOUT rebuilding srcdoc.

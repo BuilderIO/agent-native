@@ -12,7 +12,13 @@ import {
 } from "@/components/visual-editor";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
+import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
 import { hitTestBridgeScript } from "../../../.generated/bridge/hit-test.generated";
+import { motionPreviewBridgeScript } from "../../../.generated/bridge/motion-preview.generated";
+import { navBridgeScript } from "../../../.generated/bridge/nav.generated";
+import { shaderFillPreviewBridgeScript } from "../../../.generated/bridge/shader-fill-preview.generated";
+import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
+import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { DeviceFrame } from "./DeviceFrame";
 import type { ElementInfo, DeviceFrameType } from "./types";
@@ -72,575 +78,80 @@ export interface MotionTrackWire {
  * MotionDock's scrubbing preview works in ALL editor modes without writing
  * anything to the DB, Yjs state, or source files.
  *
- * Protocol (parent → iframe):
- *
- *   { type: 'motion-load-tracks', tracks: MotionTrackWire[] }
- *     Load (or replace) the track list for this document. Each entry:
- *     { targetNodeId, property, keyframes: [{ t, value, ease? }] }
- *     where t ∈ [0, 1].  Sent whenever the active timeline changes.
- *
- *   { type: 'motion-preview', t, durationMs }
- *     Seek all loaded tracks to normalised position t ∈ [0, 1] and apply
- *     the interpolated CSS property values as inline styles on the matching
- *     [data-agent-native-node-id="…"] elements.  Never writes to storage.
- *
- *   { type: 'motion-preview-clear' }
- *     Remove all motion-preview inline-style overrides and the in-memory
- *     track list.  Called when the dock is closed or the timeline is
- *     discarded.
- *
- * Interpolation is linear between the surrounding keyframes and understands
- * plain numbers with units, CSS function values (translateY/scale/blur/…), and
- * colors (hex / rgb(a) / hsl(a)) so presets preview smoothly instead of
- * snapping at the midpoint. CSS still owns the real easing when the compiled
- * animation is applied; the preview is a live visualisation, not a perfect
- * recreation of the final animation.
+ * Source: app/components/design/bridge/motion-preview.bridge.ts
+ * Compiled: .generated/bridge/motion-preview.generated.ts (run bridge/codegen.ts to update)
  */
 const MOTION_PREVIEW_BRIDGE_SCRIPT = `
 <script data-agent-native-motion-preview-bridge>
-(function() {
-  // Track list loaded by 'motion-load-tracks'.
-  var loadedTracks = [];
-  // Map of nodeId -> [property, ...] we have touched, for cleanup.
-  var touchedProps = {};
-  // Map of nodeId -> property -> original inline style value.
-  var originalInlineValues = {};
-
-  function camelizeProp(prop) {
-    return String(prop).replace(/-([a-z])/g, function(_m, c) { return c.toUpperCase(); });
-  }
-
-  function formatNum(n) {
-    if (!Number.isFinite(n)) return '0';
-    return (Math.round(n * 10000) / 10000).toString();
-  }
-
-  function clamp255(x) { return x < 0 ? 0 : x > 255 ? 255 : x; }
-  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
-
-  function parseAlpha(s) {
-    if (typeof s === 'string' && s.indexOf('%') >= 0) return parseFloat(s) / 100;
-    return parseFloat(s);
-  }
-
-  function hueToRgb(p, q, h) {
-    if (h < 0) h += 1;
-    if (h > 1) h -= 1;
-    if (h < 1 / 6) return p + (q - p) * 6 * h;
-    if (h < 1 / 2) return q;
-    if (h < 2 / 3) return p + (q - p) * (2 / 3 - h) * 6;
-    return p;
-  }
-
-  function hslToRgb(h, s, l) {
-    h = (((h % 360) + 360) % 360) / 360;
-    s = clamp01(s);
-    l = clamp01(l);
-    if (s === 0) return [l * 255, l * 255, l * 255];
-    var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    var p = 2 * l - q;
-    return [
-      hueToRgb(p, q, h + 1 / 3) * 255,
-      hueToRgb(p, q, h) * 255,
-      hueToRgb(p, q, h - 1 / 3) * 255
-    ];
-  }
-
-  // Parse a CSS color (hex, rgb/rgba, hsl/hsla) into [r, g, b, a] or null.
-  function parseColor(str) {
-    if (typeof str !== 'string') return null;
-    var s = str.trim();
-    var hex = /^#([0-9a-fA-F]{3,8})$/.exec(s);
-    if (hex) {
-      var h = hex[1];
-      if (h.length === 3 || h.length === 4) {
-        return [
-          parseInt(h.charAt(0) + h.charAt(0), 16),
-          parseInt(h.charAt(1) + h.charAt(1), 16),
-          parseInt(h.charAt(2) + h.charAt(2), 16),
-          h.length === 4 ? parseInt(h.charAt(3) + h.charAt(3), 16) / 255 : 1
-        ];
-      }
-      if (h.length === 6 || h.length === 8) {
-        return [
-          parseInt(h.slice(0, 2), 16),
-          parseInt(h.slice(2, 4), 16),
-          parseInt(h.slice(4, 6), 16),
-          h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1
-        ];
-      }
-      return null;
-    }
-    var rgb = /^rgba?\\(([^)]+)\\)$/i.exec(s);
-    if (rgb) {
-      var rp = rgb[1].split(/[\\s,\\/]+/).filter(function(x) { return x.length; });
-      if (rp.length >= 3) {
-        return [parseFloat(rp[0]), parseFloat(rp[1]), parseFloat(rp[2]), rp.length >= 4 ? parseAlpha(rp[3]) : 1];
-      }
-      return null;
-    }
-    var hsl = /^hsla?\\(([^)]+)\\)$/i.exec(s);
-    if (hsl) {
-      var hp = hsl[1].split(/[\\s,\\/]+/).filter(function(x) { return x.length; });
-      if (hp.length >= 3) {
-        var c = hslToRgb(parseFloat(hp[0]), parseFloat(hp[1]) / 100, parseFloat(hp[2]) / 100);
-        return [c[0], c[1], c[2], hp.length >= 4 ? parseAlpha(hp[3]) : 1];
-      }
-      return null;
-    }
-    return null;
-  }
-
-  function lerpColorArr(a, b, ratio) {
-    return [
-      a[0] + (b[0] - a[0]) * ratio,
-      a[1] + (b[1] - a[1]) * ratio,
-      a[2] + (b[2] - a[2]) * ratio,
-      a[3] + (b[3] - a[3]) * ratio
-    ];
-  }
-
-  function formatColor(c) {
-    var r = Math.round(clamp255(c[0]));
-    var g = Math.round(clamp255(c[1]));
-    var b = Math.round(clamp255(c[2]));
-    var a = clamp01(c[3]);
-    if (a >= 1) return 'rgb(' + r + ', ' + g + ', ' + b + ')';
-    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + (Math.round(a * 1000) / 1000) + ')';
-  }
-
-  // Split a value into literal + typed (number / color) segments so two values
-  // that share a skeleton (e.g. 'translateY(16px)' / 'translateY(0px)') can be
-  // interpolated component-wise instead of snapping at the midpoint.
-  function tokenizeSegments(str) {
-    if (typeof str !== 'string') return null;
-    var segs = [];
-    var i = 0;
-    var n = str.length;
-    var litStart = 0;
-    var colorRe = /^(#[0-9a-fA-F]{3,8}|rgba?\\([^)]*\\)|hsla?\\([^)]*\\))/i;
-    var numRe = /^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)/;
-    while (i < n) {
-      var rest = str.slice(i);
-      var cm = colorRe.exec(rest);
-      if (cm) {
-        var parsed = parseColor(cm[0]);
-        if (parsed) {
-          if (i > litStart) segs.push({ lit: str.slice(litStart, i) });
-          segs.push({ type: 'color', value: parsed });
-          i += cm[0].length;
-          litStart = i;
-          continue;
-        }
-      }
-      // Skip a number when the previous char is a letter — it belongs to an
-      // identifier such as translate3d / matrix3d, not a numeric argument.
-      var prevCh = i > 0 ? str.charAt(i - 1) : '';
-      if (!/[a-zA-Z]/.test(prevCh)) {
-        var nm = numRe.exec(rest);
-        if (nm) {
-          var numText = nm[0];
-          var unit = '';
-          var um = /^[a-z%]+/i.exec(str.slice(i + numText.length));
-          if (um) unit = um[0];
-          if (i > litStart) segs.push({ lit: str.slice(litStart, i) });
-          segs.push({ type: 'num', value: parseFloat(numText), unit: unit });
-          i += numText.length + unit.length;
-          litStart = i;
-          continue;
-        }
-      }
-      i++;
-    }
-    if (n > litStart) segs.push({ lit: str.slice(litStart, n) });
-    return segs;
-  }
-
-  function segShape(segs) {
-    var parts = [];
-    for (var i = 0; i < segs.length; i++) {
-      var s = segs[i];
-      parts.push(s.lit !== undefined ? ('L' + s.lit) : ('T' + s.type));
-    }
-    return parts.join('\\u0000');
-  }
-
-  // Interpolate two keyframe values. Handles plain numbers (with units), CSS
-  // function values (translate/scale/blur/…), numbers embedded in gradients,
-  // and colors (hex / rgb(a) / hsl(a)). Falls back to a midpoint snap only for
-  // genuinely non-interpolable keywords (e.g. none -> block).
-  function lerp(a, b, ratio) {
-    a = a == null ? '' : String(a);
-    b = b == null ? '' : String(b);
-    if (a === b) return a;
-    var ca = parseColor(a);
-    var cb = parseColor(b);
-    if (ca && cb) return formatColor(lerpColorArr(ca, cb, ratio));
-    var aSegs = tokenizeSegments(a);
-    var bSegs = tokenizeSegments(b);
-    if (aSegs && bSegs && aSegs.length === bSegs.length && segShape(aSegs) === segShape(bSegs)) {
-      var out = '';
-      var ok = true;
-      var touched = false;
-      for (var k = 0; k < aSegs.length; k++) {
-        var seg = aSegs[k];
-        if (seg.lit !== undefined) { out += seg.lit; continue; }
-        var other = bSegs[k];
-        if (!other || other.type !== seg.type) { ok = false; break; }
-        touched = true;
-        if (seg.type === 'color') {
-          out += formatColor(lerpColorArr(seg.value, other.value, ratio));
-        } else {
-          out += formatNum(seg.value + (other.value - seg.value) * ratio) + (seg.unit || other.unit);
-        }
-      }
-      if (ok && touched) return out;
-    }
-    // Non-interpolable (keywords, mismatched shapes): snap at the midpoint.
-    return ratio < 0.5 ? a : b;
-  }
-
-  function interpolate(keyframes, t) {
-    if (!keyframes || keyframes.length === 0) return '';
-    if (keyframes.length === 1) return keyframes[0].value;
-    // Find surrounding keyframes.
-    var prev = keyframes[0];
-    var next = keyframes[keyframes.length - 1];
-    for (var i = 0; i < keyframes.length - 1; i++) {
-      if (t >= keyframes[i].t && t <= keyframes[i + 1].t) {
-        prev = keyframes[i];
-        next = keyframes[i + 1];
-        break;
-      }
-    }
-    var span = next.t - prev.t;
-    if (span <= 0) return prev.value;
-    var ratio = Math.max(0, Math.min(1, (t - prev.t) / span));
-    return lerp(prev.value, next.value, ratio);
-  }
-
-  function applyPreview(t) {
-    for (var i = 0; i < loadedTracks.length; i++) {
-      var track = loadedTracks[i];
-      var el = document.querySelector('[data-agent-native-node-id="' + track.targetNodeId + '"]');
-      if (!el) continue;
-      var value = interpolate(track.keyframes, t);
-      if (value === '') continue;
-      // Normalize kebab properties (e.g. background-color) to the camelCase
-      // CSSOM accessor; el.style['background-color'] = … is unreliable.
-      var prop = camelizeProp(track.property);
-      if (!originalInlineValues[track.targetNodeId]) originalInlineValues[track.targetNodeId] = {};
-      if (!(prop in originalInlineValues[track.targetNodeId])) {
-        originalInlineValues[track.targetNodeId][prop] = el.style[prop] || '';
-      }
-      el.style[prop] = value;
-      if (!touchedProps[track.targetNodeId]) touchedProps[track.targetNodeId] = [];
-      if (touchedProps[track.targetNodeId].indexOf(prop) === -1) {
-        touchedProps[track.targetNodeId].push(prop);
-      }
-    }
-  }
-
-  function clearPreview() {
-    var nodeIds = Object.keys(touchedProps);
-    for (var i = 0; i < nodeIds.length; i++) {
-      var el = document.querySelector('[data-agent-native-node-id="' + nodeIds[i] + '"]');
-      if (!el) continue;
-      var props = touchedProps[nodeIds[i]];
-      for (var j = 0; j < props.length; j++) {
-        var originals = originalInlineValues[nodeIds[i]] || {};
-        el.style[props[j]] = Object.prototype.hasOwnProperty.call(originals, props[j])
-          ? originals[props[j]]
-          : '';
-      }
-    }
-    touchedProps = {};
-    originalInlineValues = {};
-    loadedTracks = [];
-  }
-
-  window.addEventListener('message', function(e) {
-    if (e.source !== window.parent) return;
-    if (!e.data || typeof e.data.type !== 'string') return;
-    if (e.data.type === 'motion-load-tracks') {
-      clearPreview();
-      loadedTracks = Array.isArray(e.data.tracks) ? e.data.tracks : [];
-      return;
-    }
-    if (e.data.type === 'motion-preview') {
-      var t = Number(e.data.t);
-      if (!Number.isFinite(t)) return;
-      t = Math.max(0, Math.min(1, t));
-      applyPreview(t);
-      return;
-    }
-    if (e.data.type === 'motion-preview-clear') {
-      clearPreview();
-      return;
-    }
-  });
-})();
+${motionPreviewBridgeScript}
 </script>
 `;
 
 /**
- * Shader-fill preview bridge.  ALWAYS injected alongside the other bridge
+ * Shader-fill preview bridge. ALWAYS injected alongside the other bridge
  * scripts so the parent can apply a CSS gradient approximation of a shader
- * fill to the currently-selected element **without** persisting anything.
+ * fill to the currently-selected element without persisting anything.
  *
- * Protocol (parent → iframe):
- *
- *   { type: 'shader-fill-preview', selector, nodeId, css }
- *     Apply `css` as the `background` inline style on the first element that
- *     matches `selector` (preferred) or `[data-agent-native-node-id="nodeId"]`.
- *     When both are absent, targets `document.body`.  Stores the previous
- *     background value so it can be restored on clear.
- *     Preview-only — never writes to DB, Yjs, or source files.
- *
- *   { type: 'shader-fill-preview-clear' }
- *     Remove the applied background override and restore the previous value.
- *     Called when the user discards the preview or switches selections.
+ * Source: app/components/design/bridge/shader-fill-preview.bridge.ts
+ * Compiled: .generated/bridge/shader-fill-preview.generated.ts (run bridge/codegen.ts to update)
  */
 const SHADER_FILL_PREVIEW_BRIDGE_SCRIPT = `
 <script data-agent-native-shader-fill-preview-bridge>
-(function() {
-  // Track the element we patched and its original background so we can undo.
-  var patchedEl = null;
-  var originalBackground = '';
-
-  function resolveTarget(selector, nodeId) {
-    if (selector) {
-      try {
-        var hit = document.querySelector(selector);
-        if (hit) return hit;
-      } catch (_err) {}
-    }
-    if (nodeId) {
-      var byId = document.querySelector('[data-agent-native-node-id="' + nodeId.replace(/"/g, '\\\\"') + '"]');
-      if (byId) return byId;
-    }
-    return document.body;
-  }
-
-  function applyPreview(selector, nodeId, css) {
-    // Clear any prior patch first so we don't stack patches.
-    clearPreview();
-    var el = resolveTarget(selector, nodeId);
-    if (!el) return;
-    originalBackground = el.style.background || '';
-    el.style.background = css || '';
-    patchedEl = el;
-  }
-
-  function clearPreview() {
-    if (!patchedEl) return;
-    patchedEl.style.background = originalBackground;
-    patchedEl = null;
-    originalBackground = '';
-  }
-
-  window.addEventListener('message', function(e) {
-    if (e.source !== window.parent) return;
-    if (!e.data || typeof e.data.type !== 'string') return;
-    if (e.data.type === 'shader-fill-preview') {
-      var selector = typeof e.data.selector === 'string' ? e.data.selector : '';
-      var nodeId = typeof e.data.nodeId === 'string' ? e.data.nodeId : '';
-      var css = typeof e.data.css === 'string' ? e.data.css : '';
-      applyPreview(selector, nodeId, css);
-      return;
-    }
-    if (e.data.type === 'shader-fill-preview-clear') {
-      clearPreview();
-      return;
-    }
-  });
-})();
+${shaderFillPreviewBridgeScript}
 </script>
 `;
 
 /**
- * Tweak-bridge script. ALWAYS injected so the parent's postMessage
- * (`tweak-values`) can update CSS custom properties on the iframe's :root
- * regardless of which editor mode is active. Without this the tweak panel
- * silently no-ops in the default Comment mode.
+ * Tweak bridge. ALWAYS injected so the parent's postMessage (`tweak-values`)
+ * can update CSS custom properties on the iframe's :root regardless of which
+ * editor mode is active.
+ *
+ * Source: app/components/design/bridge/tweak.bridge.ts
+ * Compiled: .generated/bridge/tweak.generated.ts (run bridge/codegen.ts to update)
  */
 const TWEAK_BRIDGE_SCRIPT = `
 <script data-agent-native-tweak-bridge>
-(function() {
-  window.addEventListener('message', function(e) {
-    if (e.source !== window.parent) return;
-    if (!e.data || e.data.type !== 'tweak-values') return;
-    var root = document.documentElement;
-    var vals = e.data.values || {};
-    Object.keys(vals).forEach(function(k) {
-      root.style.setProperty(k, vals[k]);
-    });
-  });
-})();
+${tweakBridgeScript}
 </script>
 `;
 
 /**
  * Pinch-zoom bridge: forwards trackpad pinch / Cmd-Ctrl+scroll wheel events
- * from inside the iframe to the parent window. Wheel events don't naturally
- * bubble out of an iframe, so without this the user can only pinch in the
- * empty area around the canvas, not over the design itself.
+ * from inside the iframe to the parent window.
+ *
+ * Source: app/components/design/bridge/zoom.bridge.ts
+ * Compiled: .generated/bridge/zoom.generated.ts (run bridge/codegen.ts to update)
  */
 const ZOOM_BRIDGE_SCRIPT = `
 <script data-agent-native-zoom-bridge>
-(function() {
-  // Attach to documentElement (not window/document) so { passive: false }
-  // is honored consistently and the browser doesn't natively pinch-zoom the
-  // iframe's own document alongside the parent's zoom.
-  var target = document.documentElement || document.body || document;
-  function onWheel(e) {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
-    try {
-      window.parent.postMessage({
-        type: 'pinch-zoom-wheel',
-        deltaY: e.deltaY,
-        clientX: e.clientX,
-        clientY: e.clientY,
-      }, '*');
-    } catch (err) {}
-  }
-  target.addEventListener('wheel', onWheel, { passive: false, capture: true });
-})();
+${zoomBridgeScript}
 </script>
 `;
 
 /**
- * Embedded overview bridge. A screen preview is a real iframe, so normal wheel
- * events never bubble to the overview canvas underneath. In embedded mode we
- * forward a bounded wheel payload to the parent so the existing canvas wheel
- * handler can pan/zoom exactly as if the pointer were over empty canvas.
+ * Embedded overview bridge. Forwards wheel events from embedded screen iframes
+ * to the parent canvas handler so pan/zoom works over design content.
+ *
+ * Source: app/components/design/bridge/embedded-wheel.bridge.ts
+ * Compiled: .generated/bridge/embedded-wheel.generated.ts (run bridge/codegen.ts to update)
  */
 const EMBEDDED_WHEEL_BRIDGE_SCRIPT = `
 <script data-agent-native-embedded-wheel-bridge>
-(function() {
-  var enabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
-  if (!enabled) return;
-  function clamp(value, limit) {
-    var number = Number(value) || 0;
-    if (number > limit) return limit;
-    if (number < -limit) return -limit;
-    return number;
-  }
-  function onWheel(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-    try {
-      window.parent.postMessage({
-        type: 'embedded-canvas-wheel',
-        deltaX: clamp(e.deltaX, 240),
-        deltaY: clamp(e.deltaY, 240),
-        deltaZ: clamp(e.deltaZ, 240),
-        deltaMode: e.deltaMode,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        ctrlKey: !!e.ctrlKey,
-        metaKey: !!e.metaKey,
-        shiftKey: !!e.shiftKey,
-        altKey: !!e.altKey,
-      }, '*');
-    } catch (err) {}
-  }
-  var target = document.documentElement || document.body || document;
-  target.addEventListener('wheel', onWheel, { passive: false, capture: true });
-})();
+${embeddedWheelBridgeScript}
 </script>
 `;
 
 /**
- * Navigation bridge. ALWAYS injected. A prototype lives in a `srcdoc` iframe,
- * so a plain `<a href="/pricing">` resolves the relative URL against the PARENT
- * app document and navigates the iframe to the Design app itself ("Design not
- * found"), nuking the prototype. We intercept link clicks + relative form
- * submits and route them to the parent instead:
- *   - in-page anchors (`#...`) and `javascript:`/`@click` handlers: left alone
- *   - external `http(s)`/`//` links: opened in a new tab by the parent
- *   - internal/relative links (or an explicit `data-screen`): asked to switch
- *     to the matching screen in a multi-screen design; otherwise a no-op so the
- *     prototype never blows itself away.
+ * Navigation bridge. ALWAYS injected. Intercepts link clicks and relative form
+ * submits inside prototype iframes so they route to the parent instead of
+ * navigating the iframe to the Design app itself.
+ *
+ * Source: app/components/design/bridge/nav.bridge.ts
+ * Compiled: .generated/bridge/nav.generated.ts (run bridge/codegen.ts to update)
  */
 const NAV_BRIDGE_SCRIPT = `
 <script data-agent-native-nav-bridge>
-(function() {
-  function classify(href) {
-    var h = (href || '').trim();
-    if (!h) return null;
-    var lower = h.toLowerCase();
-    if (lower.charAt(0) === '#') return null;
-    if (lower.indexOf('javascript:') === 0) return null;
-    if (lower.indexOf('mailto:') === 0 || lower.indexOf('tel:') === 0) {
-      return { external: true, href: h };
-    }
-    if (/^https?:\\/\\//i.test(h) || /^\\/\\//.test(h)) {
-      return { external: true, href: h };
-    }
-    var screen = h.replace(/^\\.?\\//, '').split(/[?#]/)[0];
-    return { external: false, href: h, screen: screen };
-  }
-  document.addEventListener('click', function(e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    var a = t.closest('a[href], [data-screen]');
-    if (!a) return;
-    var ds = a.getAttribute && a.getAttribute('data-screen');
-    // In-page anchors ('#...') and empty hrefs must be handled in-document.
-    // A srcdoc document resolves '#'/'' against the PARENT app URL, so the
-    // browser's default action would navigate the iframe to the app itself.
-    if (!ds) {
-      var rawHref = a.getAttribute('href');
-      if (rawHref != null) {
-        var hh = rawHref.trim();
-        if (hh === '' || hh.charAt(0) === '#') {
-          e.preventDefault();
-          var fid = hh.charAt(0) === '#' ? hh.slice(1) : '';
-          var tgt = fid ? document.getElementById(fid) : null;
-          if (tgt && tgt.scrollIntoView) {
-            tgt.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          } else {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }
-          return;
-        }
-      }
-    }
-    var info = ds
-      ? { external: false, href: ds, screen: ds.replace(/^\\.?\\//, '').split(/[?#]/)[0] }
-      : classify(a.getAttribute('href'));
-    if (!info) return;
-    if (info.external) {
-      // Open external links in a new tab from the iframe itself (the sandbox
-      // grants allow-popups), bound to this real user click. We deliberately do
-      // NOT round-trip through the parent: a parent window.open() driven by
-      // postMessage would let any script in here spawn popups without a gesture.
-      try {
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noopener noreferrer');
-      } catch (err) {}
-      return; // allow the native click to proceed
-    }
-    e.preventDefault();
-    try {
-      window.parent.postMessage({
-        type: 'prototype-navigate',
-        href: info.href,
-        screen: info.screen || '',
-      }, '*');
-    } catch (err) {}
-  }, true);
-  document.addEventListener('submit', function(e) {
-    var f = e.target;
-    if (!f || f.tagName !== 'FORM') return;
-    var action = f.getAttribute('action') || '';
-    if (/^https?:\\/\\//i.test(action)) return;
-    e.preventDefault();
-  }, true);
-})();
+${navBridgeScript}
 </script>
 `;
 
@@ -1063,21 +574,26 @@ export function DesignCanvas({
   });
 
   // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
-  // outside Edit mode. The editor chrome bridge is omitted for Interact and
-  // read-only surfaces so preview/app users can interact with the app normally.
+  // outside Edit mode. The editor chrome bridge is omitted for Interact mode
+  // so preview/app users can interact with the app normally.
+  //
+  // readOnly is intentionally NOT a dep here: the bridge is injected whenever
+  // !interactMode and the initial __READ_ONLY__ placeholder is baked from the
+  // *first* render only. After that, live readOnly changes flow through the
+  // set-read-only postMessage (see the useEffect below) so switching the active
+  // surface (board ↔ screen) never rebuilds srcdoc / reloads the iframe.
   const srcdoc = useMemo(() => {
     if (externalPreviewUrl) return undefined;
-    const editorChromeBridge =
-      interactMode || readOnly
-        ? ""
-        : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-          EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-            "__READ_ONLY__",
-            readOnly ? "true" : "false",
-          )
-            .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-            .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
-            .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
+    const editorChromeBridge = interactMode
+      ? ""
+      : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+          "__READ_ONLY__",
+          readOnly ? "true" : "false",
+        )
+          .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+          .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
+          .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
     const embeddedWheelBridge = EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
       isEmbeddedFrame ? "true" : "false",
@@ -1102,13 +618,13 @@ export function DesignCanvas({
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
     // which reloads the iframe and flashes the screen content white.
+    // readOnly is intentionally NOT a dep: live changes flow through set-read-only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     editMode,
     externalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
-    readOnly,
     renderedContent,
   ]);
 
@@ -1547,6 +1063,44 @@ export function DesignCanvas({
     );
   }, [editorChromeScaleX, editorChromeScaleY]);
 
+  // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
+  // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.
+  // The initial baked __READ_ONLY__ placeholder covers first paint; subsequent
+  // changes arrive here. Also re-send on iframe load so the bridge is in sync
+  // after any content-key-driven reload.
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendReadOnly() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-read-only", readOnly: readOnlyRef.current },
+        "*",
+      );
+    }
+    sendReadOnly();
+    iframe.addEventListener("load", sendReadOnly);
+    return () => iframe.removeEventListener("load", sendReadOnly);
+    // Only re-run when readOnly changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly]);
+
+  /**
+   * Trigger immediate text-editing mode for a specific node inside the iframe,
+   * identified by its data-agent-native-node-id value.  Call this after
+   * programmatically creating a TEXT primitive so the user can type right away
+   * without a second click.
+   *
+   * Posts { type: 'begin-text-edit', nodeId } to the iframe bridge.
+   * The bridge enters the same contenteditable text-editing path used on dblclick.
+   */
+  const beginTextEdit = useCallback((nodeId: string) => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow || !nodeId) return;
+    iframe.contentWindow.postMessage({ type: "begin-text-edit", nodeId }, "*");
+  }, []);
+
   const sendStyleChange = useCallback(
     (
       selector: string,
@@ -1673,6 +1227,9 @@ export function DesignCanvas({
     (window as any).__designCanvasSendShaderFillPreview = sendShaderFillPreview;
     (window as any).__designCanvasClearShaderFillPreview =
       clearShaderFillPreview;
+    // Imperative text-edit entry — call after creating a TEXT primitive so the
+    // user can type immediately without a second click.
+    (window as any).__designCanvasBeginTextEdit = beginTextEdit;
     return () => {
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
@@ -1711,6 +1268,9 @@ export function DesignCanvas({
       ) {
         delete (window as any).__designCanvasClearShaderFillPreview;
       }
+      if ((window as any).__designCanvasBeginTextEdit === beginTextEdit) {
+        delete (window as any).__designCanvasBeginTextEdit;
+      }
     };
   }, [
     deleteRuntimeElement,
@@ -1721,6 +1281,7 @@ export function DesignCanvas({
     clearMotionPreview,
     sendShaderFillPreview,
     clearShaderFillPreview,
+    beginTextEdit,
   ]);
 
   // Device dimensions match real-world devices. iframes are replaced elements

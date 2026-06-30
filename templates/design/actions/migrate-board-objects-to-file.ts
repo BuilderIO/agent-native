@@ -123,17 +123,14 @@ export default defineAction({
         .join("\n");
 
       // Insert fragments before </body>.
-      boardHtml = boardHtml.replace(
-        "</body>",
-        `${fragments}\n</body>`,
-      );
+      boardHtml = boardHtml.replace("</body>", `${fragments}\n</body>`);
     }
 
     const now = new Date().toISOString();
 
     // ── 4. Upsert the board file and update designs.data atomically ───────
     // Run in a transaction so concurrent opens cannot create two board files.
-    let boardFileId: string;
+    let boardFileId = "";
 
     await db.transaction(async (tx) => {
       // Re-read designs.data inside the transaction to guard against a
@@ -222,7 +219,7 @@ export default defineAction({
     // ── 5. Seed collab state for the new board file ───────────────────────
     // (Best-effort: collab seeding after the file row is committed.)
     try {
-      await seedFromText(boardFileId!, boardHtml);
+      await seedFromText(boardFileId, boardHtml);
     } catch {
       // Non-fatal — the board file still renders from SQL content.
     }
@@ -230,7 +227,7 @@ export default defineAction({
     return {
       designId,
       migrated: true,
-      boardFileId: boardFileId!,
+      boardFileId,
       migratedObjectCount: entries.length,
       message:
         entries.length > 0

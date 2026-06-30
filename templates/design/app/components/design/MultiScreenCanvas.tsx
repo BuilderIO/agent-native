@@ -1,6 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import type { BoardObjectEntry } from "@shared/board-objects";
-import { isBoardFile } from "@shared/board-file";
 import {
   DEFAULT_ASSIGNED_REGION_GAP,
   DEFAULT_ASSIGNED_REGION_HEIGHT,
@@ -55,7 +53,11 @@ import {
   LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT,
   appendHitTestResponder,
 } from "./DesignCanvas";
-import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "./types";
+import {
+  DEVICE_FRAME_VIEWPORTS,
+  type DeviceFrameType,
+  type ElementInfo,
+} from "./types";
 
 // Re-export so consumers of MultiScreenCanvas can use the same script without
 // importing DesignCanvas directly.
@@ -256,6 +258,71 @@ interface MultiScreenCanvasProps {
    * Replaces the legacy onCreateBoardObject.
    */
   onBoardDrawPrimitive?: (primitive: CanvasPrimitiveInsert) => void;
+  // ── Board edit callbacks (active-target model) ───────────────────────────
+  /**
+   * When true the board <DesignCanvas> is in edit mode.
+   * Pass `canEditDesign` from DesignEditor. Defaults to false.
+   */
+  boardEditMode?: boolean;
+  /**
+   * Called when the user selects an element on the board surface.
+   * DesignEditor should set boardFileId as the active file and push the
+   * selection to the inspector.
+   */
+  onBoardElementSelect?: (info: ElementInfo) => void;
+  /**
+   * Called when the user hovers an element on the board surface.
+   */
+  onBoardElementHover?: (info: ElementInfo | null) => void;
+  /**
+   * Called when a drag / reorder / reparent / drop-into-container or delete
+   * occurs on a board element.  Target file is boardFileId.
+   */
+  onBoardVisualStructureChange?: (
+    selector: string,
+    anchorSelector: string,
+    placement: "before" | "after" | "inside",
+    info?: ElementInfo,
+    details?: {
+      sourceId?: string;
+      anchorSourceId?: string;
+      requestId?: string;
+    },
+  ) => boolean | void;
+  /**
+   * Called when a style property changes on a board element.
+   * Target file is boardFileId.
+   */
+  onBoardVisualStyleChange?: (
+    selector: string,
+    styles: Record<string, string>,
+    info?: ElementInfo,
+  ) => void;
+  /**
+   * Called when an alt-drag clone is created on the board surface.
+   * Target file is boardFileId.
+   */
+  onBoardVisualDuplicateChange?: (
+    selector: string,
+    cloneHtml: string,
+    info?: ElementInfo,
+    details?: {
+      sourceId?: string;
+      anchorSelector?: string;
+      anchorSourceId?: string;
+      placement?: "before" | "after" | "inside";
+    },
+  ) => boolean | void;
+  /**
+   * Called when inline text is edited on a board element.
+   * Target file is boardFileId.
+   */
+  onBoardTextContentChange?: (
+    selector: string,
+    value: string,
+    info?: ElementInfo,
+    details?: { html?: string },
+  ) => void;
 }
 
 /**
@@ -602,6 +669,13 @@ export function MultiScreenCanvas({
   boardFileContent,
   boardFrameGeometry,
   onBoardDrawPrimitive,
+  boardEditMode = false,
+  onBoardElementSelect,
+  onBoardElementHover,
+  onBoardVisualStructureChange,
+  onBoardVisualStyleChange,
+  onBoardVisualDuplicateChange,
+  onBoardTextContentChange,
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -923,7 +997,6 @@ export function MultiScreenCanvas({
     handledClearSelectionRequestRef.current = clearSelectionRequest;
     updateSelectedDraftIds(() => []);
     updateSelectedIds(() => []);
-    setSelectedBoardObjectIds(new Set());
     setMarquee(null);
     setAlignmentGuides([]);
     setTransformBadge(null);
@@ -1143,20 +1216,31 @@ export function MultiScreenCanvas({
         // Board math mirrors primitiveLocalToBoardRect:
         //   boardX = frame.x + iframeX * (frame.width / metadata.width)
         //   boardY = frame.y + iframeY * (frame.height / metadata.height)
-        const sourceScreen = screensRef.current.find(
-          (s) => s.id === sourceScreenId,
-        );
-        const sourceGeometry = frameGeometryRef.current[sourceScreenId];
-        if (!sourceScreen || !sourceGeometry) {
-          clearCrossScreenDrag();
-          return;
+
+        let boardX: number;
+        let boardY: number;
+
+        if (sourceScreenId === boardFileId && boardFrameGeometry) {
+          // The board iframe is pixel-exact: 1 iframe pixel == 1 canvas unit.
+          // iframeX/iframeY are already in canvas space (no scale needed).
+          boardX = boardFrameGeometry.x + iframeX;
+          boardY = boardFrameGeometry.y + iframeY;
+        } else {
+          const sourceScreen = screensRef.current.find(
+            (s) => s.id === sourceScreenId,
+          );
+          const sourceGeometry = frameGeometryRef.current[sourceScreenId];
+          if (!sourceScreen || !sourceGeometry) {
+            clearCrossScreenDrag();
+            return;
+          }
+          const sourceMetadata = getResolvedMetadata(sourceScreen);
+          const scaleX = sourceGeometry.width / Math.max(1, sourceMetadata.width);
+          const scaleY =
+            sourceGeometry.height / Math.max(1, sourceMetadata.height);
+          boardX = sourceGeometry.x + iframeX * scaleX;
+          boardY = sourceGeometry.y + iframeY * scaleY;
         }
-        const sourceMetadata = getResolvedMetadata(sourceScreen);
-        const scaleX = sourceGeometry.width / Math.max(1, sourceMetadata.width);
-        const scaleY =
-          sourceGeometry.height / Math.max(1, sourceMetadata.height);
-        const boardX = sourceGeometry.x + iframeX * scaleX;
-        const boardY = sourceGeometry.y + iframeY * scaleY;
         const boardPoint = { x: boardX, y: boardY };
 
         // Remember the latest board-space position for use in the "end" handler.
@@ -1283,6 +1367,8 @@ export function MultiScreenCanvas({
     };
   }, [
     activeId,
+    boardFileId,
+    boardFrameGeometry,
     getFrameEntryAtPoint,
     getResolvedMetadata,
     onCrossScreenElementDrop,
@@ -1712,15 +1798,23 @@ export function MultiScreenCanvas({
       const targetFrame = getTargetFrameForDraft(draft, preferredFrameId);
 
       // When the draft center is outside ALL frames (and screens.length > 1),
-      // getTargetFrameForDraft returns undefined.  Route to onCreateBoardObject.
+      // getTargetFrameForDraft returns undefined.  Route to onBoardDrawPrimitive
+      // so the board file captures the new element.
       if (!targetFrame) {
-        const handler = onCreateBoardObjectRef.current;
+        const handler = onBoardDrawPrimitiveRef.current;
         if (handler) {
-          const boardEntry = draftToBoardObjectEntry(draft);
-          handler(boardEntry);
-          // Return a synthetic PersistedDraftPrimitive so the caller can clean
-          // up the draft.  Use a sentinel frameId that callers can detect.
-          return { frameId: "__board__", nodeId: boardEntry.id };
+          // Convert the draft into a board-space CanvasPrimitiveInsert.
+          // The board uses a 1:1 coordinate mapping (no frame scaling needed).
+          const boardPrimitive = draftPrimitiveToInsert(draft, {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+          });
+          handler(boardPrimitive);
+          // Return a sentinel PersistedDraftPrimitive so the caller can remove
+          // the draft. The sentinel frameId "__board__" is detected downstream.
+          return { frameId: "__board__", nodeId: draft.id };
         }
         return null;
       }
@@ -1773,14 +1867,7 @@ export function MultiScreenCanvas({
         );
         updateSelectedDraftIds(() => []);
         updateSelectedIds(() => []);
-        if (persisted.frameId === "__board__") {
-          const nextSelection = new Set([persisted.nodeId]);
-          selectedBoardObjectIdsRef.current = nextSelection;
-          setSelectedBoardObjectIds(nextSelection);
-        } else {
-          const emptyBoardSelection = new Set<string>();
-          selectedBoardObjectIdsRef.current = emptyBoardSelection;
-          setSelectedBoardObjectIds(emptyBoardSelection);
+        if (persisted.frameId !== "__board__") {
           onPrimitiveCreated?.(persisted.frameId, persisted.nodeId);
         }
         return;
@@ -2522,7 +2609,6 @@ export function MultiScreenCanvas({
     (id: string, e: React.MouseEvent) => {
       e.stopPropagation();
       updateSelectedIds(() => []);
-      setSelectedBoardObjectIds(new Set());
       updateSelectedDraftIds((current) => {
         if (e.shiftKey) {
           return current.includes(id)
@@ -2557,7 +2643,6 @@ export function MultiScreenCanvas({
         updateSelectedIds(() => [id]);
       }
       updateSelectedDraftIds(() => []);
-      setSelectedBoardObjectIds(new Set());
 
       const entries = getCurrentFrameEntries();
       const originFrames = Object.fromEntries(
@@ -2948,7 +3033,6 @@ export function MultiScreenCanvas({
 
       if (e.shiftKey) {
         updateSelectedDraftIds(() => []);
-        setSelectedBoardObjectIds(new Set());
         const currentSelectedIds = selectedIdsRef.current;
         const nextSelectedIds = currentSelectedIds.includes(id)
           ? currentSelectedIds.filter((selectedId) => selectedId !== id)
@@ -2967,7 +3051,6 @@ export function MultiScreenCanvas({
       }
 
       updateSelectedDraftIds(() => []);
-      setSelectedBoardObjectIds(new Set());
       updateSelectedIds(() => [id]);
       onPick(id);
     },
@@ -3663,6 +3746,50 @@ export function MultiScreenCanvas({
           transformOrigin: "top left",
         }}
       >
+        {boardFileId && boardFileContent !== undefined && (
+          (() => {
+            const boardGeo = boardFrameGeometry ?? { x: 0, y: 0, width: 8192, height: 8192 };
+            // Clamp board canvas to the DesignCanvas max safe dimension.
+            const boardW = Math.min(boardGeo.width, 16384);
+            const boardH = Math.min(boardGeo.height, 16384);
+            return (
+              // Overflow-hidden wrapper so the board iframe never bleeds outside
+              // its declared logical surface. z-index 0 keeps it below screen
+              // iframes (which have their own stacking context above this).
+              <div
+                style={{
+                  position: "absolute",
+                  left: SURFACE_PADDING,
+                  top: SURFACE_PADDING,
+                  width: boardW,
+                  height: boardH,
+                  overflow: "hidden",
+                  pointerEvents: "auto",
+                  // Board sits behind all screen iframes.
+                  zIndex: 0,
+                }}
+              >
+                <DesignCanvas
+                  content={boardFileContent}
+                  contentKey={boardFileId}
+                  zoom={100}
+                  deviceFrame="none"
+                  editMode={boardEditMode}
+                  interactMode={false}
+                  registerRuntimeBridge={false}
+                  onElementSelect={onBoardElementSelect ?? (() => {})}
+                  onElementHover={onBoardElementHover ?? (() => {})}
+                  onVisualStructureChange={onBoardVisualStructureChange}
+                  onVisualStyleChange={onBoardVisualStyleChange}
+                  onVisualDuplicateChange={onBoardVisualDuplicateChange}
+                  onTextContentChange={onBoardTextContentChange}
+                  tweakValues={{}}
+                />
+              </div>
+            );
+          })()
+        )}
+
         {canvasFrames.map(({ screen, metadata, geometry }) => {
           return (
             <Screen
@@ -3720,25 +3847,6 @@ export function MultiScreenCanvas({
             onStartResize={beginDraftResize}
           />
         ))}
-
-        {boardObjects
-          ? Object.values(boardObjects).map((bo) => (
-              <BoardObjectLayer
-                key={bo.id}
-                boardObject={bo}
-                isSelected={selectedBoardObjectIds.has(bo.id)}
-                groupSelected={
-                  selectedBoardObjectIds.size > 1 &&
-                  selectedBoardObjectIds.has(bo.id)
-                }
-                chromeScale={chromeScale}
-                chromeSettling={chromeSettling}
-                onClick={handleBoardObjectClick}
-                onStartDrag={handleBoardObjectDrag}
-                onStartResize={handleBoardObjectResize}
-              />
-            ))
-          : null}
 
         {creationPreview ? (
           <DraftPrimitiveLayer
@@ -5708,25 +5816,6 @@ function createDraftId(tool: DraftCreationTool) {
     .slice(2, 8)}`;
 }
 
-/**
- * Convert a transient DraftPrimitive to a BoardObjectEntry for persistence.
- * Called when a draft is committed outside any screen frame (board surface).
- */
-function draftToBoardObjectEntry(draft: DraftPrimitive): BoardObjectEntry {
-  return {
-    id: draft.id,
-    kind: draft.kind,
-    geometry: { ...draft.geometry },
-    fill: draft.fill,
-    stroke: draft.stroke,
-    strokeWidth: draft.strokeWidth,
-    text: draft.text,
-    pathData: draft.pathData,
-    points: draft.points?.map((p) => ({ x: p.x, y: p.y })),
-    autoSize: draft.autoSize,
-    createdAt: new Date().toISOString(),
-  };
-}
 
 function cloneDraftPrimitive(draft: DraftPrimitive): DraftPrimitive {
   return {

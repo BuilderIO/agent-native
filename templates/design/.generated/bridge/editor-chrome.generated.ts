@@ -2869,6 +2869,49 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (e.data[key] === void 0) e.data[key] = e.data.payload[key];
         });
       }
+      if (e.data.type === "set-read-only") {
+        var nextReadOnly = !!e.data.readOnly;
+        if (readOnly === nextReadOnly) return;
+        readOnly = nextReadOnly;
+        textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
+        if (readOnly) {
+          if (activeTextEditEl) {
+            activeTextEditEl.blur();
+          }
+          clearRuntimeSelection();
+          shieldOverlay.style.pointerEvents = "none";
+        } else {
+          shieldOverlay.style.pointerEvents = "auto";
+        }
+        return;
+      }
+      if (e.data.type === "begin-text-edit") {
+        if (readOnly || !textEditingEnabled) return;
+        var nodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        if (!nodeId) return;
+        var nodeTarget = document.querySelector(
+          '[data-agent-native-node-id="' + nodeId.replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"') + '"]'
+        );
+        if (!nodeTarget || nodeTarget.nodeType !== 1) return;
+        var textTarget = findTextEditTarget(nodeTarget) || nodeTarget;
+        if (!textTarget || textTarget.nodeType !== 1) return;
+        if (activeTextEditEl && activeTextEditEl === textTarget) return;
+        var bteRect = textTarget.getBoundingClientRect();
+        var bteCenterX = bteRect.right - 2;
+        var bteCenterY = bteRect.top + bteRect.height / 2;
+        beginTextEditingFromEvent({
+          clientX: bteCenterX,
+          clientY: bteCenterY,
+          target: textTarget,
+          preventDefault: function() {
+          },
+          stopPropagation: function() {
+          },
+          stopImmediatePropagation: function() {
+          }
+        });
+        return;
+      }
       if (e.data.type === "set-editor-chrome-scale") {
         editorChromeScaleX = Math.max(0.05, Number(e.data.scaleX) || 1);
         editorChromeScaleY = Math.max(

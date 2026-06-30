@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -6,11 +5,13 @@ import { describe, expect, it } from "vitest";
 /**
  * These tests exercise the REAL motion-preview bridge script that
  * `DesignCanvas.tsx` injects into the design iframe. Rather than copy the
- * interpolation logic (which would drift), we read the source file, evaluate
- * the `MOTION_PREVIEW_BRIDGE_SCRIPT` template literal exactly as the runtime
- * would (no `${}` substitutions exist in it), strip the IIFE wrapper, and pull
- * out `lerp` / `interpolate` so we can assert the live-scrub preview produces
+ * interpolation logic (which would drift), we import the compiled bridge
+ * string from the generated module, strip the IIFE wrapper, and pull out
+ * `lerp` / `interpolate` so we can assert the live-scrub preview produces
  * smoothly interpolated values instead of snapping at the midpoint.
+ *
+ * Source: app/components/design/bridge/motion-preview.bridge.ts
+ * Compiled: .generated/bridge/motion-preview.generated.ts
  */
 function loadBridge(): {
   lerp: (a: string, b: string, ratio: number) => string;
@@ -20,33 +21,42 @@ function loadBridge(): {
   ) => string;
   parseColor: (value: string) => number[] | null;
 } {
-  const canvasPath = fileURLToPath(
-    new URL("./DesignCanvas.tsx", import.meta.url),
+  // Import the compiled bridge string from the generated module. Using
+  // require() so the import is synchronous and the function can be called
+  // at module evaluation time (loadBridge() is called at top level).
+  const generatedPath = fileURLToPath(
+    new URL(
+      "../../../.generated/bridge/motion-preview.generated.ts",
+      import.meta.url,
+    ),
   );
-  const source = readFileSync(canvasPath, "utf8");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { motionPreviewBridgeScript } = require(generatedPath) as {
+    motionPreviewBridgeScript: string;
+  };
 
-  const match = source.match(
-    /const MOTION_PREVIEW_BRIDGE_SCRIPT = `([\s\S]*?)`;/,
-  );
-  if (!match) throw new Error("MOTION_PREVIEW_BRIDGE_SCRIPT not found");
-
-  // Evaluate the template literal so escape sequences (\\d, \\(, \\u0000, …)
-  // collapse to exactly what the browser receives.
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const injected = new Function("return `" + match[1] + "`;")() as string;
-
-  const body = injected
-    .replace(/^[\s\S]*?<script[^>]*>/, "")
-    .replace(/<\/script>[\s\S]*$/, "")
-    .replace(/^\s*\(function\s*\(\)\s*\{/, "")
-    .replace(/\}\)\(\);\s*$/, "");
+  // The generated string is the compiled IIFE JS (no <script> tags).
+  // esbuild wraps the source IIFE in an outer arrow-IIFE:
+  //   "use strict";\n(() => {\n  // source-file-comment\n  (function() {\n    ...\n  })();\n})();\n
+  // Strip both wrappers so only the function body is left, then pull out
+  // lerp / interpolate / parseColor by appending a return statement.
+  let body = motionPreviewBridgeScript;
+  // Remove leading "use strict"; and outer (() => { ... })() opening
+  body = body.replace(/^["']use strict["'];\s*\(\(\)\s*=>\s*\{/, "");
+  // Remove outer IIFE closing
+  body = body.replace(/\}\)\(\);\s*$/, "");
+  // Remove source-location comment (// app/components/design/bridge/...)
+  body = body.replace(/^\s*\/\/[^\n]*\n/, "");
+  // Remove inner (function() { ... })() opening
+  body = body.replace(/^\s*\(function\s*\(\s*\)\s*\{/, "");
+  // Remove inner IIFE closing
+  body = body.replace(/\}\)\(\);\s*$/, "");
 
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "window",
     "document",
-    body +
-      "\n; return { lerp: lerp, interpolate: interpolate, parseColor: parseColor };",
+    body + "\n; return { lerp, interpolate, parseColor };",
   );
   return factory({ addEventListener() {} }, { querySelector: () => null });
 }

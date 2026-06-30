@@ -14,10 +14,6 @@ function safePptxName(title: string) {
   return `${safeName}.pptx`;
 }
 
-function stripDataUrlPrefix(dataUrl: string) {
-  return dataUrl.replace(/^data:/, "");
-}
-
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -30,76 +26,243 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function addRelationship(xml: string, relationship: string) {
+  if (xml.includes(relationship)) return xml;
+  return xml.replace("</Relationships>", `${relationship}</Relationships>`);
+}
+
+function addContentTypeOverride(xml: string, partName: string, type: string) {
+  if (xml.includes(`PartName="${partName}"`)) return xml;
+  return xml.replace(
+    "</Types>",
+    `<Override PartName="${partName}" ContentType="${type}"/></Types>`,
+  );
+}
+
+function nextRelationshipId(xml: string) {
+  const ids = Array.from(xml.matchAll(/\bId="rId(\d+)"/g)).map((match) =>
+    Number(match[1]),
+  );
+  return `rId${Math.max(0, ...ids) + 1}`;
+}
+
+function notesTextBody(notes: string) {
+  const lines = notes.split(/\r?\n/);
+  return lines
+    .map(
+      (line) =>
+        `<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>${escapeXml(line)}</a:t></a:r><a:endParaRPr lang="en-US" dirty="0"/></a:p>`,
+    )
+    .join("");
+}
+
+function notesSlideXml(notes: string, slideNumber: number) {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="2" name="Slide Image Placeholder 1"/><p:cNvSpPr><a:spLocks noGrp="1" noRot="1" noChangeAspect="1"/></p:cNvSpPr><p:nvPr><p:ph type="sldImg"/></p:nvPr></p:nvSpPr><p:spPr/></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Notes Placeholder 2"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>${notesTextBody(notes)}</p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="4" name="Slide Number Placeholder 3"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="sldNum" sz="quarter" idx="10"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:fld id="{F7021451-1387-4CA6-816F-3879F97B5CBC}" type="slidenum"><a:rPr lang="en-US"/><a:t>${slideNumber}</a:t></a:fld><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>`;
+}
+
+const NOTES_MASTER_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:notesMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:notesStyle><a:lvl1pPr marL="0" algn="l" defTabSz="914400" rtl="0" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"><a:defRPr sz="1200" kern="1200"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:latin typeface="+mn-lt"/><a:ea typeface="+mn-ea"/><a:cs typeface="+mn-cs"/></a:defRPr></a:lvl1pPr></p:notesStyle></p:notesMaster>`;
+
+const NOTES_MASTER_RELS_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`;
+
+export async function addSpeakerNotesToPptxBlob(
+  blob: Blob,
+  slides: PptxExportSlide[],
+): Promise<Blob> {
+  const hasNotes = slides.some((slide) => slide.notes?.trim());
+  if (!hasNotes) return blob;
+
+  const { default: JSZip } = await import("jszip");
+  const zip = await JSZip.loadAsync(blob);
+
+  const contentTypesFile = zip.file("[Content_Types].xml");
+  const presentationFile = zip.file("ppt/presentation.xml");
+  const presentationRelsFile = zip.file("ppt/_rels/presentation.xml.rels");
+
+  if (!contentTypesFile || !presentationFile || !presentationRelsFile) {
+    return blob;
+  }
+
+  let contentTypes = await contentTypesFile.async("string");
+  let presentationXml = await presentationFile.async("string");
+  let presentationRels = await presentationRelsFile.async("string");
+
+  if (!zip.file("ppt/notesMasters/notesMaster1.xml")) {
+    zip.file("ppt/notesMasters/notesMaster1.xml", NOTES_MASTER_XML);
+  }
+  if (!zip.file("ppt/notesMasters/_rels/notesMaster1.xml.rels")) {
+    zip.file(
+      "ppt/notesMasters/_rels/notesMaster1.xml.rels",
+      NOTES_MASTER_RELS_XML,
+    );
+  }
+
+  contentTypes = addContentTypeOverride(
+    contentTypes,
+    "/ppt/notesMasters/notesMaster1.xml",
+    "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml",
+  );
+
+  if (!presentationRels.includes("relationships/notesMaster")) {
+    const relId = nextRelationshipId(presentationRels);
+    presentationRels = addRelationship(
+      presentationRels,
+      `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster" Target="notesMasters/notesMaster1.xml"/>`,
+    );
+    if (!presentationXml.includes("<p:notesMasterIdLst>")) {
+      presentationXml = presentationXml.replace(
+        "</p:sldIdLst>",
+        `</p:sldIdLst><p:notesMasterIdLst><p:notesMasterId r:id="${relId}"/></p:notesMasterIdLst>`,
+      );
+    }
+  }
+
+  if (!presentationXml.includes("<p:notesSz")) {
+    presentationXml = presentationXml.replace(
+      "<p:defaultTextStyle>",
+      '<p:notesSz cx="6858000" cy="12192000"/><p:defaultTextStyle>',
+    );
+  }
+
+  for (let i = 0; i < slides.length; i++) {
+    const notes = slides[i].notes?.trim();
+    if (!notes) continue;
+
+    const slideNumber = i + 1;
+    const slideRelsPath = `ppt/slides/_rels/slide${slideNumber}.xml.rels`;
+    const slideRelsFile = zip.file(slideRelsPath);
+    if (!slideRelsFile) continue;
+
+    let slideRels = await slideRelsFile.async("string");
+    if (!slideRels.includes("relationships/notesSlide")) {
+      const relId = nextRelationshipId(slideRels);
+      slideRels = addRelationship(
+        slideRels,
+        `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide${slideNumber}.xml"/>`,
+      );
+      zip.file(slideRelsPath, slideRels);
+    }
+
+    zip.file(
+      `ppt/notesSlides/notesSlide${slideNumber}.xml`,
+      notesSlideXml(notes, slideNumber),
+    );
+    zip.file(
+      `ppt/notesSlides/_rels/notesSlide${slideNumber}.xml.rels`,
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster" Target="../notesMasters/notesMaster1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/slide${slideNumber}.xml"/></Relationships>`,
+    );
+    contentTypes = addContentTypeOverride(
+      contentTypes,
+      `/ppt/notesSlides/notesSlide${slideNumber}.xml`,
+      "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml",
+    );
+  }
+
+  zip.file("[Content_Types].xml", contentTypes);
+  zip.file("ppt/presentation.xml", presentationXml);
+  zip.file("ppt/_rels/presentation.xml.rels", presentationRels);
+
+  return zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+}
+
+function createUnscaledExportClone(
+  source: HTMLElement,
+  dims: { width: number; height: number },
+) {
+  const stage = document.createElement("div");
+  stage.setAttribute("aria-hidden", "true");
+  Object.assign(stage.style, {
+    height: `${dims.height}px`,
+    left: "-100000px",
+    overflow: "hidden",
+    pointerEvents: "none",
+    position: "fixed",
+    top: "0",
+    width: `${dims.width}px`,
+    zIndex: "-1",
+  });
+
+  const clone = source.cloneNode(true) as HTMLElement;
+  Object.assign(clone.style, {
+    height: `${dims.height}px`,
+    maxHeight: `${dims.height}px`,
+    maxWidth: `${dims.width}px`,
+    position: "relative",
+    transform: "none",
+    width: `${dims.width}px`,
+  });
+
+  stage.appendChild(clone);
+  document.body.appendChild(stage);
+
+  return {
+    element: clone,
+    cleanup: () => stage.remove(),
+  };
+}
+
 export async function exportDeckAsPptx(
   deckTitle: string,
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
 ): Promise<void> {
-  const [{ domToJpeg }, PptxGenModule] = await Promise.all([
-    import("modern-screenshot"),
-    import("pptxgenjs"),
-  ]);
+  const { exportToPptx } = await import("dom-to-pptx");
 
   if (typeof document !== "undefined" && document.fonts?.ready) {
     await document.fonts.ready;
   }
 
   const dims = getAspectRatioDims(aspectRatio);
-  const PptxGenJS = PptxGenModule.default;
-  const pptx = new PptxGenJS();
+  const exportClones: Array<{
+    element: HTMLElement;
+    cleanup: () => void;
+  }> = [];
 
-  if (
-    Math.abs(dims.pptxInches.w - 13.33) < 0.01 &&
-    Math.abs(dims.pptxInches.h - 7.5) < 0.01
-  ) {
-    pptx.layout = "LAYOUT_WIDE";
-  } else {
-    pptx.defineLayout({
-      name: "AGENT_NATIVE_EXPORT",
-      width: dims.pptxInches.w,
-      height: dims.pptxInches.h,
-    });
-    pptx.layout = "AGENT_NATIVE_EXPORT";
-  }
+  try {
+    for (let i = 0; i < slides.length; i++) {
+      const exportSlide = slides[i];
+      const source = findSlideExportSource(exportSlide.id, i, slides.length);
+      const clone = createUnscaledExportClone(source, {
+        width: dims.width,
+        height: dims.height,
+      });
+      exportClones.push(clone);
+      await preloadImagesWithCors(clone.element);
+    }
 
-  pptx.author = "Agent Native Slides";
-  pptx.title = deckTitle;
-
-  for (let i = 0; i < slides.length; i++) {
-    const exportSlide = slides[i];
-    const source = findSlideExportSource(exportSlide.id, i, slides.length);
-
-    await preloadImagesWithCors(source);
-
-    const dataUrl = await domToJpeg(source, {
-      width: dims.width,
-      height: dims.height,
-      scale: 2,
-      backgroundColor: "#000000",
-      quality: 0.92,
-      fetch: {
-        requestInit: { cache: "no-cache", mode: "cors", credentials: "omit" },
+    const initialBlob = await exportToPptx(
+      exportClones.map((clone) => clone.element),
+      {
+        autoEmbedFonts: true,
+        fileName: safePptxName(deckTitle),
+        height: dims.pptxInches.h,
+        skipDownload: true,
+        svgAsVector: true,
+        width: dims.pptxInches.w,
       },
-    });
+    );
 
-    const slide = pptx.addSlide();
-    slide.background = { color: "000000" };
-    slide.addImage({
-      data: stripDataUrlPrefix(dataUrl),
-      x: 0,
-      y: 0,
-      w: dims.pptxInches.w,
-      h: dims.pptxInches.h,
-    });
-
-    if (exportSlide.notes) {
-      slide.addNotes(exportSlide.notes);
+    const blob = await addSpeakerNotesToPptxBlob(initialBlob, slides);
+    triggerBlobDownload(blob, safePptxName(deckTitle));
+  } finally {
+    for (const clone of exportClones) {
+      clone.cleanup();
     }
   }
-
-  const blob = (await pptx.write({
-    outputType: "blob",
-    compression: true,
-  })) as Blob;
-  triggerBlobDownload(blob, safePptxName(deckTitle));
 }

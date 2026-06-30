@@ -8,6 +8,7 @@ packages:
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@agent-native/core"
+  - "dom-to-pptx"
 
 catalog:
   "@tabler/icons-react": ^3.41.1

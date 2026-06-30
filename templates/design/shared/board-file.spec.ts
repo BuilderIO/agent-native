@@ -6,13 +6,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { BoardObjectEntry } from "./board-objects.js";
 import {
   BOARD_FILENAME,
   boardObjectEntryToHtmlFragment,
   emptyBoardHtml,
   isBoardFile,
 } from "./board-file.js";
+import type { BoardObjectEntry } from "./board-objects.js";
 
 // ---------------------------------------------------------------------------
 // BOARD_FILENAME
@@ -69,7 +69,9 @@ describe("emptyBoardHtml", () => {
   it("has an empty body (no content elements)", () => {
     const html = emptyBoardHtml();
     // Body content should be empty except for whitespace
-    const bodyContent = html.replace(/^[\s\S]*<body[^>]*>([\s\S]*)<\/body>[\s\S]*$/, "$1").trim();
+    const bodyContent = html
+      .replace(/^[\s\S]*<body[^>]*>([\s\S]*)<\/body>[\s\S]*$/, "$1")
+      .trim();
     expect(bodyContent).toBe("");
   });
 });

@@ -33,10 +33,7 @@ import {
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
-import {
-  parseBoardObjects,
-  type BoardObjectEntry,
-} from "@shared/board-objects";
+import { isBoardFile } from "@shared/board-file";
 import {
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
@@ -177,7 +174,7 @@ import {
   MultiScreenCanvas,
   OVERVIEW_FRAME_WIDTH,
   type CanvasPrimitiveInsert,
-  type DraftPrimitiveKind,
+  type FrameGeometry,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
@@ -3532,6 +3529,11 @@ export default function DesignEditor() {
     useState<{ screenId: string; layerId: string } | null>(null);
   const pendingOverviewScreenSelectionRef = useRef<string | null>(null);
   const pendingOverviewLayerSelectionRef = useRef<string | null>(null);
+  // Tracks the nodeId of the most recently created TEXT primitive across one
+  // handleCreatePrimitive → handlePrimitiveCreated round-trip. Cleared after
+  // use. Lets handlePrimitiveCreated trigger begin-text-edit without needing
+  // the primitive kind in its signature.
+  const pendingTextEditNodeIdRef = useRef<string | null>(null);
   const pendingOverviewLayerSelectionClearTimerRef = useRef<number | null>(
     null,
   );
@@ -4312,9 +4314,11 @@ export default function DesignEditor() {
     "open-component-source",
   );
 
-  // Board object mutations — create/update persisted canvas primitives.
-  const createBoardObjectMutation = useActionMutation("create-board-object");
-  const updateBoardObjectsMutation = useActionMutation("update-board-objects");
+  // Board file migration — lazy, idempotent, triggers on design open when
+  // designs.data.boardFileId is absent.
+  const migrateBoardObjectsMutation = useActionMutation(
+    "migrate-board-objects-to-file",
+  );
 
   // §6.6 — "Make it real" migration flow (migrate-inline-design-to-app).
   // The mutation stays unconditional; the dialog gates on isSignedIn.
@@ -4763,50 +4767,37 @@ export default function DesignEditor() {
     [designDataJson],
   );
 
-  // Board objects: persisted canvas primitives stored in designs.data.boardObjects.
-  // The server is the source of truth; we hold an optimistic local overlay in
-  // boardObjectsOverlay so create/update feel instant without waiting for a server
-  // round-trip (mirrors how canvasFrameGeometryById is optimistically updated).
-  const serverBoardObjects = useMemo(
-    () => parseBoardObjects(designDataJson.boardObjects),
-    [designDataJson],
-  );
-  const [boardObjectsOverlay, setBoardObjectsOverlay] = useState<
-    Record<string, BoardObjectEntry>
-  >({});
-  // Merge server + overlay; overlay entries win for in-flight optimistic updates.
-  const boardObjects = useMemo(
-    () => ({ ...serverBoardObjects, ...boardObjectsOverlay }),
-    [serverBoardObjects, boardObjectsOverlay],
-  );
-  // Keep a stable ref for debounced callbacks.
-  const boardObjectsOverlayRef = useRef(boardObjectsOverlay);
+  // ── Board file ─────────────────────────────────────────────────────────────
+  // The board is a reserved design_file (filename "__board__.html") whose id is
+  // stored in designs.data.boardFileId.  On design open, if boardFileId is absent,
+  // we trigger migrate-board-objects-to-file (lazy + idempotent) which creates
+  // the board file and migrates any legacy boardObjects.
+  const boardFileId = useMemo(() => {
+    const raw = (designDataJson as Record<string, unknown>).boardFileId;
+    return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+  }, [designDataJson]);
+
+  // Trigger migration on design open when boardFileId is absent.
+  const migrateBoardTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
-    boardObjectsOverlayRef.current = boardObjectsOverlay;
-  }, [boardObjectsOverlay]);
-  // Once the server data reflects an overlay entry, drop it from the overlay.
-  useEffect(() => {
-    setBoardObjectsOverlay((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const id of Object.keys(prev)) {
-        if (serverBoardObjects[id]) {
-          // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-          delete next[id];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
+    if (!id || !canEditDesign) return;
+    if (boardFileId) return; // already migrated
+    if (migrateBoardTriggeredRef.current === id) return;
+    migrateBoardTriggeredRef.current = id;
+    migrateBoardObjectsMutation.mutate({ designId: id } as any, {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-design", { id }],
+        });
+      },
     });
-  }, [serverBoardObjects]);
-
-  const boardObjectsSaveTimerRef = useRef<number | null>(null);
-
-  // Selection state for board objects in the layers panel.
-  // Kept in DesignEditor so LayersPanel can reflect which objects are selected.
-  const [selectedBoardObjectIds, setSelectedBoardObjectIds] = useState<
-    string[]
-  >([]);
+  }, [
+    boardFileId,
+    canEditDesign,
+    id,
+    migrateBoardObjectsMutation,
+    queryClient,
+  ]);
 
   const overviewScreens = useMemo(() => {
     const metadataByFileId = getDesignDataRecord(
@@ -4845,46 +4836,101 @@ export default function DesignEditor() {
         ? breakpointSet.breakpoints.map((bp) => bp.widthPx)
         : undefined;
 
-    return files.map((file) => {
-      const metadata = getDesignDataRecord(metadataByFileId, file.id);
-      const stringValue = (key: string) =>
-        typeof metadata[key] === "string"
-          ? (metadata[key] as string)
-          : undefined;
-      const numberValue = (key: string) =>
-        typeof metadata[key] === "number" && Number.isFinite(metadata[key])
-          ? (metadata[key] as number)
-          : undefined;
-      return {
-        id: file.id,
-        filename: file.filename,
-        content: file.content,
-        updatedAt: file.updatedAt,
-        sourceType: stringValue("sourceType"),
-        source: stringValue("source"),
-        sourceFile: stringValue("sourceFile"),
-        connectionId: stringValue("connectionId"),
-        lod: stringValue("lod"),
-        previewState: stringValue("previewState"),
-        status: stringValue("status"),
-        title: stringValue("title"),
-        width: numberValue("width"),
-        height: numberValue("height"),
-        url: stringValue("url"),
-        previewUrl: stringValue("previewUrl"),
-        // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
-        // renders one iframe per width to the right of the primary frame.
-        breakpointWidths: bpWidths,
-        // Active breakpoint width tracked in component state; shared across all
-        // screens (a design has one active breakpoint set at a time in v1).
-        activeBreakpointWidth: bpWidths?.includes(
-          activeBreakpointWidthState ?? -1,
-        )
-          ? activeBreakpointWidthState
-          : undefined,
-      };
-    });
-  }, [designDataJson, files, activeBreakpointWidthState]);
+    // Exclude the board file — it is rendered by its own DesignCanvas instance
+    // in MultiScreenCanvas and must not appear as a screen frame.
+    return files
+      .filter((file) => !isBoardFile(file.filename))
+      .map((file) => {
+        const metadata = getDesignDataRecord(metadataByFileId, file.id);
+        const stringValue = (key: string) =>
+          typeof metadata[key] === "string"
+            ? (metadata[key] as string)
+            : undefined;
+        const numberValue = (key: string) =>
+          typeof metadata[key] === "number" && Number.isFinite(metadata[key])
+            ? (metadata[key] as number)
+            : undefined;
+        return {
+          id: file.id,
+          filename: file.filename,
+          content: file.content,
+          updatedAt: file.updatedAt,
+          sourceType: stringValue("sourceType"),
+          source: stringValue("source"),
+          sourceFile: stringValue("sourceFile"),
+          connectionId: stringValue("connectionId"),
+          lod: stringValue("lod"),
+          previewState: stringValue("previewState"),
+          status: stringValue("status"),
+          title: stringValue("title"),
+          width: numberValue("width"),
+          height: numberValue("height"),
+          url: stringValue("url"),
+          previewUrl: stringValue("previewUrl"),
+          // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
+          // renders one iframe per width to the right of the primary frame.
+          breakpointWidths: bpWidths,
+          // Active breakpoint width tracked in component state; shared across all
+          // screens (a design has one active breakpoint set at a time in v1).
+          activeBreakpointWidth: bpWidths?.includes(
+            activeBreakpointWidthState ?? -1,
+          )
+            ? activeBreakpointWidthState
+            : undefined,
+        };
+      });
+  }, [designDataJson, files, activeBreakpointWidthState, boardFileId]);
+
+  // The board file's current HTML content — sourced from the files array (which
+  // includes pending local writes).  undefined when boardFileId is not yet set.
+  const boardFileContent = useMemo(() => {
+    if (!boardFileId) return undefined;
+    const boardFile = files.find((file) => file.id === boardFileId);
+    return typeof boardFile?.content === "string" ? boardFile.content : "";
+  }, [boardFileId, files]);
+
+  // Logical canvas-space bounding box of the board iframe.  The board covers the
+  // full canvas surface, so we compute the union of all screen frame geometries.
+  // x:0/y:0 since screen geometries use canvas-space coords that start at origin.
+  const boardFrameGeometry = useMemo((): FrameGeometry | undefined => {
+    if (!boardFileId) return undefined;
+    const entries = Object.values(canvasFrameGeometryById);
+    if (entries.length === 0) return { x: 0, y: 0, width: 1920, height: 1080 };
+    let maxRight = 0;
+    let maxBottom = 0;
+    for (const geo of entries) {
+      const right = (geo.x ?? 0) + (geo.width ?? 0);
+      const bottom = (geo.y ?? 0) + (geo.height ?? 0);
+      if (right > maxRight) maxRight = right;
+      if (bottom > maxBottom) maxBottom = bottom;
+    }
+    return {
+      x: 0,
+      y: 0,
+      width: Math.min(Math.max(maxRight, 1920), 16384),
+      height: Math.min(Math.max(maxBottom, 1080), 16384),
+    };
+  }, [boardFileId, canvasFrameGeometryById]);
+
+  // Top-level body children of the board file projected as LayersPanelNode[].
+  // Shown as peer rows alongside screens in the layers panel.
+  const boardElements = useMemo((): LayersPanelNode[] | undefined => {
+    if (!boardFileId || !boardFileContent) return undefined;
+    const projection = buildCodeLayerProjection(boardFileContent);
+    if (projection.rootNodeIds.length === 0) return undefined;
+    const nodesById = new Map(projection.nodes.map((n) => [n.id, n]));
+    return projection.rootNodeIds
+      .map((nodeId) => nodesById.get(nodeId))
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      .map((node) => ({
+        id: node.id,
+        name: node.layerName || node.tag || "Board element",
+        type: "board-element" as const,
+        lockable: false,
+        hideable: false,
+      }));
+  }, [boardFileId, boardFileContent]);
+
   const queueFrameGeometrySave = useCallback(
     (geometryById: CanvasFrameGeometryById) => {
       if (!id || !canEditDesignRef.current) return;
@@ -7108,7 +7154,21 @@ export default function DesignEditor() {
         });
       }
 
-      return projectedNodeId ?? primitive.nodeId ?? true;
+      const result = projectedNodeId ?? primitive.nodeId ?? true;
+
+      // Record the nodeId when a TEXT primitive is created so the next
+      // handlePrimitiveCreated (or handleBoardDrawPrimitive) can immediately
+      // enter text-edit mode — fixing the "click to add text should let me
+      // type immediately" bug. The ref is read once and cleared.
+      if (primitive.kind === "text") {
+        const textNodeId =
+          typeof result === "string" ? result : (primitive.nodeId ?? null);
+        pendingTextEditNodeIdRef.current = textNodeId;
+      } else {
+        pendingTextEditNodeIdRef.current = null;
+      }
+
+      return result;
     },
     [
       activeContent,
@@ -7147,242 +7207,61 @@ export default function DesignEditor() {
         setMode("edit");
       });
       // viewMode stays at "overview" — no setViewMode("single") call here.
+
+      // Immediately enter text-editing for newly created TEXT primitives so the
+      // user can start typing without a second click (fixes auto-size flow too).
+      // We read-and-clear the ref set by handleCreatePrimitive just above. The
+      // 50 ms delay gives React a tick to commit the new content into the active
+      // screen's iframe before the bridge tries to find the element by nodeId.
+      const textNodeId = pendingTextEditNodeIdRef.current;
+      pendingTextEditNodeIdRef.current = null;
+      if (textNodeId) {
+        setTimeout(() => {
+          (window as any).__designCanvasBeginTextEdit?.(textNodeId);
+        }, 50);
+      }
     },
     [clearPendingOverviewLayerSelectionTimer],
   );
 
   /**
-   * Called by MultiScreenCanvas when a draft primitive is committed outside all
-   * screen frames (and the design has more than one screen). Optimistically adds
-   * the entry to local state, then persists via create-board-object action.
+   * Called by MultiScreenCanvas when a draft primitive is committed in empty
+   * canvas space (outside all screen frames).  Appends the primitive to the
+   * board file content via the shared handleCreatePrimitive path so the bridge
+   * engine handles persistence identically to in-screen elements.
    */
-  const handleCreateBoardObject = useCallback(
-    (obj: BoardObjectEntry) => {
-      if (!id || !canEditDesign) return;
-      // Optimistic add.
-      setBoardObjectsOverlay((prev) => ({ ...prev, [obj.id]: obj }));
-      createBoardObjectMutation.mutate(
-        {
-          designId: id,
-          kind: obj.kind,
-          geometry: obj.geometry,
-          ...(obj.fill !== undefined && { fill: obj.fill }),
-          ...(obj.stroke !== undefined && { stroke: obj.stroke }),
-          ...(obj.strokeWidth !== undefined && {
-            strokeWidth: obj.strokeWidth,
-          }),
-          ...(obj.text !== undefined && { text: obj.text }),
-          ...(obj.pathData !== undefined && { pathData: obj.pathData }),
-          ...(obj.points !== undefined && { points: obj.points }),
-          ...(obj.autoSize !== undefined && { autoSize: obj.autoSize }),
-          ...(obj.name !== undefined && { name: obj.name }),
-        } as any,
-        {
-          onSuccess: () => {
-            // The server writes the design's data blob; polling/invalidation
-            // picks up the canonical entry. The overlay entry is dropped once
-            // serverBoardObjects gains the id (see reconcile effect above).
-            queryClient.invalidateQueries({
-              queryKey: ["action", "get-design", { id }],
-            });
-          },
-          onError: () => {
-            // Roll back the optimistic add.
-            setBoardObjectsOverlay((prev) => {
-              const next = { ...prev };
-              // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-              delete next[obj.id];
-              return next;
-            });
-          },
-        },
-      );
-    },
-    [canEditDesign, createBoardObjectMutation, id, queryClient],
-  );
+  const handleBoardDrawPrimitive = useCallback(
+    (primitive: CanvasPrimitiveInsert) => {
+      if (!boardFileId || !canEditDesign) return;
+      handleCreatePrimitive(boardFileId, primitive);
 
-  /**
-   * Debounced handler for board-object move/resize/delete from MultiScreenCanvas.
-   * Applies updates optimistically to the overlay and flushes to the server after
-   * 500 ms of inactivity (mirrors queueFrameGeometrySave).
-   */
-  const handleBoardObjectsChange = useCallback(
-    (
-      updates: Array<{
-        id: string;
-        geometry?: BoardObjectEntry["geometry"];
-        fill?: string;
-        stroke?: string;
-        strokeWidth?: number;
-        text?: string;
-        name?: string;
-      }>,
-      deletes?: string[],
-    ) => {
-      if (!id || !canEditDesign) return;
-
-      // Optimistic update.
-      setBoardObjectsOverlay((prev) => {
-        const next = { ...prev };
-        for (const upd of updates) {
-          const existing = next[upd.id] ?? serverBoardObjects[upd.id];
-          if (!existing) continue;
-          next[upd.id] = {
-            ...existing,
-            ...(upd.geometry !== undefined && { geometry: upd.geometry }),
-            ...(upd.fill !== undefined && { fill: upd.fill }),
-            ...(upd.stroke !== undefined && { stroke: upd.stroke }),
-            ...(upd.strokeWidth !== undefined && {
-              strokeWidth: upd.strokeWidth,
-            }),
-            ...(upd.text !== undefined && { text: upd.text }),
-            ...(upd.name !== undefined && { name: upd.name }),
-          };
-        }
-        for (const deleteId of deletes ?? []) {
-          // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-          delete next[deleteId];
-        }
-        return next;
-      });
-
-      // Debounced server write.
-      if (boardObjectsSaveTimerRef.current !== null) {
-        window.clearTimeout(boardObjectsSaveTimerRef.current);
-      }
-      boardObjectsSaveTimerRef.current = window.setTimeout(() => {
-        boardObjectsSaveTimerRef.current = null;
-        if (!canEditDesignRef.current) return;
-        updateBoardObjectsMutation.mutate(
-          {
-            designId: id,
-            updates,
-            ...(deletes?.length && { deletes }),
-          } as any,
-          {
-            onSuccess: () => {
-              queryClient.invalidateQueries({
-                queryKey: ["action", "get-design", { id }],
+      // For TEXT primitives drawn on the board surface, immediately enter
+      // text-editing mode via begin-text-edit.  The board DesignCanvas uses
+      // registerRuntimeBridge=false so window.__designCanvasBeginTextEdit is
+      // not set; instead we broadcast the message to all preview iframes — the
+      // one that contains the new nodeId will handle it, others ignore it.
+      // The 50 ms delay lets the board iframe receive its content update first.
+      if (primitive.kind === "text") {
+        const textNodeId =
+          pendingTextEditNodeIdRef.current ?? primitive.nodeId ?? null;
+        pendingTextEditNodeIdRef.current = null;
+        if (textNodeId) {
+          setTimeout(() => {
+            document
+              .querySelectorAll<HTMLIFrameElement>(
+                "iframe[data-design-preview-iframe]",
+              )
+              .forEach((iframe) => {
+                iframe.contentWindow?.postMessage(
+                  { type: "begin-text-edit", nodeId: textNodeId },
+                  "*",
+                );
               });
-            },
-          },
-        );
-      }, 500);
-    },
-    [
-      canEditDesign,
-      id,
-      queryClient,
-      serverBoardObjects,
-      updateBoardObjectsMutation,
-    ],
-  );
-
-  /** Called from LayersPanel when the user clicks a board-object row. */
-  const handleSelectBoardObject = useCallback(
-    (boId: string, additive: boolean) => {
-      setSelectedBoardObjectIds((prev) => {
-        if (additive) {
-          return prev.includes(boId)
-            ? prev.filter((id) => id !== boId)
-            : [...prev, boId];
+          }, 50);
         }
-        return [boId];
-      });
-    },
-    [],
-  );
-
-  /** Called from LayersPanel when the user renames a board-object row. */
-  const handleRenameBoardObject = useCallback(
-    (boId: string, name: string) => {
-      handleBoardObjectsChange([{ id: boId, name }]);
-    },
-    [handleBoardObjectsChange],
-  );
-
-  /** Called from LayersPanel when the user deletes a board-object row. */
-  const handleDeleteBoardObject = useCallback(
-    (boId: string) => {
-      handleBoardObjectsChange([], [boId]);
-      setSelectedBoardObjectIds((prev) => prev.filter((id) => id !== boId));
-    },
-    [handleBoardObjectsChange],
-  );
-
-  /**
-   * Promote a board object into a screen frame.
-   *
-   * Fired by MultiScreenCanvas when a board-object drag ends with the primary
-   * object's centre over a screen frame.  The handler:
-   *   1. Reads the board object's geometry from the current merged state.
-   *   2. Converts the board-space centre (localPoint) to screen-local pixels
-   *      by subtracting the frame's canvas origin.
-   *   3. Builds a CanvasPrimitiveInsert and appends it to the target screen's
-   *      HTML via handleCreatePrimitive (the same path used when drawing into
-   *      a screen from the overview).
-   *   4. Removes the board object via handleBoardObjectsChange (deletes).
-   */
-  const handlePromoteBoardObjectToScreen = useCallback(
-    (
-      boardObjectId: string,
-      screenId: string,
-      localPoint: { x: number; y: number },
-    ) => {
-      const bo = boardObjects[boardObjectId];
-      if (!bo) return;
-
-      // Convert the board-space centre back to a screen-local top-left.
-      // localPoint is the board-space centre of the object at drop time.
-      // The canvas frame's x/y is the screen origin in board space.
-      const frameGeo = canvasFrameGeometryById[screenId];
-      const frameOriginX = frameGeo?.x ?? 0;
-      const frameOriginY = frameGeo?.y ?? 0;
-
-      // Compute the object's top-left in screen-local coords.
-      const screenLocalX = bo.geometry.x - frameOriginX;
-      const screenLocalY = bo.geometry.y - frameOriginY;
-
-      const primitive: CanvasPrimitiveInsert = {
-        kind: bo.kind as DraftPrimitiveKind,
-        geometry: {
-          x: screenLocalX,
-          y: screenLocalY,
-          width: bo.geometry.width,
-          height: bo.geometry.height,
-          rotation: bo.geometry.rotation,
-        },
-        ...(bo.fill !== undefined && { fill: bo.fill }),
-        ...(bo.stroke !== undefined && { stroke: bo.stroke }),
-        ...(bo.strokeWidth !== undefined && { strokeWidth: bo.strokeWidth }),
-        ...(bo.text !== undefined && { text: bo.text }),
-        ...(bo.pathData !== undefined && { pathData: bo.pathData }),
-        ...(bo.points !== undefined && { points: bo.points }),
-        ...(bo.autoSize !== undefined && { autoSize: bo.autoSize }),
-      };
-
-      // Suppress unused warning — localPoint is provided by MultiScreenCanvas
-      // as the board-space centre; we derived screenLocalX/Y from bo.geometry instead.
-      void localPoint;
-
-      const inserted = handleCreatePrimitive(screenId, primitive);
-      if (!inserted) {
-        // Insert failed — leave the board object in place.
-        return;
       }
-
-      // Remove the board object; do NOT queue a geometry update for it.
-      handleBoardObjectsChange([], [boardObjectId]);
-      setSelectedBoardObjectIds((prev) =>
-        prev.filter((id) => id !== boardObjectId),
-      );
     },
-    [
-      boardObjects,
-      canvasFrameGeometryById,
-      handleBoardObjectsChange,
-      handleCreatePrimitive,
-    ],
+    [boardFileId, canEditDesign, handleCreatePrimitive],
   );
 
   const handleOverviewScreenSelectionChange = useCallback(
@@ -13773,6 +13652,9 @@ ${serializedHtml}
                     onLeaveLayer={handleLayerLeave}
                     onMoveLayer={handleLayerMove}
                     canMoveLayer={canMoveLayer}
+                    boardElements={
+                      viewMode === "overview" ? boardElements : undefined
+                    }
                   />
                 </div>
               </div>
@@ -14057,11 +13939,72 @@ ${serializedHtml}
                       onPrimitiveCreated={handlePrimitiveCreated}
                       onPrimitiveReparent={handleOverviewPrimitiveReparent}
                       onCrossScreenElementDrop={handleCrossScreenElementDrop}
-                      boardObjects={boardObjects}
-                      onCreateBoardObject={handleCreateBoardObject}
-                      onBoardObjectsChange={handleBoardObjectsChange}
-                      onPromoteBoardObjectToScreen={
-                        handlePromoteBoardObjectToScreen
+                      boardFileId={boardFileId}
+                      boardFileContent={boardFileContent}
+                      boardFrameGeometry={boardFrameGeometry}
+                      onBoardDrawPrimitive={
+                        canEditDesign ? handleBoardDrawPrimitive : undefined
+                      }
+                      boardEditMode={canEditDesign}
+                      onBoardElementSelect={
+                        boardFileId
+                          ? (info) =>
+                              handleScreenElementSelect(boardFileId, info)
+                          : undefined
+                      }
+                      onBoardElementHover={
+                        boardFileId
+                          ? (info) =>
+                              handleScreenElementHover(boardFileId, info)
+                          : undefined
+                      }
+                      onBoardVisualStyleChange={
+                        boardFileId
+                          ? (selector, styles, info) =>
+                              handleScreenVisualStyleChange(
+                                boardFileId,
+                                selector,
+                                styles,
+                                info,
+                              )
+                          : undefined
+                      }
+                      onBoardVisualStructureChange={
+                        boardFileId
+                          ? (selector, anchorSelector, placement, info, details) =>
+                              handleScreenVisualStructureChange(
+                                boardFileId,
+                                selector,
+                                anchorSelector,
+                                placement,
+                                info,
+                                details,
+                              )
+                          : undefined
+                      }
+                      onBoardVisualDuplicateChange={
+                        boardFileId
+                          ? (selector, cloneHtml, info, details) =>
+                              handleScreenVisualDuplicateChange(
+                                boardFileId,
+                                selector,
+                                cloneHtml,
+                                info,
+                                details,
+                              )
+                          : undefined
+                      }
+                      onBoardTextContentChange={
+                        boardFileId
+                          ? (selector, value, info, details) =>
+                              handleScreenTextContentChange(
+                                boardFileId,
+                                selector,
+                                value,
+                                info,
+                                details,
+                              )
+                          : undefined
                       }
                       onCreateScreenFrame={handleCreateScreenFrame}
                       onDeleteSelection={handleDeleteOverviewSelection}
@@ -14175,7 +14118,7 @@ ${serializedHtml}
                             editorChromeScaleY={overviewCanvasZoom / 100}
                             editMode={mode === "edit"}
                             interactMode={false}
-                            readOnly={!canEditDesign}
+                            readOnly={!screenIsActive || !canEditDesign}
                             scaleMode={screenIsActive && activeTool === "scale"}
                             clearSelectionRequest={
                               overviewClearSelectionRequest

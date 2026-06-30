@@ -77,8 +77,21 @@ export function emptyBoardHtml(): string {
  * The fragment sets `data-agent-native-node-id` so the bridge engine can
  * select, style, and move elements exactly as it does for screen elements.
  */
-export function boardObjectEntryToHtmlFragment(entry: BoardObjectEntry): string {
-  const { id, kind, geometry, fill, stroke, strokeWidth, text, pathData, points, name } = entry;
+export function boardObjectEntryToHtmlFragment(
+  entry: BoardObjectEntry,
+): string {
+  const {
+    id,
+    kind,
+    geometry,
+    fill,
+    stroke,
+    strokeWidth,
+    text,
+    pathData,
+    points,
+    name,
+  } = entry;
   const x = Math.round(geometry.x);
   const y = Math.round(geometry.y);
   const width = Math.max(1, Math.round(geometry.width));
@@ -95,9 +108,7 @@ export function boardObjectEntryToHtmlFragment(entry: BoardObjectEntry): string 
     `width:${width}px`,
     `height:${height}px`,
     ...(geometry.rotation ? [`transform:rotate(${geometry.rotation}deg)`] : []),
-    ...(typeof geometry.z === "number"
-      ? [`z-index:${geometry.z}`]
-      : []),
+    ...(typeof geometry.z === "number" ? [`z-index:${geometry.z}`] : []),
   ].join(";");
 
   const dataAttrs =
@@ -117,7 +128,10 @@ export function boardObjectEntryToHtmlFragment(entry: BoardObjectEntry): string 
     const d =
       pathData ??
       pts
-        .map((p, i) => `${i === 0 ? "M" : "L"} ${Math.round(p.x - originX)} ${Math.round(p.y - originY)}`)
+        .map(
+          (p, i) =>
+            `${i === 0 ? "M" : "L"} ${Math.round(p.x - originX)} ${Math.round(p.y - originY)}`,
+        )
         .join(" ");
     const strokeColor = stroke ?? "var(--primary, #2563eb)";
     const sw = strokeWidth ?? 3;
@@ -151,7 +165,8 @@ export function boardObjectEntryToHtmlFragment(entry: BoardObjectEntry): string 
   }
 
   // Frame / rectangle / polygon / star / default — basic colored <div>.
-  const bgColor = fill ?? (kind === "frame" ? "transparent" : "var(--primary, #2563eb)");
+  const bgColor =
+    fill ?? (kind === "frame" ? "transparent" : "var(--primary, #2563eb)");
   const borderStyle = stroke
     ? `border:${strokeWidth ?? 1}px solid ${stroke};`
     : "";
