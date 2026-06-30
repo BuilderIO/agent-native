@@ -24,6 +24,7 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
+import { deleteResumableSession } from "../../../../lib/resumable-session.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
@@ -70,6 +71,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const cleared = await deleteAppStateByPrefix(
       `recording-chunks-${recordingId}-`,
     );
+    await deleteResumableSession(recordingId).catch(() => {});
 
     const now = new Date().toISOString();
     await db
