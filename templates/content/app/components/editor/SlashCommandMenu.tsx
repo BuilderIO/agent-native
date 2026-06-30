@@ -169,11 +169,11 @@ export function inlineDatabaseBlockContent(
 export function insertInlineDatabaseBlock(
   editor: Editor,
   block: CreateInlineDatabaseResponse["block"],
-  position?: number | null,
+  position?: number | { from: number; to: number } | null,
 ) {
   const content = inlineDatabaseBlockContent(block);
   const chain = editor.chain().focus();
-  return typeof position === "number"
+  return position != null
     ? chain.insertContentAt(position, content).run()
     : chain.insertContent(content).run();
 }
@@ -643,6 +643,7 @@ export function SlashCommandMenu({
     title: t("editor.slash.database"),
     description: t("editor.slash.databaseDescription"),
     icon: IconDatabase,
+    preserveSlashRange: true,
     action: async (editor, { slashRange }) => {
       if (!documentId) {
         toast.error(t("editor.noDocumentSelected"));
@@ -657,7 +658,7 @@ export function SlashCommandMenu({
         const inserted = insertInlineDatabaseBlock(
           editor,
           result.block,
-          slashRange?.from ?? null,
+          slashRange,
         );
         if (!inserted) throw new Error(t("empty.genericError"));
         toast.success(t("editor.databaseCreated"), { id: toastId });

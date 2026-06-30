@@ -148,7 +148,7 @@ describe("inline database slash command", () => {
     );
   });
 
-  it("can anchor inline database insertion at the slash command position", () => {
+  it("can replace the preserved slash command range with the inline database", () => {
     const chain: any = {
       focus: vi.fn(() => chain),
       insertContent: vi.fn(() => chain),
@@ -157,10 +157,13 @@ describe("inline database slash command", () => {
     };
 
     expect(
-      insertInlineDatabaseBlock({ chain: () => chain } as any, block, 7),
+      insertInlineDatabaseBlock({ chain: () => chain } as any, block, {
+        from: 7,
+        to: 16,
+      }),
     ).toBe(true);
     expect(chain.insertContentAt).toHaveBeenCalledWith(
-      7,
+      { from: 7, to: 16 },
       inlineDatabaseBlockContent(block),
     );
     expect(chain.insertContent).not.toHaveBeenCalled();
@@ -171,7 +174,8 @@ describe("inline database slash command", () => {
 
     expect(source).toContain("useCreateInlineContentDatabase");
     expect(source).toContain("hostDocumentId: documentId");
-    expect(source).toContain("slashRange?.from ?? null");
+    expect(source).toContain("preserveSlashRange: true");
+    expect(source).toContain("insertInlineDatabaseBlock(");
     expect(source).not.toContain("useCreateContentDatabase");
     expect(source).not.toContain(
       "navigate(`/page/${result.database.documentId}`",
