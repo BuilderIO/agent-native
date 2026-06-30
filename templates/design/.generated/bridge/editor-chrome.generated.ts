@@ -590,12 +590,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       });
     }
-    function replaceRuntimeDocument(html, preferredSelector, selectorCandidates) {
+    function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument) {
       if (typeof html !== "string") return;
-      if (activeTextEditEl) {
+      if (activeTextEditEl && !forceFullDocument) {
         applyHiddenSelectors();
         refreshOverlays();
         return;
+      }
+      if (activeTextEditEl) {
+        postTextEditingState(activeTextEditEl, false);
+        activeTextEditEl = null;
+        setTextEditingPointerPassthrough(false);
+        setSelectionOverlayResizeChromeVisible(true);
       }
       var parser = new DOMParser();
       var nextDoc = parser.parseFromString(html, "text/html");
@@ -1468,16 +1474,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         node.style.display = visible ? "" : "none";
       });
     }
-    function updateTextEditingChrome(target, originalMinWidth) {
+    function updateTextEditingChrome(target, originalMinWidth, originalMinHeight) {
       target.style.outline = "";
       target.style.outlineOffset = "";
       if (hasTextCharacters(target)) {
         target.style.minWidth = originalMinWidth;
+        target.style.minHeight = originalMinHeight;
         positionOverlay(selectionOverlay, target);
         setSelectionOverlayResizeChromeVisible(false);
         return;
       }
       target.style.minWidth = originalMinWidth || "1px";
+      target.style.minHeight = originalMinHeight || "1em";
       selectionOverlay.style.display = "none";
       setSelectionOverlayResizeChromeVisible(false);
     }
@@ -2698,13 +2706,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalText = target.textContent || "";
       var originalHtml = target.innerHTML || "";
       var originalMinWidth = target.style.minWidth;
+      var originalMinHeight = target.style.minHeight;
+      var originalBorderColor = target.style.borderColor;
       var committed = false;
       activeTextEditEl = target;
       target.setAttribute("contenteditable", "true");
       target.setAttribute("data-agent-native-text-editing", "true");
       target.style.cursor = "text";
+      target.style.borderColor = "transparent";
       setTextEditingPointerPassthrough(true);
-      updateTextEditingChrome(target, originalMinWidth);
+      updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
       window.parent.postMessage(
         { type: "element-select", payload: getElementInfo(target) },
         "*"
@@ -2730,6 +2741,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.style.outline = "";
         target.style.outlineOffset = "";
         target.style.minWidth = originalMinWidth;
+        target.style.minHeight = originalMinHeight;
+        target.style.borderColor = originalBorderColor;
         setTextEditingPointerPassthrough(false);
         setSelectionOverlayResizeChromeVisible(true);
         if (activeTextEditEl === target) activeTextEditEl = null;
@@ -2767,15 +2780,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         insertPlainTextAtSelection(
           ev.clipboardData && ev.clipboardData.getData("text/plain") || ""
         );
-        updateTextEditingChrome(target, originalMinWidth);
+        updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
         postTextEditingState(target, true);
       }
       function onInput() {
-        updateTextEditingChrome(target, originalMinWidth);
+        updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
         postTextEditingState(target, true);
       }
       function onSelectionChange() {
-        updateTextEditingChrome(target, originalMinWidth);
+        updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
         postTextEditingState(target, true);
       }
       target.addEventListener("blur", onBlur, true);
@@ -3085,7 +3098,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         replaceRuntimeDocument(
           e.data.content,
           e.data.forceFullDocument ? "" : e.data.selectedSelector,
-          e.data.forceFullDocument ? [] : e.data.selectorCandidates
+          e.data.forceFullDocument ? [] : e.data.selectorCandidates,
+          Boolean(e.data.forceFullDocument)
         );
         return;
       }

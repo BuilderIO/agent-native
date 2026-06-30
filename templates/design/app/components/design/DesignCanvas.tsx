@@ -1234,7 +1234,12 @@ export function DesignCanvas({
   }, []);
 
   const replacePreviewContent = useCallback(
-    (nextContent: string, selector?: string | null, candidates?: string[]) => {
+    (
+      nextContent: string,
+      selector?: string | null,
+      candidates?: string[],
+      options?: { forceFullDocument?: boolean },
+    ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
       iframe.contentWindow.postMessage(
@@ -1243,6 +1248,7 @@ export function DesignCanvas({
           content: nextContent,
           selectedSelector: selector ?? "",
           selectorCandidates: candidates ?? [],
+          forceFullDocument: options?.forceFullDocument === true,
         },
         "*",
       );

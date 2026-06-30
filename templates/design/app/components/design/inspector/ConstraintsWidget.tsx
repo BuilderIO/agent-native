@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -46,6 +47,15 @@ export interface ConstraintsWidgetProps {
   onChange: (value: ConstraintsValue) => void;
   labels?: Partial<ConstraintsWidgetLabels>;
   disabled?: boolean;
+  className?: string;
+}
+
+export interface ConstraintsPreviewProps {
+  value: ConstraintsValue;
+  labels?: Partial<ConstraintsWidgetLabels>;
+  disabled?: boolean;
+  size?: number;
+  surface?: boolean;
   className?: string;
 }
 
@@ -163,6 +173,10 @@ interface PinBoxProps {
   labels: Pick<ConstraintsWidgetLabels, "left" | "right" | "top" | "bottom">;
   onToggleH: (side: "left" | "right") => void;
   onToggleV: (side: "top" | "bottom") => void;
+  interactive?: boolean;
+  size?: number;
+  surface?: boolean;
+  className?: string;
 }
 
 function PinBox({
@@ -171,6 +185,10 @@ function PinBox({
   labels,
   onToggleH,
   onToggleV,
+  interactive = true,
+  size = BOX,
+  surface = true,
+  className,
 }: PinBoxProps) {
   const [hoveredPin, setHoveredPin] = useState<
     "left" | "right" | "top" | "bottom" | null
@@ -189,7 +207,7 @@ function PinBox({
   //   active / scale → accent (primary)
   //   hovered inactive → slightly brighter muted
   //   inactive → muted (30% foreground opacity)
-  const ACCENT = "hsl(var(--primary))";
+  const ACCENT = "var(--design-editor-accent-color, hsl(var(--primary)))";
   // Hover: lighten inactive pins on hover — use 55% opacity instead of 30%
   const MUTED = "hsl(var(--foreground) / 0.30)";
   const MUTED_HOVER = "hsl(var(--foreground) / 0.60)";
@@ -229,15 +247,20 @@ function PinBox({
 
   return (
     <svg
-      width={BOX}
-      height={BOX}
+      width={size}
+      height={size}
       viewBox={`0 0 ${BOX} ${BOX}`}
       aria-hidden="true"
       className={cn(
-        "shrink-0 rounded-sm",
+        "shrink-0 rounded-[5px]",
         disabled && "pointer-events-none opacity-40",
+        className,
       )}
-      style={{ background: "hsl(var(--muted) / 0.4)" }}
+      style={{
+        background: surface
+          ? "var(--design-editor-control-bg, hsl(var(--muted) / 0.4))"
+          : "transparent",
+      }}
     >
       {/* outer border */}
       <rect
@@ -336,7 +359,7 @@ function PinBox({
       />
 
       {/* invisible click + hover targets — rendered on top of strokes */}
-      {!disabled && (
+      {interactive && !disabled && (
         <>
           {/* left pin hit area */}
           <rect
@@ -402,6 +425,92 @@ function PinBox({
 
 // ── Main widget ──────────────────────────────────────────────────────────────
 
+export function ConstraintsPreview({
+  value,
+  labels,
+  disabled = false,
+  size = 22,
+  surface = false,
+  className,
+}: ConstraintsPreviewProps) {
+  const copy = { ...DEFAULT_LABELS, ...labels };
+
+  return (
+    <PinBox
+      value={value}
+      disabled={disabled}
+      labels={copy}
+      onToggleH={() => undefined}
+      onToggleV={() => undefined}
+      interactive={false}
+      size={size}
+      surface={surface}
+      className={className}
+    />
+  );
+}
+
+function ConstraintSelect({
+  axis,
+  value,
+  onChange,
+  disabled,
+  labels,
+}: {
+  axis: "horizontal" | "vertical";
+  value: HorizontalConstraint | VerticalConstraint;
+  onChange: (value: HorizontalConstraint | VerticalConstraint) => void;
+  disabled: boolean;
+  labels: ConstraintsWidgetLabels;
+}) {
+  const options =
+    axis === "horizontal"
+      ? [
+          { value: "left", label: labels.left },
+          { value: "right", label: labels.right },
+          { value: "left-right", label: labels.leftRight },
+          { value: "center", label: labels.center },
+          { value: "scale", label: labels.scale },
+        ]
+      : [
+          { value: "top", label: labels.top },
+          { value: "bottom", label: labels.bottom },
+          { value: "top-bottom", label: labels.topBottom },
+          { value: "center", label: labels.center },
+          { value: "scale", label: labels.scale },
+        ];
+
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) =>
+        onChange(next as HorizontalConstraint | VerticalConstraint)
+      }
+      disabled={disabled}
+    >
+      <SelectTrigger
+        className="h-8 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[12px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)] focus:ring-offset-0 [&>svg]:size-3"
+        aria-label={axis === "horizontal" ? labels.horizontal : labels.vertical}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="z-[270]">
+        <SelectGroup>
+          {options.map((option) => (
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              className="text-[12px]"
+            >
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
 export function ConstraintsWidget({
   value,
   onChange,
@@ -420,91 +529,40 @@ export function ConstraintsWidget({
   }
 
   return (
-    <div className={cn("space-y-1.5", className)}>
-      {/* section label */}
+    <div className={cn("space-y-2", className)}>
       <span className="text-[11px] font-medium text-muted-foreground">
         {copy.title}
       </span>
 
-      {/* main row: pin-box LEFT + dropdowns RIGHT */}
-      <div className="flex items-center gap-1.5">
-        {/* pin box */}
+      <div className="grid grid-cols-[minmax(0,1fr)_4rem] items-stretch gap-2">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <ConstraintSelect
+            axis="horizontal"
+            value={value.horizontal}
+            onChange={(next) =>
+              onChange({ ...value, horizontal: next as HorizontalConstraint })
+            }
+            disabled={disabled}
+            labels={copy}
+          />
+          <ConstraintSelect
+            axis="vertical"
+            value={value.vertical}
+            onChange={(next) =>
+              onChange({ ...value, vertical: next as VerticalConstraint })
+            }
+            disabled={disabled}
+            labels={copy}
+          />
+        </div>
         <PinBox
           value={value}
           disabled={disabled}
           labels={copy}
           onToggleH={handleToggleH}
           onToggleV={handleToggleV}
+          size={64}
         />
-
-        {/* dropdowns column */}
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          {/* horizontal constraint */}
-          <Select
-            value={value.horizontal}
-            onValueChange={(next) =>
-              onChange({ ...value, horizontal: next as HorizontalConstraint })
-            }
-            disabled={disabled}
-          >
-            <SelectTrigger
-              className="h-6 w-full px-1.5 text-[11px]"
-              aria-label={copy.horizontal}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="left" className="text-[11px]">
-                {copy.left}
-              </SelectItem>
-              <SelectItem value="right" className="text-[11px]">
-                {copy.right}
-              </SelectItem>
-              <SelectItem value="left-right" className="text-[11px]">
-                {copy.leftRight}
-              </SelectItem>
-              <SelectItem value="center" className="text-[11px]">
-                {copy.center}
-              </SelectItem>
-              <SelectItem value="scale" className="text-[11px]">
-                {copy.scale}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-
-          {/* vertical constraint */}
-          <Select
-            value={value.vertical}
-            onValueChange={(next) =>
-              onChange({ ...value, vertical: next as VerticalConstraint })
-            }
-            disabled={disabled}
-          >
-            <SelectTrigger
-              className="h-6 w-full px-1.5 text-[11px]"
-              aria-label={copy.vertical}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="top" className="text-[11px]">
-                {copy.top}
-              </SelectItem>
-              <SelectItem value="bottom" className="text-[11px]">
-                {copy.bottom}
-              </SelectItem>
-              <SelectItem value="top-bottom" className="text-[11px]">
-                {copy.topBottom}
-              </SelectItem>
-              <SelectItem value="center" className="text-[11px]">
-                {copy.center}
-              </SelectItem>
-              <SelectItem value="scale" className="text-[11px]">
-                {copy.scale}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
     </div>
   );

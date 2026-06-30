@@ -64,3 +64,28 @@ describe("DesignCanvas spacing overlay bridge", () => {
     expect(source).toContain("selectTarget(dragTarget)");
   });
 });
+
+describe("DesignCanvas text editing bridge", () => {
+  it("uses selection chrome instead of double outlines while text is focused", () => {
+    expect(source).toContain("function updateTextEditingChrome");
+    expect(source).toContain('target.style.outline = ""');
+    expect(source).toContain('selectionOverlay.style.display = "none"');
+    expect(source).toContain("setSelectionOverlayResizeChromeVisible(false)");
+    expect(source).toContain('target.addEventListener("input", onInput');
+    expect(source).not.toContain(
+      'target.style.outline = "1.5px solid var(--design-editor-accent-color)"',
+    );
+  });
+
+  it("treats Escape as an unfocus/commit gesture for inline text", () => {
+    expect(source).toContain('if (ev.key === "Escape")');
+    expect(source).toContain("finish(true)");
+    expect(source).not.toContain("finish(false)");
+  });
+
+  it("lets forced document replacements bypass active inline text editing", () => {
+    expect(source).toContain("forceFullDocument?: boolean");
+    expect(source).toContain("if (activeTextEditEl && !forceFullDocument)");
+    expect(source).toContain("Boolean(e.data.forceFullDocument)");
+  });
+});

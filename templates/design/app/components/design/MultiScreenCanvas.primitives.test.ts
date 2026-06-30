@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  getBoardContentKey,
   getPrimitiveDropTargetForPoint,
   hasBoardSurfaceContent,
   ParsedScreenPrimitive,
@@ -110,6 +111,36 @@ describe("board surface pointer capture", () => {
     );
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "draw" })).toBe(
       false,
+    );
+  });
+
+  it("keeps the active board iframe content key stable across local edits", () => {
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: "<body><div>before</div></body>",
+        boardIsActive: true,
+      }),
+    ).toBe("board:active");
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: "<body><div>after</div></body>",
+        boardIsActive: true,
+      }),
+    ).toBe("board:active");
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: "<body><div>before</div></body>",
+        boardIsActive: false,
+      }),
+    ).not.toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: "<body><div>after</div></body>",
+        boardIsActive: false,
+      }),
     );
   });
 });

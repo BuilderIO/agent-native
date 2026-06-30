@@ -449,6 +449,15 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
+export function getBoardContentKey(args: {
+  boardFileId: string;
+  boardFileContent: string;
+  boardIsActive: boolean;
+}) {
+  if (args.boardIsActive) return `${args.boardFileId}:active`;
+  return `${args.boardFileId}:${args.boardFileContent.length}:${hashString(args.boardFileContent)}`;
+}
+
 function getChromeHandleTransition(chromeSettling: boolean) {
   return chromeSettling
     ? CHROME_HANDLE_SETTLE_TRANSITION
@@ -556,7 +565,6 @@ interface DraftPrimitiveInput {
   points?: Point[];
   moved: boolean;
   toolProps?: CanvasToolProps;
-  fallbackText: string;
 }
 
 interface MarqueeRect {
@@ -2367,7 +2375,6 @@ export function MultiScreenCanvas({
           points,
           moved: releaseMoved,
           toolProps,
-          fallbackText: t("designEditor.tools.text"),
         });
         commitDraftPrimitive(nextDraft, state.originFrameId);
         if (activeTool === undefined) {
@@ -2395,7 +2402,6 @@ export function MultiScreenCanvas({
       installDragListeners,
       onActiveToolChange,
       onCreateScreenFrame,
-      t,
       toolProps,
     ],
   );
@@ -3952,10 +3958,13 @@ export function MultiScreenCanvas({
               width: 8192,
               height: 8192,
             };
-            // Clamp board canvas to the DesignCanvas max safe dimension.
-            const boardW = Math.min(boardGeo.width, 16384);
-            const boardH = Math.min(boardGeo.height, 16384);
-            const boardContentKey = `${boardFileId}:${boardFileContent.length}:${hashString(boardFileContent)}`;
+            const boardW = boardGeo.width;
+            const boardH = boardGeo.height;
+            const boardContentKey = getBoardContentKey({
+              boardFileId,
+              boardFileContent,
+              boardIsActive,
+            });
             return (
               // Overflow-hidden wrapper so the board iframe never bleeds outside
               // its declared logical surface. z-index 0 keeps it below screen
@@ -5971,7 +5980,6 @@ function createDraftPrimitive({
   points,
   moved,
   toolProps,
-  fallbackText,
 }: DraftPrimitiveInput): DraftPrimitive {
   const id = createDraftId(tool);
   const geometry = moved

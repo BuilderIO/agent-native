@@ -17,6 +17,7 @@ import {
   IconAlignJustified,
   IconAlignLeft,
   IconAlignRight,
+  IconAngle,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
   IconArrowRight,
@@ -111,6 +112,7 @@ import { cn } from "@/lib/utils";
 
 import {
   AutoLayoutMatrix,
+  ConstraintsPreview,
   ConstraintsWidget,
   ExportSettingsPanel,
   DesignColorPicker,
@@ -156,10 +158,6 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
-  onAutoLayoutConvert?: (
-    targetNodeId: string,
-    opts?: { direction?: "row" | "column"; gap?: string },
-  ) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
   canEdit?: boolean;
@@ -1514,6 +1512,7 @@ function ScrubStyleInput({
   ariaLabel,
   tooltipLabel,
   hideIcon = true,
+  icon,
 }: {
   label: string;
   value: string;
@@ -1528,13 +1527,14 @@ function ScrubStyleInput({
   hideIcon?: boolean;
   ariaLabel?: string;
   tooltipLabel?: string;
+  icon?: (props: { className?: string }) => ReactNode;
 }) {
   return (
     <ScrubInput
       label={label}
       ariaLabel={ariaLabel}
       tooltipLabel={tooltipLabel}
-      icon={hideIcon ? null : undefined}
+      icon={hideIcon ? null : icon}
       value={value ? parseNumericValue(value) : (placeholder ?? 0)}
       onChange={onChange}
       unit={unit}
@@ -1544,7 +1544,7 @@ function ScrubStyleInput({
       precision={1}
       className="gap-0"
       labelClassName={cn(
-        "h-6 w-7 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] tabular-nums",
+        "h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] tabular-nums",
         labelClassName,
       )}
       inputClassName={cn(
@@ -3731,15 +3731,10 @@ function FlexContainerControls({
   element,
   onStyleChange,
   onStylesChange,
-  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
-  onAutoLayoutConvert?: (
-    targetNodeId: string,
-    opts?: { direction?: "row" | "column"; gap?: string },
-  ) => void;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -3782,29 +3777,6 @@ function FlexContainerControls({
     onStyleChange("display", "block");
   };
 
-  /**
-   * "Convert to auto layout" — enables flex on a non-flex container and strips
-   * position:absolute from direct children (full reflow via the autoLayout
-   * substrate intent). Falls back to a style-only patch when no substrate
-   * handler is wired (e.g. read-only or non-editable contexts).
-   */
-  const handleConvertToAutoLayout = () => {
-    if (onAutoLayoutConvert && element.sourceId) {
-      onAutoLayoutConvert(element.sourceId, { direction: "row", gap: "8px" });
-      return;
-    }
-    // Fallback: set display:flex on the parent only (no child strip).
-    commitStylePatch(
-      {
-        display: "flex",
-        flexDirection: "row",
-        gap: "8px",
-        alignItems: "flex-start",
-      },
-      onStyleChange,
-      onStylesChange,
-    );
-  };
   const padding = {
     top: parseNumericValue(styles.paddingTop || "0"),
     right: parseNumericValue(styles.paddingRight || "0"),
@@ -3847,19 +3819,6 @@ function FlexContainerControls({
 
   return (
     <div className="space-y-2">
-      {/* Convert to auto layout — shown when a childful container is not yet flex. */}
-      {!isFlex && hasLayoutChildren ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 w-full gap-1.5 text-[11px]"
-          onClick={handleConvertToAutoLayout}
-        >
-          <IconLayoutSettings className="size-3.5 shrink-0" />
-          {"Convert to auto layout" /* i18n-ignore design inspector action */}
-        </Button>
-      ) : null}
       <AutoLayoutMatrix
         value={autoLayoutValue}
         onDisplayChange={handleDisplayChange}
@@ -4047,15 +4006,10 @@ function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
-  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
-  onAutoLayoutConvert?: (
-    targetNodeId: string,
-    opts?: { direction?: "row" | "column"; gap?: string },
-  ) => void;
 }) {
   const t = useT();
   const flexChild = isParentFlex(element);
@@ -4148,7 +4102,6 @@ function LayoutContextProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
-        onAutoLayoutConvert={onAutoLayoutConvert}
       />
       {childControls}
     </PanelSection>
@@ -4476,7 +4429,7 @@ function PositionLayoutProperties({
 
       <div className="space-y-1.5">
         <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_1.75rem] gap-2">
           <ScrubStyleInput
             label="X"
             ariaLabel="X-position"
@@ -4495,6 +4448,46 @@ function PositionLayoutProperties({
             inputClassName="h-6"
             onChange={(v) => onStyleChange("top", `${Math.round(v)}px`)}
           />
+          {constrainedPosition ? (
+            <Popover>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={
+                        "Constraints" /* i18n-ignore design inspector action */
+                      }
+                      className={cn(
+                        "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors",
+                        "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                        "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                        "data-[state=open]:bg-[var(--design-editor-selection-color)] data-[state=open]:text-[var(--design-editor-accent-color)]",
+                      )}
+                    >
+                      <ConstraintsPreview value={constraintsValue} />
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Constraints" /* i18n-ignore design inspector tooltip */}
+                </TooltipContent>
+              </Tooltip>
+              <PopoverContent
+                align="end"
+                side="bottom"
+                sideOffset={6}
+                className="z-[260] w-64 rounded-lg border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-3 shadow-xl"
+              >
+                <ConstraintsWidget
+                  value={constraintsValue}
+                  onChange={handleConstraintsChange}
+                />
+              </PopoverContent>
+            </Popover>
+          ) : (
+            <span aria-hidden="true" className="size-7" />
+          )}
         </div>
       </div>
 
@@ -4503,7 +4496,12 @@ function PositionLayoutProperties({
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <ScrubStyleInput
-              label="R"
+              label="Rotation"
+              ariaLabel={t("editPanel.labels.rotation")}
+              tooltipLabel={t("editPanel.labels.rotation")}
+              hideIcon={false}
+              icon={IconAngle}
+              labelClassName="[&>span]:sr-only"
               value={`${parseRotationValue(styles.transform)}deg`}
               unit="deg"
               inputClassName="h-6"
@@ -4537,13 +4535,6 @@ function PositionLayoutProperties({
           </InspectorSegment>
         </div>
       </div>
-
-      {constrainedPosition ? (
-        <ConstraintsWidget
-          value={constraintsValue}
-          onChange={handleConstraintsChange}
-        />
-      ) : null}
     </PanelSection>
   );
 }
@@ -6250,7 +6241,6 @@ export function EditPanel({
   onRequestTweaks,
   onStyleChange,
   onStylesChange,
-  onAutoLayoutConvert,
   onExport,
   exporting = false,
   canEdit = true,
@@ -6458,7 +6448,6 @@ export function EditPanel({
                   element={selectedElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
-                  onAutoLayoutConvert={onAutoLayoutConvert}
                 />
                 <AppearanceProperties
                   element={selectedElement}

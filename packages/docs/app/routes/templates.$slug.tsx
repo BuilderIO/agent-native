@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -14,6 +14,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { isDocsLocale, sitePathForLocale } from "../components/docs-locale";
 import { TemplateDocsLink } from "../components/template-docs";
 import {
   templates,
@@ -30,7 +31,8 @@ function findTemplate(slug: string | undefined) {
 
 export function loader({ params }: LoaderFunctionArgs) {
   if (params.slug === "videos") {
-    throw redirect("/apps/video", 301);
+    const locale = isDocsLocale(params.locale) ? params.locale : undefined;
+    throw redirect(sitePathForLocale("/apps/video", locale), 301);
   }
   if (!findTemplate(params.slug)) {
     throw new Response("Not Found", { status: 404 });
@@ -130,13 +132,14 @@ export default function GenericTemplatePage() {
   const { slug } = useParams();
   const template = findTemplate(slug);
   const t = useT();
+  const { locale } = useLocale();
 
   if (!template) {
     return (
       <main className="mx-auto max-w-[900px] px-6 py-20">
         <Link
           data-an-prefetch="render"
-          to="/apps"
+          to={sitePathForLocale("/apps", locale)}
           className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
         >
           <IconArrowLeft size={16} />

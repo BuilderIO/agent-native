@@ -405,11 +405,12 @@ export function MotionDock({
   return (
     <div
       aria-label="Motion dock"
+      aria-hidden={!isOpen ? true : undefined}
       className={cn(
-        "flex flex-col overflow-hidden border-t bg-background transition-[height,opacity,transform,border-color] duration-200 ease-out select-none will-change-transform",
+        "relative flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background transition-[transform,border-color] duration-200 ease-out select-none will-change-transform",
         isOpen
           ? "translate-y-0 border-border opacity-100"
-          : "translate-y-full border-transparent opacity-100 pointer-events-none",
+          : "translate-y-full border-transparent pointer-events-none",
       )}
       style={{ height: dockHeight }}
     >

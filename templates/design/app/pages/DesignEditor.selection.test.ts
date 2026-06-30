@@ -7,6 +7,7 @@ import {
   getAvailableContentHistoryChanges,
   getFreshActiveFileContent,
   getFreshScreenContent,
+  getUndoRedoPriorityOrder,
   getContentHistoryChanges,
   getDesignEditorShareUrl,
   getLayerMoveIterationOrder,
@@ -126,6 +127,7 @@ describe("DesignEditor sidebar code layer selection", () => {
         currentViewMode: "overview",
         ownerFileId: "screen-a",
         overviewSelectedScreenIds: ["previous-screen"],
+        screenFileIds: ["screen-a", "screen-b"],
       }),
     ).toEqual({
       viewMode: "overview",
@@ -133,11 +135,27 @@ describe("DesignEditor sidebar code layer selection", () => {
     });
   });
 
+  it("clears screen selection when selecting a board layer in overview", () => {
+    expect(
+      getSidebarCodeLayerSelectionState({
+        currentViewMode: "overview",
+        ownerFileId: "board-file",
+        overviewSelectedScreenIds: ["screen-a"],
+        screenFileIds: ["screen-a", "screen-b"],
+      }),
+    ).toEqual({
+      viewMode: "overview",
+      overviewSelectedScreenIds: [],
+    });
+  });
+
   it("leaves single-screen selection state alone", () => {
     expect(
       getSidebarCodeLayerSelectionState({
         currentViewMode: "single",
+        ownerFileId: "board-file",
         overviewSelectedScreenIds: ["screen-a"],
+        screenFileIds: ["screen-a"],
       }),
     ).toEqual({
       viewMode: "single",
@@ -407,6 +425,23 @@ describe("DesignEditor layer move source snapshots", () => {
         fileContentById,
       }),
     ).toBe("other screen content");
+  });
+
+  it("does not use a stale active snapshot for a different active file", () => {
+    const fileContentById = new Map([
+      ["screen", "screen content"],
+      ["board", "board content"],
+    ]);
+
+    expect(
+      getFreshScreenContent({
+        screenId: "screen",
+        activeFileId: "screen",
+        freshActiveContentFileId: "board",
+        freshActiveContent: "stale board content",
+        fileContentById,
+      }),
+    ).toBe("screen content");
   });
 });
 
@@ -751,6 +786,19 @@ describe("DesignEditor undo order helpers", () => {
       ),
     ).toEqual([
       { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+    ]);
+  });
+
+  it("keeps active content and grouped file-content stacks distinct", () => {
+    expect(getUndoRedoPriorityOrder("file-content")).toEqual([
+      "file-content",
+      "content",
+      "geometry",
+    ]);
+    expect(getUndoRedoPriorityOrder("content")).toEqual([
+      "content",
+      "file-content",
+      "geometry",
     ]);
   });
 });

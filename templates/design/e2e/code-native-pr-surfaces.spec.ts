@@ -279,16 +279,25 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
   await expect
     .poll(
       async () => {
-        const [dockCount, launcherVisible, dockHeight] = await Promise.all([
+        const [dockCount, launcherVisible, dockState] = await Promise.all([
           page.locator('[aria-label="Motion dock"]').count(),
           expandMotionDockButton.isVisible(),
           page
             .locator('[aria-label="Motion dock"]')
             .first()
-            .evaluate((node) => (node as HTMLElement).style.height)
-            .catch(() => "missing"),
+            .evaluate((node) => {
+              const element = node as HTMLElement;
+              const style = window.getComputedStyle(element);
+              return { height: element.style.height, opacity: style.opacity };
+            })
+            .catch(() => null),
         ]);
-        return dockCount === 1 && launcherVisible && dockHeight !== "0px";
+        return (
+          dockCount === 1 &&
+          launcherVisible &&
+          dockState?.height !== "0px" &&
+          dockState?.opacity === "1"
+        );
       },
       { timeout: 150, intervals: [20, 20, 20, 20, 20] },
     )

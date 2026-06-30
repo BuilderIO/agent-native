@@ -32,6 +32,19 @@ interface VectorPrimitiveSummary {
   style: string;
 }
 
+interface TextEditingChromeSummary {
+  screenId: string | null;
+  editing: boolean;
+  active: boolean;
+  text: string;
+  overlayVisible: boolean;
+  visibleCornerHandles: number;
+  visibleEdgeHandles: number;
+  visibleRotateHandles: number;
+  outlineStyle: string;
+  outlineWidth: string;
+}
+
 async function postAction(
   request: APIRequestContext,
   actionName: string,
@@ -248,6 +261,78 @@ async function waitForTextEditing(page: Page): Promise<void> {
       { timeout: 10_000 },
     )
     .toBeGreaterThan(0);
+}
+
+async function textEditingChromeSummary(
+  page: Page,
+): Promise<TextEditingChromeSummary | null> {
+  const snapshots = await page
+    .locator("iframe[data-design-preview-iframe]")
+    .evaluateAll((iframes) =>
+      iframes.map((iframe) => {
+        const frame = iframe as HTMLIFrameElement;
+        const doc = frame.contentDocument;
+        const win = frame.contentWindow;
+        const editing = doc?.querySelector(
+          "[data-agent-native-text-editing]",
+        ) as HTMLElement | null;
+        const overlay = doc?.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        ) as HTMLElement | null;
+        const isVisible = (element: Element) => {
+          const style = win?.getComputedStyle(element);
+          return (
+            !!style &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || 1) > 0
+          );
+        };
+        const countVisible = (selector: string) =>
+          Array.from(doc?.querySelectorAll(selector) ?? []).filter(isVisible)
+            .length;
+        const outline = editing ? win?.getComputedStyle(editing) : null;
+        return {
+          screenId: frame.dataset.screenIframeId ?? null,
+          editing: !!editing,
+          active: !!editing && doc?.activeElement === editing,
+          text: editing?.textContent ?? "",
+          overlayVisible: !!overlay && isVisible(overlay),
+          visibleCornerHandles: countVisible("[data-agent-native-edit-handle]"),
+          visibleEdgeHandles: countVisible("[data-agent-native-edge-handle]"),
+          visibleRotateHandles: countVisible(
+            "[data-agent-native-rotate-handle]",
+          ),
+          outlineStyle: outline?.outlineStyle ?? "",
+          outlineWidth: outline?.outlineWidth ?? "",
+        };
+      }),
+    );
+  return (
+    snapshots.find((snapshot) => snapshot.editing) ??
+    snapshots.find((snapshot) => snapshot.overlayVisible) ??
+    null
+  );
+}
+
+async function waitForTextChrome(
+  page: Page,
+  predicate: (summary: TextEditingChromeSummary) => boolean,
+): Promise<TextEditingChromeSummary> {
+  await expect
+    .poll(
+      async () => {
+        const summary = await textEditingChromeSummary(page);
+        return summary && predicate(summary) ? summary : null;
+      },
+      { timeout: 20_000 },
+    )
+    .not.toBeNull();
+  const summary = await textEditingChromeSummary(page);
+  if (!summary || !predicate(summary)) {
+    throw new Error(`Text editing chrome did not reach expected state`);
+  }
+  return summary;
 }
 
 async function replaceActiveText(page: Page, text: string): Promise<void> {
@@ -502,6 +587,72 @@ test("click text creates auto-width text and survives reload", async ({
   await expect
     .poll(async () => fileContent(page, "index.html"), { timeout: 20_000 })
     .toContain(text);
+});
+
+test("board text focuses immediately and uses editing chrome states", async ({
+  page,
+}) => {
+  const text = `Board text ${Date.now()}`;
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect
+    .poll(
+      async () =>
+        (await designFiles(page)).some(
+          (file) => file.filename === "__board__.html",
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+
+  const aboutCardBox = await screenShell(page, "About")
+    .locator("[data-screen-card]")
+    .boundingBox();
+  if (!aboutCardBox) throw new Error("no about screen card box");
+
+  await page.keyboard.press("t");
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.mouse.click(
+    aboutCardBox.x + aboutCardBox.width + 80,
+    aboutCardBox.y + 120,
+  );
+
+  const emptyChrome = await waitForTextChrome(
+    page,
+    (summary) => summary.editing && summary.active && summary.text === "",
+  );
+  expect(emptyChrome.screenId).toBeNull();
+  expect(emptyChrome.overlayVisible).toBe(false);
+  expect(emptyChrome.visibleCornerHandles).toBe(0);
+  expect(emptyChrome.outlineStyle).toBe("none");
+
+  await page.keyboard.type(text);
+  const typedChrome = await waitForTextChrome(
+    page,
+    (summary) =>
+      summary.editing && summary.text === text && summary.overlayVisible,
+  );
+  expect(typedChrome.visibleCornerHandles).toBe(0);
+  expect(typedChrome.visibleEdgeHandles).toBe(0);
+  expect(typedChrome.visibleRotateHandles).toBe(0);
+
+  await page.keyboard.press("Escape");
+  const selectedChrome = await waitForTextChrome(
+    page,
+    (summary) => !summary.editing && summary.overlayVisible,
+  );
+  expect(selectedChrome.visibleCornerHandles).toBe(4);
+
+  const primitive = await waitForTextPrimitive(page, "__board__.html", text);
+  expect(primitive.text).toBe(text);
 });
 
 test("drag text creates bounded text", async ({ page }) => {

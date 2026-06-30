@@ -906,7 +906,7 @@ function GapField({
           precision={1}
           disabled={disabled}
           className="min-w-0 flex-1 gap-0"
-          labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md text-muted-foreground [&>span]:hidden"
+          labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
           inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
         />
         {onDistribute != null ? (
@@ -1021,7 +1021,7 @@ function PaddingField({
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md text-muted-foreground [&>span]:hidden"
+        labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
         inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
       />
     </div>
@@ -1251,7 +1251,7 @@ export function SizingField({
               precision={0}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
-              labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md px-0 text-muted-foreground"
+              labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
               inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
             />
             {/* Caret opens the mode picker */}

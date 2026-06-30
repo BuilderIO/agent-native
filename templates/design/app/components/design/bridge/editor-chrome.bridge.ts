@@ -811,12 +811,19 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     html: string,
     preferredSelector: string,
     selectorCandidates: string[],
+    forceFullDocument?: boolean,
   ): void {
     if (typeof html !== "string") return;
-    if (activeTextEditEl) {
+    if (activeTextEditEl && !forceFullDocument) {
       applyHiddenSelectors();
       refreshOverlays();
       return;
+    }
+    if (activeTextEditEl) {
+      postTextEditingState(activeTextEditEl, false);
+      activeTextEditEl = null;
+      setTextEditingPointerPassthrough(false);
+      setSelectionOverlayResizeChromeVisible(true);
     }
     var parser = new DOMParser();
     var nextDoc = parser.parseFromString(html, "text/html");
@@ -1976,16 +1983,19 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
   function updateTextEditingChrome(
     target: HTMLElement,
     originalMinWidth: string,
+    originalMinHeight: string,
   ): void {
     target.style.outline = "";
     target.style.outlineOffset = "";
     if (hasTextCharacters(target)) {
       target.style.minWidth = originalMinWidth;
+      target.style.minHeight = originalMinHeight;
       positionOverlay(selectionOverlay, target);
       setSelectionOverlayResizeChromeVisible(false);
       return;
     }
     target.style.minWidth = originalMinWidth || "1px";
+    target.style.minHeight = originalMinHeight || "1em";
     selectionOverlay.style.display = "none";
     setSelectionOverlayResizeChromeVisible(false);
   }
@@ -3525,13 +3535,16 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     var originalText = target.textContent || "";
     var originalHtml = target.innerHTML || "";
     var originalMinWidth = target.style.minWidth;
+    var originalMinHeight = target.style.minHeight;
+    var originalBorderColor = target.style.borderColor;
     var committed = false;
     activeTextEditEl = target;
     target.setAttribute("contenteditable", "true");
     target.setAttribute("data-agent-native-text-editing", "true");
     target.style.cursor = "text";
+    target.style.borderColor = "transparent";
     setTextEditingPointerPassthrough(true);
-    updateTextEditingChrome(target, originalMinWidth);
+    updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
     (window.parent as Window).postMessage(
       { type: "element-select", payload: getElementInfo(target) },
       "*",
@@ -3558,6 +3571,8 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       target.style.outline = "";
       target.style.outlineOffset = "";
       target.style.minWidth = originalMinWidth;
+      target.style.minHeight = originalMinHeight;
+      target.style.borderColor = originalBorderColor;
       setTextEditingPointerPassthrough(false);
       setSelectionOverlayResizeChromeVisible(true);
       if (activeTextEditEl === target) activeTextEditEl = null;
@@ -3598,17 +3613,17 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       insertPlainTextAtSelection(
         (ev.clipboardData && ev.clipboardData.getData("text/plain")) || "",
       );
-      updateTextEditingChrome(target, originalMinWidth);
+      updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
       postTextEditingState(target, true);
     }
 
     function onInput() {
-      updateTextEditingChrome(target, originalMinWidth);
+      updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
       postTextEditingState(target, true);
     }
 
     function onSelectionChange() {
-      updateTextEditingChrome(target, originalMinWidth);
+      updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
       postTextEditingState(target, true);
     }
 
@@ -3981,6 +3996,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
         e.data.content,
         e.data.forceFullDocument ? "" : e.data.selectedSelector,
         e.data.forceFullDocument ? [] : e.data.selectorCandidates,
+        Boolean(e.data.forceFullDocument),
       );
       return;
     }

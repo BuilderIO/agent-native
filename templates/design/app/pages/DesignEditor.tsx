@@ -268,8 +268,9 @@ const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
 const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const MOTION_DOCK_TRANSITION_MS = 200;
+const MOTION_DOCK_UNMOUNT_DELAY_MS = MOTION_DOCK_TRANSITION_MS + 120;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
-const BOARD_SURFACE_SIZE = 16384;
+const BOARD_SURFACE_SIZE = 131_072;
 /** Extensions that the localhost bridge allows to be written back to source. */
 const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
 const NO_LOCALHOST_WRITE_CONTENT_MESSAGE =
@@ -381,14 +382,26 @@ export function getSidebarCodeLayerSelectionState(args: {
   currentViewMode: "single" | "overview";
   ownerFileId?: string | null;
   overviewSelectedScreenIds: string[];
+  screenFileIds?: string[];
 }) {
-  const { currentViewMode, ownerFileId, overviewSelectedScreenIds } = args;
+  const {
+    currentViewMode,
+    ownerFileId,
+    overviewSelectedScreenIds,
+    screenFileIds,
+  } = args;
+  const ownerScreenId =
+    ownerFileId && (!screenFileIds || screenFileIds.includes(ownerFileId))
+      ? ownerFileId
+      : null;
   return {
     viewMode: currentViewMode,
     overviewSelectedScreenIds:
-      currentViewMode === "overview" && ownerFileId
-        ? [ownerFileId]
-        : overviewSelectedScreenIds,
+      currentViewMode === "overview" && ownerScreenId
+        ? [ownerScreenId]
+        : currentViewMode === "overview" && ownerFileId
+          ? []
+          : overviewSelectedScreenIds,
   };
 }
 
@@ -485,10 +498,14 @@ export function getFreshActiveFileContent(args: {
 export function getFreshScreenContent(args: {
   screenId: string;
   activeFileId?: string | null;
+  freshActiveContentFileId?: string | null;
   freshActiveContent: string;
   fileContentById: ReadonlyMap<string, string>;
 }) {
-  return args.screenId === args.activeFileId
+  const freshActiveContentFileId =
+    args.freshActiveContentFileId ?? args.activeFileId;
+  return args.screenId === args.activeFileId &&
+    args.screenId === freshActiveContentFileId
     ? args.freshActiveContent
     : (args.fileContentById.get(args.screenId) ?? "");
 }
@@ -507,12 +524,15 @@ export function removeUndoRedoOrderKind<T extends string>(
   return order.filter((entry) => entry !== kind);
 }
 
-type UndoRedoOrderKind = "content" | "file-content" | "geometry";
+export type UndoRedoOrderKind = "content" | "file-content" | "geometry";
 
-function isContentUndoRedoOrderKind(
-  kind: UndoRedoOrderKind | undefined,
-): kind is "content" | "file-content" {
-  return kind === "content" || kind === "file-content";
+export function getUndoRedoPriorityOrder(
+  preferred: UndoRedoOrderKind | undefined,
+): UndoRedoOrderKind[] {
+  if (preferred === "geometry") return ["geometry", "content", "file-content"];
+  if (preferred === "file-content")
+    return ["file-content", "content", "geometry"];
+  return ["content", "file-content", "geometry"];
 }
 
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
@@ -1663,7 +1683,7 @@ function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
       element.style.overflow = "hidden";
     } else if (primitive.kind === "text") {
-      element.textContent = primitive.text ?? "Text";
+      element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
       if (!primitive.autoSize) {
         element.style.alignItems = "center";
@@ -3875,7 +3895,7 @@ export default function DesignEditor() {
       motionDockUnmountTimerRef.current = window.setTimeout(() => {
         setMotionDockMounted(false);
         motionDockUnmountTimerRef.current = null;
-      }, MOTION_DOCK_TRANSITION_MS);
+      }, MOTION_DOCK_UNMOUNT_DELAY_MS);
     },
     [clearMotionDockUnmountTimer],
   );
@@ -4329,8 +4349,9 @@ export default function DesignEditor() {
     pendingQuestions && pendingQuestions.length > 0,
   );
 
-  const { session } = useSession();
+  const { session, isLoading: sessionLoading } = useSession();
   const isSignedIn = Boolean(session?.email);
+  const sessionResolved = !sessionLoading;
 
   useEffect(() => {
     return () => clearGenerationCompleteTimer();
@@ -6554,11 +6575,8 @@ export default function DesignEditor() {
       getFreshScreenContent({
         screenId,
         activeFileId: activeFile?.id,
-        freshActiveContent: getFreshActiveFileContent({
-          activeContent,
-          latestContent: latestActiveContentRef.current,
-          lastLocalContent: lastLocalContentRef.current,
-        }),
+        freshActiveContentFileId: activeFile?.id,
+        freshActiveContent: activeContent,
         fileContentById,
       }),
     [activeContent, activeFile?.id, fileContentById],
@@ -6903,7 +6921,11 @@ export default function DesignEditor() {
   );
 
   const replacePreviewContent = useCallback(
-    (nextContent: string, selector?: string | null) => {
+    (
+      nextContent: string,
+      selector?: string | null,
+      options: { forceFullDocument?: boolean } = {},
+    ) => {
       const replaceContent = (window as any).__designCanvasReplaceContent;
       if (typeof replaceContent !== "function") return false;
       return Boolean(
@@ -6911,7 +6933,9 @@ export default function DesignEditor() {
           nextContent,
           selector ?? selectedCanvasSelector,
           selectedCanvasSelectorCandidates,
-          selectedElement?.sourceId ?? selectedElement?.id,
+          {
+            forceFullDocument: options.forceFullDocument === true,
+          },
         ),
       );
     },
@@ -6938,6 +6962,7 @@ export default function DesignEditor() {
       options: {
         refreshPreview?: boolean;
         skipPreview?: boolean;
+        forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
@@ -7014,8 +7039,18 @@ export default function DesignEditor() {
         ? true
         : forceRefresh
           ? false
-          : replacePreviewContent(nextContent);
-      if (forceRefresh || !replacedPreview) {
+          : replacePreviewContent(
+              nextContent,
+              null,
+              options.forcePreviewFullDocument
+                ? { forceFullDocument: true }
+                : undefined,
+            );
+      if (
+        forceRefresh ||
+        options.forcePreviewFullDocument ||
+        !replacedPreview
+      ) {
         setContentRenderRevision((revision) => revision + 1);
       }
       if (ydoc && isSynced) {
@@ -7062,6 +7097,7 @@ export default function DesignEditor() {
       options: {
         refreshPreview?: boolean;
         skipPreview?: boolean;
+        forcePreviewFullDocument?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         updatedAt?: string;
@@ -7341,7 +7377,10 @@ export default function DesignEditor() {
         : null;
 
       if (targetFile.id === activeFile?.id) {
-        applyLocalContentUpdate(nextContent, { immediateSave: true });
+        applyLocalContentUpdate(nextContent, {
+          forcePreviewFullDocument: true,
+          immediateSave: true,
+        });
       } else {
         recordContentHistoryEntry({
           fileId: targetFile.id,
@@ -9327,7 +9366,9 @@ export default function DesignEditor() {
         });
         if (result) {
           pasteCascadeRef.current += 1;
-          applyLocalContentUpdate(result.content);
+          applyLocalContentUpdate(result.content, {
+            forcePreviewFullDocument: true,
+          });
           selectInsertedLayers(
             activeFile.id,
             result.content,
@@ -9379,7 +9420,9 @@ export default function DesignEditor() {
       });
       if (!result) return;
       if (!position) pasteCascadeRef.current += 1;
-      applyLocalContentUpdate(result.content);
+      applyLocalContentUpdate(result.content, {
+        forcePreviewFullDocument: true,
+      });
       selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
     },
     [
@@ -9411,7 +9454,9 @@ export default function DesignEditor() {
         },
       );
       if (!result) return;
-      applyLocalContentUpdate(result.content);
+      applyLocalContentUpdate(result.content, {
+        forcePreviewFullDocument: true,
+      });
       selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
     } else {
       handlePasteSelection();
@@ -9462,7 +9507,10 @@ export default function DesignEditor() {
           insertedRootNodeIds.unshift(...result.rootNodeIds);
         }
         if (insertedRootNodeIds.length === 0) continue;
-        applyFileContentUpdate(file.id, content, { refreshPreview: false });
+        applyFileContentUpdate(file.id, content, {
+          forcePreviewFullDocument: true,
+          refreshPreview: false,
+        });
         selectedScreenIds.push(file.id);
         const finalProjection = buildCodeLayerProjection(content);
         insertedRootNodeIds.forEach((rootNodeId) => {
@@ -9527,7 +9575,9 @@ export default function DesignEditor() {
         placement: "after",
       });
       if (nextContent) {
-        applyLocalContentUpdate(nextContent);
+        applyLocalContentUpdate(nextContent, {
+          forcePreviewFullDocument: true,
+        });
       } else {
         toast.error(t("designEditor.toasts.duplicateElementFailed"));
       }
@@ -9737,57 +9787,6 @@ export default function DesignEditor() {
     selectedLayerIdsState,
     t,
   ]);
-
-  /**
-   * Convert the selected container to full auto-layout. Applies the
-   * { kind: "autoLayout", enabled: true } substrate intent which sets
-   * display:flex on the target AND strips position:absolute/left/top/right/bottom
-   * from its direct children so they become flow children.
-   */
-  const handleAutoLayoutConvert = useCallback(
-    (
-      targetNodeId: string,
-      opts?: { direction?: "row" | "column"; gap?: string },
-    ) => {
-      if (!canEditDesign || !activeFile) return;
-      const baseContent = getFreshActiveContent();
-      const patch = applyVisualEdit(baseContent, {
-        kind: "autoLayout",
-        targetId: targetNodeId,
-        enabled: true,
-        direction: opts?.direction ?? "row",
-        gap: opts?.gap ?? "8px",
-      });
-      if (patch.result.status !== "applied") {
-        toast.error(
-          codeLayerPatchMessage(
-            patch.result.message,
-            t("designEditor.toasts.layerMoveFailed"),
-          ),
-          { duration: 4000 },
-        );
-        return;
-      }
-      applyLocalContentUpdate(patch.content, { skipPreview: true });
-      // Re-select the container so the inspector refreshes its layout state.
-      const containerNode = patch.projection.nodes.find(
-        (n) =>
-          n.dataAttributes["data-agent-native-node-id"] === targetNodeId ||
-          n.id === targetNodeId,
-      );
-      if (containerNode) {
-        setSelectedLayerIdsState([containerNode.id]);
-        setSelectedElement(elementInfoFromCodeLayerNode(containerNode));
-      }
-    },
-    [
-      activeFile,
-      applyLocalContentUpdate,
-      canEditDesign,
-      getFreshActiveContent,
-      t,
-    ],
-  );
 
   /**
    * Handle a primitive being drag-dropped onto another primitive in the
@@ -10268,7 +10267,7 @@ export default function DesignEditor() {
   const handleUndo = useCallback(() => {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
-    const undoContent = () => {
+    const undoActiveContent = () => {
       if (um?.canUndo()) {
         um.undo();
         if (ydoc && activeFile) {
@@ -10282,9 +10281,8 @@ export default function DesignEditor() {
           queueFileContentSave(activeFile.id, next, {
             syncCollab: !(ydoc && isSynced),
           });
-          if (!replacePreviewContent(next)) {
-            setContentRenderRevision((revision) => revision + 1);
-          }
+          replacePreviewContent(next, null, { forceFullDocument: true });
+          setContentRenderRevision((revision) => revision + 1);
           // Clear stale selection if the undo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
@@ -10301,7 +10299,10 @@ export default function DesignEditor() {
         ];
         return true;
       }
+      return false;
+    };
 
+    const undoFileContent = () => {
       const entry =
         contentUndoStackRef.current[contentUndoStackRef.current.length - 1];
       if (!entry) return false;
@@ -10326,6 +10327,7 @@ export default function DesignEditor() {
           if (change.fileId === activeFile?.id) {
             applyLocalContentUpdate(change.before, {
               refreshPreview: false,
+              forcePreviewFullDocument: true,
               immediateSave: true,
               recordHistory: false,
             });
@@ -10374,13 +10376,13 @@ export default function DesignEditor() {
       return true;
     };
 
+    const undoByKind = (kind: UndoRedoOrderKind) => {
+      if (kind === "geometry") return undoGeometry();
+      if (kind === "file-content") return undoFileContent();
+      return undoActiveContent();
+    };
     const preferred = historyOrderRef.current.pop();
-    const didUndo =
-      preferred === "geometry"
-        ? undoGeometry() || undoContent()
-        : isContentUndoRedoOrderKind(preferred)
-          ? undoContent() || undoGeometry()
-          : undoContent() || undoGeometry();
+    const didUndo = getUndoRedoPriorityOrder(preferred).some(undoByKind);
     if (didUndo) {
       syncUndoRedoState();
     }
@@ -10402,7 +10404,7 @@ export default function DesignEditor() {
   const handleRedo = useCallback(() => {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
-    const redoContent = () => {
+    const redoActiveContent = () => {
       if (um?.canRedo()) {
         um.redo();
         if (ydoc && activeFile) {
@@ -10416,9 +10418,8 @@ export default function DesignEditor() {
           queueFileContentSave(activeFile.id, next, {
             syncCollab: !(ydoc && isSynced),
           });
-          if (!replacePreviewContent(next)) {
-            setContentRenderRevision((revision) => revision + 1);
-          }
+          replacePreviewContent(next, null, { forceFullDocument: true });
+          setContentRenderRevision((revision) => revision + 1);
           // Clear stale selection if the redo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
@@ -10435,7 +10436,10 @@ export default function DesignEditor() {
         ];
         return true;
       }
+      return false;
+    };
 
+    const redoFileContent = () => {
       const entry =
         contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
       if (!entry) return false;
@@ -10460,6 +10464,7 @@ export default function DesignEditor() {
           if (change.fileId === activeFile?.id) {
             applyLocalContentUpdate(change.after, {
               refreshPreview: false,
+              forcePreviewFullDocument: true,
               immediateSave: true,
               recordHistory: false,
             });
@@ -10508,13 +10513,13 @@ export default function DesignEditor() {
       return true;
     };
 
+    const redoByKind = (kind: UndoRedoOrderKind) => {
+      if (kind === "geometry") return redoGeometry();
+      if (kind === "file-content") return redoFileContent();
+      return redoActiveContent();
+    };
     const preferred = redoOrderRef.current.pop();
-    const didRedo =
-      preferred === "geometry"
-        ? redoGeometry() || redoContent()
-        : isContentUndoRedoOrderKind(preferred)
-          ? redoContent() || redoGeometry()
-          : redoContent() || redoGeometry();
+    const didRedo = getUndoRedoPriorityOrder(preferred).some(redoByKind);
     if (didRedo) {
       syncUndoRedoState();
     }
@@ -12926,7 +12931,9 @@ ${serializedHtml}
           : [...currentLayerIds, intent.id];
         setSelectedLayerIdsState(additiveLayerIds);
         if (viewModeRef.current === "overview") {
-          const fileIds = files.map((file) => file.id);
+          const fileIds = files
+            .filter((file) => !isBoardFile(file.filename))
+            .map((file) => file.id);
           const selectedScreenIds = getOverviewScreenIdsFromLayerSelection({
             fileIds,
             layerIds: additiveLayerIds,
@@ -12947,8 +12954,14 @@ ${serializedHtml}
       }
       const codeLayerOwner = codeLayerOwnerByNodeId.get(selectedId);
       if (codeLayerOwner) {
+        const screenFileIds = files
+          .filter((file) => !isBoardFile(file.filename))
+          .map((file) => file.id);
+        const ownerIsScreenFile = screenFileIds.includes(codeLayerOwner.fileId);
         if (viewModeRef.current === "overview") {
-          pendingOverviewScreenSelectionRef.current = codeLayerOwner.fileId;
+          pendingOverviewScreenSelectionRef.current = ownerIsScreenFile
+            ? codeLayerOwner.fileId
+            : null;
           pendingOverviewLayerSelectionRef.current = selectedId;
         }
         if (codeLayerOwner.fileId !== activeFile?.id) {
@@ -12958,6 +12971,7 @@ ${serializedHtml}
           currentViewMode: viewModeRef.current,
           ownerFileId: codeLayerOwner.fileId,
           overviewSelectedScreenIds,
+          screenFileIds,
         });
         viewModeRef.current = nextSelectionState.viewMode;
         setViewMode(nextSelectionState.viewMode);
@@ -12988,7 +13002,9 @@ ${serializedHtml}
       const fileId = selectedId.startsWith("code:")
         ? selectedId.slice("code:".length)
         : selectedId;
-      if (files.some((file) => file.id === fileId)) {
+      if (
+        files.some((file) => file.id === fileId && !isBoardFile(file.filename))
+      ) {
         setOverviewSelectedScreenIds([fileId]);
         setActiveFileId(fileId);
         setSelectedElement(null);
@@ -13598,7 +13614,6 @@ ${serializedHtml}
             className="h-8 max-w-[13rem] cursor-pointer gap-1.5 truncate rounded-md bg-[var(--design-editor-panel-raised-bg)] px-2 text-xs shadow-none"
             aria-label={t("designEditor.signUpToSave")}
           >
-            <IconDeviceFloppy className="size-4 shrink-0" />
             <span className="truncate">{t("designEditor.signUpToSave")}</span>
           </Button>
         </TooltipTrigger>
@@ -13615,7 +13630,6 @@ ${serializedHtml}
             className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
           >
             <span>{t("designEditor.share")}</span>
-            <IconArrowUpRight className="size-4 shrink-0" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>{t("designEditor.signUpToShare")}</TooltipContent>
@@ -13770,9 +13784,9 @@ ${serializedHtml}
               popoverClassName={designSharePopoverClassName}
               triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
             />
-          ) : (
+          ) : sessionResolved ? (
             signedOutPersistenceActions
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -14194,7 +14208,7 @@ ${serializedHtml}
                 popoverClassName={designSharePopoverClassName}
                 triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
               />
-            ) : !embedded ? (
+            ) : !embedded && sessionResolved ? (
               signedOutPersistenceActions
             ) : null}
           </div>
@@ -14785,7 +14799,7 @@ ${serializedHtml}
                             editorChromeScaleY={overviewCanvasZoom / 100}
                             editMode={mode === "edit"}
                             interactMode={false}
-                            readOnly={!screenIsActive || !canEditDesign}
+                            readOnly={!canEditDesign}
                             scaleMode={screenIsActive && activeTool === "scale"}
                             clearSelectionRequest={
                               overviewClearSelectionRequest
@@ -15088,7 +15102,6 @@ ${serializedHtml}
                   onRequestTweaks={handleRequestTweaks}
                   onStyleChange={handleStyleChange}
                   onStylesChange={handleStylesChange}
-                  onAutoLayoutConvert={handleAutoLayoutConvert}
                   onExport={handleInspectorExport}
                   exporting={pngExporting || svgExporting}
                   designId={id}
