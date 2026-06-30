@@ -66,6 +66,31 @@ async function setScrubInput(
   await input.press("Enter");
 }
 
+async function dragScrubInputLabel(
+  scope: Page | Locator,
+  label: string,
+  dx: number,
+): Promise<void> {
+  const input = scope.locator(`input[aria-label="${cssAttrValue(label)}" i]`);
+  await expect(input).toBeVisible();
+  const id = await input.first().getAttribute("id");
+  if (!id) throw new Error(`missing input id for ${label}`);
+  const scrubLabel = scope.locator(`label[for="${cssAttrValue(id)}"]`);
+  await expect(scrubLabel).toBeVisible();
+  const box = await scrubLabel.first().boundingBox();
+  if (!box) throw new Error(`missing scrub label box for ${label}`);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await pageMouse(scope).move(x, y);
+  await pageMouse(scope).down();
+  await pageMouse(scope).move(x + dx, y, { steps: 8 });
+  await pageMouse(scope).up();
+}
+
+function pageMouse(scope: Page | Locator): Page["mouse"] {
+  return "mouse" in scope ? scope.mouse : scope.page().mouse;
+}
+
 function cssAttrValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -222,6 +247,30 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
       selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
     )
     .toBe("2px");
+});
+
+test("numeric scrub handles use terse tooltips and drag from compact labels", async ({
+  page,
+}) => {
+  await selectByText(page, "Alpha Button");
+  const input = page.locator('input[aria-label="X-position" i]');
+  await expect(input).toBeVisible();
+  const initial = parseFloat(await input.inputValue());
+
+  const id = await input.first().getAttribute("id");
+  expect(id).toBeTruthy();
+  const label = page.locator(`label[for="${cssAttrValue(id!)}"]`);
+  await label.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("X-position");
+
+  await dragScrubInputLabel(page, "X-position", 16);
+
+  await expect
+    .poll(async () => parseFloat(await input.inputValue()))
+    .toBeGreaterThan(initial);
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
+    .toMatch(/px$/);
 });
 
 test("export rows add, remove, and reset when selection changes", async ({

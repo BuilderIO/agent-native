@@ -374,6 +374,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 
   function selectionTargetForHit(hit) {
     if (!hit || isDocumentRootElement(hit)) return hit;
+    if (selectedEl && hit !== selectedEl && selectedEl.contains(hit)) return hit;
     if (hasStableOwnSource(hit)) return hit;
     return closestStableSourceElement(hit) || hit;
   }
@@ -573,7 +574,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 
   var selectionOverlay = document.createElement('div');
   selectionOverlay.setAttribute('data-agent-native-edit-overlay', 'selection');
-  selectionOverlay.style.cssText = 'position:fixed;pointer-events:auto;z-index:99998;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;cursor:pointer;';
+  selectionOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99998;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;cursor:default;';
   ['n','e','s','w'].forEach(function(pos) {
     var edge = document.createElement('span');
     edge.setAttribute('data-agent-native-edge-handle', pos);

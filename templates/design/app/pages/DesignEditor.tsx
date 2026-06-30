@@ -4316,7 +4316,10 @@ export default function DesignEditor() {
   // Collaborative editing for the active file
   const { ydoc, awareness, isSynced, activeUsers, agentActive } =
     useCollaborativeDoc({
-      docId: isSignedIn && canEditDesign ? activeFileId : null,
+      docId:
+        isSignedIn && canEditDesign && viewMode === "single"
+          ? activeFileId
+          : null,
       requestSource: TAB_ID,
       user: currentUser,
     });
@@ -4374,6 +4377,15 @@ export default function DesignEditor() {
 
   // Reset per-file reconcile state when switching files
   useEffect(() => {
+    if (viewMode === "overview") {
+      prevActiveFileIdRef.current = activeFileId;
+      setCollabContent(null);
+      setCollabContentFileId(null);
+      lastAppliedFileUpdatedAtRef.current = null;
+      lastLocalContentRef.current = null;
+      clearStaleAgentCollabRecovery();
+      return;
+    }
     if (activeFileId !== prevActiveFileIdRef.current) {
       prevActiveFileIdRef.current = activeFileId;
       setCollabContent(null);
@@ -4382,7 +4394,7 @@ export default function DesignEditor() {
       lastLocalContentRef.current = null;
       clearStaleAgentCollabRecovery();
     }
-  }, [activeFileId, clearStaleAgentCollabRecovery]);
+  }, [activeFileId, clearStaleAgentCollabRecovery, viewMode]);
 
   useEffect(() => {
     return clearStaleAgentCollabRecovery;
@@ -4789,7 +4801,8 @@ export default function DesignEditor() {
   // Resolve the content to render: prefer collab content only after the
   // per-file reconcile state has reset for the current active file. Otherwise a
   // file switch can render one frame with the previous file's Yjs text.
-  const activeCollabFileReady = activeFileId === prevActiveFileIdRef.current;
+  const activeCollabFileReady =
+    viewMode === "single" && activeFileId === prevActiveFileIdRef.current;
   const activeContent =
     activeCollabFileReady &&
     collabContentFileId === activeFile?.id &&
@@ -8111,6 +8124,7 @@ ${serializedHtml}
   };
 
   useEffect(() => {
+    if (viewMode === "overview") return;
     if (!activeFile || !activeContent.trim()) return;
     const stamped = ensureCodeLayerNodeIdsInHtml(activeContent, {
       source: {
@@ -8122,7 +8136,7 @@ ${serializedHtml}
     });
     if (!stamped.changed || stamped.content === activeContent) return;
     applyLocalContentUpdate(stamped.content);
-  }, [activeContent, activeFile, applyLocalContentUpdate, id]);
+  }, [activeContent, activeFile, applyLocalContentUpdate, id, viewMode]);
   const activeCodeLayerTree = useMemo(
     () => buildCodeLayerTree(activeCodeLayerProjection),
     [activeCodeLayerProjection],

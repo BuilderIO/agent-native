@@ -110,8 +110,25 @@ test("screen overview lets users select elements inside the active screen", asyn
     .locator("[data-screen-card]")
     .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
     .first();
+  const activeScreenShell = page
+    .locator("[data-frame-shell]")
+    .filter({ has: activeScreenCard })
+    .first();
+  const frameTitle = activeScreenShell.locator("[data-frame-title]");
+  const accentColor = await activeScreenCard.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--design-editor-accent-color)";
+    document.body.appendChild(probe);
+    const color = window.getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  const frameTitleColor = () =>
+    frameTitle.evaluate((el) => window.getComputedStyle(el).color);
+
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await waitForBridge(page, "element-hover");
+  await expect.poll(frameTitleColor).not.toBe(accentColor);
   await expect
     .poll(() =>
       activeScreenCard
@@ -126,6 +143,19 @@ test("screen overview lets users select elements inside the active screen", asyn
         .evaluate((el) => window.getComputedStyle(el).opacity),
     )
     .toBe("0");
+
+  await frameTitle.hover();
+  await expect.poll(frameTitleColor).toBe(accentColor);
+  await expect
+    .poll(() =>
+      activeScreenCard
+        .locator("[data-screen-hover-outline]")
+        .evaluate((el) => window.getComputedStyle(el).opacity),
+    )
+    .toBe("1");
+
+  await frameTitle.click();
+  await expect.poll(frameTitleColor).toBe(accentColor);
   await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 
   const selected = await waitForBridge(page, "element-select");

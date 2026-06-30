@@ -926,8 +926,6 @@ function PropSlider({
   );
 }
 
-const EmptyScrubIcon = () => null;
-
 /**
  * design-editor inspector section. Matches the design editor "Design" panel chrome:
  *   - NO left collapse chevron (the design editor uses none).
@@ -1389,6 +1387,8 @@ function ScrubStyleInput({
   step = 1,
   labelClassName,
   inputClassName,
+  ariaLabel,
+  tooltipLabel,
   hideIcon = true,
 }: {
   label: string;
@@ -1402,11 +1402,15 @@ function ScrubStyleInput({
   labelClassName?: string;
   inputClassName?: string;
   hideIcon?: boolean;
+  ariaLabel?: string;
+  tooltipLabel?: string;
 }) {
   return (
     <ScrubInput
       label={label}
-      icon={hideIcon ? EmptyScrubIcon : undefined}
+      ariaLabel={ariaLabel}
+      tooltipLabel={tooltipLabel}
+      icon={hideIcon ? null : undefined}
       value={value ? parseNumericValue(value) : (placeholder ?? 0)}
       onChange={onChange}
       unit={unit}
@@ -3629,6 +3633,8 @@ function PositionLayoutProperties({
         <div className="grid grid-cols-2 gap-2">
           <ScrubStyleInput
             label="X"
+            ariaLabel="X-position"
+            tooltipLabel="X-position"
             value={styles.left || ""}
             placeholder={element.boundingRect.x}
             inputClassName="h-6"
@@ -3636,6 +3642,8 @@ function PositionLayoutProperties({
           />
           <ScrubStyleInput
             label="Y"
+            ariaLabel="Y-position"
+            tooltipLabel="Y-position"
             value={styles.top || ""}
             placeholder={element.boundingRect.y}
             inputClassName="h-6"

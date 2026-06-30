@@ -4,9 +4,9 @@ import {
   useId,
   useRef,
   useState,
-  type ComponentType,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,7 @@ import {
   type ScrubExpressionOptions,
 } from "./scrub-input-utils";
 
-type ScrubInputIcon = ComponentType<{ className?: string }>;
+type ScrubInputIcon = (props: { className?: string }) => ReactNode;
 
 export interface ScrubInputChangeMeta {
   source: "commit" | "keyboard" | "scrub";
@@ -39,13 +39,14 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   onChange: (value: number, meta: ScrubInputChangeMeta) => void;
   id?: string;
   step?: number;
-  icon?: ScrubInputIcon;
+  icon?: ScrubInputIcon | null;
   disabled?: boolean;
   placeholder?: string;
   className?: string;
   inputClassName?: string;
   labelClassName?: string;
   ariaLabel?: string;
+  tooltipLabel?: string;
 }
 
 export function ScrubInput({
@@ -65,6 +66,7 @@ export function ScrubInput({
   inputClassName,
   labelClassName,
   ariaLabel,
+  tooltipLabel,
 }: ScrubInputProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -95,6 +97,7 @@ export function ScrubInput({
   }, [focused, precision, unit, value]);
 
   const options = { unit, min, max, precision };
+  const resolvedTooltipLabel = tooltipLabel ?? ariaLabel ?? label;
 
   const setNextValue = (nextValue: number, meta: ScrubInputChangeMeta) => {
     const normalized = normalizeScrubNumber(nextValue, options);
@@ -221,11 +224,11 @@ export function ScrubInput({
               labelClassName,
             )}
           >
-            <Icon className="size-3 shrink-0" />
+            {Icon ? <Icon className="size-3 shrink-0" /> : null}
             <span className="truncate">{label}</span>
           </Label>
         </TooltipTrigger>
-        <TooltipContent>{`${label} — drag to scrub · ↑↓ step · Shift ×10 · ⌥ fine`}</TooltipContent>
+        <TooltipContent>{resolvedTooltipLabel}</TooltipContent>
       </Tooltip>
       <Input
         ref={inputRef}

@@ -434,36 +434,35 @@ export function AutoLayoutMatrix({
           </div>
         </div>
 
-        {/* ── Alignment + Gap (single label row) ── */}
-        <div className="grid grid-cols-[78px_1fr] items-start gap-3">
-          {/* Left: Alignment label + compact 3×3 matrix (no border box) */}
-          <div className="space-y-1.5">
-            <ControlLabel>
-              {"Alignment" /* i18n-ignore design inspector label */}
-            </ControlLabel>
-            <CompactAlignmentMatrix
-              value={value.alignment}
-              onChange={onAlignmentChange}
-              direction={value.direction}
-              disabled={disabled || isBlock}
-              onDistribute={onDistribute}
-            />
-          </div>
+        {!isBlock ? (
+          <div className="grid grid-cols-[78px_1fr] items-start gap-3">
+            <div className="space-y-1.5">
+              <ControlLabel>
+                {"Alignment" /* i18n-ignore design inspector label */}
+              </ControlLabel>
+              <CompactAlignmentMatrix
+                value={value.alignment}
+                onChange={onAlignmentChange}
+                direction={value.direction}
+                disabled={disabled}
+                onDistribute={onDistribute}
+              />
+            </div>
 
-          {/* Right: Gap label + [icon] value [▾] + sliders */}
-          <div className="space-y-1.5">
-            <ControlLabel>{copy.gap}</ControlLabel>
-            <GapField
-              value={value.gap}
-              onGapChange={onGapChange}
-              onDistribute={onDistribute}
-              label={copy.gap}
-              disabled={disabled || isBlock}
-              direction={value.direction}
-              gapMode={value.spaceBetween ? "auto" : "fixed"}
-            />
+            <div className="space-y-1.5">
+              <ControlLabel>{copy.gap}</ControlLabel>
+              <GapField
+                value={value.gap}
+                onGapChange={onGapChange}
+                onDistribute={onDistribute}
+                label={copy.gap}
+                disabled={disabled}
+                direction={value.direction}
+                gapMode={value.spaceBetween ? "auto" : "fixed"}
+              />
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {/* ── Padding ── */}
         <div className="space-y-1.5">
@@ -877,16 +876,15 @@ function GapField({
       {/* [gap-icon] value [▾] in one control surface */}
       <div
         className={cn(
-          "flex h-7 min-w-0 flex-1 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1.5",
+          "flex h-7 min-w-0 flex-1 items-center rounded-md bg-[var(--design-editor-control-bg)]",
           disabled && "opacity-40",
         )}
       >
-        <span className="flex shrink-0 items-center text-muted-foreground">
-          <IconGap className="size-3.5" />
-        </span>
         <ScrubInput
           label={label}
           ariaLabel={label}
+          tooltipLabel={label}
+          icon={IconGap}
           value={value}
           onChange={(next) => onGapChange(next)}
           unit="px"
@@ -895,7 +893,7 @@ function GapField({
           precision={1}
           disabled={disabled}
           className="min-w-0 flex-1 gap-0"
-          labelClassName="hidden"
+          labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md text-muted-foreground [&>span]:hidden"
           inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
         />
         {onDistribute != null ? (
@@ -989,16 +987,15 @@ function PaddingField({
   return (
     <div
       className={cn(
-        "flex h-7 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1.5",
+        "flex h-7 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
         disabled && "opacity-40",
       )}
     >
-      <span className="flex shrink-0 items-center text-muted-foreground">
-        <Icon className="size-3.5" />
-      </span>
       <ScrubInput
         label={ariaLabel}
         ariaLabel={ariaLabel}
+        tooltipLabel={ariaLabel}
+        icon={Icon}
         value={value}
         onChange={(next) => onChange(next)}
         unit="px"
@@ -1007,7 +1004,7 @@ function PaddingField({
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="hidden"
+        labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md text-muted-foreground [&>span]:hidden"
         inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
       />
     </div>
@@ -1223,24 +1220,12 @@ export function SizingField({
               disabled && "pointer-events-none opacity-40",
             )}
           >
-            {/* Axis letter — tooltip hints the user that the ▾ caret is the mode picker */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className="shrink-0 cursor-default pl-1.5 text-muted-foreground"
-                  aria-hidden="true"
-                >
-                  {axis}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {`${axis} — drag label to scrub · type to set · use ▾ to change sizing mode`}
-              </TooltipContent>
-            </Tooltip>
             {/* Scrub-editable size value */}
             <ScrubInput
               label={axis}
               ariaLabel={`${axis} size in pixels`}
+              tooltipLabel={`${axis} size`}
+              icon={null}
               value={Math.round(resolvedSize ?? 0)}
               onChange={(next) => onSizeChange!(Math.max(1, Math.round(next)))}
               unit="px"
@@ -1249,7 +1234,7 @@ export function SizingField({
               precision={0}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
-              labelClassName="hidden"
+              labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md px-0 text-muted-foreground"
               inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
             />
             {/* Caret opens the mode picker */}
