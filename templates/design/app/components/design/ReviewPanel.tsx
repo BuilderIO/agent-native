@@ -1,3 +1,4 @@
+// i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 /**
  * ReviewPanel — Design Studio accessibility + visual-diff review panel.
  *
