@@ -84,24 +84,28 @@ describe("bridge source files", () => {
 
 // ── test 2: bridge tsconfig clean ──────────────────────────────────────────
 
-it("bridge tsconfig — tsc -p bridge/tsconfig.json exits clean", () => {
-  const tsconfigPath = join(bridgeDir, "tsconfig.json");
-  let output = "";
-  let failed = false;
-  try {
-    output = execSync(`pnpm exec tsc --noEmit -p "${tsconfigPath}"`, {
-      cwd: designRoot,
-      encoding: "utf-8",
-      stdio: "pipe",
-    });
-  } catch (err: unknown) {
-    failed = true;
-    const e = err as { stdout?: string; stderr?: string; message?: string };
-    output = (e.stdout ?? "") + (e.stderr ?? "") + (e.message ?? "");
-  }
+it(
+  "bridge tsconfig — tsc -p bridge/tsconfig.json exits clean",
+  { timeout: 30_000 },
+  () => {
+    const tsconfigPath = join(bridgeDir, "tsconfig.json");
+    let output = "";
+    let failed = false;
+    try {
+      output = execSync(`pnpm exec tsc --noEmit -p "${tsconfigPath}"`, {
+        cwd: designRoot,
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
+    } catch (err: unknown) {
+      failed = true;
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      output = (e.stdout ?? "") + (e.stderr ?? "") + (e.message ?? "");
+    }
 
-  expect(failed, `bridge tsconfig type-check failed:\n${output}`).toBe(false);
-});
+    expect(failed, `bridge tsconfig type-check failed:\n${output}`).toBe(false);
+  },
+);
 
 // ── test 3: generated output is fresh ──────────────────────────────────────
 
