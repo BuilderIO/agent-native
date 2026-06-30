@@ -176,13 +176,16 @@ function setStoredBoolean(key: string, value: boolean): void {
   }
 }
 
-function getStoredSortMode(key: string): SidebarSortMode {
-  if (typeof window === "undefined") return "most-used";
+function getStoredSortMode(
+  key: string,
+  fallback: SidebarSortMode = "most-used",
+): SidebarSortMode {
+  if (typeof window === "undefined") return fallback;
   const raw = window.localStorage.getItem(key);
   if (raw === "alphabetical" || raw === "manual" || raw === "most-used") {
     return raw;
   }
-  return "most-used";
+  return fallback;
 }
 
 function setStoredSortMode(key: string, value: SidebarSortMode): void {
@@ -1209,7 +1212,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [analysisHiddenFilter, setAnalysisHiddenFilter] =
     useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
-    useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
+    useState<SidebarSortMode>(() =>
+      getStoredSortMode(DASHBOARD_SORT_MODE_KEY, "alphabetical"),
+    );
   const [analysisSortMode, setAnalysisSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const popularity = usePopularity();
@@ -1462,8 +1467,21 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       parentId: d.parentId,
     }));
     const all = [...staticItems, ...sqlItems];
-    // Dashboards are always listed alphabetically.
-    return sortByName(all);
+    if (dashboardSortMode === "alphabetical") {
+      return sortByName(all);
+    }
+    if (dashboardSortMode === "manual" && dashboardOrderState.length > 0) {
+      return applyOrder(all, dashboardOrderState);
+    }
+    return [...all].sort((a, b) => {
+      const aFav = favoriteIds.has(a.id) ? 0 : 1;
+      const bFav = favoriteIds.has(b.id) ? 0 : 1;
+      if (aFav !== bFav) return aFav - bFav;
+      const aPop = popularityOf(popularity, "dashboard", a.id);
+      const bPop = popularityOf(popularity, "dashboard", b.id);
+      if (aPop !== bPop) return bPop - aPop;
+      return a.name.localeCompare(b.name);
+    });
   }, [
     hiddenIds,
     staticDashboardRenames,
