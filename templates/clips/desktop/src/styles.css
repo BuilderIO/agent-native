@@ -4,20 +4,20 @@
   color-scheme: light dark;
 
   /* Clips brand */
-  --brand: #18181b;
-  --brand-hover: #27272a;
-  --brand-ring: rgba(24, 24, 27, 0.28);
+  --brand: #1a1a1a;
+  --brand-hover: #2e2e2e;
+  --brand-ring: rgba(26, 26, 26, 0.28);
 
   /* Light palette */
   --bg: #ffffff;
-  --surface: #f5f6f9;
-  --surface-hover: #eef0f5;
-  --surface-strong: #e8ebf2;
-  --fg: #0f172a;
-  --fg-muted: #64748b;
-  --fg-subtle: #94a3b8;
-  --border: #e2e6ef;
-  --border-strong: #d4d9e4;
+  --surface: #f7f7f7;
+  --surface-hover: #f0f0f0;
+  --surface-strong: #ebebeb;
+  --fg: #171717;
+  --fg-muted: #737373;
+  --fg-subtle: #a3a3a3;
+  --border: #e5e5e5;
+  --border-strong: #d9d9d9;
 
   --status-ok: #22c55e;
   --status-warn: #f97316;
@@ -28,9 +28,9 @@
   --popover-shadow-gutter: 12px;
   --overlay-shadow-gutter: 18px;
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
   --shadow-md:
-    0 4px 16px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+    0 4px 16px rgba(23, 23, 23, 0.08), 0 2px 4px rgba(23, 23, 23, 0.04);
 
   font-family:
     -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
@@ -40,21 +40,21 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1115;
-    --surface: #181b23;
-    --surface-hover: #1e2230;
-    --surface-strong: #252938;
-    --fg: #f1f5f9;
-    --fg-muted: #94a3b8;
-    --fg-subtle: #64748b;
-    --border: #252938;
-    --border-strong: #323747;
+    --bg: #212121;
+    --surface: #262626;
+    --surface-hover: #2e2e2e;
+    --surface-strong: #3d3d3d;
+    --fg: #f5f5f5;
+    --fg-muted: #a3a3a3;
+    --fg-subtle: #737373;
+    --border: #3d3d3d;
+    --border-strong: #4d4d4d;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
     /* Invert brand on dark bg: zinc-900 would disappear, use zinc-100. */
-    --brand: #f4f4f5;
-    --brand-hover: #e4e4e7;
-    --brand-ring: rgba(244, 244, 245, 0.28);
+    --brand: #f5f5f5;
+    --brand-hover: #e5e5e5;
+    --brand-ring: rgba(245, 245, 245, 0.28);
   }
 }
 
@@ -1611,6 +1611,21 @@ body[data-clips-route="recording-pill"] #root {
   background-repeat: no-repeat;
 }
 
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-mini-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .setup-textarea {
   min-height: 86px;
   resize: vertical;
@@ -1625,7 +1640,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .setup-button-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(94px, 1fr));
   gap: 8px;
 }
 
@@ -1801,7 +1816,7 @@ body[data-clips-route="recording-pill"] #root {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #64748b;
+  color: #737373;
   cursor: help;
   font-size: 11px;
   line-height: 1.2;
@@ -2080,7 +2095,7 @@ body[data-clips-route="recording-pill"] #root {
   }
 
   .pending-upload-why {
-    color: #94a3b8;
+    color: #a3a3a3;
   }
 
   .pending-upload-why:hover,
@@ -2090,19 +2105,19 @@ body[data-clips-route="recording-pill"] #root {
 
   .pending-upload-connect,
   .pending-upload-retry {
-    background: rgba(15, 23, 42, 0.7);
+    background: rgba(23, 23, 23, 0.7);
     border-color: rgba(96, 165, 250, 0.38);
     color: #dbeafe;
   }
 
   .pending-upload-discard {
-    background: rgba(15, 23, 42, 0.58);
+    background: rgba(23, 23, 23, 0.58);
     border-color: rgba(96, 165, 250, 0.38);
     color: #bfdbfe;
   }
 
   .pending-upload-folder {
-    background: rgba(15, 23, 42, 0.58);
+    background: rgba(23, 23, 23, 0.58);
     border-color: rgba(96, 165, 250, 0.38);
     color: #dbeafe;
   }
@@ -3313,8 +3328,8 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0f1115;
-  color: #f1f5f9;
+  background: #212121;
+  color: #f5f5f5;
 }
 
 .onboarding-card {
@@ -3337,7 +3352,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .onboarding-subtitle {
   font-size: 14px;
-  color: #94a3b8;
+  color: #a3a3a3;
   margin: -8px 0 0;
 }
 
@@ -3387,7 +3402,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .onboarding-feature-desc {
   font-size: 12px;
-  color: #94a3b8;
+  color: #a3a3a3;
   line-height: 1.4;
 }
 
@@ -3396,8 +3411,8 @@ body[data-clips-route="recording-pill"] #root {
   border: none;
   border-radius: 12px;
   padding: 12px 16px;
-  background: #f4f4f5;
-  color: #0f1115;
+  background: #f5f5f5;
+  color: #212121;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -3409,7 +3424,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .onboarding-cta:hover {
-  background: #e4e4e7;
+  background: #e5e5e5;
 }
 
 .onboarding-cta:active {
@@ -3469,7 +3484,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .meeting-notification-bar-adhoc {
   background: transparent;
-  border-left: 3px dashed #94a3b8;
+  border-left: 3px dashed #a3a3a3;
   width: 3px;
 }
 
@@ -3855,7 +3870,7 @@ body[data-clips-route="recording-pill"] #root {
   outline: none;
   border-color: rgba(255, 255, 255, 0.98);
   box-shadow:
-    0 0 0 2px rgba(15, 23, 42, 0.5),
+    0 0 0 2px rgba(23, 23, 23, 0.5),
     0 0 150px 50px rgba(0, 0, 0, 0.12),
     inset 0 0 36px rgba(0, 0, 0, 0.08);
 }
@@ -3871,7 +3886,7 @@ body[data-clips-route="recording-pill"] #root {
   z-index: 2;
   width: 12px;
   height: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.38);
+  border: 1px solid rgba(23, 23, 23, 0.38);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow:
@@ -4119,7 +4134,7 @@ body[data-clips-route="recording-pill"] #root {
   height: 100%;
   width: 100%;
   border-radius: 16px;
-  background: rgba(24, 24, 27, 0.95);
+  background: rgba(26, 26, 26, 0.95);
   color: white;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(12px);
@@ -4355,7 +4370,7 @@ body[data-clips-route="recording-pill"] #root {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  color: #e4e4e7;
+  color: #e5e5e5;
   border: none;
   background: transparent;
   transition: background 120ms;
@@ -4538,7 +4553,7 @@ body[data-clips-route="recording-pill"] #root {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(244, 244, 245, 0.4);
+  color: rgba(245, 245, 245, 0.4);
 }
 
 .pill-pane-label-row {
@@ -4556,7 +4571,7 @@ body[data-clips-route="recording-pill"] #root {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: rgba(244, 244, 245, 0.5);
+  color: rgba(245, 245, 245, 0.5);
   cursor: pointer;
   transition:
     background 120ms,
@@ -4565,7 +4580,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .pill-copy-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
-  color: #f4f4f5;
+  color: #f5f5f5;
 }
 
 .pill-copy-btn:disabled {
@@ -4593,7 +4608,7 @@ body[data-clips-route="recording-pill"] #root {
   border: none;
   outline: none;
   resize: none;
-  color: #f4f4f5;
+  color: #f5f5f5;
   font-size: 12px;
   line-height: 1.5;
   font-family: inherit;
@@ -4613,7 +4628,7 @@ body[data-clips-route="recording-pill"] #root {
   padding: 2px 12px 8px;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  color: rgba(244, 244, 245, 0.4);
+  color: rgba(245, 245, 245, 0.4);
 }
 
 .pill-saved-status {
@@ -4628,7 +4643,7 @@ body[data-clips-route="recording-pill"] #root {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: rgba(244, 244, 245, 0.6);
+  color: rgba(245, 245, 245, 0.6);
   font-size: 10px;
   font-weight: 500;
   cursor: pointer;
@@ -4639,7 +4654,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .pill-open-web-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #f4f4f5;
+  color: #f5f5f5;
 }
 
 .lt-chat {
@@ -4653,7 +4668,7 @@ body[data-clips-route="recording-pill"] #root {
   padding: 8px 12px;
   font-size: 12px;
   line-height: 1.35;
-  color: #f4f4f5;
+  color: #f5f5f5;
 }
 
 .lt-empty {
@@ -4732,7 +4747,7 @@ body[data-clips-route="recording-pill"] #root {
   justify-content: center;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
-  color: #e4e4e7;
+  color: #e5e5e5;
   border: none;
   transition: background 120ms;
 }

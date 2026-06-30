@@ -261,6 +261,7 @@ const CROSS_TAB_FOLLOW: boolean = false;
 // The tab the recording was launched from — the only tab activeTab lets us touch.
 let overlayTabId: number | null = null;
 let countdownEndsAtMs = 0;
+let armingNativeRecordingSessionId: string | null = null;
 
 function desiredParts(): OverlayPart[] {
   // The on-page controls match the desktop app: a left-edge vertical pill plus
@@ -950,15 +951,7 @@ function createSession(
 }
 
 async function handlePopupStart(message: PopupStartMessage) {
-  const tab = await queryActiveTab();
-  if (!tab || typeof tab.id !== "number") {
-    return { ok: false, error: "No active tab is available to record." };
-  }
-
-  const settings = await readSettings(message.settings);
-  await storageSet(settings);
-
-  if (activeNativeRecording) {
+  if (activeNativeRecording || armingNativeRecordingSessionId) {
     return {
       ok: false,
       error: "Clips is already recording. Stop the active clip first.",
@@ -966,7 +959,22 @@ async function handlePopupStart(message: PopupStartMessage) {
   }
 
   const sessionId = crypto.randomUUID();
-  return armRecording({ sessionId, tab, settings });
+  armingNativeRecordingSessionId = sessionId;
+  try {
+    const tab = await queryActiveTab();
+    if (!tab || typeof tab.id !== "number") {
+      return { ok: false, error: "No active tab is available to record." };
+    }
+
+    const settings = await readSettings(message.settings);
+    await storageSet(settings);
+
+    return await armRecording({ sessionId, tab, settings });
+  } finally {
+    if (armingNativeRecordingSessionId === sessionId) {
+      armingNativeRecordingSessionId = null;
+    }
+  }
 }
 
 // Arm a Loom-style in-page recording: show the native picker, create the row,
@@ -1474,6 +1482,7 @@ async function handlePopupStatus() {
   return {
     ok: true,
     activeRecording: activeNativeRecording,
+    arming: Boolean(armingNativeRecordingSessionId),
   };
 }
 

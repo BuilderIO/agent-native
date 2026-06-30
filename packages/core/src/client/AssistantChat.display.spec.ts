@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +26,7 @@ import {
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
   latestNonRecoveryUserMessageText,
+  reconnectProgressTimedOut,
   resolveAssistantChatSubmitIntent,
 } from "./AssistantChat.js";
 
@@ -96,6 +99,103 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+});
+
+describe("waitForThreadRunToClear", () => {
+  it("uses server-relative run progress when deciding whether an active run is stale", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("async function waitForThreadRunToClear");
+    const end = source.indexOf("// ─── Composer Attachment Preview");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("activeRunLooksStale(info)");
+    expect(helperSource).not.toContain("heartbeatAt");
+  });
+
+  it("aborts the reconnect on an idle gap, not a fixed total duration", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    // The no-progress decision must be a sliding idle deadline that resets on
+    // streamed events — never a one-shot `setTimeout(..., THRESHOLD)` that caps
+    // total reconnect duration and falsely fails a healthy long run.
+    expect(helperSource).toContain("markReconnectProgress");
+    expect(helperSource).toContain("reconnectProgressTimedOut");
+    expect(helperSource).not.toContain(
+      "setTimeout(() => {\n        reconnectTimedOut = true;",
+    );
+    expect(helperSource).not.toContain("20_000");
+  });
+
+  it("shows active tool activity before falling back to reconnecting", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const runningStatusLabel =");
+    const end = source.indexOf("const lastBroadcastRunningRef");
+    const labelSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(labelSource.indexOf("runningActivityLabel")).toBeLessThan(
+      labelSource.indexOf("isReconnecting"),
+    );
+    // A bare reconnect (no replayed content) must default to "Thinking", never a
+    // perpetual "Working" — that label was removed.
+    expect(labelSource).not.toContain('"Working"');
+    expect(labelSource).toContain('"Thinking"');
+  });
+});
+
+describe("reconnectProgressTimedOut", () => {
+  const threshold = 90_000;
+
+  it("never times out a run that keeps streaming heartbeats", () => {
+    // Simulate a long image generation that emits an activity heartbeat every
+    // 8s over 5 minutes of reconnect wall-clock. Each event resets the idle
+    // deadline, so the gap is always 8s — far under the 90s stuck threshold.
+    // A one-shot total-duration cap (the prior behaviour) would have fired at
+    // 90s and falsely surfaced `reconnect_no_progress`.
+    let lastProgressAt = 0;
+    for (let now = 0; now <= 300_000; now += 8_000) {
+      expect(
+        reconnectProgressTimedOut({
+          lastProgressAt,
+          now,
+          thresholdMs: threshold,
+        }),
+      ).toBe(false);
+      lastProgressAt = now; // event arrived → markReconnectProgress()
+    }
+  });
+
+  it("times out only after true silence for the full threshold", () => {
+    const lastProgressAt = 1_000;
+    expect(
+      reconnectProgressTimedOut({
+        lastProgressAt,
+        now: lastProgressAt + threshold - 1,
+        thresholdMs: threshold,
+      }),
+    ).toBe(false);
+    expect(
+      reconnectProgressTimedOut({
+        lastProgressAt,
+        now: lastProgressAt + threshold,
+        thresholdMs: threshold,
+      }),
+    ).toBe(true);
   });
 });
 

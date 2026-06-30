@@ -244,6 +244,39 @@ const enUS = {
     },
   },
   designEditor: {
+    askAgent: "Ask agent",
+    leftRail: {
+      file: "File",
+      agent: "Agent",
+      assets: "Assets",
+      tools: "Tools",
+      tokens: "Tokens",
+      label: "Design workspace",
+    },
+    applyToSource: "Apply to source",
+    applyToSourcePath: "Apply to source ({{path}})",
+    writingToSource: "Writing…",
+    tokens: {
+      title: "Tokens",
+      newToken: "New token",
+      cssVar: "CSS variable",
+      value: "Value",
+      add: "Add token",
+      refresh: "Refresh tokens",
+      import: "Import tokens",
+      importTitle: "Import tokens",
+      importHint:
+        "Use design.md, CSS, theme files, or the current design before adding tokens by hand.",
+      files: "Files",
+      folder: "Folder",
+      current: "Current",
+      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
+      importPasted: "Import pasted tokens",
+      importedCount: "Imported {{count}} tokens",
+      empty: "No tokens yet",
+      emptyHint: "Add design tokens to reuse colors, spacing, and more.",
+      applying: "Applying…",
+    },
     generationMayHaveStopped:
       "Generation may have stopped before creating files. Check the agent message or try again.",
     generationMayHaveStoppedToast:
@@ -319,7 +352,7 @@ const enUS = {
     downloadZip: "Download ZIP",
     exportHtml: "Export HTML",
     exportPdf: "Export PDF",
-    copyCodingHandoff: "Copy coding handoff",
+    copyCodingHandoff: "Copy agent prompt",
     designTools: "Design tools",
     drawOnCanvas: "Draw on canvas",
     dropCommentPin: "Drop comment pin",
@@ -330,6 +363,9 @@ const enUS = {
     variations: "{{count}} variations",
     close: "Close",
     generating: "Generating design...",
+    inspectorLockedTitle: "Inspector locked while generating",
+    inspectorLockedDescription:
+      "Controls unlock when the first screen is ready.",
     noFiles: "No files yet. Ask the agent to generate a design.",
     tryAgain: "Try again",
     newPrompt: "New prompt",
@@ -395,8 +431,8 @@ const enUS = {
       "agent-structural-edit": "Agent needed for structural move",
     },
     toasts: {
-      codingHandoffError: "Could not create coding handoff",
-      codingHandoffCopied: "Coding handoff copied",
+      codingHandoffError: "Could not create agent handoff",
+      codingHandoffCopied: "Agent prompt copied",
       clipboardBlocked: "Clipboard blocked",
       htmlCreateError: "Could not create HTML download",
       htmlDownloaded: "HTML downloaded",
@@ -421,12 +457,36 @@ const enUS = {
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
+      duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
+      auditRunFailed: "Unable to run design audit",
+      componentCreated: "Component created",
+      componentCreateFailed: "Could not create component",
+    },
+    localSourceEdit: {
+      bannerNotice:
+        "Edits to connected local code are applied by the AI agent, not written directly.",
+      askAiToEdit: "Ask AI to edit",
+      copyPrompt: "Copy prompt",
+      dialogTitle: "Ask AI to edit connected source",
+      requestPlaceholder:
+        "Change the button color to blue, update the heading text…",
+      askAi: "Ask AI",
+      applyWithAi: "Apply with AI",
+      copyPromptTooltip: "Copy prompt to clipboard",
+      targeting: "Targeting:",
+      describeElementChange: "Describe the change for this element…",
+      describeChange: "Describe what you want to change…",
+      dialogDescription:
+        "Describe what you want to change. The agent will call view-screen first, then apply edits through the code editor.",
+      dialogDescriptionFile:
+        'Describe what you want to change in "{{file}}". The agent will call view-screen first, then apply edits through the code editor.',
     },
   },
   layersPanel: {
     title: "Layers",
     screens: "Screens",
+    allScreens: "All screens",
     thumbnail: "Thumbnail",
     addScreen: "Add screen",
     searchPlaceholder: "Search layers...",
@@ -442,6 +502,7 @@ const enUS = {
     hide: "Hide layer",
     show: "Show layer",
     rename: "Rename layer",
+    deleteBoardObject: "Delete board object",
     selected: "{{count}} selected",
   },
   multiScreenCanvas: {
@@ -8071,6 +8132,8 @@ const designModeFeatureOverrides = {
 const designCanvasFeatureOverrides = {
   "zh-TW": {
     designEditor: {
+      inspectorLockedTitle: "產生中，檢查器已鎖定",
+      inspectorLockedDescription: "第一個畫面準備好後即可使用控制項。",
       toasts: {
         propsCopied: "屬性已複製",
         propsPasted: "屬性已貼上",
@@ -8079,6 +8142,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "圖層",
       screens: "畫面",
+      allScreens: "所有畫面",
       thumbnail: "縮圖",
       addScreen: "新增畫面",
       searchPlaceholder: "搜尋圖層...",
@@ -8094,16 +8158,20 @@ const designCanvasFeatureOverrides = {
       hide: "隱藏圖層",
       show: "顯示圖層",
       rename: "重新命名圖層",
+      deleteBoardObject: "刪除畫布物件",
       selected: "已選取 {{count}} 個",
     },
   },
   "zh-CN": {
     designEditor: {
+      inspectorLockedTitle: "生成期间检查器已锁定",
+      inspectorLockedDescription: "第一个屏幕准备好后即可使用控件。",
       toasts: {
         propsCopied: "属性已复制",
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
+        duplicateElementFailed: "无法复制该元素",
       },
     },
     editPanel: {
@@ -8137,6 +8205,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "图层",
       screens: "屏幕",
+      allScreens: "所有屏幕",
       thumbnail: "缩略图",
       addScreen: "添加屏幕",
       searchPlaceholder: "搜索图层...",
@@ -8152,16 +8221,21 @@ const designCanvasFeatureOverrides = {
       hide: "隐藏图层",
       show: "显示图层",
       rename: "重命名图层",
+      deleteBoardObject: "删除画布对象",
       selected: "已选择 {{count}} 个",
     },
   },
   "es-ES": {
     designEditor: {
+      inspectorLockedTitle: "Inspector bloqueado durante la generación",
+      inspectorLockedDescription:
+        "Los controles se desbloquean cuando la primera pantalla esté lista.",
       toasts: {
         propsCopied: "Propiedades copiadas",
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
+        duplicateElementFailed: "No se pudo duplicar ese elemento",
       },
     },
     editPanel: {
@@ -8195,6 +8269,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Capas",
       screens: "Pantallas",
+      allScreens: "Todas las pantallas",
       thumbnail: "Miniatura",
       addScreen: "Añadir pantalla",
       searchPlaceholder: "Buscar capas...",
@@ -8210,16 +8285,21 @@ const designCanvasFeatureOverrides = {
       hide: "Ocultar capa",
       show: "Mostrar capa",
       rename: "Renombrar capa",
+      deleteBoardObject: "Eliminar objeto del lienzo",
       selected: "{{count}} seleccionadas",
     },
   },
   "fr-FR": {
     designEditor: {
+      inspectorLockedTitle: "Inspecteur verrouillé pendant la génération",
+      inspectorLockedDescription:
+        "Les contrôles se déverrouillent lorsque le premier écran est prêt.",
       toasts: {
         propsCopied: "Propriétés copiées",
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
+        duplicateElementFailed: "Impossible de dupliquer cet élément",
       },
     },
     editPanel: {
@@ -8253,6 +8333,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Calques",
       screens: "Écrans",
+      allScreens: "Tous les écrans",
       thumbnail: "Miniature",
       addScreen: "Ajouter un écran",
       searchPlaceholder: "Rechercher des calques...",
@@ -8268,17 +8349,22 @@ const designCanvasFeatureOverrides = {
       hide: "Masquer le calque",
       show: "Afficher le calque",
       rename: "Renommer le calque",
+      deleteBoardObject: "Supprimer l’objet du canevas",
       selected: "{{count}} sélectionnés",
     },
   },
   "de-DE": {
     designEditor: {
+      inspectorLockedTitle: "Inspektor während der Generierung gesperrt",
+      inspectorLockedDescription:
+        "Die Steuerelemente werden freigeschaltet, sobald der erste Screen bereit ist.",
       toasts: {
         propsCopied: "Eigenschaften kopiert",
         propsPasted: "Eigenschaften eingefügt",
         primitiveInsertFailed:
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
+        duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
       },
     },
     editPanel: {
@@ -8312,6 +8398,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Ebenen",
       screens: "Screens",
+      allScreens: "Alle Screens",
       thumbnail: "Miniaturansicht",
       addScreen: "Screen hinzufügen",
       searchPlaceholder: "Ebenen suchen...",
@@ -8327,16 +8414,21 @@ const designCanvasFeatureOverrides = {
       hide: "Ebene ausblenden",
       show: "Ebene anzeigen",
       rename: "Ebene umbenennen",
+      deleteBoardObject: "Canvas-Objekt löschen",
       selected: "{{count}} ausgewählt",
     },
   },
   "ja-JP": {
     designEditor: {
+      inspectorLockedTitle: "生成中はインスペクターがロックされています",
+      inspectorLockedDescription:
+        "最初の画面の準備ができるとコントロールが使えます。",
       toasts: {
         propsCopied: "プロパティをコピーしました",
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
+        duplicateElementFailed: "その要素を複製できませんでした",
       },
     },
     editPanel: {
@@ -8370,6 +8462,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "レイヤー",
       screens: "画面",
+      allScreens: "すべての画面",
       thumbnail: "サムネイル",
       addScreen: "画面を追加",
       searchPlaceholder: "レイヤーを検索...",
@@ -8385,16 +8478,21 @@ const designCanvasFeatureOverrides = {
       hide: "レイヤーを非表示",
       show: "レイヤーを表示",
       rename: "レイヤー名を変更",
+      deleteBoardObject: "キャンバスオブジェクトを削除",
       selected: "{{count}} 件選択",
     },
   },
   "ko-KR": {
     designEditor: {
+      inspectorLockedTitle: "생성 중에는 인스펙터가 잠겨 있습니다",
+      inspectorLockedDescription:
+        "첫 화면이 준비되면 컨트롤이 잠금 해제됩니다.",
       toasts: {
         propsCopied: "속성이 복사됨",
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
+        duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
       },
     },
     editPanel: {
@@ -8428,6 +8526,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "레이어",
       screens: "화면",
+      allScreens: "모든 화면",
       thumbnail: "썸네일",
       addScreen: "화면 추가",
       searchPlaceholder: "레이어 검색...",
@@ -8443,16 +8542,21 @@ const designCanvasFeatureOverrides = {
       hide: "레이어 숨기기",
       show: "레이어 표시",
       rename: "레이어 이름 변경",
+      deleteBoardObject: "캔버스 오브젝트 삭제",
       selected: "{{count}}개 선택됨",
     },
   },
   "pt-BR": {
     designEditor: {
+      inspectorLockedTitle: "Inspetor bloqueado durante a geração",
+      inspectorLockedDescription:
+        "Os controles são desbloqueados quando a primeira tela estiver pronta.",
       toasts: {
         propsCopied: "Propriedades copiadas",
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
+        duplicateElementFailed: "Não foi possível duplicar esse elemento",
       },
     },
     editPanel: {
@@ -8486,6 +8590,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Camadas",
       screens: "Telas",
+      allScreens: "Todas as telas",
       thumbnail: "Miniatura",
       addScreen: "Adicionar tela",
       searchPlaceholder: "Buscar camadas...",
@@ -8501,16 +8606,21 @@ const designCanvasFeatureOverrides = {
       hide: "Ocultar camada",
       show: "Mostrar camada",
       rename: "Renomear camada",
+      deleteBoardObject: "Excluir objeto da tela",
       selected: "{{count}} selecionadas",
     },
   },
   "hi-IN": {
     designEditor: {
+      inspectorLockedTitle: "जनरेट करते समय इंस्पेक्टर लॉक है",
+      inspectorLockedDescription:
+        "पहली स्क्रीन तैयार होने पर नियंत्रण अनलॉक हो जाएंगे.",
       toasts: {
         propsCopied: "गुण कॉपी किए गए",
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
+        duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
       },
     },
     editPanel: {
@@ -8544,6 +8654,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "परतें",
       screens: "स्क्रीन",
+      allScreens: "सभी स्क्रीन",
       thumbnail: "थंबनेल",
       addScreen: "स्क्रीन जोड़ें",
       searchPlaceholder: "परतें खोजें...",
@@ -8559,16 +8670,21 @@ const designCanvasFeatureOverrides = {
       hide: "परत छिपाएं",
       show: "परत दिखाएं",
       rename: "परत का नाम बदलें",
+      deleteBoardObject: "कैनवास ऑब्जेक्ट हटाएं",
       selected: "{{count}} चयनित",
     },
   },
   "ar-SA": {
     designEditor: {
+      inspectorLockedTitle: "المفتش مقفل أثناء الإنشاء",
+      inspectorLockedDescription:
+        "تُفتح عناصر التحكم عندما تكون الشاشة الأولى جاهزة.",
       toasts: {
         propsCopied: "تم نسخ الخصائص",
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
+        duplicateElementFailed: "تعذّر تكرار هذا العنصر",
       },
     },
     editPanel: {
@@ -8602,6 +8718,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "الطبقات",
       screens: "الشاشات",
+      allScreens: "كل الشاشات",
       thumbnail: "الصورة المصغرة",
       addScreen: "إضافة شاشة",
       searchPlaceholder: "البحث في الطبقات...",
@@ -8617,6 +8734,7 @@ const designCanvasFeatureOverrides = {
       hide: "إخفاء الطبقة",
       show: "إظهار الطبقة",
       rename: "إعادة تسمية الطبقة",
+      deleteBoardObject: "حذف كائن اللوحة",
       selected: "{{count}} محددة",
     },
   },
@@ -8827,6 +8945,7 @@ const designPublicShareOverrides = {
       shareEditorLinkDescription: "有權限的任何人都能在編輯器中開啟這個設計。",
       toasts: {
         saveCopyError: "無法儲存這個設計的副本",
+        auditRunFailed: "無法執行設計稽核",
       },
     },
     visualEdit: {
@@ -8856,6 +8975,7 @@ const designPublicShareOverrides = {
         "有访问权限的任何人都可以在编辑器中打开此设计。",
       toasts: {
         saveCopyError: "无法保存此设计的副本",
+        auditRunFailed: "无法运行设计审核",
       },
     },
     visualEdit: {
@@ -8885,6 +9005,7 @@ const designPublicShareOverrides = {
         "Cualquier persona con acceso puede abrir este diseño en el editor.",
       toasts: {
         saveCopyError: "No se pudo guardar una copia de este diseño",
+        auditRunFailed: "No se pudo ejecutar la auditoria de diseno",
       },
     },
     visualEdit: {
@@ -8914,6 +9035,7 @@ const designPublicShareOverrides = {
         "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
       toasts: {
         saveCopyError: "Impossible d'enregistrer une copie de ce design",
+        auditRunFailed: "Impossible d'executer l'audit de design",
       },
     },
     visualEdit: {
@@ -8944,6 +9066,7 @@ const designPublicShareOverrides = {
       toasts: {
         saveCopyError:
           "Eine Kopie dieses Designs konnte nicht gespeichert werden",
+        auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
       },
     },
     visualEdit: {
@@ -8973,6 +9096,7 @@ const designPublicShareOverrides = {
         "アクセス権のある人は、このデザインをエディターで開けます。",
       toasts: {
         saveCopyError: "このデザインのコピーを保存できませんでした",
+        auditRunFailed: "デザイン監査を実行できませんでした",
       },
     },
     visualEdit: {
@@ -9002,6 +9126,7 @@ const designPublicShareOverrides = {
         "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
       toasts: {
         saveCopyError: "이 디자인의 사본을 저장할 수 없습니다",
+        auditRunFailed: "디자인 감사를 실행할 수 없습니다",
       },
     },
     visualEdit: {
@@ -9031,6 +9156,7 @@ const designPublicShareOverrides = {
         "Qualquer pessoa com acesso pode abrir este design no editor.",
       toasts: {
         saveCopyError: "Nao foi possivel salvar uma copia deste design",
+        auditRunFailed: "Nao foi possivel executar a auditoria de design",
       },
     },
     visualEdit: {
@@ -9060,6 +9186,7 @@ const designPublicShareOverrides = {
         "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
       toasts: {
         saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
+        auditRunFailed: "design audit चलाया नहीं जा सका",
       },
     },
     visualEdit: {
@@ -9089,6 +9216,7 @@ const designPublicShareOverrides = {
         "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
       toasts: {
         saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
+        auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       },
     },
     visualEdit: {
@@ -9271,15 +9399,550 @@ const designVisualEditOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
+const designLocalSourceEditOverrides = {
+  "zh-TW": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice: "對已連結本機程式碼的編輯由 AI 代理套用，不會直接寫入。",
+        askAiToEdit: "請 AI 編輯",
+        copyPrompt: "複製提示",
+        dialogTitle: "請 AI 編輯已連結的來源",
+        requestPlaceholder: "將按鈕顏色改成藍色、更新標題文字…",
+        askAi: "詢問 AI",
+        applyWithAi: "用 AI 套用",
+        copyPromptTooltip: "將提示複製到剪貼簿",
+        targeting: "目標：",
+        describeElementChange: "描述要對此元素進行的更改…",
+        describeChange: "描述您想要更改的內容…",
+        dialogDescription:
+          "描述您想要更改的內容。代理會先呼叫 view-screen，再透過程式碼編輯器套用編輯。",
+        dialogDescriptionFile:
+          "描述您想在「{{file}}」中更改的內容。代理會先呼叫 view-screen，再透過程式碼編輯器套用編輯。",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice: "对已连接本地代码的编辑由 AI 代理应用，不会直接写入。",
+        askAiToEdit: "请 AI 编辑",
+        copyPrompt: "复制提示",
+        dialogTitle: "请 AI 编辑已连接的源码",
+        requestPlaceholder: "将按钮颜色改成蓝色、更新标题文字…",
+        askAi: "询问 AI",
+        applyWithAi: "用 AI 应用",
+        copyPromptTooltip: "将提示复制到剪贴板",
+        targeting: "目标：",
+        describeElementChange: "描述要对此元素进行的更改…",
+        describeChange: "描述您想要更改的内容…",
+        dialogDescription:
+          "描述您想要更改的内容。代理会先调用 view-screen，再通过代码编辑器应用编辑。",
+        dialogDescriptionFile:
+          "描述您想在“{{file}}”中更改的内容。代理会先调用 view-screen，再通过代码编辑器应用编辑。",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "Las ediciones del código local conectado las aplica el agente de IA, no se escriben directamente.",
+        askAiToEdit: "Pedir edición a la IA",
+        copyPrompt: "Copiar prompt",
+        dialogTitle: "Pedir a la IA que edite el código conectado",
+        requestPlaceholder:
+          "Cambia el color del botón a azul, actualiza el texto del título…",
+        askAi: "Preguntar a la IA",
+        applyWithAi: "Aplicar con IA",
+        copyPromptTooltip: "Copiar prompt al portapapeles",
+        targeting: "Objetivo:",
+        describeElementChange: "Describe el cambio para este elemento…",
+        describeChange: "Describe lo que quieres cambiar…",
+        dialogDescription:
+          "Describe lo que quieres cambiar. El agente llamará a view-screen primero y luego aplicará los cambios a través del editor de código.",
+        dialogDescriptionFile:
+          'Describe lo que quieres cambiar en "{{file}}". El agente llamará a view-screen primero y luego aplicará los cambios a través del editor de código.',
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "Les modifications du code local connecté sont appliquées par l'agent IA, pas écrites directement.",
+        askAiToEdit: "Demander à l'IA de modifier",
+        copyPrompt: "Copier le prompt",
+        dialogTitle: "Demander à l'IA de modifier la source connectée",
+        requestPlaceholder:
+          "Change la couleur du bouton en bleu, mets à jour le titre…",
+        askAi: "Demander à l'IA",
+        applyWithAi: "Appliquer avec l'IA",
+        copyPromptTooltip: "Copier le prompt dans le presse-papiers",
+        targeting: "Cible :",
+        describeElementChange: "Décrivez la modification pour cet élément…",
+        describeChange: "Décrivez ce que vous voulez changer…",
+        dialogDescription:
+          "Décrivez ce que vous voulez changer. L'agent appellera d'abord view-screen, puis appliquera les modifications via l'éditeur de code.",
+        dialogDescriptionFile:
+          "Décrivez ce que vous voulez changer dans \"{{file}}\". L'agent appellera d'abord view-screen, puis appliquera les modifications via l'éditeur de code.",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "Änderungen am verbundenen lokalen Code werden vom KI-Agenten angewendet, nicht direkt geschrieben.",
+        askAiToEdit: "KI um Änderung bitten",
+        copyPrompt: "Prompt kopieren",
+        dialogTitle: "KI um Bearbeitung der verbundenen Quelle bitten",
+        requestPlaceholder:
+          "Ändere die Button-Farbe in Blau, aktualisiere den Überschriftstext…",
+        askAi: "KI fragen",
+        applyWithAi: "Mit KI anwenden",
+        copyPromptTooltip: "Prompt in die Zwischenablage kopieren",
+        targeting: "Ziel:",
+        describeElementChange: "Beschreibe die Änderung für dieses Element…",
+        describeChange: "Beschreibe, was du ändern möchtest…",
+        dialogDescription:
+          "Beschreibe, was du ändern möchtest. Der Agent ruft zuerst view-screen auf und wendet die Änderungen dann über den Code-Editor an.",
+        dialogDescriptionFile:
+          'Beschreibe, was du in "{{file}}" ändern möchtest. Der Agent ruft zuerst view-screen auf und wendet die Änderungen dann über den Code-Editor an.',
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "接続済みローカルコードの編集は AI エージェントが適用し、直接は書き込みません。",
+        askAiToEdit: "AI に編集を依頼",
+        copyPrompt: "プロンプトをコピー",
+        dialogTitle: "接続済みソースの編集を AI に依頼",
+        requestPlaceholder: "ボタンの色を青に変更、見出しテキストを更新…",
+        askAi: "AI に質問",
+        applyWithAi: "AI で適用",
+        copyPromptTooltip: "プロンプトをクリップボードにコピー",
+        targeting: "対象：",
+        describeElementChange: "この要素への変更を説明してください…",
+        describeChange: "変更したい内容を説明してください…",
+        dialogDescription:
+          "変更したい内容を説明してください。エージェントはまず view-screen を呼び出し、その後コードエディターで編集を適用します。",
+        dialogDescriptionFile:
+          "「{{file}}」で変更したい内容を説明してください。エージェントはまず view-screen を呼び出し、その後コードエディターで編集を適用します。",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "연결된 로컬 코드 편집은 AI 에이전트가 적용하며 직접 작성하지 않습니다.",
+        askAiToEdit: "AI에 편집 요청",
+        copyPrompt: "프롬프트 복사",
+        dialogTitle: "연결된 소스 편집을 AI에 요청",
+        requestPlaceholder:
+          "버튼 색상을 파란색으로 변경, 제목 텍스트 업데이트…",
+        askAi: "AI에 질문",
+        applyWithAi: "AI로 적용",
+        copyPromptTooltip: "프롬프트를 클립보드에 복사",
+        targeting: "대상:",
+        describeElementChange: "이 요소에 대한 변경 사항을 설명하세요…",
+        describeChange: "변경하려는 내용을 설명하세요…",
+        dialogDescription:
+          "변경하려는 내용을 설명하세요. 에이전트가 먼저 view-screen을 호출한 다음 코드 편집기로 편집을 적용합니다.",
+        dialogDescriptionFile:
+          "“{{file}}”에서 변경하려는 내용을 설명하세요. 에이전트가 먼저 view-screen을 호출한 다음 코드 편집기로 편집을 적용합니다.",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "As edições do código local conectado são aplicadas pelo agente de IA, não escritas diretamente.",
+        askAiToEdit: "Pedir edição à IA",
+        copyPrompt: "Copiar prompt",
+        dialogTitle: "Pedir à IA para editar a fonte conectada",
+        requestPlaceholder:
+          "Mude a cor do botão para azul, atualize o texto do título…",
+        askAi: "Perguntar à IA",
+        applyWithAi: "Aplicar com IA",
+        copyPromptTooltip: "Copiar prompt para a área de transferência",
+        targeting: "Alvo:",
+        describeElementChange: "Descreva a alteração para este elemento…",
+        describeChange: "Descreva o que você quer mudar…",
+        dialogDescription:
+          "Descreva o que você quer mudar. O agente chamará view-screen primeiro e depois aplicará as edições pelo editor de código.",
+        dialogDescriptionFile:
+          'Descreva o que você quer mudar em "{{file}}". O agente chamará view-screen primeiro e depois aplicará as edições pelo editor de código.',
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "जुड़े हुए local code में बदलाव AI agent लागू करता है, सीधे नहीं लिखे जाते।",
+        askAiToEdit: "AI से edit करने को कहें",
+        copyPrompt: "Prompt कॉपी करें",
+        dialogTitle: "जुड़े हुए source को edit करने के लिए AI से कहें",
+        requestPlaceholder: "बटन का रंग नीला करें, heading text अपडेट करें…",
+        askAi: "AI से पूछें",
+        applyWithAi: "AI से लागू करें",
+        copyPromptTooltip: "Prompt को clipboard पर कॉपी करें",
+        targeting: "लक्ष्य:",
+        describeElementChange: "इस element के लिए बदलाव बताएं…",
+        describeChange: "आप क्या बदलना चाहते हैं, बताएं…",
+        dialogDescription:
+          "आप क्या बदलना चाहते हैं, बताएं। Agent पहले view-screen को call करेगा, फिर code editor से बदलाव लागू करेगा।",
+        dialogDescriptionFile:
+          '"{{file}}" में आप क्या बदलना चाहते हैं, बताएं। Agent पहले view-screen को call करेगा, फिर code editor से बदलाव लागू करेगा।',
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      localSourceEdit: {
+        bannerNotice:
+          "يطبّق وكيل الذكاء الاصطناعي التعديلات على الكود المحلي المتصل، ولا تُكتب مباشرة.",
+        askAiToEdit: "اطلب من الذكاء الاصطناعي التعديل",
+        copyPrompt: "نسخ الموجّه",
+        dialogTitle: "اطلب من الذكاء الاصطناعي تعديل المصدر المتصل",
+        requestPlaceholder: "غيّر لون الزر إلى الأزرق، وحدّث نص العنوان…",
+        askAi: "اسأل الذكاء الاصطناعي",
+        applyWithAi: "تطبيق بالذكاء الاصطناعي",
+        copyPromptTooltip: "نسخ الموجّه إلى الحافظة",
+        targeting: "الهدف:",
+        describeElementChange: "صف التغيير المطلوب على هذا العنصر…",
+        describeChange: "صف ما تريد تغييره…",
+        dialogDescription:
+          "صف ما تريد تغييره. سيستدعي الوكيل view-screen أولاً ثم يطبّق التعديلات عبر محرر الكود.",
+        dialogDescriptionFile:
+          'صف ما تريد تغييره في "{{file}}". سيستدعي الوكيل view-screen أولاً ثم يطبّق التعديلات عبر محرر الكود.',
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designLeftRailOverrides = {
+  "zh-TW": {
+    designEditor: {
+      applyToSource: "套用至來源",
+      applyToSourcePath: "套用至來源（{{path}}）",
+      writingToSource: "寫入中…",
+      leftRail: {
+        file: "檔案",
+        agent: "代理",
+        assets: "資源",
+        tools: "工具",
+        tokens: "權杖",
+        label: "設計工作區",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      applyToSource: "应用到源文件",
+      applyToSourcePath: "应用到源文件（{{path}}）",
+      writingToSource: "正在写入…",
+      leftRail: {
+        file: "文件",
+        agent: "代理",
+        assets: "资源",
+        tools: "工具",
+        tokens: "设计令牌",
+        label: "设计工作区",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      applyToSource: "Aplicar al código fuente",
+      applyToSourcePath: "Aplicar al código fuente ({{path}})",
+      writingToSource: "Escribiendo…",
+      leftRail: {
+        file: "Archivo",
+        agent: "Agente",
+        assets: "Recursos",
+        tools: "Herramientas",
+        tokens: "Tokens de diseño",
+        label: "Espacio de trabajo de diseño",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      applyToSource: "Appliquer à la source",
+      applyToSourcePath: "Appliquer à la source ({{path}})",
+      writingToSource: "Écriture…",
+      leftRail: {
+        file: "Fichier",
+        agent: "Agent",
+        assets: "Ressources",
+        tools: "Outils",
+        tokens: "Jetons",
+        label: "Espace de travail Design",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      applyToSource: "Auf Quelle anwenden",
+      applyToSourcePath: "Auf Quelle anwenden ({{path}})",
+      writingToSource: "Wird geschrieben…",
+      leftRail: {
+        file: "Datei",
+        agent: "Agent",
+        assets: "Ressourcen",
+        tools: "Werkzeuge",
+        tokens: "Design-Tokens",
+        label: "Design-Arbeitsbereich",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      applyToSource: "ソースに適用",
+      applyToSourcePath: "ソースに適用（{{path}}）",
+      writingToSource: "書き込み中…",
+      leftRail: {
+        file: "ファイル",
+        agent: "エージェント",
+        assets: "アセット",
+        tools: "ツール",
+        tokens: "トークン",
+        label: "デザインワークスペース",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      applyToSource: "소스에 적용",
+      applyToSourcePath: "소스에 적용({{path}})",
+      writingToSource: "쓰는 중…",
+      leftRail: {
+        file: "파일",
+        agent: "에이전트",
+        assets: "에셋",
+        tools: "도구",
+        tokens: "토큰",
+        label: "디자인 작업공간",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      applyToSource: "Aplicar à origem",
+      applyToSourcePath: "Aplicar à origem ({{path}})",
+      writingToSource: "Gravando…",
+      leftRail: {
+        file: "Arquivo",
+        agent: "Agente",
+        assets: "Recursos",
+        tools: "Ferramentas",
+        tokens: "Tokens de design",
+        label: "Área de trabalho de design",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      applyToSource: "स्रोत पर लागू करें",
+      applyToSourcePath: "स्रोत पर लागू करें ({{path}})",
+      writingToSource: "लिखा जा रहा है…",
+      leftRail: {
+        file: "फ़ाइल",
+        agent: "एजेंट",
+        assets: "एसेट",
+        tools: "उपकरण",
+        tokens: "टोकन",
+        label: "डिज़ाइन कार्यक्षेत्र",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      applyToSource: "تطبيق على المصدر",
+      applyToSourcePath: "تطبيق على المصدر ({{path}})",
+      writingToSource: "جارٍ الكتابة…",
+      leftRail: {
+        file: "ملف",
+        agent: "الوكيل",
+        assets: "الأصول",
+        tools: "الأدوات",
+        tokens: "الرموز",
+        label: "مساحة عمل التصميم",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designTokenImportOverrides = {
+  "zh-TW": {
+    designEditor: {
+      tokens: {
+        import: "匯入權杖",
+        importTitle: "匯入權杖",
+        importHint:
+          "先使用 design.md、CSS、主題檔案或目前設計，再手動新增權杖。",
+        files: "檔案",
+        folder: "資料夾",
+        current: "目前",
+        importPasted: "匯入貼上的權杖",
+        importedCount: "已匯入 {{count}} 個權杖",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      tokens: {
+        import: "导入设计令牌",
+        importTitle: "导入设计令牌",
+        importHint:
+          "先使用 design.md、CSS、主题文件或当前设计，再手动添加令牌。",
+        files: "文件",
+        folder: "文件夹",
+        current: "当前",
+        importPasted: "导入粘贴的令牌",
+        importedCount: "已导入 {{count}} 个令牌",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      tokens: {
+        import: "Importar tokens",
+        importTitle: "Importar tokens",
+        importHint:
+          "Usa design.md, CSS, archivos de tema o el diseño actual antes de añadir tokens a mano.",
+        files: "Archivos",
+        folder: "Carpeta",
+        current: "Actual",
+        importPasted: "Importar tokens pegados",
+        importedCount: "{{count}} tokens importados",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      tokens: {
+        import: "Importer des jetons",
+        importTitle: "Importer des jetons",
+        importHint:
+          "Utilisez design.md, CSS, les fichiers de thème ou le design actuel avant d'ajouter des jetons à la main.",
+        files: "Fichiers",
+        folder: "Dossier",
+        current: "Actuel",
+        importPasted: "Importer les jetons collés",
+        importedCount: "{{count}} jetons importés",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      tokens: {
+        import: "Tokens importieren",
+        importTitle: "Tokens importieren",
+        importHint:
+          "Nutze zuerst design.md, CSS, Theme-Dateien oder das aktuelle Design, bevor du Tokens manuell hinzufügst.",
+        files: "Dateien",
+        folder: "Ordner",
+        current: "Aktuell",
+        importPasted: "Eingefügte Tokens importieren",
+        importedCount: "{{count}} Tokens importiert",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      tokens: {
+        import: "トークンをインポート",
+        importTitle: "トークンをインポート",
+        importHint:
+          "手入力の前に design.md、CSS、テーマファイル、または現在のデザインを使います。",
+        files: "ファイル",
+        folder: "フォルダー",
+        current: "現在",
+        importPasted: "貼り付けたトークンをインポート",
+        importedCount: "{{count}} 個のトークンをインポートしました",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      tokens: {
+        import: "토큰 가져오기",
+        importTitle: "토큰 가져오기",
+        importHint:
+          "수동으로 추가하기 전에 design.md, CSS, 테마 파일 또는 현재 디자인을 사용하세요.",
+        files: "파일",
+        folder: "폴더",
+        current: "현재",
+        importPasted: "붙여넣은 토큰 가져오기",
+        importedCount: "{{count}}개 토큰을 가져왔습니다",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      tokens: {
+        import: "Importar tokens",
+        importTitle: "Importar tokens",
+        importHint:
+          "Use design.md, CSS, arquivos de tema ou o design atual antes de adicionar tokens manualmente.",
+        files: "Arquivos",
+        folder: "Pasta",
+        current: "Atual",
+        importPasted: "Importar tokens colados",
+        importedCount: "{{count}} tokens importados",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      tokens: {
+        import: "टोकन इम्पोर्ट करें",
+        importTitle: "टोकन इम्पोर्ट करें",
+        importHint:
+          "हाथ से जोड़ने से पहले design.md, CSS, theme files या current design इस्तेमाल करें।",
+        files: "फाइलें",
+        folder: "फोल्डर",
+        current: "मौजूदा",
+        importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
+        importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      tokens: {
+        import: "استيراد الرموز",
+        importTitle: "استيراد الرموز",
+        importHint:
+          "استخدم design.md أو CSS أو ملفات السمة أو التصميم الحالي قبل إضافة الرموز يدويا.",
+        files: "ملفات",
+        folder: "مجلد",
+        current: "الحالي",
+        importPasted: "استيراد الرموز الملصقة",
+        importedCount: "تم استيراد {{count}} رمزا",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
     mergePartialMessages(
       zhTW,
+      designLeftRailOverrides["zh-TW"],
+      designTokenImportOverrides["zh-TW"],
       designModeFeatureOverrides["zh-TW"],
       designShapeToolOverrides["zh-TW"],
       designPublicShareOverrides["zh-TW"],
       designVisualEditOverrides["zh-TW"],
+      designLocalSourceEditOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -9287,11 +9950,14 @@ export const messagesByLocale = {
       designLocaleOverrides["zh-CN"],
       designRawLiteralOverrides["zh-CN"],
       designExactEnglishOverrides["zh-CN"],
+      designLeftRailOverrides["zh-CN"],
+      designTokenImportOverrides["zh-CN"],
       designModeFeatureOverrides["zh-CN"],
       designCanvasFeatureOverrides["zh-CN"],
       designShapeToolOverrides["zh-CN"],
       designPublicShareOverrides["zh-CN"],
       designVisualEditOverrides["zh-CN"],
+      designLocalSourceEditOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -9338,11 +10004,14 @@ export const messagesByLocale = {
       designLocaleOverrides["es-ES"],
       designRawLiteralOverrides["es-ES"],
       designExactEnglishOverrides["es-ES"],
+      designLeftRailOverrides["es-ES"],
+      designTokenImportOverrides["es-ES"],
       designModeFeatureOverrides["es-ES"],
       designCanvasFeatureOverrides["es-ES"],
       designShapeToolOverrides["es-ES"],
       designPublicShareOverrides["es-ES"],
       designVisualEditOverrides["es-ES"],
+      designLocalSourceEditOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -9389,11 +10058,14 @@ export const messagesByLocale = {
       designLocaleOverrides["fr-FR"],
       designRawLiteralOverrides["fr-FR"],
       designExactEnglishOverrides["fr-FR"],
+      designLeftRailOverrides["fr-FR"],
+      designTokenImportOverrides["fr-FR"],
       designModeFeatureOverrides["fr-FR"],
       designCanvasFeatureOverrides["fr-FR"],
       designShapeToolOverrides["fr-FR"],
       designPublicShareOverrides["fr-FR"],
       designVisualEditOverrides["fr-FR"],
+      designLocalSourceEditOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -9440,11 +10112,14 @@ export const messagesByLocale = {
       designLocaleOverrides["de-DE"],
       designRawLiteralOverrides["de-DE"],
       designExactEnglishOverrides["de-DE"],
+      designLeftRailOverrides["de-DE"],
+      designTokenImportOverrides["de-DE"],
       designModeFeatureOverrides["de-DE"],
       designCanvasFeatureOverrides["de-DE"],
       designShapeToolOverrides["de-DE"],
       designPublicShareOverrides["de-DE"],
       designVisualEditOverrides["de-DE"],
+      designLocalSourceEditOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -9491,11 +10166,14 @@ export const messagesByLocale = {
       designLocaleOverrides["ja-JP"],
       designRawLiteralOverrides["ja-JP"],
       designExactEnglishOverrides["ja-JP"],
+      designLeftRailOverrides["ja-JP"],
+      designTokenImportOverrides["ja-JP"],
       designModeFeatureOverrides["ja-JP"],
       designCanvasFeatureOverrides["ja-JP"],
       designShapeToolOverrides["ja-JP"],
       designPublicShareOverrides["ja-JP"],
       designVisualEditOverrides["ja-JP"],
+      designLocalSourceEditOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -9543,11 +10221,14 @@ export const messagesByLocale = {
       designLocaleOverrides["ko-KR"],
       designRawLiteralOverrides["ko-KR"],
       designExactEnglishOverrides["ko-KR"],
+      designLeftRailOverrides["ko-KR"],
+      designTokenImportOverrides["ko-KR"],
       designModeFeatureOverrides["ko-KR"],
       designCanvasFeatureOverrides["ko-KR"],
       designShapeToolOverrides["ko-KR"],
       designPublicShareOverrides["ko-KR"],
       designVisualEditOverrides["ko-KR"],
+      designLocalSourceEditOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -9593,11 +10274,14 @@ export const messagesByLocale = {
       designLocaleOverrides["pt-BR"],
       designRawLiteralOverrides["pt-BR"],
       designExactEnglishOverrides["pt-BR"],
+      designLeftRailOverrides["pt-BR"],
+      designTokenImportOverrides["pt-BR"],
       designModeFeatureOverrides["pt-BR"],
       designCanvasFeatureOverrides["pt-BR"],
       designShapeToolOverrides["pt-BR"],
       designPublicShareOverrides["pt-BR"],
       designVisualEditOverrides["pt-BR"],
+      designLocalSourceEditOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -9644,11 +10328,14 @@ export const messagesByLocale = {
       designLocaleOverrides["hi-IN"],
       designRawLiteralOverrides["hi-IN"],
       designExactEnglishOverrides["hi-IN"],
+      designLeftRailOverrides["hi-IN"],
+      designTokenImportOverrides["hi-IN"],
       designModeFeatureOverrides["hi-IN"],
       designCanvasFeatureOverrides["hi-IN"],
       designShapeToolOverrides["hi-IN"],
       designPublicShareOverrides["hi-IN"],
       designVisualEditOverrides["hi-IN"],
+      designLocalSourceEditOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -9695,11 +10382,14 @@ export const messagesByLocale = {
       designLocaleOverrides["ar-SA"],
       designRawLiteralOverrides["ar-SA"],
       designExactEnglishOverrides["ar-SA"],
+      designLeftRailOverrides["ar-SA"],
+      designTokenImportOverrides["ar-SA"],
       designModeFeatureOverrides["ar-SA"],
       designCanvasFeatureOverrides["ar-SA"],
       designShapeToolOverrides["ar-SA"],
       designPublicShareOverrides["ar-SA"],
       designVisualEditOverrides["ar-SA"],
+      designLocalSourceEditOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 import { getSession } from "@agent-native/core/server";
@@ -11,7 +12,27 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 
-const UPLOADS_ROOT = path.join(process.cwd(), "data", "uploads");
+function isServerlessRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(
+    env.NETLIFY ||
+    env.VERCEL ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.LAMBDA_TASK_ROOT ||
+    env.CF_PAGES,
+  );
+}
+
+export function uploadsRootForRuntime(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const baseDir = isServerlessRuntime(env)
+    ? path.join(os.tmpdir(), "agent-native-design")
+    : cwd;
+  return path.join(baseDir, "data", "uploads");
+}
+
+const UPLOADS_ROOT = uploadsRootForRuntime();
 const MAX_EXTRACTED_TEXT_CHARS = 8_000;
 const TEXT_EXTENSIONS = new Set([
   ".html",

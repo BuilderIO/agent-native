@@ -7,12 +7,14 @@ import {
   IconLock,
   IconLockOpen,
   IconLayoutGrid,
+  IconPencil,
   IconPlus,
   IconSearch,
 } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -23,6 +25,13 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -30,6 +39,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+const LAYER_ROW_BASE_INDENT = 4;
+const LAYER_ROW_DEPTH_INDENT = 18;
 
 export type LayersPanelNodeType =
   | "file"
@@ -45,6 +57,7 @@ export type LayersPanelNodeType =
   | "image"
   | "code"
   | "element"
+  | "board-element"
   | "unknown";
 
 export interface LayersPanelNode {
@@ -94,6 +107,7 @@ export interface LayersPanelSelectionIntent {
   id: string;
   selectedIds: string[];
   additive: boolean;
+  currentSelectedIds?: string[];
   range: boolean;
   source: "keyboard" | "pointer";
 }
@@ -107,6 +121,7 @@ export interface LayersPanelMoveIntent {
 export interface LayersPanelLabels {
   title: string;
   screens: string;
+  allScreens: string;
   screenOverview: string;
   addScreen: string;
   searchPlaceholder: string;
@@ -128,6 +143,7 @@ export interface LayersPanelLabels {
 export interface LayersPanelProps {
   screens?: LayersPanelFile[];
   activeScreenId?: string;
+  screenOverviewActive?: boolean;
   files?: LayersPanelFile[];
   layers?: LayersPanelNode[];
   codeLayers?: LayersPanelNode[];
@@ -136,6 +152,7 @@ export interface LayersPanelProps {
   expandedIds: readonly string[];
   searchQuery: string;
   className?: string;
+  footer?: ReactNode;
   labels?: Partial<LayersPanelLabels>;
   onSearchQueryChange: (query: string) => void;
   onScreenSelect?: (id: string) => void;
@@ -153,15 +170,34 @@ export interface LayersPanelProps {
   onLeaveLayer?: (id: string) => void;
   onMoveLayer?: (intent: LayersPanelMoveIntent) => void;
   canMoveLayer?: (intent: LayersPanelMoveIntent) => boolean;
+  // Board elements — top-level layer nodes projected from the board file.
+  // When absent the panel is unchanged.
+  boardElements?: LayersPanelNode[];
 }
 
-interface FlatLayerRow {
+export interface FlatLayerRow {
   node: LayersPanelNode;
   rowKey: string;
   depth: number;
   ancestorIds: string[];
   hasChildren: boolean;
+  canAcceptChildren: boolean;
 }
+
+// Node types that can contain children even when currently empty.
+// Leaf / void types (text, image, shape, rectangle) are excluded so we don't
+// offer an "inside" drop zone on genuinely non-container elements.
+const CONTAINER_TYPES = new Set<LayersPanelNodeType | undefined>([
+  "file",
+  "screen",
+  "frame",
+  "group",
+  "section",
+  "component",
+  "instance",
+  "code",
+  "element",
+]);
 
 const SECTION_CODE_ID = "__design_layers_code__";
 const SECTION_ELEMENT_ID = "__design_layers_elements__";
@@ -169,11 +205,21 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 // Module-level drag state: dataTransfer.getData() returns "" during dragover
 // per spec; the source row stores the drag payload here on dragstart instead.
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
+let activeDropIntent: LayersPanelMoveIntent | null = null;
+
+const ROW_BASE_INDENT = 4;
+const ROW_INDENT_STEP = 28;
+const ROW_MAX_INDENT = 96;
+
+function rowIndent(depth: number): number {
+  return Math.min(ROW_BASE_INDENT + depth * ROW_INDENT_STEP, ROW_MAX_INDENT);
+}
 
 function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
     screens: t("layersPanel.screens"),
+    allScreens: t("layersPanel.allScreens"),
     screenOverview: t("designEditor.screenOverview"),
     addScreen: t("layersPanel.addScreen"),
     searchPlaceholder: t("layersPanel.searchPlaceholder"),
@@ -242,14 +288,16 @@ function buildRootNodes({
   layers,
   codeLayers,
   elementLayers,
+  boardElements,
   labels,
 }: Pick<
   LayersPanelProps,
-  "files" | "layers" | "codeLayers" | "elementLayers"
+  "files" | "layers" | "codeLayers" | "elementLayers" | "boardElements"
 > & {
   labels: LayersPanelLabels;
 }) {
   const roots: LayersPanelNode[] = [
+    ...(boardElements ?? []),
     ...(files?.map(asFileNode) ?? []),
     ...(layers ?? []),
   ];
@@ -307,8 +355,16 @@ function flattenRows(
   nodes.forEach((node, index) => {
     const children = node.children ?? [];
     const hasChildren = children.length > 0;
+    const canAcceptChildren = CONTAINER_TYPES.has(node.type);
     const rowKey = `${parentKey}/${node.id}:${index}`;
-    rows.push({ node, rowKey, depth, ancestorIds, hasChildren });
+    rows.push({
+      node,
+      rowKey,
+      depth,
+      ancestorIds,
+      hasChildren,
+      canAcceptChildren,
+    });
     if (hasChildren && (forceExpanded || expandedIds.has(node.id))) {
       flattenRows(
         children,
@@ -363,6 +419,65 @@ function collectAncestorIds(
   return Array.from(ancestors);
 }
 
+export function getLayerSelectionAnchorFromExternalSelection(args: {
+  selectedIds: readonly string[];
+  selectableVisibleIds: readonly string[];
+}): string | null {
+  const selectableVisibleIdSet = new Set(args.selectableVisibleIds);
+  return (
+    [...args.selectedIds]
+      .reverse()
+      .find((id) => selectableVisibleIdSet.has(id)) ?? null
+  );
+}
+
+export function getTreeOrderedLayerIds(
+  ids: readonly string[],
+  visibleRows: readonly FlatLayerRow[],
+): string[] {
+  const idSet = new Set(ids.filter((id) => id && !id.startsWith("__")));
+  const orderedIds = visibleRows
+    .map((row) => row.node.id)
+    .filter((id) => idSet.has(id));
+  const orderedIdSet = new Set(orderedIds);
+  return [
+    ...orderedIds,
+    ...ids.filter((id) => id && !id.startsWith("__") && !orderedIdSet.has(id)),
+  ];
+}
+
+export function getDraggedLayerIdsForRows(args: {
+  selectedIds: readonly string[];
+  nodeId: string;
+  visibleRows: readonly FlatLayerRow[];
+}): string[] {
+  const rawDraggedIds = args.selectedIds.includes(args.nodeId)
+    ? getTreeOrderedLayerIds(args.selectedIds, args.visibleRows)
+    : [args.nodeId];
+  const draggedIdSet = new Set(rawDraggedIds);
+  return rawDraggedIds.filter((id) => {
+    const rowForId = args.visibleRows.find((row) => row.node.id === id);
+    return !rowForId?.ancestorIds.some((ancestorId) =>
+      draggedIdSet.has(ancestorId),
+    );
+  });
+}
+
+export function shouldResyncLayerSelectionAnchor(args: {
+  selectionSignature: string;
+  lastPanelSelectionSignature: string;
+  currentAnchor: string | null;
+  selectableVisibleIds: readonly string[];
+}) {
+  const anchorStillVisible =
+    args.currentAnchor !== null &&
+    args.selectableVisibleIds.includes(args.currentAnchor);
+  return (
+    args.selectionSignature !== args.lastPanelSelectionSignature ||
+    !anchorStillVisible
+  );
+}
+
 function layerCanShowBadge(node: LayersPanelNode) {
   return (
     node.type === "file" ||
@@ -374,6 +489,7 @@ function layerCanShowBadge(node: LayersPanelNode) {
 export function LayersPanel({
   screens,
   activeScreenId,
+  screenOverviewActive = false,
   files,
   layers,
   codeLayers,
@@ -382,6 +498,7 @@ export function LayersPanel({
   expandedIds,
   searchQuery,
   className,
+  footer,
   labels: labelsProp,
   onSearchQueryChange,
   onScreenSelect,
@@ -396,10 +513,13 @@ export function LayersPanel({
   onLeaveLayer,
   onMoveLayer,
   canMoveLayer,
+  boardElements,
 }: LayersPanelProps) {
   const t = useT();
   const labels = useMemo(() => mergeLabels(labelsProp, t), [labelsProp, t]);
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedIdsRef = useRef<readonly string[]>(selectedIds);
+  const lastPanelSelectionSignatureRef = useRef(selectedIds.join("\0"));
   const expandedIdSet = useMemo(() => new Set(expandedIds), [expandedIds]);
   const lastSelectionAnchorRef = useRef<string | null>(selectedIds[0] ?? null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -418,9 +538,10 @@ export function LayersPanel({
         layers,
         codeLayers,
         elementLayers,
+        boardElements,
         labels,
       }),
-    [codeLayers, elementLayers, files, labels, layers],
+    [boardElements, codeLayers, elementLayers, files, labels, layers],
   );
 
   const visibleRows = useMemo(() => {
@@ -434,6 +555,36 @@ export function LayersPanel({
     () => collectAncestorIds(roots, selectedIdSet),
     [roots, selectedIdSet],
   );
+
+  const selectableVisibleIds = useMemo(
+    () =>
+      visibleRows
+        .map(({ node }) => node)
+        .filter((node) => node.selectable !== false)
+        .map((node) => node.id),
+    [visibleRows],
+  );
+
+  useLayoutEffect(() => {
+    selectedIdsRef.current = selectedIds;
+    const signature = selectedIds.join("\0");
+    if (
+      !shouldResyncLayerSelectionAnchor({
+        selectionSignature: signature,
+        lastPanelSelectionSignature: lastPanelSelectionSignatureRef.current,
+        currentAnchor: lastSelectionAnchorRef.current,
+        selectableVisibleIds,
+      })
+    ) {
+      return;
+    }
+    lastPanelSelectionSignatureRef.current = signature;
+    lastSelectionAnchorRef.current =
+      getLayerSelectionAnchorFromExternalSelection({
+        selectedIds,
+        selectableVisibleIds,
+      });
+  }, [selectableVisibleIds, selectedIds]);
 
   useEffect(() => {
     if (selectedAncestorIds.length === 0) return;
@@ -467,55 +618,61 @@ export function LayersPanel({
     return () => window.cancelAnimationFrame(frame);
   }, [selectedScrollRowKey]);
 
-  const selectableVisibleIds = useMemo(
-    () =>
-      visibleRows
-        .map(({ node }) => node)
-        .filter((node) => node.selectable !== false)
-        .map((node) => node.id),
-    [visibleRows],
-  );
-
   const selectNode = useCallback(
     (
       id: string,
       options: {
         additive: boolean;
+        currentSelectedIds?: string[];
         range: boolean;
         source: "keyboard" | "pointer";
       },
     ) => {
+      const currentSelectedIds =
+        options.currentSelectedIds ?? selectedIdsRef.current;
+      const currentSelectedIdSet = new Set(currentSelectedIds);
       let nextIds: string[];
       if (options.range && lastSelectionAnchorRef.current) {
-        const from = selectableVisibleIds.indexOf(
-          lastSelectionAnchorRef.current,
-        );
+        let anchor = lastSelectionAnchorRef.current;
+        if (selectableVisibleIds.indexOf(anchor) < 0) {
+          // Stale anchor (deleted / filtered / collapsed out of view): pivot from
+          // the last selected layer that is still visible & selectable, matching
+          // Figma's behavior instead of dropping the range to a single select.
+          const fallback = [...selectedIds]
+            .reverse()
+            .find((sid) => selectableVisibleIds.includes(sid));
+          if (fallback) {
+            anchor = fallback;
+            lastSelectionAnchorRef.current = fallback;
+          }
+        }
+        const from = selectableVisibleIds.indexOf(anchor);
         const to = selectableVisibleIds.indexOf(id);
         if (from >= 0 && to >= 0) {
           const [start, end] = from < to ? [from, to] : [to, from];
           const rangeIds = selectableVisibleIds.slice(start, end + 1);
           nextIds = options.additive
-            ? Array.from(new Set([...selectedIds, ...rangeIds]))
+            ? Array.from(new Set([...currentSelectedIds, ...rangeIds]))
             : rangeIds;
         } else {
           nextIds = [id];
         }
       } else if (options.additive) {
-        nextIds = selectedIdSet.has(id)
-          ? selectedIds.filter((selectedId) => selectedId !== id)
-          : [...selectedIds, id];
+        nextIds = currentSelectedIdSet.has(id)
+          ? currentSelectedIds.filter((selectedId) => selectedId !== id)
+          : [...currentSelectedIds, id];
       } else {
         nextIds = [id];
       }
-
       // Only advance the anchor on plain clicks; Shift+clicks extend from the
       // existing anchor so the pivot stays fixed across consecutive range clicks.
       if (!options.range) {
         lastSelectionAnchorRef.current = id;
       }
+      lastPanelSelectionSignatureRef.current = nextIds.join("\0");
       onSelectionChange(nextIds, { id, selectedIds: nextIds, ...options });
     },
-    [onSelectionChange, selectableVisibleIds, selectedIdSet, selectedIds],
+    [onSelectionChange, selectableVisibleIds],
   );
 
   const commitRename = useCallback(
@@ -600,12 +757,6 @@ export function LayersPanel({
             </h2>
             <div className="flex items-center gap-0.5 text-muted-foreground">
               <IconTooltipButton
-                label={labels.screenOverview}
-                onClick={onScreenOverview}
-              >
-                <IconLayoutGrid className="size-3.5" />
-              </IconTooltipButton>
-              <IconTooltipButton
                 label={labels.searchPlaceholder}
                 onClick={openSearch}
               >
@@ -620,9 +771,30 @@ export function LayersPanel({
               </IconTooltipButton>
             </div>
           </div>
+          <div className="px-2">
+            <button
+              type="button"
+              className={cn(
+                "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                screenOverviewActive
+                  ? "bg-[var(--design-editor-active-row-color)] text-foreground"
+                  : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
+              )}
+              aria-current={screenOverviewActive ? "page" : undefined}
+              onClick={() => onScreenOverview?.()}
+              title={labels.allScreens}
+            >
+              <IconLayoutGrid className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {labels.allScreens}
+              </span>
+            </button>
+          </div>
+          <div className="mx-3 my-2 border-t border-[var(--design-editor-panel-divider-color)]" />
           <div className="space-y-0.5 px-2">
             {screenRows.map((screen) => {
-              const isActive = screen.id === activeScreenId;
+              const isActive =
+                !screenOverviewActive && screen.id === activeScreenId;
               return (
                 <button
                   key={screen.id}
@@ -633,6 +805,7 @@ export function LayersPanel({
                       ? "bg-[var(--design-editor-active-row-color)] text-foreground"
                       : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
                   )}
+                  aria-current={isActive ? "page" : undefined}
                   onClick={() => onScreenSelect?.(screen.id)}
                   title={screen.filename ?? screen.name}
                 >
@@ -697,9 +870,13 @@ export function LayersPanel({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-2">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain py-2">
         {visibleRows.length ? (
-          <div className="px-2" role="tree" aria-label={labels.title}>
+          <div
+            className="w-max min-w-full px-2"
+            role="tree"
+            aria-label={labels.title}
+          >
             {visibleRows.map((row) => (
               <LayerRow
                 key={row.rowKey}
@@ -723,6 +900,7 @@ export function LayersPanel({
                 onCommitRename={commitRename}
                 onCancelRename={() => setRenamingId(null)}
                 onStartRename={startRename}
+                onRename={onRename}
                 onSelect={selectNode}
                 onToggleExpanded={(expanded) =>
                   onExpandedIdsChange(
@@ -748,6 +926,7 @@ export function LayersPanel({
           </div>
         )}
       </div>
+      {footer ? <div className="shrink-0">{footer}</div> : null}
     </aside>
   );
 }
@@ -766,6 +945,7 @@ function LayerRow({
   onCommitRename,
   onCancelRename,
   onStartRename,
+  onRename,
   onSelect,
   onToggleExpanded,
   onToggleLocked,
@@ -792,10 +972,12 @@ function LayerRow({
   onCommitRename: (id: string) => void;
   onCancelRename: () => void;
   onStartRename: (node: LayersPanelNode) => void;
+  onRename?: (id: string, name: string) => void;
   onSelect: (
     id: string,
     options: {
       additive: boolean;
+      currentSelectedIds?: string[];
       range: boolean;
       source: "keyboard" | "pointer";
     },
@@ -812,33 +994,62 @@ function LayerRow({
   selectedIds: readonly string[];
   visibleRows: FlatLayerRow[];
 }) {
-  const { node, depth, hasChildren } = row;
+  const { node, depth, hasChildren, canAcceptChildren } = row;
   const selectable = node.selectable !== false;
   const lockable = node.lockable !== false && Boolean(onToggleLocked);
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
-  const draggable = selectable && Boolean(onMoveLayer);
+  const dragEligible = selectable && !node.locked && !node.hidden;
+  const draggable = dragEligible && Boolean(onMoveLayer);
+  const canDropInside = layerCanDropInside(
+    node,
+    hasChildren,
+    canAcceptChildren,
+  );
   const activeDrop =
     dropIndicator?.targetId === node.id ? dropIndicator.placement : null;
   // Tracks whether the user pressed Escape to cancel rename so that the
   // subsequent blur event does not commit the edit.
   const renameCancelledRef = useRef(false);
 
+  const readSelectedIdsFromTree = (target: HTMLElement): string[] => {
+    const tree = target.closest('[role="tree"]');
+    if (!tree) return selectedIds.filter((id) => !id.startsWith("__"));
+    return Array.from(
+      tree.querySelectorAll<HTMLElement>(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+      ),
+    )
+      .map((button) => button.dataset.layerNodeId)
+      .filter((id): id is string => Boolean(id && !id.startsWith("__")));
+  };
+
   const handlePointerSelect = (event: MouseEvent<HTMLButtonElement>) => {
     if (!selectable) return;
+    if (event.detail === 0) return;
+    const nativeEvent = event.nativeEvent;
+    const additive =
+      event.metaKey ||
+      event.ctrlKey ||
+      nativeEvent.metaKey ||
+      nativeEvent.ctrlKey;
     onSelect(node.id, {
-      additive: event.metaKey || event.ctrlKey,
+      additive,
+      currentSelectedIds: readSelectedIdsFromTree(event.currentTarget),
       range: event.shiftKey,
       source: "pointer",
     });
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const focusVisibleButton = (nextIndex: number) => {
+    const getFocusableButtons = () => {
       const tree = event.currentTarget.closest('[role="tree"]');
-      if (!tree) return false;
-      const buttons = Array.from(
+      if (!tree) return [];
+      return Array.from(
         tree.querySelectorAll<HTMLButtonElement>("[data-layer-row-button]"),
       ).filter((button) => !button.disabled);
+    };
+    const focusVisibleButton = (nextIndex: number) => {
+      const buttons = getFocusableButtons();
       const target =
         buttons[Math.max(0, Math.min(buttons.length - 1, nextIndex))];
       target?.focus();
@@ -856,12 +1067,15 @@ function LayerRow({
     const currentIndex = visibleRows.findIndex(
       (visibleRow) => visibleRow.rowKey === row.rowKey,
     );
+    const focusableButtons = getFocusableButtons();
+    const currentFocusableIndex = focusableButtons.indexOf(event.currentTarget);
 
-    if (event.key === "Enter" || event.key === " ") {
+    if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       event.preventDefault();
       if (!selectable) return;
       onSelect(node.id, {
         additive: event.metaKey || event.ctrlKey,
+        currentSelectedIds: readSelectedIdsFromTree(event.currentTarget),
         range: event.shiftKey,
         source: "keyboard",
       });
@@ -874,12 +1088,12 @@ function LayerRow({
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      focusVisibleButton(currentIndex + 1);
+      focusVisibleButton(currentFocusableIndex + 1);
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      focusVisibleButton(currentIndex - 1);
+      focusVisibleButton(currentFocusableIndex - 1);
       return;
     }
     if (event.key === "Home") {
@@ -889,7 +1103,7 @@ function LayerRow({
     }
     if (event.key === "End") {
       event.preventDefault();
-      focusVisibleButton(visibleRows.length - 1);
+      focusVisibleButton(focusableButtons.length - 1);
       return;
     }
     if (event.key === "ArrowRight" && hasChildren && !isExpanded) {
@@ -899,9 +1113,13 @@ function LayerRow({
     }
     if (event.key === "ArrowRight" && hasChildren && isExpanded) {
       event.preventDefault();
-      const child = visibleRows[currentIndex + 1];
+      const nextButton = focusableButtons[currentFocusableIndex + 1];
+      const childId = nextButton?.dataset.layerNodeId;
+      const child = childId
+        ? visibleRows.find((visibleRow) => visibleRow.node.id === childId)
+        : null;
       if (child?.ancestorIds.includes(node.id)) {
-        focusVisibleButton(currentIndex + 1);
+        focusVisibleButton(currentFocusableIndex + 1);
       }
       return;
     }
@@ -922,17 +1140,10 @@ function LayerRow({
       event.preventDefault();
       return;
     }
-    const rawDraggedIds = selectedIds.includes(node.id)
-      ? selectedIds.filter((id) => !id.startsWith("__"))
-      : [node.id];
-    // Remove any node whose ancestor is also being dragged to avoid double-moves.
-    // When a parent is moved, its children move with it automatically.
-    const draggedIdSet = new Set(rawDraggedIds);
-    const draggedIds = rawDraggedIds.filter((id) => {
-      const rowForId = visibleRows.find((r) => r.node.id === id);
-      return !rowForId?.ancestorIds.some((ancestorId) =>
-        draggedIdSet.has(ancestorId),
-      );
+    const draggedIds = getDraggedLayerIdsForRows({
+      selectedIds,
+      nodeId: node.id,
+      visibleRows,
     });
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-design-layer-id", node.id);
@@ -946,7 +1157,7 @@ function LayerRow({
   };
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!onMoveLayer || !selectable) return;
+    if (!onMoveLayer || !dragEligible) return;
     // dataTransfer.getData() always returns "" during dragover per spec.
     // Read from the module-level activeDragState set in handleDragStart instead.
     if (!activeDragState) return;
@@ -959,16 +1170,17 @@ function LayerRow({
     const intent = {
       draggedIds: cleanedIds,
       targetId: node.id,
-      placement: dropPlacementForEvent(event, hasChildren),
+      placement: dropPlacementForEvent(event, canDropInside),
     } satisfies LayersPanelMoveIntent;
     if (canMoveLayer && !canMoveLayer(intent)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
+    activeDropIntent = intent;
     onDropIndicatorChange(intent);
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!onMoveLayer || !selectable) {
+    if (!onMoveLayer || !dragEligible) {
       onDropIndicatorChange(null);
       return;
     }
@@ -992,233 +1204,312 @@ function LayerRow({
       (id) => id && id !== node.id && !id.startsWith("__"),
     );
     if (cleanedIds.length > 0) {
-      // Recompute placement from the drop event position rather than relying on
-      // React state (dropIndicator) which may be stale or null.
-      const intent = {
-        draggedIds: cleanedIds,
-        targetId: node.id,
-        placement: dropPlacementForEvent(event, hasChildren),
-      } satisfies LayersPanelMoveIntent;
+      const storedIntent =
+        activeDropIntent?.targetId === node.id
+          ? {
+              ...activeDropIntent,
+              draggedIds: activeDropIntent.draggedIds.filter((id) =>
+                cleanedIds.includes(id),
+              ),
+            }
+          : null;
+      const intent =
+        storedIntent && storedIntent.draggedIds.length > 0
+          ? storedIntent
+          : ({
+              draggedIds: cleanedIds,
+              targetId: node.id,
+              placement: dropPlacementForEvent(event, canDropInside),
+            } satisfies LayersPanelMoveIntent);
       if (!canMoveLayer || canMoveLayer(intent)) {
         onMoveLayer(intent);
       }
     }
+    activeDropIntent = null;
     onDropIndicatorChange(null);
   };
 
+  const showContextMenu =
+    selectable &&
+    (Boolean(onRename && node.renamable !== false) || lockable || hideable);
+
   return (
-    <div
-      ref={rowRef}
-      role="treeitem"
-      aria-expanded={hasChildren ? isExpanded : undefined}
-      aria-level={depth + 1}
-      aria-selected={selectable ? isSelected : undefined}
-      className="relative"
-      draggable={draggable}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragLeave={(event) => {
-        // Only clear the indicator when the pointer truly leaves this row.
-        // Moving into a child element fires dragleave on the outer div too, so
-        // we suppress the clear when relatedTarget is still within this row.
-        if (event.currentTarget.contains(event.relatedTarget as Node | null))
-          return;
-        onDropIndicatorChange(null);
-      }}
-      onDrop={handleDrop}
-      onDragEnd={() => {
-        activeDragState = null;
-        onDropIndicatorChange(null);
-      }}
-      onMouseEnter={() => onHoverLayer?.(node.id)}
-      onMouseLeave={() => onLeaveLayer?.(node.id)}
-    >
-      {activeDrop === "before" ? (
-        <span className="pointer-events-none absolute left-2 right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]" />
-      ) : null}
-      {activeDrop === "after" ? (
-        <span className="pointer-events-none absolute bottom-0 left-2 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]" />
-      ) : null}
-      <div
-        className={cn(
-          "group flex h-8 items-center gap-1 rounded-[5px] pr-1 text-[12px]",
-          activeDrop === "inside" &&
-            "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
-          isSelected &&
-            "bg-[var(--design-editor-selection-color)] text-foreground",
-          !isSelected &&
-            isInSelectedSubtree &&
-            "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95",
-          !isSelected &&
-            isActiveScreen &&
-            "bg-[var(--design-editor-active-row-color)] text-foreground hover:bg-[var(--design-editor-active-row-color)]",
-          !isSelected &&
-            !isInSelectedSubtree &&
-            !isActiveScreen &&
-            "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
-          node.hidden && "text-muted-foreground",
-        )}
-        style={{ paddingLeft: 4 + depth * 28 }}
-      >
-        {hasChildren ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-            aria-label={isExpanded ? labels.collapse : labels.expand}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleExpanded(!isExpanded);
-            }}
-          >
-            {isExpanded ? (
-              <IconChevronDown className="size-4" />
-            ) : (
-              <IconChevronRight className="size-4 rtl:-scale-x-100" />
-            )}
-          </Button>
-        ) : (
-          <span className="size-4 shrink-0" />
-        )}
-
-        <button
-          type="button"
-          disabled={!selectable}
-          data-layer-row-button
-          data-layer-node-id={node.id}
-          className={cn(
-            "flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-sm px-0.5 py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-            selectable ? "cursor-default" : "cursor-default opacity-80",
-          )}
-          onClick={handlePointerSelect}
-          onDoubleClick={() => onStartRename(node)}
-          onKeyDown={handleKeyDown}
+    <ContextMenu>
+      <ContextMenuTrigger asChild disabled={!showContextMenu}>
+        <div
+          ref={rowRef}
+          role="treeitem"
+          aria-expanded={hasChildren ? isExpanded : undefined}
+          aria-level={depth + 1}
+          aria-selected={selectable ? isSelected : undefined}
+          className="relative min-w-full"
+          draggable={draggable}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragLeave={(event) => {
+            // Only clear the indicator when the pointer truly leaves this row.
+            // Moving into a child element fires dragleave on the outer div too, so
+            // we suppress the clear when relatedTarget is still within this row.
+            if (
+              event.currentTarget.contains(event.relatedTarget as Node | null)
+            )
+              return;
+            if (activeDropIntent?.targetId === node.id) activeDropIntent = null;
+            onDropIndicatorChange(null);
+          }}
+          onDrop={handleDrop}
+          onDragEnd={() => {
+            activeDragState = null;
+            activeDropIntent = null;
+            onDropIndicatorChange(null);
+          }}
+          onMouseEnter={() => onHoverLayer?.(node.id)}
+          onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
-          <span
-            className={cn(
-              "shrink-0 text-muted-foreground",
-              (isSelected || isInSelectedSubtree) && "text-foreground",
-            )}
-          >
-            {node.icon ?? (
-              <LayerGlyph
-                node={node}
-                selected={isSelected}
-                inSelectedSubtree={isInSelectedSubtree}
-              />
-            )}
-          </span>
-          {isRenaming ? (
-            <input
-              autoFocus
-              value={renameDraft}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => onRenameDraftChange(event.target.value)}
-              onBlur={() => {
-                // Escape sets renameCancelledRef before blur fires; skip commit.
-                if (renameCancelledRef.current) {
-                  renameCancelledRef.current = false;
-                  return;
-                }
-                onCommitRename(node.id);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  onCommitRename(node.id);
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  renameCancelledRef.current = true;
-                  onCancelRename();
-                }
-              }}
-              className="h-6 min-w-0 flex-1 rounded-[4px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1.5 text-[12px] text-foreground outline-none"
-              aria-label={labels.rename}
-            />
-          ) : (
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate font-medium leading-none",
-                node.hidden && "line-through",
-              )}
-            >
-              {node.name}
-            </span>
-          )}
-          {!isRenaming &&
-          layerCanShowBadge(node) &&
-          node.badge !== null &&
-          node.badge !== undefined ? (
-            <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
-              {node.badge}
-            </span>
+          {activeDrop === "before" ? (
+            <span className="pointer-events-none absolute left-2 right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]" />
           ) : null}
-        </button>
-
-        {lockable ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
+          {activeDrop === "after" ? (
+            <span className="pointer-events-none absolute bottom-0 left-2 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]" />
+          ) : null}
+          <div
+            className={cn(
+              "group flex h-8 min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px]",
+              activeDrop === "inside" &&
+                "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
+              isSelected &&
+                "bg-[var(--design-editor-selection-color)] text-foreground",
+              !isSelected &&
+                isInSelectedSubtree &&
+                "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95",
+              !isSelected &&
+                isActiveScreen &&
+                "bg-[var(--design-editor-active-row-color)] text-foreground hover:bg-[var(--design-editor-active-row-color)]",
+              !isSelected &&
+                !isInSelectedSubtree &&
+                !isActiveScreen &&
+                "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
+              node.hidden && "text-muted-foreground",
+            )}
+            style={{ paddingLeft: rowIndent(depth) }}
+          >
+            {hasChildren ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className={cn(
-                  "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                  node.locked && "opacity-100",
-                  isSelected && "text-foreground",
-                )}
-                aria-label={node.locked ? labels.unlock : labels.lock}
+                className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                aria-label={isExpanded ? labels.collapse : labels.expand}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onToggleLocked?.(node.id, !node.locked);
+                  onToggleExpanded(!isExpanded);
                 }}
               >
-                {node.locked ? (
-                  <IconLock className="size-3" />
+                {isExpanded ? (
+                  <IconChevronDown className="size-4" />
                 ) : (
-                  <IconLockOpen className="size-3" />
+                  <IconChevronRight className="size-4 rtl:-scale-x-100" />
                 )}
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>
+            ) : (
+              <span className="size-4 shrink-0" />
+            )}
+
+            <button
+              type="button"
+              disabled={!selectable}
+              data-layer-row-button
+              data-layer-node-id={node.id}
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-2 rounded-sm px-0.5 py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                selectable ? "cursor-default" : "cursor-default opacity-80",
+              )}
+              onClick={handlePointerSelect}
+              onDoubleClick={() => onStartRename(node)}
+              onKeyDown={handleKeyDown}
+            >
+              <span
+                className={cn(
+                  "shrink-0 text-muted-foreground",
+                  (isSelected || isInSelectedSubtree) && "text-foreground",
+                )}
+              >
+                {node.icon ?? (
+                  <LayerGlyph
+                    node={node}
+                    selected={isSelected}
+                    inSelectedSubtree={isInSelectedSubtree}
+                  />
+                )}
+              </span>
+              {isRenaming ? (
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => onRenameDraftChange(event.target.value)}
+                  onBlur={() => {
+                    // Escape sets renameCancelledRef before blur fires; skip commit.
+                    if (renameCancelledRef.current) {
+                      renameCancelledRef.current = false;
+                      return;
+                    }
+                    onCommitRename(node.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      // Stop propagation so the keydown does not bubble up to the
+                      // parent row <button>'s handleKeyDown, which would fire
+                      // onSelect and potentially trigger canvas-level side effects
+                      // (e.g. switching to overview mode or selecting a wrong layer).
+                      event.stopPropagation();
+                      onCommitRename(node.id);
+                    } else if (event.key === "Tab") {
+                      // Commit the rename on Tab (Figma behavior) and prevent the
+                      // keydown from reaching the global design hotkeys handler which
+                      // would cycle the active file when Tab fires outside an input.
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onCommitRename(node.id);
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      renameCancelledRef.current = true;
+                      onCancelRename();
+                    }
+                  }}
+                  className="h-6 min-w-0 flex-1 rounded-[4px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1.5 text-[12px] text-foreground outline-none"
+                  aria-label={labels.rename}
+                />
+              ) : (
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate font-medium leading-none",
+                    node.hidden && "line-through",
+                  )}
+                  title={node.name}
+                >
+                  {node.name}
+                </span>
+              )}
+              {!isRenaming &&
+              layerCanShowBadge(node) &&
+              node.badge !== null &&
+              node.badge !== undefined ? (
+                <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
+                  {node.badge}
+                </span>
+              ) : null}
+            </button>
+
+            {lockable ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                      node.locked && "opacity-100",
+                      isSelected && "text-foreground",
+                    )}
+                    aria-label={node.locked ? labels.unlock : labels.lock}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleLocked?.(node.id, !node.locked);
+                    }}
+                  >
+                    {node.locked ? (
+                      <IconLock className="size-3" />
+                    ) : (
+                      <IconLockOpen className="size-3" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {node.locked ? labels.unlock : labels.lock}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+
+            {hideable ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                      node.hidden && "opacity-100",
+                      isSelected && "text-foreground",
+                    )}
+                    aria-label={node.hidden ? labels.show : labels.hide}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleHidden?.(node.id, !node.hidden);
+                    }}
+                  >
+                    {node.hidden ? (
+                      <IconEyeOff className="size-3" />
+                    ) : (
+                      <IconEye className="size-3" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {node.hidden ? labels.show : labels.hide}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
+        </div>
+      </ContextMenuTrigger>
+      {showContextMenu ? (
+        <ContextMenuContent className="z-[300] min-w-[160px] text-[12px]">
+          {onRename && node.renamable !== false ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onStartRename(node)}
+            >
+              <IconPencil className="size-3.5 text-muted-foreground" />
+              {labels.rename}
+            </ContextMenuItem>
+          ) : null}
+          {onRename && node.renamable !== false && (lockable || hideable) ? (
+            <ContextMenuSeparator />
+          ) : null}
+          {lockable ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onToggleLocked?.(node.id, !node.locked)}
+            >
+              {node.locked ? (
+                <IconLockOpen className="size-3.5 text-muted-foreground" />
+              ) : (
+                <IconLock className="size-3.5 text-muted-foreground" />
+              )}
               {node.locked ? labels.unlock : labels.lock}
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-
-        {hideable ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                  node.hidden && "opacity-100",
-                  isSelected && "text-foreground",
-                )}
-                aria-label={node.hidden ? labels.show : labels.hide}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onToggleHidden?.(node.id, !node.hidden);
-                }}
-              >
-                {node.hidden ? (
-                  <IconEyeOff className="size-3" />
-                ) : (
-                  <IconEye className="size-3" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
+            </ContextMenuItem>
+          ) : null}
+          {hideable ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onToggleHidden?.(node.id, !node.hidden)}
+            >
+              {node.hidden ? (
+                <IconEye className="size-3.5 text-muted-foreground" />
+              ) : (
+                <IconEyeOff className="size-3.5 text-muted-foreground" />
+              )}
               {node.hidden ? labels.show : labels.hide}
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-      </div>
-    </div>
+            </ContextMenuItem>
+          ) : null}
+        </ContextMenuContent>
+      ) : null}
+    </ContextMenu>
   );
 }
 
@@ -1281,6 +1572,7 @@ function LayerGlyph({
     case "component":
     case "instance":
       return <ComponentLayerGlyph className={cn(common, componentColor)} />;
+    case "board-element":
     case "shape":
     case "rectangle":
       return <RectangleLayerGlyph className={common} />;
@@ -1577,6 +1869,23 @@ function ElementLayerGlyph({ className }: { className?: string }) {
       <path d="m6.4 4.2-3.2 3.8 3.2 3.8" />
       <path d="m9.6 4.2 3.2 3.8-3.2 3.8" />
     </svg>
+  );
+}
+
+function layerCanDropInside(
+  node: LayersPanelNode,
+  hasChildren: boolean,
+  canAcceptChildren: boolean,
+) {
+  return (
+    hasChildren ||
+    canAcceptChildren ||
+    Boolean(node.layout?.isFlexContainer || node.layout?.isGridContainer) ||
+    node.type === "file" ||
+    node.type === "screen" ||
+    node.type === "frame" ||
+    node.type === "group" ||
+    node.type === "section"
   );
 }
 

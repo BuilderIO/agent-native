@@ -323,17 +323,18 @@ iteration, or a human-in-the-loop choice among design directions.
 - Use \`create-design\` first to create a project shell. Do not report the
   design as ready until it has renderable HTML.
 - For open-ended UX exploration, generate distinct, complete HTML directions
-  (2-5, three by default) and call \`present-design-variants\`. The inline
-  Design MCP app shows the options, lets the user pick one, and persists the
-  selected variant.
-- If the Design app opens as a browser link instead of inline (CLI hosts like
-  Codex / Claude Code, where the deep link carries \`handoff=chat\`), the user
-  picks a direction there and the editor shows a copyable summary — ask them to
-  paste it back into chat so you can continue from the chosen direction. The
-  \`present-design-variants\` result's \`fallbackInstructions\` describe this.
+  (2-5, three by default) and call \`present-design-variants\`. Design saves
+  every option as a normal screen on the overview board and renders an inline
+  chat choice with one button per screen name. After the user picks, delete the
+  unchosen variant screens and continue from the kept screen.
+- If the chat choice buttons are not available in the host, ask the user to
+  tell you the screen name they prefer. The variants are already real screens
+  on the board, so do not ask them to paste HTML or copy a generated handoff
+  summary.
 - For direct refinements to an already chosen direction, call
-  \`get-design-snapshot\`, edit from the current tuned HTML, then call
-  \`generate-design\`.
+  \`get-design-snapshot\`, edit from the current tuned HTML, and use
+  \`edit-design\` for surgical changes. Use \`generate-design\` for new files
+  or larger structural rewrites.
 - Use \`export-coding-handoff\` when the user wants to implement the chosen
   design in a codebase.
 
@@ -347,8 +348,29 @@ iteration, or a human-in-the-loop choice among design directions.
 4. For product UI redesigns, prefer cleaner hierarchy, progressive disclosure,
    and realistic controls over decorative mockups.
 5. After \`present-design-variants\`, wait for the user's pick before
-   generating the next version. If they say "I like #2 but...", snapshot the
-   chosen design and refine that direction with \`generate-design\`.
+   generating the next version. Keep the chosen screen, delete the other
+   variant screens, then refine that direction with \`generate-design\` or
+   \`edit-design\`.
+
+## Design Quality Bar
+
+- Before generating, name the concrete audience, the screen's primary job, and
+  the visual thesis. If the brief is vague, make a reasonable choice and state
+  it instead of producing a generic dashboard/landing-page default.
+- For existing products, inspect the current screen, design system, tokens,
+  component language, or codebase context before inventing a new direction.
+- Make each direction distinct in structure and behavior, not just palette.
+  Give every variant one memorable signature choice, then keep the surrounding
+  chrome disciplined.
+- Treat copy, data, and imagery as design material. Use realistic domain
+  content and first-party/generated assets when images matter; avoid lorem
+  ipsum, vague SaaS filler, and decorative placeholder boxes.
+- Build to a quiet quality floor: responsive desktop/mobile layout, visible
+  keyboard focus, useful loading/empty/error states for app UI, and reduced
+  motion support when custom motion is present.
+- After broad generation or refinement, inspect the rendered Design surface or
+  a screenshot-capable host before calling it ready. Fix obvious hierarchy,
+  overflow, contrast, broken interaction, and placeholder-content issues first.
 
 ## Cross-App Use
 
@@ -382,6 +404,8 @@ name: visual-edit
 description: >-
   Open a running local app in Design overview mode as URL-backed iframe screens
   for visual editing, flow review, duplication, and route-state exploration.
+  Use when the user asks to inspect, compare, or edit a real local app visually
+  in Design.
 metadata:
   visibility: exported
 ---
@@ -408,6 +432,28 @@ iframe-backed screens on the infinite canvas.
   and create one screen per URL/path. Shorthand like
   \`localhost:1234/onboarding/1\` means
   \`http://localhost:1234/onboarding/1\`.
+
+## Review Quality
+
+- Treat the running app as the truth. Preserve its component language, tokens,
+  route state, and real content unless the user explicitly asks for a new visual
+  direction.
+- Use multiple URL states to reveal meaningful UX moments: empty/loading/error
+  states, focused panels, modals, responsive breakpoints, and completed flow
+  steps when those matter to the review.
+- For visual edits, compare before/after at the relevant viewport sizes and
+  check key hover/focus/scroll states when the app exposes them.
+
+## Account And Sharing Model
+
+- The \`/visual-edit\` entry route can open before the viewer signs in. Public
+  \`/design/:id\` editor links can also render read-only public designs without a
+  session.
+- Do not attempt anonymous write actions. Bridge registration, design creation,
+  screen placement, generation, saving, and sharing are account-backed. If a
+  signed-out visitor wants to save or share, send them through the framework
+  sign-in return flow, then save or copy the design into that account before
+  opening the share dialog.
 
 ## Required Local Bridge
 
@@ -3027,6 +3073,7 @@ interface SkillInstallMetadata {
   contentHash: string;
   mcpUrl: string;
   installedAt: string;
+  installCommand: string;
   updateCommand: string;
   planMode?: PlanInstallMode;
 }
@@ -3443,30 +3490,48 @@ function writeSkillFolder(
   bundle: SkillFolderBundle,
   installedAt = new Date().toISOString(),
 ): void {
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
-  for (const [rel, content] of Object.entries(bundle.files)) {
-    const target = path.join(dir, rel);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content, "utf-8");
-  }
-  const metadata: SkillInstallMetadata = {
-    schemaVersion: 1,
-    source: "agent-native",
-    appSkillId: bundle.appSkillId,
-    displayName: bundle.displayName,
-    skillName: bundle.skillName,
-    contentHash: bundle.contentHash,
-    mcpUrl: bundle.mcpUrl,
-    installedAt,
-    updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
-    ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
-  };
-  fs.writeFileSync(
-    path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
-    `${JSON.stringify(metadata, null, 2)}\n`,
-    "utf-8",
+  const parent = path.dirname(dir);
+  const tempDir = path.join(
+    parent,
+    `.${path.basename(dir)}.${process.pid}.${Date.now()}.tmp`,
   );
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.mkdirSync(tempDir, { recursive: true });
+    for (const [rel, content] of Object.entries(bundle.files)) {
+      const target = path.join(tempDir, rel);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, content, "utf-8");
+    }
+    const metadata: SkillInstallMetadata = {
+      schemaVersion: 1,
+      source: "agent-native",
+      appSkillId: bundle.appSkillId,
+      displayName: bundle.displayName,
+      skillName: bundle.skillName,
+      contentHash: bundle.contentHash,
+      mcpUrl: bundle.mcpUrl,
+      installedAt,
+      installCommand: `npx @agent-native/core@latest skills add ${bundle.skillName}`,
+      updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
+      ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
+    };
+    fs.writeFileSync(
+      path.join(tempDir, AGENT_NATIVE_SKILL_METADATA_FILE),
+      `${JSON.stringify(metadata, null, 2)}\n`,
+      "utf-8",
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.renameSync(tempDir, dir);
+  } catch (error: any) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+    throw new Error(
+      `Cannot write Agent Native skill folder ${dir}: ${error?.message ?? error}`,
+      { cause: error },
+    );
+  }
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
@@ -6182,7 +6247,9 @@ function runSkillsStatusOrUpdate(
     const target = parsed.target ? ` for ${parsed.target}` : "";
     const hint = isScaffoldGuidanceTarget(parsed.target)
       ? `Run this from a generated Agent Native app or workspace root.\n`
-      : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
+      : update
+        ? `The update command only refreshes skill folders that already exist; it does not do first-time install, MCP registration, or auth. Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" for one-step setup.\n`
+        : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
     process.stdout.write(
       `No installed Agent Native skill copies found${target}.\n${hint}`,
     );

@@ -2171,6 +2171,63 @@ function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
 }
 
+const INTERRUPTED_TOOL_LEDGER_POLL_MS =
+  process.env.NODE_ENV === "test" ? 0 : 2_000;
+
+async function waitForInterruptedToolLedgerEntry(opts: {
+  threadId: string;
+  toolKey: string;
+  toolName: string;
+  timeoutMs: number;
+  signal: AbortSignal;
+  send: (event: AgentChatEvent) => void;
+}): Promise<string | null> {
+  const pollMs = INTERRUPTED_TOOL_LEDGER_POLL_MS;
+  // Wait up to the tool's OWN declared timeout — the abandoned zombie can keep
+  // running that long (e.g. a 12-minute image generation, whose provider keeps
+  // generating after the run aborts), and giving up early re-runs the same
+  // write tool while the original is still in flight, duplicating work and
+  // double-charging. A flat sub-tool-timeout cap (previously 5 min) silently
+  // truncated long tools. The run's AbortSignal still bounds this to the run's
+  // remaining budget: when the run is cut off, the poll returns null and the
+  // re-dispatch hits the already-aborted signal instead of launching a real
+  // second call, so the wait never outlives the run.
+  const maxWaitMs =
+    process.env.NODE_ENV === "test" ? 1 : Math.max(0, opts.timeoutMs);
+  const maxPolls =
+    process.env.NODE_ENV === "test"
+      ? 3
+      : Math.max(1, Math.ceil(maxWaitMs / Math.max(1, pollMs)) + 1);
+
+  for (let attempt = 0; attempt < maxPolls; attempt++) {
+    if (opts.signal.aborted) return null;
+    const ledgerResult = await readLedgerEntry(opts.threadId, opts.toolKey);
+    if (ledgerResult !== null) return ledgerResult;
+
+    if (attempt >= maxPolls - 1) break;
+    opts.send({
+      type: "activity",
+      tool: opts.toolName,
+      label: `Waiting for previous ${opts.toolName} result.`,
+    });
+    if (pollMs <= 0) continue;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        opts.signal.removeEventListener("abort", done);
+        resolve();
+      };
+      const timer = setTimeout(done, pollMs);
+      opts.signal.addEventListener("abort", done, { once: true });
+    });
+  }
+
+  return null;
+}
+
 function normalizeToolErrorForBreaker(error: string): string {
   return error.replace(/\s+/g, " ").trim();
 }
@@ -3241,6 +3298,17 @@ export async function runAgentLoop(opts: {
         };
       }
 
+      const DEFAULT_TOOL_RESULT_CHARS = 50_000;
+      const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+      const toolTimeoutMs =
+        actionEntry.timeoutMs ??
+        opts.toolLimits?.timeoutMs ??
+        DEFAULT_TOOL_TIMEOUT_MS;
+      const toolMaxResultChars =
+        actionEntry.maxResultChars ??
+        opts.toolLimits?.maxResultChars ??
+        DEFAULT_TOOL_RESULT_CHARS;
+
       // TOOL-CALL JOURNAL HARD-BLOCK (resume safety, tool-layer enforcement).
       // The prompt-level resume journal already TELLS a resuming model not to
       // re-run completed tool calls; this enforces it at the tool layer so a
@@ -3291,17 +3359,23 @@ export async function runAgentLoop(opts: {
       // previous invocation's zombie actually completed and wrote its result to
       // the durable ledger. If so, return the ledger result without re-executing
       // (prevents the duplicate side effect) and skip counting it toward the
-      // interruption budget.
+      // interruption budget. A just-abandoned long tool may need a short grace
+      // period before its detached promise writes the ledger, so wait while the
+      // current run still has budget instead of immediately re-running it.
       if (!actionEntry.readOnly) {
         const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
         const priorInterruptions =
           writeToolInterruptions.get(writeCacheKey) ?? 0;
 
         if (priorInterruptions > 0 && opts.threadId) {
-          const ledgerResult = await readLedgerEntry(
-            opts.threadId,
-            writeCacheKey,
-          );
+          const ledgerResult = await waitForInterruptedToolLedgerEntry({
+            threadId: opts.threadId,
+            toolKey: writeCacheKey,
+            toolName: toolCall.name,
+            timeoutMs: toolTimeoutMs,
+            signal,
+            send,
+          });
           if (ledgerResult !== null) {
             // Zombie completed — recover the real result without re-executing.
             const result =
@@ -3357,6 +3431,25 @@ export async function runAgentLoop(opts: {
             isError: true,
           };
         }
+      }
+
+      // Stop BEFORE emitting tool_start if the run was already aborted —
+      // typically because the ledger wait above polled for minutes and the soft
+      // timeout fired meanwhile. Emitting tool_start/tool_done here would leave a
+      // bogus interrupted pair in the transcript for a tool that never re-ran,
+      // and re-invoking would spawn a duplicate zombie. Return the interrupted
+      // marker (no events) so the next continuation recovers via the ledger.
+      // (A second guard inside the try below still covers an abort that lands in
+      // the tiny sync window between here and the action invocation.)
+      if (signal.aborted) {
+        recordToolResult(INTERRUPTED_TOOL_RESULT_MARKER, false);
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: INTERRUPTED_TOOL_RESULT_MARKER,
+        };
       }
 
       send({
@@ -3427,22 +3520,22 @@ export async function runAgentLoop(opts: {
         };
       }
 
-      const DEFAULT_TOOL_RESULT_CHARS = 50_000;
-      const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
-      const toolTimeoutMs =
-        actionEntry.timeoutMs ??
-        opts.toolLimits?.timeoutMs ??
-        DEFAULT_TOOL_TIMEOUT_MS;
-      const toolMaxResultChars =
-        actionEntry.maxResultChars ??
-        opts.toolLimits?.maxResultChars ??
-        DEFAULT_TOOL_RESULT_CHARS;
       let result: string;
       let isError = false;
       let mcpApp:
         | import("../mcp-client/app-result.js").AgentMcpAppPayload
         | undefined;
       try {
+        // The run may have been aborted while we waited above for an
+        // interrupted tool's ledger result (the wait can poll for minutes).
+        // Re-check before invoking the action: starting it now would spawn a
+        // fresh zombie execution — a duplicate side effect / double charge —
+        // which the ledger-recovery path exists to prevent. The Promise.race
+        // "Run aborted" leg below only rejects AFTER the action is invoked, so
+        // it cannot guard this. Throw here instead, handled like any abort.
+        if (signal.aborted) {
+          throw new Error("Run aborted");
+        }
         const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
         const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
         const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;

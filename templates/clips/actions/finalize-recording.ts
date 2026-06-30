@@ -10,7 +10,6 @@
 
 import { defineAction } from "@agent-native/core";
 import {
-  appStateList,
   readAppState,
   writeAppState,
   deleteAppState,
@@ -28,6 +27,7 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
+import { listRecordingChunkKeys } from "../server/lib/recording-upload-state.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -64,17 +64,6 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
     offset += p.byteLength;
   }
   return out;
-}
-
-async function listRecordingChunkKeys(
-  ownerEmail: string,
-  recordingId: string,
-): Promise<string[]> {
-  const rows = await appStateList(
-    ownerEmail,
-    `recording-chunks-${recordingId}-`,
-  );
-  return rows.map((row) => row.key);
 }
 
 function chunkIndexFromKey(key: string): number {
