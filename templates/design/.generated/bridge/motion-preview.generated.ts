@@ -100,12 +100,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
             parseFloat(hp[1]) / 100,
             parseFloat(hp[2]) / 100
           );
-          return [
-            c[0],
-            c[1],
-            c[2],
-            hp.length >= 4 ? parseAlpha(hp[3]) : 1
-          ];
+          return [c[0], c[1], c[2], hp.length >= 4 ? parseAlpha(hp[3]) : 1];
         }
         return null;
       }

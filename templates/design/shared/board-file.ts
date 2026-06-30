@@ -113,7 +113,11 @@ export function boardObjectEntryToHtmlFragment(
 
   const dataAttrs =
     `data-agent-native-node-id="${escapeAttr(nodeId)}"` +
-    ` data-agent-native-layer-name="${escapeAttr(layerName)}"`;
+    ` data-agent-native-layer-name="${escapeAttr(layerName)}"` +
+    // Kind marker so the layers panel renders a shape/text/frame icon for the
+    // primitive (a rectangle looks like a rectangle), matching in-screen drawn
+    // primitives, instead of the generic code/element glyph.
+    ` data-an-primitive="${escapeAttr(kind)}"`;
 
   // Path / line / arrow kinds use an inline SVG.
   if (kind === "path" || kind === "line" || kind === "arrow") {

@@ -120,6 +120,22 @@ describe("boardObjectEntryToHtmlFragment — basic geometry", () => {
     const fragment = boardObjectEntryToHtmlFragment(entry);
     expect(fragment).toContain(`data-agent-native-layer-name="My Rectangle"`);
   });
+
+  it("emits a data-an-primitive kind marker for the layers-panel icon", () => {
+    expect(boardObjectEntryToHtmlFragment(baseEntry)).toContain(
+      `data-an-primitive="rectangle"`,
+    );
+    expect(
+      boardObjectEntryToHtmlFragment({
+        ...baseEntry,
+        kind: "text",
+        text: "Hi",
+      }),
+    ).toContain(`data-an-primitive="text"`);
+    expect(
+      boardObjectEntryToHtmlFragment({ ...baseEntry, kind: "ellipse" }),
+    ).toContain(`data-an-primitive="ellipse"`);
+  });
 });
 
 // ---------------------------------------------------------------------------

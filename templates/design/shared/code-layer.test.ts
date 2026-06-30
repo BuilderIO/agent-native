@@ -208,6 +208,25 @@ describe("code-layer projection", () => {
     );
   });
 
+  it("classifies canvas primitives by their data-an-primitive kind marker", () => {
+    // Canvas primitives (drawn shapes / board objects) are <div>s, which would
+    // otherwise classify as "element" (code glyph). The kind marker makes a
+    // rectangle render with a rectangle icon, text with a text icon, etc.
+    const html = `
+      <div data-agent-native-node-id="r1" data-an-primitive="rectangle" style="position:absolute;width:80px;height:40px;background:#2563eb"></div>
+      <div data-agent-native-node-id="t1" data-an-primitive="text" style="position:absolute">Label</div>
+      <div data-agent-native-node-id="f1" data-an-primitive="frame" style="position:absolute;width:120px;height:80px"></div>
+      <div data-agent-native-node-id="e1" data-an-primitive="ellipse" style="position:absolute;width:60px;height:60px;border-radius:50%;background:#2563eb"></div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree.map((node) => node.type)).toEqual([
+      "shape",
+      "text",
+      "frame",
+      "shape",
+    ]);
+  });
+
   it("deduplicates malformed duplicate root ids in the layer tree", () => {
     const html = `
       <section data-agent-native-node-id="dup-root">First</section>

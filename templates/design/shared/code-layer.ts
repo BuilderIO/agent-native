@@ -1659,6 +1659,17 @@ function layerNameFor(
 }
 
 function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
+  // Canvas primitives (drawn shapes / board objects) carry their kind via
+  // data-an-primitive so the layers panel shows a true shape/text/frame icon
+  // instead of the generic code glyph. The marker wins over tag heuristics:
+  // these primitives are <div>s, which would otherwise classify as "element".
+  const primitiveKind = node.dataAttributes["data-an-primitive"];
+  if (primitiveKind) {
+    if (primitiveKind === "text") return "text";
+    if (primitiveKind === "frame") return "frame";
+    if (primitiveKind === "image") return "image";
+    return "shape";
+  }
   if (TEXT_LAYER_TAGS.has(node.tag)) return "text";
   if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
   if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";

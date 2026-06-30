@@ -1557,6 +1557,10 @@ function appendCanvasPrimitiveToHtml(
     const element = doc.createElement("div");
     element.setAttribute("data-agent-native-node-id", nodeId);
     element.setAttribute("data-agent-native-layer-name", layerName);
+    // Kind marker so the layers panel shows a shape/text/frame icon for this
+    // primitive (rectangle/ellipse/text/frame) instead of the generic code
+    // glyph. Read by treeTypeForNode in shared/code-layer.ts.
+    element.setAttribute("data-an-primitive", primitive.kind);
     element.style.position = "absolute";
     element.style.left = `${left}px`;
     element.style.top = `${top}px`;
