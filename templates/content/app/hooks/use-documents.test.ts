@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDocumentTree,
   filterDocumentTreeDocuments,
+  mergeDocumentIntoListDocumentsCache,
 } from "./use-documents";
 
 function doc(id: string, parentId: string | null, position = 0): Document {
@@ -96,5 +97,35 @@ describe("filterDocumentTreeDocuments", () => {
         (node) => node.id,
       ),
     ).toEqual(["database-page", "ordinary-page"]);
+  });
+});
+
+describe("mergeDocumentIntoListDocumentsCache", () => {
+  it("updates the saved document title in array-shaped list caches", () => {
+    const updated = {
+      ...doc("a", null),
+      title: "This is a page with a very long title",
+    };
+
+    expect(
+      mergeDocumentIntoListDocumentsCache(
+        [doc("a", null), doc("b", null)],
+        updated,
+      ),
+    ).toEqual([updated, doc("b", null)]);
+  });
+
+  it("updates the saved document title in object-shaped list caches", () => {
+    const updated = {
+      ...doc("a", null),
+      title: "This is a page with a very long title",
+    };
+
+    expect(
+      mergeDocumentIntoListDocumentsCache(
+        { documents: [doc("a", null)], cursor: null },
+        updated,
+      ),
+    ).toEqual({ documents: [updated], cursor: null });
   });
 });

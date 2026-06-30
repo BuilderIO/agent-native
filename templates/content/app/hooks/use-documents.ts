@@ -12,6 +12,28 @@ import { toast } from "sonner";
 
 import { useRestoreContentDatabase } from "./use-content-database";
 
+const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
+
+export function mergeDocumentIntoListDocumentsCache(
+  old: unknown,
+  document: Document,
+) {
+  const documents = Array.isArray(old)
+    ? old
+    : old && typeof old === "object" && Array.isArray((old as any).documents)
+      ? (old as any).documents
+      : null;
+  if (!documents) return old;
+
+  const nextDocuments = documents.map((item: Document) =>
+    item.id === document.id ? { ...item, ...document } : item,
+  );
+
+  return Array.isArray(old)
+    ? nextDocuments
+    : { ...old, documents: nextDocuments };
+}
+
 export function useDocuments() {
   return useActionQuery<Document[]>("list-documents", undefined, {
     select: (data: any) => {
@@ -42,6 +64,13 @@ export function useUpdateDocument() {
     DocumentUpdateRequest & { id: string }
   >("update-document", {
     onSuccess: (data, variables) => {
+      queryClient.setQueryData(
+        ["action", "get-document", { id: variables.id }],
+        data,
+      );
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
+        mergeDocumentIntoListDocumentsCache(old, data),
+      );
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: variables.id }],
       });

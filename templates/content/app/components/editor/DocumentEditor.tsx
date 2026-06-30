@@ -22,7 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ClipboardEvent } from "react";
+import type { ClipboardEvent, MutableRefObject } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -67,6 +67,50 @@ const TAB_ID = generateTabId();
 
 interface DocumentEditorProps {
   documentId: string;
+}
+
+type FieldSaveWatermark = { title: string; updatedAt: string | null };
+type ContentSaveWatermark = { content: string; updatedAt: string | null };
+
+function adoptConfirmedSaveWatermarks({
+  saved,
+  savedAt,
+  title,
+  content,
+  updates,
+  lastSavedTitleRef,
+  lastSavedContentRef,
+}: {
+  saved: Document | undefined;
+  savedAt: string;
+  title: string;
+  content: string;
+  updates: Record<string, string>;
+  lastSavedTitleRef: MutableRefObject<FieldSaveWatermark>;
+  lastSavedContentRef: MutableRefObject<ContentSaveWatermark>;
+}) {
+  if (updates.title !== undefined) {
+    lastSavedTitleRef.current = { title, updatedAt: savedAt };
+  } else if (
+    updates.content !== undefined &&
+    saved?.title === lastSavedTitleRef.current.title
+  ) {
+    lastSavedTitleRef.current = {
+      ...lastSavedTitleRef.current,
+      updatedAt: savedAt,
+    };
+  }
+  if (updates.content !== undefined) {
+    lastSavedContentRef.current = { content, updatedAt: savedAt };
+  } else if (
+    updates.title !== undefined &&
+    saved?.content === lastSavedContentRef.current.content
+  ) {
+    lastSavedContentRef.current = {
+      ...lastSavedContentRef.current,
+      updatedAt: savedAt,
+    };
+  }
 }
 
 function DocumentEditorSkeleton() {
@@ -656,12 +700,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       const saved = await persistDocumentUpdates(updates);
       // Adopt the server updatedAt per saved field.
       const savedAt = saved?.updatedAt ?? new Date().toISOString();
-      if (updates.title !== undefined) {
-        lastSavedTitleRef.current = { title, updatedAt: savedAt };
-      }
-      if (updates.content !== undefined) {
-        lastSavedContentRef.current = { content, updatedAt: savedAt };
-      }
+      adoptConfirmedSaveWatermarks({
+        saved,
+        savedAt,
+        title,
+        content,
+        updates,
+        lastSavedTitleRef,
+        lastSavedContentRef,
+      });
 
       // Push-on-save: when auto-sync is on, trigger a Notion push
       // immediately after the save lands in SQL. This eliminates the
@@ -765,15 +812,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdates(updates);
                 const savedAt = saved?.updatedAt ?? new Date().toISOString();
-                if (updates.title !== undefined) {
-                  lastSavedTitleRef.current = { title, updatedAt: savedAt };
-                }
-                if (updates.content !== undefined) {
-                  lastSavedContentRef.current = {
-                    content,
-                    updatedAt: savedAt,
-                  };
-                }
+                adoptConfirmedSaveWatermarks({
+                  saved,
+                  savedAt,
+                  title,
+                  content,
+                  updates,
+                  lastSavedTitleRef,
+                  lastSavedContentRef,
+                });
               }
             } finally {
               // Acknowledge the flush even if nothing changed — the SQL row is
