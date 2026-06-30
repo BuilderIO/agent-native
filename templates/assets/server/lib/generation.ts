@@ -11,6 +11,7 @@ import type {
   GenerationIntent,
   ImageCategory,
   ImageModel,
+  ImageQualityTier,
   ImageSize,
   StyleStrength,
   StyleBrief,
@@ -564,7 +565,8 @@ export async function analyzeStyleWithGemini(input: {
       {
         text: [
           "Analyze these brand/style reference images for a reusable image generation style brief.",
-          "Return only compact JSON with keys: description, medium, mood, subjectMatter, texture, composition, lighting, typographyPolicy, doNot.",
+          "Return only compact JSON with keys: description, medium, mood, subjectMatter, texture, composition, lighting, fontFamilies, fontWeights, letterforms, caseStyle, typographyPolicy, doNot.",
+          "For typography, describe specific letterforms and font traits, not just broad sans/serif categories; omit any typography field you cannot determine confidently.",
           "Use specific trait-locking phrases that can be reused across future image prompts.",
           "Do not name brands, artists, studios, franchises, or copyrighted works unless they appear as user-provided brand identity.",
           "Keep doNot as an array of short constraints. Omit uncertain fields instead of guessing.",
@@ -608,16 +610,24 @@ function extractJsonObject(text: string): string {
   return "{}";
 }
 
-function sanitizeStyleBrief(value: Record<string, unknown>): StyleBrief {
+export function sanitizeStyleBrief(value: Record<string, unknown>): StyleBrief {
   const stringField = (key: string) => {
     const raw = value[key];
     return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
   };
-  const doNot = Array.isArray(value.doNot)
-    ? value.doNot.filter(
-        (item): item is string => typeof item === "string" && !!item.trim(),
-      )
-    : undefined;
+  const stringArrayField = (key: string) => {
+    const raw = value[key];
+    return Array.isArray(raw)
+      ? raw
+          .filter(
+            (item): item is string => typeof item === "string" && !!item.trim(),
+          )
+          .map((item) => item.trim())
+      : undefined;
+  };
+  const fontFamilies = stringArrayField("fontFamilies");
+  const fontWeights = stringArrayField("fontWeights");
+  const doNot = stringArrayField("doNot");
   return {
     description: stringField("description"),
     medium: stringField("medium"),
@@ -626,8 +636,12 @@ function sanitizeStyleBrief(value: Record<string, unknown>): StyleBrief {
     texture: stringField("texture"),
     composition: stringField("composition"),
     lighting: stringField("lighting"),
+    fontFamilies: fontFamilies?.length ? fontFamilies : undefined,
+    fontWeights: fontWeights?.length ? fontWeights : undefined,
+    letterforms: stringField("letterforms"),
+    caseStyle: stringField("caseStyle"),
     typographyPolicy: stringField("typographyPolicy"),
-    doNot: doNot?.length ? doNot.map((item) => item.trim()) : undefined,
+    doNot: doNot?.length ? doNot : undefined,
   };
 }
 
@@ -774,6 +788,66 @@ function toBuilderImageModel(model: ImageModel) {
   return model;
 }
 
+function resolveModelForTier(
+  tier: ImageQualityTier | undefined,
+  category: ImageCategory | undefined,
+): ImageModel | undefined {
+  if (!tier) return undefined;
+  if (tier === "fast") return "gemini-3.1-flash-image";
+  if (tier === "best") return "gemini-3-pro-image";
+  return ["hero", "landing", "logo", "campaign"].includes(category ?? "")
+    ? "gemini-3-pro-image"
+    : "gemini-3.1-flash-image";
+}
+
+export function resolveImageModelForRequest(input: {
+  explicitModel?: ImageModel;
+  imageModelDefault?: ImageModel;
+  explicitTier?: ImageQualityTier;
+  resolvedTier?: ImageQualityTier;
+  category?: ImageCategory;
+  presetModel?: ImageModel | null;
+  embeddedText?: string | null;
+}): ImageModel {
+  if (input.explicitModel) return input.explicitModel;
+
+  // Exact embedded text is materially better on Gemini Pro, so upgrade to it by
+  // default for text requests — but never override a model or tier the caller
+  // or a tagged preset already chose (presets "own" model/tier per the action
+  // docs). Only auto-upgrade when there is no tier (explicit or preset-derived)
+  // and no preset model in play; this still upgrades a bare text request over
+  // the composer default.
+  const textAccurateModel: ImageModel | undefined =
+    input.embeddedText?.trim() &&
+    !input.explicitTier &&
+    !input.resolvedTier &&
+    !input.presetModel
+      ? "gemini-3-pro-image"
+      : undefined;
+
+  // Precedence: explicit per-request model (handled above) > embedded-text
+  // upgrade > an EXPLICIT per-request tier > the preset's saved model > the
+  // preset-DERIVED tier mapping > the sticky composer default > the floor.
+  //
+  // Two subtleties:
+  //   - An explicit per-request tier outranks the preset's saved model (the
+  //     caller is deliberately overriding the preset this turn).
+  //   - The preset's explicit saved model outranks its OWN derived tier: a
+  //     preset's `model` column and `settings.tier` can drift out of sync
+  //     (update-generation-preset can change one without the other), and the
+  //     explicitly saved model is the authoritative choice.
+  //   - The composer default ranks LAST of the real signals: it is a global
+  //     stored preference and must not defeat a tagged preset or a tier request.
+  return (
+    textAccurateModel ??
+    resolveModelForTier(input.explicitTier, input.category) ??
+    input.presetModel ??
+    resolveModelForTier(input.resolvedTier, input.category) ??
+    input.imageModelDefault ??
+    "gemini-3.1-flash-image"
+  );
+}
+
 function toBuilderReferenceRole(role: string) {
   switch (role) {
     case "style_reference":
@@ -799,6 +873,8 @@ export function compilePrompt(input: {
   styleBrief: StyleBrief;
   customInstructions?: string | null;
   prompt: string;
+  embeddedText?: string | null;
+  textPlacement?: string | null;
   referenceCount: number;
   includeLogo: boolean;
   aspectRatio?: AspectRatio;
@@ -815,6 +891,11 @@ export function compilePrompt(input: {
   const doNot = style.doNot?.length
     ? `\nAvoid: ${style.doNot.join("; ")}.`
     : "";
+  const typographyBlock = formatBrandTypography(style);
+  const requestedEmbeddedText = hasEmbeddedText(input.embeddedText);
+  const textInstruction = requestedEmbeddedText
+    ? formatEmbeddedTextInstruction(input.embeddedText, input.textPlacement)
+    : "Do not render headlines, body text, UI labels, or prompt wording inside the image unless the user explicitly asks for exact visible text.";
   const logoInstruction = input.includeLogo
     ? "\nLeave a clean uncluttered area in the upper-right for the real brand logo; do not draw or approximate the logo yourself."
     : "";
@@ -839,14 +920,24 @@ export function compilePrompt(input: {
           : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
 
   if (intent === "edit") {
+    const editTypographyInstruction =
+      requestedEmbeddedText && typographyBlock ? `\n\n${typographyBlock}` : "";
+    const editTextInstruction = requestedEmbeddedText
+      ? `\n\n${formatEmbeddedTextInstruction(input.embeddedText, input.textPlacement)}`
+      : "";
+    const editConstraint = requestedEmbeddedText
+      ? "Do not reimagine the image, change its aspect ratio, or alter unrelated subjects. Do not add any other new text. Return the full image."
+      : "Do not reimagine the image, change its aspect ratio, add new text, or alter unrelated subjects. Return the full image.";
     return `Edit the attached image for the "${input.libraryTitle}" asset library.
 
 ${referenceInstruction}
+${editTypographyInstruction}
 
 Make only this change:
 ${input.prompt}
+${editTextInstruction}
 
-Do not reimagine the image, change its aspect ratio, add new text, or alter unrelated subjects. Return the full image.`;
+${editConstraint}`;
   }
 
   return `Create a brand-consistent image for the "${input.libraryTitle}" asset library.
@@ -861,13 +952,46 @@ ${style.subjectMatter ? `\nSubject matter: ${style.subjectMatter}.` : ""}
 ${style.texture ? `\nTexture/material treatment: ${style.texture}.` : ""}
 ${style.composition ? `\nComposition: ${style.composition}.` : ""}
 ${style.lighting ? `\nLighting: ${style.lighting}.` : ""}
-${style.typographyPolicy ? `\nTypography policy: ${style.typographyPolicy}.` : ""}${frameInstruction}
+${typographyBlock ? `\n${typographyBlock}` : ""}${frameInstruction}
 ${doNot}${logoInstruction}${diagramInstruction}${customInstructions}
 
-Do not render headlines, body text, UI labels, or prompt wording inside the image unless the user explicitly asks for exact visible text.
+${textInstruction}
 
 User request:
 ${input.prompt}`;
+}
+
+function hasEmbeddedText(value?: string | null): boolean {
+  return typeof value === "string" && !!value.trim();
+}
+
+function formatEmbeddedTextInstruction(
+  embeddedText?: string | null,
+  textPlacement?: string | null,
+): string {
+  const placement = textPlacement?.trim();
+  return [
+    `Render this text exactly, spelled correctly, inside the image: ${JSON.stringify(embeddedText ?? "")}.`,
+    placement ? `Placement: ${placement}.` : "",
+    "Match the brand typography described above where specified; keep it legible and well-kerned.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function formatBrandTypography(style: StyleBrief): string {
+  const parts = [
+    style.fontFamilies?.length
+      ? `families ${style.fontFamilies.join(", ")}`
+      : "",
+    style.fontWeights?.length ? `weights ${style.fontWeights.join(", ")}` : "",
+    style.letterforms ? `letterforms: ${style.letterforms}` : "",
+    style.caseStyle ? `case: ${style.caseStyle}` : "",
+    style.typographyPolicy,
+  ].filter((part): part is string => typeof part === "string" && !!part.trim());
+
+  if (!parts.length) return "";
+  return `Brand typography: ${parts.join("; ")}. Match these for any rendered text.`;
 }
 
 // A content-only reference is an image the user attached as subject/content for

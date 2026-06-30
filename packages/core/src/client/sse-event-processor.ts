@@ -352,6 +352,11 @@ export function processEvent(
   }
 
   if (ev.type === "text") {
+    // Visible output means the run is plainly not hanging — drop any running
+    // activity label so a transient "Contacting model" / "Still generating
+    // image" doesn't linger beside streamed text. Idempotent (clears once, then
+    // no-ops) so per-token text deltas stay cheap.
+    if (ev.text) dispatchActivityClear(tabId);
     const lastPart = content[content.length - 1];
     if (lastPart && lastPart.type === "text") {
       lastPart.text += ev.text ?? "";
@@ -492,6 +497,10 @@ export function processEvent(
         }),
       );
     }
+    // Clear any sticky running-activity label (e.g. "Still generating image"):
+    // the tool that was emitting activity heartbeats has finished, so the label
+    // must not linger while the model streams its follow-up text or reasoning.
+    dispatchActivityClear(tabId);
     // Use id-based lookup when available so parallel same-name tool calls
     // get their results correctly assigned; fall back to name-matching.
     const doneIdx = findPendingToolCallIndex(content, doneTool, ev.id);

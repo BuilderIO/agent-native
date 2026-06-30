@@ -230,6 +230,12 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
 const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
+// How long a single activity (model call, tool prep, long tool) must stay
+// in-flight before its label is surfaced in the running indicator. Below this
+// the indicator stays a steady "Thinking" so normal fast turns don't flicker
+// through transient labels ("Contacting model", "Preparing X action"); past it
+// the live label appears so a genuinely slow step reads as working, not hung.
+const ACTIVITY_LABEL_REVEAL_DELAY_MS = 6_000;
 const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
 type ActiveRunLookup = {
@@ -252,6 +258,24 @@ function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
     lastProgressAt != null &&
     nowMs - lastProgressAt > ACTIVE_RUN_STUCK_THRESHOLD_MS
   );
+}
+
+/**
+ * Decide whether a reconnect should give up with "no progress". The signal is
+ * *time since the last streamed event*, NOT total reconnect duration: a healthy
+ * long-running tool (e.g. image generation, which emits `activity` heartbeats
+ * every few seconds) makes continuous progress and must never be aborted just
+ * for running longer than the threshold. Only genuine silence for the full
+ * stuck threshold counts as stuck. Pure + exported so the decision is unit
+ * testable without driving the whole reconnect lifecycle.
+ */
+export function reconnectProgressTimedOut(args: {
+  lastProgressAt: number;
+  now: number;
+  thresholdMs?: number;
+}): boolean {
+  const threshold = args.thresholdMs ?? ACTIVE_RUN_STUCK_THRESHOLD_MS;
+  return args.now - args.lastProgressAt >= threshold;
 }
 
 function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
@@ -1323,6 +1347,24 @@ const AssistantChatInner = forwardRef<
   // True during the 250ms continuation window and startup of the next chunk
   // (adapter's auto-continue delay before POSTing the next chunk).
   const [isAutoResuming, setIsAutoResuming] = useState(false);
+  const [runningActivityLabel, setRunningActivityLabel] = useState<
+    string | null
+  >(null);
+  // Delayed-reveal state for the activity label (see ACTIVITY_LABEL_REVEAL_DELAY_MS).
+  // `latest` holds the most recent activity label; `surfaced` flips true once the
+  // reveal timer fires; `timer` is the pending one-shot reveal.
+  const activityLabelTimerRef = useRef<number | null>(null);
+  const latestActivityLabelRef = useRef<string | null>(null);
+  const activityLabelSurfacedRef = useRef(false);
+  const resetRunningActivity = useCallback(() => {
+    if (activityLabelTimerRef.current !== null) {
+      window.clearTimeout(activityLabelTimerRef.current);
+      activityLabelTimerRef.current = null;
+    }
+    latestActivityLabelRef.current = null;
+    activityLabelSurfacedRef.current = false;
+    setRunningActivityLabel(null);
+  }, []);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
@@ -1341,6 +1383,19 @@ const AssistantChatInner = forwardRef<
   const textStreaming = isRunning || externalStreaming;
   // UI-only running state — drives the stop button and thinking indicator.
   const showRunningInUI = isRunning;
+  // A revealed activity label wins; otherwise stay a steady "Thinking" by
+  // default. We only surface "Reconnecting" while we are actively replaying
+  // recovered content (reconnectContent populated). A bare reconnect with no
+  // replayed content — e.g. a tail-resume after the serverless wall, where
+  // `scheduleUpdate` intentionally leaves reconnectContent empty — is normal
+  // ongoing work, so it must read as "Thinking", never a perpetual "Working".
+  const runningStatusLabel = runningActivityLabel
+    ? runningActivityLabel
+    : isAutoResuming
+      ? "Resuming"
+      : isReconnecting && reconnectContent.length > 0
+        ? "Reconnecting"
+        : "Thinking";
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
   // Stable ref to the "stop active run" action so addToQueue can abort
@@ -1608,11 +1663,32 @@ const AssistantChatInner = forwardRef<
       }, 1000);
 
       let reconnectTimedOut = false;
-      const maxReconnectTimer = setTimeout(() => {
+      // Idle deadline, NOT a total-duration cap. A long-but-healthy run (image
+      // generation emits `activity` heartbeats every few seconds) keeps
+      // advancing `lastReconnectProgressAt`, so it is never aborted for simply
+      // taking longer than the threshold. Only true silence for the full stuck
+      // threshold trips it — the same semantics as `activeRunLooksStale` and the
+      // SSE-level no-progress timeout. `markReconnectProgress` resets it on every
+      // streamed event (see the `onSeq` callback below, which fires for every
+      // event including activity, for both fresh and tail-resume reconnects).
+      let lastReconnectProgressAt = Date.now();
+      const markReconnectProgress = () => {
+        lastReconnectProgressAt = Date.now();
+      };
+      const idleCheck = setInterval(() => {
+        if (
+          !reconnectProgressTimedOut({
+            lastProgressAt: lastReconnectProgressAt,
+            now: Date.now(),
+          })
+        ) {
+          return;
+        }
         reconnectTimedOut = true;
         abortCtrl.abort();
         clearInterval(watchdog);
-      }, 20_000);
+        clearInterval(idleCheck);
+      }, 1000);
 
       const streamReconnect = async () => {
         let noProgressDuringReconnect = false;
@@ -1653,7 +1729,10 @@ const AssistantChatInner = forwardRef<
               toolCallCounter,
               tabId,
               scheduleUpdate,
-              (seq) => updateActiveRunSeq(seq),
+              (seq) => {
+                markReconnectProgress();
+                updateActiveRunSeq(seq);
+              },
             );
             if (afterSeq === 0) {
               setReconnectContent([...content]);
@@ -1677,7 +1756,7 @@ const AssistantChatInner = forwardRef<
             window.clearInterval(threadPollInterval);
           }
           clearInterval(watchdog);
-          clearTimeout(maxReconnectTimer);
+          clearInterval(idleCheck);
         }
 
         if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
@@ -2235,11 +2314,9 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
-  // Real activity means the next chunk has started — leave the auto-resume
-  // ("Resuming") state so the indicator settles back to "Thinking". The
-  // activity label itself is intentionally not surfaced: the running
-  // indicator stays a steady "Thinking" rather than flipping through
-  // transient step labels.
+  // Real activity means the next chunk has started. Surface longer-lived
+  // activity such as "Still generating image" so active-run reconnects do not
+  // look like failures while the server is still making progress.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as {
@@ -2248,13 +2325,43 @@ const AssistantChatInner = forwardRef<
         tabId?: string;
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (typeof detail?.label === "string" && detail.label.trim()) {
-        setIsAutoResuming(false);
+      const label =
+        typeof detail?.label === "string" ? detail.label.trim() : "";
+      if (!label) return;
+      setIsAutoResuming(false);
+      latestActivityLabelRef.current = label;
+      // Already past the delay → keep the visible label current.
+      if (activityLabelSurfacedRef.current) {
+        setRunningActivityLabel(label);
+        return;
+      }
+      // Not yet surfaced → arm a single reveal timer on the FIRST activity of
+      // this in-flight period. A burst of quick steps that all finish (clear)
+      // before the timer fires never surfaces anything, so normal fast turns
+      // stay a steady "Thinking". A step still in-flight at the deadline reveals
+      // the latest label so a slow operation reads as working, not hung.
+      if (activityLabelTimerRef.current === null) {
+        activityLabelTimerRef.current = window.setTimeout(() => {
+          activityLabelTimerRef.current = null;
+          activityLabelSurfacedRef.current = true;
+          if (latestActivityLabelRef.current) {
+            setRunningActivityLabel(latestActivityLabelRef.current);
+          }
+        }, ACTIVITY_LABEL_REVEAL_DELAY_MS);
       }
     };
+    const clear = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      resetRunningActivity();
+    };
     window.addEventListener("agent-chat:activity", handler);
-    return () => window.removeEventListener("agent-chat:activity", handler);
-  }, [tabId]);
+    window.addEventListener("agent-chat:activity-clear", clear);
+    return () => {
+      window.removeEventListener("agent-chat:activity", handler);
+      window.removeEventListener("agent-chat:activity-clear", clear);
+    };
+  }, [resetRunningActivity, tabId]);
 
   // Show "Resuming…" during the adapter's auto-continuation window (the
   // ~250ms gap between the end of one serverless chunk and the POST for the
@@ -2274,8 +2381,9 @@ const AssistantChatInner = forwardRef<
   useEffect(() => {
     if (!isRunning) {
       setIsAutoResuming(false);
+      resetRunningActivity();
     }
-  }, [isRunning]);
+  }, [isRunning, resetRunningActivity]);
 
   // Auto-dequeue: when the agent is idle, send the next queued message. This
   // intentionally does not depend on observing the running -> idle transition:
@@ -3336,18 +3444,7 @@ const AssistantChatInner = forwardRef<
                           <ReconnectStreamMessage content={reconnectContent} />
                         )}
                       {showRunningInUI && (
-                        <RunningActivityStatus
-                          label={
-                            isReconnecting
-                              ? "Reconnecting"
-                              : isAutoResuming
-                                ? "Resuming"
-                                : // Keep a steady "Thinking" while the model works —
-                                  // never flip through transient activity labels
-                                  // (e.g. "Contacting model", "Preparing X action").
-                                  "Thinking"
-                          }
-                        />
+                        <RunningActivityStatus label={runningStatusLabel} />
                       )}
                       {queuedMessages.map((msg) => {
                         const displayText = msg.text
