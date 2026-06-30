@@ -1412,10 +1412,14 @@ export const imageDataSchema: z.ZodType<PlanImageBlock["data"]> = z
     message: "Image block requires an assetId or url.",
   });
 
+// Generous max lengths so a long question title/label never hard-fails a
+// publish (which forces the agent to retry and leaves an empty embed behind).
+// These are well above any realistic title/label; the renderer truncates
+// visually as needed.
 const planQuestionOptionSchema: z.ZodType<PlanQuestionOption> = z.object({
   id: idSchema,
-  label: z.string().trim().min(1).max(220),
-  detail: z.string().trim().max(800).optional(),
+  label: z.string().trim().min(1).max(2000),
+  detail: z.string().trim().max(4000).optional(),
   recommended: z.boolean().optional(),
   wireframe: wireframeDataSchema.optional(),
   diagram: diagramDataSchema.optional(),
@@ -1423,19 +1427,19 @@ const planQuestionOptionSchema: z.ZodType<PlanQuestionOption> = z.object({
 
 const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
   id: idSchema,
-  title: z.string().trim().min(1).max(260),
-  subtitle: z.string().trim().max(700).optional(),
+  title: z.string().trim().min(1).max(2000),
+  subtitle: z.string().trim().max(4000).optional(),
   mode: z.enum(["single", "multi", "freeform"]),
   options: z.array(planQuestionOptionSchema).max(40).optional(),
   allowOther: z.boolean().optional(),
-  placeholder: z.string().trim().max(240).optional(),
+  placeholder: z.string().trim().max(1000).optional(),
   required: z.boolean().optional(),
 });
 
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
     questions: z.array(planQuestionSchema).min(1).max(40),
-    submitLabel: z.string().trim().max(80).optional(),
+    submitLabel: z.string().trim().max(400).optional(),
   });
 
 export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>

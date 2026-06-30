@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
 import {
@@ -64,14 +64,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Plan",
-      description:
-        "Open the Agent-Native Plan review surface for structured blocks, annotations, and comments.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
   },
   run: async (args, ctx) => {
     const bundle = await loadPlanBundle(args.id);

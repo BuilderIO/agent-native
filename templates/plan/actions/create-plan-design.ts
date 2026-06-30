@@ -200,7 +200,7 @@ export default defineAction({
         "Open the Agent-Native Plan design review surface for full-fidelity screens, prototype behavior, comments, and implementation notes.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan Design",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

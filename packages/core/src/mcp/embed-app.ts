@@ -138,6 +138,7 @@ export function embedApp(
     let appFrameLoadTimer = null;
     let lastFrameSrc = "";
     let embedSessionRefreshAttempts = 0;
+    let reportedContentHeight = 0;
 
     function esc(value) {
       return String(value ?? "")
@@ -174,10 +175,18 @@ export function embedApp(
     function visibleIntrinsicHeight() {
       const context = hostState().context || {};
       const hostMaxHeight = contextMaxHeight(context);
+      // Size to the app-reported content height (the shell can't measure the
+      // cross-origin frame). Don't clamp to the host maxHeight — on Codex it's a
+      // small inline hint (~360) that clips the plan; applyIntrinsicHeight still
+      // caps at defaultIntrinsicHeight.
+      if (reportedContentHeight > 0) {
+        return Math.floor(reportedContentHeight + chromeHeight);
+      }
       if (hostMaxHeight) return Math.floor(hostMaxHeight);
-      const viewportHeight = finiteNumber(window.visualViewport && window.visualViewport.height) ||
-        finiteNumber(window.innerHeight);
-      return Math.floor(viewportHeight || defaultIntrinsicHeight);
+      // No host maxHeight and no content height yet: use the CONFIGURED height,
+      // never window.innerHeight. Echoing the iframe's own size pins us to the
+      // current frame height (circular) and locks the embed at the cap forever.
+      return Math.floor(defaultIntrinsicHeight);
     }
 
     function applyIntrinsicHeight(nextHeight) {
@@ -1356,7 +1365,8 @@ export function embedApp(
     }
 
     function notifyHostHeight() {
-      const height = applyIntrinsicHeight(visibleIntrinsicHeight());
+      const intrinsic = visibleIntrinsicHeight();
+      const height = applyIntrinsicHeight(intrinsic);
       if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
         if (app && typeof app.sendSizeChanged === "function") {
           try {
@@ -1487,6 +1497,14 @@ export function embedApp(
         notifyOuterMcpAppReady();
         return;
       }
+      if (event.data.type === "agentNative.contentHeight") {
+        const next = finiteNumber(data && data.height);
+        if (next && Math.abs(next - reportedContentHeight) >= 1) {
+          reportedContentHeight = next;
+          notifyHostHeightSoon();
+        }
+        return;
+      }
       if (event.data.type === "agentNative.embedSessionExpired") {
         refreshExpiredEmbedSession();
         return;
@@ -1538,12 +1556,9 @@ export function embedApp(
         const selfNavigate = shouldSelfNavigateToApp();
         if (startedFor === launchUrl) return;
         startedFor = launchUrl;
-        // Only show the loading message when no frame is mounted yet. ChatGPT
-        // fires openai:set_globals (and thus re-launch) constantly; calling
-        // setMessage() unconditionally here wiped the just-mounted iframe out of
-        // the stage on every redundant launch, so the app rendered and was
-        // instantly blanked back to "Loading app" forever. renderFrame()/
-        // transplant replace the stage themselves when they actually (re)mount.
+        // Only show "Loading app" when no frame is mounted. set_globals
+        // re-launches constantly, so calling it every time would wipe the
+        // just-mounted iframe; renderFrame/transplant own the stage on (re)mount.
         if (!appFrame) {
           setMessage("Loading app");
         }
@@ -1671,14 +1686,11 @@ export function embedApp(
       toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
       openStartUrl = embedStartUrlFrom(params, data);
-      // ChatGPT/Codex fire openai:set_globals extremely often, and the listener
-      // that calls this re-syncs on each one. Because this function calls
-      // notifyHostHeight()/sendHostContext() (which the host reflects back as a
-      // fresh set_globals), an unguarded sync becomes an infinite feedback storm
-      // that starves the host until it shows its sad-face placeholder. Only do
-      // the host round-trips + (re)launch when something we care about changed.
-      // Deliberately EXCLUDE bridge.maxHeight: the host mutates it on every
-      // set_globals as it echoes our height back, which would defeat the guard.
+      // set_globals fires constantly, and this sync calls notifyHostHeight/
+      // sendHostContext which the host echoes back as another set_globals — an
+      // infinite storm. Only do the host round-trips + (re)launch when something
+      // we care about changed. Exclude maxHeight: the host mutates it every
+      // event, which would defeat the guard.
       let signature;
       try {
         signature = JSON.stringify([
@@ -1704,6 +1716,9 @@ export function embedApp(
       if (openUrl || openStartUrl) {
         void launchEmbed();
       } else if (!appFrame) {
+        // No open URL yet — a content-less result no longer reaches the host as
+        // a widget (build-server marks it isError), so this is the transient
+        // "waiting for the embed to resolve" state, not an empty box.
         setMessage("Waiting for app result");
       }
       return true;

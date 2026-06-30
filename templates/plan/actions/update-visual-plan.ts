@@ -456,7 +456,7 @@ export default defineAction({
         "Open the Agent-Native Plan editor for structured content, comments, and status changes.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {
