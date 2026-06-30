@@ -47,6 +47,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type TransitionEvent as ReactTransitionEvent,
 } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -162,8 +163,35 @@ export function MotionDock({
 
   // Dock height (resizable via the top drag handle).
   const [dockHeight, setDockHeight] = useState(DEFAULT_DOCK_HEIGHT);
+  const [hasReservedDockSpace, setHasReservedDockSpace] = useState(isOpen);
   const resizingRef = useRef(false);
   const resizeStartRef = useRef<{ y: number; h: number } | null>(null);
+
+  useEffect(() => {
+    if (isOpen) setHasReservedDockSpace(true);
+  }, [isOpen]);
+
+  const handleDockTransitionEnd = useCallback(
+    (event: ReactTransitionEvent<HTMLDivElement>) => {
+      if (event.currentTarget !== event.target) return;
+      if (
+        event.propertyName !== "translate" &&
+        event.propertyName !== "transform"
+      )
+        return;
+      if (!isOpen) setHasReservedDockSpace(false);
+    },
+    [isOpen],
+  );
+
+  const handleDockSpaceTransitionEnd = useCallback(
+    (event: ReactTransitionEvent<HTMLDivElement>) => {
+      if (event.currentTarget !== event.target) return;
+      if (event.propertyName !== "height") return;
+      if (!isOpen && !hasReservedDockSpace) onExitComplete?.();
+    },
+    [hasReservedDockSpace, isOpen, onExitComplete],
+  );
 
   // Expanded layers in the sidebar.
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
@@ -407,282 +435,282 @@ export function MotionDock({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
-      aria-label="Motion dock"
-      aria-hidden={!isOpen ? true : undefined}
-      onTransitionEnd={(event) => {
-        if (event.currentTarget !== event.target) return;
-        if (
-          event.propertyName !== "translate" &&
-          event.propertyName !== "transform"
-        )
-          return;
-        if (!isOpen) onExitComplete?.();
-      }}
-      className={cn(
-        "design-motion-dock flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background select-none",
-        isOpen
-          ? "relative translate-y-0 border-border opacity-100"
-          : "absolute inset-x-0 bottom-0 z-40 translate-y-full border-transparent pointer-events-none",
-      )}
-      style={{ height: dockHeight }}
+      className="design-motion-dock-space relative shrink-0 overflow-hidden"
+      onTransitionEnd={handleDockSpaceTransitionEnd}
+      style={{ height: isOpen || hasReservedDockSpace ? dockHeight : 0 }}
     >
-      {/* Resize handle */}
       <div
-        className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-10"
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerUp}
-      />
+        aria-label="Motion dock"
+        aria-hidden={!isOpen ? true : undefined}
+        onTransitionEnd={handleDockTransitionEnd}
+        className={cn(
+          "design-motion-dock flex min-h-0 transform-gpu flex-col overflow-hidden border-t bg-background select-none",
+          isOpen
+            ? "relative translate-y-0 border-border opacity-100"
+            : "absolute inset-x-0 bottom-0 z-40 translate-y-full border-transparent pointer-events-none",
+        )}
+        style={{ height: dockHeight }}
+      >
+        {/* Resize handle */}
+        <div
+          className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-10"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+        />
 
-      {/* Dock toolbar */}
-      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border px-2">
-        {/* Collapse toggle. The label and nearby space are part of the target. */}
-        <button
-          type="button"
-          className="-ml-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-          onClick={() => setOpen(false)}
-          aria-label="Collapse motion dock"
-        >
-          <IconChevronDown className="size-3.5" />
-          <span>Motion</span>
-        </button>
+        {/* Dock toolbar */}
+        <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border px-2">
+          {/* Collapse toggle. The label and nearby space are part of the target. */}
+          <button
+            type="button"
+            className="-ml-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            onClick={() => setOpen(false)}
+            aria-label="Collapse motion dock"
+          >
+            <IconChevronDown className="size-3.5" />
+            <span>Motion</span>
+          </button>
 
-        <>
-          {/* Play / Pause */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-6 shrink-0"
-                onClick={playing ? stopPlayback : startPlayback}
-                aria-label={playing ? "Pause" : "Play"}
-              >
-                {playing ? (
-                  <IconPlayerPause className="size-3.5" />
-                ) : (
-                  <IconPlayerPlay className="size-3.5" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {playing ? "Pause" : "Play"}
-            </TooltipContent>
-          </Tooltip>
-
-          {/* Stop / reset */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-6 shrink-0"
-                onClick={() => {
-                  stopPlayback();
-                  setPlayhead(0);
-                  sendPreview(0);
-                }}
-                aria-label="Reset playhead"
-              >
-                <IconPlayerStop className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">Reset</TooltipContent>
-          </Tooltip>
-
-          {/* Duration */}
-          <div className="flex items-center gap-1 ml-1">
-            <span className="text-[10px] text-muted-foreground">Duration</span>
-            <Input
-              type="number"
-              min={50}
-              step={50}
-              value={durationInput}
-              onChange={(e) => setDurationInput(e.target.value)}
-              onBlur={() => {
-                const ms = parseInt(durationInput, 10);
-                if (!isNaN(ms) && ms >= 50) {
-                  onDurationChange?.(ms);
-                } else {
-                  setDurationInput(String(durationMs));
-                }
-              }}
-              className="h-5 w-16 px-1 text-[11px]"
-              aria-label="Duration in ms"
-            />
-            <span className="text-[10px] text-muted-foreground">ms</span>
-          </div>
-
-          {/* Add track — the "create first track" entry point. */}
-          <div className="ml-2">
-            <AddTrackMenu
-              selectedTarget={selectedTarget}
-              onCreateTrack={createTrack}
-            />
-          </div>
-
-          <div className="ml-auto flex items-center gap-1">
-            {/* Auto-keyframe toggle */}
+          <>
+            {/* Play / Pause */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  variant={autoKeyframe ? "secondary" : "ghost"}
+                  variant="ghost"
                   size="icon"
-                  className={cn(
-                    "size-6 shrink-0",
-                    autoKeyframe && "text-primary",
-                  )}
-                  onClick={() => setAutoKeyframe((v) => !v)}
-                  aria-label="Toggle auto-keyframe"
-                  aria-pressed={autoKeyframe}
+                  className="size-6 shrink-0"
+                  onClick={playing ? stopPlayback : startPlayback}
+                  aria-label={playing ? "Pause" : "Play"}
                 >
-                  <IconBolt className="size-3.5" />
+                  {playing ? (
+                    <IconPlayerPause className="size-3.5" />
+                  ) : (
+                    <IconPlayerPlay className="size-3.5" />
+                  )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="top">Auto-keyframe</TooltipContent>
+              <TooltipContent side="top">
+                {playing ? "Pause" : "Play"}
+              </TooltipContent>
             </Tooltip>
 
-            {applying ? (
+            {/* Stop / reset */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 shrink-0"
+                  onClick={() => {
+                    stopPlayback();
+                    setPlayhead(0);
+                    sendPreview(0);
+                  }}
+                  aria-label="Reset playhead"
+                >
+                  <IconPlayerStop className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Reset</TooltipContent>
+            </Tooltip>
+
+            {/* Duration */}
+            <div className="flex items-center gap-1 ml-1">
+              <span className="text-[10px] text-muted-foreground">
+                Duration
+              </span>
+              <Input
+                type="number"
+                min={50}
+                step={50}
+                value={durationInput}
+                onChange={(e) => setDurationInput(e.target.value)}
+                onBlur={() => {
+                  const ms = parseInt(durationInput, 10);
+                  if (!isNaN(ms) && ms >= 50) {
+                    onDurationChange?.(ms);
+                  } else {
+                    setDurationInput(String(durationMs));
+                  }
+                }}
+                className="h-5 w-16 px-1 text-[11px]"
+                aria-label="Duration in ms"
+              />
+              <span className="text-[10px] text-muted-foreground">ms</span>
+            </div>
+
+            {/* Add track — the "create first track" entry point. */}
+            <div className="ml-2">
+              <AddTrackMenu
+                selectedTarget={selectedTarget}
+                onCreateTrack={createTrack}
+              />
+            </div>
+
+            <div className="ml-auto flex items-center gap-1">
+              {/* Auto-keyframe toggle */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span
-                    role="status"
-                    aria-label="Saving motion"
-                    className="flex size-6 items-center justify-center rounded text-muted-foreground"
+                  <Button
+                    type="button"
+                    variant={autoKeyframe ? "secondary" : "ghost"}
+                    size="icon"
+                    className={cn(
+                      "size-6 shrink-0",
+                      autoKeyframe && "text-primary",
+                    )}
+                    onClick={() => setAutoKeyframe((v) => !v)}
+                    aria-label="Toggle auto-keyframe"
+                    aria-pressed={autoKeyframe}
                   >
-                    <IconRefresh className="size-3 animate-spin" />
-                  </span>
+                    <IconBolt className="size-3.5" />
+                  </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top">Saving motion</TooltipContent>
+                <TooltipContent side="top">Auto-keyframe</TooltipContent>
               </Tooltip>
-            ) : null}
-          </div>
-        </>
-      </div>
 
-      {/* Dock body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Layer sidebar */}
-        <div
-          className="flex flex-col shrink-0 border-r border-border overflow-y-auto"
-          style={{ width: LAYER_SIDEBAR_WIDTH }}
-        >
-          {/* Ruler spacer */}
-          <div
-            style={{ height: RULER_HEIGHT }}
-            className="border-b border-border"
-          />
-
-          {layers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-4 py-6">
-              <IconLayersSubtract className="size-5 text-muted-foreground/40" />
-              {selectedTarget ? (
-                <>
-                  <p className="text-[11px] text-muted-foreground/70 leading-snug">
-                    Animate{" "}
-                    <span className="font-medium text-foreground/80">
-                      {selectedTarget.label}
+              {applying ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      role="status"
+                      aria-label="Saving motion"
+                      className="flex size-6 items-center justify-center rounded text-muted-foreground"
+                    >
+                      <IconRefresh className="size-3 animate-spin" />
                     </span>
-                    . Pick a property to add the first track.
-                  </p>
-                  <AddTrackMenu
-                    selectedTarget={selectedTarget}
-                    onCreateTrack={createTrack}
-                    variant="cta"
-                  />
-                </>
-              ) : (
-                <p className="text-[11px] text-muted-foreground/70 leading-snug">
-                  Select an element on the canvas, then add a track to animate
-                  it.
-                </p>
-              )}
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Saving motion</TooltipContent>
+                </Tooltip>
+              ) : null}
             </div>
-          ) : (
-            layers.map((layer) => (
-              <LayerGroup
-                key={layer.nodeId}
-                layer={layer}
-                expanded={expandedNodeIds.has(layer.nodeId)}
-                onToggleExpand={() =>
-                  setExpandedNodeIds((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(layer.nodeId)) next.delete(layer.nodeId);
-                    else next.add(layer.nodeId);
-                    return next;
-                  })
-                }
-                onAddKeyframe={(track) => addKeyframe(track)}
-              />
-            ))
-          )}
+          </>
         </div>
 
-        {/* Timeline / track area */}
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Ruler + playhead drag */}
+        {/* Dock body */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Layer sidebar */}
           <div
-            ref={trackAreaRef}
-            className="relative shrink-0 border-b border-border cursor-col-resize"
-            style={{ height: RULER_HEIGHT }}
-            onPointerDown={handleRulerPointerDown}
-            onPointerMove={handleRulerPointerMove}
-            onPointerUp={handleRulerPointerUp}
+            className="flex flex-col shrink-0 border-r border-border overflow-y-auto"
+            style={{ width: LAYER_SIDEBAR_WIDTH }}
           >
-            {/* Tick marks */}
-            {rulerTicks().map(({ t, label }) => (
-              <div
-                key={t}
-                className="absolute top-0 flex flex-col items-center pointer-events-none"
-                style={{ left: `${t * 100}%`, transform: "translateX(-50%)" }}
-              >
-                <span className="text-[9px] text-muted-foreground/60 leading-none mt-1">
-                  {label}
-                </span>
-                <div className="w-px h-2 bg-border mt-0.5" />
-              </div>
-            ))}
+            {/* Ruler spacer */}
+            <div
+              style={{ height: RULER_HEIGHT }}
+              className="border-b border-border"
+            />
 
-            {/* Playhead */}
-            <PlayheadLine t={playhead} height={RULER_HEIGHT} inRuler />
+            {layers.length === 0 ? (
+              <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-4 py-6">
+                <IconLayersSubtract className="size-5 text-muted-foreground/40" />
+                {selectedTarget ? (
+                  <>
+                    <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                      Animate{" "}
+                      <span className="font-medium text-foreground/80">
+                        {selectedTarget.label}
+                      </span>
+                      . Pick a property to add the first track.
+                    </p>
+                    <AddTrackMenu
+                      selectedTarget={selectedTarget}
+                      onCreateTrack={createTrack}
+                      variant="cta"
+                    />
+                  </>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                    Select an element on the canvas, then add a track to animate
+                    it.
+                  </p>
+                )}
+              </div>
+            ) : (
+              layers.map((layer) => (
+                <LayerGroup
+                  key={layer.nodeId}
+                  layer={layer}
+                  expanded={expandedNodeIds.has(layer.nodeId)}
+                  onToggleExpand={() =>
+                    setExpandedNodeIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(layer.nodeId)) next.delete(layer.nodeId);
+                      else next.add(layer.nodeId);
+                      return next;
+                    })
+                  }
+                  onAddKeyframe={(track) => addKeyframe(track)}
+                />
+              ))
+            )}
           </div>
 
-          {/* Track rows with keyframe diamonds */}
-          <div className="relative flex-1 overflow-y-auto">
-            {layers.map((layer) => (
-              <LayerTrackRows
-                key={layer.nodeId}
-                layer={layer}
-                expanded={expandedNodeIds.has(layer.nodeId)}
-                playhead={playhead}
-                onDeleteKeyframe={deleteKeyframe}
-                onMoveKeyframe={(track, kf, newT) => {
-                  updateTrack(track.targetNodeId, track.property, (tr) => ({
-                    ...tr,
-                    keyframes: tr.keyframes.map((k) =>
-                      k === kf ? { ...k, t: newT } : k,
-                    ),
-                  }));
-                }}
-              />
-            ))}
+          {/* Timeline / track area */}
+          <div className="flex flex-col flex-1 overflow-hidden">
+            {/* Ruler + playhead drag */}
+            <div
+              ref={trackAreaRef}
+              className="relative shrink-0 border-b border-border cursor-col-resize"
+              style={{ height: RULER_HEIGHT }}
+              onPointerDown={handleRulerPointerDown}
+              onPointerMove={handleRulerPointerMove}
+              onPointerUp={handleRulerPointerUp}
+            >
+              {/* Tick marks */}
+              {rulerTicks().map(({ t, label }) => (
+                <div
+                  key={t}
+                  className="absolute top-0 flex flex-col items-center pointer-events-none"
+                  style={{ left: `${t * 100}%`, transform: "translateX(-50%)" }}
+                >
+                  <span className="text-[9px] text-muted-foreground/60 leading-none mt-1">
+                    {label}
+                  </span>
+                  <div className="w-px h-2 bg-border mt-0.5" />
+                </div>
+              ))}
 
-            {/* Playhead across track rows */}
-            <PlayheadLine
-              t={playhead}
-              height={layers.reduce(
-                (sum, layer) =>
-                  sum +
-                  ROW_HEIGHT +
-                  (expandedNodeIds.has(layer.nodeId)
-                    ? layer.tracks.length * ROW_HEIGHT
-                    : 0),
-                0,
-              )}
-            />
+              {/* Playhead */}
+              <PlayheadLine t={playhead} height={RULER_HEIGHT} inRuler />
+            </div>
+
+            {/* Track rows with keyframe diamonds */}
+            <div className="relative flex-1 overflow-y-auto">
+              {layers.map((layer) => (
+                <LayerTrackRows
+                  key={layer.nodeId}
+                  layer={layer}
+                  expanded={expandedNodeIds.has(layer.nodeId)}
+                  playhead={playhead}
+                  onDeleteKeyframe={deleteKeyframe}
+                  onMoveKeyframe={(track, kf, newT) => {
+                    updateTrack(track.targetNodeId, track.property, (tr) => ({
+                      ...tr,
+                      keyframes: tr.keyframes.map((k) =>
+                        k === kf ? { ...k, t: newT } : k,
+                      ),
+                    }));
+                  }}
+                />
+              ))}
+
+              {/* Playhead across track rows */}
+              <PlayheadLine
+                t={playhead}
+                height={layers.reduce(
+                  (sum, layer) =>
+                    sum +
+                    ROW_HEIGHT +
+                    (expandedNodeIds.has(layer.nodeId)
+                      ? layer.tracks.length * ROW_HEIGHT
+                      : 0),
+                  0,
+                )}
+              />
+            </div>
           </div>
         </div>
       </div>

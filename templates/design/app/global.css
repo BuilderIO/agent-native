@@ -91,11 +91,6 @@
     var(--design-editor-panel-bg) 70%,
     var(--design-editor-control-bg)
   );
-  --design-editor-skeleton-frame-section-bg: color-mix(
-    in srgb,
-    var(--design-editor-panel-bg) 88%,
-    var(--design-editor-control-bg)
-  );
   --design-editor-skeleton-frame-border: color-mix(
     in srgb,
     hsl(var(--foreground)) 10%,
@@ -113,8 +108,8 @@
   );
   --design-editor-skeleton-dock-bg: color-mix(
     in srgb,
-    var(--design-editor-panel-bg) 84%,
-    hsl(var(--foreground)) 16%
+    var(--design-editor-panel-bg) 94%,
+    hsl(var(--foreground)) 6%
   );
   --design-editor-skeleton-dock-border: color-mix(
     in srgb,
@@ -123,7 +118,7 @@
   );
   --design-editor-skeleton-dock-ghost-bg: color-mix(
     in srgb,
-    hsl(var(--foreground)) 14%,
+    hsl(var(--foreground)) 11%,
     transparent
   );
   --design-editor-skeleton-dock-divider-bg: color-mix(
@@ -335,6 +330,12 @@
   transition-duration: 200ms;
   transition-timing-function: ease-out;
   will-change: translate, transform;
+}
+
+.design-motion-dock-space {
+  transition-property: height;
+  transition-duration: 200ms;
+  transition-timing-function: ease-out;
 }
 
 .dark .design-editor-app-menu-content {

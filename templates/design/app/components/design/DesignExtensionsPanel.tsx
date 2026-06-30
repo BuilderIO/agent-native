@@ -1,7 +1,6 @@
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 import {
   agentNativePath,
-  sendToAgentChat,
   useActionQuery,
   useActionMutation,
   useChangeVersions,
@@ -53,6 +52,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
 import { ShaderFillsPanel } from "./inspector/ShaderFillsPanel";
@@ -1027,7 +1027,7 @@ function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
   const t = useT();
 
   const handleAskAgent = () => {
-    sendToAgentChat({
+    sendToDesignAgentChat({
       message:
         "Run a token audit on the active design: index CSS custom properties, surface any hard-coded colours that should be tokens, flag clashes, and suggest fixes.",
       context: [
@@ -1077,7 +1077,7 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
   const t = useT();
 
   const handleAskAgent = () => {
-    sendToAgentChat({
+    sendToDesignAgentChat({
       message:
         "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to write the keyframes atomically.",
       context: [
@@ -1159,7 +1159,7 @@ export function DesignExtensionsPanel({
   const submitCreatePrompt: CreateExtensionSubmitHandler = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    sendToAgentChat({
+    sendToDesignAgentChat({
       message: `Create a Design extension: ${trimmed}`,
       context: buildExtensionCreateContext(trimmed, context),
       submit: true,

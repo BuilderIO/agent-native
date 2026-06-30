@@ -437,12 +437,17 @@ export function isDirectScreenHoverTarget(
 }
 
 export function shouldBoardSurfaceCapturePointerEvents(args: {
-  tool: MultiScreenCanvasTool;
+  tool: MultiScreenCanvasTool | string;
   gestureActive?: boolean;
 }) {
   if (args.gestureActive) return false;
-  const tool = normalizeCanvasTool(args.tool);
-  return tool === "move" || tool === "scale";
+  const tool = normalizeCanvasTool(args.tool as MultiScreenCanvasTool);
+  return (
+    !getDraftCreationTool(tool) &&
+    tool !== "hand" &&
+    tool !== "comment" &&
+    tool !== "draw"
+  );
 }
 
 export function getBoardSurfaceLayerStyle(args: {

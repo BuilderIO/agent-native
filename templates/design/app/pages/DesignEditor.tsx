@@ -16,7 +16,6 @@ import {
   appBasePath,
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
-  sendToAgentChat,
   getBrowserTabId,
   readClientAppState,
   setClientAppState,
@@ -165,7 +164,6 @@ import {
   LocalhostWriteConsentDialog,
   type LocalhostWriteConsentPayload,
 } from "@/components/design/LocalhostWriteConsentDialog";
-import { LocalSourceEditBanner } from "@/components/design/LocalSourceEditBanner";
 import {
   MotionDock,
   type MotionDockTrack,
@@ -242,6 +240,10 @@ import {
   useDesignHotkeys,
 } from "@/hooks/useDesignHotkeys";
 import {
+  DESIGN_CHAT_STORAGE_KEY,
+  sendToDesignAgentChat,
+} from "@/lib/agent-chat";
+import {
   clearPendingGeneration,
   hasFreshPendingGeneration,
   isPendingGenerationStale,
@@ -274,7 +276,7 @@ const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const MOTION_DOCK_TRANSITION_MS = 200;
 const MOTION_DOCK_EXIT_SETTLE_MS = 80;
-const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS + 400;
+const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS * 2 + 600;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
 const BOARD_SURFACE_SIZE = 131_072;
 /** Extensions that the localhost bridge allows to be written back to source. */
@@ -561,8 +563,10 @@ export function shouldLimitEditorChromeUntilContentReady(args: {
     hasActiveCanvasContent,
     pendingGenerationActive,
   } = args;
-  if (fileCount === 0) return true;
-  return !hasActiveCanvasContent && (generating || pendingGenerationActive);
+  return (
+    (fileCount === 0 || !hasActiveCanvasContent) &&
+    (generating || pendingGenerationActive)
+  );
 }
 
 export function shouldEscapeToOverview(args: {
@@ -4250,9 +4254,6 @@ export default function DesignEditor() {
   const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
   const frameGeometrySaveTimerRef = useRef<number | null>(null);
   const [tweakSaveActive, setTweakSaveActive] = useState(false);
-  // Dismissible localhost-source banner (reset per session).
-  const [localSourceBannerDismissed, setLocalSourceBannerDismissed] =
-    useState(false);
   // Localhost write-consent dialog state. When the agent wants to write a local
   // file and no valid grant exists for the active connection, we show the dialog
   // with a pending payload; the user clicks "Allow writes" to mint a grant.
@@ -4445,7 +4446,9 @@ export default function DesignEditor() {
     onComplete: handleGenerationComplete,
     onStale: markGenerationStale,
     shouldAdoptRunningTab: () =>
-      Boolean(id) && !generationOutputReadyRef.current,
+      Boolean(id) &&
+      !generationOutputReadyRef.current &&
+      hasFreshPendingGeneration(id),
     onAdoptRunningTab: (tabId) => {
       generationRunConfirmedRef.current = true;
       setGenerationChatTabId(tabId);
@@ -7078,7 +7081,7 @@ export default function DesignEditor() {
       // Follow-up: ask the Design agent to extract props and replace repeated
       // instances with this component. The deterministic annotate above is the
       // core; this is an enhancement that runs in the agent chat.
-      sendToAgentChat({
+      sendToDesignAgentChat({
         message: `Extract props for the "${name}" component and replace repeated instances on this design with it.`,
         context: [
           `Design id: "${id}".`,
@@ -7964,7 +7967,7 @@ export default function DesignEditor() {
         "For tiny source changes, prefer `edit-design`, but make sure the tweak definitions are saved so the Tweaks panel updates.",
       ].join("\n");
 
-      sendToAgentChat({
+      sendToDesignAgentChat({
         message: `Add tweak controls to "${design.title}": ${trimmed}`,
         context,
         submit: true,
@@ -15056,6 +15059,7 @@ ${serializedHtml}
                 <AgentChatSurface
                   mode="panel"
                   className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
+                  storageKey={DESIGN_CHAT_STORAGE_KEY}
                   emptyStateText={t("chat.emptyState")}
                   suggestions={[
                     t("chat.suggestionLandingPage"),
@@ -15238,18 +15242,6 @@ ${serializedHtml}
           >
             {activeFile ? (
               <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                {/* Banner for screens connected to a local dev server: edits
-                    route through the agent rather than being applied inline. */}
-                {activeScreenIsLocalSource &&
-                  !localSourceBannerDismissed &&
-                  id && (
-                    <LocalSourceEditBanner
-                      designId={id}
-                      fileId={activeFile.id}
-                      routeSourceFile={activeScreenRouteSourceFile}
-                      onDismiss={() => setLocalSourceBannerDismissed(true)}
-                    />
-                  )}
                 {/* "Apply to source" affordance: write the current editor
                     content back to the local HTML/CSS file via the bridge.
                     Only shown for localhost-backed screens where the route

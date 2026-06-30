@@ -448,21 +448,13 @@ const messages = {
       auditRunFailed: "無法執行設計稽核",
     },
     localSourceEdit: {
-      bannerNotice: "對已連結本機程式碼的編輯由 AI 代理套用，不會直接寫入。",
-      askAiToEdit: "請 AI 編輯",
       copyPrompt: "複製提示",
-      dialogTitle: "請 AI 編輯已連結的來源",
-      requestPlaceholder: "將按鈕顏色改成藍色、更新標題文字…",
       askAi: "詢問 AI",
       applyWithAi: "用 AI 套用",
       copyPromptTooltip: "將提示複製到剪貼簿",
       targeting: "目標：",
       describeElementChange: "描述要對此元素進行的變更…",
       describeChange: "描述您想要變更的內容…",
-      dialogDescription:
-        "描述您想要變更的內容。代理會先呼叫 view-screen，再透過程式碼編輯器套用編輯。",
-      dialogDescriptionFile:
-        "描述您想在「{{file}}」中變更的內容。代理會先呼叫 view-screen，再透過程式碼編輯器套用編輯。",
     },
   },
   layersPanel: {

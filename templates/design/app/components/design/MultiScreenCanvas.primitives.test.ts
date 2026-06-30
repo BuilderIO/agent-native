@@ -118,6 +118,9 @@ describe("board surface pointer capture", () => {
 
   it("captures only direct board edit tools", () => {
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "move" })).toBe(true);
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "select" })).toBe(
+      true,
+    );
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "scale" })).toBe(
       true,
     );

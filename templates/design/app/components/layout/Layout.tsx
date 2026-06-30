@@ -18,6 +18,7 @@ import {
 import { useLocation } from "react-router";
 
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
 import { Header } from "./Header";
@@ -139,6 +140,7 @@ export function Layout({ children }: LayoutProps) {
       >
         <AgentSidebar
           position="right"
+          storageKey={DESIGN_CHAT_STORAGE_KEY}
           emptyStateText={t("chat.emptyState")}
           suggestions={[
             t("chat.suggestionLandingPage"),

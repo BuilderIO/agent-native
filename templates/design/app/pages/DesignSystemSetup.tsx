@@ -1,5 +1,4 @@
 import {
-  sendToAgentChat,
   openAgentSidebar,
   useActionQuery,
   appApiPath,
@@ -31,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 interface GitHubLink {
   id: string;
@@ -448,7 +448,11 @@ export default function DesignSystemSetup() {
     );
 
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true, newTab: true });
+    sendToDesignAgentChat({
+      message: parts.join("\n"),
+      submit: true,
+      newTab: true,
+    });
     navigate("/design-systems");
   }, [
     hasAnySources,

@@ -1,4 +1,4 @@
-import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconBolt,
@@ -17,6 +17,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
 export interface CanvasPin {
@@ -512,11 +513,11 @@ export function CanvasCommentPins({
       : buildPinLines(targetPins[0]!).join("\n");
 
     try {
-      // Use `sendToAgentChat` (not the shared `agentChat.submit`) so the
+      // Use the client chat bridge (not the shared `agentChat.submit`) so the
       // request routes correctly when design is embedded in Builder/Frame
       // and so the agent sidebar is reliably opened via the `agent-panel:open`
       // custom event even if the user has it collapsed.
-      sendToAgentChat({
+      sendToDesignAgentChat({
         message,
         submit: true,
         openSidebar: true,

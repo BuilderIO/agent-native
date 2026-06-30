@@ -21,10 +21,6 @@ iframe-backed screens on the infinite canvas.
 - Each screen is a URL-backed iframe, not copied HTML.
 - Each screen keeps URL metadata: `connectionId`, `routeId`, `path`,
   `url`, `bridgeUrl`, title, and viewport size.
-- Design may fetch a read-only HTML snapshot from the localhost bridge to make
-  the iframe selectable/editable in the canvas. Keep that snapshot ephemeral:
-  the design file content must remain the URL unless the user explicitly asks
-  for a frozen snapshot.
 - Start in Design's screen overview mode. In overview, screens are static
   design frames; full-screen focus is for scrolling and app interaction.
 - Alt-drag duplicates a screen. For localhost screens, duplication copies the

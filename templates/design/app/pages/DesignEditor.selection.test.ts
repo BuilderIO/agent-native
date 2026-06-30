@@ -521,6 +521,14 @@ describe("DesignEditor initial generation chrome", () => {
         generating: false,
         pendingGenerationActive: false,
       }),
+    ).toBe(false);
+    expect(
+      shouldLimitEditorChromeUntilContentReady({
+        fileCount: 0,
+        hasActiveCanvasContent: false,
+        generating: false,
+        pendingGenerationActive: true,
+      }),
     ).toBe(true);
     expect(
       shouldLimitEditorChromeUntilContentReady({

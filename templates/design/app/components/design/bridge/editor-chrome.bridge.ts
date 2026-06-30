@@ -2041,6 +2041,118 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
   }
 
+  function normalizedWheelDelta(e: WheelEvent): { x: number; y: number } {
+    var multiplier =
+      e.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? Math.max(
+              1,
+              window.innerHeight || document.documentElement.clientHeight,
+            )
+          : 1;
+    return {
+      x: e.deltaX * multiplier,
+      y: e.deltaY * multiplier,
+    };
+  }
+
+  function scrollableOverflow(value: string | undefined): boolean {
+    return value === "auto" || value === "scroll" || value === "overlay";
+  }
+
+  function canScrollElement(
+    el: Element | null,
+    axis: "x" | "y",
+    delta: number,
+  ): boolean {
+    if (!el || !(el instanceof HTMLElement)) return false;
+    var style = window.getComputedStyle(el);
+    var overflow = axis === "y" ? style.overflowY : style.overflowX;
+    if (!scrollableOverflow(overflow)) return false;
+    var max =
+      axis === "y"
+        ? el.scrollHeight - el.clientHeight
+        : el.scrollWidth - el.clientWidth;
+    if (max <= 1) return false;
+    var current = axis === "y" ? el.scrollTop : el.scrollLeft;
+    if (delta < 0) return current > 0;
+    if (delta > 0) return current < max - 1;
+    return false;
+  }
+
+  function findScrollableElementForWheel(
+    start: Element | null,
+    deltaX: number,
+    deltaY: number,
+  ): HTMLElement | Element | null {
+    var node: Element | null = start;
+    while (node && node.nodeType === 1) {
+      if (
+        canScrollElement(node, "y", deltaY) ||
+        canScrollElement(node, "x", deltaX)
+      ) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+
+    var scrollingElement =
+      document.scrollingElement || document.documentElement;
+    var maxY = scrollingElement.scrollHeight - scrollingElement.clientHeight;
+    var maxX = scrollingElement.scrollWidth - scrollingElement.clientWidth;
+    var canScrollUp = false;
+    var canScrollDown = false;
+    var canScrollLeft = false;
+    var canScrollRight = false;
+    if (deltaY < 0) {
+      canScrollUp = scrollingElement.scrollTop > 0;
+    }
+    if (deltaY > 0) {
+      canScrollDown = scrollingElement.scrollTop < maxY - 1;
+    }
+    if (deltaX < 0) {
+      canScrollLeft = scrollingElement.scrollLeft > 0;
+    }
+    if (deltaX > 0) {
+      canScrollRight = scrollingElement.scrollLeft < maxX - 1;
+    }
+    if (canScrollUp || canScrollDown || canScrollLeft || canScrollRight) {
+      return scrollingElement;
+    }
+    return null;
+  }
+
+  function scrollElementByWheelDelta(
+    el: HTMLElement | Element,
+    deltaX: number,
+    deltaY: number,
+  ): boolean {
+    var anyEl = el as HTMLElement;
+    var beforeLeft = anyEl.scrollLeft || 0;
+    var beforeTop = anyEl.scrollTop || 0;
+    if (typeof anyEl.scrollBy === "function") {
+      anyEl.scrollBy({ left: deltaX, top: deltaY, behavior: "auto" });
+    } else {
+      anyEl.scrollLeft = beforeLeft + deltaX;
+      anyEl.scrollTop = beforeTop + deltaY;
+    }
+    return anyEl.scrollLeft !== beforeLeft || anyEl.scrollTop !== beforeTop;
+  }
+
+  function scrollUnderlyingElementAtWheel(e: WheelEvent): void {
+    if (e.ctrlKey || e.metaKey) return;
+    if (Math.abs(e.deltaX) < 0.01 && Math.abs(e.deltaY) < 0.01) return;
+    var delta = normalizedWheelDelta(e);
+    var target = findEditorElementAtPoint(e.clientX, e.clientY);
+    var scrollTarget = findScrollableElementForWheel(target, delta.x, delta.y);
+    if (!scrollTarget) return;
+    var didScroll = scrollElementByWheelDelta(scrollTarget, delta.x, delta.y);
+    if (!didScroll) return;
+    stopNativeInteraction(e);
+    window.requestAnimationFrame(refreshOverlays);
+  }
+
   function isEditorTypingTarget(target) {
     if (!target || !target.closest) return false;
     return !!target.closest(
@@ -3838,6 +3950,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   );
 
   shieldOverlay.addEventListener("pointerdown", beginPotentialShieldDrag, true);
+  shieldOverlay.addEventListener("wheel", scrollUnderlyingElementAtWheel, {
+    passive: false,
+    capture: true,
+  });
 
   ["pointerdown", "pointerup", "mousedown", "mouseup", "auxclick"].forEach(
     function (type) {

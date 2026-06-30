@@ -1,4 +1,4 @@
-import { sendToAgentChat, usePinchZoom, useT } from "@agent-native/core/client";
+import { usePinchZoom, useT } from "@agent-native/core/client";
 import { ensureCodeLayerNodeIdsInHtml } from "@shared/code-layer";
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 
@@ -11,6 +11,7 @@ import {
   CanvasCommentPins,
   type CanvasPin,
 } from "@/components/visual-editor";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -508,7 +509,7 @@ function addSnapshotBaseHref(html: string, href: string): string {
 function prepareStaticSnapshotHtml(html: string, href: string): string {
   const withBase = addSnapshotBaseHref(html, href);
   if (typeof DOMParser === "undefined") {
-    return withBase.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+    return withBase.replace(/<script\b[^>]*>.*?<\/script>/gis, "");
   }
 
   const document = new DOMParser().parseFromString(withBase, "text/html");
@@ -1662,7 +1663,7 @@ export function DesignCanvas({
             instruction || "Apply these annotations to the design.",
           ];
           try {
-            sendToAgentChat({
+            sendToDesignAgentChat({
               message: lines.join("\n"),
               submit: true,
               openSidebar: true,

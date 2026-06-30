@@ -80,14 +80,6 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -2093,10 +2085,10 @@ function commitElementSizing(
 }
 
 /**
- * Small modal that prompts for a component name, then promotes the current
- * selection into a reusable component via `onSubmit`.
+ * Header-anchored popover that prompts for a component name, then promotes the
+ * current selection into a reusable component via `onSubmit`.
  */
-function CreateComponentDialog({
+function CreateComponentPopover({
   open,
   onOpenChange,
   defaultName,
@@ -2108,8 +2100,9 @@ function CreateComponentDialog({
   onSubmit: (name: string) => void;
 }) {
   const [name, setName] = useState(defaultName);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset the field to the freshest default each time the dialog opens.
+  // Reset the field to the freshest default each time the popover opens.
   useEffect(() => {
     if (open) setName(defaultName);
   }, [open, defaultName]);
@@ -2122,55 +2115,86 @@ function CreateComponentDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>
-            {"Create component" /* i18n-ignore design inspector action */}
-          </DialogTitle>
-          <DialogDescription>
-            {
-              "Name this element so it becomes a reusable component. The agent can then extract props and replace repeated instances." /* i18n-ignore design inspector copy */
-            }
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="create-component-name"
-            className="text-[11px] font-medium text-muted-foreground"
-          >
-            {"Component name" /* i18n-ignore design inspector label */}
-          </Label>
-          <Input
-            id="create-component-name"
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commit();
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              aria-label={
+                "Create component" /* i18n-ignore design inspector action */
               }
-            }}
-            placeholder={
-              "PrimaryButton" /* i18n-ignore design inspector placeholder */
-            }
-          />
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-          >
-            {"Cancel" /* i18n-ignore design inspector action */}
-          </Button>
-          <Button type="button" onClick={commit} disabled={!name.trim()}>
-            {"Create" /* i18n-ignore design inspector action */}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            >
+              <IconComponents className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Create component" /* i18n-ignore design inspector action */}
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-80 p-3 text-[12px]"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          window.requestAnimationFrame(() => inputRef.current?.select());
+        }}
+      >
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commit();
+          }}
+        >
+          <div className="space-y-1">
+            <h3 className="text-[13px] font-semibold text-foreground">
+              {"Create component" /* i18n-ignore design inspector action */}
+            </h3>
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              {
+                "Name this element so it becomes a reusable component. The agent can then extract props and replace repeated instances." /* i18n-ignore design inspector copy */
+              }
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label
+              htmlFor="create-component-name"
+              className="text-[11px] font-medium text-muted-foreground"
+            >
+              {"Component name" /* i18n-ignore design inspector label */}
+            </Label>
+            <Input
+              ref={inputRef}
+              id="create-component-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={
+                "PrimaryButton" /* i18n-ignore design inspector placeholder */
+              }
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
+              {"Cancel" /* i18n-ignore design inspector action */}
+            </Button>
+            <Button type="submit" size="sm" disabled={!name.trim()}>
+              {"Create" /* i18n-ignore design inspector action */}
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -2844,12 +2868,18 @@ function SelectionHeader({
   element,
   selectedCount = 0,
   onCreateComponent,
+  createComponentOpen = false,
+  onCreateComponentOpenChange,
+  defaultComponentName = "Component",
   inspectCode,
 }: {
   element: ElementInfo | null;
   selectedCount?: number;
   /** Promote the current selection into a reusable component. Omit/undefined to disable. */
-  onCreateComponent?: () => void;
+  onCreateComponent?: (name: string) => void;
+  createComponentOpen?: boolean;
+  onCreateComponentOpenChange?: (open: boolean) => void;
+  defaultComponentName?: string;
   /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
   inspectCode?: InspectCodeData;
 }) {
@@ -2871,13 +2901,21 @@ function SelectionHeader({
       </div>
       {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
       <div className="flex shrink-0 items-center gap-0.5">
-        <SectionIconButton
-          label={"Create component" /* i18n-ignore design inspector action */}
-          disabled={!onCreateComponent}
-          onClick={onCreateComponent}
-        >
-          <IconComponents className="size-3.5" />
-        </SectionIconButton>
+        {onCreateComponent && onCreateComponentOpenChange ? (
+          <CreateComponentPopover
+            open={createComponentOpen}
+            onOpenChange={onCreateComponentOpenChange}
+            defaultName={defaultComponentName}
+            onSubmit={onCreateComponent}
+          />
+        ) : (
+          <SectionIconButton
+            label={"Create component" /* i18n-ignore design inspector action */}
+            disabled
+          >
+            <IconComponents className="size-3.5" />
+          </SectionIconButton>
+        )}
         {inspectCode ? (
           <InspectCodePopover data={inspectCode} />
         ) : (
@@ -6822,6 +6860,9 @@ export function EditPanel({
     [effectiveSelectedElements],
   );
   const selectedCount = effectiveSelectedElements.length;
+  const canCreateComponent = Boolean(
+    onCreateComponent && selectedElement && selectedCount <= 1,
+  );
   const selectedElementKey = inspectorElement
     ? `${selectedCount}:${elementIdentityKey(inspectorElement)}`
     : "none";
@@ -6853,6 +6894,10 @@ export function EditPanel({
     setShowExportPreview(false);
   }, [selectedElementKey]);
 
+  useEffect(() => {
+    if (!canCreateComponent) setCreateComponentOpen(false);
+  }, [canCreateComponent]);
+
   // Scroll guard: suppress the click that fires immediately after a scroll
   // gesture ends (rubber-band or normal scroll). Using onScroll instead of
   // onPointerDown avoids side-effects like Radix DismissableLayer detecting a
@@ -6883,24 +6928,17 @@ export function EditPanel({
             element={inspectorElement}
             selectedCount={selectedCount}
             onCreateComponent={
-              onCreateComponent && selectedElement && selectedCount <= 1
-                ? () => setCreateComponentOpen(true)
-                : undefined
+              canCreateComponent ? onCreateComponent : undefined
             }
+            createComponentOpen={createComponentOpen}
+            onCreateComponentOpenChange={setCreateComponentOpen}
+            defaultComponentName={defaultComponentName}
             inspectCode={
               inspectCode && selectedElement && selectedCount <= 1
                 ? inspectCode
                 : undefined
             }
           />
-          {onCreateComponent && (
-            <CreateComponentDialog
-              open={createComponentOpen}
-              onOpenChange={setCreateComponentOpen}
-              defaultName={defaultComponentName}
-              onSubmit={onCreateComponent}
-            />
-          )}
 
           <div
             className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
