@@ -193,6 +193,9 @@ async function persistFileContent(
       await seedFromText(fileId, content);
     }
 
+    // guard:allow-unscoped — the action's run() asserts editor access via
+    // assertAccess("design", designId, "editor") before this helper is
+    // invoked; this only touches the addressed design row's updatedAt.
     await db
       .update(schema.designs)
       .set({ updatedAt: now })

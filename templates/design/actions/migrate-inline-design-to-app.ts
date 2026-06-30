@@ -111,6 +111,9 @@ async function snapshotDesign(
     .where(eq(schema.designFiles.designId, designId));
 
   // Also capture the design data blob (tweaks, source type, etc.).
+  // guard:allow-unscoped — the action's run() resolves and asserts editor
+  // access on the design (resolveAccess + assertAccess "design", designId)
+  // before this snapshot helper runs; reads only the addressed design row by id.
   const [design] = await db
     .select({ data: schema.designs.data, title: schema.designs.title })
     .from(schema.designs)

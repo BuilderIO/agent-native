@@ -225,6 +225,10 @@ async function fetchMotionTimelines(
   designId: string,
   fileId?: string,
 ): Promise<Record<string, DesignSurfaceMotionTimeline>> {
+  // guard:allow-unscoped — run() resolves design access via
+  // resolveAccess("design", designId) and throws on null before calling this
+  // helper; rows are scoped by designId (motion timelines are children of the
+  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.motionTimeline.id,
@@ -279,6 +283,10 @@ async function fetchDesignStates(
   db: ReturnType<typeof getDb>,
   designId: string,
 ): Promise<DesignSurfaceState[]> {
+  // guard:allow-unscoped — run() resolves design access via
+  // resolveAccess("design", designId) and throws on null before calling this
+  // helper; rows are scoped by designId (design states are children of the
+  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.designState.id,
@@ -310,6 +318,10 @@ async function fetchLatestReview(
   db: ReturnType<typeof getDb>,
   designId: string,
 ): Promise<DesignSurfaceReview | undefined> {
+  // guard:allow-unscoped — run() resolves design access via
+  // resolveAccess("design", designId) and throws on null before calling this
+  // helper; rows are scoped by designId (review snapshots are children of the
+  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.designReviewSnapshot.id,
