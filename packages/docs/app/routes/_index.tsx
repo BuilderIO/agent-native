@@ -1,13 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client";
-import {
-  IconActivity,
-  IconCode,
-  IconGitBranch,
-  IconLock,
-  IconMicrophone,
-  IconPlugConnected,
-  IconServer,
-} from "@tabler/icons-react";
+import { IconCode } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -438,42 +430,10 @@ function ActionSurfaceSection({
   localizedPath: (path: string) => string;
 }) {
   const t = useT();
-  const actionBenefits = [
-    {
-      titleKey: "home.actionSurface.benefits.oneActionDefinition.title",
-      bodyKey: "home.actionSurface.benefits.oneActionDefinition.body",
-      icon: IconGitBranch,
-    },
-    {
-      titleKey: "home.actionSurface.benefits.scopedByDefault.title",
-      bodyKey: "home.actionSurface.benefits.scopedByDefault.body",
-      icon: IconLock,
-    },
-    {
-      titleKey: "home.actionSurface.benefits.headedOrHeadless.title",
-      bodyKey: "home.actionSurface.benefits.headedOrHeadless.body",
-      icon: IconServer,
-    },
-    {
-      titleKey: "home.actionSurface.benefits.contextRichInput.title",
-      bodyKey: "home.actionSurface.benefits.contextRichInput.body",
-      icon: IconMicrophone,
-    },
-    {
-      titleKey: "home.actionSurface.benefits.openAgentProtocols.title",
-      bodyKey: "home.actionSurface.benefits.openAgentProtocols.body",
-      icon: IconPlugConnected,
-    },
-    {
-      titleKey: "home.actionSurface.benefits.observableByDesign.title",
-      bodyKey: "home.actionSurface.benefits.observableByDesign.body",
-      icon: IconActivity,
-    },
-  ];
 
   return (
     <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
-      <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center">
+      <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
         <div className="min-w-0">
           <h2 className="m-0 max-w-xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
             {t("home.actionSurface.title")}
@@ -481,9 +441,6 @@ function ActionSurfaceSection({
           <p className="mt-6 max-w-xl text-base leading-relaxed text-white/62 md:text-lg">
             {t("home.actionSurface.body")}
           </p>
-          <div className="mt-8">
-            <CodeBlock code={frameworkCode} lang="typescript" />
-          </div>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <Link
               data-an-prefetch="render"
@@ -516,28 +473,8 @@ function ActionSurfaceSection({
           </div>
         </div>
 
-        <div className="grid gap-3">
-          {actionBenefits.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.titleKey}
-                className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-4 rounded-lg border border-white/10 bg-white/[0.03] p-4"
-              >
-                <div className="flex size-11 items-center justify-center rounded-md bg-black text-[var(--docs-accent)]">
-                  <Icon size={22} stroke={1.8} aria-hidden />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="m-0 text-base font-semibold text-white">
-                    {t(item.titleKey)}
-                  </h3>
-                  <p className="m-0 mt-1 text-sm leading-relaxed text-white/58 md:text-base">
-                    {t(item.bodyKey)}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
+        <div className="min-w-0">
+          <CodeBlock code={frameworkCode} lang="typescript" />
         </div>
       </div>
     </section>

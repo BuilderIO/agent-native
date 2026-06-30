@@ -183,8 +183,16 @@ export default defineAction({
     paths: jsonArray(z.array(z.string()))
       .optional()
       .describe("Shortcut for routes when only paths/URLs are needed."),
-    defaultWidth: z.number().positive().optional().default(1280),
-    defaultHeight: z.number().positive().optional().default(900),
+    defaultWidth: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Default screen width. Defaults to 1280 when omitted."),
+    defaultHeight: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Default screen height. Defaults to 900 when omitted."),
     startX: z.number().optional().default(0),
     startY: z.number().optional().default(0),
     gap: z.number().optional().default(160),

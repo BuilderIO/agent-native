@@ -42,6 +42,7 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   icon?: ScrubInputIcon | null;
   disabled?: boolean;
   placeholder?: string;
+  mixed?: boolean;
   className?: string;
   inputClassName?: string;
   labelClassName?: string;
@@ -62,6 +63,7 @@ export function ScrubInput({
   icon: Icon = IconArrowsHorizontal,
   disabled = false,
   placeholder,
+  mixed = false,
   className,
   inputClassName,
   labelClassName,
@@ -71,7 +73,7 @@ export function ScrubInput({
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const [draft, setDraft] = useState(() =>
-    formatScrubValue(value, { unit, precision }),
+    mixed ? "Mixed" : formatScrubValue(value, { unit, precision }),
   );
   // Track the latest draft in a ref so commitDraft always reads the most
   // up-to-date value even if the blur event fires before the React state
@@ -90,11 +92,13 @@ export function ScrubInput({
 
   useEffect(() => {
     if (!focused) {
-      const formatted = formatScrubValue(value, { unit, precision });
+      const formatted = mixed
+        ? "Mixed"
+        : formatScrubValue(value, { unit, precision });
       draftRef.current = formatted;
       setDraft(formatted);
     }
-  }, [focused, precision, unit, value]);
+  }, [focused, mixed, precision, unit, value]);
 
   const options = { unit, min, max, precision };
   const resolvedTooltipLabel = tooltipLabel ?? ariaLabel ?? label;
@@ -112,9 +116,10 @@ export function ScrubInput({
     // React render with the updated draft state hasn't committed yet (e.g.
     // when blur fires in the same synchronous batch as the last onChange).
     const currentDraft = draftRef.current;
+    if (mixed && currentDraft === "Mixed") return;
     const parsed = parseScrubExpression(currentDraft, value, options);
     if (!parsed) {
-      const reverted = formatScrubValue(value, options);
+      const reverted = mixed ? "Mixed" : formatScrubValue(value, options);
       draftRef.current = reverted;
       setDraft(reverted);
       return;
@@ -151,7 +156,7 @@ export function ScrubInput({
 
     if (event.key === "Escape") {
       event.preventDefault();
-      const reverted = formatScrubValue(value, options);
+      const reverted = mixed ? "Mixed" : formatScrubValue(value, options);
       draftRef.current = reverted;
       setDraft(reverted);
       skipNextBlurCommitRef.current = true;

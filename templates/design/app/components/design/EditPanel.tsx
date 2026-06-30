@@ -64,6 +64,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -144,8 +145,72 @@ import type { ElementInfo } from "./types";
 
 export type InspectorTab = "design" | "tweaks";
 
+const MIXED_VALUE = "Mixed";
+
+function isMixedValue(value: string | undefined): boolean {
+  return value === MIXED_VALUE;
+}
+
+function sameOrMixed(values: string[]): string {
+  if (values.length === 0) return "";
+  const first = values[0] ?? "";
+  return values.every((value) => value === first) ? first : MIXED_VALUE;
+}
+
+function mixedElementFromSelection(
+  elements: ElementInfo[],
+): ElementInfo | null {
+  const base = elements[elements.length - 1];
+  if (!base) return null;
+  const styleKeys = new Set<string>();
+  elements.forEach((element) => {
+    Object.keys(element.computedStyles).forEach((key) => styleKeys.add(key));
+  });
+  const computedStyles = Object.fromEntries(
+    Array.from(styleKeys).map((key) => [
+      key,
+      sameOrMixed(elements.map((element) => element.computedStyles[key] ?? "")),
+    ]),
+  );
+  const minX = Math.min(...elements.map((element) => element.boundingRect.x));
+  const minY = Math.min(...elements.map((element) => element.boundingRect.y));
+  const maxX = Math.max(
+    ...elements.map(
+      (element) => element.boundingRect.x + element.boundingRect.width,
+    ),
+  );
+  const maxY = Math.max(
+    ...elements.map(
+      (element) => element.boundingRect.y + element.boundingRect.height,
+    ),
+  );
+  return {
+    ...base,
+    tagName: sameOrMixed(elements.map((element) => element.tagName)),
+    id: undefined,
+    sourceId: undefined,
+    selector: base.selector,
+    classes: [],
+    computedStyles,
+    boundingRect: {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    },
+    textContent: sameOrMixed(
+      elements.map((element) => element.textContent ?? ""),
+    ),
+    htmlContent: undefined,
+    childElementCount: undefined,
+    isFlexChild: elements.every((element) => element.isFlexChild),
+    isFlexContainer: elements.every((element) => element.isFlexContainer),
+  };
+}
+
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
+  selectedElements?: ElementInfo[];
   pageStyles?: Record<string, string>;
   zoom?: number;
   headerTrailing?: ReactNode;
@@ -298,12 +363,14 @@ function PropInput({
   defaultUnit?: string;
 }) {
   const [draft, setDraft] = useState(value);
+  const mixed = isMixedValue(value);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
 
   const commit = () => {
+    if (isMixedValue(draft)) return;
     if (defaultUnit === undefined) {
       if (draft !== value) onChange(draft);
       return;
@@ -324,6 +391,9 @@ function PropInput({
       <Input
         type={type}
         value={draft}
+        onFocus={(e) => {
+          if (mixed) e.currentTarget.select();
+        }}
         onChange={(e) => {
           setDraft(e.target.value);
           // For length fields, defer the live update until blur/Enter so that
@@ -677,6 +747,18 @@ function ColorInput({
     setSelectedFillId(fillLayerId(0));
     setSelectedStopId("stop-0");
   };
+
+  if (isMixedValue(value)) {
+    return (
+      <button
+        type="button"
+        className="flex h-6 w-full items-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] text-muted-foreground"
+        onClick={() => onChange("#000000")}
+      >
+        {MIXED_VALUE}
+      </button>
+    );
+  }
 
   return (
     <DesignColorPicker
@@ -1529,14 +1611,16 @@ function ScrubStyleInput({
   tooltipLabel?: string;
   icon?: (props: { className?: string }) => ReactNode;
 }) {
+  const mixed = isMixedValue(value);
   return (
     <ScrubInput
       label={label}
       ariaLabel={ariaLabel}
       tooltipLabel={tooltipLabel}
       icon={hideIcon ? null : icon}
-      value={value ? parseNumericValue(value) : (placeholder ?? 0)}
+      value={mixed ? 0 : value ? parseNumericValue(value) : (placeholder ?? 0)}
       onChange={onChange}
+      mixed={mixed}
       unit={unit}
       min={min}
       max={max}
@@ -2598,10 +2682,12 @@ function elementTypeIcon(element: ElementInfo) {
 
 function SelectionHeader({
   element,
+  selectedCount = 0,
   onCreateComponent,
   inspectCodePopover,
 }: {
   element: ElementInfo | null;
+  selectedCount?: number;
   /** Promote the current selection into a reusable component. Omit/undefined to disable. */
   onCreateComponent?: () => void;
   /**
@@ -2613,7 +2699,10 @@ function SelectionHeader({
 }) {
   if (!element) return null;
 
-  const title = inspectorObjectTitle(element);
+  const title =
+    selectedCount > 1
+      ? `${selectedCount} selected`
+      : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
 
   const inspectTrigger = (
@@ -4560,6 +4649,12 @@ function FillProperties({
   const backgroundPositionLayers = isTextElement
     ? []
     : splitCssLayers(styles.backgroundPosition || "");
+  const fillIsMixed =
+    isMixedValue(fillValue) ||
+    isMixedValue(styles.backgroundImage) ||
+    isMixedValue(styles.backgroundSize) ||
+    isMixedValue(styles.backgroundRepeat) ||
+    isMixedValue(styles.backgroundPosition);
   const hasBackgroundLayer = !isTextElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
@@ -4629,6 +4724,18 @@ function FillProperties({
           <SectionIconButton
             label={t("editPanel.labels.addLayer")}
             onClick={() => {
+              if (fillIsMixed) {
+                commitStylePatch(
+                  {
+                    color: "#000000",
+                    backgroundColor: "#ffffff",
+                    backgroundImage: "none",
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                );
+                return;
+              }
               if (isTextElement) {
                 onStyleChange(
                   "color",
@@ -4659,7 +4766,13 @@ function FillProperties({
         </>
       }
     >
-      {hasVisibleFill ? (
+      {fillIsMixed ? (
+        <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
+          {
+            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+          }
+        </p>
+      ) : hasVisibleFill ? (
         <div className="space-y-1.5">
           {isTextElement || colorHasVisibleAlpha(fillValue) ? (
             /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
@@ -4951,6 +5064,15 @@ function StrokeProperties({
     styles.outlineWidth,
     styles.outlineStyle,
   );
+  const strokeIsMixed = [
+    styles.borderWidth,
+    styles.borderStyle,
+    styles.borderColor,
+    styles.outlineWidth,
+    styles.outlineStyle,
+    styles.outlineColor,
+    styles.outlineOffset,
+  ].some(isMixedValue);
   // Render the row whenever a stroke has been configured (non-zero width),
   // even when its style is "none" (hidden). This mirrors Figma's behavior where
   // hidden stroke rows remain present so the user can re-show them via the eye icon.
@@ -4964,6 +5086,20 @@ function StrokeProperties({
         <SectionIconButton
           label={t("editPanel.labels.addLayer")}
           onClick={() => {
+            if (strokeIsMixed) {
+              commitStylePatch(
+                {
+                  borderWidth: "1px",
+                  borderStyle: "solid",
+                  borderColor: "#000000",
+                  outlineWidth: "0px",
+                  outlineStyle: "none",
+                },
+                onStyleChange,
+                onStylesChange,
+              );
+              return;
+            }
             if (!borderVisible) {
               const borderColor = cssColorOrFallback(
                 styles.borderColor || styles.color,
@@ -5020,7 +5156,13 @@ function StrokeProperties({
         </SectionIconButton>
       }
     >
-      {borderExists ? (
+      {strokeIsMixed ? (
+        <p className="px-1.5 py-2 text-[11px] text-muted-foreground">
+          {
+            "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+          }
+        </p>
+      ) : borderExists ? (
         <StrokeLayerControl
           kind="border"
           visible={borderVisible}
@@ -5114,8 +5256,13 @@ function AppearanceProperties({
       <div className="grid grid-cols-2 gap-2">
         <ScrubInput
           label={t("editPanel.labels.opacity")}
-          value={parseNumericValue(styles.opacity || "1") * 100}
+          value={
+            isMixedValue(styles.opacity)
+              ? 0
+              : parseNumericValue(styles.opacity || "1") * 100
+          }
           onChange={(v) => onStyleChange("opacity", String(v / 100))}
+          mixed={isMixedValue(styles.opacity)}
           min={0}
           max={100}
           step={1}
@@ -6223,6 +6370,7 @@ export function ComponentSection({
 
 export function EditPanel({
   selectedElement,
+  selectedElements,
   pageStyles = {},
   headerTrailing,
   width = 256,
@@ -6258,12 +6406,32 @@ export function EditPanel({
   );
   const [showExportPreview, setShowExportPreview] = useState(false);
 
-  const selectedElementKey = selectedElement
-    ? elementIdentityKey(selectedElement)
+  const effectiveSelectedElements = useMemo(
+    () =>
+      selectedElements && selectedElements.length > 0
+        ? selectedElements
+        : selectedElement
+          ? [selectedElement]
+          : [],
+    [selectedElement, selectedElements],
+  );
+  const inspectorElement = useMemo(
+    () =>
+      effectiveSelectedElements.length > 1
+        ? mixedElementFromSelection(effectiveSelectedElements)
+        : (effectiveSelectedElements[0] ?? null),
+    [effectiveSelectedElements],
+  );
+  const selectedCount = effectiveSelectedElements.length;
+  const selectedElementKey = inspectorElement
+    ? `${selectedCount}:${elementIdentityKey(inspectorElement)}`
     : "none";
-  const isTextElement = selectedElement
-    ? TEXT_TAGS.has(selectedElement.tagName)
-    : false;
+  const selectionHasTextElement = effectiveSelectedElements.some((element) =>
+    isTextElement(element),
+  );
+  const selectionHasContainerElement = effectiveSelectedElements.some(
+    (element) => isContainerElement(element),
+  );
   const handleActiveTabChange = useCallback(
     (tab: InspectorTab) => onActiveTabChange?.(tab),
     [onActiveTabChange],
@@ -6313,14 +6481,15 @@ export function EditPanel({
       {activeTab === "design" ? (
         <>
           <SelectionHeader
-            element={selectedElement}
+            element={inspectorElement}
+            selectedCount={selectedCount}
             onCreateComponent={
-              onCreateComponent && selectedElement
+              onCreateComponent && selectedElement && selectedCount <= 1
                 ? () => setCreateComponentOpen(true)
                 : undefined
             }
             inspectCodePopover={
-              inspectCode && selectedElement
+              inspectCode && selectedElement && selectedCount <= 1
                 ? (trigger) => (
                     <InspectCodePopover trigger={trigger} data={inspectCode} />
                   )
@@ -6411,7 +6580,7 @@ export function EditPanel({
           >
             {/* §6.1 Component section — shown at the top when a component
                 instance is selected. Requires designId + componentNodeId. */}
-            {designId && componentNodeId && (
+            {designId && componentNodeId && selectedCount <= 1 && (
               <ComponentSection
                 designId={designId}
                 fileId={fileId}
@@ -6423,7 +6592,7 @@ export function EditPanel({
               />
             )}
 
-            {!selectedElement && (
+            {!inspectorElement && (
               <PageProperties
                 styles={pageStyles}
                 onStyleChange={onStyleChange}
@@ -6431,63 +6600,65 @@ export function EditPanel({
               />
             )}
 
-            {selectedElement && (
+            {inspectorElement && (
               <>
                 <PositionLayoutProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
                 <LayoutContextProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <AppearanceProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
-                {isTextElement ? (
+                {selectionHasTextElement ? (
                   <TypographyProperties
-                    element={selectedElement}
+                    element={inspectorElement}
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
                 <FillProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <StrokeProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <EffectsProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <SelectionColorsProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
-                {isContainerElement(selectedElement) ? (
+                {selectionHasContainerElement ? (
                   <LayoutGuideProperties
-                    element={selectedElement}
+                    element={inspectorElement}
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
                 {/* AI edit request block — collapsible, collapsed by default */}
-                <section className="shrink-0 border-t border-[var(--design-editor-control-border)]">
-                  <InspectorAiActions
-                    selector={selectedElement.selector}
-                    sourceId={selectedElement.sourceId}
-                    designId={designId}
-                    fileId={fileId}
-                    filename={filename}
-                    canEdit={canEdit}
-                  />
-                </section>
+                {selectedCount <= 1 ? (
+                  <section className="shrink-0 border-t border-[var(--design-editor-control-border)]">
+                    <InspectorAiActions
+                      selector={inspectorElement.selector}
+                      sourceId={inspectorElement.sourceId}
+                      designId={designId}
+                      fileId={fileId}
+                      filename={filename}
+                      canEdit={canEdit}
+                    />
+                  </section>
+                ) : null}
               </>
             )}
             {onExport ? (
@@ -6518,7 +6689,7 @@ export function EditPanel({
                   onExport={onExport}
                 />
                 {showExportPreview ? (
-                  <ExportPreview element={selectedElement} />
+                  <ExportPreview element={inspectorElement} />
                 ) : null}
               </PanelSection>
             ) : null}

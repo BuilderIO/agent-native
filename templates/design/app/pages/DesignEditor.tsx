@@ -3805,6 +3805,10 @@ export default function DesignEditor() {
     [],
   );
   const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
+  const effectiveCodeLayerStateRef = useRef<EffectiveCodeLayerState>({
+    lockedIds: new Set(),
+    hiddenIds: new Set(),
+  });
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
@@ -8725,6 +8729,115 @@ export default function DesignEditor() {
     ],
   );
 
+  const commitStylesToSelectedLayers = useCallback(
+    (styles: Record<string, string>) => {
+      if (!canEditDesign) return false;
+      const entries = Object.entries(styles).filter(
+        ([, value]) => value !== undefined,
+      );
+      if (entries.length === 0) return false;
+      const effectiveLayerState = effectiveCodeLayerStateRef.current;
+      const targets = selectedLayerTargetsRef.current.filter(
+        (target) =>
+          !effectiveLayerState.lockedIds.has(target.fileId) &&
+          !effectiveLayerState.hiddenIds.has(target.fileId) &&
+          !effectiveLayerState.lockedIds.has(target.layerId) &&
+          !effectiveLayerState.hiddenIds.has(target.layerId),
+      );
+      if (targets.length <= 1) return false;
+
+      const targetsByFile = new Map<string, SelectedLayerTarget[]>();
+      targets.forEach((target) => {
+        targetsByFile.set(target.fileId, [
+          ...(targetsByFile.get(target.fileId) ?? []),
+          target,
+        ]);
+      });
+
+      let appliedAny = false;
+      targetsByFile.forEach((fileTargets, fileId) => {
+        const baseContent =
+          fileId === activeFile?.id
+            ? getFreshActiveFileContent({
+                activeContent,
+                latestContent: latestActiveContentRef.current,
+                lastLocalContent: lastLocalContentRef.current,
+              })
+            : getScreenContent(fileId);
+        if (!baseContent) return;
+        let nextContent = baseContent;
+        let projection = buildCodeLayerProjection(nextContent);
+        fileTargets.forEach((target) => {
+          const sourceId = bridgeSourceIdForCodeLayerNode(target.node);
+          const selector = preferredCodeLayerSelector(target.node);
+          const node =
+            projection.nodes.find((candidate) =>
+              codeLayerNodeMatchesBridgeTarget(candidate, selector, sourceId),
+            ) ??
+            projection.nodes.find(
+              (candidate) => candidate.id === target.node.id,
+            );
+          if (!node) return;
+
+          entries.forEach(([property, value]) => {
+            const patch = applyVisualEdit(nextContent, {
+              kind: "style",
+              target: { nodeId: node.id },
+              property,
+              value,
+            });
+            if (patch.result.status !== "applied") return;
+            nextContent = patch.content;
+            projection = patch.projection;
+          });
+        });
+        if (nextContent === baseContent) return;
+        appliedAny = true;
+        applyFileContentUpdate(fileId, nextContent, {
+          refreshPreview: fileId === activeFile?.id,
+        });
+      });
+
+      if (appliedAny) {
+        const stylePatch = Object.fromEntries(entries);
+        const primaryTarget = targets[targets.length - 1];
+        if (primaryTarget) {
+          setSelectedElement((previous) => {
+            const previousMatches =
+              previous &&
+              codeLayerNodeMatchesBridgeTarget(
+                primaryTarget.node,
+                previous.selector,
+                previous.sourceId ?? previous.id,
+              );
+            const base = previousMatches
+              ? canonicalElementInfoForCodeLayerNode(
+                  previous,
+                  primaryTarget.node,
+                )
+              : primaryTarget.elementInfo;
+            return {
+              ...base,
+              computedStyles: {
+                ...base.computedStyles,
+                ...stylePatch,
+              },
+            };
+          });
+        }
+      }
+
+      return true;
+    },
+    [
+      activeContent,
+      activeFile?.id,
+      applyFileContentUpdate,
+      canEditDesign,
+      getScreenContent,
+    ],
+  );
+
   const handleStyleChange = useCallback(
     (property: string, value: string) => {
       const selector = selectedElement?.selector ?? "body";
@@ -8742,9 +8855,11 @@ export default function DesignEditor() {
           return;
         }
       }
+      if (commitStylesToSelectedLayers({ [property]: value })) return;
       commitVisualStyles(selector, { [property]: value });
     },
     [
+      commitStylesToSelectedLayers,
       commitVisualStyles,
       selectedElement?.selector,
       selectedElement?.sourceId,
@@ -8762,9 +8877,14 @@ export default function DesignEditor() {
         Boolean(value),
       );
       if (entries.length === 0) return;
+      if (commitStylesToSelectedLayers(Object.fromEntries(entries))) return;
       commitVisualStyles(selector, Object.fromEntries(entries));
     },
-    [commitVisualStyles, selectedElement?.selector],
+    [
+      commitStylesToSelectedLayers,
+      commitVisualStyles,
+      selectedElement?.selector,
+    ],
   );
 
   const getFreshActiveContent = useCallback(
@@ -12215,6 +12335,7 @@ ${serializedHtml}
     });
     return state;
   }, [codeLayerModelsByFile, hiddenLayerIds, lockedLayerIds]);
+  effectiveCodeLayerStateRef.current = effectiveCodeLayerState;
   useEffect(() => {
     shouldPreserveBlockedOverviewLayerSelectionRef.current = (
       screenId: string,
@@ -13315,7 +13436,7 @@ ${serializedHtml}
   const handleLayerSelectionChange = useCallback(
     (
       ids: string[],
-      intent: {
+      _intent: {
         additive: boolean;
         currentSelectedIds?: string[];
         id: string;
@@ -13327,43 +13448,25 @@ ${serializedHtml}
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
-      if (intent.additive && !intent.range) {
-        const currentLayerIds = (
-          intent.currentSelectedIds && intent.currentSelectedIds.length > 0
-            ? intent.currentSelectedIds
-            : selectedLayerIdsRef.current
-        ).filter((layerId) => !layerId.startsWith("__"));
-        const additiveLayerIds = currentLayerIds.includes(intent.id)
-          ? currentLayerIds.filter((layerId) => layerId !== intent.id)
-          : [...currentLayerIds, intent.id];
-        setSelectedLayerIdsState(additiveLayerIds);
-        if (viewModeRef.current === "overview") {
-          const fileIds = files
-            .filter((file) => !isBoardFile(file.filename))
-            .map((file) => file.id);
-          const selectedScreenIds = getOverviewScreenIdsFromLayerSelection({
-            fileIds,
-            layerIds: additiveLayerIds,
-          });
-          setOverviewSelectedScreenIds(selectedScreenIds);
-        }
-        setSelectedElement(null);
-        focusDesignInspectorForSelection();
-        setActiveTool("move");
-        setMode("edit");
-        return;
-      }
       setSelectedLayerIdsState(nextLayerIds);
-      const selectedId = ids[ids.length - 1];
+      const screenFileIds = files
+        .filter((file) => !isBoardFile(file.filename))
+        .map((file) => file.id);
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(
+          getOverviewScreenIdsFromLayerSelection({
+            fileIds: screenFileIds,
+            layerIds: nextLayerIds,
+          }),
+        );
+      }
+      const selectedId = nextLayerIds[nextLayerIds.length - 1];
       if (!selectedId) {
         setSelectedElement(null);
         return;
       }
       const codeLayerOwner = codeLayerOwnerByNodeId.get(selectedId);
       if (codeLayerOwner) {
-        const screenFileIds = files
-          .filter((file) => !isBoardFile(file.filename))
-          .map((file) => file.id);
         const ownerIsScreenFile = screenFileIds.includes(codeLayerOwner.fileId);
         if (viewModeRef.current === "overview") {
           pendingOverviewScreenSelectionRef.current = ownerIsScreenFile
@@ -13415,7 +13518,13 @@ ${serializedHtml}
         setOverviewSelectedScreenIds([fileId]);
         setActiveFileId(fileId);
         setSelectedElement(null);
-        setSelectedLayerIdsState([fileId]);
+        setSelectedLayerIdsState(
+          nextLayerIds.some((layerId) =>
+            files.some((file) => file.id === layerId),
+          )
+            ? nextLayerIds
+            : [fileId],
+        );
         setActiveTool("move");
         setMode("edit");
         viewModeRef.current = "overview";
@@ -13430,6 +13539,77 @@ ${serializedHtml}
       files,
       focusDesignInspectorForSelection,
       overviewSelectedScreenIds,
+    ],
+  );
+
+  const handleLayerMarqueeSelectionChange = useCallback(
+    (
+      selection: CanvasLayerMarqueeSelection[],
+      intent: ElementSelectionIntent,
+    ) => {
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
+
+      const resolved = selection
+        .map((item) => {
+          const projection = getCodeLayerProjectionForScreen(item.screenId);
+          if (!projection) return null;
+          const canonical = canonicalizeElementInfoFromProjection(
+            projection,
+            item.info,
+          );
+          const node = resolveCodeLayerNodeFromElementInfo(
+            projection,
+            canonical,
+          );
+          if (!node || isScreenRootElementInfo(canonical)) return null;
+          return {
+            screenId: item.screenId,
+            node,
+            elementInfo: canonical,
+          };
+        })
+        .filter(
+          (
+            item,
+          ): item is {
+            screenId: string;
+            node: CodeLayerNode;
+            elementInfo: ElementInfo;
+          } => Boolean(item),
+        );
+
+      const hitLayerIds = dedupeStringIds(resolved.map((item) => item.node.id));
+      setSelectedLayerIdsState((current) =>
+        intent.additive
+          ? dedupeStringIds([
+              ...current.filter((layerId) => !layerId.startsWith("__")),
+              ...hitLayerIds,
+            ])
+          : hitLayerIds,
+      );
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds([]);
+      }
+
+      const primary = resolved[resolved.length - 1];
+      if (primary) {
+        setActiveFileId(primary.screenId);
+        setSelectedElement(primary.elementInfo);
+        focusDesignInspectorForSelection();
+      } else if (!intent.additive) {
+        setSelectedElement(null);
+      }
+
+      setActiveTool("move");
+      setMode("edit");
+    },
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      focusDesignInspectorForSelection,
+      getCodeLayerProjectionForScreen,
     ],
   );
 
@@ -15026,8 +15206,12 @@ ${serializedHtml}
                       boardEditMode={canEditDesign}
                       onBoardElementSelect={
                         boardFileId
-                          ? (info) =>
-                              handleScreenElementSelect(boardFileId, info)
+                          ? (info, intent) =>
+                              handleScreenElementSelect(
+                                boardFileId,
+                                info,
+                                intent,
+                              )
                           : undefined
                       }
                       onBoardElementHover={
@@ -15107,6 +15291,12 @@ ${serializedHtml}
                       onCreateScreenFrame={handleCreateScreenFrame}
                       onDeleteSelection={handleDeleteOverviewSelection}
                       onSelectionChange={handleOverviewScreenSelectionChange}
+                      onLayerMarqueeSelectionChange={
+                        handleLayerMarqueeSelectionChange
+                      }
+                      selectedLayerSelectorGroupsByScreen={
+                        selectedLayerSelectorGroupsByScreen
+                      }
                       onPick={(id) => {
                         pendingOverviewScreenSelectionRef.current = null;
                         pendingOverviewLayerSelectionRef.current = null;
@@ -15231,6 +15421,10 @@ ${serializedHtml}
                                 ? selectedCanvasSelectorCandidates
                                 : []
                             }
+                            selectedSelectorGroups={
+                              selectedLayerSelectorGroupsByScreen[screen.id] ??
+                              []
+                            }
                             hoveredSelector={
                               hoveredElementScreenId === screen.id
                                 ? hoveredCanvasSelector
@@ -15249,8 +15443,8 @@ ${serializedHtml}
                               screen.id,
                               hiddenLayerIds,
                             )}
-                            onElementSelect={(info) =>
-                              handleScreenElementSelect(screen.id, info)
+                            onElementSelect={(info, intent) =>
+                              handleScreenElementSelect(screen.id, info, intent)
                             }
                             onElementHover={(info) =>
                               handleScreenElementHover(screen.id, info)
@@ -15349,6 +15543,13 @@ ${serializedHtml}
                         selectedSelector={selectedCanvasSelector}
                         selectedSelectorCandidates={
                           selectedCanvasSelectorCandidates
+                        }
+                        selectedSelectorGroups={
+                          activeFile
+                            ? (selectedLayerSelectorGroupsByScreen[
+                                activeFile.id
+                              ] ?? [])
+                            : []
                         }
                         hoveredSelector={hoveredCanvasSelector}
                         hoveredSelectorCandidates={
@@ -15522,6 +15723,7 @@ ${serializedHtml}
               <div className="min-h-0 flex-1">
                 <EditPanel
                   selectedElement={selectedElement}
+                  selectedElements={selectedInspectorElements}
                   pageStyles={pageStyles}
                   zoom={zoom}
                   headerTrailing={zoomControl}

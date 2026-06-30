@@ -71,6 +71,66 @@
   --design-editor-control-border: hsl(var(--border));
   --design-editor-canvas-bg: hsl(0 0% 92%);
   --design-editor-skeleton-canvas-bg: hsl(0 0% 92%);
+  --design-editor-skeleton-panel-ghost-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 6%,
+    transparent
+  );
+  --design-editor-skeleton-panel-ghost-strong-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 9%,
+    transparent
+  );
+  --design-editor-skeleton-frame-bg: color-mix(
+    in srgb,
+    var(--design-editor-panel-bg) 82%,
+    var(--design-editor-control-bg)
+  );
+  --design-editor-skeleton-frame-header-bg: color-mix(
+    in srgb,
+    var(--design-editor-panel-bg) 70%,
+    var(--design-editor-control-bg)
+  );
+  --design-editor-skeleton-frame-section-bg: color-mix(
+    in srgb,
+    var(--design-editor-panel-bg) 88%,
+    var(--design-editor-control-bg)
+  );
+  --design-editor-skeleton-frame-border: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 10%,
+    transparent
+  );
+  --design-editor-skeleton-frame-ghost-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 8%,
+    transparent
+  );
+  --design-editor-skeleton-frame-ghost-strong-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 12%,
+    transparent
+  );
+  --design-editor-skeleton-dock-bg: color-mix(
+    in srgb,
+    var(--design-editor-panel-bg) 84%,
+    hsl(var(--foreground)) 16%
+  );
+  --design-editor-skeleton-dock-border: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 12%,
+    transparent
+  );
+  --design-editor-skeleton-dock-ghost-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 14%,
+    transparent
+  );
+  --design-editor-skeleton-dock-divider-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 16%,
+    transparent
+  );
 }
 
 .dark {
