@@ -442,6 +442,24 @@ export function getFreshActiveFileContent(args: {
   return args.latestContent ?? args.lastLocalContent ?? args.activeContent;
 }
 
+export function getFreshScreenContent(args: {
+  screenId: string;
+  activeFileId?: string | null;
+  freshActiveContent: string;
+  fileContentById: ReadonlyMap<string, string>;
+}) {
+  return args.screenId === args.activeFileId
+    ? args.freshActiveContent
+    : (args.fileContentById.get(args.screenId) ?? "");
+}
+
+export function getLayerMoveIterationOrder<T>(
+  orderedIds: readonly T[],
+  placement: "before" | "after" | "inside",
+): T[] {
+  return placement === "after" ? [...orderedIds].reverse() : [...orderedIds];
+}
+
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
   return typeof update === "function" ? update(current) : update;
 }
@@ -5479,9 +5497,16 @@ export default function DesignEditor() {
   }, [files]);
   const getScreenContent = useCallback(
     (screenId: string) =>
-      screenId === activeFile?.id
-        ? activeContent
-        : (fileContentById.get(screenId) ?? ""),
+      getFreshScreenContent({
+        screenId,
+        activeFileId: activeFile?.id,
+        freshActiveContent: getFreshActiveFileContent({
+          activeContent,
+          latestContent: latestActiveContentRef.current,
+          lastLocalContent: lastLocalContentRef.current,
+        }),
+        fileContentById,
+      }),
     [activeContent, activeFile?.id, fileContentById],
   );
   const pageStyles = useMemo(
@@ -10246,7 +10271,10 @@ ${serializedHtml}
       // --- Same-file moves (existing path) ---
       let nextDestContent = destContent;
       let moved = false;
-      for (const draggedId of orderedSameFileDragIds) {
+      for (const draggedId of getLayerMoveIterationOrder(
+        orderedSameFileDragIds,
+        intent.placement,
+      )) {
         const patch = applyVisualEdit(nextDestContent, {
           kind: "moveNode",
           target: { nodeId: draggedId },

@@ -4,7 +4,9 @@ import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
   getFreshActiveFileContent,
+  getFreshScreenContent,
   getDesignEditorShareUrl,
+  getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
   getLocalhostRouteSourceFile,
   getOverviewCanvasZoom,
@@ -284,6 +286,50 @@ describe("DesignEditor layer move source snapshots", () => {
     expect(
       sortCodeLayerIdsByTreeOrder(["caption", "heading", "missing"], tree),
     ).toEqual(["heading", "caption", "missing"]);
+  });
+
+  it("iterates after-drops in reverse so same-anchor inserts keep tree order", () => {
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "after")).toEqual([
+      "c",
+      "b",
+      "a",
+    ]);
+
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "before")).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(getLayerMoveIterationOrder(["a", "b", "c"], "inside")).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("uses the fresh active snapshot when resolving overview screen content", () => {
+    const fileContentById = new Map([
+      ["active", "stale persisted active"],
+      ["other", "other screen content"],
+    ]);
+
+    expect(
+      getFreshScreenContent({
+        screenId: "active",
+        activeFileId: "active",
+        freshActiveContent: "fresh active content",
+        fileContentById,
+      }),
+    ).toBe("fresh active content");
+
+    expect(
+      getFreshScreenContent({
+        screenId: "other",
+        activeFileId: "active",
+        freshActiveContent: "fresh active content",
+        fileContentById,
+      }),
+    ).toBe("other screen content");
   });
 });
 
