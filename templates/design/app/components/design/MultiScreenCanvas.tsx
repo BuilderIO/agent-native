@@ -59,6 +59,7 @@ interface ScreenFile {
   previewState?: string;
   status?: string;
   title?: string;
+  updatedAt?: string;
   width?: number;
   height?: number;
   url?: string;
@@ -135,6 +136,7 @@ interface MultiScreenCanvasProps {
   activeId?: string | null;
   selectedScreenIds?: string[];
   activeScreenHasHoveredChild?: boolean;
+  hoveredChildScreenId?: string | null;
   previewDeviceFrame?: DeviceFrameType;
   activeTool?: MultiScreenCanvasTool;
   toolProps?: CanvasToolProps;
@@ -444,6 +446,7 @@ export function MultiScreenCanvas({
   activeId,
   selectedScreenIds,
   activeScreenHasHoveredChild = false,
+  hoveredChildScreenId,
   previewDeviceFrame = "none",
   activeTool,
   toolProps,
@@ -2916,17 +2919,15 @@ export function MultiScreenCanvas({
     return new Map(
       screens.map((screen, index) => {
         const metadata = getResolvedMetadata(screen);
+        const geometry =
+          frameGeometry[screen.id] ?? getInitialFrameGeometry(index, metadata);
         return [
           screen.id,
-          renderScreenContent(
-            screen,
-            metadata,
-            getInitialFrameGeometry(index, metadata),
-          ),
+          renderScreenContent(screen, metadata, geometry),
         ] as const;
       }),
     );
-  }, [getResolvedMetadata, renderScreenContent, screens]);
+  }, [frameGeometry, getResolvedMetadata, renderScreenContent, screens]);
   const selectedFrameEntries = canvasFrames
     .filter(({ screen }) => selectedIdSet.has(screen.id))
     .map(({ screen, geometry }) => ({ id: screen.id, geometry }));
@@ -2999,7 +3000,8 @@ export function MultiScreenCanvas({
               isActive={screen.id === activeId}
               isSelected={selectedIdSet.has(screen.id)}
               hasHoveredChild={
-                screen.id === activeId && activeScreenHasHoveredChild
+                (screen.id === activeId && activeScreenHasHoveredChild) ||
+                screen.id === hoveredChildScreenId
               }
               groupSelected={hasGroupSelection}
               handlesEnabled={!hasGroupSelection}
@@ -3907,6 +3909,7 @@ function SelectionBox({
         height: geometry.height,
         borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
+        transition: CHROME_BORDER_TRANSITION,
         transform: geometry.rotation
           ? `rotate(${geometry.rotation}deg)`
           : undefined,

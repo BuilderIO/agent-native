@@ -2299,6 +2299,7 @@ interface DesignCanvasProps {
   lockedSelectors?: string[];
   hiddenSelectors?: string[];
   clearSelectionRequest?: number;
+  registerRuntimeBridge?: boolean;
   /** Called when the user exits pin mode. */
   onExitPinMode?: () => void;
   /** Stable id of the open design (used for pin scoping + agent prompt). */
@@ -2383,6 +2384,7 @@ export function DesignCanvas({
   lockedSelectors = [],
   hiddenSelectors = [],
   onExitPinMode,
+  registerRuntimeBridge = true,
   designId,
   designTitle,
   commentContextId,
@@ -2867,15 +2869,31 @@ export function DesignCanvas({
 
   // Expose iframe runtime mutations for the editor orchestrator.
   useEffect(() => {
+    if (!registerRuntimeBridge) return;
     (window as any).__designCanvasSendStyle = sendStyleChange;
     (window as any).__designCanvasReplaceContent = replacePreviewContent;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     return () => {
-      delete (window as any).__designCanvasSendStyle;
-      delete (window as any).__designCanvasReplaceContent;
-      delete (window as any).__designCanvasDeleteElement;
+      if ((window as any).__designCanvasSendStyle === sendStyleChange) {
+        delete (window as any).__designCanvasSendStyle;
+      }
+      if (
+        (window as any).__designCanvasReplaceContent === replacePreviewContent
+      ) {
+        delete (window as any).__designCanvasReplaceContent;
+      }
+      if (
+        (window as any).__designCanvasDeleteElement === deleteRuntimeElement
+      ) {
+        delete (window as any).__designCanvasDeleteElement;
+      }
     };
-  }, [deleteRuntimeElement, replacePreviewContent, sendStyleChange]);
+  }, [
+    deleteRuntimeElement,
+    registerRuntimeBridge,
+    replacePreviewContent,
+    sendStyleChange,
+  ]);
 
   // Device dimensions match real-world devices. iframes are replaced elements
   // with an intrinsic 300×150 size, so `aspect-ratio` + `height: auto` doesn't

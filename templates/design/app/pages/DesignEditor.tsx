@@ -2767,6 +2767,9 @@ export default function DesignEditor() {
   const [hoveredElement, setHoveredElement] = useState<ElementInfo | null>(
     null,
   );
+  const [hoveredElementScreenId, setHoveredElementScreenId] = useState<
+    string | null
+  >(null);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
   const [activeInspectorTab, setActiveInspectorTab] =
@@ -3686,6 +3689,7 @@ export default function DesignEditor() {
         id: file.id,
         filename: file.filename,
         content: file.content,
+        updatedAt: file.updatedAt,
         sourceType: stringValue("sourceType"),
         source: stringValue("source"),
         lod: stringValue("lod"),
@@ -4739,8 +4743,14 @@ export default function DesignEditor() {
     ];
   }, [activeUsers, currentUser, session?.image]);
 
-  // Resolve the content to render: prefer collab content, fall back to DB
-  const activeContent = collabContent ?? activeFile?.content ?? "";
+  // Resolve the content to render: prefer collab content only after the
+  // per-file reconcile state has reset for the current active file. Otherwise a
+  // file switch can render one frame with the previous file's Yjs text.
+  const activeCollabFileReady = activeFileId === prevActiveFileIdRef.current;
+  const activeContent =
+    activeCollabFileReady && collabContent !== null
+      ? collabContent
+      : (activeFile?.content ?? "");
   const pageStyles = useMemo(
     () => getBodyInlineStyles(activeContent),
     [activeContent],
@@ -4778,6 +4788,14 @@ export default function DesignEditor() {
     return hoveredElement?.selector ? [hoveredElement.selector] : [];
   }, [hoveredCodeLayerNode, hoveredElement?.selector]);
   const hoveredCanvasSelector = hoveredCanvasSelectorCandidates[0] ?? null;
+  const getCodeLayerProjectionForScreen = useCallback(
+    (screenId: string) => {
+      if (screenId === activeFile?.id) return activeCodeLayerProjection;
+      const screen = files.find((file) => file.id === screenId);
+      return screen ? buildCodeLayerProjection(screen.content ?? "") : null;
+    },
+    [activeCodeLayerProjection, activeFile?.id, files],
+  );
 
   const replacePreviewContent = useCallback(
     (nextContent: string, selector?: string | null) => {
@@ -5352,8 +5370,37 @@ export default function DesignEditor() {
     ],
   );
 
+  const handleScreenElementSelect = useCallback(
+    (screenId: string, info: ElementInfo) => {
+      const projection = getCodeLayerProjectionForScreen(screenId);
+      const canonical = projection
+        ? canonicalizeElementInfoFromProjection(projection, info)
+        : info;
+      const node = projection
+        ? resolveCodeLayerNodeFromElementInfo(projection, canonical)
+        : null;
+      setActiveFileId(screenId);
+      setSelectedElement(canonical);
+      setHoveredElement(null);
+      setHoveredElementScreenId(null);
+      setSelectedLayerIdsState(node ? [node.id] : []);
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds([]);
+      }
+      setActiveTool("move");
+      setMode("edit");
+      focusDesignInspectorForSelection();
+    },
+    [focusDesignInspectorForSelection, getCodeLayerProjectionForScreen],
+  );
+
   const handleElementSelect = useCallback(
     (info: ElementInfo) => {
+      const screenId = activeFile?.id ?? activeFileId;
+      if (screenId) {
+        handleScreenElementSelect(screenId, info);
+        return;
+      }
       setSelectedElement(
         canonicalizeElementInfoFromProjection(activeCodeLayerProjection, info),
       );
@@ -5362,7 +5409,13 @@ export default function DesignEditor() {
       }
       focusDesignInspectorForSelection();
     },
-    [activeCodeLayerProjection, focusDesignInspectorForSelection],
+    [
+      activeCodeLayerProjection,
+      activeFile?.id,
+      activeFileId,
+      focusDesignInspectorForSelection,
+      handleScreenElementSelect,
+    ],
   );
 
   const handleElementDblClickText = useCallback(
@@ -5375,8 +5428,28 @@ export default function DesignEditor() {
     [activeCodeLayerProjection],
   );
 
+  const handleScreenElementHover = useCallback(
+    (screenId: string, info: ElementInfo | null) => {
+      const projection = getCodeLayerProjectionForScreen(screenId);
+      setHoveredElement(
+        info
+          ? projection
+            ? canonicalizeElementInfoFromProjection(projection, info)
+            : info
+          : null,
+      );
+      setHoveredElementScreenId(info ? screenId : null);
+    },
+    [getCodeLayerProjectionForScreen],
+  );
+
   const handleElementHover = useCallback(
     (info: ElementInfo | null) => {
+      const screenId = activeFile?.id ?? activeFileId;
+      if (screenId) {
+        handleScreenElementHover(screenId, info);
+        return;
+      }
       setHoveredElement(
         info
           ? canonicalizeElementInfoFromProjection(
@@ -5385,8 +5458,14 @@ export default function DesignEditor() {
             )
           : null,
       );
+      setHoveredElementScreenId(info ? screenId : null);
     },
-    [activeCodeLayerProjection],
+    [
+      activeCodeLayerProjection,
+      activeFile?.id,
+      activeFileId,
+      handleScreenElementHover,
+    ],
   );
 
   const handleIframeHotkey = useCallback((payload: IframeHotkeyPayload) => {
@@ -7717,6 +7796,19 @@ ${serializedHtml}
     }
     return Array.from(new Set(selectors));
   }, [activeCodeLayerNodeById, activeFile?.id, hiddenLayerIds]);
+  const getLayerSelectorsForFile = useCallback(
+    (fileId: string, layerIds: Set<string>) => {
+      const model = codeLayerModelByFileId.get(fileId);
+      const selectors = Array.from(layerIds)
+        .flatMap((layerId) =>
+          codeLayerSelectorAliases(model?.nodeById.get(layerId)),
+        )
+        .filter(Boolean);
+      if (layerIds.has(fileId)) selectors.push("body");
+      return Array.from(new Set(selectors));
+    },
+    [codeLayerModelByFileId],
+  );
   const activeCodeLayerPanelNodes = useMemo(
     () =>
       codeLayerTreeToPanelNodes(
@@ -9256,7 +9348,11 @@ ${serializedHtml}
                     onZoomChange={setOverviewCanvasZoom}
                     activeId={activeFileId}
                     selectedScreenIds={overviewSelectedScreenIds}
-                    activeScreenHasHoveredChild={Boolean(hoveredElement)}
+                    activeScreenHasHoveredChild={
+                      Boolean(hoveredElement) &&
+                      hoveredElementScreenId === activeFileId
+                    }
+                    hoveredChildScreenId={hoveredElementScreenId}
                     previewDeviceFrame={deviceFrame}
                     activeTool={activeTool}
                     onActiveToolChange={(tool) =>
@@ -9286,11 +9382,21 @@ ${serializedHtml}
                     }}
                     onEdit={enterSingleScreen}
                     onDuplicate={handleDuplicateScreen}
-                    renderScreenContent={(screen, metadata, geometry) =>
-                      screen.id === activeFile?.id ? (
+                    renderScreenContent={(screen, metadata, geometry) => {
+                      const screenIsActive = screen.id === activeFile?.id;
+                      const screenContent = screenIsActive
+                        ? activeContent
+                        : (screen.content ?? "");
+                      const screenContentKey = [
+                        screen.id,
+                        screen.updatedAt ?? "",
+                        screenIsActive ? contentRenderRevision : 0,
+                      ].join(":");
+
+                      return (
                         <DesignCanvas
-                          content={activeContent}
-                          contentKey={`${activeFile.id}:${contentRenderRevision}`}
+                          content={screenContent}
+                          contentKey={screenContentKey}
                           zoom={100}
                           deviceFrame="none"
                           embeddedFrame={{
@@ -9317,20 +9423,41 @@ ${serializedHtml}
                           editMode={mode === "edit"}
                           interactMode={false}
                           readOnly={!canEditDesign}
-                          scaleMode={activeTool === "scale"}
+                          scaleMode={screenIsActive && activeTool === "scale"}
                           clearSelectionRequest={overviewClearSelectionRequest}
-                          selectedSelector={selectedCanvasSelector}
+                          registerRuntimeBridge={screenIsActive}
+                          selectedSelector={
+                            screenIsActive ? selectedCanvasSelector : null
+                          }
                           selectedSelectorCandidates={
-                            selectedCanvasSelectorCandidates
+                            screenIsActive
+                              ? selectedCanvasSelectorCandidates
+                              : []
                           }
-                          hoveredSelector={hoveredCanvasSelector}
+                          hoveredSelector={
+                            hoveredElementScreenId === screen.id
+                              ? hoveredCanvasSelector
+                              : null
+                          }
                           hoveredSelectorCandidates={
-                            hoveredCanvasSelectorCandidates
+                            hoveredElementScreenId === screen.id
+                              ? hoveredCanvasSelectorCandidates
+                              : []
                           }
-                          lockedSelectors={lockedLayerSelectors}
-                          hiddenSelectors={hiddenLayerSelectors}
-                          onElementSelect={handleElementSelect}
-                          onElementHover={handleElementHover}
+                          lockedSelectors={getLayerSelectorsForFile(
+                            screen.id,
+                            lockedLayerIds,
+                          )}
+                          hiddenSelectors={getLayerSelectorsForFile(
+                            screen.id,
+                            hiddenLayerIds,
+                          )}
+                          onElementSelect={(info) =>
+                            handleScreenElementSelect(screen.id, info)
+                          }
+                          onElementHover={(info) =>
+                            handleScreenElementHover(screen.id, info)
+                          }
                           onIframeHotkey={handleIframeHotkey}
                           onIframeContextMenu={handleIframeContextMenu}
                           onVisualStyleChange={handleVisualStyleChange}
@@ -9344,11 +9471,11 @@ ${serializedHtml}
                           pinMode={false}
                           designId={id}
                           designTitle={design?.title}
-                          commentContextId={`${id}:${activeFile.id}`}
-                          commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(activeFile.filename)}`}
+                          commentContextId={`${id}:${screen.id}`}
+                          commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(screen.filename)}`}
                         />
-                      ) : undefined
-                    }
+                      );
+                    }}
                   />
                 ) : (
                   <>
