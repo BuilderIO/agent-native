@@ -7,6 +7,7 @@ import {
   IconStar,
   IconPencil,
   IconSettings,
+  IconFilter,
   IconGripVertical,
   IconBook2,
   IconDatabase,
@@ -176,16 +177,13 @@ function setStoredBoolean(key: string, value: boolean): void {
   }
 }
 
-function getStoredSortMode(
-  key: string,
-  fallback: SidebarSortMode = "most-used",
-): SidebarSortMode {
-  if (typeof window === "undefined") return fallback;
+function getStoredSortMode(key: string): SidebarSortMode {
+  if (typeof window === "undefined") return "most-used";
   const raw = window.localStorage.getItem(key);
   if (raw === "alphabetical" || raw === "manual" || raw === "most-used") {
     return raw;
   }
-  return fallback;
+  return "most-used";
 }
 
 function setStoredSortMode(key: string, value: SidebarSortMode): void {
@@ -254,7 +252,7 @@ function SidebarSectionSettingsPopover({
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
               aria-label={settingsLabel}
             >
-              <IconSettings className="h-3.5 w-3.5" />
+              <IconFilter className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -1212,9 +1210,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [analysisHiddenFilter, setAnalysisHiddenFilter] =
     useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
-    useState<SidebarSortMode>(() =>
-      getStoredSortMode(DASHBOARD_SORT_MODE_KEY, "alphabetical"),
-    );
+    useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const [analysisSortMode, setAnalysisSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const popularity = usePopularity();
