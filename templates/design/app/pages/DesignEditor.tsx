@@ -395,6 +395,45 @@ export function getDesignEditorShareUrl(
   return new URL(pathname, origin).toString();
 }
 
+export function getLocalhostRouteSourceFile(args: {
+  sourceFile?: string;
+  source?: string;
+}): string | undefined {
+  if (args.sourceFile?.trim()) return args.sourceFile;
+  const raw = args.source;
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "file" in parsed &&
+      typeof (parsed as Record<string, unknown>).file === "string"
+    ) {
+      return (parsed as Record<string, string>).file;
+    }
+  } catch {
+    if (raw.length > 0) return raw;
+  }
+  return undefined;
+}
+
+export function getLayerMoveSourceContent(args: {
+  sourceFileId: string;
+  activeFileId?: string | null;
+  activeContent: string;
+  sourceFileContent?: string;
+  sourceContentMap: ReadonlyMap<string, string>;
+}) {
+  return (
+    args.sourceContentMap.get(args.sourceFileId) ??
+    (args.sourceFileId === args.activeFileId
+      ? args.activeContent
+      : args.sourceFileContent) ??
+    ""
+  );
+}
+
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
   return typeof update === "function" ? update(current) : update;
 }
@@ -4085,6 +4124,7 @@ export default function DesignEditor() {
         updatedAt: file.updatedAt,
         sourceType: stringValue("sourceType"),
         source: stringValue("source"),
+        sourceFile: stringValue("sourceFile"),
         lod: stringValue("lod"),
         previewState: stringValue("previewState"),
         status: stringValue("status"),
@@ -9979,28 +10019,12 @@ ${serializedHtml}
     viewMode === "single" &&
     Boolean(activeFile) &&
     activeOverviewScreen?.sourceType === "localhost";
-  // `source` in screen metadata may be a JSON object with a `file` field; try to
-  // extract it as the routeSourceFile for the banner.
-  const activeScreenRouteSourceFile = (() => {
-    if (!activeScreenIsLocalSource) return undefined;
-    const raw = activeOverviewScreen?.source;
-    if (!raw) return undefined;
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        "file" in parsed &&
-        typeof (parsed as Record<string, unknown>).file === "string"
-      ) {
-        return (parsed as Record<string, string>).file;
-      }
-    } catch {
-      // If source is a plain string path, use it directly.
-      if (typeof raw === "string" && raw.length > 0) return raw;
-    }
-    return undefined;
-  })();
+  const activeScreenRouteSourceFile = activeScreenIsLocalSource
+    ? getLocalhostRouteSourceFile({
+        sourceFile: activeOverviewScreen?.sourceFile,
+        source: activeOverviewScreen?.source,
+      })
+    : undefined;
 
   // canGroup: 2+ DOM-node layers selected in the active screen (not file rows).
   const fileIdSet = new Set(files.map((f) => f.id));
@@ -10131,10 +10155,13 @@ ${serializedHtml}
       for (const { draggedId, sourceFileId } of crossFileDrags) {
         const srcFile = files.find((f) => f.id === sourceFileId);
         if (!srcFile) continue;
-        const currentSourceContent =
-          sourceFileId === activeFile?.id
-            ? activeContent
-            : (sourceContentMap.get(sourceFileId) ?? srcFile.content ?? "");
+        const currentSourceContent = getLayerMoveSourceContent({
+          sourceFileId,
+          activeFileId: activeFile?.id,
+          activeContent,
+          sourceFileContent: srcFile.content,
+          sourceContentMap,
+        });
 
         // The dragged node's data-agent-native-node-id is the node id tracked
         // by code-layer. Look up the actual attribute value from the owner.

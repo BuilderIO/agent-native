@@ -2824,10 +2824,19 @@ function applyWrapNodes(
   // All targets must share the same parent.
   const parentIndexes = new Set(targetElements.map((el) => el.parentIndex));
   if (parentIndexes.size !== 1) return "unsupported";
-  const sharedParentIndex = [...parentIndexes][0];
 
   // Sort targets by their source position (ascending).
   targetElements.sort((a, b) => a.start - b.start);
+
+  const siblingIndexes = targetElements
+    .map((el) => el.siblingIndex)
+    .sort((a, b) => a - b);
+  const firstSiblingIndex = siblingIndexes[0];
+  if (firstSiblingIndex === undefined) return "unsupported";
+  const targetsAreContiguous = siblingIndexes.every(
+    (siblingIndex, index) => siblingIndex === firstSiblingIndex + index,
+  );
+  if (!targetsAreContiguous) return "unsupported";
 
   // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(

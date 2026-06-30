@@ -852,6 +852,17 @@ describe("wrapNodes", () => {
     expect(patch.content).toBe(html);
   });
 
+  it("returns unsupported when selected siblings are not contiguous", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "c"],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
   it("returns conflict when a target node id is not found", () => {
     const html = `<main><div data-agent-native-node-id="a">A</div></main>`;
     const patch = applyVisualEdit(html, {

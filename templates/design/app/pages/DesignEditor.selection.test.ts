@@ -4,6 +4,8 @@ import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
   getDesignEditorShareUrl,
+  getLayerMoveSourceContent,
+  getLocalhostRouteSourceFile,
   getOverviewCanvasZoom,
   getOverviewDisplayZoom,
   getOverviewEnterTarget,
@@ -175,6 +177,63 @@ describe("DesignEditor share URLs", () => {
     expect(
       getDesignEditorShareUrl("design-123", "https://builder.example"),
     ).toBe("https://builder.example/design/design-123");
+  });
+});
+
+describe("DesignEditor localhost route source", () => {
+  it("prefers explicit route metadata sourceFile for local handoff", () => {
+    expect(
+      getLocalhostRouteSourceFile({
+        sourceFile: "app/routes/home.tsx",
+        source: '{"file":"legacy.tsx"}',
+      }),
+    ).toBe("app/routes/home.tsx");
+  });
+
+  it("falls back to legacy source metadata shapes", () => {
+    expect(
+      getLocalhostRouteSourceFile({
+        source: '{"file":"app/routes/settings.tsx"}',
+      }),
+    ).toBe("app/routes/settings.tsx");
+    expect(
+      getLocalhostRouteSourceFile({ source: "app/routes/plain.tsx" }),
+    ).toBe("app/routes/plain.tsx");
+  });
+});
+
+describe("DesignEditor layer move source snapshots", () => {
+  it("uses the progressive source snapshot before active file content", () => {
+    expect(
+      getLayerMoveSourceContent({
+        sourceFileId: "active",
+        activeFileId: "active",
+        activeContent: "original active",
+        sourceFileContent: "stale file",
+        sourceContentMap: new Map([["active", "after first move"]]),
+      }),
+    ).toBe("after first move");
+  });
+
+  it("falls back to active content or source file content for first move", () => {
+    expect(
+      getLayerMoveSourceContent({
+        sourceFileId: "active",
+        activeFileId: "active",
+        activeContent: "original active",
+        sourceFileContent: "stale file",
+        sourceContentMap: new Map(),
+      }),
+    ).toBe("original active");
+    expect(
+      getLayerMoveSourceContent({
+        sourceFileId: "other",
+        activeFileId: "active",
+        activeContent: "original active",
+        sourceFileContent: "other file",
+        sourceContentMap: new Map(),
+      }),
+    ).toBe("other file");
   });
 });
 

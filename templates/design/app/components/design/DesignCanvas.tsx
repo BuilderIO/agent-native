@@ -744,18 +744,16 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     // data-loc may encode "file:line:col" (Babel source plugin convention).
     // Only parse it when data-source-file is absent, to avoid double-reads.
     if (!dataSourceFile && dataLoc) {
-      var locParts = dataLoc.split(':');
-      // Expect at least "file:line" or "file:line:col"; guard against bare ids.
-      if (locParts.length >= 2) {
-        var maybeFile = locParts[0];
-        var maybeLine = Number(locParts[locParts.length >= 3 ? locParts.length - 2 : locParts.length - 1]);
-        var maybeCol = locParts.length >= 3 ? Number(locParts[locParts.length - 1]) : undefined;
-        // Only treat as provenance when file part looks path-like.
-        if (maybeFile && maybeFile.length > 0 && !isNaN(maybeLine)) {
-          dataSourceFile = maybeFile;
-          dataSourceLine = String(maybeLine);
-          if (maybeCol !== undefined && !isNaN(maybeCol)) dataSourceColumn = String(maybeCol);
-        }
+      var lastColonIndex = dataLoc.lastIndexOf(':');
+      var lastPart = lastColonIndex >= 0 ? dataLoc.slice(lastColonIndex + 1) : '';
+      if (lastColonIndex >= 0 && /^\\d+$/.test(lastPart)) {
+        var beforeLastPart = dataLoc.slice(0, lastColonIndex);
+        var previousColonIndex = beforeLastPart.lastIndexOf(':');
+        var previousPart = previousColonIndex >= 0 ? beforeLastPart.slice(previousColonIndex + 1) : '';
+        var hasColumn = /^\\d+$/.test(previousPart);
+        dataSourceFile = hasColumn ? beforeLastPart.slice(0, previousColonIndex) : beforeLastPart;
+        dataSourceLine = hasColumn ? previousPart : lastPart;
+        if (hasColumn) dataSourceColumn = lastPart;
       }
     }
     if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName) {
