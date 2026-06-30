@@ -24,7 +24,7 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
-import { deleteResumableSession } from "../../../lib/resumable-session.js";
+import { deleteResumableSession } from "../../../../lib/resumable-session.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
