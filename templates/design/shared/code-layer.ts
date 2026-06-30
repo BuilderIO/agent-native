@@ -2737,6 +2737,7 @@ const AUTO_LAYOUT_STRIP_PROPS = [
   "top",
   "right",
   "bottom",
+  "inset",
 ] as const;
 
 /**
@@ -2988,14 +2989,38 @@ function applyAutoLayout(
   }
 
   // Enable auto-layout: set display:flex + direction + gap on the container.
-  let result = html;
+  // Apply all three style properties in a single mutation against the already-
+  // resolved element so that elements with no stable data attributes or HTML id
+  // are handled correctly.  Re-parsing after each individual property write
+  // caused a silent no-op for those elements because the re-parse-based element
+  // finder could not locate them after the first write changed the style attr.
+  const currentStyle = attributeValue(element, "style");
+  let declarations = parseStyleDeclarations(currentStyle);
+  const setOrReplace = (prop: string, val: string) => {
+    const existing = declarations.find((d) => d.property === prop);
+    if (existing) {
+      existing.value = val;
+    } else {
+      declarations.push({ property: prop, value: val });
+    }
+  };
+  setOrReplace("display", "flex");
+  setOrReplace("flex-direction", direction);
+  setOrReplace("gap", gap);
+  let result = replaceOrInsertAttribute(
+    html,
+    element,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
 
-  // Build a stable element finder for `element` that survives re-parses after
-  // style mutations. We collect all stable identifier attribute values present
-  // on the initial element (STABLE_NODE_ID_ATTRIBUTES + HTML id), then match
-  // any of them in subsequent parses. This handles the case where the node has
-  // no data-agent-native-node-id attribute and was resolved by its projection
-  // hash id — a data-attribute-only search would silently miss it.
+  // Strip absolute positioning from direct children.
+  // Re-parse to get up-to-date child element positions after the style mutation.
+  const updatedElements = parseHtmlElements(result);
+  // Locate the target element in the updated parse.  Prefer stable data
+  // attributes and HTML id; fall back to matching by original source position
+  // (safe because the container open-tag length only changed by the style attr
+  // rewrite, which shifts nothing before element.start).
   const stableAttrPairs: Array<[string, string]> = [];
   for (const attrName of STABLE_NODE_ID_ATTRIBUTES) {
     const v = attributeValue(element, attrName);
@@ -3014,39 +3039,10 @@ function applyAutoLayout(
     if (htmlIdValue) {
       return elements.find((fe) => attributeValue(fe, "id") === htmlIdValue);
     }
-    return undefined;
+    // Fallback: match by original start position.  The container's start offset
+    // is unchanged because only its open-tag content (style attr) was modified.
+    return elements.find((fe) => fe.start === element.start);
   };
-
-  // Set container styles.
-  const setContainerStyle = (prop: VisualStyleProperty, val: string): void => {
-    // Re-parse after each mutation so attribute positions stay valid.
-    const elements = parseHtmlElements(result);
-    const el = findElementInParsed(elements);
-    if (!el) return;
-    const currentStyle2 = attributeValue(el, "style");
-    let declarations2 = parseStyleDeclarations(currentStyle2);
-    const existing = declarations2.find((d) => d.property === prop);
-    if (existing) {
-      existing.value = val;
-    } else {
-      declarations2.push({ property: prop, value: val });
-    }
-    result = replaceOrInsertAttribute(
-      result,
-      el,
-      "style",
-      serializeStyleDeclarations(declarations2),
-    );
-  };
-
-  setContainerStyle("display", "flex");
-  setContainerStyle("flex-direction", direction);
-  setContainerStyle("gap", gap);
-
-  // Strip absolute positioning from direct children.
-  // Re-parse to get up-to-date child positions.
-  const updatedElements = parseHtmlElements(result);
-  // Find the target element again using the same stable-attribute strategy.
   const updatedTarget = findElementInParsed(updatedElements);
 
   if (updatedTarget) {
@@ -3377,6 +3373,12 @@ export interface MoveNodeBetweenDocumentsResult {
   destHtml: string;
   status: "applied" | "unsupported";
   message?: string;
+  /**
+   * The data-agent-native-node-id of the moved node in destHtml.
+   * May differ from the original nodeId when a collision caused a re-stamp.
+   * Only present when status is "applied".
+   */
+  movedNodeId?: string;
 }
 
 /**
@@ -3496,9 +3498,13 @@ export function moveNodeBetweenDocuments(
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   }
 
+  // The moved node keeps its original id unless it collided and was re-stamped.
+  const movedNodeId = idRemap.get(nodeId) ?? nodeId;
+
   return {
     sourceHtml: nextSourceHtml,
     destHtml: nextDestHtml,
     status: "applied",
+    movedNodeId,
   };
 }

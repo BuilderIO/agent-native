@@ -1180,4 +1180,33 @@ describe("autoLayout (regression)", () => {
     // Grandchild positioning is NOT touched by wrapNodes autoLayout (only direct-child strip)
     expect(patch.content).toContain("top: 3px");
   });
+
+  it("applies all three flex styles when element has no stable data attributes and no HTML id", () => {
+    // Regression: previously only the first style property (display:flex) was applied because
+    // re-parsing after each individual mutation could not re-locate the target element when
+    // it carried no data-agent-native-node-id, data-code-layer-id, or HTML id.  All three
+    // setContainerStyle calls after the first returned silently with no-op.
+    const html = `<div class="container"><span style="position: absolute; left: 5px">X</span></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const box = projection.nodes.find((n) => n.tag === "div");
+
+    expect(box?.dataAttributes["data-agent-native-node-id"]).toBeUndefined();
+    expect(box?.attributes["id"]).toBeUndefined();
+
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: box!.id,
+      enabled: true,
+      direction: "row",
+      gap: "12px",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: row");
+    expect(patch.content).toContain("gap: 12px");
+    // Child absolute positioning is also stripped
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 5px");
+  });
 });

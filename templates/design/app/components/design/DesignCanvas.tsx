@@ -2263,7 +2263,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     return true;
   }
 
-  // keep in sync with EditPanel.tsx CONTAINER_TAGS/LEAF_TAGS (~line 1574)
+  // keep in sync with EditPanel.tsx CONTAINER_TAGS/LEAF_TAGS (~line 1679)
   var BRIDGE_CONTAINER_TAGS = ['div', 'section', 'main', 'header', 'footer', 'nav', 'article', 'aside', 'form', 'ul', 'ol', 'figure', 'fieldset', 'details', 'dialog', 'blockquote', 'table', 'tbody', 'thead', 'tr'];
   var BRIDGE_LEAF_TAGS = ['img', 'video', 'picture', 'audio', 'canvas', 'svg', 'path', 'input', 'textarea', 'select', 'br', 'hr', 'iframe'];
   var BRIDGE_TEXT_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 'strong', 'em', 'label', 'li'];
@@ -2473,16 +2473,96 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       var reorderEl = selectedEl;
       var currentTarget = reorderTargetForPoint(reorderEl, e.clientX, e.clientY);
       showInsertionGuideFor(currentTarget);
+      // Cross-screen drag state: true when the pointer is outside this iframe's
+      // viewport bounds.  The host frame renders the ghost + highlight and owns
+      // the drop when this is true; the bridge suppresses its in-iframe reorder.
+      var pointerOutsideIframe = false;
+      var reorderSelector = getSelector(reorderEl);
+      var reorderSourceId = getSourceId(reorderEl);
       function onReorderMove(ev) {
-        currentTarget = reorderTargetForPoint(reorderEl, ev.clientX, ev.clientY);
-        showInsertionGuideFor(currentTarget);
-        showTransformBadge(currentTarget ? 'Move layer' : 'Move', ev.clientX, ev.clientY);
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        var cx = ev.clientX;
+        var cy = ev.clientY;
+        var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
+        pointerOutsideIframe = outside;
+        // Always notify the host frame so it can track the cursor position,
+        // render the ghost, and highlight the target screen.
+        window.parent.postMessage({
+          type: 'agent-native:cross-screen-drag',
+          phase: 'move',
+          selector: reorderSelector,
+          sourceId: reorderSourceId,
+          iframeX: cx,
+          iframeY: cy,
+          viewportW: vw,
+          viewportH: vh,
+        }, '*');
+        if (outside) {
+          // Cursor left this iframe — hide the in-iframe insertion guide so
+          // it does not render while the host shows a cross-screen drop target.
+          hideInsertionGuide();
+          showTransformBadge('Move layer', cx, cy);
+        } else {
+          // Cursor is inside this iframe — use existing in-iframe behavior.
+          currentTarget = reorderTargetForPoint(reorderEl, cx, cy);
+          showInsertionGuideFor(currentTarget);
+          showTransformBadge(currentTarget ? 'Move layer' : 'Move', cx, cy);
+        }
       }
-      function onReorderUp() {
+      function onReorderEscape() {
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
+        document.removeEventListener('keydown', onReorderKeyDown, true);
+        hideTransformBadge();
+        hideInsertionGuide();
+        window.parent.postMessage({ type: 'agent-native:cross-screen-drag', phase: 'cancel' }, '*');
+        // Revert any clone that was inserted for alt-drag.
+        if (duplicatedForDrag && reorderEl && reorderEl !== originalSelectedEl) {
+          if (reorderEl.parentElement) reorderEl.parentElement.removeChild(reorderEl);
+          selectedEl = originalSelectedEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+        }
+      }
+      function onReorderKeyDown(ev) {
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+          onReorderEscape();
+        }
+      }
+      function onReorderUp(ev) {
+        document.removeEventListener(events.move, onReorderMove, true);
+        document.removeEventListener(events.up, onReorderUp, true);
+        document.removeEventListener('keydown', onReorderKeyDown, true);
 	        hideTransformBadge();
 	        hideInsertionGuide();
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        var cx = ev ? ev.clientX : 0;
+        var cy = ev ? ev.clientY : 0;
+        var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh;
+        // Post the end message so the host can finalize a cross-screen drop.
+        window.parent.postMessage({
+          type: 'agent-native:cross-screen-drag',
+          phase: 'end',
+          selector: reorderSelector,
+          sourceId: reorderSourceId,
+          iframeX: cx,
+          iframeY: cy,
+          viewportW: vw,
+          viewportH: vh,
+        }, '*');
+        // When the pointer is outside this iframe at release, the host owns the
+        // move (cross-screen drop).  Do NOT apply the in-iframe reorder so we
+        // avoid a ghost element left in screen A's DOM.
+        // Use outsideOnDrop only — pointerOutsideIframe is stale when the user
+        // briefly exits the iframe and re-enters before releasing.  The host
+        // already clears cross-screen state on re-entry so checking the
+        // momentary excursion flag here would wrongly drop the element nowhere.
+        if (outsideOnDrop) return;
 	        if (!currentTarget) {
 	          // No valid drop target — clean up the clone if one was inserted so
 	          // no ghost element is left in the DOM.
@@ -2511,6 +2591,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       }
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
+      document.addEventListener('keydown', onReorderKeyDown, true);
       return;
     }
     ensurePositionable(selectedEl);

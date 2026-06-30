@@ -200,6 +200,19 @@ interface MultiScreenCanvasProps {
     widthPx: number | undefined,
   ) => void;
   onSelectionChange?: (selectedIds: string[]) => void;
+  /**
+   * Called when the user drags an element out of the active screen's iframe
+   * and drops it onto a different screen.  The bridge in the source iframe
+   * posts { type:"agent-native:cross-screen-drag" } messages; the host
+   * translates them to board coords, finds the target frame, and calls this
+   * prop with the resolved ids.
+   */
+  onCrossScreenElementDrop?: (args: {
+    sourceSelector: string;
+    sourceNodeId?: string;
+    sourceScreenId: string;
+    targetScreenId: string;
+  }) => void;
 }
 
 /**
@@ -541,6 +554,7 @@ export function MultiScreenCanvas({
   onAddBreakpoint,
   onActiveBreakpointChange,
   onSelectionChange,
+  onCrossScreenElementDrop,
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -591,6 +605,30 @@ export function MultiScreenCanvas({
     useState<PrimitiveDropTarget | null>(null);
   const primitiveDropTargetRef = useRef<PrimitiveDropTarget | null>(null);
   const onPrimitiveReparentRef = useRef(onPrimitiveReparent);
+
+  // Cross-screen element drag state — driven by postMessage from the source iframe.
+  interface CrossScreenDragGhost {
+    /** Board-space point where the ghost is shown (follows the cursor). */
+    boardX: number;
+    boardY: number;
+  }
+  interface CrossScreenDragTarget {
+    /** The screen frame that is the candidate drop target. */
+    id: string;
+    geometry: FrameGeometry;
+  }
+  const [crossScreenGhost, setCrossScreenGhost] =
+    useState<CrossScreenDragGhost | null>(null);
+  const [crossScreenTarget, setCrossScreenTarget] =
+    useState<CrossScreenDragTarget | null>(null);
+  /** Ref kept in sync with state so the message handler can read without closures. */
+  const crossScreenTargetRef = useRef<CrossScreenDragTarget | null>(null);
+  /** The most-recent drag message payload — kept for use in the "end" handler. */
+  const crossScreenDragMsgRef = useRef<{
+    selector: string;
+    sourceId?: string;
+  } | null>(null);
+  const onCrossScreenElementDropRef = useRef(onCrossScreenElementDrop);
   const suppressNextPick = useRef(false);
   const feedbackTimerRef = useRef<number | null>(null);
   const pendingWheelGestureRef = useRef<PendingWheelGesture | null>(null);
@@ -625,6 +663,10 @@ export function MultiScreenCanvas({
   useEffect(() => {
     onPrimitiveReparentRef.current = onPrimitiveReparent;
   }, [onPrimitiveReparent]);
+
+  useEffect(() => {
+    onCrossScreenElementDropRef.current = onCrossScreenElementDrop;
+  }, [onCrossScreenElementDrop]);
 
   useEffect(() => {
     screensRef.current = screens;
@@ -960,6 +1002,155 @@ export function MultiScreenCanvas({
         )[0],
     [getCurrentFrameEntries],
   );
+
+  // ── Cross-screen element drag receiver ────────────────────────────────────
+  // The source iframe (the active interactive screen) posts
+  // { type: "agent-native:cross-screen-drag", phase, selector, sourceId,
+  //   iframeX, iframeY, viewportW, viewportH }
+  // during element drags that the bridge wants the host to handle.
+  useEffect(() => {
+    if (!onCrossScreenElementDrop) return;
+
+    const clearCrossScreenDrag = () => {
+      setCrossScreenGhost(null);
+      setCrossScreenTarget(null);
+      crossScreenTargetRef.current = null;
+      crossScreenDragMsgRef.current = null;
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      if (!event.data || event.data.type !== "agent-native:cross-screen-drag") {
+        return;
+      }
+      const msg = event.data as {
+        type: string;
+        phase: "move" | "end" | "cancel";
+        selector?: string;
+        sourceId?: string;
+        iframeX?: number;
+        iframeY?: number;
+        viewportW?: number;
+        viewportH?: number;
+      };
+
+      if (msg.phase === "cancel") {
+        clearCrossScreenDrag();
+        return;
+      }
+
+      // The drag originates from the active screen (only the active screen has
+      // a live interactive iframe posting these messages).
+      const sourceScreenId = activeId;
+      if (!sourceScreenId) {
+        // Always clear visual state (ghost + highlight) when we have no active
+        // screen to attribute the drag to — regardless of the phase. Without
+        // this, a "move" message arriving after activeId became null would leave
+        // stale ghost/target state visible on the canvas.
+        clearCrossScreenDrag();
+        return;
+      }
+
+      if (msg.phase === "move") {
+        const { iframeX, iframeY, viewportW, viewportH, selector, sourceId } =
+          msg;
+        if (
+          iframeX === undefined ||
+          iframeY === undefined ||
+          viewportW === undefined ||
+          viewportH === undefined
+        ) {
+          return;
+        }
+
+        // Remember the latest drag payload for use on "end".
+        crossScreenDragMsgRef.current = {
+          selector: selector ?? "",
+          sourceId,
+        };
+
+        // Pointer is inside the source iframe — let the bridge handle it.
+        if (
+          iframeX >= 0 &&
+          iframeY >= 0 &&
+          iframeX <= viewportW &&
+          iframeY <= viewportH
+        ) {
+          clearCrossScreenDrag();
+          return;
+        }
+
+        // Translate iframe coords → board coords using source frame geometry.
+        // Board math mirrors primitiveLocalToBoardRect:
+        //   boardX = frame.x + iframeX * (frame.width / metadata.width)
+        //   boardY = frame.y + iframeY * (frame.height / metadata.height)
+        const sourceScreen = screensRef.current.find(
+          (s) => s.id === sourceScreenId,
+        );
+        const sourceGeometry = frameGeometryRef.current[sourceScreenId];
+        if (!sourceScreen || !sourceGeometry) {
+          clearCrossScreenDrag();
+          return;
+        }
+        const sourceMetadata = getResolvedMetadata(sourceScreen);
+        const scaleX = sourceGeometry.width / Math.max(1, sourceMetadata.width);
+        const scaleY =
+          sourceGeometry.height / Math.max(1, sourceMetadata.height);
+        const boardX = sourceGeometry.x + iframeX * scaleX;
+        const boardY = sourceGeometry.y + iframeY * scaleY;
+        const boardPoint = { x: boardX, y: boardY };
+
+        setCrossScreenGhost({ boardX, boardY });
+
+        // Find which screen frame the board point falls in.
+        const target = getFrameEntryAtPoint(boardPoint);
+        if (target && target.id !== sourceScreenId) {
+          const nextTarget = { id: target.id, geometry: target.geometry };
+          crossScreenTargetRef.current = nextTarget;
+          setCrossScreenTarget(nextTarget);
+        } else {
+          crossScreenTargetRef.current = null;
+          setCrossScreenTarget(null);
+        }
+        return;
+      }
+
+      if (msg.phase === "end") {
+        const candidate = crossScreenTargetRef.current;
+        // Use the saved payload from the last "move" as the primary source of
+        // truth; fall back to the "end" message's own fields in case the ref
+        // was cleared (e.g. a brief re-entry into the source iframe nulled it
+        // via clearCrossScreenDrag while pointerOutsideIframe remained true).
+        const payload = crossScreenDragMsgRef.current ?? {
+          selector: msg.selector ?? "",
+          sourceId: msg.sourceId,
+        };
+        clearCrossScreenDrag();
+        // Guard: require at least one stable identifier (selector or sourceId)
+        // so the drop handler in DesignEditor can resolve the node. An empty
+        // selector AND a missing sourceId would produce nodeAttrId="" and
+        // moveNodeBetweenDocuments would fail with a generic error toast.
+        const hasIdentifier = !!(payload.selector || payload.sourceId);
+        if (candidate && hasIdentifier && sourceScreenId) {
+          onCrossScreenElementDropRef.current?.({
+            sourceSelector: payload.selector,
+            sourceNodeId: payload.sourceId,
+            sourceScreenId,
+            targetScreenId: candidate.id,
+          });
+        }
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [
+    activeId,
+    getFrameEntryAtPoint,
+    getResolvedMetadata,
+    onCrossScreenElementDrop,
+  ]);
 
   const deleteSelectedItems = useCallback(() => {
     const frameIds = selectedIdsRef.current.filter(
@@ -3464,6 +3655,46 @@ export function MultiScreenCanvas({
           {transformBadge.text}
         </div>
       ) : null}
+
+      {/* Cross-screen element drag: highlight the candidate target screen frame.
+          Uses the same style as the primitiveDropTarget overlay (2px accent border
+          + 14% accent fill) so it is visually consistent. */}
+      {crossScreenTarget ? (
+        <span
+          data-cross-screen-drop-target
+          className="pointer-events-none absolute z-40 rounded-sm"
+          style={{
+            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
+            left:
+              pan.x + (SURFACE_PADDING + crossScreenTarget.geometry.x) * scale,
+            top:
+              pan.y + (SURFACE_PADDING + crossScreenTarget.geometry.y) * scale,
+            width: Math.max(1, crossScreenTarget.geometry.width * scale),
+            height: Math.max(1, crossScreenTarget.geometry.height * scale),
+            border: "2px solid var(--design-editor-accent-color)",
+            background:
+              "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)",
+          }}
+        />
+      ) : null}
+
+      {/* Cross-screen element drag: small ghost following the board-space cursor. */}
+      {crossScreenGhost ? (
+        <span
+          data-cross-screen-drag-ghost
+          className="pointer-events-none absolute z-50 rounded border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/20 shadow"
+          style={{
+            // A fixed-size ghost (16×16 canvas-px) centred on the board point.
+            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
+            left:
+              pan.x + (SURFACE_PADDING + crossScreenGhost.boardX) * scale - 8,
+            top:
+              pan.y + (SURFACE_PADDING + crossScreenGhost.boardY) * scale - 8,
+            width: 16,
+            height: 16,
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -5569,17 +5800,32 @@ export interface ParsedScreenPrimitive {
   isContainer: boolean;
 }
 
+/** Fast djb2-variant hash of a string. Runs in O(n) but is inlined for the
+ *  JIT — no allocations, no imports.  Produces a 32-bit unsigned integer as a
+ *  hex string.  Used only for cache-key disambiguation, not cryptography. */
+function hashString(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    // h = h * 33 ^ charCode  (djb2 xor variant)
+    h = ((h << 5) + h) ^ s.charCodeAt(i);
+    h = h >>> 0; // keep as unsigned 32-bit
+  }
+  return h.toString(16);
+}
+
 /** Simple LRU-style cache to avoid re-parsing the same screen HTML on every
- *  mousemove frame.  Keyed by `screenId:contentLength:prefix48` so that edits
- *  that keep the same character count (e.g. agent replacing one node-id with
- *  another of equal length) still invalidate the entry. */
+ *  mousemove frame.  Keyed by `screenId:contentLength:hash` so that ANY edit
+ *  (including changes deep in the middle of a large HTML document) invalidates
+ *  the entry.  A length:hash pair eliminates the collision zone that existed
+ *  when only prefix48+suffix48 were used — edits in `content[48..len-49]` would
+ *  produce the same key even though the content differed. */
 export const primitiveParseCache = new Map<string, ParsedScreenPrimitive[]>();
 const PRIMITIVE_PARSE_CACHE_MAX = 64;
 
 export function parsePrimitivesFromScreen(
   screen: ScreenFile,
 ): ParsedScreenPrimitive[] {
-  const cacheKey = `${screen.id}:${screen.content.length}:${screen.content.slice(0, 48)}`;
+  const cacheKey = `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
   const cached = primitiveParseCache.get(cacheKey);
   if (cached) return cached;
 

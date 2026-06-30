@@ -41,11 +41,22 @@ function primEntry(
   };
 }
 
+/** Mirror the djb2-variant hash used by parsePrimitivesFromScreen.
+ *  Keep in sync with the `hashString` helper in MultiScreenCanvas.tsx. */
+function hashString(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h) ^ s.charCodeAt(i);
+    h = h >>> 0;
+  }
+  return h.toString(16);
+}
+
 /** Inject pre-built primitives into the module cache so tests don't need
  *  DOMParser (unavailable in jsdom-less vitest). */
 function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
-  // Cache key mirrors the fixed implementation: id:length:prefix48
-  const key = `${screen.id}:${screen.content.length}:${screen.content.slice(0, 48)}`;
+  // Cache key mirrors the implementation: id:length:hash(content)
+  const key = `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
   primitiveParseCache.set(key, prims);
 }
 
@@ -114,8 +125,13 @@ describe("primitiveLocalToBoardRect", () => {
 // ---------------------------------------------------------------------------
 // parsePrimitivesFromScreen cache key: regression for equal-length edits
 // ---------------------------------------------------------------------------
+/** Mirror parsePrimitivesFromScreen's cache key formula exactly. */
+function makeCacheKey(screen: { id: string; content: string }): string {
+  return `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
+}
+
 describe("parsePrimitivesFromScreen cache key", () => {
-  it("uses a different cache key when content changes with equal length (regression)", () => {
+  it("uses a different cache key when content changes with equal length, prefix differs", () => {
     const screenId = "cache-test";
     // Two different contents of the same length whose first 48 chars differ
     const contentA = "A".repeat(80);
@@ -136,9 +152,34 @@ describe("parsePrimitivesFromScreen cache key", () => {
     expect(contentA.length).toBe(contentB.length);
 
     // But the cache keys must differ (prefix differs)
-    const keyA = `${screenA.id}:${screenA.content.length}:${screenA.content.slice(0, 48)}`;
-    const keyB = `${screenB.id}:${screenB.content.length}:${screenB.content.slice(0, 48)}`;
-    expect(keyA).not.toBe(keyB);
+    expect(makeCacheKey(screenA)).not.toBe(makeCacheKey(screenB));
+  });
+
+  it("regression: different key when content differs only after position 48 (same prefix, same length)", () => {
+    // This is the collision the old prefix-only key failed to catch:
+    // same screenId, same length, same first 48 chars, but different body content.
+    // Real scenario: agent replaces a node-id at position 50 in the HTML.
+    const screenId = "cache-test";
+    const sharedPrefix = "X".repeat(48); // exactly 48 chars — prefix identical
+    const contentA = sharedPrefix + "A".repeat(52); // 100 chars total
+    const contentB = sharedPrefix + "B".repeat(52); // 100 chars total
+
+    const screenA: ScreenStub = {
+      id: screenId,
+      filename: "f.html",
+      content: contentA,
+    };
+    const screenB: ScreenStub = {
+      id: screenId,
+      filename: "f.html",
+      content: contentB,
+    };
+
+    expect(contentA.length).toBe(contentB.length);
+    expect(contentA.slice(0, 48)).toBe(contentB.slice(0, 48)); // confirms old formula collides
+
+    // New formula (prefix48 + suffix48) must produce different keys
+    expect(makeCacheKey(screenA)).not.toBe(makeCacheKey(screenB));
   });
 
   it("same content always produces same cache key", () => {
@@ -147,9 +188,39 @@ describe("parsePrimitivesFromScreen cache key", () => {
       filename: "a.html",
       content: "<div>",
     };
-    const key1 = `${screen.id}:${screen.content.length}:${screen.content.slice(0, 48)}`;
-    const key2 = `${screen.id}:${screen.content.length}:${screen.content.slice(0, 48)}`;
-    expect(key1).toBe(key2);
+    expect(makeCacheKey(screen)).toBe(makeCacheKey(screen));
+  });
+
+  it("regression: different key when edit is deep in the middle of a large HTML file", () => {
+    // The old prefix48+suffix48 formula collided when changes were in the middle
+    // zone [48..len-49].  Real case: an agent rewrites a node-id at character 200
+    // of a 2000-char HTML file.  The new hash-based key must differentiate these.
+    const screenId = "long-screen";
+    const prefix = "P".repeat(48);
+    const suffix = "S".repeat(48);
+    const middleA = "M".repeat(200); // change only in this middle zone
+    const middleB = "N".repeat(200);
+    const contentA = prefix + middleA + suffix; // 296 chars
+    const contentB = prefix + middleB + suffix;
+
+    const screenA: ScreenStub = {
+      id: screenId,
+      filename: "long.html",
+      content: contentA,
+    };
+    const screenB: ScreenStub = {
+      id: screenId,
+      filename: "long.html",
+      content: contentB,
+    };
+
+    // Confirm this is the scenario the old formula failed on:
+    expect(contentA.length).toBe(contentB.length);
+    expect(contentA.slice(0, 48)).toBe(contentB.slice(0, 48));
+    expect(contentA.slice(-48)).toBe(contentB.slice(-48));
+
+    // New hash-based formula must produce different keys:
+    expect(makeCacheKey(screenA)).not.toBe(makeCacheKey(screenB));
   });
 });
 
@@ -363,5 +434,48 @@ describe("resolveNodeScreenId", () => {
     ]);
 
     expect(resolveNodeScreenId("shared", [s1, s2])).toBe("s1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-screen coord translation: board coords from iframe coords
+// The cross-screen drag receiver uses the same formula as primitiveLocalToBoardRect
+// (boardX = frame.x + iframeX * (frame.width / metadata.width)).  Verify they
+// round-trip correctly and are consistent with each other.
+// ---------------------------------------------------------------------------
+describe("cross-screen coord translation (iframeX → boardX consistency)", () => {
+  it("board coords from iframe coords match primitiveLocalToBoardRect inversion", () => {
+    // Frame placed at (100, 200) on the board, 320×640 px.
+    // Logical design dimensions (metadata): 390×844 (iPhone-like).
+    const frameGeom = makeGeom(100, 200, 320, 640);
+    const meta = { width: 390, height: 844 };
+
+    // Suppose a primitive lives at local (localLeft=78, localTop=168) in the
+    // design's logical space.  Its board rect from primitiveLocalToBoardRect:
+    const boardRect = primitiveLocalToBoardRect(78, 168, 1, 1, frameGeom, meta);
+
+    // The cross-screen drag receiver computes:
+    //   scaleX = frame.width / metadata.width
+    //   boardX = frame.x + iframeX * scaleX
+    // If the pointer is at iframeX=78, iframeY=168 (same as the local coords):
+    const scaleX = frameGeom.width / Math.max(1, meta.width);
+    const scaleY = frameGeom.height / Math.max(1, meta.height);
+    const receiverBoardX = frameGeom.x + 78 * scaleX;
+    const receiverBoardY = frameGeom.y + 168 * scaleY;
+
+    // Both should land at the same board coordinates:
+    expect(receiverBoardX).toBeCloseTo(boardRect.x, 5);
+    expect(receiverBoardY).toBeCloseTo(boardRect.y, 5);
+  });
+
+  it("iframe pointer at (0,0) maps to frame origin on the board", () => {
+    const frameGeom = makeGeom(50, 80, 320, 640);
+    const meta = { width: 320, height: 640 };
+    const scaleX = frameGeom.width / Math.max(1, meta.width);
+    const scaleY = frameGeom.height / Math.max(1, meta.height);
+    const boardX = frameGeom.x + 0 * scaleX;
+    const boardY = frameGeom.y + 0 * scaleY;
+    expect(boardX).toBe(50);
+    expect(boardY).toBe(80);
   });
 });

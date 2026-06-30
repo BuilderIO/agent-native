@@ -162,6 +162,7 @@ import {
   type CanvasPrimitiveInsert,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import type { ElementInfo, DeviceFrameType } from "@/components/design/types";
 import {
   DEVICE_FRAME_VIEWPORTS,
@@ -221,6 +222,8 @@ import {
 } from "@/lib/pending-generation";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
+
+import type { A11yFinding } from "../../shared/design-review.js";
 
 const TAB_ID = generateTabId();
 
@@ -423,6 +426,27 @@ export function shouldEscapeToOverview(args: {
     mode === "edit" &&
     activeTool === "move"
   );
+}
+
+/**
+ * Build the set of all node ids (both projection ids and data-agent-native-node-id
+ * attribute values) that exist in the given projection. Used by handleGroupSelection
+ * and handleUngroupSelection to filter selectedLayerIdsState to the active file's
+ * nodes before passing them to wrapNodes / unwrap, preventing cross-file stale ids
+ * from causing spurious "conflict" errors.
+ *
+ * Exported for unit testing.
+ */
+export function buildActiveFileNodeIdSet(
+  projection: CodeLayerProjection,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const n of projection.nodes) {
+    ids.add(n.id);
+    const attrId = n.dataAttributes["data-agent-native-node-id"];
+    if (attrId) ids.add(attrId);
+  }
+  return ids;
 }
 
 let html2CanvasColorContext: CanvasRenderingContext2D | null | undefined;
@@ -4362,6 +4386,65 @@ export default function DesignEditor() {
     generating,
     pendingGenerationActive,
   });
+
+  // §6.5 Review panel — lazy, on-demand accessibility audit for the active
+  // file. The audit walks the file's rendered HTML, so it must never run on
+  // editor load: it is gated behind `auditRequested` (flipped by the panel's
+  // "Run" button) and reset whenever the active file changes so each file is
+  // audited explicitly. The ReviewPanel itself owns the apply-a11y-fix mutation
+  // behind its inline "Fix" button; we just supply the active design source and
+  // refetch on apply so a resolved finding drops out of the list.
+  const [auditRequested, setAuditRequested] = useState(false);
+  useEffect(() => {
+    setAuditRequested(false);
+  }, [activeFile?.id]);
+
+  const auditQuery = useActionQuery<{
+    auditedAt: string;
+    findings: A11yFinding[];
+  }>(
+    "run-design-audit",
+    { designId: id ?? "", fileId: activeFile?.id },
+    {
+      enabled: auditRequested && !!id && !!activeFile?.id,
+      refetchOnWindowFocus: false,
+    },
+  );
+
+  const reviewPanelProps = useMemo<
+    Omit<ReviewPanelProps, "className"> | undefined
+  >(() => {
+    if (!id || !activeFile) return undefined;
+    const audit = auditRequested ? auditQuery.data : undefined;
+    return {
+      findings: audit?.findings ?? [],
+      auditLoading: auditRequested && auditQuery.isFetching,
+      auditedAt: audit?.auditedAt ?? null,
+      auditError:
+        auditRequested && auditQuery.isError
+          ? auditQuery.error?.message ||
+            "Audit failed. Try again." /* i18n-ignore design review fallback */
+          : null,
+      onRunAudit: () => {
+        // First run flips the gate (the query auto-fetches); later runs refetch.
+        if (auditRequested) {
+          void auditQuery.refetch();
+        } else {
+          setAuditRequested(true);
+        }
+      },
+      fixSource: {
+        designId: id,
+        fileId: activeFile.id,
+        filename: activeFile.filename,
+      },
+      onFixApplied: () => {
+        // Re-run the audit so the resolved finding drops out of the list.
+        void auditQuery.refetch();
+      },
+    };
+  }, [id, activeFile, auditRequested, auditQuery]);
+
   const selectedScreenIds = useMemo(
     () =>
       getSelectedScreenIdsForEditorState({
@@ -7517,9 +7600,19 @@ export default function DesignEditor() {
   const handleGroupSelection = useCallback(() => {
     if (!canEditDesign || !activeFile) return;
     // Collect the DOM-node layer ids that belong to the active screen.
+    // Build a set of ids present in the active content so stale ids from
+    // other files (which can persist in selectedLayerIdsState after a
+    // cross-screen layers-panel selection) are excluded before wrapNodes
+    // runs against activeContent. Without this filter, cross-file ids
+    // cause wrapNodes to return "conflict" even for a valid same-file
+    // selection.
     const fileIds = new Set(files.map((f) => f.id));
+    const activeNodeIdSet = buildActiveFileNodeIdSet(
+      buildCodeLayerProjection(activeContent),
+    );
     const nodeIds = selectedLayerIdsState.filter(
-      (id) => !id.startsWith("__") && !fileIds.has(id),
+      (id) =>
+        !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
     );
     if (nodeIds.length < 2) return;
     const patch = applyVisualEdit(activeContent, {
@@ -7563,9 +7656,16 @@ export default function DesignEditor() {
   // Unwrap the currently selected single-container layer.
   const handleUngroupSelection = useCallback(() => {
     if (!canEditDesign || !activeFile) return;
+    // Filter to active-file nodes only (mirrors handleGroupSelection fix).
+    // A stale id from another file must not be passed to unwrap or it will
+    // fail with "conflict" even though the actual selection is valid.
     const fileIds = new Set(files.map((f) => f.id));
+    const activeNodeIdSet = buildActiveFileNodeIdSet(
+      buildCodeLayerProjection(activeContent),
+    );
     const nodeIds = selectedLayerIdsState.filter(
-      (id) => !id.startsWith("__") && !fileIds.has(id),
+      (id) =>
+        !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
     );
     const targetId = nodeIds[0];
     if (!targetId) return;
@@ -7762,16 +7862,13 @@ export default function DesignEditor() {
       // Use removeAbsolutePositioningFromNodeInHtml (DOM-based) because
       // applyVisualEdit({kind:"style",value:""}) is a silent no-op (the
       // substrate rejects empty-string values in isSafeStyleValue). Use
-      // nodeAttrId as the lookup key — after moveNodeBetweenDocuments the
-      // node retains that id in the destination unless it collided, in which
-      // case the DOM query by the original id falls through gracefully and
-      // skips the strip (the node stays absolute, which is better than
-      // corrupting an unrelated node). The `n.id === sourceNodeId` fallback
-      // that was here before is wrong: projection ids in the destination
-      // document are freshly assigned and will never equal a source projection id.
+      // result.movedNodeId (the final id in destHtml, which may differ from
+      // nodeAttrId when a collision triggered an id re-stamp) so the strip and
+      // re-selection always find the correct element.
+      const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
       const strippedDest = removeAbsolutePositioningFromNodeInHtml(
         result.destHtml,
-        nodeAttrId,
+        destNodeAttrId,
       );
 
       applyFileContentUpdate(sourceScreenId, result.sourceHtml, {
@@ -7784,7 +7881,108 @@ export default function DesignEditor() {
       // Re-select the moved node in the destination.
       const finalProjection = buildCodeLayerProjection(strippedDest);
       const movedNodeFinal = finalProjection.nodes.find(
-        (n) => n.dataAttributes["data-agent-native-node-id"] === nodeAttrId,
+        (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
+      );
+      if (movedNodeFinal) {
+        setSelectedLayerIdsState([movedNodeFinal.id]);
+        setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
+      }
+    },
+    [applyFileContentUpdate, canEditDesign, getScreenContent, t],
+  );
+
+  /**
+   * Cross-screen element drag-drop handler (CONTRACT: onCrossScreenElementDrop
+   * prop on MultiScreenCanvas).
+   *
+   * The bridge in the source screen's iframe posts phase:"end" with the
+   * selector / sourceNodeId of the dragged element.  MultiScreenCanvas maps
+   * the board point to a target screen and calls this handler.  We resolve
+   * both screens' content, identify the node by its data-agent-native-node-id
+   * (falling back to a projection lookup by selector when only the selector is
+   * available), call moveNodeBetweenDocuments to move it into the target
+   * screen's <body>, persist both files, switch the active screen to the
+   * target, and select the moved node — keeping viewMode "overview" throughout.
+   */
+  const handleCrossScreenElementDrop = useCallback(
+    ({
+      sourceSelector,
+      sourceNodeId,
+      sourceScreenId,
+      targetScreenId,
+    }: {
+      sourceSelector: string;
+      sourceNodeId?: string;
+      sourceScreenId: string;
+      targetScreenId: string;
+    }) => {
+      if (!canEditDesign) return;
+      if (sourceScreenId === targetScreenId) return;
+
+      const sourceContent = getScreenContent(sourceScreenId);
+      const destContent = getScreenContent(targetScreenId);
+      if (!sourceContent || !destContent) return;
+
+      // Resolve the data-agent-native-node-id that moveNodeBetweenDocuments
+      // uses as a stable key.  Prefer the bridge-supplied sourceNodeId when it
+      // looks like a node-attr id; otherwise look up via selector projection.
+      const sourceProjection = buildCodeLayerProjection(sourceContent);
+      const resolvedSourceNode = sourceNodeId
+        ? (sourceProjection.nodes.find(
+            (n) =>
+              n.dataAttributes["data-agent-native-node-id"] === sourceNodeId ||
+              n.id === sourceNodeId,
+          ) ??
+          resolveCodeLayerNodeFromBridge(
+            sourceProjection,
+            sourceSelector,
+            sourceNodeId,
+          ))
+        : resolveCodeLayerNodeFromBridge(sourceProjection, sourceSelector);
+      const nodeAttrId =
+        resolvedSourceNode?.dataAttributes["data-agent-native-node-id"] ??
+        sourceNodeId ??
+        sourceSelector;
+
+      const result = moveNodeBetweenDocuments(sourceContent, destContent, {
+        nodeId: nodeAttrId,
+        placement: "inside",
+      });
+      if (result.status !== "applied") {
+        toast.error(
+          codeLayerPatchMessage(
+            result.message,
+            t("designEditor.toasts.layerMoveFailed"),
+          ),
+          { duration: 4000 },
+        );
+        return;
+      }
+
+      // Strip absolute positioning from the moved node in the destination so
+      // it flows naturally as a body child (mirrors handleOverviewPrimitiveReparent).
+      // Use result.movedNodeId (the final id in destHtml, which may differ from
+      // nodeAttrId when a collision triggered an id re-stamp) so the strip and
+      // re-selection always find the correct element.
+      const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
+      const strippedDest = removeAbsolutePositioningFromNodeInHtml(
+        result.destHtml,
+        destNodeAttrId,
+      );
+
+      applyFileContentUpdate(sourceScreenId, result.sourceHtml, {
+        refreshPreview: true,
+      });
+      applyFileContentUpdate(targetScreenId, strippedDest, {
+        refreshPreview: true,
+      });
+
+      // Switch active screen to the target and select the moved node; viewMode
+      // stays "overview" (no setViewMode call).
+      setActiveFileId(targetScreenId);
+      const finalProjection = buildCodeLayerProjection(strippedDest);
+      const movedNodeFinal = finalProjection.nodes.find(
+        (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
       );
       if (movedNodeFinal) {
         setSelectedLayerIdsState([movedNodeFinal.id]);
@@ -11408,6 +11606,7 @@ ${serializedHtml}
                       onCreatePrimitive={handleCreatePrimitive}
                       onPrimitiveCreated={handlePrimitiveCreated}
                       onPrimitiveReparent={handleOverviewPrimitiveReparent}
+                      onCrossScreenElementDrop={handleCrossScreenElementDrop}
                       onCreateScreenFrame={handleCreateScreenFrame}
                       onDeleteSelection={handleDeleteOverviewSelection}
                       onSelectionChange={setOverviewSelectedScreenIds}
@@ -11879,6 +12078,7 @@ ${serializedHtml}
                         }
                       : undefined
                   }
+                  reviewPanelProps={reviewPanelProps}
                 />
               </div>
             ) : (

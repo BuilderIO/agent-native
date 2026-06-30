@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
+  buildActiveFileNodeIdSet,
   getDesignEditorShareUrl,
   getOverviewCanvasZoom,
   getOverviewDisplayZoom,
@@ -344,5 +345,68 @@ describe("DesignEditor element canonicalization", () => {
     });
 
     expect(node).toBeNull();
+  });
+});
+
+describe("buildActiveFileNodeIdSet (group/ungroup stale-id filter)", () => {
+  it("includes both projection ids and data-agent-native-node-id attr values", () => {
+    const html = `<!DOCTYPE html><html><body>
+      <div data-agent-native-node-id="node-a">A</div>
+      <div data-agent-native-node-id="node-b">B</div>
+    </body></html>`;
+    const projection = buildCodeLayerProjection(html);
+    const idSet = buildActiveFileNodeIdSet(projection);
+
+    // Projection ids (internal) should be present.
+    for (const n of projection.nodes) {
+      expect(idSet.has(n.id)).toBe(true);
+    }
+    // data-agent-native-node-id attr values should be present.
+    expect(idSet.has("node-a")).toBe(true);
+    expect(idSet.has("node-b")).toBe(true);
+  });
+
+  it("excludes ids that belong to nodes outside the active file", () => {
+    const activeHtml = `<!DOCTYPE html><html><body>
+      <div data-agent-native-node-id="active-node-1">A</div>
+      <div data-agent-native-node-id="active-node-2">B</div>
+    </body></html>`;
+    const activeProjection = buildCodeLayerProjection(activeHtml);
+    const activeNodeIdSet = buildActiveFileNodeIdSet(activeProjection);
+
+    // Ids from a second (non-active) file are NOT in the active set.
+    expect(activeNodeIdSet.has("other-file-node")).toBe(false);
+
+    // simulated selectedLayerIdsState that mixes active + stale ids
+    const files = [{ id: "file-a" }, { id: "file-b" }];
+    const fileIds = new Set(files.map((f) => f.id));
+    const allLayerIds = [
+      "active-node-1",
+      "active-node-2",
+      "other-file-node", // stale id from non-active file
+      "file-a", // file-row id — should be excluded by fileIds filter
+    ];
+
+    const filteredNodeIds = allLayerIds.filter(
+      (id) =>
+        !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
+    );
+
+    // Only the two active-file node attr ids pass through.
+    expect(filteredNodeIds).toEqual(["active-node-1", "active-node-2"]);
+  });
+
+  it("handles nodes without data-agent-native-node-id (only projection id exposed)", () => {
+    const html = `<!DOCTYPE html><html><body>
+      <div class="plain">No node id attr</div>
+    </body></html>`;
+    const projection = buildCodeLayerProjection(html);
+    const idSet = buildActiveFileNodeIdSet(projection);
+
+    // At least one projection id is present.
+    expect(idSet.size).toBeGreaterThan(0);
+    for (const n of projection.nodes) {
+      expect(idSet.has(n.id)).toBe(true);
+    }
   });
 });
