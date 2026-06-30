@@ -3300,7 +3300,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	      return;
 	    }
 	    if (e.data.type === 'replace-document-content') {
-	      replaceRuntimeDocument(e.data.content, e.data.selectedSelector, e.data.selectorCandidates);
+	      replaceRuntimeDocument(
+	        e.data.content,
+	        e.data.forceFullDocument ? '' : e.data.selectedSelector,
+	        e.data.forceFullDocument ? [] : e.data.selectorCandidates
+	      );
 	      return;
 	    }
 	    if (e.data.type === 'delete-element') {

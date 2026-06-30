@@ -3184,6 +3184,7 @@ export default function DesignEditor() {
   // ── Design state selection (§6.4 / §8) ───────────────────────────────────────
   // null = Default (live) view; a string id = one of the design_state rows.
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
+  const [reviewFileId, setReviewFileId] = useState<string | null>(null);
   const [reviewFindings, setReviewFindings] = useState<A11yFinding[]>([]);
   const [reviewAuditLoading, setReviewAuditLoading] = useState(false);
   const [reviewAuditedAt, setReviewAuditedAt] = useState<string | null>(null);
@@ -4544,6 +4545,15 @@ export default function DesignEditor() {
   }, [files, activeFileId]);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+  useEffect(() => {
+    if (!reviewFileId || reviewFileId === activeFile?.id) return;
+    setReviewFileId(null);
+    setReviewFindings([]);
+    setReviewAuditedAt(null);
+    setReviewAuditError(null);
+    setReviewAuditLoading(false);
+  }, [activeFile?.id, reviewFileId]);
+
   const initialGenerationReadOnly = shouldLockInspectorForInitialGeneration({
     fileCount: files.length,
     generating,
@@ -5348,6 +5358,8 @@ export default function DesignEditor() {
 
   const handleRunDesignAudit = useCallback(async () => {
     if (!id || !activeFile?.id) return;
+    const auditFileId = activeFile.id;
+    setReviewFileId(auditFileId);
     setReviewAuditLoading(true);
     setReviewAuditError(null);
     try {
@@ -5356,8 +5368,9 @@ export default function DesignEditor() {
         auditedAt: string;
       }>("run-design-audit", {
         designId: id,
-        fileId: activeFile.id,
+        fileId: auditFileId,
       } as any);
+      setReviewFileId(auditFileId);
       setReviewFindings(Array.isArray(result.findings) ? result.findings : []);
       setReviewAuditedAt(result.auditedAt ?? new Date().toISOString());
     } catch (error) {
@@ -5572,8 +5585,7 @@ export default function DesignEditor() {
           {
             type: "replace-document-content",
             content: activeContent,
-            selectedSelector: selectedCanvasSelector ?? "",
-            selectorCandidates: selectedCanvasSelectorCandidates,
+            forceFullDocument: true,
           },
           "*",
         );
@@ -5586,18 +5598,12 @@ export default function DesignEditor() {
         {
           type: "replace-document-content",
           content: html,
-          selectedSelector: selectedCanvasSelector ?? "",
-          selectorCandidates: selectedCanvasSelectorCandidates,
+          forceFullDocument: true,
         },
         "*",
       );
     },
-    [
-      activeContent,
-      canvasIframeRef,
-      selectedCanvasSelector,
-      selectedCanvasSelectorCandidates,
-    ],
+    [activeContent, canvasIframeRef],
   );
 
   // ── Inspector header quick actions (Create component / Inspect code) ───────
@@ -6018,11 +6024,12 @@ export default function DesignEditor() {
     Omit<ReviewPanelProps, "className"> | undefined
   >(() => {
     if (!id || !activeFile) return undefined;
+    const reviewMatchesActiveFile = reviewFileId === activeFile.id;
     return {
-      findings: reviewFindings,
-      auditLoading: reviewAuditLoading,
-      auditedAt: reviewAuditedAt,
-      auditError: reviewAuditError,
+      findings: reviewMatchesActiveFile ? reviewFindings : [],
+      auditLoading: reviewMatchesActiveFile ? reviewAuditLoading : false,
+      auditedAt: reviewMatchesActiveFile ? reviewAuditedAt : null,
+      auditError: reviewMatchesActiveFile ? reviewAuditError : null,
       onRunAudit: handleRunDesignAudit,
       onFindingClick: handleReviewFindingClick,
       fixSource: {
@@ -6041,6 +6048,7 @@ export default function DesignEditor() {
     reviewAuditError,
     reviewAuditLoading,
     reviewAuditedAt,
+    reviewFileId,
     reviewFindings,
   ]);
 

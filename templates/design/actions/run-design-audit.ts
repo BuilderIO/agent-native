@@ -314,7 +314,7 @@ function checkContrastHint(html: string): A11yFinding[] {
       nodeId,
       selector,
       wcag: "1.4.3",
-      fixAvailable: Boolean(nodeId || selector),
+      fixAvailable: false,
     });
     idx++;
   }
