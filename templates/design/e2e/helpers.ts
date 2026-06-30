@@ -36,19 +36,16 @@ const E2E_BASE_PATH = (() => {
   }
 })();
 
-function appPath(path: string): string {
-  if (
-    E2E_BASE_URL &&
-    E2E_BASE_PATH.endsWith("/design") &&
-    path.startsWith("/design")
-  ) {
+export function appPath(path: string): string {
+  const route = new URL(path, "http://agent-native.local");
+  if (E2E_BASE_URL && E2E_BASE_PATH) {
     const url = new URL(E2E_BASE_URL);
-    url.pathname = `${E2E_BASE_PATH}${path}`;
-    url.search = "";
-    url.hash = "";
+    url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
+    url.search = route.search;
+    url.hash = route.hash;
     return url.toString();
   }
-  return path;
+  return `${route.pathname}${route.search}${route.hash}`;
 }
 
 export function designFrame(page: Page): FrameLocator {
