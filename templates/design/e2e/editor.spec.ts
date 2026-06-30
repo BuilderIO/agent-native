@@ -102,6 +102,9 @@ test("screen overview resizes previews from the device selector", async ({
   await expect
     .poll(async () => (await firstScreenCard.boundingBox())?.width ?? 0)
     .toBeLessThan(desktopBox.width - 1);
+
+  await page.getByRole("button", { name: "Device preview" }).first().click();
+  await page.getByRole("menuitemradio", { name: "Responsive" }).click();
 });
 
 test("screen overview keeps the name readable when frame header space is tight", async ({
