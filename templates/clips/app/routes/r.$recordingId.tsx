@@ -6,6 +6,7 @@ import {
   agentNativePath,
   getBrowserTabId,
   readClientAppState,
+  writeClientAppState,
   useChangeVersions,
   useT,
 } from "@agent-native/core/client";
@@ -29,10 +30,10 @@ import {
   IconFileText,
   IconSparkles,
   IconExternalLink,
-  IconLayoutSidebarRightExpand,
+  IconMessageDots,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -240,6 +241,13 @@ export default function RecordingPage() {
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const browserTabId = useMemo(() => getBrowserTabId(), []);
+  const recordingScope = useMemo(
+    () =>
+      recordingId ? { type: "recording" as const, id: recordingId } : null,
+    [recordingId],
+  );
+  const lastPlayerStateWriteRef = useRef(0);
 
   useEffect(() => {
     if (
@@ -250,8 +258,9 @@ export default function RecordingPage() {
       panelParam === "settings"
     ) {
       setPanel(panelParam);
+      if (isCompactLayout) setSidePanelOpen(true);
     }
-  }, [panelParam]);
+  }, [isCompactLayout, panelParam]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -315,6 +324,24 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  useEffect(() => {
+    if (!recording?.id) return;
+    const now = Date.now();
+    if (now - lastPlayerStateWriteRef.current < 1000) return;
+    lastPlayerStateWriteRef.current = now;
+    void writeClientAppState(
+      `player-state:${browserTabId}`,
+      {
+        view: "recording",
+        recordingId: recording.id,
+        currentMs: Math.max(0, Math.round(currentMs)),
+        durationMs: recording.durationMs,
+        panel,
+        updatedAt: new Date(now).toISOString(),
+      },
+      { requestSource: browserTabId },
+    ).catch(() => {});
+  }, [browserTabId, currentMs, panel, recording?.durationMs, recording?.id]);
   const appStateVersion = useChangeVersions(["app-state", "action"]);
   const generatedWorkflowQ = useQuery<GeneratedWorkflowState | null>({
     queryKey: [
@@ -777,7 +804,8 @@ export default function RecordingPage() {
         className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
       >
         <AgentPanel
-          browserTabId={getBrowserTabId()}
+          browserTabId={browserTabId}
+          scope={recordingScope}
           emptyStateText={t("recordingPage.askAboutClip")}
           dynamicSuggestions={false}
           chatNotice={
@@ -1047,20 +1075,19 @@ export default function RecordingPage() {
           ) : null}
 
           {!editing ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="xl:hidden"
-                  onClick={() => setSidePanelOpen(true)}
-                  aria-label={t("recordingPage.details")}
-                >
-                  <IconLayoutSidebarRightExpand className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t("recordingPage.details")}</TooltipContent>
-            </Tooltip>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 xl:hidden"
+              onClick={() => {
+                setPanel("agent");
+                setSidePanelOpen(true);
+              }}
+              aria-label={t("recordingPage.askAboutClip")}
+            >
+              <IconMessageDots className="h-4 w-4" />
+              <span>{t("recordingPage.agent")}</span>
+            </Button>
           ) : null}
 
           <ShareRecordingPopover

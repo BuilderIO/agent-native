@@ -15,6 +15,11 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = Number(process.env.E2E_PORT ?? 9333);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
+const E2E_DATABASE_URL = `file:${path.join(
+  import.meta.dirname,
+  "data",
+  "e2e.db",
+)}`;
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 
 export default defineConfig({
@@ -47,9 +52,10 @@ export default defineConfig({
     ? undefined
     : {
         // APP_NAME + the app-prefixed DESIGN_DATABASE_URL is checked BEFORE the
-        // generic DATABASE_URL, so a `.env` Postgres URL can never override this
-        // throwaway local SQLite db.
-        command: `APP_NAME=design DESIGN_DATABASE_URL="file:./data/e2e.db" PORT=${PORT} pnpm dev`,
+        // generic DATABASE_URL, but set both to an absolute SQLite URL so a
+        // `.env` Postgres URL or a changed command cwd can never override this
+        // throwaway local db.
+        command: `APP_NAME=design DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,
         url: BASE_URL,
         reuseExistingServer: !process.env.CI,
         // Cold Vite dep-optimization on first boot can exceed two minutes.

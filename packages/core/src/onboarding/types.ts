@@ -40,6 +40,13 @@ export type OnboardingMethod =
       payload: {
         fields: OnboardingFormField[];
         writeScope?: "workspace" | "app";
+        /**
+         * Defaults to the compatibility env-vars route, which accepts
+         * framework/template-declared keys and stores them as scoped secrets.
+         * Use "scoped-secrets" for template-specific ad-hoc keys.
+         */
+        saveTo?: "env-vars" | "scoped-secrets";
+        secretDescription?: string;
       };
     })
   | (OnboardingMethodBase & {

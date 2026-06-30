@@ -455,12 +455,12 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    // Scoped to the requesting browser tab so each tab exposes the clip IT is
+    // Scoped to the requesting browser tab so each tab exposes the clip it is
     // showing, falling back to the global key for CLI/external agents.
     const navigation = (await readAppStateForCurrentTab(
       "navigation",
     )) as NavigationState | null;
-    const playerState = await readAppState("player-state");
+    const playerState = await readAppStateForCurrentTab("player-state");
     const editorDraft = await readAppState("editor-draft");
     const selection = await readAppStateForCurrentTab("selection");
     const organizationId = await getActiveOrganizationId();

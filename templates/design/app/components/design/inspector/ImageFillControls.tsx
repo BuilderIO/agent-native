@@ -80,6 +80,59 @@ export function imageFillToCss(value: ImageFillValue): string {
   }
 }
 
+export function imageFillToBackgroundStyles(
+  value: ImageFillValue,
+): Record<
+  | "backgroundImage"
+  | "backgroundSize"
+  | "backgroundRepeat"
+  | "backgroundPosition",
+  string
+> {
+  const url = value.url.trim();
+  if (!url) {
+    return {
+      backgroundImage: "none",
+      backgroundSize: "auto",
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "center",
+    };
+  }
+  const safeUrl = url.replace(/["')]/g, encodeURIComponent);
+  const backgroundImage = `url("${safeUrl}")`;
+  switch (value.fit) {
+    case "fit":
+      return {
+        backgroundImage,
+        backgroundSize: "contain",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      };
+    case "tile":
+      return {
+        backgroundImage,
+        backgroundSize: "auto",
+        backgroundRepeat: "repeat",
+        backgroundPosition: "top left",
+      };
+    case "crop":
+      return {
+        backgroundImage,
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      };
+    case "fill":
+    default:
+      return {
+        backgroundImage,
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      };
+  }
+}
+
 // Matches url() in three forms:
 //   group 1 — double-quoted:  url("...anything...")
 //   group 2 — single-quoted:  url('...anything...')
@@ -249,7 +302,10 @@ export function ImageFillControls({
         onValueChange={(v) => onChange({ ...value, fit: v as ImageFitMode })}
         disabled={disabled}
       >
-        <SelectTrigger className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0">
+        <SelectTrigger
+          aria-label={"Fill" /* i18n-ignore image fit selector */}
+          className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="text-[11px]">

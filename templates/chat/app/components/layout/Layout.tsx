@@ -129,7 +129,7 @@ export function Layout({ children }: LayoutProps) {
       ) : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
-      <main className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
+      <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {children}
       </main>
     </div>

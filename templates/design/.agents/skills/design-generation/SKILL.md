@@ -1,3 +1,11 @@
+---
+name: design-generation
+description: >-
+  Generate or refine complete interactive HTML prototypes in Design. Use when
+  creating screens, variants, Alpine/Tailwind prototypes, tweaks, or visual
+  refinements from a prompt or selected design.
+---
+
 # Design Generation
 
 How to generate complete, interactive HTML prototypes using Alpine.js + Tailwind CSS (via CDN). This is the core skill for the design agent.
@@ -90,8 +98,10 @@ pnpm action show-design-questions \
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
 For new designs, default to **three** variations (`present-design-variants`
-accepts 2-5; three is the sweet spot). In normal app-agent flows, write
-candidates to `application-state/design-variants`:
+accepts 2-5; three is the sweet spot). Call `present-design-variants` for both
+first-party and external MCP-host flows. It saves each candidate as a normal
+overview-board screen, then renders an inline chat choice with one button per
+screen name.
 
 ```json
 {
@@ -107,24 +117,12 @@ candidates to `application-state/design-variants`:
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
 
-The framework persists the chosen content as `index.html` automatically when the user clicks "Use this one" — do NOT call `generate-design` while the picker is open.
-
-When the caller is an external MCP host (ChatGPT, Claude, Claude Code, Codex,
-Dispatch), call `present-design-variants` instead of writing
-`application-state` directly. Pass the existing `designId`, a concise prompt
-caption, and 2-5 complete HTML variants (three by default). The action opens
-the same editor variant picker as the first-party app and keeps the workflow
-visible inside MCP Apps. After that, wait for the user's pick before refining.
-
-For inline MCP-app hosts (ChatGPT / Claude / Claude Desktop main chat) the pick
-rides the chat bridge automatically — no copy/paste. But if the Design app opens
-as a browser link instead of inline (CLI hosts like Codex / Claude Code, where
-the deep link carries `handoff=chat`), the user picks a direction there and the
-editor shows a copyable handoff summary (auto-copied to the clipboard) — ask
-them to paste it back into chat so you can continue from the chosen direction.
-The user can also simply name the pick in words (e.g. "use variant A" / "the
-editorial one") instead of pasting — honor either. The
-`present-design-variants` result's `fallbackInstructions` describe this.
+Wait for the user's pick before refining. Once they choose, keep the selected
+screen, delete the unchosen variant screens with `delete-file`, and continue
+from the kept screen. If inline chat choice buttons are unavailable in the host,
+ask the user to tell you the preferred screen name. Do not ask them to paste HTML
+or a generated handoff summary; the variants are already real screens on the
+board.
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 
@@ -141,6 +139,13 @@ pnpm action generate-design \
 ### Phase 4 — Always ship tweaks with the design
 
 `generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs.
+
+### Phase 5 — Review before calling it ready
+
+Open the generated screen or overview and inspect it like a design review:
+hierarchy, overflow, mobile fit, contrast, keyboard focus, empty/loading/error
+states for app UI, and whether the copy/content still sounds real. Fix obvious
+issues before reporting the design as ready.
 
 ## HTML Structure Requirements
 

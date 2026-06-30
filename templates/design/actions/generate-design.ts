@@ -1,6 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
-  deleteAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -26,6 +25,7 @@ import {
 import {
   designGenerationSessionKey,
   type DesignGenerationSession,
+  updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -57,28 +57,13 @@ async function updateGenerationSessionForSavedFiles(
   const session = rawSession as unknown as DesignGenerationSession;
   if (session.designId !== designId || !Array.isArray(session.frames)) return;
 
-  const saved = new Set(savedFilenames);
-  const frames = session.frames.map((frame) =>
-    frame.filename && saved.has(frame.filename)
-      ? {
-          ...frame,
-          status: "done" as const,
-          step: "Saved",
-          progress: 1,
-        }
-      : frame,
+  const nextSession = updateGenerationSessionWithSavedFiles(
+    session,
+    savedFilenames,
   );
-  const allDone = frames.every((frame) => frame.status === "done");
-  if (allDone) {
-    await deleteAppState(key);
-    return;
-  }
+  if (nextSession === session) return;
 
-  await writeAppState(key, {
-    ...session,
-    status: "generating",
-    frames,
-  } as unknown as Record<string, unknown>);
+  await writeAppState(key, nextSession as unknown as Record<string, unknown>);
 }
 
 export default defineAction({

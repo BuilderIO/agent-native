@@ -22,7 +22,7 @@ export function LibraryPresetGrid({
   if (!presets.length) return null;
 
   return (
-    <div className="grid gap-3 md:grid-cols-2">
+    <div className="assets-library-preset-grid grid gap-3">
       {presets.map((preset, index) => {
         const Icon = PRESET_ICONS[index % PRESET_ICONS.length];
         const colors = preset.styleBrief.palette ?? [];

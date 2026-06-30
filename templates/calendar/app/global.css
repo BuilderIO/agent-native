@@ -8,63 +8,63 @@
 
 :root {
   --background: 0 0% 100%;
-  --foreground: 220 10% 10%;
+  --foreground: 0 0% 10%;
   --card: 0 0% 100%;
-  --card-foreground: 220 10% 10%;
+  --card-foreground: 0 0% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 220 10% 10%;
-  --primary: 220 10% 15%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 10% 95%;
-  --secondary-foreground: 220 10% 15%;
-  --muted: 220 10% 95%;
-  --muted-foreground: 220 5% 45%;
-  --accent: 220 10% 95%;
-  --accent-foreground: 220 10% 15%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 220 10% 90%;
-  --input: 220 10% 90%;
-  --ring: 220 10% 40%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
   --radius: 0.5rem;
-  --sidebar-background: 220 10% 97%;
-  --sidebar-foreground: 220 5% 45%;
-  --sidebar-primary: 220 10% 15%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 220 10% 95%;
-  --sidebar-accent-foreground: 220 10% 15%;
-  --sidebar-border: 220 10% 90%;
-  --sidebar-ring: 220 10% 40%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
 }
 
 .dark {
-  --background: 220 6% 6%;
+  --background: 0 0% 13%;
   --foreground: 0 0% 90%;
-  --card: 220 5% 6%;
+  --card: 0 0% 15%;
   --card-foreground: 0 0% 90%;
-  --popover: 220 5% 6%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 90%;
   --primary: 0 0% 75%;
-  --primary-foreground: 220 6% 6%;
-  --secondary: 220 4% 12%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 90%;
-  --muted: 220 4% 10%;
-  --muted-foreground: 220 4% 60%;
-  --accent: 220 4% 13%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
   --destructive: 0 63% 51%;
   --destructive-foreground: 0 0% 98%;
-  --border: 220 4% 14%;
-  --input: 220 4% 14%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 0 0% 60%;
   --radius: 0.5rem;
-  --sidebar-background: 220 6% 4%;
-  --sidebar-foreground: 220 4% 60%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
   --sidebar-primary: 0 0% 75%;
-  --sidebar-primary-foreground: 220 6% 6%;
-  --sidebar-accent: 220 4% 10%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
   --sidebar-accent-foreground: 0 0% 90%;
-  --sidebar-border: 220 4% 10%;
+  --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
 }
 
@@ -90,6 +90,40 @@
     .calendar-app-sidebar {
       translate: 0 0;
     }
+  }
+}
+
+@container agent-native-main (min-width: 960px) {
+  .calendar-find-time-panel-grid {
+    grid-template-columns: minmax(0, 1fr) 220px;
+  }
+}
+
+@container agent-native-main (min-width: 1120px) {
+  .calendar-find-time-panel-grid[data-takeover="true"] {
+    grid-template-columns: minmax(0, 1fr) 280px;
+  }
+}
+
+@container agent-native-main (min-width: 1180px) {
+  .calendar-event-detail-backdrop {
+    display: none;
+  }
+
+  .calendar-event-detail-panel {
+    position: static;
+    z-index: auto;
+    width: 0;
+    max-width: none;
+    flex-shrink: 0;
+  }
+
+  .calendar-event-detail-panel-open {
+    width: 20rem;
+  }
+
+  .calendar-event-detail-panel-inner {
+    width: 20rem;
   }
 }
 

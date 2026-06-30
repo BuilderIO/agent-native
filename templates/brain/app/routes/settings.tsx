@@ -145,7 +145,7 @@ export default function SettingsRoute() {
       <SettingsTabsPage
         teamLabel={t("team.title")}
         general={
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="brain-settings-general-grid grid gap-5">
             <main className="grid gap-5">
               <Card>
                 <CardHeader>

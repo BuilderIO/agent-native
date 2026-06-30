@@ -1495,7 +1495,7 @@ export function BrandKitDetailRoute({
           </TabsContent>
 
           <TabsContent value="settings">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="assets-brand-kit-settings-grid grid gap-4">
               <div className="space-y-4 rounded-lg border border-border p-4">
                 <Label>{t("brandKitDetail.styleDescription")}</Label>
                 <Textarea
@@ -3190,7 +3190,7 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+    <div className="assets-brand-kit-item-grid grid gap-3">
       {items.map((item) => {
         const copied = copiedItemId === item.id;
         const secondary =
@@ -3338,7 +3338,7 @@ function SwimLane({
 
   return (
     <section className="overflow-hidden rounded-lg border border-border/80 bg-background">
-      <div className="grid min-h-[360px] xl:grid-cols-[minmax(0,1fr)_284px]">
+      <div className="assets-brand-kit-preview-grid grid min-h-[360px]">
         <div className="flex min-w-0 flex-col bg-muted/10">
           {hasContent ? (
             <>
@@ -4250,7 +4250,7 @@ export function LiveCandidatesStage({
             />
           </div>
         </div>
-        <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+        <div className="assets-live-candidates-grid grid min-w-0">
           <div className="min-w-0 bg-muted/10 p-2.5 sm:p-3">
             <div
               className={[

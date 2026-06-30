@@ -26,7 +26,7 @@ export async function readSeedDesignId(): Promise<string> {
 }
 
 export function designFrame(page: Page): FrameLocator {
-  return page.frameLocator("iframe");
+  return page.frameLocator("iframe[data-design-preview-iframe]");
 }
 
 /** Open the editor for a design and wait for the toolbar + iframe to be ready. */
@@ -35,7 +35,16 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator("iframe").first()).toBeVisible();
+  await waitForDesignBridgeReady(page);
+}
+
+async function waitForDesignBridgeReady(page: Page): Promise<void> {
+  await expect(
+    page.locator("iframe[data-design-preview-iframe]"),
+  ).toBeVisible();
+  await expect(
+    designFrame(page).locator('[data-agent-native-edit-overlay="shield"]'),
+  ).toBeVisible({ timeout: 10_000 });
   // Wait for the iframe bridge to stamp at least one selectable node.
   await expect
     .poll(
@@ -48,14 +57,43 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
     .toBeGreaterThan(0);
 }
 
+export async function enterDirectMode(page: Page): Promise<void> {
+  const fullView = page.getByRole("button", { name: "Full view", exact: true });
+  const fullViewVisible = await fullView
+    .first()
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (fullViewVisible) {
+    await fullView.first().click();
+    await expect(fullView).toHaveCount(0);
+  }
+  await expect
+    .poll(
+      async () =>
+        (await page.locator("iframe[data-design-preview-iframe]").boundingBox())
+          ?.width ?? 0,
+      { timeout: 10_000 },
+    )
+    .toBeGreaterThan(600);
+  await waitForDesignBridgeReady(page);
+}
+
 /** Start capturing bridge postMessages on the parent window. */
 export async function installBridge(page: Page): Promise<void> {
   await page.evaluate(() => {
-    (window as any).__bridge = [];
+    const win = window as any;
+    if (!Array.isArray(win.__bridge)) win.__bridge = [];
+    if (win.__bridgeInstalled) return;
+    win.__bridgeInstalled = true;
     window.addEventListener("message", (e: MessageEvent) => {
       const t = (e.data as any)?.type;
-      if (typeof t === "string" && /^(element-|visual-)/.test(t)) {
-        (window as any).__bridge.push(e.data);
+      if (
+        typeof t === "string" &&
+        (/^(element-|visual-)/.test(t) || t === "text-content-change")
+      ) {
+        if (!Array.isArray(win.__bridge)) win.__bridge = [];
+        win.__bridge.push(e.data);
       }
     });
   });
@@ -73,7 +111,9 @@ export async function waitForBridge(
 ): Promise<any> {
   const handle = await page.waitForFunction(
     (t) =>
-      ((window as any).__bridge ?? []).find((m: any) => m.type === t) ?? null,
+      [...((window as any).__bridge ?? [])]
+        .reverse()
+        .find((m: any) => m.type === t) ?? null,
     type,
     { timeout },
   );
@@ -86,14 +126,85 @@ export async function waitForBridge(
  * shield overlay (which is what actually drives selection).
  */
 export async function selectByText(page: Page, text: string): Promise<any> {
+  await enterDirectMode(page);
   await installBridge(page);
   await page.evaluate(() => ((window as any).__bridge = []));
+  const target = designFrame(page).getByText(text, { exact: false }).first();
+  await target.waitFor({ state: "visible", timeout: 8_000 });
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`no bounding box for "${text}"`);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  let sel: any;
+  try {
+    sel = await waitForBridge(page, "element-select", 2_000);
+  } catch {
+    await page.evaluate(() => ((window as any).__bridge = []));
+    await dispatchShieldClickByText(page, text);
+    sel = await waitForBridge(page, "element-select");
+  }
+  const payload = sel?.payload ?? sel;
+  expect(String(payload?.textContent ?? "")).toContain(text);
+  return payload;
+}
+
+async function dispatchShieldClickByText(
+  page: Page,
+  text: string,
+): Promise<void> {
   await designFrame(page)
-    .getByText(text, { exact: false })
-    .first()
-    .click({ force: true, timeout: 8_000 });
-  const sel = await waitForBridge(page, "element-select");
-  return sel?.payload ?? sel;
+    .locator("body")
+    .evaluate((_, targetText) => {
+      const normalizeText = (element: HTMLElement) =>
+        (element.textContent ?? "").replace(/\s+/g, " ").trim();
+      const isVisible = (element: HTMLElement) => {
+        const rect = element.getBoundingClientRect();
+        const styles = window.getComputedStyle(element);
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          styles.display !== "none" &&
+          styles.visibility !== "hidden"
+        );
+      };
+      const shield = document.querySelector<HTMLElement>(
+        '[data-agent-native-edit-overlay="shield"]',
+      );
+      const leafCandidates = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          "h1, h2, h3, h4, h5, h6, p, button, a, label, span, input, textarea",
+        ),
+      ).filter(isVisible);
+      const nodeCandidates = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
+      ).filter(isVisible);
+      const target =
+        nodeCandidates.find(
+          (element) => normalizeText(element) === targetText,
+        ) ??
+        leafCandidates.find(
+          (element) => normalizeText(element) === targetText,
+        ) ??
+        nodeCandidates.find((element) =>
+          normalizeText(element).includes(targetText),
+        ) ??
+        leafCandidates.find((element) =>
+          normalizeText(element).includes(targetText),
+        );
+      if (!shield || !target) {
+        throw new Error(`unable to dispatch selection for "${targetText}"`);
+      }
+      const rect = target.getBoundingClientRect();
+      shield.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          detail: 1,
+        }),
+      );
+    }, text);
 }
 
 /** Number of inputs in the right-hand inspector (proxy for "inspector populated"). */

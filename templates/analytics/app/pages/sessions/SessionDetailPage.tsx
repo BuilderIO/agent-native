@@ -159,9 +159,9 @@ export default function SessionDetailPage() {
   const recording = data?.recording;
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
+    <div className="analytics-session-detail-page flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
       {codeRequiredDialog}
-      <div className="flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="analytics-session-detail-header flex shrink-0 flex-col gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Button variant="ghost" size="sm" asChild className="shrink-0">
             <Link to="/sessions">
@@ -287,7 +287,7 @@ function ReplayWorkbench({
   }, [currentTime, markers]);
 
   return (
-    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
+    <div className="analytics-session-detail-workbench grid h-full min-h-0 gap-3">
       <ReplayPlayer
         events={events}
         markers={markers}
@@ -923,7 +923,7 @@ function MarkerIcon({ kind }: { kind: ReplayMarker["kind"] }) {
 
 function DetailSkeleton() {
   return (
-    <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
+    <div className="analytics-session-detail-workbench grid min-h-0 flex-1 gap-3">
       <Skeleton className="h-full min-h-[420px] w-full" />
       <Skeleton className="h-full min-h-[420px] w-full" />
     </div>

@@ -6491,6 +6491,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }> = [];
           const seenNames = new Set<string>();
 
+          // Bundled template skills are available in production via the
+          // virtual agents bundle, not the runtime filesystem. Surface them in
+          // the slash/skill picker so production users can explicitly invoke
+          // the same skills that are present in the prompt and docs-search.
+          try {
+            const { loadAgentsBundle, getRuntimeSkills } =
+              await import("./agents-bundle.js");
+            const bundle = await loadAgentsBundle();
+            for (const skill of getRuntimeSkills(bundle)) {
+              const fm = parseSkillFrontmatter(skill.content);
+              if (fm.userInvocable === false) continue;
+              const skillName = skill.meta.name || fm.name;
+              if (!skillName || seenNames.has(skillName)) continue;
+              seenNames.add(skillName);
+              skills.push({
+                name: skillName,
+                description: skill.meta.description || fm.description,
+                path: `${skill.dir}/SKILL.md`,
+                source: "codebase",
+              });
+            }
+          } catch {
+            // Bundle unavailable — fall back to dev filesystem/resources below.
+          }
+
           // In dev mode, scan .agents/skills/ plus legacy .agent/skills/.
           if (currentDevMode) {
             try {

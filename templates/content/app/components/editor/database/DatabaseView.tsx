@@ -7354,7 +7354,7 @@ function DatabaseGalleryView({
           {dbText("loadingGallery")}
         </div>
       ) : (
-        <div className="grid gap-3 px-1 py-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="content-database-gallery-grid grid gap-3 px-1 py-3">
           {databaseViewHasNoMatchingPages(
             items.length,
             hasSearch,
@@ -7455,7 +7455,7 @@ function DatabaseGroupedGallerySection({
         onCollapsedChange={onCollapsedChange}
       />
       {!collapsed ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="content-database-gallery-grid grid gap-3">
           {group.items.map((item, index) => (
             <DatabaseGalleryCard
               key={`${group.id}-${item.id}`}
@@ -7936,7 +7936,7 @@ function DatabaseDateViewNoDateSection({
           {items.length}
         </span>
       </div>
-      <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="content-database-calendar-undated-grid grid gap-1">
         {items.map((item) => (
           <DatabaseCalendarCard
             key={item.id}

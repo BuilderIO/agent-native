@@ -1,3 +1,11 @@
+---
+name: design-systems
+description: >-
+  Manage and apply Design app brand systems. Use when creating, importing,
+  linking, inspecting, or following design-system tokens, assets, fonts, logos,
+  and custom instructions.
+---
+
 # Design Systems
 
 Design systems store brand identity tokens (colors, fonts, spacing, logos) that are applied to all designs in a project.

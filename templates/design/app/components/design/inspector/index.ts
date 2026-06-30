@@ -60,6 +60,7 @@ export {
 } from "./GradientEditor";
 export {
   ImageFillControls,
+  imageFillToBackgroundStyles,
   imageFillToCss,
   parseImageFillCss,
   type ImageFillControlsProps,

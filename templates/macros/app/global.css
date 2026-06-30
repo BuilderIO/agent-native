@@ -8,26 +8,34 @@
 @source "./**/*.{ts,tsx}";
 
 :root {
-  --background: 0 0% 4%;
+  --background: 0 0% 13%;
   --foreground: 0 0% 98%;
-  --card: 0 0% 6%;
+  --card: 0 0% 15%;
   --card-foreground: 0 0% 98%;
-  --popover: 0 0% 6%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 98%;
   --primary: 0 0% 98%;
-  --primary-foreground: 0 0% 4%;
-  --secondary: 0 0% 10%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 96%;
-  --muted: 0 0% 14%;
+  --muted: 0 0% 16%;
   --muted-foreground: 0 0% 50%;
-  --accent: 0 0% 12%;
+  --accent: 0 0% 18%;
   --accent-foreground: 0 0% 98%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 14%;
-  --input: 0 0% 14%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 0 0% 35%;
   --radius: 0.75rem;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 50%;
+  --sidebar-primary: 0 0% 98%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 98%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 35%;
 }
 
 .light {
@@ -50,6 +58,14 @@
   --border: 0 0% 90%;
   --input: 0 0% 90%;
   --ring: 0 0% 20%;
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 8%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 94%;
+  --sidebar-accent-foreground: 0 0% 8%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 20%;
 }
 
 @layer base {

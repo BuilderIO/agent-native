@@ -4,7 +4,7 @@ import action from "./apply-visual-edit.js";
 
 const styleIntent = {
   kind: "style" as const,
-  target: {},
+  target: { selector: "main" },
   property: "color",
   value: "red",
 };

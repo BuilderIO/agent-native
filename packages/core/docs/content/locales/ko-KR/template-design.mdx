@@ -373,6 +373,13 @@ npx @agent-native/core@latest skills add visual-edit
 `localhost:1234/onboarding/1`, `/onboarding/2`, `/onboarding/3` 같은 번호가
 붙은 흐름은 overview mode에서 분리된 순서 있는 화면으로 유지됩니다.
 
+`/visual-edit` 진입 route는 보는 사람이 sign in하기 전에도 load될 수 있고,
+public `/design/:id` 링크는 session 없이 read-only public design을 render할 수
+있습니다. Screen layout을 persist하거나 새 screen을 generate하거나 share하는
+일은 여전히 account-backed Design data를 만듭니다. signed-out 사용자는
+`/_agent-native/sign-in?return=...`를 거친 뒤, Design이 share dialog를 열기
+전에 project를 해당 account에 save하거나 copy합니다.
+
 안정적인 layer name을 위해 의미 있는 요소에 `data-agent-native-layer-name`을
 추가하세요. Design은 semantic/text fallback보다 이것을 먼저 사용하며, 해당
 attribute를 편집해 layer rename을 persist할 수 있습니다. Inline HTML은 text,

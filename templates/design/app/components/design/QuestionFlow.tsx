@@ -9,18 +9,10 @@ import {
   type GuidedQuestionOption,
 } from "@agent-native/core/client";
 import type { QuestionFlowQuestion } from "@shared/api";
-import {
-  IconCheck,
-  IconChevronRight,
-  IconPalette,
-  IconSparkles,
-  IconUpload,
-  IconX,
-} from "@tabler/icons-react";
+import { IconCheck, IconPalette, IconUpload, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -78,188 +70,77 @@ export function QuestionFlow({
       : Math.round((answeredCount / guidedQuestions.length) * 100);
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-background px-4 py-5 text-foreground sm:px-8 sm:py-8">
-      <div className="grid h-full max-h-[820px] w-full max-w-6xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col border-b border-border bg-muted/25 p-4 lg:border-b-0 lg:border-e lg:p-5">
-          <div className="flex items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary shadow-sm">
-              <IconSparkles className="size-5" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-lg font-semibold tracking-normal text-foreground">
-                {title ?? t("questionFlow.defaultTitle")}
-              </h2>
-              <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                {description ?? t("questionFlow.defaultDescription")}
-              </p>
-            </div>
-          </div>
+    <div className="flex h-full w-full justify-center overflow-y-auto bg-transparent px-6 py-10 text-foreground sm:px-10 lg:px-14">
+      <main className="w-full max-w-4xl pb-10">
+        <div className="mb-9">
+          <h2 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
+            {title ?? t("questionFlow.defaultTitle")}
+          </h2>
+          {description ? (
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
+        </div>
 
-          <div className="mt-5">
-            <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                {t("questionFlow.answeredCount", {
-                  answered: answeredCount,
-                  total: guidedQuestions.length,
-                })}
-              </span>
-              {requiredQuestions.length > 0 && (
-                <span>
-                  {t("questionFlow.requiredCount", {
-                    answered: requiredAnswered,
-                    total: requiredQuestions.length,
-                  })}
-                </span>
-              )}
-            </div>
-            <Progress value={progress} className="h-1.5 bg-muted" />
-          </div>
+        <div className="space-y-10">
+          {guidedQuestions.map((question) => (
+            <QuestionCard
+              key={question.id}
+              question={question}
+              value={answers[question.id]}
+              onChange={(value) => setAnswer(question.id, value)}
+            />
+          ))}
+        </div>
 
-          <ol className="mt-5 hidden min-h-0 flex-1 overflow-y-auto pe-1 lg:block">
-            {guidedQuestions.map((question, index) => {
-              const answered = hasGuidedAnswer(answers[question.id]);
-              return (
-                <li
-                  key={question.id}
-                  className={cn(
-                    "mb-2 flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs",
-                    answered
-                      ? "border-primary/25 bg-primary/5 text-foreground"
-                      : "border-transparent bg-background/45 text-muted-foreground",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border text-[10px]",
-                      answered
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {answered ? <IconCheck className="size-3" /> : index + 1}
-                  </span>
-                  <span className="line-clamp-2">
-                    {question.header ?? question.question}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
-
-          <div className="mt-4 hidden rounded-md border border-border bg-background/60 p-3 text-xs leading-5 text-muted-foreground lg:block">
-            {t("questionFlow.multiSelectHelp")}
-          </div>
-        </aside>
-
-        <main className="flex min-h-0 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
-            <div className="grid gap-3 xl:grid-cols-2">
-              {guidedQuestions.map((question, index) => (
-                <QuestionCard
-                  key={question.id}
-                  index={index}
-                  question={question}
-                  value={answers[question.id]}
-                  onChange={(value) => setAnswer(question.id, value)}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="flex shrink-0 flex-col gap-3 border-t border-border bg-background/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <div className="text-xs text-muted-foreground">
-              {allRequiredAnswered
-                ? t("questionFlow.ready")
-                : t("questionFlow.answerRequired")}
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onSkip}
-                className="cursor-pointer"
-              >
-                {skipLabel ?? t("questionFlow.skip")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => onSubmit(normalizeGuidedAnswers(answers))}
-                disabled={!allRequiredAnswered}
-                className="cursor-pointer"
-              >
-                {submitLabel ?? t("questionFlow.continue")}
-                <IconChevronRight className="size-4 rtl:-scale-x-100" />
-              </Button>
-            </div>
-          </div>
-        </main>
-      </div>
+        <div className="mt-10 flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => onSubmit(normalizeGuidedAnswers(answers))}
+            disabled={!allRequiredAnswered}
+            className="cursor-pointer"
+          >
+            {submitLabel ?? t("questionFlow.continue")}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onSkip}
+            className="cursor-pointer"
+          >
+            {skipLabel ?? t("questionFlow.skip")}
+          </Button>
+        </div>
+      </main>
     </div>
   );
 }
 
 function QuestionCard({
-  index,
   question,
   value,
   onChange,
 }: {
-  index: number;
   question: GuidedQuestion;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
   const t = useT();
-  const answered = hasGuidedAnswer(value);
-  const guidance = question.multiSelect
-    ? t("questionFlow.chooseAny")
-    : t("questionFlow.chooseOne");
 
   return (
-    <section
-      className={cn(
-        "min-w-0 rounded-lg border bg-background p-4 shadow-sm transition-colors",
-        answered ? "border-primary/35" : "border-border",
-      )}
-    >
-      <div className="mb-3 flex items-start gap-3">
-        <div
-          className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-md border text-xs font-medium",
-            answered
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-border bg-muted text-muted-foreground",
-          )}
-        >
-          {answered ? <IconCheck className="size-4" /> : index + 1}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex flex-wrap items-center gap-1.5">
-            {question.header && (
-              <p className="text-[11px] font-medium uppercase text-muted-foreground">
-                {question.header}
-              </p>
-            )}
-            <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {guidance}
-            </span>
-            {question.required && (
-              <span className="rounded-full border border-destructive/25 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
-                {t("questionFlow.required")}
-              </span>
-            )}
-          </div>
-          <h3 className="text-sm font-semibold leading-5 text-foreground">
-            {question.question}
-          </h3>
-          {question.description && (
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {question.description}
-            </p>
-          )}
-        </div>
+    <section className="min-w-0">
+      <div className="mb-3">
+        <h3 className="text-lg font-semibold leading-6 text-foreground">
+          {question.question}
+        </h3>
+        {question.description && (
+          <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
+            {question.description}
+          </p>
+        )}
       </div>
 
       {question.type === "text-options" && (
@@ -281,7 +162,7 @@ function QuestionCard({
           placeholder={
             question.placeholder ?? t("questionFlow.textPlaceholder")
           }
-          className="min-h-[92px] resize-none bg-muted/35 text-sm"
+          className="min-h-[92px] resize-none bg-transparent text-sm shadow-none"
         />
       )}
     </section>
@@ -316,7 +197,7 @@ function TextOptions({
   const compact = options.every(
     (option) =>
       // i18n-ignore scanner false positive
-      !option.description && !option.preview && option.label.length <= 24, // i18n-ignore scanner false positive
+      !option.preview && option.label.length <= 32, // i18n-ignore scanner false positive
   );
 
   const isSelected = (optionValue: string) =>
@@ -360,7 +241,7 @@ function TextOptions({
   return (
     <div className="space-y-3">
       {multiSelect && (
-        <p className="text-[11px] leading-4 text-muted-foreground">
+        <p className="sr-only">
           {selectedCount > 0
             ? t("questionFlow.selectedCount", { count: selectedCount })
             : t("questionFlow.selectUseful")}
@@ -368,8 +249,8 @@ function TextOptions({
       )}
       <div
         className={cn(
-          "grid gap-2",
-          compact ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2",
+          "flex flex-wrap gap-2",
+          compact ? "max-w-3xl" : "max-w-4xl",
         )}
       >
         {options.map((option) => (
@@ -406,7 +287,7 @@ function TextOptions({
           placeholder={
             question.placeholder ?? t("questionFlow.customPlaceholder")
           }
-          className="min-h-[72px] resize-none bg-muted/35 text-sm"
+          className="min-h-[72px] max-w-xl resize-none bg-transparent text-sm shadow-none"
         />
       )}
     </div>
@@ -433,20 +314,20 @@ function OptionButton({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        "group flex min-w-0 cursor-pointer items-start gap-2 rounded-md border text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        compact ? "min-h-10 px-2.5 py-2" : "min-h-[68px] px-3 py-2.5",
+        "group inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-full border text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        compact ? "px-3 py-2" : "px-4 py-2.5",
         selected
-          ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/25"
-          : "border-border bg-muted/25 text-muted-foreground hover:border-muted-foreground/45 hover:bg-muted/45 hover:text-foreground",
+          ? "border-foreground bg-foreground text-background"
+          : "border-border bg-background/35 text-foreground hover:border-muted-foreground hover:bg-background/70",
       )}
     >
       <span
         className={cn(
-          "mt-0.5 flex size-4 shrink-0 items-center justify-center border",
+          "flex size-4 shrink-0 items-center justify-center border",
           multiSelect ? "rounded-sm" : "rounded-full",
           selected
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-border bg-background",
+            ? "border-background bg-background text-foreground"
+            : "border-muted-foreground/40 bg-transparent",
         )}
         aria-hidden
       >
@@ -454,17 +335,15 @@ function OptionButton({
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-medium leading-5">
-          <span className="truncate">{option.label}</span>
+          <span className="min-w-0 truncate">{option.label}</span>
           {option.recommended && (
-            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-primary">
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
               {t("questionFlow.recommended")}
             </span>
           )}
         </span>
         {option.description && (
-          <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-            {option.description}
-          </span>
+          <span className="sr-only">{option.description}</span>
         )}
         {option.preview && (
           <span className="mt-2 block max-h-36 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-background/70 px-2 py-1.5 font-mono text-[11px] leading-4 text-muted-foreground">
@@ -504,7 +383,7 @@ function ColorOptions({
   };
 
   return (
-    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+    <div className="flex max-w-4xl flex-wrap gap-2">
       {options.map((option) => {
         const selected = isSelected(option.value);
         return (
@@ -514,26 +393,24 @@ function ColorOptions({
             onClick={() => toggleOption(option.value)}
             aria-pressed={selected}
             className={cn(
-              "group flex min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              "group inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               selected
-                ? "border-primary bg-primary/10"
-                : "border-border bg-muted/25 hover:border-muted-foreground/45 hover:bg-muted/45",
+                ? "border-foreground bg-foreground text-background"
+                : "border-border bg-background/35 text-foreground hover:border-muted-foreground hover:bg-background/70",
             )}
           >
             <span
               className={cn(
-                "size-7 shrink-0 rounded-full border border-border",
+                "size-6 shrink-0 rounded-full border border-border",
                 selected &&
-                  "ring-2 ring-primary ring-offset-2 ring-offset-background",
+                  "ring-2 ring-background/70 ring-offset-1 ring-offset-foreground",
               )}
               style={{ backgroundColor: option.color || option.value }}
             />
-            <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
               {option.label}
             </span>
-            {selected && (
-              <IconPalette className="size-3.5 shrink-0 text-primary" />
-            )}
+            {selected && <IconPalette className="size-3.5 shrink-0" />}
           </button>
         );
       })}
@@ -561,10 +438,10 @@ function SliderQuestion({
   // display-only midpoint fallback for the rendered slider position.
 
   return (
-    <div className="rounded-md border border-border bg-muted/25 px-3 py-3">
+    <div className="max-w-xl px-1 py-2">
       <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
         <span>{min}</span>
-        <span className="rounded-full bg-background px-2 py-0.5 font-medium tabular-nums text-foreground">
+        <span className="font-medium tabular-nums text-foreground">
           {current}
         </span>
         <span>{max}</span>
@@ -609,10 +486,10 @@ function FileDropZone({
           addFiles(Array.from(event.dataTransfer.files));
         }}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed p-5 transition-colors",
+          "flex max-w-xl cursor-pointer flex-col items-center justify-center rounded-md border border-dashed p-5 transition-colors",
           dragOver
             ? "border-primary bg-primary/5"
-            : "border-border bg-muted/25 hover:border-muted-foreground/50",
+            : "border-border bg-transparent hover:border-muted-foreground/50",
         )}
       >
         <IconUpload className="mb-2 size-5 text-muted-foreground" />

@@ -1,34 +1,34 @@
 :root {
   color-scheme: light dark;
   --background: #ffffff;
-  --foreground: hsl(220 10% 10%);
+  --foreground: hsl(0 0% 10%);
   --card: #ffffff;
-  --primary: hsl(220 10% 15%);
+  --primary: hsl(0 0% 15%);
   --primary-foreground: #ffffff;
-  --muted: hsl(220 10% 95%);
-  --muted-foreground: hsl(220 5% 45%);
-  --border: hsl(220 10% 90%);
-  --ring: hsl(220 10% 40%);
+  --muted: hsl(0 0% 95%);
+  --muted-foreground: hsl(0 0% 45%);
+  --border: hsl(0 0% 90%);
+  --ring: hsl(0 0% 40%);
   --danger: #b42318;
   --bg: #ffffff;
-  --surface: #f5f6f9;
-  --surface-hover: #eef0f5;
-  --surface-strong: #e8ebf2;
-  --fg: #0f172a;
-  --fg-muted: #64748b;
-  --fg-subtle: #94a3b8;
-  --border-strong: #d4d9e4;
+  --surface: #f7f7f7;
+  --surface-hover: #f0f0f0;
+  --surface-strong: #ebebeb;
+  --fg: #171717;
+  --fg-muted: #737373;
+  --fg-subtle: #a3a3a3;
+  --border-strong: #d9d9d9;
   --status-ok: #22c55e;
   --status-warn: #f97316;
-  --brand: #18181b;
-  --brand-hover: #27272a;
-  --brand-ring: rgba(24, 24, 27, 0.28);
+  --brand: #1a1a1a;
+  --brand-hover: #2e2e2e;
+  --brand-ring: rgba(26, 26, 26, 0.28);
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
   --shadow-md:
-    0 4px 16px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+    0 4px 16px rgba(23, 23, 23, 0.08), 0 2px 4px rgba(23, 23, 23, 0.04);
   font-family:
     -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto,
     ui-sans-serif, system-ui, sans-serif;
@@ -41,28 +41,28 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: hsl(222 18% 8%);
-    --foreground: hsl(210 20% 96%);
-    --card: hsl(222 18% 9%);
-    --primary: hsl(210 20% 96%);
-    --primary-foreground: hsl(222 18% 8%);
-    --muted: hsl(222 14% 16%);
-    --muted-foreground: hsl(216 10% 68%);
-    --border: hsl(222 12% 22%);
-    --ring: hsl(216 10% 72%);
+    --background: hsl(0 0% 13%);
+    --foreground: hsl(0 0% 96%);
+    --card: hsl(0 0% 15%);
+    --primary: hsl(0 0% 96%);
+    --primary-foreground: hsl(0 0% 10%);
+    --muted: hsl(0 0% 16%);
+    --muted-foreground: hsl(0 0% 68%);
+    --border: hsl(0 0% 24%);
+    --ring: hsl(0 0% 72%);
     --danger: hsl(6 88% 70%);
-    --bg: #0f1115;
-    --surface: #181b23;
-    --surface-hover: #1e2230;
-    --surface-strong: #252938;
-    --fg: #f1f5f9;
-    --fg-muted: #94a3b8;
-    --fg-subtle: #64748b;
-    --border: #252938;
-    --border-strong: #323747;
-    --brand: #f4f4f5;
-    --brand-hover: #e4e4e7;
-    --brand-ring: rgba(244, 244, 245, 0.28);
+    --bg: #212121;
+    --surface: #262626;
+    --surface-hover: #2e2e2e;
+    --surface-strong: #3d3d3d;
+    --fg: #f5f5f5;
+    --fg-muted: #a3a3a3;
+    --fg-subtle: #737373;
+    --border: #3d3d3d;
+    --border-strong: #4d4d4d;
+    --brand: #f5f5f5;
+    --brand-hover: #e5e5e5;
+    --brand-ring: rgba(245, 245, 245, 0.28);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
   }

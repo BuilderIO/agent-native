@@ -2,7 +2,7 @@ import {
   IconArrowLeft,
   IconArrowBackUp,
   IconChevronRight,
-  IconDots,
+  IconDotsVertical,
   IconHistory,
   IconLoader2,
   IconPencil,
@@ -33,7 +33,6 @@ import {
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/PromptComposer.js";
 import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
-import { NotificationsBell } from "../notifications/NotificationsBell.js";
 import { ShareButton } from "../sharing/ShareButton.js";
 import {
   deleteOrHideExtension,
@@ -1162,6 +1161,17 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   extension={extension}
                   onOpenChange={onPopoverOpenChange}
                 />
+              </>
+            )}
+            <ToolMoreMenu
+              extensionId={extensionId}
+              toolName={extension.name}
+              canDelete={extension.canDelete}
+              sourceMode={extension.source?.mode}
+              onOpenChange={onPopoverOpenChange}
+            />
+            {!isLocalExtension && (
+              <>
                 <ShareButton
                   resourceType="extension"
                   resourceId={extensionId}
@@ -1177,14 +1187,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                 />
               </>
             )}
-            <ToolMoreMenu
-              extensionId={extensionId}
-              toolName={extension.name}
-              canDelete={extension.canDelete}
-              sourceMode={extension.source?.mode}
-              onOpenChange={onPopoverOpenChange}
-            />
-            <NotificationsBell onOpenChange={onPopoverOpenChange} />
             <AgentToggleButton />
           </div>
         </div>
@@ -1320,7 +1322,7 @@ function ToolMoreMenu({
               className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
               aria-label="More options"
             >
-              <IconDots className="h-4 w-4" />
+              <IconDotsVertical className="h-4 w-4" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>

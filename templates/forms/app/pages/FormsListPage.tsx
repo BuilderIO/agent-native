@@ -273,7 +273,7 @@ export function FormsListPage() {
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
-              className="grid gap-3 border-b border-border px-3 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_120px_120px_80px]"
+              className="forms-list-skeleton-row grid gap-3 border-b border-border px-3 py-3 last:border-b-0"
             >
               <div className="min-w-0 space-y-2">
                 <Skeleton className="h-4 w-3/4" />
@@ -459,7 +459,7 @@ export function FormsListPage() {
               <div
                 key={form.id}
                 className={cn(
-                  "group grid cursor-pointer gap-3 border-b border-border px-3 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_110px_140px_88px_40px] md:items-center",
+                  "forms-list-row group grid cursor-pointer gap-3 border-b border-border px-3 py-3 last:border-b-0",
                   isArchive
                     ? "opacity-80 hover:opacity-100 hover:bg-accent/25"
                     : "hover:bg-accent/25",

@@ -163,7 +163,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Page content */}
           <div className="agent-layout-main-surface flex min-w-0 flex-1 flex-col overflow-hidden">
             <Header onOpenSidebar={() => setSidebarOpen(true)} />
-            <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+            <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto">
+              {children}
+            </main>
           </div>
           <SyncIndicator sidebarCollapsed={desktopSidebarCollapsed} />
         </div>

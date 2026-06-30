@@ -1,3 +1,11 @@
+---
+name: export-handoff
+description: >-
+  Export Design work and produce developer handoff materials. Use when the user
+  wants HTML, PNG, SVG, ZIP/code exports, implementation notes, or a coding
+  handoff for a selected design.
+---
+
 # Export and Handoff
 
 How to export designs and generate handoff documentation for developers converting prototypes to production code.

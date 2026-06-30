@@ -121,7 +121,9 @@ export function Layout({ children }: LayoutProps) {
               <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
             )}
             <InvitationBanner />
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            <main className="agent-native-app-main flex-1 overflow-y-auto">
+              {children}
+            </main>
           </div>
         </AgentSidebar>
       </div>

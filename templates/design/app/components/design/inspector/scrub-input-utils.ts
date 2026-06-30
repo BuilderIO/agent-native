@@ -60,11 +60,18 @@ export function formatScrubValue(
   const normalized = normalizeScrubNumber(value, options);
   let numeric: string;
   if (Number.isFinite(options.precision) && options.precision! >= 0) {
-    const fixed = normalized.toFixed(options.precision);
-    // Only strip trailing zeros when there's a fractional part. Stripping a bare
-    // integer (precision 0, e.g. "100") would mangle it to "1" because the regex
-    // eats the integer's own trailing zeros.
-    numeric = fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
+    const fixed = normalized.toFixed(options.precision!);
+    if (options.unit) {
+      // For fields with units (px, %, °, etc.) collapse all trailing zeros
+      // including the decimal point: "12.30px" → "12.3px", "10.00px" → "10px".
+      // Leave integer strings alone; otherwise precision 0 turns "100" into "1".
+      numeric = fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
+    } else {
+      // For unitless fields (e.g. line-height), preserve at least one decimal
+      // digit so values like "2.0" stay "2.0" rather than collapsing to "2".
+      // Only strip redundant trailing zeros beyond the first decimal digit.
+      numeric = fixed.includes(".") ? fixed.replace(/(?<=\.\d)0+$/, "") : fixed;
+    }
   } else {
     numeric = String(normalized);
   }

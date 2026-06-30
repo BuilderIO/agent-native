@@ -1254,7 +1254,7 @@ function AllAssetsBrowser() {
 
       <main className="p-4 md:p-6">
         {isLoading ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className="assets-library-grid grid grid-cols-2 gap-4">
             {Array.from({ length: 12 }).map((_, index) => (
               <Skeleton key={index} className="aspect-[4/3] rounded-lg" />
             ))}
@@ -1268,7 +1268,7 @@ function AllAssetsBrowser() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className="assets-library-grid grid grid-cols-2 gap-4">
             {assets.map((asset) => (
               <div
                 key={asset.id}
@@ -2915,7 +2915,7 @@ export function AssetPickerSurface() {
         )}
 
         {selectedLibraryId && assetsLoading && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="assets-library-dense-grid grid grid-cols-2 gap-3">
             {Array.from({ length: 8 }).map((_, index) => (
               <Skeleton key={index} className="aspect-square rounded-md" />
             ))}
@@ -2933,7 +2933,7 @@ export function AssetPickerSurface() {
         )}
 
         {assets.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="assets-library-dense-grid grid grid-cols-2 gap-3">
             {assets.map((asset) => (
               <div
                 key={asset.id}

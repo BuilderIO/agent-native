@@ -66,7 +66,7 @@ export function TweaksPanelContent({
               type="button"
               variant="outline"
               size="sm"
-              className="h-6 cursor-pointer px-2.5 text-[11px]"
+              className="h-6 cursor-pointer border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2.5 text-[11px] text-foreground shadow-none hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
               onClick={(e) => onRequestTweaks(e.currentTarget)}
             >
               <IconPlus className="size-3" />

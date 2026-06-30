@@ -44,6 +44,12 @@ details live in `.agents/skills/`.
   request action uses the shared `@agent-native/core/provider-api` runtime,
   injects configured credentials, blocks private/internal URLs, and redacts
   secrets.
+- For questions about tracking events or instrumentation in GitHub-hosted code,
+  use `github-repo-files` before raw provider requests: check
+  `data-source-status` for GitHub, `operation="search"` likely event names/calls
+  with `includeTextMatches=true`, then `operation="read"` the relevant files.
+  Report the repo, ref/default branch, queries used, files read, and any
+  truncation or GitHub incomplete-results flags so absence claims are auditable.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.

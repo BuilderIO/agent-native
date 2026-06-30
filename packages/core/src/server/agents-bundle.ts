@@ -397,7 +397,18 @@ export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
   );
 }
 
-function generateSkillsPromptBlockForEntries(entries: Skill[]): string {
+function skillDocsSlug(name: string): string {
+  return `skill-${name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}`;
+}
+
+function generateSkillsPromptBlockForEntries(
+  entries: Skill[],
+  mode: "runtime" | "development",
+): string {
   if (entries.length === 0) return "";
 
   const lines = entries.map((s) => {
@@ -405,15 +416,26 @@ function generateSkillsPromptBlockForEntries(entries: Skill[]): string {
       s.extraFiles.length > 0
         ? ` (also contains: ${s.extraFiles.join(", ")})`
         : "";
-    return `- \`${s.meta.name}\` at \`${s.dir}/\` — ${s.meta.description || "(no description)"}${extras}`;
+    const runtimeHint =
+      mode === "runtime"
+        ? ` Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to.`
+        : "";
+    return `- \`${s.meta.name}\` at \`${s.dir}/\` — ${s.meta.description || "(no description)"}${extras}${runtimeHint}`;
   });
+
+  const readHint =
+    mode === "runtime"
+      ? `To read a skill in the in-app runtime agent:
+  \`docs-search --slug "skill-<skill-name>"\`
+  \`docs-search --query "<topic>"\` to discover matching docs/skills`
+      : `To read a skill in dev mode (when you have bash access):
+  \`bash(command="cat <skill-dir>/SKILL.md")\`
+  \`bash(command="ls <skill-dir>/")\` to see all files in the folder`;
 
   return `<skills>
 The following skills live in the repo, usually at \`.agents/skills/<name>/\` (legacy \`.agent/skills/<name>/\` is also supported). Each skill is a folder containing a \`SKILL.md\` entry file and sometimes supporting files. Read a skill BEFORE starting a task it applies to.
 
-To read a skill in dev mode (when you have bash access):
-  \`bash(command="cat <skill-dir>/SKILL.md")\`
-  \`bash(command="ls <skill-dir>/")\` to see all files in the folder
+${readHint}
 
 Available skills:
 ${lines.join("\n")}
@@ -421,13 +443,19 @@ ${lines.join("\n")}
 }
 
 export function generateSkillsPromptBlock(bundle: AgentsBundle): string {
-  return generateSkillsPromptBlockForEntries(getRuntimeSkills(bundle));
+  return generateSkillsPromptBlockForEntries(
+    getRuntimeSkills(bundle),
+    "runtime",
+  );
 }
 
 export function generateDevelopmentSkillsPromptBlock(
   bundle: AgentsBundle,
 ): string {
-  return generateSkillsPromptBlockForEntries(getDevelopmentSkills(bundle));
+  return generateSkillsPromptBlockForEntries(
+    getDevelopmentSkills(bundle),
+    "development",
+  );
 }
 
 /** For tests — reset the module cache. */
