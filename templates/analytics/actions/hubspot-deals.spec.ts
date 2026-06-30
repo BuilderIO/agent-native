@@ -214,6 +214,62 @@ describe("hubspot-deals action", () => {
     expect(result.guidance).toContain("Structured filters were applied");
   });
 
+  it("bounds the structured-filter cohort by limit/offset and reports the true total", async () => {
+    const deals = Array.from({ length: 30 }, (_, index) => ({
+      id: `lost-${index}`,
+      properties: {
+        dealname: `Lost deal ${index}`,
+        dealstage: "closed-lost",
+        amount: "1000",
+        closedate: "2026-04-15",
+        pipeline: "enterprise-new-business",
+        hubspot_owner_id: "owner-1",
+        createdate: "2025-12-01T00:00:00Z",
+        hs_lastmodifieddate: "2026-05-01T00:00:00Z",
+        products: "Publish",
+      },
+    }));
+    getAllDeals.mockResolvedValue(deals);
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [
+          {
+            id: "closed-lost",
+            label: "Closed Lost",
+            displayOrder: 1,
+            metadata: { probability: "0" },
+          },
+        ],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({ "owner-1": "Alice Seller" });
+
+    const result = (await hubspotDeals.run({
+      closedStatus: "lost",
+      limit: 10,
+    })) as Record<string, any>;
+
+    expect(searchHubSpotObjects).not.toHaveBeenCalled();
+    expect(result.deals).toHaveLength(10);
+    expect(result.count).toBe(10);
+    expect(result.total).toBe(30);
+    expect(result.truncated).toBe(true);
+    expect(result.nextOffset).toBe(10);
+    expect(result.guidance).toContain("partial slice");
+
+    const page3 = (await hubspotDeals.run({
+      closedStatus: "lost",
+      limit: 10,
+      offset: 20,
+    })) as Record<string, any>;
+    expect(page3.deals).toHaveLength(10);
+    expect(page3.total).toBe(30);
+    expect(page3.truncated).toBe(false);
+    expect(page3.nextOffset).toBe(null);
+  });
+
   it("rejects impossible closed date filter boundaries", async () => {
     await expect(
       hubspotDeals.run({
