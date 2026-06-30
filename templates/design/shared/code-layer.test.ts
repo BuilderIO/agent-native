@@ -205,6 +205,84 @@ describe("code-layer projection", () => {
       }),
     );
   });
+
+  it("deduplicates malformed duplicate root ids in the layer tree", () => {
+    const html = `
+      <section data-agent-native-node-id="dup-root">First</section>
+      <section data-agent-native-node-id="dup-root">Second</section>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+
+    expect(projection.rootNodeIds).toHaveLength(2);
+    expect(new Set(projection.rootNodeIds).size).toBe(1);
+    expect(tree).toHaveLength(1);
+    expect(new Set(tree.map((node) => node.id)).size).toBe(tree.length);
+  });
+
+  it("omits repeated document shell wrappers from layer tree roots", () => {
+    const html = `
+      <!doctype html>
+      <html data-agent-native-node-id="doc">
+        <head><title>Home</title></head>
+        <body data-agent-native-node-id="body">
+          <main data-agent-native-layer-name="Home">
+            <h1>Welcome</h1>
+          </main>
+        </body>
+      </html>
+      <!doctype html>
+      <html data-agent-native-node-id="doc">
+        <body data-agent-native-node-id="body">
+          <main data-agent-native-layer-name="Checkout">
+            <h1>Checkout</h1>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+
+    expect(projection.nodes.filter((node) => node.tag === "html")).toHaveLength(
+      2,
+    );
+    expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
+      { tag: "main", name: "Home" },
+      { tag: "main", name: "Checkout" },
+    ]);
+    expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
+    expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
+  });
+
+  it("keeps explicitly named document shell rows in the layer tree", () => {
+    const html = `
+      <!doctype html>
+      <html data-agent-native-layer-name="Document">
+        <body data-agent-native-layer-name="Body">
+          <main data-agent-native-layer-name="Home">
+            <h1>Welcome</h1>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+
+    expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
+      { tag: "html", name: "Document" },
+    ]);
+    expect(
+      tree[0]?.children.map((node) => ({ tag: node.tag, name: node.name })),
+    ).toEqual([{ tag: "body", name: "Body" }]);
+    expect(
+      tree[0]?.children[0]?.children.map((node) => ({
+        tag: node.tag,
+        name: node.name,
+      })),
+    ).toEqual([{ tag: "main", name: "Home" }]);
+  });
 });
 
 describe("applyVisualEdit", () => {
@@ -532,6 +610,97 @@ describe("applyVisualEdit", () => {
     expect(patch.content).toBe(
       `<main class="shell"><section data-layer-name="Hero"><button>First</button></section><aside data-layer-name="Drop"><button class="secondary">Second</button></aside></main>`,
     );
+  });
+
+  it("applies edits from runtime body-rooted selectors against fragment HTML", () => {
+    const html = `<div>One</div><div>Two</div><div>Three</div><div>Four</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(4)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<div>One</div><div>Two</div><div>Three</div><div style="color: #111">Four</div>`,
+    );
+  });
+
+  it("applies edits from runtime html/body-rooted selectors against fragment HTML", () => {
+    const html = `<main><section><button>One</button></section><section><button>Two</button></section></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `html[data-agent-native-node-id="an-doc"] > body[data-agent-native-node-id="an-body"] > main > section:nth-of-type(2) > button`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main><section><button>One</button></section><section><button style="color: #111">Two</button></section></main>`,
+    );
+  });
+
+  it("resolves a drifted positional selector via the unique class match", () => {
+    // The runtime DOM had `div.target` as the 2nd child after reordering, but
+    // in the stored source it is the 3rd child, so strict `:nth-of-type(2)` no
+    // longer matches. Resolution should fall back to the unique class match.
+    const html = `<section class="list"><div class="row">A</div><div class="row">B</div><div class="target">C</div></section>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: `section.list > div.target:nth-of-type(2)` },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<section class="list"><div class="row">A</div><div class="row">B</div><div class="target" style="color: #111">C</div></section>`,
+    );
+  });
+
+  it("keeps strict positional resolution when the DOM order is intact", () => {
+    // Regression guard: when the positional selector is still valid, the strict
+    // pass must win and edit exactly the addressed node, not loosen to the
+    // whole set of same-tag siblings.
+    const html = `<div>One</div><div>Two</div><div>Three</div><div>Four</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(2)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<div>One</div><div style="color: #111">Two</div><div>Three</div><div>Four</div>`,
+    );
+  });
+
+  it("reports an actionable conflict when a drifted positional selector is ambiguous", () => {
+    // No source div carries the runtime position, and dropping the position
+    // leaves several identical candidates. Surface a clear, actionable conflict
+    // instead of silently editing the wrong node.
+    const html = `<div>One</div><div>Two</div><div>Three</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(9)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.result.message).toContain("after ignoring positional");
+    expect(patch.content).toBe(html);
   });
 
   it("does not collapse full bridge selector paths to ambiguous leaf selectors", () => {

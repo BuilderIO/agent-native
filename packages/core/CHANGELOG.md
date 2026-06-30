@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.80.9
+
+### Patch Changes
+
+- 82c138c: Expose app main surfaces as named CSS query containers so templates can reflow against the available app pane instead of the viewport.
+- 82c138c: ShareButton can render optional custom tabs beside the default share-link panel.
+- 82c138c: Improve the exported Design skills with a clearer generation quality bar, updated variant-screen flow guidance, and more grounded visual-edit review instructions.
+- 82c138c: Remove the extension viewer notification bell and place the vertical more menu before Share.
+- 82c138c: Allow guided question options to submit immediately when selected, with optional per-question submit and skip message copy.
+- 82c138c: Add a local Clips Screen Memory MCP stdio server for querying recent on-device screen context.
+- 82c138c: Avoid CORS preflights for cross-origin session replay uploads so hosted apps can send recordings to the first-party analytics collector.
+
+## 0.80.8
+
+### Patch Changes
+
+- 24deb20: Reduce noisy browser Sentry captures by filtering public-site source-less errors that only report their page URL as a Sentry tag, delaying reconnect aborts until active runs are truly stuck on the server clock, and recovering assistant-ui duplicate message-id append races before they escape.
+
 ## 0.80.7
 
 ### Patch Changes

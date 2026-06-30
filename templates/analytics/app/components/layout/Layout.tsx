@@ -106,7 +106,7 @@ export function Layout({ children }: LayoutProps) {
   if (reportScreenshot) {
     return (
       <HeaderActionsProvider>
-        <main className="min-h-screen bg-background p-6 text-foreground md:p-8">
+        <main className="agent-native-app-main min-h-screen bg-background p-6 text-foreground md:p-8">
           {children}
         </main>
       </HeaderActionsProvider>
@@ -121,10 +121,10 @@ export function Layout({ children }: LayoutProps) {
       <main
         className={
           isExtensionsRoute
-            ? "flex-1 overflow-y-auto"
+            ? "agent-native-app-main flex-1 overflow-y-auto"
             : isAskRoute
-              ? "flex-1 overflow-hidden p-0"
-              : "flex-1 overflow-y-auto p-6 pt-2"
+              ? "agent-native-app-main flex-1 overflow-hidden p-0"
+              : "agent-native-app-main flex-1 overflow-y-auto p-6 pt-2"
         }
       >
         {children}

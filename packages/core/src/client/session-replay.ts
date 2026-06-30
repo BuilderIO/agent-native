@@ -191,6 +191,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
+const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
 const URL_LIKE_KEYS = new Set([
   "url",
   "uri",
@@ -729,6 +730,24 @@ interface ReplayUploadBody {
   compressed: boolean;
 }
 
+function isCrossOriginReplayEndpoint(endpoint: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      new URL(endpoint, window.location.href).origin !== window.location.origin
+    );
+  } catch {
+    return false;
+  }
+}
+
+function replayUploadByteLength(body: string): number {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(body).byteLength;
+  }
+  return body.length;
+}
+
 async function gzipReplayBody(body: string): Promise<Blob | null> {
   if (
     typeof CompressionStream === "undefined" ||
@@ -773,6 +792,21 @@ async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
 ): Promise<void> {
+  if (isCrossOriginReplayEndpoint(options.endpoint)) {
+    if (navigator.sendBeacon) {
+      const sent = navigator.sendBeacon(options.endpoint, body);
+      if (sent) return;
+    }
+    await fetch(options.endpoint, {
+      method: "POST",
+      body,
+      keepalive:
+        replayUploadByteLength(body) <= MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES,
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    }).catch(() => {});
+    return;
+  }
+
   const upload = await buildReplayUploadBody(body);
   if (!upload.compressed && navigator.sendBeacon) {
     const sent = navigator.sendBeacon(options.endpoint, body);

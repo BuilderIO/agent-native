@@ -1632,6 +1632,49 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
   return "element";
 }
 
+function isCollapsibleDocumentShellNode(
+  node: CodeLayerTreeNode,
+  nodesById: Map<string, CodeLayerNode>,
+): boolean {
+  if (node.tag !== "html" && node.tag !== "body") return false;
+  return nodesById.get(node.id)?.layerNameSource === "tag";
+}
+
+function compactCodeLayerTreeNodes(
+  nodes: CodeLayerTreeNode[],
+  nodesById: Map<string, CodeLayerNode>,
+  ancestors: Set<string> = new Set(),
+): CodeLayerTreeNode[] {
+  const compacted: CodeLayerTreeNode[] = [];
+  const siblingIds = new Set<string>();
+
+  for (const node of nodes) {
+    if (ancestors.has(node.id)) continue;
+
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(node.id);
+    const children = compactCodeLayerTreeNodes(
+      node.children,
+      nodesById,
+      nextAncestors,
+    );
+    const compactedNode: CodeLayerTreeNode = { ...node, children };
+    const promotedNodes =
+      isCollapsibleDocumentShellNode(compactedNode, nodesById) &&
+      children.length > 0
+        ? children
+        : [compactedNode];
+
+    for (const promotedNode of promotedNodes) {
+      if (siblingIds.has(promotedNode.id)) continue;
+      siblingIds.add(promotedNode.id);
+      compacted.push(promotedNode);
+    }
+  }
+
+  return compacted;
+}
+
 function capabilitiesFor(element: ParsedElement): EditCapability[] {
   const capabilities: EditCapability[] = [
     {
@@ -1965,26 +2008,36 @@ export function buildCodeLayerTree(
     });
   }
 
+  const childIdsByParentId = new Map<string, Set<string>>();
   for (const node of projection.nodes) {
     const parent =
       node.parentId && nodesById.has(node.parentId)
         ? treeById.get(node.parentId)
         : undefined;
     const treeNode = treeById.get(node.id);
-    if (parent && treeNode) parent.children.push(treeNode);
+    if (!parent || !treeNode || parent.id === treeNode.id) continue;
+    const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
+    if (childIds.has(treeNode.id)) continue;
+    childIds.add(treeNode.id);
+    childIdsByParentId.set(parent.id, childIds);
+    parent.children.push(treeNode);
   }
 
-  const roots = projection.rootNodeIds
-    .map((id) => treeById.get(id))
-    .filter((node): node is CodeLayerTreeNode => Boolean(node));
-  const rootIds = new Set(roots.map((node) => node.id));
+  const roots: CodeLayerTreeNode[] = [];
+  const rootIds = new Set<string>();
+  const appendRoot = (id: string) => {
+    if (rootIds.has(id)) return;
+    const treeNode = treeById.get(id);
+    if (!treeNode) return;
+    rootIds.add(id);
+    roots.push(treeNode);
+  };
+
+  projection.rootNodeIds.forEach(appendRoot);
   for (const node of projection.nodes) {
-    if (!node.parentId && !rootIds.has(node.id)) {
-      const treeNode = treeById.get(node.id);
-      if (treeNode) roots.push(treeNode);
-    }
+    if (!node.parentId) appendRoot(node.id);
   }
-  return roots;
+  return compactCodeLayerTreeNodes(roots, nodesById);
 }
 
 function normalizeSelectorForMatch(selector: string): string {
@@ -1992,6 +2045,26 @@ function normalizeSelectorForMatch(selector: string): string {
     .trim()
     .replace(/\s*>\s*/g, " > ")
     .replace(/\s+/g, " ");
+}
+
+function selectorPartTag(selectorPart: string): string | null {
+  const match = selectorPart.trim().match(/^([A-Za-z][A-Za-z0-9:-]*)/);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function isDocumentRootSelectorPart(selectorPart: string): boolean {
+  const tag = selectorPartTag(selectorPart);
+  return tag === "html" || tag === "body";
+}
+
+// Removes positional `:nth-of-type(n)` suffixes from a selector. Runtime
+// bridge selectors fall back to `:nth-of-type` for elements without a durable
+// id, and that position is computed against the live (possibly Alpine-mutated)
+// DOM. When the stored source order differs, the positional index no longer
+// lines up. Dropping the suffix lets resolution fall back to the element's
+// stable signal (tag, classes, attributes, ancestor path).
+function stripPositionalNthOfType(selector: string): string {
+  return selector.replace(/:nth-of-type\(\d+\)/g, "");
 }
 
 function lastSelectorPart(selector: string): string {
@@ -2123,7 +2196,11 @@ function selectorPathMatchesElement(
   let current: ParsedElement | undefined = element;
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     const selectorPart = parts[index];
-    if (!current || !selectorPart) return false;
+    if (!selectorPart) return false;
+    if (!current) {
+      if (isDocumentRootSelectorPart(selectorPart)) continue;
+      return false;
+    }
     if (!simpleSelectorMatchesElement(current, selectorPart)) return false;
     current =
       current.parentIndex === undefined
@@ -2221,26 +2298,52 @@ function resolveTarget(
     };
   }
 
-  const matches = projection.nodes.filter((node) =>
-    selectorMatches(
-      node,
-      target.selector ?? "",
-      elementByNodeId.get(node.id),
-      elementByIndex,
-    ),
-  );
+  const selectorValue = target.selector ?? "";
+  const matchesForSelector = (value: string): CodeLayerNode[] =>
+    projection.nodes.filter((node) =>
+      selectorMatches(
+        node,
+        value,
+        elementByNodeId.get(node.id),
+        elementByIndex,
+      ),
+    );
+
+  const matches = matchesForSelector(selectorValue);
   if (matches.length === 1 && matches[0]) {
     return { status: "resolved", node: matches[0] };
   }
   if (matches.length > 1) {
     return {
       status: "conflict",
-      message: `Selector "${target.selector}" matched ${matches.length} code layer nodes.`,
+      message: `Selector "${selectorValue}" matched ${matches.length} code layer nodes.`,
     };
   }
+
+  // Strict matching found nothing. Runtime selectors anchor unstamped elements
+  // with positional `:nth-of-type(n)` parts, which drift when the live DOM
+  // order differs from the stored source (reordered or runtime-inserted nodes).
+  // Retry once with the positional suffixes dropped so an element that is still
+  // unique by its tag/classes/attributes resolves instead of surfacing a hard
+  // "did not match" error. Genuinely ambiguous results stay a conflict rather
+  // than silently editing the wrong node.
+  const positionTolerantSelector = stripPositionalNthOfType(selectorValue);
+  if (positionTolerantSelector && positionTolerantSelector !== selectorValue) {
+    const tolerantMatches = matchesForSelector(positionTolerantSelector);
+    if (tolerantMatches.length === 1 && tolerantMatches[0]) {
+      return { status: "resolved", node: tolerantMatches[0] };
+    }
+    if (tolerantMatches.length > 1) {
+      return {
+        status: "conflict",
+        message: `Selector "${selectorValue}" matched ${tolerantMatches.length} code layer nodes after ignoring positional :nth-of-type (the element may have been reordered or added at runtime). Re-select the element to refresh its id.`,
+      };
+    }
+  }
+
   return {
     status: "conflict",
-    message: `Selector "${target.selector}" did not match a code layer node.`,
+    message: `Selector "${selectorValue}" did not match a code layer node.`,
   };
 }
 

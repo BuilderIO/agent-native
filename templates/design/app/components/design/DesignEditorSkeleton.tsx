@@ -40,7 +40,7 @@ export function DesignEditorSkeleton({
         </aside>
       )}
 
-      <main className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]">
+      <main className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-skeleton-canvas-bg)]">
         <div className="flex h-full items-center justify-center p-8">
           <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
             {/* Faux browser bar */}

@@ -8,6 +8,8 @@ import {
   inspectorInputCount,
   dragCanvasByText,
   cdpScreenshot,
+  installBridge,
+  waitForBridge,
 } from "./helpers";
 
 let designId: string;
@@ -18,6 +20,7 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
+  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 test("editor renders the toolbar and the design iframe content", async ({
@@ -29,12 +32,174 @@ test("editor renders the toolbar and the design iframe content", async ({
       page.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
-  // Frame-locator reaches inside the sandboxed iframe (contentDocument would be null).
+  // Frame-locator reaches inside the sandboxed iframe and stays stable around overlays.
   await expect(designFrame(page).getByText("E2E Hero Heading")).toBeVisible();
   const nodeCount = await designFrame(page)
     .locator("h1, h2, p, button")
     .count();
   expect(nodeCount).toBeGreaterThanOrEqual(5);
+});
+
+test("screen overview resizes previews from the device selector", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Device preview" }).first().click();
+  await page.getByRole("menuitemradio", { name: "Desktop" }).click();
+  await expect(page.getByText("1280 x 800").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Device preview" }).first().click();
+  await page.getByRole("menuitemradio", { name: "Mobile" }).click();
+  await expect(page.getByText("390 x 844").first()).toBeVisible();
+});
+
+test("screen overview keeps the name readable when frame header space is tight", async ({
+  page,
+}) => {
+  const screenShell = page
+    .locator("[data-frame-shell]")
+    .filter({ has: page.locator("[data-screen-card]") })
+    .first();
+  await expect(screenShell).toBeVisible();
+
+  const screenCard = screenShell.locator("[data-screen-card]");
+  const initialCardBox = await screenCard.boundingBox();
+  if (!initialCardBox) throw new Error("no screen card box");
+
+  await page.mouse.move(
+    initialCardBox.x + initialCardBox.width / 2,
+    initialCardBox.y + initialCardBox.height / 2,
+  );
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, 300);
+  await page.keyboard.up("Control");
+  await page.waitForTimeout(250);
+
+  await expect(screenShell.locator("[data-frame-dimensions]")).toHaveCount(0);
+
+  const cardBox = await screenCard.boundingBox();
+  const titleBox = await screenShell
+    .locator("[data-frame-title]")
+    .boundingBox();
+  const fullViewBox = await screenShell
+    .locator("[data-frame-full-view]")
+    .boundingBox();
+  if (!cardBox || !titleBox || !fullViewBox) {
+    throw new Error("missing frame header boxes");
+  }
+
+  expect(titleBox.width).toBeGreaterThan(0);
+  expect(titleBox.x).toBeLessThan(cardBox.x + cardBox.width);
+  expect(fullViewBox.x).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 1);
+});
+
+test("screen overview lets users select elements inside the active screen", async ({
+  page,
+}) => {
+  const before = await inspectorInputCount(page);
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+
+  const target = designFrame(page).getByText("E2E Hero Heading").first();
+  await target.waitFor({ state: "visible", timeout: 8_000 });
+  const box = await target.boundingBox();
+  expect(
+    box,
+    "overview iframe element should have a bounding box",
+  ).toBeTruthy();
+  const activeScreenCard = page
+    .locator("[data-screen-card]")
+    .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
+    .first();
+  const activeScreenShell = page
+    .locator("[data-frame-shell]")
+    .filter({ has: activeScreenCard })
+    .first();
+  const frameTitle = activeScreenShell.locator("[data-frame-title]");
+  const accentColor = await activeScreenCard.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--design-editor-accent-color)";
+    document.body.appendChild(probe);
+    const color = window.getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  const frameTitleColor = () =>
+    frameTitle.evaluate((el) => window.getComputedStyle(el).color);
+
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await waitForBridge(page, "element-hover");
+  await expect.poll(frameTitleColor).not.toBe(accentColor);
+  await expect
+    .poll(() =>
+      activeScreenCard
+        .locator("[data-screen-hover-outline]")
+        .evaluate((el) => window.getComputedStyle(el).opacity),
+    )
+    .toBe("0");
+  await expect
+    .poll(() =>
+      activeScreenCard
+        .locator('[data-resize-handle="nw"]')
+        .evaluate((el) => window.getComputedStyle(el).opacity),
+    )
+    .toBe("0");
+
+  await frameTitle.hover();
+  await expect.poll(frameTitleColor).toBe(accentColor);
+  await expect
+    .poll(() =>
+      activeScreenCard
+        .locator("[data-screen-hover-outline]")
+        .evaluate((el) => window.getComputedStyle(el).opacity),
+    )
+    .toBe("1");
+
+  await frameTitle.click();
+  await expect.poll(frameTitleColor).toBe(accentColor);
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+
+  const selected = await waitForBridge(page, "element-select");
+  const payload = selected?.payload ?? selected;
+  expect(payload?.textContent ?? "").toContain("E2E Hero Heading");
+  await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      designFrame(page)
+        .locator('[data-agent-native-edit-overlay="selection"]')
+        .evaluate((el) => window.getComputedStyle(el).display),
+    )
+    .not.toBe("none");
+  await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
+});
+
+test("left sidebar switches between all screens and focused screens", async ({
+  page,
+}) => {
+  const sidebar = page.locator("aside").first();
+  const allScreens = sidebar.getByRole("button", { name: "All screens" });
+  const homeScreen = sidebar
+    .getByRole("button", { name: "Home", exact: true })
+    .first();
+
+  await expect(allScreens).toBeVisible();
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+
+  await homeScreen.click();
+  await expect(homeScreen).toHaveAttribute("aria-current", "page");
+  await expect(allScreens).not.toHaveAttribute("aria-current", "page");
+  await expect
+    .poll(
+      async () =>
+        (await page.locator("iframe[data-design-preview-iframe]").boundingBox())
+          ?.width ?? 0,
+      { timeout: 10_000 },
+    )
+    .toBeGreaterThan(600);
+
+  await allScreens.click();
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 });
 
 test("clicking an element selects it and populates the inspector", async ({
@@ -50,6 +215,56 @@ test("clicking an element selects it and populates the inspector", async ({
   expect(payload.selector ?? "").toMatch(/data-agent-native-node-id/);
 
   await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
+});
+
+test("selected element handles stay above hover chrome", async ({ page }) => {
+  const payload = await selectByText(page, "E2E Hero Heading");
+  expect(payload.selector).toBeTruthy();
+
+  await page
+    .locator("iframe[data-design-preview-iframe]")
+    .evaluate((iframe, selector) => {
+      (iframe as HTMLIFrameElement).contentWindow?.postMessage(
+        { type: "hover-element", selector },
+        "*",
+      );
+    }, payload.selector);
+
+  await expect
+    .poll(() =>
+      designFrame(page)
+        .locator('[data-agent-native-edit-overlay="highlight"]')
+        .evaluate((el) => window.getComputedStyle(el).display),
+    )
+    .toBe("none");
+
+  const overlayChrome = await designFrame(page)
+    .locator("body")
+    .evaluate(() => {
+      const highlight = document.querySelector<HTMLElement>(
+        '[data-agent-native-edit-overlay="highlight"]',
+      );
+      const selection = document.querySelector<HTMLElement>(
+        '[data-agent-native-edit-overlay="selection"]',
+      );
+      const handle = document.querySelector<HTMLElement>(
+        '[data-agent-native-edit-handle="nw"]',
+      );
+      if (!highlight || !selection || !handle) {
+        throw new Error("missing selection overlay chrome");
+      }
+      const handleStyles = window.getComputedStyle(handle);
+      return {
+        highlightZ: Number(window.getComputedStyle(highlight).zIndex),
+        selectionZ: Number(window.getComputedStyle(selection).zIndex),
+        handleZ: Number(handleStyles.zIndex),
+        handleBackground: handleStyles.backgroundColor,
+      };
+    });
+
+  expect(overlayChrome.selectionZ).toBeGreaterThan(overlayChrome.highlightZ);
+  expect(overlayChrome.handleZ).toBeGreaterThan(0);
+  expect(overlayChrome.handleBackground).not.toBe("rgba(0, 0, 0, 0)");
 });
 
 test("selecting a different element changes the selection", async ({
@@ -78,6 +293,32 @@ test("the layers panel lists layers and a layer row selects on the canvas", asyn
   await expect(
     page.locator('[role="treeitem"][aria-selected="true"]').first(),
   ).toBeVisible();
+});
+
+test("deeply nested layer rows keep a clickable hit target", async ({
+  page,
+}) => {
+  const deepLayer = page.getByRole("button", {
+    name: "Deep Layer Button",
+    exact: true,
+  });
+
+  for (let attempt = 0; attempt < 12 && !(await deepLayer.count()); attempt++) {
+    const expand = page.getByRole("button", { name: "Expand layer" }).first();
+    if (!(await expand.count())) break;
+    await expand.click();
+  }
+
+  await expect(deepLayer).toBeVisible();
+
+  const box = await deepLayer.boundingBox();
+  expect(box).toBeTruthy();
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await expect(
+    page.locator('[role="treeitem"][aria-selected="true"]'),
+  ).toContainText("Deep Layer Button");
 });
 
 test("dragging an element on the canvas drives the bridge (move/reorder)", async ({

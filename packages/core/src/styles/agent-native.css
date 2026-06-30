@@ -155,11 +155,16 @@
 .agent-sidebar-main-surface {
   position: relative;
   z-index: 1;
+  container: agent-native-main / inline-size;
   background: var(--agent-native-raised-surface);
   transition:
     border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
     border-color 260ms cubic-bezier(0.32, 0.72, 0, 1),
     box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-native-app-main {
+  container: agent-native-main / inline-size;
 }
 
 .agent-layout-main-surface::before,

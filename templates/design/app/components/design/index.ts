@@ -20,7 +20,6 @@ export { StatesPanel } from "./StatesPanel";
 export type { StatesPanelProps } from "./StatesPanel";
 export { TokensPanel, type TokensPanelProps } from "./TokensPanel";
 export { TweaksPanel } from "./TweaksPanel";
-export { VariantGrid } from "./VariantGrid";
 export type {
   DrawAnnotation,
   ElementInfo,

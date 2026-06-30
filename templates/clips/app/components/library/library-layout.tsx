@@ -584,7 +584,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               </Tooltip>
             </div>
           )}
-          <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
             <PageHeaderSlotProvider slot={headerSlot}>
               {children}
             </PageHeaderSlotProvider>

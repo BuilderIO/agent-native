@@ -158,10 +158,20 @@ const sourceSchema = z.preprocess(
     }),
 );
 
-const targetSchema = z.object({
-  nodeId: z.string().optional(),
-  selector: z.string().optional(),
-});
+const targetSchema = z
+  .object({
+    nodeId: z.string().optional(),
+    selector: z.string().optional(),
+  })
+  .superRefine((target, ctx) => {
+    if (!target.nodeId && !target.selector) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["nodeId"],
+        message: "target.nodeId or target.selector is required",
+      });
+    }
+  });
 
 const intentSchema = z.preprocess(
   parseJsonString,
@@ -269,6 +279,16 @@ async function resolveEditableDesignFile(
   }
   if (file.fileType !== "html") {
     throw new Error("Visual code-layer edits only support HTML files for now.");
+  }
+  if (source.designId && file.designId !== source.designId) {
+    throw new Error(
+      `source.designId "${source.designId}" does not match file "${file.id}"`,
+    );
+  }
+  if (source.filename && file.filename !== source.filename) {
+    throw new Error(
+      `source.filename "${source.filename}" does not match file "${file.id}"`,
+    );
   }
 
   await assertAccess("design", file.designId, "editor");

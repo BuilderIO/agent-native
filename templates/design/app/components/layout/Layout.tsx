@@ -2,6 +2,7 @@ import {
   AgentSidebar,
   isEmbedAuthActive,
   getBrowserTabId,
+  useGuidedQuestionFlow,
   useSession,
   useT,
 } from "@agent-native/core/client";
@@ -49,9 +50,13 @@ export function Layout({ children }: LayoutProps) {
   const t = useT();
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
+  const embedded = isEmbedAuthActive();
   useNavigationState(hasSession);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const openMobileSidebar = useCallback(() => setMobileSidebarOpen(true), []);
+  const isDesignEditor = location.pathname.startsWith("/design/");
+  const showMobileTopBar = !isDesignEditor;
+  const browserTabId = getBrowserTabId();
 
   // Bind chat to the currently-open design. Same pattern as slides — the
   // route is `/design/:id` for the editor and `/present/:id` for preview
@@ -64,6 +69,21 @@ export function Layout({ children }: LayoutProps) {
     if (!designId) return null;
     return { type: "design" as const, id: designId };
   }, [location.pathname]);
+  const designQuestionStateKey = designScope
+    ? `show-questions:${designScope.id}`
+    : "show-questions";
+  const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
+    stateKey: designQuestionStateKey,
+    queryKey: [designQuestionStateKey],
+    browserTabId,
+    refetchInterval: embedded || !isDesignEditor || !hasSession ? false : 2000,
+  });
+  const designQuestionsWaitingSlot =
+    isDesignEditor && pendingDesignQuestions?.length ? (
+      <div className="px-4 pb-2 pt-1 text-xs text-muted-foreground">
+        {"Waiting for your answers in the canvas." /* i18n-ignore */}
+      </div>
+    ) : null;
 
   useEffect(() => {
     setMobileSidebarOpen(false);
@@ -77,9 +97,6 @@ export function Layout({ children }: LayoutProps) {
   const hideHeader = EDITOR_PREFIXES.some((p) =>
     location.pathname.startsWith(p),
   );
-  const isDesignEditor = location.pathname.startsWith("/design/");
-  const showMobileTopBar = !isDesignEditor;
-  const embedded = isEmbedAuthActive();
 
   if (embedded || (isDesignEditor && !hasSession)) {
     return (
@@ -114,7 +131,8 @@ export function Layout({ children }: LayoutProps) {
             t("chat.suggestionMobile"),
           ]}
           scope={designScope}
-          browserTabId={getBrowserTabId()}
+          browserTabId={browserTabId}
+          threadFooterSlot={designQuestionsWaitingSlot}
         >
           <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
             {!isDesignEditor && mobileSidebarOpen && (
@@ -154,7 +172,7 @@ export function Layout({ children }: LayoutProps) {
               {!hideHeader && <Header />}
               <main
                 className={cn(
-                  "flex-1",
+                  "agent-native-app-main flex-1",
                   isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
                 )}
               >
