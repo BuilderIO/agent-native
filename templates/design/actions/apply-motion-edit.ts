@@ -128,6 +128,8 @@ async function persistFileContent(
   // the returned HTML content without re-saving it; applying the whole document
   // through an existing collab text snapshot can merge against stale iframe
   // state and duplicate the managed motion stylesheet.
+  // guard:allow-unscoped — editor access on this design is asserted in run()
+  // before this helper is invoked; this only bumps the addressed design row.
   await db
     .update(schema.designs)
     .set({ updatedAt: now })

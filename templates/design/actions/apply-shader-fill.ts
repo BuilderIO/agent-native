@@ -227,6 +227,8 @@ async function persistDesignFileEdit(file: {
   // already has the live shader preview applied; feeding a full HTML document
   // back through an existing collab text snapshot can merge against stale
   // iframe state and corrupt the saved source.
+  // guard:allow-unscoped — editor access on this design is asserted above
+  // before this helper is invoked; this only bumps the addressed design row.
   await db
     .update(schema.designs)
     .set({ updatedAt: now })
