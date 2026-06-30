@@ -59,8 +59,8 @@ import {
   IconRadiusBottomRight,
   IconRadiusTopLeft,
   IconRadiusTopRight,
+  IconRefresh,
   IconShadow,
-  IconShieldCheck,
   IconSquare,
   IconTypography,
   IconUnlink,
@@ -7210,17 +7210,23 @@ export function EditPanel({
                         variant="ghost"
                         size="icon"
                         className="size-6 rounded-md text-muted-foreground hover:text-foreground"
-                        aria-label={
-                          "Accessibility & visual diff" /* i18n-ignore design inspector action */
-                        }
+                        disabled={reviewPanelProps.auditLoading}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          reviewPanelProps.onRunAudit?.();
+                        }}
+                        aria-label={"Run audit" /* i18n-ignore design inspector action */}
                       >
-                        <IconShieldCheck className="size-3.5" />
+                        <IconRefresh
+                          className={cn(
+                            "size-3.5",
+                            reviewPanelProps.auditLoading && "animate-spin",
+                          )}
+                        />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {
-                        "Accessibility & visual diff" /* i18n-ignore design inspector action */
-                      }
+                      {"Run audit" /* i18n-ignore design inspector action */}
                     </TooltipContent>
                   </Tooltip>
                 }

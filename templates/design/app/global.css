@@ -90,26 +90,6 @@
     hsl(var(--foreground)) 6%,
     transparent
   );
-  --design-editor-skeleton-frame-bg: color-mix(
-    in srgb,
-    var(--design-editor-panel-bg) 82%,
-    var(--design-editor-control-bg)
-  );
-  --design-editor-skeleton-frame-header-bg: color-mix(
-    in srgb,
-    var(--design-editor-panel-bg) 70%,
-    var(--design-editor-control-bg)
-  );
-  --design-editor-skeleton-frame-ghost-bg: color-mix(
-    in srgb,
-    hsl(var(--foreground)) 8%,
-    transparent
-  );
-  --design-editor-skeleton-dock-bg: color-mix(
-    in srgb,
-    hsl(var(--foreground)) 6%,
-    transparent
-  );
 }
 
 .dark {

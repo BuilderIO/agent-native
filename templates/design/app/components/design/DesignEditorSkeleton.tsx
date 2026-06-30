@@ -1,7 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
 const panelGhost = "bg-[var(--design-editor-skeleton-panel-ghost-bg)]";
-const frameGhost = "bg-[var(--design-editor-skeleton-frame-ghost-bg)]";
 
 /**
  * Loading placeholder for the design editor. Keeps the shell recognizable while
@@ -30,19 +29,16 @@ export function DesignEditorSkeleton({
 
       <main className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-skeleton-canvas-bg)]">
         <div className="flex h-full items-center justify-center px-10 pb-28 pt-10">
-          <div
+          <Skeleton
             aria-hidden="true"
-            className="w-full max-w-[520px] overflow-hidden rounded-xl bg-[var(--design-editor-skeleton-frame-bg)]"
-          >
-            <div className="h-10 bg-[var(--design-editor-skeleton-frame-header-bg)]" />
-            <div className="p-6">
-              <Skeleton className={`h-64 rounded-lg ${frameGhost}`} />
-            </div>
-          </div>
+            className={`h-72 w-full max-w-[520px] rounded-xl ${panelGhost}`}
+          />
         </div>
 
         {!embedded && (
-          <div className="absolute bottom-4 left-1/2 z-[70] h-11 w-64 -translate-x-1/2 rounded-xl bg-[var(--design-editor-skeleton-dock-bg)]" />
+          <div
+            className={`absolute bottom-4 left-1/2 z-[70] h-11 w-64 -translate-x-1/2 rounded-xl ${panelGhost}`}
+          />
         )}
       </main>
 

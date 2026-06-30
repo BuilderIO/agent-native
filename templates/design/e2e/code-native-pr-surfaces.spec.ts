@@ -204,7 +204,7 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
   await expect(page.getByTestId("review-panel")).toBeVisible();
 
   await waitForAction(page, "run-design-audit", async () => {
-    await page.getByRole("button", { name: "Run", exact: true }).click();
+    await page.getByRole("button", { name: "Run audit", exact: true }).click();
   });
 
   await expect(
