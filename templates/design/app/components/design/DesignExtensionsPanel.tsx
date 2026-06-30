@@ -14,6 +14,7 @@ import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
+import type { ShaderDescriptor } from "@shared/shader-presets";
 import {
   IconExternalLink,
   IconLock,
@@ -276,25 +277,6 @@ function FirstPartyExtRow({
   );
 }
 
-// ─── Gated badge ─────────────────────────────────────────────────────────────
-
-function GatedBadge() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-amber-600 dark:text-amber-400">
-          <IconLock className="size-2.5" />
-          Preview
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="left" className="max-w-48 text-[11px]">
-        Apply is gated until runtime rendering, source-write path, CSS fallback,
-        and diff proof are all in place.
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
 // ─── Asset Library panel ──────────────────────────────────────────────────────
 
 interface AssetLibraryPanelProps {
@@ -465,6 +447,58 @@ interface ShaderFillsExtPanelProps {
 
 function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   const [showShaders, setShowShaders] = useState(false);
+  // The most recently previewed descriptor — Apply persists exactly this one,
+  // so the write is intentional (one atomic call) rather than firing on every
+  // slider tweak.
+  const [previewed, setPreviewed] = useState<ShaderDescriptor | null>(null);
+  const applyShaderFill = useActionMutation("apply-shader-fill");
+
+  // The persisting apply path needs an HTML file plus a target element. Without
+  // a selected element we can still preview, but we cannot write a fill.
+  const targetNodeId = context.selectedElement?.sourceId ?? undefined;
+  const targetSelector = context.selectedElement?.selector ?? undefined;
+  const canPersist = Boolean(
+    context.activeFileId && (targetNodeId || targetSelector),
+  );
+
+  const persistFill = (descriptor: ShaderDescriptor) => {
+    if (!canPersist) return;
+    applyShaderFill.mutate(
+      {
+        descriptor: {
+          preset: descriptor.preset,
+          params: descriptor.params,
+          colors: descriptor.colors,
+          speed: descriptor.speed,
+          frame: descriptor.frame,
+          fit: descriptor.fit,
+          scale: descriptor.scale,
+          rotation: descriptor.rotation,
+          offsetX: descriptor.offsetX,
+          offsetY: descriptor.offsetY,
+        },
+        target: { nodeId: targetNodeId, selector: targetSelector },
+        source: {
+          kind: "design-file" as const,
+          designId: context.designId || undefined,
+          fileId: context.activeFileId || undefined,
+        },
+      },
+      {
+        onSuccess: (res) => {
+          const r = res as { persisted?: boolean } | undefined;
+          if (r?.persisted) {
+            toast.success("Shader fill applied to the selected element.");
+          } else {
+            toast.message("Shader fill previewed — nothing was written.");
+          }
+        },
+        onError: () => {
+          toast.error("Failed to apply shader fill.");
+        },
+      },
+    );
+  };
 
   if (!showShaders) {
     return (
@@ -472,16 +506,17 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
         <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
           GPU shader fill presets — MeshGradient, GrainGradient, Voronoi,
           Metaballs, Warp, GodRays, Dithering, PaperTexture. Preview as a CSS
-          gradient without writing anything.
+          gradient, then apply it to the selected element as a CSS background.
         </p>
-        <div className="mb-2 flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5">
-          <IconLock className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
-            <strong>Apply is gated.</strong> Preview is safe; persist to design
-            stays disabled until runtime rendering, source-write path, CSS
-            fallback, and diff proof are all in place.
-          </p>
-        </div>
+        {!canPersist && (
+          <div className="mb-2 flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5">
+            <IconLock className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400" />
+            <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+              Select an element on the canvas to apply a fill. Without a
+              selection you can still browse and preview presets.
+            </p>
+          </div>
+        )}
         <div className="flex flex-wrap gap-1.5">
           <Button
             type="button"
@@ -498,22 +533,51 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   }
 
   return (
-    <ShaderFillsPanel
-      onApply={(_descriptor, _css) => {
-        // Preview-only: the ShaderFillsPanel already fires apply-shader (the
-        // planning/codegen action) for agent context.  We don't call
-        // apply-shader-fill here — it is gated and would return NOT_YET_AVAILABLE.
-        // The "Apply" button inside ShaderFillsPanel fires apply-shader which
-        // gives the agent the JSX/HTML snippet to use with edit-design.
-      }}
-      onBack={() => setShowShaders(false)}
-      applyContext={{
-        designId: context.designId || undefined,
-        fileId: context.activeFileId || undefined,
-        nodeId: context.selectedElement?.sourceId ?? undefined,
-        selector: context.selectedElement?.selector ?? undefined,
-      }}
-    />
+    <div className="flex flex-col">
+      <ShaderFillsPanel
+        onApply={(descriptor, _css) => {
+          // Preview only: ShaderFillsPanel fires apply-shader (planning/codegen)
+          // for agent context on every tune and the iframe shows the gradient.
+          // We just record the latest descriptor here; the explicit Apply
+          // button below performs the single intentional persist write.
+          setPreviewed(descriptor);
+        }}
+        onBack={() => setShowShaders(false)}
+        applyContext={{
+          designId: context.designId || undefined,
+          fileId: context.activeFileId || undefined,
+          nodeId: targetNodeId,
+          selector: targetSelector,
+        }}
+      />
+
+      {/* ── Apply bar: persists the previewed fill onto the selected element ── */}
+      <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2">
+        {canPersist ? (
+          <Button
+            type="button"
+            size="sm"
+            className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+            disabled={!previewed || applyShaderFill.isPending}
+            onClick={() => {
+              if (previewed) persistFill(previewed);
+            }}
+          >
+            <IconSparkles className="size-3" />
+            {applyShaderFill.isPending
+              ? "Applying…"
+              : previewed
+                ? "Apply fill"
+                : "Pick a preset"}
+          </Button>
+        ) : (
+          <p className="flex items-start gap-1.5 text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+            <IconLock className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400" />
+            Select an element on the canvas to apply this fill.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -717,9 +781,8 @@ export function DesignExtensionsPanel({
     {
       id: "design.shader-fills",
       label: "Shader Fills",
-      description: "GPU shader fill presets — preview only",
+      description: "GPU shader fill presets — preview & apply",
       icon: <IconSparkles className="size-3.5" />,
-      badge: <GatedBadge />,
       panel: <ShaderFillsExtPanel context={context} />,
     },
     {
@@ -792,7 +855,7 @@ export function DesignExtensionsPanel({
         <div className="mb-3 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1.5">
           <IconSparkles className="mt-0.5 size-3 shrink-0 text-muted-foreground/70" />
           <p className="text-[10px] leading-snug text-muted-foreground">
-            The agent can insert assets, preview shader fills, audit tokens, and
+            The agent can insert assets, apply shader fills, audit tokens, and
             apply motion presets. Ask in the chat sidebar for help.
           </p>
         </div>

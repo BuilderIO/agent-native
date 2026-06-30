@@ -132,6 +132,7 @@ import {
   DesignCanvas,
   type IframeContextMenuPayload,
   type IframeHotkeyPayload,
+  type MotionTrackWire,
 } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import type { DesignExtensionSlotContext } from "@/components/design/DesignExtensionsPanel";
@@ -5147,6 +5148,38 @@ export default function DesignEditor() {
       getElementOuterHtml(activeContent, selectedElement.selector)
     );
   }, [activeContent, selectedElement?.selector, selectedElement?.htmlContent]);
+
+  // §6.3 — the motion-dock target: the selected element's literal
+  // `data-agent-native-node-id` (the value the motion compiler + preview bridge
+  // match on, NOT the hashed projection id) plus a friendly label. Single-screen
+  // mode auto-stamps every selectable node with this attribute (see the
+  // ensureCodeLayerNodeIdsInHtml effect), so a selection reliably resolves to a
+  // stable node id here. `null` when nothing animatable is selected — the dock
+  // then disables its "Add track" affordance.
+  const motionSelectedTarget = useMemo<{
+    nodeId: string;
+    label: string;
+  } | null>(() => {
+    if (!selectedCodeLayerNode) return null;
+    const nodeId =
+      selectedCodeLayerNode.dataAttributes["data-agent-native-node-id"]?.trim();
+    if (!nodeId) return null;
+    const label =
+      selectedCodeLayerNode.layerName ||
+      selectedElement?.tagName ||
+      "Selected element";
+    return { nodeId, label };
+  }, [selectedCodeLayerNode, selectedElement?.tagName]);
+
+  // Serialisable subset of the dock's tracks for the DesignCanvas motion-preview
+  // bridge. Strips the UI-only `label` field. Only populated while the dock is
+  // open so a closed dock never leaves preview overrides on the canvas; an empty
+  // array makes DesignCanvas send `motion-preview-clear`. Scrubbing previews
+  // these tracks live in the iframe — it never writes (that is "Write to CSS").
+  const motionTracksWire = useMemo<MotionTrackWire[]>(() => {
+    if (!motionDockOpen || motionTracks.length === 0) return [];
+    return motionTracks.map(({ label: _label, ...track }) => track);
+  }, [motionDockOpen, motionTracks]);
 
   const inspectCodeData = useMemo<InspectCodeData | undefined>(() => {
     if (!selectedElement) return undefined;
@@ -10677,10 +10710,13 @@ ${serializedHtml}
                       fusionUrl={designFusionUrl}
                       previewWidthPx={activeBreakpointWidthState}
                       onComponentSourceJump={handleComponentSourceJump}
-                      // TODO: thread motionTracks / shaderFillPreview live-preview
-                      // props once the canvas-side live preview state is plumbed
-                      // here (non-trivial new state; MotionDock already drives
-                      // motion-preview directly via canvasIframeRef for now).
+                      // Live motion preview: the dock's current tracks feed the
+                      // iframe's motion-preview bridge so scrubbing the playhead
+                      // interpolates these properties in place. Preview-only —
+                      // "Write to CSS" (apply-motion-edit) is the commit path.
+                      // shaderFillPreview stays unthreaded here (separate §6.7
+                      // preview state not yet plumbed into this editor surface).
+                      motionTracks={motionTracksWire}
                       editMode={mode === "edit"}
                       interactMode={mode === "interact"}
                       readOnly={!canEditDesign}
@@ -10935,6 +10971,7 @@ ${serializedHtml}
           onTracksChange={setMotionTracks}
           onDurationChange={setMotionDurationMs}
           canvasIframeRef={canvasIframeRef}
+          selectedTarget={motionSelectedTarget}
           onApply={(tracks, durationMs) => {
             if (!id) return;
             applyMotionEditMutation.mutate({
