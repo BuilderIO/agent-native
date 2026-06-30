@@ -3698,19 +3698,21 @@ export function DesignCanvas({
   });
 
   // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
-  // outside Edit mode. The editor chrome bridge is omitted only for Interact.
+  // outside Edit mode. The editor chrome bridge is omitted for Interact and
+  // read-only surfaces so preview/app users can interact with the app normally.
   const srcdoc = useMemo(() => {
     if (externalPreviewUrl) return undefined;
-    const editorChromeBridge = interactMode
-      ? ""
-      : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-          "__READ_ONLY__",
-          readOnly ? "true" : "false",
-        )
-          .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-          .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
-          .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
+    const editorChromeBridge =
+      interactMode || readOnly
+        ? ""
+        : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+          EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+            "__READ_ONLY__",
+            readOnly ? "true" : "false",
+          )
+            .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+            .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
+            .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
     const embeddedWheelBridge = EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
       isEmbeddedFrame ? "true" : "false",
