@@ -15,8 +15,8 @@ export function DesignEditorSkeleton({
   return (
     <div className="flex h-full overflow-hidden bg-background">
       {!embedded && (
-        <aside className="hidden w-80 shrink-0 border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] lg:flex">
-          <div className="flex w-[52px] shrink-0 flex-col items-center border-r border-[var(--design-editor-panel-divider-color)] p-3">
+        <aside className="hidden w-80 shrink-0 bg-[var(--design-editor-panel-bg)] lg:flex">
+          <div className="flex w-[52px] shrink-0 flex-col items-center p-3">
             <Skeleton className={`size-8 rounded-md ${panelGhost}`} />
             <Skeleton className={`mt-8 h-40 w-full rounded-lg ${panelGhost}`} />
           </div>
@@ -32,9 +32,9 @@ export function DesignEditorSkeleton({
         <div className="flex h-full items-center justify-center px-10 pb-28 pt-10">
           <div
             aria-hidden="true"
-            className="w-full max-w-[520px] overflow-hidden rounded-xl border border-[var(--design-editor-skeleton-frame-border)] bg-[var(--design-editor-skeleton-frame-bg)] shadow-[0_28px_80px_-44px_rgba(0,0,0,0.85)]"
+            className="w-full max-w-[520px] overflow-hidden rounded-xl bg-[var(--design-editor-skeleton-frame-bg)]"
           >
-            <div className="h-10 border-b border-[var(--design-editor-skeleton-frame-border)] bg-[var(--design-editor-skeleton-frame-header-bg)]" />
+            <div className="h-10 bg-[var(--design-editor-skeleton-frame-header-bg)]" />
             <div className="p-6">
               <Skeleton className={`h-64 rounded-lg ${frameGhost}`} />
             </div>
@@ -42,13 +42,13 @@ export function DesignEditorSkeleton({
         </div>
 
         {!embedded && (
-          <div className="absolute bottom-4 left-1/2 z-[70] h-11 w-64 -translate-x-1/2 rounded-xl border border-[var(--design-editor-skeleton-dock-border)] bg-[var(--design-editor-skeleton-dock-bg)] shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9)]" />
+          <div className="absolute bottom-4 left-1/2 z-[70] h-11 w-64 -translate-x-1/2 rounded-xl bg-[var(--design-editor-skeleton-dock-bg)]" />
         )}
       </main>
 
       {!embedded && (
-        <aside className="hidden w-80 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] lg:flex">
-          <div className="flex h-12 shrink-0 items-center justify-end border-b border-[var(--design-editor-panel-divider-color)] px-3">
+        <aside className="hidden w-80 shrink-0 flex-col bg-[var(--design-editor-panel-bg)] lg:flex">
+          <div className="flex h-12 shrink-0 items-center justify-end px-3">
             <Skeleton className={`h-6 w-40 rounded-md ${panelGhost}`} />
           </div>
           <div className="space-y-4 p-3">

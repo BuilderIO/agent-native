@@ -16164,9 +16164,9 @@ ${serializedHtml}
                     <>
                       <div
                         aria-hidden="true"
-                        className="mb-5 w-full max-w-sm rounded-xl border border-black/10 bg-[#f7f8fb] p-3 shadow-[0_22px_65px_-42px_rgba(0,0,0,0.85)] dark:border-white/12 dark:bg-[#f4f6f8]"
+                        className="mb-5 w-full max-w-sm rounded-xl bg-[#f7f8fb] p-3 dark:bg-[#f4f6f8]"
                       >
-                        <div className="flex h-7 items-center justify-between border-b border-slate-950/[0.08] px-1 pb-2">
+                        <div className="flex h-7 items-center justify-between px-1 pb-2">
                           <div className="flex gap-1.5">
                             <span className="size-2 rounded-full bg-slate-950/[0.12]" />
                             <span className="size-2 rounded-full bg-slate-950/[0.1]" />

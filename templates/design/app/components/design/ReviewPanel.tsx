@@ -23,12 +23,10 @@
 import { useActionMutation } from "@agent-native/core/client";
 import {
   IconAlertCircle,
-  IconAlertTriangle,
   IconArrowsLeftRight,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
-  IconInfoCircle,
   IconRefresh,
   IconShieldCheck,
   IconWand,
@@ -131,24 +129,20 @@ export interface ReviewPanelProps {
 
 interface SeverityConfig {
   dot: string;
-  icon: React.ElementType;
   label: string;
 }
 
 const SEVERITY_CONFIG: Record<A11ySeverity, SeverityConfig> = {
   error: {
     dot: "bg-destructive",
-    icon: IconAlertCircle,
     label: "Error",
   },
   warning: {
     dot: "bg-amber-400",
-    icon: IconAlertTriangle,
     label: "Warning",
   },
   info: {
     dot: "bg-blue-400",
-    icon: IconInfoCircle,
     label: "Info",
   },
 };
@@ -194,7 +188,6 @@ function FindingRow({
   onFixApplied?: (finding: A11yFinding, result?: ReviewFixResult) => void;
 }) {
   const cfg = SEVERITY_CONFIG[finding.severity];
-  const Icon = cfg.icon;
   const [expanded, setExpanded] = useState(false);
   const hasDetail = !!(finding.detail ?? finding.wcag);
 
@@ -246,8 +239,10 @@ function FindingRow({
   return (
     <div
       className={cn(
-        "group rounded px-2 py-1.5 transition-colors",
-        onClick ? "cursor-pointer hover:bg-accent/60" : "cursor-default",
+        "group rounded-[5px] px-2 py-1.5 transition-colors",
+        onClick
+          ? "cursor-pointer hover:bg-[var(--design-editor-layer-hover-color)]"
+          : "cursor-default",
       )}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
@@ -257,28 +252,15 @@ function FindingRow({
       }}
       aria-label={finding.message}
     >
-      <div className="flex items-start gap-2">
-        {/* Severity dot */}
+      <div className="flex items-start gap-2.5">
         <span
           className={cn("mt-[5px] size-1.5 shrink-0 rounded-full", cfg.dot)}
           aria-hidden="true"
         />
 
-        {/* Message + expand toggle */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1">
-            <Icon
-              className={cn(
-                "size-3.5 shrink-0",
-                finding.severity === "error"
-                  ? "text-destructive"
-                  : finding.severity === "warning"
-                    ? "text-amber-500"
-                    : "text-blue-500",
-              )}
-              aria-hidden="true"
-            />
-            <span className="truncate !text-[11px] text-foreground leading-snug">
+          <div className="flex min-h-5 items-center gap-1">
+            <span className="truncate !text-[11px] font-medium leading-snug text-foreground">
               {finding.message}
             </span>
             {hasDetail && (
@@ -301,14 +283,13 @@ function FindingRow({
             )}
           </div>
 
-          {/* WCAG badge */}
-          {finding.wcag && (
-            <span className="text-[10px] text-muted-foreground/60">
-              WCAG {finding.wcag}
+          {(finding.wcag || expanded) && (
+            <span className="text-[10px] capitalize text-muted-foreground/55">
+              {cfg.label}
+              {finding.wcag ? ` · WCAG ${finding.wcag}` : ""}
             </span>
           )}
 
-          {/* Expanded detail */}
           {expanded && finding.detail && (
             <p className="mt-1 !text-[11px] leading-snug text-muted-foreground">
               {finding.detail}
@@ -337,7 +318,7 @@ function FindingRow({
                 "h-5 shrink-0 gap-1 px-1.5 text-[10px]",
                 fixStatus === "error"
                   ? "text-destructive hover:text-destructive"
-                  : "text-muted-foreground hover:text-foreground",
+                  : "text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
               )}
               title={
                 fixStatus === "error"
@@ -388,11 +369,19 @@ function A11ySection({
 
   const hasFindings = findings.length > 0;
   const notRun = !auditedAt && !loading && !auditError && !hasFindings;
+  const statusLabel = loading
+    ? "Scanning..."
+    : auditError
+      ? "Could not scan"
+      : notRun
+        ? "Not checked"
+        : hasFindings
+          ? `${findings.length} ${findings.length === 1 ? "issue" : "issues"}`
+          : "No issues";
 
   return (
     <section aria-labelledby="review-a11y-heading">
-      {/* Section header */}
-      <div className="flex h-7 items-center justify-between">
+      <div className="flex h-7 items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <IconShieldCheck className="size-3.5 text-muted-foreground" />
           <span
@@ -401,7 +390,17 @@ function A11ySection({
           >
             Accessibility
           </span>
-          {hasFindings && (
+          <span
+            className={cn(
+              "rounded px-1 py-0.5 text-[10px] font-medium text-muted-foreground/65",
+              !loading && !auditError && !notRun && !hasFindings
+                ? "text-emerald-500"
+                : "",
+            )}
+          >
+            {statusLabel}
+          </span>
+          {hasFindings ? (
             <div className="flex items-center gap-1">
               {errors.length > 0 && (
                 <Badge
@@ -428,10 +427,9 @@ function A11ySection({
                 </Badge>
               )}
             </div>
-          )}
+          ) : null}
         </div>
 
-        {/* Run audit button */}
         {onRunAudit && (
           <Button
             type="button"
@@ -451,28 +449,22 @@ function A11ySection({
         )}
       </div>
 
-      <Separator />
-
       <div className="py-1">
-        {/* Error state */}
         {auditError && (
-          <div className="flex min-h-7 items-center gap-2 rounded-[5px] px-2">
+          <div className="flex min-h-7 items-center gap-2 rounded-[5px] px-2 text-muted-foreground">
             <IconAlertCircle className="size-3.5 shrink-0 text-destructive" />
-            <span className="!text-[11px] text-muted-foreground">
-              {auditError}
+            <span className="!text-[11px]">{auditError}</span>
+          </div>
+        )}
+
+        {notRun && (
+          <div className="flex h-7 items-center rounded-[5px] px-2 text-muted-foreground/55">
+            <span className="truncate !text-[11px]">
+              Run a quick accessibility check.
             </span>
           </div>
         )}
 
-        {/* Not yet run */}
-        {notRun && (
-          <div className="flex h-7 items-center gap-2 rounded-[5px] px-2 text-muted-foreground/55">
-            <IconShieldCheck className="size-3.5 shrink-0" />
-            <span className="truncate !text-[11px]">Audit not run</span>
-          </div>
-        )}
-
-        {/* Loading */}
         {loading && !hasFindings && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconRefresh className="size-3.5 animate-spin text-muted-foreground/50" />
@@ -482,7 +474,6 @@ function A11ySection({
           </div>
         )}
 
-        {/* All clear */}
         {!loading && !auditError && !notRun && !hasFindings && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconCheck className="size-3.5 text-emerald-500" />
@@ -492,9 +483,8 @@ function A11ySection({
           </div>
         )}
 
-        {/* Findings list */}
         {hasFindings && (
-          <div className="space-y-0.5">
+          <div className="flex flex-col gap-0.5">
             {[...errors, ...warnings, ...infos].map((finding) => (
               <FindingRow
                 key={finding.id}
@@ -507,7 +497,6 @@ function A11ySection({
           </div>
         )}
 
-        {/* Audit timestamp */}
         {auditedAt && (
           <p className="mt-1 px-2 text-[10px] text-muted-foreground/40">
             Last audited{" "}
@@ -592,6 +581,10 @@ function VisualDiffSection({
   const hasDiff = diff.length > 0;
   const hasVersions = versionOptions.length > 0;
   const noVersionsSelected = !baseVersionId && !compareVersionId;
+  const shouldRender =
+    hasVersions || hasDiff || loading || !!diffError || !noVersionsSelected;
+
+  if (!shouldRender) return null;
 
   return (
     <section aria-labelledby="review-diff-heading">
@@ -613,10 +606,7 @@ function VisualDiffSection({
         )}
       </div>
 
-      <Separator />
-
       <div className="space-y-1.5 py-1">
-        {/* Version selectors */}
         {hasVersions && (
           <div className="flex items-center gap-1.5">
             <span className="shrink-0 text-[10px] text-muted-foreground/70">
@@ -638,7 +628,6 @@ function VisualDiffSection({
           </div>
         )}
 
-        {/* States */}
         {diffError && (
           <div className="flex h-7 items-center gap-2 rounded-[5px] px-2">
             <IconAlertCircle className="size-3.5 shrink-0 text-destructive" />
@@ -672,9 +661,8 @@ function VisualDiffSection({
           </div>
         )}
 
-        {/* Diff rows */}
         {hasDiff && (
-          <div className="space-y-0.5">
+          <div className="flex flex-col gap-0.5">
             {diff.map((entry) => (
               <DiffRow key={entry.id} entry={entry} />
             ))}
@@ -717,9 +705,17 @@ export function ReviewPanel({
   onFixApplied,
   className,
 }: ReviewPanelProps) {
+  const showDiffSection =
+    versionOptions.length > 0 ||
+    visualDiff.length > 0 ||
+    diffLoading ||
+    !!diffError ||
+    !!baseVersionId ||
+    !!compareVersionId;
+
   return (
     <div
-      className={cn("flex flex-col gap-2 !text-[11px]", className)}
+      className={cn("flex flex-col gap-1 !text-[11px]", className)}
       data-testid="review-panel"
     >
       <A11ySection
@@ -733,15 +729,20 @@ export function ReviewPanel({
         onFixApplied={onFixApplied}
       />
 
-      <VisualDiffSection
-        diff={visualDiff}
-        versionOptions={versionOptions}
-        baseVersionId={baseVersionId}
-        compareVersionId={compareVersionId}
-        onVersionChange={onVersionChange}
-        loading={diffLoading}
-        diffError={diffError}
-      />
+      {showDiffSection ? (
+        <>
+          <Separator />
+          <VisualDiffSection
+            diff={visualDiff}
+            versionOptions={versionOptions}
+            baseVersionId={baseVersionId}
+            compareVersionId={compareVersionId}
+            onVersionChange={onVersionChange}
+            loading={diffLoading}
+            diffError={diffError}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
