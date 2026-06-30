@@ -1457,14 +1457,19 @@ function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
 function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
+  options?: { preserveNegativePosition?: boolean },
 ): string | null {
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
     const geometry = primitive.geometry;
-    const left = Math.max(0, Math.round(geometry.x));
-    const top = Math.max(0, Math.round(geometry.y));
+    const left = options?.preserveNegativePosition
+      ? Math.round(geometry.x)
+      : Math.max(0, Math.round(geometry.x));
+    const top = options?.preserveNegativePosition
+      ? Math.round(geometry.y)
+      : Math.max(0, Math.round(geometry.y));
     const width = Math.max(1, Math.round(geometry.width));
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
@@ -3978,6 +3983,12 @@ export default function DesignEditor() {
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const historyOrderRef = useRef<UndoRedoOrderKind[]>([]);
   const redoOrderRef = useRef<UndoRedoOrderKind[]>([]);
+  const clearRedoStacks = useCallback(() => {
+    contentRedoStackRef.current = [];
+    geometryRedoStackRef.current = [];
+    redoOrderRef.current = [];
+    undoManagerRef.current?.clear(false, true);
+  }, []);
   const syncUndoRedoState = useCallback(() => {
     const undoManager = undoManagerRef.current;
     setCanUndo(
@@ -4001,15 +4012,14 @@ export default function DesignEditor() {
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         changes.length === 1 ? changes[0] : { changes },
       ];
-      contentRedoStackRef.current = [];
+      clearRedoStacks();
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "file-content",
       ];
-      redoOrderRef.current = [];
       syncUndoRedoState();
     },
-    [syncUndoRedoState],
+    [clearRedoStacks, syncUndoRedoState],
   );
   const clearLocalUndoRedoStacks = useCallback(() => {
     contentUndoStackRef.current = [];
@@ -5160,14 +5170,11 @@ export default function DesignEditor() {
           after: afterSnapshot,
         },
       ];
-      geometryRedoStackRef.current = [];
-      contentRedoStackRef.current = [];
-      undoManagerRef.current?.clear(false, true);
+      clearRedoStacks();
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "geometry",
       ];
-      redoOrderRef.current = [];
       const resizedFrameIds = viewportChangedFrameIds(
         beforeSnapshot,
         afterSnapshot,
@@ -5180,7 +5187,7 @@ export default function DesignEditor() {
       );
       syncUndoRedoState();
     },
-    [syncUndoRedoState, writeFrameGeometrySnapshot],
+    [clearRedoStacks, syncUndoRedoState, writeFrameGeometrySnapshot],
   );
 
   // §6.6 — "Make this a real app" handler.
@@ -5862,6 +5869,7 @@ export default function DesignEditor() {
   const [collabContentFileId, setCollabContentFileId] = useState<string | null>(
     null,
   );
+  const previousDesignIdForHistoryRef = useRef<string | null>(null);
   const prevActiveFileIdRef = useRef<string | null>(null);
   // `updatedAt` of the DB content this preview currently reflects. A poll that
   // returns an older-or-equal value is a stale snapshot and is ignored; a newer
@@ -5907,7 +5915,16 @@ export default function DesignEditor() {
     };
   }, [awareness, ydoc]);
 
-  // Reset per-file reconcile state when switching files
+  useEffect(() => {
+    if (previousDesignIdForHistoryRef.current === id) return;
+    previousDesignIdForHistoryRef.current = id ?? null;
+    clearLocalUndoRedoStacks();
+    syncUndoRedoState();
+  }, [clearLocalUndoRedoStacks, id, syncUndoRedoState]);
+
+  // Reset per-file reconcile state when switching files.
+  // Keep undo/redo content + geometry stacks intact: overview mode needs one
+  // chronological history across all screens, board edits, and frame geometry.
   useEffect(() => {
     if (viewMode === "overview") {
       prevActiveFileIdRef.current = activeFileId;
@@ -5916,9 +5933,7 @@ export default function DesignEditor() {
       lastAppliedFileUpdatedAtRef.current = null;
       lastLocalContentRef.current = null;
       latestActiveContentRef.current = null;
-      clearLocalUndoRedoStacks();
       clearStaleAgentCollabRecovery();
-      syncUndoRedoState();
       return;
     }
     if (activeFileId !== prevActiveFileIdRef.current) {
@@ -5928,17 +5943,9 @@ export default function DesignEditor() {
       lastAppliedFileUpdatedAtRef.current = null;
       lastLocalContentRef.current = null;
       latestActiveContentRef.current = null;
-      clearLocalUndoRedoStacks();
       clearStaleAgentCollabRecovery();
-      syncUndoRedoState();
     }
-  }, [
-    activeFileId,
-    clearLocalUndoRedoStacks,
-    clearStaleAgentCollabRecovery,
-    syncUndoRedoState,
-    viewMode,
-  ]);
+  }, [activeFileId, clearStaleAgentCollabRecovery, viewMode]);
 
   useEffect(() => {
     return clearStaleAgentCollabRecovery;
@@ -6102,12 +6109,19 @@ export default function DesignEditor() {
     });
 
     const syncState = () => syncUndoRedoState();
-    const handleStackItemAdded = () => {
+    const handleStackItemAdded = (event: {
+      origin?: unknown;
+      type?: "undo" | "redo";
+    }) => {
+      if (event.origin !== LOCAL_EDIT_ORIGIN || event.type !== "undo") {
+        syncUndoRedoState();
+        return;
+      }
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "content",
       ];
-      redoOrderRef.current = [];
+      clearRedoStacks();
       syncUndoRedoState();
     };
     um.on("stack-item-added", handleStackItemAdded);
@@ -6135,7 +6149,7 @@ export default function DesignEditor() {
       );
       syncUndoRedoState();
     };
-  }, [ydoc, isSynced, syncUndoRedoState]);
+  }, [clearRedoStacks, ydoc, isSynced, syncUndoRedoState]);
 
   // Reconcile authoritative external DB content (agent edit / peer-via-SQL) into
   // the live preview. This is the robustness fallback the Yjs observe path can't
@@ -6899,7 +6913,11 @@ export default function DesignEditor() {
           ? collabContentRef.current
           : (activeFile.content ?? "");
       const yjsHistoryAvailable = Boolean(
-        shouldRecordHistory && ydoc && isSynced && undoManagerRef.current,
+        shouldRecordHistory &&
+        viewModeRef.current !== "overview" &&
+        ydoc &&
+        isSynced &&
+        undoManagerRef.current,
       );
       if (
         !suppressContentHistoryRef.current &&
@@ -6972,7 +6990,7 @@ export default function DesignEditor() {
               ytext.delete(0, ytext.length);
               ytext.insert(0, nextContent);
             },
-            shouldRecordHistory ? LOCAL_EDIT_ORIGIN : TAB_ID,
+            yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
           );
         }
       }
@@ -7273,7 +7291,9 @@ export default function DesignEditor() {
                 : storedContent;
             })()
           : storedContent);
-      const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive);
+      const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive, {
+        preserveNegativePosition: targetFile.id === boardFileId,
+      });
       if (!nextContent) {
         toast.error(t("designEditor.toasts.primitiveInsertFailed"));
         return false;
@@ -7335,6 +7355,7 @@ export default function DesignEditor() {
       activeContent,
       activeFile?.id,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
       files,
       id,
@@ -8369,6 +8390,23 @@ export default function DesignEditor() {
             );
           })
         : null;
+      const yjsHistoryAvailable = Boolean(
+        viewModeRef.current !== "overview" &&
+        ydoc &&
+        isSynced &&
+        undoManagerRef.current,
+      );
+      if (
+        !yjsHistoryAvailable &&
+        !suppressContentHistoryRef.current &&
+        baseContent !== resolvedNextContent
+      ) {
+        recordContentHistoryEntry({
+          fileId: activeFile.id,
+          before: baseContent,
+          after: resolvedNextContent,
+        });
+      }
 
       setCollabContent(resolvedNextContent);
       setCollabContentFileId(activeFile.id);
@@ -8381,14 +8419,18 @@ export default function DesignEditor() {
       latestActiveContentRef.current = resolvedNextContent;
       // Write the edit into the shared Y.Doc so other open clients see it live
       // through Yjs (not only via the slower update-file → applyText round-trip).
-      // Use LOCAL_EDIT_ORIGIN so the UndoManager captures this transaction.
+      // Single-screen edits use the active-file UndoManager. Overview edits are
+      // tracked in the global file-content stack so all screens share one order.
       if (ydoc && isSynced) {
         const ytext = ydoc.getText("content");
         if (ytext.toString() !== resolvedNextContent) {
-          ydoc.transact(() => {
-            ytext.delete(0, ytext.length);
-            ytext.insert(0, resolvedNextContent);
-          }, LOCAL_EDIT_ORIGIN);
+          ydoc.transact(
+            () => {
+              ytext.delete(0, ytext.length);
+              ytext.insert(0, resolvedNextContent);
+            },
+            yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+          );
         }
       }
       queueFileContentSave(activeFile.id, resolvedNextContent, {
@@ -8427,6 +8469,7 @@ export default function DesignEditor() {
       activeBreakpointWidthState,
       canEditDesign,
       queueFileContentSave,
+      recordContentHistoryEntry,
       replacePreviewContent,
       selectedElement,
       t,
@@ -10109,7 +10152,11 @@ export default function DesignEditor() {
         });
       });
 
-      return true;
+      // File-backed screen deletion is not a geometry-only edit. The screen rows
+      // are hard-deleted, so suppress MultiScreenCanvas' local frame-history
+      // entry; otherwise undo would restore geometry for files that no longer
+      // exist.
+      return false;
     },
     [
       activeFile,
