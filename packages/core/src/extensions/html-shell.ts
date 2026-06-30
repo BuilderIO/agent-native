@@ -403,8 +403,14 @@ export function buildExtensionHtml(
 	      }
 
 	      if (!res.ok) {
-	        var err = res.body || { error: res.statusText };
-	        throw new Error(err.error || 'Action failed: ' + res.status);
+	        var err = res.body || {};
+	        var rawError = typeof err === 'string' ? err : err.error;
+	        var message = (typeof rawError === 'string' && rawError.trim())
+	          ? rawError
+	          : (res.status === 404
+	            ? "Action '" + name + "' is not available over HTTP (404). It may be agent-only (http: false); expose it with an HTTP-mounted action to call it from an extension."
+	            : "Action '" + name + "' failed (" + (res.status || 'network error') + ")");
+	        throw new Error(message);
 	      }
 	      return res.body;
 	    }

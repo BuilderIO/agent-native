@@ -1,11 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
-import {
-  getAccounts,
-  getIssues,
-  type PylonIssue,
-} from "../server/lib/pylon";
+import { getAccounts, getIssues, type PylonIssue } from "../server/lib/pylon";
 import { cliBoolean } from "./schema-helpers";
 
 type StateBucket = "open" | "waiting" | "resolved" | "other";
@@ -42,7 +38,7 @@ function summarizeByAccount(
       row = {
         accountId,
         accountName: accountId
-          ? accountNameById.get(accountId) ?? accountId
+          ? (accountNameById.get(accountId) ?? accountId)
           : "Unassigned",
         open: 0,
         waiting: 0,
@@ -76,15 +72,14 @@ export default defineAction({
     account: z
       .string()
       .optional()
-      .describe("Filter issues to a single account by name (case-insensitive)."),
+      .describe(
+        "Filter issues to a single account by name (case-insensitive).",
+      ),
     state: z
       .string()
       .optional()
       .describe("Filter issues by raw Pylon state, e.g. open or closed."),
-    query: z
-      .string()
-      .optional()
-      .describe("Full-text search across issues."),
+    query: z.string().optional().describe("Full-text search across issues."),
     summary: cliBoolean
       .optional()
       .describe(
@@ -107,9 +102,7 @@ export default defineAction({
     let accountId: string | undefined;
     if (args.account) {
       const wanted = args.account.toLowerCase();
-      const match = accountsList.find(
-        (a) => a.name?.toLowerCase() === wanted,
-      );
+      const match = accountsList.find((a) => a.name?.toLowerCase() === wanted);
       accountId = match?.id;
       if (!accountId) {
         return {
