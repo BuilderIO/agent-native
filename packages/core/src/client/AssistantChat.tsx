@@ -3110,6 +3110,12 @@ const AssistantChatInner = forwardRef<
     centeredEmptyState && !isRestoring && hasThreadFooterSlot;
   const showComposerSlot =
     Boolean(composerSlot) && (!centerComposerWhenEmpty || centeredEmptyState);
+  const compactMissingKeyEmptyState =
+    missingApiKeySetupAboveComposer &&
+    missingApiKey &&
+    !authError &&
+    showEmptyState &&
+    !isRestoring;
 
   // Clarifying-question surface: the `ask-question` action writes a
   // GuidedQuestionPayload to application_state under "guided-questions". The
@@ -3170,7 +3176,11 @@ const AssistantChatInner = forwardRef<
             <TextStreamingContext.Provider value={textStreaming}>
               <div
                 data-agent-empty-state={
-                  centeredEmptyState ? "centered" : undefined
+                  centeredEmptyState
+                    ? "centered"
+                    : compactMissingKeyEmptyState
+                      ? "compact-setup"
+                      : undefined
                 }
                 className={cn(
                   "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
