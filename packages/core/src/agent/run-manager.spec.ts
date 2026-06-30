@@ -46,6 +46,7 @@ import {
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_ERRORED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+  extendRunSoftTimeoutForTool,
   HOSTED_SOFT_TIMEOUT_CEILING_MS,
   getActiveRunForThreadAsync,
   resolveCompletedRunRetentionMs,
@@ -190,6 +191,68 @@ describe("run manager soft timeout", () => {
       }),
     );
     expect(run.status).toBe("completed");
+  });
+
+  it("defers the soft timeout while a long-running tool is in flight", async () => {
+    const events: AgentChatEvent[] = [];
+    let aborted = false;
+
+    const run = startRun(
+      "run-extend",
+      "thread-extend",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+            resolve();
+          });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    // A long-running tool (e.g. 1s) starts before the 10ms base budget fires;
+    // its extension pushes the deadline to toolTimeoutMs + 5s padding.
+    extendRunSoftTimeoutForTool("thread-extend", 1_000);
+
+    // Well past the base 10ms budget — the run must NOT have been cut.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(aborted).toBe(false);
+    expect(events.some((e) => e.type === "auto_continue")).toBe(false);
+
+    // Past the extended deadline (1_000 + 5_000) — now it fires cleanly.
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(aborted).toBe(true);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "auto_continue", reason: "run_timeout" }),
+    );
+  });
+
+  it("does not arm a soft timeout when extending a run whose budget is disabled", async () => {
+    let aborted = false;
+    const run = startRun(
+      "run-extend-disabled",
+      "thread-extend-disabled",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+            resolve();
+          });
+          // Resolve on our own so the run can complete in the test.
+          setTimeout(resolve, 50);
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    extendRunSoftTimeoutForTool("thread-extend-disabled", 1_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(aborted).toBe(false);
+    void run;
   });
 
   it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {

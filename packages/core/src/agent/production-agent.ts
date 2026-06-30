@@ -113,6 +113,7 @@ import {
   getRun,
   abortRun,
   tryClaimRunSlot,
+  extendRunSoftTimeoutForTool,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
@@ -3535,6 +3536,30 @@ export async function runAgentLoop(opts: {
         // it cannot guard this. Throw here instead, handled like any abort.
         if (signal.aborted) {
           throw new Error("Run aborted");
+        }
+        // Long-running tool guard: an action that declared a `timeoutMs` longer
+        // than the default tool budget (e.g. a 12-min image generation) must not
+        // be cut mid-execution by the run's soft-timeout auto_continue abort.
+        // Push the run's soft-timeout deadline out to cover this tool (clamped to
+        // the background-function ceiling) so the run holds the full course up to
+        // the tool's own timeout instead of interrupting at the base ~40s budget.
+        //
+        // Gated to the durable-background worker. That worker is dispatched into
+        // the Netlify `-background` function (15-min async budget), so it can
+        // safely outlast 40s — but `resolveRunSoftTimeoutMs` clamps its budget
+        // back to 40s whenever `runsInBackgroundFunction` is false (the
+        // `-background` runtime wasn't detected), which is exactly what cuts a
+        // 12-min generation at 40s. The interactive/foreground path is left
+        // untouched: it still rides a synchronous function (~60s wall) where the
+        // 40s graceful auto_continue + interrupted-tool ledger recovery is correct
+        // and extending past the wall would only turn a clean hand-off into a hard
+        // function kill.
+        if (
+          opts.threadId &&
+          toolTimeoutMs > DEFAULT_TOOL_TIMEOUT_MS &&
+          getRequestRunContext()?.isBackgroundWorker === true
+        ) {
+          extendRunSoftTimeoutForTool(opts.threadId, toolTimeoutMs);
         }
         const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
         const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();

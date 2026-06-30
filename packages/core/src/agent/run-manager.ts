@@ -33,6 +33,15 @@ export interface ActiveRun {
   abort: AbortController;
   abortReason?: string;
   startedAt: number;
+  /**
+   * Defer this run's soft timeout so an in-flight long-running tool (an action
+   * whose own `timeoutMs` exceeds the run budget, e.g. a 12-min image
+   * generation) is not cut mid-execution by the run's auto_continue abort.
+   * Extends the soft-timeout deadline to cover the tool, clamped to the
+   * background-function ceiling; never shortens it. No-op when the soft timeout
+   * is disabled. Set by `startRun`; called via `extendRunSoftTimeoutForTool`.
+   */
+  extendSoftTimeoutForTool?: (toolTimeoutMs: number) => void;
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -414,18 +423,48 @@ export function startRun(
     useHostedDefault: options?.useHostedSoftTimeoutDefault === true,
     backgroundFunction: options?.backgroundFunction === true,
   });
-  const softTimeoutTimer =
-    softTimeoutMs > 0
-      ? setTimeout(() => {
-          if (run.status !== "running" || abort.signal.aborted) return;
-          softTimedOut = true;
-          send({
-            type: "auto_continue",
-            reason: "run_timeout",
-          });
-          abort.abort();
-        }, softTimeoutMs)
-      : null;
+  // Soft timeout is reschedulable: an in-flight long-running tool can push the
+  // deadline out (see `extendSoftTimeoutForTool` below) so it isn't cut at the
+  // base budget. The timer holder is mutable so the latest deadline wins.
+  let softTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let softTimeoutDeadlineAt = 0;
+  const fireSoftTimeout = () => {
+    if (run.status !== "running" || abort.signal.aborted) return;
+    softTimedOut = true;
+    send({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+    abort.abort();
+  };
+  const armSoftTimeout = (deadlineAt: number) => {
+    if (softTimeoutMs <= 0) return; // disabled — never bound this run
+    softTimeoutDeadlineAt = deadlineAt;
+    if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+    softTimeoutTimer = setTimeout(
+      fireSoftTimeout,
+      Math.max(0, deadlineAt - Date.now()),
+    );
+  };
+  if (softTimeoutMs > 0) armSoftTimeout(Date.now() + softTimeoutMs);
+  // Let a long-running tool defer the auto_continue abort until it can finish.
+  // Clamp the extension to the background-function ceiling — the largest budget
+  // any hosted runtime can sustain — and never shorten an existing deadline
+  // (e.g. a real background-function run already sits at the 13-min ceiling, so
+  // this is a no-op there). Leaves ~5s under the tool's own timeout so the
+  // tool's `AbortSignal.timeout` fires first and the loop records a clean tool
+  // timeout instead of the run aborting out from under it.
+  run.extendSoftTimeoutForTool = (toolTimeoutMs: number) => {
+    if (softTimeoutMs <= 0) return;
+    if (!Number.isFinite(toolTimeoutMs) || toolTimeoutMs <= 0) return;
+    const padded = Math.min(
+      toolTimeoutMs + 5_000,
+      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+    );
+    const desiredDeadline = Date.now() + padded;
+    if (desiredDeadline > softTimeoutDeadlineAt)
+      armSoftTimeout(desiredDeadline);
+  };
   let pendingTerminalEvent: RunEvent | null = null;
 
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
@@ -1002,6 +1041,22 @@ function subscribeFromSQL(
       if (pingTimer) clearInterval(pingTimer);
     },
   });
+}
+
+/**
+ * Defer the soft timeout of the active run on a thread so an in-flight
+ * long-running tool isn't cut by the run's auto_continue abort. Called by the
+ * agent loop right before invoking an action whose declared `timeoutMs` exceeds
+ * the default tool budget. No-op when there is no in-memory run for the thread
+ * (e.g. a cross-isolate poller) or when the run's soft timeout is disabled. Safe
+ * to call repeatedly; only ever pushes the deadline later, clamped to the
+ * background-function ceiling.
+ */
+export function extendRunSoftTimeoutForTool(
+  threadId: string,
+  toolTimeoutMs: number,
+): void {
+  getActiveRunForThread(threadId)?.extendSoftTimeoutForTool?.(toolTimeoutMs);
 }
 
 /** Get the active run for a thread (if any) — checks memory then SQL */
