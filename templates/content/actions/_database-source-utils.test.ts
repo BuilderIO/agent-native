@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { ContentDatabaseItem, DocumentProperty } from "../shared/api";
 import {
   buildBuilderLocalOutboundChangeSets,
+  builderBodyNeedsSourceComponentWrite,
+  builderBodyHydrationVersion,
   builderCmsEntryAlreadyRepresented,
   buildMockBodyChange,
   buildMockFieldChange,
@@ -110,6 +112,46 @@ describe("database source helpers", () => {
     });
   });
 
+  it("includes the readable body codec in Builder body hydration versions", () => {
+    expect(
+      builderBodyHydrationVersion({
+        id: "entry-1",
+        title: "Entry",
+        updatedAt: "2026-06-30T00:00:00.000Z",
+        sourceValues: {
+          "__builder.body.blocksHash": "blocks-hash-1",
+        },
+      }),
+    ).toBe("blocks-hash-1:readable-native-images-v4");
+  });
+
+  it("detects stale Builder source markers when prose is unchanged", () => {
+    expect(
+      builderBodyNeedsSourceComponentWrite({
+        currentContent:
+          'Opening paragraph.\n\n<SourceComponent componentName="Image" />\n\nClosing paragraph.',
+        nextContent:
+          'Opening paragraph.\n\n<SourceComponent componentName="Image" previewUrl={"https://cdn.builder.io/image.png"} />\n\nClosing paragraph.',
+      }),
+    ).toBe(true);
+    expect(
+      builderBodyNeedsSourceComponentWrite({
+        currentContent:
+          'Opening paragraph.\n\n<SourceComponent id="source-component-builder-image" provider="builder" componentName="Image" rawRef="content/builder/.raw/image.json" previewUrl={"https://cdn.builder.io/image.png"} />\n\nClosing paragraph.',
+        nextContent:
+          "Opening paragraph.\n\n![Diagram](https://cdn.builder.io/image.png)\n\nClosing paragraph.",
+      }),
+    ).toBe(true);
+    expect(
+      builderBodyNeedsSourceComponentWrite({
+        currentContent:
+          'Opening paragraph with a local edit.\n\n<SourceComponent componentName="Image" />\n\nClosing paragraph.',
+        nextContent:
+          "Opening paragraph.\n\n![Diagram](https://cdn.builder.io/image.png)\n\nClosing paragraph.",
+      }),
+    ).toBe(false);
+  });
+
   it("keys open mock proposals by row, field set, kind, and body presence", () => {
     const headline = property("text", "Launch week");
     const fieldChange = buildMockFieldChange({
@@ -198,6 +240,51 @@ describe("database source helpers", () => {
           proposedValue: "New title",
         },
       ],
+    });
+  });
+
+  it("detects local Builder body edits as outbound pending changes", () => {
+    const [changeSet] = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Same title"]]),
+      storedChangeSets: [],
+      bodyChangeByDocumentId: new Map([
+        [
+          "doc-1",
+          {
+            summary: "Builder body blocks changed.",
+            currentExcerpt: "Old body",
+            proposedExcerpt: "New body",
+            currentHash: "old-hash",
+            proposedHash: "new-hash",
+            proposedContent: "New body",
+            proposedBlocksJson: "[]",
+            sidecarsJson: "{}",
+            warnings: [],
+          },
+        ],
+      ]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(changeSet).toMatchObject({
+      kind: "body_update",
+      direction: "outbound",
+      state: "pending_push",
+      summary: 'Pending local Builder CMS body change for "Same title".',
+      fieldChanges: [],
+      bodyChange: {
+        proposedHash: "new-hash",
+        proposedContent: "New body",
+      },
+      riskReasons: ["body diff"],
     });
   });
 

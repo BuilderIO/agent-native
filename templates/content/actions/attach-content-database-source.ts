@@ -16,6 +16,7 @@ import {
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
 import {
   databaseSourceExistsForTable,
+  enqueueBuilderBodyHydrationForItems,
   ensureDatabaseSourceProperty,
   getExistingSource,
   getSourceRows,
@@ -265,6 +266,8 @@ export default defineAction({
       const additionalRead = await readBuilderCmsContentEntries({
         model: sourceTable,
       });
+      const additionalEntries =
+        additionalRead.state === "live" ? additionalRead.entries : [];
       const additionalModelFields = await readBuilderCmsModelFields({
         model: sourceTable,
       });
@@ -284,7 +287,7 @@ export default defineAction({
       if (additionalRead.state === "live") {
         await importBuilderCmsEntriesAsDatabaseItems({
           database,
-          entries: additionalRead.entries,
+          entries: additionalEntries,
           now,
           sourceTable,
           existingSourceRows: [],
@@ -299,7 +302,7 @@ export default defineAction({
       const additionalEntriesByDocumentId =
         additionalRead.state === "live"
           ? mapBuilderCmsEntriesToLocalItems({
-              entries: additionalRead.entries,
+              entries: additionalEntries,
               items: importedItems,
               sourceTable,
               now,
@@ -312,8 +315,7 @@ export default defineAction({
         sourceType,
         properties: additionalSetup.properties,
         builderModelFields: additionalModelFields,
-        builderSampleEntries:
-          additionalRead.state === "live" ? additionalRead.entries : [],
+        builderSampleEntries: additionalEntries,
         now,
       });
       await seedMockSourceRows({
@@ -325,6 +327,17 @@ export default defineAction({
         now,
         builderEntriesByDocumentId: additionalEntriesByDocumentId,
       });
+      if (additionalRead.state === "live") {
+        await enqueueBuilderBodyHydrationForItems({
+          sourceId: additionalSourceId,
+          ownerEmail: database.ownerEmail,
+          orgId: database.orgId,
+          sourceTable,
+          items: importedItems,
+          builderEntriesByDocumentId: additionalEntriesByDocumentId,
+          now,
+        });
+      }
       await updateBuilderCmsSourceReadMetadata({
         sourceId: additionalSourceId,
         sourceTable,
@@ -365,6 +378,8 @@ export default defineAction({
             model: sourceTable,
           })
         : null;
+    const builderEntries =
+      builderRead?.state === "live" ? builderRead.entries : [];
     const builderModelFields =
       sourceType === "builder-cms"
         ? await readBuilderCmsModelFields({
@@ -374,7 +389,7 @@ export default defineAction({
     if (builderRead?.state === "live") {
       await importBuilderCmsEntriesAsDatabaseItems({
         database,
-        entries: builderRead.entries,
+        entries: builderEntries,
         now,
         sourceTable,
         existingSourceRows,
@@ -385,7 +400,7 @@ export default defineAction({
     const builderEntriesByDocumentId =
       builderRead?.state === "live"
         ? mapBuilderCmsEntriesToLocalItems({
-            entries: builderRead.entries,
+            entries: builderEntries,
             items: refreshedSetup.response.items,
             sourceTable,
             now,
@@ -399,8 +414,7 @@ export default defineAction({
       sourceType,
       properties: refreshedSetup.properties,
       builderModelFields,
-      builderSampleEntries:
-        builderRead?.state === "live" ? builderRead.entries : [],
+      builderSampleEntries: builderEntries,
       now,
     });
     await seedMockSourceRows({
@@ -412,6 +426,17 @@ export default defineAction({
       now,
       builderEntriesByDocumentId,
     });
+    if (sourceType === "builder-cms" && builderRead?.state === "live") {
+      await enqueueBuilderBodyHydrationForItems({
+        sourceId,
+        ownerEmail: database.ownerEmail,
+        orgId: database.orgId,
+        sourceTable,
+        items: refreshedSetup.response.items,
+        builderEntriesByDocumentId,
+        now,
+      });
+    }
     if (sourceType === "builder-cms" && builderRead) {
       await updateBuilderCmsSourceReadMetadata({
         sourceId,

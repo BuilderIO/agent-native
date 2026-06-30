@@ -36,6 +36,7 @@ import {
 
 import { builderDocsBlockConfigs } from "./builder-docs-blocks";
 import { inlineDatabaseBlockConfig } from "./inline-database-block";
+import { sourceComponentBlockConfig } from "./source-component-block";
 
 /**
  * Register the content block library (the dev-doc + OpenAPI + standard
@@ -62,6 +63,7 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   for (const block of builderDocsBlockConfigs) {
     registry.register(block);
   }
+  registry.register(sourceComponentBlockConfig);
   registry.register(inlineDatabaseBlockConfig);
 }
 

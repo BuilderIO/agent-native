@@ -194,6 +194,70 @@ function nestedBuilderPatch(
   return body;
 }
 
+function mergeBuilderPatch(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+) {
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    if (
+      key === "data" &&
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
+      merged.data = {
+        ...((merged.data && typeof merged.data === "object"
+          ? merged.data
+          : {}) as Record<string, unknown>),
+        ...(value as Record<string, unknown>),
+      };
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged;
+}
+
+function builderBodyPatch(changeSet: ContentDatabaseSourceChangeSet) {
+  const bodyChange = changeSet.bodyChange;
+  const checks: string[] = [];
+  const blockers: string[] = [];
+  if (!bodyChange) {
+    return { patch: {}, checks, blockers, hasBodyOperation: false };
+  }
+  if (!bodyChange.proposedBlocksJson) {
+    blockers.push(
+      "Builder body diff could not be converted to Builder blocks.",
+    );
+    return { patch: {}, checks, blockers, hasBodyOperation: false };
+  }
+  try {
+    const blocks = JSON.parse(bodyChange.proposedBlocksJson) as unknown;
+    if (!Array.isArray(blocks)) {
+      blockers.push("Builder body diff did not produce a blocks array.");
+      return { patch: {}, checks, blockers, hasBodyOperation: false };
+    }
+    checks.push("Includes converted Builder body blocks.");
+    for (const warning of bodyChange.warnings ?? []) {
+      checks.push(`Body conversion warning: ${warning}`);
+    }
+    return {
+      patch: {
+        data: {
+          blocks,
+        },
+      },
+      checks,
+      blockers,
+      hasBodyOperation: true,
+    };
+  } catch {
+    blockers.push("Builder body diff contains invalid converted blocks JSON.");
+    return { patch: {}, checks, blockers, hasBodyOperation: false };
+  }
+}
+
 function builderRequestForEffect(args: {
   effect: BuilderCmsWriteEffect;
   model: string;
@@ -272,18 +336,19 @@ function builderSafetyChecks(args: {
   entryId: string | null;
   syntheticFixtureTarget: boolean;
   operations: BuilderCmsExecutionOperation[];
+  hasBodyOperation: boolean;
+  bodyChecks: string[];
+  bodyBlockers: string[];
 }) {
   const checks = [
     "Requires explicit approval before execution.",
     "Uses the stored execution idempotency key.",
+    ...args.bodyChecks,
   ];
-  const blockers: string[] = [];
+  const blockers: string[] = [...args.bodyBlockers];
 
-  if (args.operations.length === 0) {
-    blockers.push("No field operations are available for this Builder change.");
-  }
-  if (args.changeSet.bodyChange) {
-    blockers.push("Builder body diffs are not executable in this slice.");
+  if (args.operations.length === 0 && !args.hasBodyOperation) {
+    blockers.push("No Builder operations are available for this change.");
   }
   if (args.effect === "autosave" || args.effect === "update_in_place") {
     const label = args.effect === "autosave" ? "Autosave" : "Update in place";
@@ -418,7 +483,11 @@ export function buildBuilderCmsExecutionPlan(args: {
     localFieldKey: field.localFieldKey,
     value: field.proposedValue,
   }));
-  const bodyPatch = nestedBuilderPatch(operations);
+  const bodyDiffPatch = builderBodyPatch(args.changeSet);
+  const bodyPatch = mergeBuilderPatch(
+    nestedBuilderPatch(operations),
+    bodyDiffPatch.patch,
+  );
   // State-preserving effects must not include `published` in the body. Builder
   // PATCH preserves omitted publication state, so only transition/create effects
   // are allowed to set it.
@@ -441,6 +510,9 @@ export function buildBuilderCmsExecutionPlan(args: {
       args.source.sourceTable === SAFE_WRITE_MODEL &&
       target?.isSyntheticFixture === true,
     operations,
+    hasBodyOperation: bodyDiffPatch.hasBodyOperation,
+    bodyChecks: bodyDiffPatch.checks,
+    bodyBlockers: bodyDiffPatch.blockers,
   });
   const state: ContentDatabaseSourceExecutionState =
     safety.blockers.length > 0
