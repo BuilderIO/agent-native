@@ -21,6 +21,9 @@ import type { BoardObjectEntry } from "./board-objects.js";
 /** Reserved filename for the board overlay file. */
 export const BOARD_FILENAME = "__board__.html";
 
+const DEFAULT_SHAPE_FILL = "rgb(218 218 218)";
+const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
+
 // ---------------------------------------------------------------------------
 // isBoardFile
 // ---------------------------------------------------------------------------
@@ -154,10 +157,10 @@ export function boardObjectEntryToHtmlFragment(
 
   // Ellipse kind uses a <div> with border-radius.
   if (kind === "ellipse") {
-    const bgColor = fill ?? "var(--primary, #2563eb)";
+    const bgColor = fill ?? DEFAULT_SHAPE_FILL;
     const borderStyle = stroke
       ? `border:${strokeWidth ?? 1}px solid ${stroke};`
-      : "";
+      : `border:1px solid ${DEFAULT_SHAPE_STROKE};`;
     const style = `${baseStyle};background:${bgColor};border-radius:50%;${borderStyle}`;
     return `<div style="${style}" ${dataAttrs}></div>`;
   }
@@ -171,10 +174,12 @@ export function boardObjectEntryToHtmlFragment(
 
   // Frame / rectangle / polygon / star / default — basic colored <div>.
   const bgColor =
-    fill ?? (kind === "frame" ? "transparent" : "var(--primary, #2563eb)");
+    fill ?? (kind === "frame" ? "transparent" : DEFAULT_SHAPE_FILL);
   const borderStyle = stroke
     ? `border:${strokeWidth ?? 1}px solid ${stroke};`
-    : "";
+    : kind === "frame"
+      ? ""
+      : `border:1px solid ${DEFAULT_SHAPE_STROKE};`;
   const style = `${baseStyle};background:${bgColor};${borderStyle}`;
 
   if (kind === "frame") {

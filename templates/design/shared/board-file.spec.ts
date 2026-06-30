@@ -138,6 +138,23 @@ describe("boardObjectEntryToHtmlFragment — basic geometry", () => {
       boardObjectEntryToHtmlFragment({ ...baseEntry, kind: "ellipse" }),
     ).toContain(`data-an-primitive="ellipse"`);
   });
+
+  it("uses a soft gray fill and darker gray border for default rectangles", () => {
+    const fragment = boardObjectEntryToHtmlFragment(baseEntry);
+    expect(fragment).toContain("background:rgb(218 218 218)");
+    expect(fragment).toContain("border:1px solid rgb(168 168 168)");
+  });
+
+  it("preserves explicit rectangle fill and stroke overrides", () => {
+    const fragment = boardObjectEntryToHtmlFragment({
+      ...baseEntry,
+      fill: "#eeeeee",
+      stroke: "#999999",
+      strokeWidth: 2,
+    });
+    expect(fragment).toContain("background:#eeeeee");
+    expect(fragment).toContain("border:2px solid #999999");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -38,9 +38,9 @@ export interface BoardObjectEntry {
     rotation?: number;
     z?: number;
   };
-  /** CSS fill colour (background). Defaults to theme primary tint when absent. */
+  /** CSS fill colour (background). Defaults to soft neutral gray when absent. */
   fill?: string;
-  /** CSS stroke colour (border). Defaults to theme primary stroke when absent. */
+  /** CSS stroke colour (border). Defaults to darker neutral gray when absent. */
   stroke?: string;
   /** Stroke width in pixels. */
   strokeWidth?: number;
