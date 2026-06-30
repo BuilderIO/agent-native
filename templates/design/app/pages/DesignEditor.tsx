@@ -4019,7 +4019,7 @@ export default function DesignEditor() {
     }
   }, [id, migrateMutation, updateDesignMutation, queryClient]);
 
-  generationOutputReadyRef.current = files.length > 0 || !!pendingVariants;
+  generationOutputReadyRef.current = files.length > 0;
 
   useEffect(() => {
     if (!id || files.length === 0) return;
@@ -6150,13 +6150,8 @@ export default function DesignEditor() {
       const nextContent = applyInlineStylesToHtml(baseContent, selector, {
         ...Object.fromEntries(entries),
       });
-      const projection = buildCodeLayerProjection(baseContent);
-      const targetNode = resolveCodeLayerNodeFromBridge(
-        projection,
-        selector,
-        options.elementInfo?.sourceId ?? selectedElement?.sourceId,
-      );
-      // §6.4 — Breakpoint-scoped class editing.
+      // §6.4 — Breakpoint-scoped class editing. Reuses the `projection` and
+      // `targetNode` resolved above for the patch-proof block (same baseContent).
       // When an active non-base breakpoint frame is set, attempt to route class
       // edits through `kind: "responsive-class"` so the write targets only that
       // breakpoint prefix (e.g. "md:text-lg" instead of "text-lg").  This fires
