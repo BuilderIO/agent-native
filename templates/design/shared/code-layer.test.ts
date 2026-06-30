@@ -143,6 +143,84 @@ describe("code-layer projection", () => {
       }),
     );
   });
+
+  it("deduplicates malformed duplicate root ids in the layer tree", () => {
+    const html = `
+      <section data-agent-native-node-id="dup-root">First</section>
+      <section data-agent-native-node-id="dup-root">Second</section>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+
+    expect(projection.rootNodeIds).toHaveLength(2);
+    expect(new Set(projection.rootNodeIds).size).toBe(1);
+    expect(tree).toHaveLength(1);
+    expect(new Set(tree.map((node) => node.id)).size).toBe(tree.length);
+  });
+
+  it("omits repeated document shell wrappers from layer tree roots", () => {
+    const html = `
+      <!doctype html>
+      <html data-agent-native-node-id="doc">
+        <head><title>Home</title></head>
+        <body data-agent-native-node-id="body">
+          <main data-agent-native-layer-name="Home">
+            <h1>Welcome</h1>
+          </main>
+        </body>
+      </html>
+      <!doctype html>
+      <html data-agent-native-node-id="doc">
+        <body data-agent-native-node-id="body">
+          <main data-agent-native-layer-name="Checkout">
+            <h1>Checkout</h1>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+
+    expect(projection.nodes.filter((node) => node.tag === "html")).toHaveLength(
+      2,
+    );
+    expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
+      { tag: "main", name: "Home" },
+      { tag: "main", name: "Checkout" },
+    ]);
+    expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
+    expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
+  });
+
+  it("keeps explicitly named document shell rows in the layer tree", () => {
+    const html = `
+      <!doctype html>
+      <html data-agent-native-layer-name="Document">
+        <body data-agent-native-layer-name="Body">
+          <main data-agent-native-layer-name="Home">
+            <h1>Welcome</h1>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+
+    expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
+      { tag: "html", name: "Document" },
+    ]);
+    expect(
+      tree[0]?.children.map((node) => ({ tag: node.tag, name: node.name })),
+    ).toEqual([{ tag: "body", name: "Body" }]);
+    expect(
+      tree[0]?.children[0]?.children.map((node) => ({
+        tag: node.tag,
+        name: node.name,
+      })),
+    ).toEqual([{ tag: "main", name: "Home" }]);
+  });
 });
 
 describe("applyVisualEdit", () => {

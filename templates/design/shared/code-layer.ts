@@ -1485,6 +1485,49 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
   return "element";
 }
 
+function isCollapsibleDocumentShellNode(
+  node: CodeLayerTreeNode,
+  nodesById: Map<string, CodeLayerNode>,
+): boolean {
+  if (node.tag !== "html" && node.tag !== "body") return false;
+  return nodesById.get(node.id)?.layerNameSource === "tag";
+}
+
+function compactCodeLayerTreeNodes(
+  nodes: CodeLayerTreeNode[],
+  nodesById: Map<string, CodeLayerNode>,
+  ancestors: Set<string> = new Set(),
+): CodeLayerTreeNode[] {
+  const compacted: CodeLayerTreeNode[] = [];
+  const siblingIds = new Set<string>();
+
+  for (const node of nodes) {
+    if (ancestors.has(node.id)) continue;
+
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(node.id);
+    const children = compactCodeLayerTreeNodes(
+      node.children,
+      nodesById,
+      nextAncestors,
+    );
+    const compactedNode: CodeLayerTreeNode = { ...node, children };
+    const promotedNodes =
+      isCollapsibleDocumentShellNode(compactedNode, nodesById) &&
+      children.length > 0
+        ? children
+        : [compactedNode];
+
+    for (const promotedNode of promotedNodes) {
+      if (siblingIds.has(promotedNode.id)) continue;
+      siblingIds.add(promotedNode.id);
+      compacted.push(promotedNode);
+    }
+  }
+
+  return compacted;
+}
+
 function capabilitiesFor(element: ParsedElement): EditCapability[] {
   const capabilities: EditCapability[] = [
     {
@@ -1768,26 +1811,36 @@ export function buildCodeLayerTree(
     });
   }
 
+  const childIdsByParentId = new Map<string, Set<string>>();
   for (const node of projection.nodes) {
     const parent =
       node.parentId && nodesById.has(node.parentId)
         ? treeById.get(node.parentId)
         : undefined;
     const treeNode = treeById.get(node.id);
-    if (parent && treeNode) parent.children.push(treeNode);
+    if (!parent || !treeNode || parent.id === treeNode.id) continue;
+    const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
+    if (childIds.has(treeNode.id)) continue;
+    childIds.add(treeNode.id);
+    childIdsByParentId.set(parent.id, childIds);
+    parent.children.push(treeNode);
   }
 
-  const roots = projection.rootNodeIds
-    .map((id) => treeById.get(id))
-    .filter((node): node is CodeLayerTreeNode => Boolean(node));
-  const rootIds = new Set(roots.map((node) => node.id));
+  const roots: CodeLayerTreeNode[] = [];
+  const rootIds = new Set<string>();
+  const appendRoot = (id: string) => {
+    if (rootIds.has(id)) return;
+    const treeNode = treeById.get(id);
+    if (!treeNode) return;
+    rootIds.add(id);
+    roots.push(treeNode);
+  };
+
+  projection.rootNodeIds.forEach(appendRoot);
   for (const node of projection.nodes) {
-    if (!node.parentId && !rootIds.has(node.id)) {
-      const treeNode = treeById.get(node.id);
-      if (treeNode) roots.push(treeNode);
-    }
+    if (!node.parentId) appendRoot(node.id);
   }
-  return roots;
+  return compactCodeLayerTreeNodes(roots, nodesById);
 }
 
 function normalizeSelectorForMatch(selector: string): string {

@@ -7,6 +7,7 @@ import {
   getOverviewDisplayZoom,
   getOverviewEnterTarget,
   getOverviewZoomScale,
+  getSidebarCodeLayerSelectionState,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
   shouldLockInspectorForInitialGeneration,
@@ -61,6 +62,32 @@ describe("DesignEditor overview enter target", () => {
         overviewSelectedScreenIds: [],
       }),
     ).toBe("screen-active");
+  });
+});
+
+describe("DesignEditor sidebar code layer selection", () => {
+  it("preserves all-screens view when selecting a nested layer", () => {
+    expect(
+      getSidebarCodeLayerSelectionState({
+        currentViewMode: "overview",
+        overviewSelectedScreenIds: ["previous-screen"],
+      }),
+    ).toEqual({
+      viewMode: "overview",
+      overviewSelectedScreenIds: [],
+    });
+  });
+
+  it("leaves single-screen selection state alone", () => {
+    expect(
+      getSidebarCodeLayerSelectionState({
+        currentViewMode: "single",
+        overviewSelectedScreenIds: ["screen-a"],
+      }),
+    ).toEqual({
+      viewMode: "single",
+      overviewSelectedScreenIds: ["screen-a"],
+    });
   });
 });
 
@@ -189,6 +216,25 @@ describe("DesignEditor element canonicalization", () => {
       tagName: "div",
       selector:
         'body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(6)',
+      classes: ["tile"],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Beta",
+      isFlexChild: false,
+      isFlexContainer: false,
+    });
+
+    expect(node?.textSnippet).toBe("Beta");
+  });
+
+  it("uses element details instead of treating weak selectors as exact matches", () => {
+    const projection = buildCodeLayerProjection(
+      `<main><div class="tile">Alpha</div><div class="tile">Beta</div></main>`,
+    );
+
+    const node = resolveCodeLayerNodeFromElementInfo(projection, {
+      tagName: "div",
+      selector: "div",
       classes: ["tile"],
       computedStyles: {},
       boundingRect: { x: 0, y: 0, width: 10, height: 10 },

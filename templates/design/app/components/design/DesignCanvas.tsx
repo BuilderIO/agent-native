@@ -573,7 +573,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 
   var selectionOverlay = document.createElement('div');
   selectionOverlay.setAttribute('data-agent-native-edit-overlay', 'selection');
-  selectionOverlay.style.cssText = 'position:fixed;pointer-events:auto;z-index:99998;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;cursor:move;';
+  selectionOverlay.style.cssText = 'position:fixed;pointer-events:auto;z-index:99998;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;cursor:pointer;';
   ['n','e','s','w'].forEach(function(pos) {
     var edge = document.createElement('span');
     edge.setAttribute('data-agent-native-edge-handle', pos);
@@ -662,6 +662,14 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	  var pendingStructureMove = null;
 	  var lockedSelectors = [];
 	  var hiddenSelectors = [];
+
+  function clearRuntimeSelection() {
+    selectedEl = null;
+    hoveredEl = null;
+    selectionOverlay.style.display = 'none';
+    highlightOverlay.style.display = 'none';
+    hideMeasurements();
+  }
 
   function matchesSelectorList(el, selectors) {
     if (!el || !selectors || selectors.length === 0) return false;
@@ -1887,6 +1895,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   document.addEventListener('keydown', function(e) {
     if (!shouldForwardDesignHotkey(e)) return;
     stopNativeInteraction(e);
+    if (e.key === 'Escape') clearRuntimeSelection();
     window.parent.postMessage({
       type: 'design-hotkey',
       key: e.key,
@@ -2087,11 +2096,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       return;
     }
     if (e.data.type === 'clear-selection') {
-      selectedEl = null;
-      hoveredEl = null;
-      selectionOverlay.style.display = 'none';
-      highlightOverlay.style.display = 'none';
-      hideMeasurements();
+      clearRuntimeSelection();
       return;
     }
     if (e.data.type === 'select-element') {
@@ -2125,10 +2130,8 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       }
       if (!target) return;
       selectedEl = target;
-      var selectedInfo = getElementInfo(target);
       positionOverlay(selectionOverlay, target);
       if (hoveredEl === selectedEl) highlightOverlay.style.display = 'none';
-      window.parent.postMessage({ type: 'element-select', payload: selectedInfo }, '*');
       return;
     }
     if (e.data.type === 'hover-element') {
@@ -2244,6 +2247,7 @@ interface DesignCanvasProps {
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo) => void;
   onElementHover: (info: ElementInfo | null) => void;
+  onClearSelection?: () => void;
   onVisualStyleChange?: (
     selector: string,
     styles: Record<string, string>,
@@ -2365,6 +2369,7 @@ export function DesignCanvas({
   clearSelectionRequest,
   onElementSelect,
   onElementHover,
+  onClearSelection,
   onVisualStyleChange,
   onTextContentChange,
   onTextEditingStateChange,
@@ -2497,6 +2502,10 @@ export function DesignCanvas({
         return;
       }
       if (!e.data || !e.data.type) return;
+      if (e.data.type === "clear-selection") {
+        onClearSelection?.();
+        return;
+      }
       if (e.data.type === "element-select") {
         onElementSelect(e.data.payload);
       }
@@ -2726,6 +2735,7 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onElementHover,
+    onClearSelection,
     onVisualStyleChange,
     onTextContentChange,
     onTextEditingStateChange,

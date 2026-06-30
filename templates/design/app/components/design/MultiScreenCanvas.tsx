@@ -137,6 +137,7 @@ interface MultiScreenCanvasProps {
   selectedScreenIds?: string[];
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
+  directlyHoveredScreenId?: string | null;
   previewDeviceFrame?: DeviceFrameType;
   activeTool?: MultiScreenCanvasTool;
   toolProps?: CanvasToolProps;
@@ -203,15 +204,51 @@ const MAX_WHEEL_PAN_DELTA = 140;
 const PIXEL_GRID_ZOOM = 800;
 // During a zoom gesture the constant-size selection chrome is frozen (we don't
 // re-render); on commit it recomputes to its fixed screen size. These transitions
-// ease that recompute instead of snapping. Only chromeScale-driven props are
-// listed, so selection/geometry/rotation changes are never animated.
+// are enabled only for that brief settle, so normal selection, resize, and
+// screen-switch geometry stays pinned to the frame.
 const CHROME_SETTLE_MS = 150;
-const CHROME_BORDER_TRANSITION = `inset ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, opacity 150ms ease-out`;
-const CHROME_HANDLE_TRANSITION = `width ${CHROME_SETTLE_MS}ms ease-out, height ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, top ${CHROME_SETTLE_MS}ms ease-out, bottom ${CHROME_SETTLE_MS}ms ease-out, left ${CHROME_SETTLE_MS}ms ease-out, right ${CHROME_SETTLE_MS}ms ease-out`;
+const CHROME_OPACITY_TRANSITION = "opacity 150ms ease-out";
+const CHROME_BORDER_SETTLE_TRANSITION = `inset ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
+const SELECTION_BOX_SETTLE_TRANSITION = `border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
+const CHROME_HANDLE_SETTLE_TRANSITION = `width ${CHROME_SETTLE_MS}ms ease-out, height ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, top ${CHROME_SETTLE_MS}ms ease-out, bottom ${CHROME_SETTLE_MS}ms ease-out, left ${CHROME_SETTLE_MS}ms ease-out, right ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
 // Frame header (name + dimensions + "Full view" button) is counter-scaled via
 // transform to stay a fixed screen size; ease that scale on zoom-settle. opacity
 // is included so the button's hover-fade (transition-opacity) keeps working.
-const CHROME_LABEL_TRANSITION = `transform ${CHROME_SETTLE_MS}ms ease-out, opacity 150ms ease-out`;
+const CHROME_LABEL_SETTLE_TRANSITION = `transform ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
+
+export function getChromeBorderTransition(chromeSettling: boolean) {
+  return chromeSettling
+    ? CHROME_BORDER_SETTLE_TRANSITION
+    : CHROME_OPACITY_TRANSITION;
+}
+
+export function getSelectionBoxTransition(chromeSettling: boolean) {
+  return chromeSettling ? SELECTION_BOX_SETTLE_TRANSITION : "none";
+}
+
+export function isDirectScreenHoverTarget(
+  target: EventTarget | null,
+  currentTarget: HTMLElement,
+) {
+  if (target === currentTarget) return true;
+  const element =
+    target && typeof (target as Element).closest === "function"
+      ? (target as Element)
+      : null;
+  return !!element && !element.closest("[data-screen-content]");
+}
+
+function getChromeHandleTransition(chromeSettling: boolean) {
+  return chromeSettling
+    ? CHROME_HANDLE_SETTLE_TRANSITION
+    : CHROME_OPACITY_TRANSITION;
+}
+
+function getChromeLabelTransition(chromeSettling: boolean) {
+  return chromeSettling
+    ? CHROME_LABEL_SETTLE_TRANSITION
+    : CHROME_OPACITY_TRANSITION;
+}
 const DRAFT_FRAME_WIDTH = 320;
 const DRAFT_FRAME_HEIGHT = 640;
 const DRAFT_RECT_WIDTH = 160;
@@ -447,6 +484,7 @@ export function MultiScreenCanvas({
   selectedScreenIds,
   activeScreenHasHoveredChild = false,
   hoveredChildScreenId,
+  directlyHoveredScreenId,
   previewDeviceFrame = "none",
   activeTool,
   toolProps,
@@ -521,6 +559,9 @@ export function MultiScreenCanvas({
   const worldRef = useRef<HTMLDivElement>(null);
   const pixelGridRef = useRef<HTMLDivElement>(null);
   const viewCommitTimerRef = useRef<number | null>(null);
+  const pendingChromeSettleRef = useRef(false);
+  const chromeSettleTimerRef = useRef<number | null>(null);
+  const [chromeSettling, setChromeSettling] = useState(false);
   const previousPreviewDeviceFrameRef = useRef(previewDeviceFrame);
 
   const getResolvedMetadata = useCallback(
@@ -781,6 +822,9 @@ export function MultiScreenCanvas({
       }
       if (viewCommitTimerRef.current !== null) {
         window.clearTimeout(viewCommitTimerRef.current);
+      }
+      if (chromeSettleTimerRef.current !== null) {
+        window.clearTimeout(chromeSettleTimerRef.current);
       }
     };
   }, []);
@@ -2514,21 +2558,41 @@ export function MultiScreenCanvas({
     }
   }, []);
 
+  const startChromeSettle = useCallback(() => {
+    if (chromeSettleTimerRef.current !== null) {
+      window.clearTimeout(chromeSettleTimerRef.current);
+    }
+    setChromeSettling(true);
+    chromeSettleTimerRef.current = window.setTimeout(() => {
+      chromeSettleTimerRef.current = null;
+      setChromeSettling(false);
+    }, CHROME_SETTLE_MS);
+  }, []);
+
   const commitView = useCallback(() => {
     viewCommitTimerRef.current = null;
+    const shouldSettleChrome = pendingChromeSettleRef.current;
+    pendingChromeSettleRef.current = false;
+    if (shouldSettleChrome) startChromeSettle();
     setCanvasZoom(zoomRef.current);
     setPan(panRef.current);
     onZoomChange?.(zoomRef.current);
-  }, [onZoomChange]);
+  }, [onZoomChange, startChromeSettle]);
 
   // Debounced: only commit to React state once the gesture has been idle for a
   // beat, so a continuous pinch produces zero re-renders until the user pauses.
-  const scheduleViewCommit = useCallback(() => {
-    if (viewCommitTimerRef.current !== null) {
-      window.clearTimeout(viewCommitTimerRef.current);
-    }
-    viewCommitTimerRef.current = window.setTimeout(commitView, 120);
-  }, [commitView]);
+  const scheduleViewCommit = useCallback(
+    (options?: { settleChrome?: boolean }) => {
+      if (options?.settleChrome) {
+        pendingChromeSettleRef.current = true;
+      }
+      if (viewCommitTimerRef.current !== null) {
+        window.clearTimeout(viewCommitTimerRef.current);
+      }
+      viewCommitTimerRef.current = window.setTimeout(commitView, 120);
+    },
+    [commitView],
+  );
 
   const flushPendingWheelGesture = useCallback(() => {
     wheelGestureFrameRef.current = null;
@@ -2559,7 +2623,7 @@ export function MultiScreenCanvas({
       zoomRef.current = nextZoom;
       panRef.current = nextPan;
       applyViewToDom();
-      scheduleViewCommit();
+      scheduleViewCommit({ settleChrome: true });
       return;
     }
 
@@ -2999,6 +3063,7 @@ export function MultiScreenCanvas({
               screenContent={screenContentById.get(screen.id)}
               isActive={screen.id === activeId}
               isSelected={selectedIdSet.has(screen.id)}
+              isDirectlyHovered={screen.id === directlyHoveredScreenId}
               hasHoveredChild={
                 (screen.id === activeId && activeScreenHasHoveredChild) ||
                 screen.id === hoveredChildScreenId
@@ -3009,6 +3074,7 @@ export function MultiScreenCanvas({
               creationToolActive={creationToolActive}
               canvasGestureActive={canvasGestureActive}
               chromeScale={chromeScale}
+              chromeSettling={chromeSettling}
               onPick={handleFrameClick}
               onEdit={handleFrameDoubleClick}
               onStartFrameDrag={beginFrameDrag}
@@ -3027,6 +3093,7 @@ export function MultiScreenCanvas({
             groupSelected={Boolean(selectedDraftGroupBounds)}
             penActive={penActive}
             chromeScale={chromeScale}
+            chromeSettling={chromeSettling}
             onClick={handleDraftClick}
             onStartDrag={beginDraftDrag}
             onStartResize={beginDraftResize}
@@ -3041,6 +3108,7 @@ export function MultiScreenCanvas({
             groupSelected={false}
             penActive={penActive}
             chromeScale={chromeScale}
+            chromeSettling={chromeSettling}
             onClick={() => {}}
             onStartDrag={() => {}}
             onStartResize={() => {}}
@@ -3055,6 +3123,7 @@ export function MultiScreenCanvas({
           <SelectionBox
             geometry={singleSelectedFrame.geometry}
             chromeScale={chromeScale}
+            chromeSettling={chromeSettling}
             showRotate
             onStartResize={(handle, event) =>
               beginResize(singleSelectedFrame.id, handle, event)
@@ -3069,6 +3138,7 @@ export function MultiScreenCanvas({
           <SelectionBox
             geometry={singleSelectedDraft.geometry}
             chromeScale={chromeScale}
+            chromeSettling={chromeSettling}
             showRotate={false}
             onStartResize={(handle, event) =>
               beginDraftResize(singleSelectedDraft.id, handle, event)
@@ -3081,6 +3151,7 @@ export function MultiScreenCanvas({
           <GroupSelectionBox
             bounds={selectedGroupBounds}
             chromeScale={chromeScale}
+            chromeSettling={chromeSettling}
             onStartResize={beginGroupResize}
           />
         ) : null}
@@ -3089,6 +3160,7 @@ export function MultiScreenCanvas({
           <GroupSelectionBox
             bounds={selectedDraftGroupBounds}
             chromeScale={chromeScale}
+            chromeSettling={chromeSettling}
             onStartResize={beginDraftGroupResize}
           />
         ) : null}
@@ -3183,6 +3255,7 @@ function DraftPrimitiveLayer({
   groupSelected,
   penActive,
   chromeScale,
+  chromeSettling,
   preview = false,
   onClick,
   onStartDrag,
@@ -3193,6 +3266,7 @@ function DraftPrimitiveLayer({
   groupSelected: boolean;
   penActive: boolean;
   chromeScale: number;
+  chromeSettling: boolean;
   preview?: boolean;
   onClick: (id: string, e: React.MouseEvent) => void;
   onStartDrag: (id: string, e: React.MouseEvent) => void;
@@ -3244,7 +3318,7 @@ function DraftPrimitiveLayer({
         style={{
           inset: -5 * chromeScale,
           borderWidth: 1.5 * chromeScale,
-          transition: CHROME_BORDER_TRANSITION,
+          transition: getChromeBorderTransition(chromeSettling),
         }}
       />
       <ResizeHandles
@@ -3252,6 +3326,7 @@ function DraftPrimitiveLayer({
         enabled={!penActive && preview}
         showRotate={false}
         chromeScale={chromeScale}
+        chromeSettling={chromeSettling}
         onStartResize={(handle, event) =>
           onStartResize(draft.id, handle, event)
         }
@@ -3505,6 +3580,7 @@ interface ScreenProps {
   creationToolActive: boolean;
   canvasGestureActive: boolean;
   chromeScale: number;
+  chromeSettling: boolean;
   screenContent?: ReactNode;
   onPick: (id: string, e: React.MouseEvent<HTMLElement>) => void;
   onEdit: (id: string, e: React.MouseEvent<HTMLElement>) => void;
@@ -3535,6 +3611,7 @@ const Screen = memo(function Screen({
   creationToolActive,
   canvasGestureActive,
   chromeScale,
+  chromeSettling,
   onPick,
   onEdit,
   onStartFrameDrag,
@@ -3548,15 +3625,22 @@ const Screen = memo(function Screen({
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
   const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
-  const emphasized = isActive || isSelected;
+  const [directlyHovered, setDirectlyHovered] = useState(false);
+  const frameDirectlyHovered =
+    directlyHovered && !creationToolActive && !canvasGestureActive;
+  const emphasized = isSelected || frameDirectlyHovered;
+  const activeOrEmphasized = isActive || emphasized;
   const selectionOutlined = isSelected && !groupSelected;
   const showHoverChrome =
-    !creationToolActive && !isSelected && !groupSelected && !hasHoveredChild;
+    frameDirectlyHovered && !isSelected && !groupSelected && !hasHoveredChild;
   const screenContentInteractive =
     Boolean(screenContent) &&
     !penActive &&
     !creationToolActive &&
     !canvasGestureActive;
+  const updateDirectHover = useCallback((next: boolean) => {
+    setDirectlyHovered((current) => (current === next ? current : next));
+  }, []);
   const frameLabelHeight = FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
   const fullViewOutsideFrame =
@@ -3628,11 +3712,13 @@ const Screen = memo(function Screen({
         <div
           data-frame-label
           className="absolute left-1 top-1/2 flex min-w-0 items-center gap-1.5"
+          onMouseEnter={() => updateDirectHover(true)}
+          onMouseLeave={() => updateDirectHover(false)}
           style={{
             maxWidth: labelInfoMaxWidth,
             transform: `translateY(-50%) scale(${chromeScale})`,
             transformOrigin: "left center",
-            transition: CHROME_LABEL_TRANSITION,
+            transition: getChromeLabelTransition(chromeSettling),
           }}
         >
           <span
@@ -3645,7 +3731,11 @@ const Screen = memo(function Screen({
             data-frame-title
             className={cn(
               "min-w-0 truncate text-[11px] font-medium",
-              emphasized ? "text-foreground" : "text-muted-foreground",
+              emphasized
+                ? "text-[var(--design-editor-accent-color)]"
+                : activeOrEmphasized
+                  ? "text-foreground"
+                  : "text-muted-foreground",
             )}
             title={screen.filename}
           >
@@ -3666,7 +3756,6 @@ const Screen = memo(function Screen({
           className={cn(
             "absolute top-1/2 z-40 flex h-5 shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "group-hover/frame:opacity-100 group-focus-within/frame:opacity-100",
             emphasized && "opacity-100",
             fullViewOutsideFrame ? "left-full" : "right-1",
           )}
@@ -3676,7 +3765,7 @@ const Screen = memo(function Screen({
             transformOrigin: fullViewOutsideFrame
               ? "left center"
               : "right center",
-            transition: CHROME_LABEL_TRANSITION,
+            transition: getChromeLabelTransition(chromeSettling),
           }}
           aria-label={t("multiScreenCanvas.fullView")}
           title={t("multiScreenCanvas.fullView")}
@@ -3685,6 +3774,8 @@ const Screen = memo(function Screen({
             event.preventDefault();
             event.stopPropagation();
           }}
+          onMouseEnter={() => updateDirectHover(true)}
+          onMouseLeave={() => updateDirectHover(false)}
         >
           <IconMaximize className="size-3 shrink-0" />
           <span className="truncate">{t("multiScreenCanvas.fullView")}</span>
@@ -3695,7 +3786,10 @@ const Screen = memo(function Screen({
         role="button"
         tabIndex={0}
         onClick={(e) => {
-          if (isInteractiveScreenContentTarget(e.target)) return;
+          if (isInteractiveScreenContentTarget(e.target)) {
+            e.stopPropagation();
+            return;
+          }
           e.stopPropagation();
           if (suppressNextClick.current) {
             suppressNextClick.current = false;
@@ -3705,13 +3799,19 @@ const Screen = memo(function Screen({
           onPick(screen.id, e);
         }}
         onDoubleClick={(e) => {
-          if (isInteractiveScreenContentTarget(e.target)) return;
+          if (isInteractiveScreenContentTarget(e.target)) {
+            e.stopPropagation();
+            return;
+          }
           e.preventDefault();
           e.stopPropagation();
         }}
         onMouseDown={(e) => {
+          if (isInteractiveScreenContentTarget(e.target)) {
+            e.stopPropagation();
+            return;
+          }
           if (creationToolActive) return;
-          if (isInteractiveScreenContentTarget(e.target)) return;
           if (e.detail > 1) {
             e.stopPropagation();
             return;
@@ -3730,6 +3830,12 @@ const Screen = memo(function Screen({
             onStartFrameDrag(screen.id, e);
           }
         }}
+        onMouseMove={(e) => {
+          updateDirectHover(
+            isDirectScreenHoverTarget(e.target, e.currentTarget),
+          );
+        }}
+        onMouseLeave={() => updateDirectHover(false)}
         className={cn(
           "group/artboard relative block overflow-visible rounded-lg bg-background text-left outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -3752,22 +3858,22 @@ const Screen = memo(function Screen({
           className={cn(
             "pointer-events-none absolute border transition-opacity",
             showHoverChrome
-              ? "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100"
+              ? "border-[var(--design-editor-accent-color)] opacity-100"
               : "border-transparent opacity-0",
           )}
           style={{
             inset: -5 * chromeScale,
             borderRadius: 13 * chromeScale,
             borderWidth: 1.5 * chromeScale,
-            transition: CHROME_BORDER_TRANSITION,
+            transition: getChromeBorderTransition(chromeSettling),
           }}
         />
         <span
+          data-screen-content
           className={cn(
             "relative block h-full w-full overflow-hidden rounded-lg border bg-white shadow-2xl transition-colors",
             "border-border",
-            showHoverChrome &&
-              "group-hover/artboard:border-muted-foreground/60",
+            showHoverChrome && "border-muted-foreground/60",
           )}
           style={{ pointerEvents: screenContentInteractive ? "auto" : "none" }}
         >
@@ -3827,6 +3933,7 @@ const Screen = memo(function Screen({
           showOnHover={false}
           showRotate
           chromeScale={chromeScale}
+          chromeSettling={chromeSettling}
           onStartResize={(handle, e) => onStartResize(screen.id, handle, e)}
           onStartRotate={(e) => onStartRotate(screen.id, e)}
         />
@@ -3850,6 +3957,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.creationToolActive === next.creationToolActive &&
     prev.canvasGestureActive === next.canvasGestureActive &&
     prev.chromeScale === next.chromeScale &&
+    prev.chromeSettling === next.chromeSettling &&
     prev.onPick === next.onPick &&
     prev.onEdit === next.onEdit &&
     prev.onStartFrameDrag === next.onStartFrameDrag &&
@@ -3862,10 +3970,12 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
 function GroupSelectionBox({
   bounds,
   chromeScale,
+  chromeSettling,
   onStartResize,
 }: {
   bounds: NonNullable<ReturnType<typeof getFrameGroupBounds>>;
   chromeScale: number;
+  chromeSettling: boolean;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
 }) {
   return (
@@ -3877,6 +3987,7 @@ function GroupSelectionBox({
         height: bounds.height,
       }}
       chromeScale={chromeScale}
+      chromeSettling={chromeSettling}
       showRotate={false}
       onStartResize={onStartResize}
       onStartRotate={() => {}}
@@ -3887,12 +3998,14 @@ function GroupSelectionBox({
 function SelectionBox({
   geometry,
   chromeScale,
+  chromeSettling,
   showRotate = true,
   onStartResize,
   onStartRotate,
 }: {
   geometry: FrameGeometry;
   chromeScale: number;
+  chromeSettling: boolean;
   showRotate?: boolean;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
@@ -3909,7 +4022,7 @@ function SelectionBox({
         height: geometry.height,
         borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
-        transition: CHROME_BORDER_TRANSITION,
+        transition: getSelectionBoxTransition(chromeSettling),
         transform: geometry.rotation
           ? `rotate(${geometry.rotation}deg)`
           : undefined,
@@ -3922,6 +4035,7 @@ function SelectionBox({
         enabled
         showRotate={showRotate}
         chromeScale={chromeScale}
+        chromeSettling={chromeSettling}
         onStartResize={onStartResize}
         onStartRotate={onStartRotate}
       />
@@ -3935,6 +4049,7 @@ function ResizeHandles({
   showOnHover = true,
   showRotate = true,
   chromeScale = 1,
+  chromeSettling = false,
   onStartResize,
   onStartRotate,
 }: {
@@ -3943,6 +4058,7 @@ function ResizeHandles({
   showOnHover?: boolean;
   showRotate?: boolean;
   chromeScale?: number;
+  chromeSettling?: boolean;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
 }) {
@@ -3968,7 +4084,12 @@ function ResizeHandles({
           key={config.handle}
           data-resize-handle={config.handle}
           className={edgeHandleClass}
-          style={edgeHandleStyle(config.handle, config.cursor, chromeScale)}
+          style={edgeHandleStyle(
+            config.handle,
+            config.cursor,
+            chromeScale,
+            chromeSettling,
+          )}
           onMouseDown={(e) => onStartResize(config.handle, e)}
         />
       ))}
@@ -3977,7 +4098,12 @@ function ResizeHandles({
           key={config.handle}
           data-resize-handle={config.handle}
           className={visibleHandleClass}
-          style={cornerHandleStyle(config.handle, config.cursor, chromeScale)}
+          style={cornerHandleStyle(
+            config.handle,
+            config.cursor,
+            chromeScale,
+            chromeSettling,
+          )}
           onMouseDown={(e) => onStartResize(config.handle, e)}
         />
       ))}
@@ -3996,7 +4122,11 @@ function ResizeHandles({
                         "group-hover/artboard:opacity-100 group-focus-visible/artboard:opacity-100",
                     ),
               )}
-              style={rotateHandleStyle(config.corner, chromeScale)}
+              style={rotateHandleStyle(
+                config.corner,
+                chromeScale,
+                chromeSettling,
+              )}
               onMouseDown={onStartRotate}
             />
           ))
@@ -4038,13 +4168,14 @@ function edgeHandleStyle(
   handle: ResizeHandle,
   cursor: string,
   chromeScale: number,
+  chromeSettling: boolean,
 ): CSSProperties {
   const size = 14 * chromeScale;
   const offset = -size / 2;
   if (handle === "n" || handle === "s") {
     return {
       cursor,
-      transition: CHROME_HANDLE_TRANSITION,
+      transition: getChromeHandleTransition(chromeSettling),
       left: 0,
       right: 0,
       height: size,
@@ -4053,7 +4184,7 @@ function edgeHandleStyle(
   }
   return {
     cursor,
-    transition: CHROME_HANDLE_TRANSITION,
+    transition: getChromeHandleTransition(chromeSettling),
     top: 0,
     bottom: 0,
     width: size,
@@ -4065,12 +4196,13 @@ function cornerHandleStyle(
   handle: ResizeHandle,
   cursor: string,
   chromeScale: number,
+  chromeSettling: boolean,
 ): CSSProperties {
   const size = 10 * chromeScale;
   const offset = -size / 2;
   return {
     cursor,
-    transition: CHROME_HANDLE_TRANSITION,
+    transition: getChromeHandleTransition(chromeSettling),
     width: size,
     height: size,
     borderWidth: Math.max(1, 1.25 * chromeScale),
@@ -4079,12 +4211,16 @@ function cornerHandleStyle(
   };
 }
 
-function rotateHandleStyle(corner: string, chromeScale: number): CSSProperties {
+function rotateHandleStyle(
+  corner: string,
+  chromeScale: number,
+  chromeSettling: boolean,
+): CSSProperties {
   const size = 28 * chromeScale;
   const offset = -34 * chromeScale;
   return {
     cursor: "grab",
-    transition: CHROME_HANDLE_TRANSITION,
+    transition: getChromeHandleTransition(chromeSettling),
     width: size,
     height: size,
     ...(corner.includes("n") ? { top: offset } : { bottom: offset }),
