@@ -2799,7 +2799,7 @@ function DesignWorkspaceRail({
                     onPanelChange(item.panel);
                   }}
                   className={cn(
-                    "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1.5 rounded-none text-[10px] font-medium leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                     disabled &&
                       "cursor-default opacity-35 hover:text-muted-foreground",
                     active && "text-foreground",
