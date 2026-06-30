@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useComments } from "@/hooks/use-comments";
+import { useProcessBuilderBodyHydration } from "@/hooks/use-content-database";
 import {
   useDocument,
   useDocuments,
@@ -273,6 +274,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const t = useT();
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
+  const processBuilderBodies = useProcessBuilderBodyHydration(
+    document.databaseMembership?.databaseDocumentId ?? documentId,
+  );
   const canEdit = document.canEdit ?? true;
   // The block render context (asset/upload resolvers, inline markdown reader,
   // panel popover) is stable for the editor's lifetime. Created once here and
@@ -303,6 +307,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     string | null
   >(document.updatedAt ?? null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promotedBuilderBodyRef = useRef<string | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
@@ -324,6 +329,25 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     document.updatedAt ?? null,
   );
   documentUpdatedAtRef.current = document.updatedAt ?? null;
+  useEffect(() => {
+    const membership = document.databaseMembership;
+    const hydration = membership?.bodyHydration;
+    if (
+      !membership?.sourceId ||
+      !hydration ||
+      (hydration.status !== "pending" && hydration.status !== "error")
+    ) {
+      return;
+    }
+    const promotionKey = `${membership.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
+    if (promotedBuilderBodyRef.current === promotionKey) return;
+    promotedBuilderBodyRef.current = promotionKey;
+    processBuilderBodies.mutate({
+      sourceId: membership.sourceId,
+      documentId,
+      limit: 1,
+    });
+  }, [document.databaseMembership, documentId, processBuilderBodies.mutate]);
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);

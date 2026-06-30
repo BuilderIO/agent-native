@@ -221,6 +221,7 @@ function depsFor(args: {
             exists: true,
             published: "draft",
             lastUpdated: BUILDER_LAST_UPDATED_MS,
+            blocksHash: null,
             id: "builder-entry-1",
           },
     ),
@@ -520,6 +521,7 @@ describe("execute Builder source execution", () => {
         exists: true,
         published: "draft",
         lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
         id: "builder-entry-1",
       },
     });
@@ -563,6 +565,7 @@ describe("execute Builder source execution", () => {
         exists: false,
         published: null,
         lastUpdated: null,
+        blocksHash: null,
         id: null,
       },
     });
@@ -644,6 +647,7 @@ describe("execute Builder source execution", () => {
         exists: true,
         published: "published",
         lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
         id: "builder-entry-1",
       },
     });
@@ -692,6 +696,7 @@ describe("execute Builder source execution", () => {
         exists: true,
         published: "published",
         lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
         id: "builder-entry-1",
       },
     });

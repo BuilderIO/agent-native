@@ -113,10 +113,11 @@ cd templates/content && pnpm action <name> [args]
 | `attach-content-database-source`            | `--databaseId <id>` or `--documentId <id> [--sourceType mock\|builder-cms] [--sourceName] [--sourceTable] [--relationshipMode items\|details] [--join <json>]` | Attach a source binding; use `items` to add more rows and `details` to match a source onto existing rows                                |
 | `change-content-database-source-role`       | `--databaseId <id>` or `--documentId <id> --sourceId <id> --relationshipMode items\|details [--join <json>]`                                                   | Change an attached source between adding rows and adding matched detail columns without removing the source                             |
 | `refresh-content-database-source`           | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Refresh the read-only source status envelope; Builder CMS reads live entries only when configured                                       |
+| `process-builder-body-hydration`            | `--sourceId <id> [--documentId <id>] [--limit <n>]`                                                                                                            | Hydrate queued Builder article bodies into readable Content markdown with preserved source-component markers                            |
 | `set-content-database-source-write-mode`    | `--databaseId <id>` or `--documentId <id> --liveWritesEnabled true\|false [--allowedWriteModes <json>]`                                                        | Enable/disable per-source Builder live writes; enabling is allowed only for `agent-native-blog-article-test` with explicit modes        |
 | `stage-builder-revision`                    | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Stage pending local Builder CMS changes as a local-only save-revision record; never calls Builder                                       |
 | `review-content-database-source-change-set` | `--databaseId <id>` or `--documentId <id> --changeSetId <id> --decision approve\|reject [--note]`                                                              | Approve or reject a local source change-set review record without provider writes                                                       |
-| `prepare-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--pushModeConfirmation autosave\|draft\|publish]`                                                | Prepare a dry-run Builder execution gate with request semantics/idempotency key; never calls Builder                                    |
+| `prepare-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--pushModeConfirmation autosave\|draft\|publish]`                                                | Prepare a dry-run Builder execution gate for approved field/body changes with request semantics/idempotency key; never calls Builder    |
 | `validate-builder-source-execution`         | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--idempotencyKey <key>]`                                                                         | Validate/replay a prepared Builder execution gate locally as a dry run; never calls Builder                                             |
 | `execute-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--idempotencyKey <key>] [--pushModeConfirmation autosave\|draft\|publish]`                       | Execute a guarded live Builder write only when approved, validated, enabled, idempotent, and targeting `agent-native-blog-article-test` |
 | `add-database-item`                         | `--databaseId <id> [--title <text>] [--propertyValues <json>]`                                                                                                 | Add a page row to a database, optionally seeding property values                                                                        |
@@ -208,6 +209,14 @@ Content has two file workflows:
   Edit reusable symbol content in that emitted source file; do not retarget
   `entry`, `model`, or `source` in the parent MDX unless a dedicated Builder
   retargeting workflow is added.
+- **Builder source components:** Builder CMS database body hydration renders
+  unsupported provider-native body blocks as `<SourceComponent ... />` markers.
+  Treat these as read-only preservation anchors, not editable local blocks.
+  Agents may edit surrounding prose, but must not delete, duplicate, move, or
+  rewrite `rawRef`, `rawHash`, or marker ids unless a dedicated provider
+  conversion workflow exists. Guarded Builder write-back refuses missing,
+  tampered, or structurally moved markers so source-native components are not
+  lost.
 - **Picked folders and components:** browser-picked folders can be the
   source of truth for `.md`/`.mdx` files, but the browser does not expose an
   absolute path that Vite can compile. Component previews from a picked
