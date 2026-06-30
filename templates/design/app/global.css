@@ -178,6 +178,32 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
+.design-editor-not-found-grid {
+  background-image:
+    linear-gradient(
+      var(--design-editor-panel-divider-color) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      var(--design-editor-panel-divider-color) 1px,
+      transparent 1px
+    );
+  background-size: 36px 36px;
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    black 0,
+    black 34%,
+    transparent 72%
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    black 0,
+    black 34%,
+    transparent 72%
+  );
+}
+
 /* Design has a dense editor surface, so its side chrome needs more contrast
    than the shared shell defaults and a real divider in addition to shadow. */
 .agent-layout-shell,

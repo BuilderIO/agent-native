@@ -8882,16 +8882,31 @@ ${serializedHtml}
 
   if (!design) {
     return (
-      <div className="flex-1 bg-background flex flex-col items-center justify-center gap-4">
-        <p className="text-muted-foreground">{t("designEditor.notFound")}</p>
-        <Button
-          variant="outline"
-          onClick={() => navigate("/")}
-          className="cursor-pointer"
-        >
-          <IconArrowLeft className="w-4 h-4" />
-          {t("designEditor.backToDesigns")}
-        </Button>
+      <div className="relative flex min-h-dvh flex-1 items-center justify-center overflow-hidden bg-[var(--design-editor-canvas-bg)] px-6 py-12">
+        <div
+          aria-hidden="true"
+          className="design-editor-not-found-grid absolute inset-0 opacity-60"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 h-px bg-[var(--design-editor-panel-divider-color)]"
+        />
+        <div className="relative flex w-full max-w-sm flex-col items-center text-center">
+          <div className="mb-2 text-[11px] font-medium uppercase text-muted-foreground">
+            404
+          </div>
+          <h1 className="text-xl font-semibold text-foreground">
+            {t("designEditor.notFound")}
+          </h1>
+          <Button
+            variant="default"
+            onClick={() => navigate("/")}
+            className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)] px-3.5 text-[var(--design-editor-accent-contrast-color)] shadow-sm hover:border-[var(--design-editor-accent-hover-color)] hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+          >
+            <IconArrowLeft className="size-4 rtl:-scale-x-100" />
+            {t("designEditor.backToDesigns")}
+          </Button>
+        </div>
       </div>
     );
   }
