@@ -1,13 +1,11 @@
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 import {
-  PromptComposer,
   agentNativePath,
   sendToAgentChat,
+  useActionQuery,
   useActionMutation,
   useChangeVersions,
   useT,
-  type PromptComposerProps,
-  type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
@@ -16,31 +14,45 @@ import {
 } from "@agent-native/core/embedding/react";
 import type { ShaderDescriptor } from "@shared/shader-presets";
 import {
+  IconAdjustmentsHorizontal,
+  IconAssembly,
+  IconBrandFigma,
+  IconChevronDown,
   IconExternalLink,
   IconLock,
-  IconPalette,
   IconPhoto,
   IconPlayerPlay,
-  IconPlus,
   IconPuzzle,
+  IconSearch,
   IconSparkles,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { ShaderFillsPanel } from "./inspector/ShaderFillsPanel";
@@ -100,9 +112,11 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
 interface DesignExtensionsPanelProps {
   context: DesignExtensionSlotContext;
   className?: string;
+  hideAssetLibrary?: boolean;
+  title?: string;
 }
 
-type PromptComposerSubmitHandler = PromptComposerProps["onSubmit"];
+type CreateExtensionSubmitHandler = (text: string) => void;
 
 // ─── First-party extension ids ───────────────────────────────────────────────
 
@@ -112,9 +126,23 @@ type FirstPartyExtId =
   | "design.token-auditor"
   | "design.motion-presets";
 
+type ToolSourceFilter = "all" | "built-in" | "extensions";
+type ToolCategoryFilter = "all" | "shader" | "tokens" | "motion" | "plugins";
+
+type FirstPartyRow = {
+  id: FirstPartyExtId;
+  label: string;
+  description: string;
+  category: ToolCategoryFilter;
+  icon: React.ReactNode;
+  badge?: React.ReactNode;
+  panel: React.ReactNode;
+};
+
 // ─── Assets picker types (mirrors PromptDialog) ───────────────────────────
 
-const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+const DEFAULT_ASSETS_PICKER_URL =
+  "https://assets.agent-native.com/library?__an_picker=1&mediaType=image&layout=vertical";
 
 interface PickedAssetPayload {
   url?: unknown;
@@ -128,12 +156,30 @@ interface PickedAssetPayload {
 }
 
 function assetsPickerUrl(): string {
-  return (
+  const configured =
     (typeof import.meta !== "undefined" &&
       (import.meta as { env?: Record<string, string> }).env
         ?.VITE_AGENT_NATIVE_ASSETS_PICKER_URL) ||
-    DEFAULT_ASSETS_PICKER_URL
-  );
+    DEFAULT_ASSETS_PICKER_URL;
+  try {
+    const base =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://assets.agent-native.com";
+    const url = new URL(configured, base);
+    if (url.pathname === "/picker") url.pathname = "/library";
+    url.searchParams.set("__an_picker", "1");
+    url.searchParams.set(
+      "mediaType",
+      url.searchParams.get("mediaType") || "image",
+    );
+    url.searchParams.set("layout", "vertical");
+    url.searchParams.set("embedded", "1");
+    url.searchParams.set("callerAppId", "design");
+    return url.toString();
+  } catch {
+    return configured;
+  }
 }
 
 function pickedAssetString(value: unknown): string | null {
@@ -161,7 +207,7 @@ function buildExtensionCreateContext(
     ? JSON.stringify(context.selectedElement, null, 2)
     : "No element is currently selected.";
   return [
-    `The user is in the Design editor Extensions inspector for design id "${context.designId}"${context.designTitle ? ` (title: "${context.designTitle}")` : ""}.`,
+    `The user is in the Design editor Tools panel for design id "${context.designId}"${context.designTitle ? ` (title: "${context.designTitle}")` : ""}.`,
     context.activeFileId
       ? `Active screen: "${context.activeFilename ?? context.activeFileId}" (file id: "${context.activeFileId}").`
       : "There is no active screen yet.",
@@ -169,7 +215,7 @@ function buildExtensionCreateContext(
     `User request: "${prompt}"`,
     "",
     "After create-extension succeeds, call add-extension-slot-target with this slot id, then install-extension with this slot id so the extension appears in the editor panel immediately.",
-    'If create-extension opens the standalone extension editor, call navigate with view "editor", the current design id, and inspectorTab "extensions" after install so the user returns to this inline panel.',
+    'If create-extension opens the standalone extension editor, call navigate with view "editor", the current design id, and leftPanel "tools" after install so the user returns to this inline panel.',
     "",
     "The extension will receive window.slotContext and onSlotContext updates with the current design selection:",
     JSON.stringify(
@@ -254,7 +300,6 @@ interface FirstPartyRowProps {
 
 function FirstPartyExtRow({
   label,
-  description,
   icon,
   badge,
   isOpen,
@@ -262,27 +307,72 @@ function FirstPartyExtRow({
   children,
 }: FirstPartyRowProps) {
   return (
-    <div className="overflow-hidden rounded border border-border bg-background">
+    <div className="overflow-hidden rounded-md">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-accent/50 active:bg-accent"
+        className="group flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-accent/60 active:bg-accent"
       >
-        <span className="flex size-6 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/70 text-muted-foreground transition-colors group-hover:border-border group-hover:bg-muted">
           {icon}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[11px] font-medium text-foreground">
+          <span className="block truncate text-sm font-medium leading-tight text-foreground">
             {label}
           </span>
-          <span className="block truncate text-[10px] leading-tight text-muted-foreground">
-            {description}
+          <span className="mt-0.5 flex items-center gap-1.5 truncate text-xs leading-none text-muted-foreground">
+            <IconPuzzle className="size-3 shrink-0" />
+            <span className="truncate">Built-in</span>
           </span>
         </span>
         {badge}
       </button>
-      {isOpen && <div className="border-t border-border/60">{children}</div>}
+      {isOpen && (
+        <div className="mb-2 ml-[3.75rem] overflow-hidden rounded-md border border-border/70 bg-background/70">
+          {children}
+        </div>
+      )}
     </div>
+  );
+}
+
+function ToolFilterMenu<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  const selected = options.find((option) => option.value === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 cursor-pointer gap-1.5 rounded-md bg-transparent px-2.5 text-sm font-medium"
+        >
+          <IconAdjustmentsHorizontal className="size-4 text-muted-foreground" />
+          <span>{selected?.label ?? label}</span>
+          <IconChevronDown className="size-3.5 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-36">
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -292,20 +382,96 @@ interface AssetLibraryPanelProps {
   context: DesignExtensionSlotContext;
 }
 
-function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
-  const t = useT();
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerReady, setPickerReady] = useState(false);
-  const insertAsset = useActionMutation("insert-asset");
+type FigmaLibraryAsset = {
+  id: string;
+  kind: "component" | "component_set";
+  fileKey: string;
+  nodeId: string | null;
+  componentKey: string | null;
+  name: string;
+  description: string | null;
+  thumbnailUrl: string | null;
+  renderUrl: string | null;
+  insertUrl: string | null;
+  sourceUrl: string | null;
+  containingFrame: { name: string | null; nodeId: string | null } | null;
+  updatedAt: string | null;
+};
 
-  useEffect(() => {
-    if (pickerOpen) setPickerReady(false);
-  }, [pickerOpen]);
+type FigmaLibraryResponse = {
+  fileKey: string;
+  total: number;
+  returned: number;
+  assets: FigmaLibraryAsset[];
+};
+
+type DesignNativeAssetKind =
+  | "section-frame"
+  | "text-block"
+  | "button"
+  | "card"
+  | "input"
+  | "nav-bar"
+  | "hero"
+  | "feature-grid";
+
+type DesignNativeAsset = {
+  kind: DesignNativeAssetKind;
+  title: string;
+  description: string;
+  category: "primitive" | "component" | "layout";
+  componentName: string;
+};
+
+type DesignNativeAssetsResponse = {
+  source: "design-native";
+  assets: DesignNativeAsset[];
+};
+
+const NATIVE_ASSET_CATEGORY_LABELS: Record<
+  DesignNativeAsset["category"],
+  string
+> = {
+  primitive: "Primitive",
+  component: "Component",
+  layout: "Layout",
+};
+
+export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
+  const [assetPickerReady, setAssetPickerReady] = useState(false);
+  const [figmaFileInput, setFigmaFileInput] = useState("");
+  const [figmaQueryInput, setFigmaQueryInput] = useState("");
+  const [figmaRequest, setFigmaRequest] = useState<{
+    fileUrl: string;
+    query?: string;
+  } | null>(null);
+  const nativeAssets = useActionQuery<DesignNativeAssetsResponse>(
+    "list-design-native-assets",
+  );
+  const insertNativeAsset = useActionMutation("insert-design-native-asset");
+  const insertAsset = useActionMutation("insert-asset");
+  const insertFigmaAsset = useActionMutation("insert-figma-library-asset");
+  const figmaAssets = useActionQuery<FigmaLibraryResponse>(
+    "list-figma-library-assets",
+    figmaRequest
+      ? {
+          fileUrl: figmaRequest.fileUrl,
+          query: figmaRequest.query,
+          limit: 48,
+          renderFormat: "svg",
+        }
+      : undefined,
+    { enabled: Boolean(figmaRequest) },
+  );
 
   const handleReady = useCallback(
     (_payload: unknown, _event: MessageEvent, ref: EmbeddedAppRef) => {
-      setPickerReady(true);
-      ref.postMessage("configure", {});
+      setAssetPickerReady(true);
+      ref.postMessage("configure", {
+        mediaType: "image",
+        layout: "vertical",
+        callerAppId: "design",
+      });
     },
     [],
   );
@@ -313,7 +479,7 @@ function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
   const handleMessage = useCallback(
     (name: string, payload: unknown) => {
       if (name === "close") {
-        setPickerOpen(false);
+        setAssetPickerReady(false);
         return;
       }
       if (name !== "chooseImage" && name !== "chooseAsset") return;
@@ -350,99 +516,293 @@ function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
           },
         },
       );
-
-      setPickerOpen(false);
     },
     [context.designId, context.activeFileId, insertAsset],
   );
 
-  const handleAskAgent = () => {
-    sendToAgentChat({
-      message:
-        "Open the Assets picker so I can choose an image to insert into the design.",
-      context: [
-        `Design id: ${context.designId}`,
-        context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
-        context.selectedElement?.selector
-          ? `Selected element selector: ${context.selectedElement.selector}`
-          : null,
-        "Call insert-asset with the chosen URL after the user picks from the Assets picker.",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      submit: true,
-      openSidebar: true,
-    });
+  const handleInsertNativeAsset = (asset: DesignNativeAsset) => {
+    insertNativeAsset.mutate(
+      {
+        kind: asset.kind,
+        designId: context.designId || undefined,
+        fileId: context.activeFileId || undefined,
+      },
+      {
+        onSuccess: () => {
+          toast.success(`${asset.title} inserted into design.`);
+        },
+        onError: (error) => {
+          toast.error(error.message || "Failed to insert native asset.");
+        },
+      },
+    );
+  };
+
+  const handleBrowseFigma = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const fileUrl = figmaFileInput.trim();
+    if (!fileUrl) return;
+    const query = figmaQueryInput.trim();
+    setFigmaRequest({ fileUrl, query: query || undefined });
+  };
+
+  const handleInsertFigmaAsset = (asset: FigmaLibraryAsset) => {
+    const renderUrl = asset.insertUrl ?? asset.renderUrl ?? asset.thumbnailUrl;
+    if (!renderUrl) {
+      toast.error("Figma did not return an insertable render URL.");
+      return;
+    }
+    insertFigmaAsset.mutate(
+      {
+        renderUrl,
+        fileKey: asset.fileKey,
+        nodeId: asset.nodeId ?? undefined,
+        componentKey: asset.componentKey ?? undefined,
+        kind: asset.kind,
+        name: asset.name,
+        description: asset.description ?? undefined,
+        sourceUrl: asset.sourceUrl ?? undefined,
+        designId: context.designId || undefined,
+        fileId: context.activeFileId || undefined,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Figma asset inserted into design.");
+        },
+        onError: (error) => {
+          toast.error(error.message || "Failed to insert Figma asset.");
+        },
+      },
+    );
   };
 
   return (
-    <div className="p-2.5">
-      <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
-        Browse and insert generated or uploaded images into the active design
-        screen. Inserts near the selected element when one is active.
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        <Button
-          type="button"
-          size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
-          disabled={insertAsset.isPending || !context.activeFileId}
-          onClick={() => setPickerOpen(true)}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Tabs defaultValue="native" className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b border-border/60 px-2 py-1.5">
+          <TabsList className="grid h-7 w-full grid-cols-3 rounded-md p-0.5">
+            <TabsTrigger value="native" className="h-6 gap-1 px-2 text-[11px]">
+              <IconAssembly className="size-3" />
+              Native
+            </TabsTrigger>
+            <TabsTrigger value="media" className="h-6 gap-1 px-2 text-[11px]">
+              <IconPhoto className="size-3" />
+              Media
+            </TabsTrigger>
+            <TabsTrigger value="figma" className="h-6 gap-1 px-2 text-[11px]">
+              <IconBrandFigma className="size-3" />
+              Figma
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent
+          value="native"
+          className="design-inspector-scroll m-0 min-h-0 flex-1 overflow-y-auto p-2.5"
         >
-          <IconPhoto className="size-3" />
-          {insertAsset.isPending ? "Inserting…" : "Browse Assets"}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
-          onClick={handleAskAgent}
+          {nativeAssets.isLoading && (
+            <div className="space-y-1.5">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <Skeleton key={index} className="h-16 rounded-md" />
+              ))}
+            </div>
+          )}
+
+          {nativeAssets.isError && (
+            <p className="rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive">
+              {nativeAssets.error.message}
+            </p>
+          )}
+
+          {!nativeAssets.isLoading && nativeAssets.data && (
+            <div className="space-y-1.5">
+              {nativeAssets.data.assets.map((asset) => (
+                <button
+                  key={asset.kind}
+                  type="button"
+                  disabled={
+                    !context.activeFileId || insertNativeAsset.isPending
+                  }
+                  onClick={() => handleInsertNativeAsset(asset)}
+                  className="group flex w-full cursor-pointer items-start gap-2 rounded-md border border-border bg-background px-2 py-2 text-left transition hover:border-primary/50 hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/50 text-muted-foreground group-hover:text-foreground">
+                    <IconAssembly className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-[11px] font-medium leading-tight text-foreground">
+                        {asset.title}
+                      </span>
+                      <span className="shrink-0 rounded border border-border/70 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
+                        {NATIVE_ASSET_CATEGORY_LABELS[asset.category]}
+                      </span>
+                    </span>
+                    <span className="mt-1 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+                      {asset.description}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent
+          value="media"
+          className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          <IconSparkles className="size-3" />
-          {t("designEditor.askAgent") || "Ask agent"}
-        </Button>
-      </div>
+          <div className="relative min-h-[540px] flex-1 overflow-hidden bg-background">
+            {!assetPickerReady && (
+              <div className="absolute inset-0 z-10 p-2.5">
+                <Skeleton className="h-full w-full rounded-none" />
+              </div>
+            )}
+            <EmbeddedApp
+              url={assetsPickerUrl()}
+              title="Assets picker"
+              onLoad={() => setAssetPickerReady(true)}
+              onReady={handleReady}
+              onMessage={handleMessage}
+              className="h-full w-full"
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent
+          value="figma"
+          className="design-inspector-scroll m-0 min-h-0 flex-1 overflow-y-auto p-2.5"
+        >
+          <form className="space-y-1.5" onSubmit={handleBrowseFigma}>
+            <Input
+              value={figmaFileInput}
+              onChange={(event) => setFigmaFileInput(event.target.value)}
+              placeholder="Figma file URL or key"
+              className="h-7 text-[11px]"
+            />
+            <div className="flex gap-1.5">
+              <Input
+                value={figmaQueryInput}
+                onChange={(event) => setFigmaQueryInput(event.target.value)}
+                placeholder="Search components"
+                className="h-7 min-w-0 flex-1 text-[11px]"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                className="h-7 cursor-pointer gap-1 px-2 text-[11px]"
+                disabled={!figmaFileInput.trim() || figmaAssets.isFetching}
+              >
+                <IconSearch className="size-3" />
+                {figmaAssets.isFetching ? "Loading" : "Browse"}
+              </Button>
+            </div>
+          </form>
+
+          {figmaAssets.isError && (
+            <p className="mt-2 rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive">
+              {figmaAssets.error.message}
+            </p>
+          )}
+
+          {figmaAssets.isFetching && (
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton key={index} className="aspect-square rounded-md" />
+              ))}
+            </div>
+          )}
+
+          {!figmaAssets.isFetching &&
+            figmaAssets.data &&
+            figmaAssets.data.assets.length === 0 && (
+              <p className="mt-2 rounded border border-border bg-muted/30 px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
+                No components matched this Figma file and search.
+              </p>
+            )}
+
+          {!figmaAssets.isFetching &&
+            figmaAssets.data &&
+            figmaAssets.data.assets.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                  <span>
+                    {figmaAssets.data.returned} of {figmaAssets.data.total}
+                  </span>
+                  <span className="truncate">{figmaAssets.data.fileKey}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {figmaAssets.data.assets.map((asset) => {
+                    const preview = asset.thumbnailUrl ?? asset.renderUrl;
+                    const canInsert = Boolean(
+                      context.activeFileId &&
+                      (asset.insertUrl ??
+                        asset.renderUrl ??
+                        asset.thumbnailUrl),
+                    );
+                    return (
+                      <div
+                        key={asset.id}
+                        className="overflow-hidden rounded-md border border-border bg-background"
+                      >
+                        <button
+                          type="button"
+                          className="block aspect-square w-full cursor-pointer bg-muted/30"
+                          disabled={!canInsert || insertFigmaAsset.isPending}
+                          onClick={() => handleInsertFigmaAsset(asset)}
+                        >
+                          {preview ? (
+                            <img
+                              src={preview}
+                              alt={asset.name}
+                              className="size-full object-contain p-2"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <span className="flex size-full items-center justify-center text-muted-foreground">
+                              <IconAssembly className="size-5" />
+                            </span>
+                          )}
+                        </button>
+                        <div className="border-t border-border/70 px-1.5 py-1">
+                          <div className="flex items-center gap-1">
+                            <span className="min-w-0 flex-1 truncate text-[10px] font-medium leading-tight">
+                              {asset.name}
+                            </span>
+                            {asset.sourceUrl && (
+                              <a
+                                href={asset.sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="shrink-0 text-muted-foreground hover:text-foreground"
+                                aria-label="Open in Figma"
+                              >
+                                <IconExternalLink className="size-3" />
+                              </a>
+                            )}
+                          </div>
+                          <p className="mt-0.5 truncate text-[9px] text-muted-foreground">
+                            {asset.kind === "component_set"
+                              ? "Component set"
+                              : "Component"}
+                            {asset.containingFrame?.name
+                              ? ` · ${asset.containingFrame.name}`
+                              : ""}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+        </TabsContent>
+      </Tabs>
+
       {!context.activeFileId && (
-        <p className="mt-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+        <p className="border-t border-border/60 px-2.5 py-1.5 text-[10px] text-amber-600 dark:text-amber-400">
           Open a design screen first to insert assets.
         </p>
-      )}
-
-      {/* Assets picker overlay */}
-      {pickerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div
-            data-assets-picker-overlay
-            className="relative flex h-[min(86vh,760px)] w-[min(96vw,1040px)] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
-          >
-            <div className="flex h-10 shrink-0 items-center border-b border-border px-4">
-              <span className="flex-1 text-sm font-medium">Assets Library</span>
-              <button
-                type="button"
-                aria-label="Close picker"
-                onClick={() => setPickerOpen(false)}
-                className="flex size-7 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                ×
-              </button>
-            </div>
-            <div className="relative min-h-0 flex-1">
-              {!pickerReady && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Skeleton className="h-full w-full rounded-none" />
-                </div>
-              )}
-              <EmbeddedApp
-                url={assetsPickerUrl()}
-                title="Assets picker"
-                onReady={handleReady}
-                onMessage={handleMessage}
-                className="h-full w-full"
-              />
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
@@ -767,11 +1127,17 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
 export function DesignExtensionsPanel({
   context,
   className,
+  hideAssetLibrary = false,
+  title,
 }: DesignExtensionsPanelProps) {
   const t = useT();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<ToolSourceFilter>("all");
+  const [categoryFilter, setCategoryFilter] =
+    useState<ToolCategoryFilter>("all");
   const [openFirstParty, setOpenFirstParty] = useState<FirstPartyExtId | null>(
     null,
   );
@@ -790,12 +1156,7 @@ export function DesignExtensionsPanel({
     setOpenFirstParty((prev) => (prev === id ? null : id));
   };
 
-  const submitCreatePrompt: PromptComposerSubmitHandler = (
-    text: string,
-    _files,
-    _references,
-    options: PromptComposerSubmitOptions,
-  ) => {
+  const submitCreatePrompt: CreateExtensionSubmitHandler = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     sendToAgentChat({
@@ -804,9 +1165,6 @@ export function DesignExtensionsPanel({
       submit: true,
       openSidebar: true,
       newTab: true,
-      model: options.model,
-      engine: options.engine,
-      effort: options.effort,
     });
     setCreateOpen(false);
   };
@@ -839,18 +1197,12 @@ export function DesignExtensionsPanel({
   };
 
   // First-party extension row config
-  const firstPartyRows: Array<{
-    id: FirstPartyExtId;
-    label: string;
-    description: string;
-    icon: React.ReactNode;
-    badge?: React.ReactNode;
-    panel: React.ReactNode;
-  }> = [
+  const allFirstPartyRows: FirstPartyRow[] = [
     {
       id: "design.asset-library",
       label: "Asset Library",
       description: "Browse & insert assets into the active screen",
+      category: "plugins",
       icon: <IconPhoto className="size-3.5" />,
       panel: <AssetLibraryPanel context={context} />,
     },
@@ -858,6 +1210,7 @@ export function DesignExtensionsPanel({
       id: "design.shader-fills",
       label: "Shader Fills",
       description: "GPU shader fill presets — preview & apply",
+      category: "shader",
       icon: <IconSparkles className="size-3.5" />,
       panel: <ShaderFillsExtPanel context={context} />,
     },
@@ -865,39 +1218,62 @@ export function DesignExtensionsPanel({
       id: "design.token-auditor",
       label: "Token Auditor",
       description: "Audit CSS token usage, flag clashes",
-      icon: <IconPalette className="size-3.5" />,
+      category: "tokens",
+      icon: <IconAssembly className="size-3.5" />,
       panel: <TokenAuditorPanel context={context} />,
     },
     {
       id: "design.motion-presets",
       label: "Motion Presets",
       description: "One-click animation presets for elements",
+      category: "motion",
       icon: <IconPlayerPlay className="size-3.5" />,
       panel: <MotionPresetsPanel context={context} />,
     },
   ];
+  const firstPartyRows = allFirstPartyRows.filter(
+    (row) => !hideAssetLibrary || row.id !== "design.asset-library",
+  );
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const sourceMatches = (source: ToolSourceFilter) =>
+    sourceFilter === "all" || sourceFilter === source;
+  const categoryMatches = (category: ToolCategoryFilter) =>
+    categoryFilter === "all" || categoryFilter === category;
+  const textMatches = (name: string, description?: string | null) => {
+    if (!normalizedSearch) return true;
+    return `${name} ${description ?? ""}`
+      .toLowerCase()
+      .includes(normalizedSearch);
+  };
+  const visibleFirstPartyRows = firstPartyRows.filter(
+    (row) =>
+      sourceMatches("built-in") &&
+      categoryMatches(row.category) &&
+      textMatches(row.label, row.description),
+  );
+  const visibleInstalls = installs.filter(
+    (install) =>
+      sourceMatches("extensions") &&
+      categoryMatches("plugins") &&
+      textMatches(install.name, install.description),
+  );
+  const visibleInstallable = installable.filter(
+    (extension) =>
+      sourceMatches("extensions") &&
+      categoryMatches("plugins") &&
+      textMatches(extension.name, extension.description),
+  );
+  const hasAnyVisibleTool =
+    visibleFirstPartyRows.length > 0 ||
+    visibleInstalls.length > 0 ||
+    visibleInstallable.length > 0;
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      {/* Section header — 32 px tall, matches PanelSection / design inspector headers */}
-      <div className="flex min-h-8 shrink-0 items-center gap-1.5 border-b border-border/60 px-3">
-        <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-          {t("designEditor.extensions")}
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border/60 px-4">
+        <h3 className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight text-foreground">
+          {title ?? t("designEditor.extensions")}
         </h3>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <a
-              href="https://www.agent-native.com/docs/extensions"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label={t("designEditor.extensionsDocs")}
-            >
-              <IconExternalLink className="size-3.5" />
-            </a>
-          </TooltipTrigger>
-          <TooltipContent>{t("designEditor.extensionsDocs")}</TooltipContent>
-        </Tooltip>
         <CreateExtensionPopover
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -905,117 +1281,146 @@ export function DesignExtensionsPanel({
         />
       </div>
 
-      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-2 pt-1.5">
-        {/* ── First-party built-in extensions ──────────────────────────── */}
-        <div className="mb-3 space-y-1">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Built-in
-          </p>
-          {firstPartyRows.map((row) => (
-            <FirstPartyExtRow
-              key={row.id}
-              id={row.id}
-              label={row.label}
-              description={row.description}
-              icon={row.icon}
-              badge={row.badge}
-              isOpen={openFirstParty === row.id}
-              onToggle={() => toggleFirstParty(row.id)}
-            >
-              {row.panel}
-            </FirstPartyExtRow>
-          ))}
+      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-4">
+        <div className="relative mb-4">
+          <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search all tools"
+            className="h-9 border-0 bg-muted/70 pl-8 text-sm shadow-none focus-visible:ring-1"
+          />
         </div>
 
-        {/* ── Agent help text ───────────────────────────────────────────── */}
-        <div className="mb-3 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1.5">
-          <IconSparkles className="mt-0.5 size-3 shrink-0 text-muted-foreground/70" />
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            The agent can insert assets, apply shader fills, audit tokens, and
-            apply motion presets. Ask in the chat sidebar for help.
-          </p>
+        <div className="mb-5 flex flex-wrap gap-2">
+          <ToolFilterMenu
+            label="Source"
+            value={sourceFilter}
+            onChange={setSourceFilter}
+            options={[
+              { value: "all", label: "Source" },
+              { value: "built-in", label: "Built-in" },
+              { value: "extensions", label: "Extensions" },
+            ]}
+          />
+          <ToolFilterMenu
+            label="Category"
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            options={[
+              { value: "all", label: "Category" },
+              { value: "shader", label: "Shaders" },
+              { value: "tokens", label: "Tokens" },
+              { value: "motion", label: "Motion" },
+              { value: "plugins", label: "Plugins" },
+            ]}
+          />
         </div>
 
-        {/* ── User-installed extensions ──────────────────────────────────── */}
         {isLoading ? (
-          <div className="space-y-1.5">
-            <Skeleton className="h-24 rounded" />
-            <Skeleton className="h-32 rounded" />
-          </div>
-        ) : installs.length > 0 ? (
-          <div className="space-y-1.5">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Installed
-            </p>
-            {installs.map((install) => (
-              <EmbeddedExtension
-                key={install.installId}
-                extensionId={install.extensionId}
-                slotId={slotId}
-                context={context}
-                initialHeight={180}
-                className="overflow-hidden rounded border border-border bg-background"
-              />
-            ))}
+          <div className="space-y-3">
+            <Skeleton className="h-12 rounded-md" />
+            <Skeleton className="h-12 rounded-md" />
+            <Skeleton className="h-12 rounded-md" />
           </div>
         ) : (
-          /* Empty state for user extensions — compact */
-          <div className="flex flex-col items-center gap-2 py-4 text-center">
-            <div className="flex size-7 items-center justify-center rounded-lg bg-muted/60">
-              <IconPuzzle className="size-3.5 text-muted-foreground/70" />
-            </div>
-            <div>
-              <p className="text-[11px] font-medium text-foreground">
-                {t("designEditor.extensionsEmptyTitle")}
-              </p>
-              <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
-                {t("designEditor.extensionsEmptyDescription")}
-              </p>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              className="h-6 cursor-pointer px-2.5 text-[11px]"
-              onClick={() => setCreateOpen(true)}
-            >
-              <IconPlus className="size-3" />
-              {t("designEditor.addExtension")}
-            </Button>
-          </div>
-        )}
+          <>
+            {visibleInstalls.length > 0 ? (
+              <div className="mb-6">
+                <p className="mb-3 text-sm font-medium text-muted-foreground">
+                  Recents
+                </p>
+                <div className="space-y-2">
+                  {visibleInstalls.map((install) => (
+                    <EmbeddedExtension
+                      key={install.installId}
+                      extensionId={install.extensionId}
+                      slotId={slotId}
+                      context={context}
+                      initialHeight={180}
+                      className="overflow-hidden rounded-md border border-border bg-background"
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
-        {/* ── Available (installable) extensions ────────────────────────── */}
-        {installable.length > 0 ? (
-          <div className="mt-3 border-t border-border/60 pt-1.5">
-            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("designEditor.extensionsAvailable")}
-            </p>
-            <div className="space-y-px">
-              {installable.map((extension) => (
-                <button
-                  key={extension.extensionId}
-                  type="button"
-                  disabled={installingId === extension.extensionId}
-                  onClick={() => installExtension(extension.extensionId)}
-                  className="flex h-6 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-left transition-colors hover:bg-accent active:bg-accent/80 disabled:cursor-default disabled:opacity-50"
-                >
-                  <IconSparkles className="size-3 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
-                    {extension.name}
-                  </span>
-                  {extension.description ? (
-                    <span className="hidden truncate text-[11px] text-muted-foreground sm:block">
-                      {extension.description}
-                    </span>
-                  ) : null}
-                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {t("designEditor.extensionsInstall")}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
+            {visibleFirstPartyRows.length > 0 ? (
+              <div className="mb-6">
+                <p className="mb-3 text-sm font-medium text-muted-foreground">
+                  Suggested
+                </p>
+                <div className="space-y-1">
+                  {visibleFirstPartyRows.map((row) => (
+                    <FirstPartyExtRow
+                      key={row.id}
+                      id={row.id}
+                      label={row.label}
+                      description={row.description}
+                      icon={row.icon}
+                      badge={row.badge}
+                      isOpen={openFirstParty === row.id}
+                      onToggle={() => toggleFirstParty(row.id)}
+                    >
+                      {row.panel}
+                    </FirstPartyExtRow>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {visibleInstallable.length > 0 ? (
+              <div className="border-t border-border/60 pt-4">
+                <p className="mb-3 text-sm font-medium text-muted-foreground">
+                  Available
+                </p>
+                <div className="space-y-1">
+                  {visibleInstallable.map((extension) => (
+                    <button
+                      key={extension.extensionId}
+                      type="button"
+                      disabled={installingId === extension.extensionId}
+                      onClick={() => installExtension(extension.extensionId)}
+                      className="group flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-accent/60 active:bg-accent disabled:cursor-default disabled:opacity-50"
+                    >
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/70 text-muted-foreground transition-colors group-hover:border-border group-hover:bg-muted">
+                        <IconPuzzle className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium leading-tight text-foreground">
+                          {extension.name}
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-1.5 truncate text-xs leading-none text-muted-foreground">
+                          <IconPuzzle className="size-3 shrink-0" />
+                          <span className="truncate">
+                            {extension.description || "Extension"}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                        {t("designEditor.extensionsInstall")}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {!hasAnyVisibleTool ? (
+              <div className="py-12 text-center">
+                <div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-md bg-muted/70">
+                  <IconSearch className="size-4 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium text-foreground">
+                  No tools found
+                </p>
+                <p className="mx-auto mt-1 max-w-52 text-xs leading-5 text-muted-foreground">
+                  Try another search or clear the filters.
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
@@ -1030,40 +1435,65 @@ function CreateExtensionPopover({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: PromptComposerSubmitHandler;
+  onSubmit: CreateExtensionSubmitHandler;
 }) {
   const t = useT();
+  const [draft, setDraft] = useState("");
+  const canSubmit = draft.trim().length > 0;
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canSubmit) return;
+    onSubmit(draft);
+    setDraft("");
+  };
+
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 cursor-pointer gap-1.5 rounded-md bg-transparent px-3 text-sm font-medium"
+          aria-label={t("designEditor.addExtension")}
+        >
+          Create
+          <IconChevronDown className="size-3.5 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={8} className="w-80 p-3">
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <p className="px-0.5 text-sm font-semibold text-foreground">
+            {t("designEditor.extensionsPromptTitle")}
+          </p>
+          <Textarea
+            autoFocus
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={t("designEditor.extensionsPlaceholder")}
+            className="min-h-24 resize-none border-border/80 bg-background/80 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
+          />
+          <div className="flex justify-end gap-2">
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-6 rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label={t("designEditor.addExtension")}
+              size="sm"
+              className="h-8 px-3"
+              onClick={() => onOpenChange(false)}
             >
-              <IconPlus className="size-3.5" />
+              Cancel
             </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("designEditor.addExtension")}</TooltipContent>
-      </Tooltip>
-      <PopoverContent align="end" sideOffset={6} className="w-80 p-3">
-        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-          {t("designEditor.extensionsPromptTitle")}
-        </p>
-        <PromptComposer
-          autoFocus
-          attachmentsEnabled={false}
-          plusMenuMode="hidden"
-          layoutVariant="compact"
-          draftScope="design:editor-extension-create"
-          placeholder={t("designEditor.extensionsPlaceholder")}
-          onSubmit={onSubmit}
-        />
+            <Button
+              type="submit"
+              size="sm"
+              className="h-8 gap-1.5 px-3"
+              disabled={!canSubmit}
+            >
+              <IconSparkles className="size-3.5" />
+              Create
+            </Button>
+          </div>
+        </form>
       </PopoverContent>
     </Popover>
   );

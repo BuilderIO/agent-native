@@ -129,6 +129,7 @@ const MCP_APP_CHAT_BRIDGE_QUERY_PARAM = "__an_mcp_chat_bridge";
 const PICKER_INLINE_SELECT_CLASS =
   "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ms-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
 type PickerMediaType = "image" | "video";
+type PickerLayout = "default" | "vertical";
 
 type Asset = {
   id: string;
@@ -193,6 +194,7 @@ type HostConfig = {
   styleStrength?: StyleStrength;
   includeLogo?: boolean;
   callerAppId?: string;
+  layout?: PickerLayout;
   autoGenerate?: boolean;
   candidateRunIds?: string[];
 };
@@ -242,6 +244,10 @@ function normalizeCount(value: unknown): number {
 
 function normalizeMediaType(value: unknown): PickerMediaType {
   return value === "video" ? "video" : "image";
+}
+
+function normalizePickerLayout(value: unknown): PickerLayout | undefined {
+  return value === "vertical" ? "vertical" : undefined;
 }
 
 function normalizeBoolean(value: unknown): boolean | undefined {
@@ -320,6 +326,7 @@ function normalizeHostConfig(value: unknown): HostConfig {
     includeLogo: normalizeBoolean(record.includeLogo),
     callerAppId:
       typeof record.callerAppId === "string" ? record.callerAppId : undefined,
+    layout: normalizePickerLayout(record.layout),
     candidateRunIds: normalizeCandidateRunIds(record.candidateRunIds),
   };
   if (Object.prototype.hasOwnProperty.call(record, "autoGenerate")) {
@@ -1999,6 +2006,7 @@ export function AssetPickerSurface() {
       styleStrength: normalizeStyleStrength(params.get("styleStrength")),
       includeLogo: normalizeBoolean(params.get("includeLogo")),
       callerAppId: params.get("callerAppId") ?? undefined,
+      layout: normalizePickerLayout(params.get("layout")),
       candidateRunIds: normalizeCandidateRunIds(
         params.getAll("candidateRunIds").length > 0
           ? params.getAll("candidateRunIds")
@@ -2024,6 +2032,9 @@ export function AssetPickerSurface() {
   const [mediaType, setMediaType] = useState<PickerMediaType>(
     () => hostConfig.mediaType ?? "image",
   );
+  const [pickerLayout, setPickerLayout] = useState<PickerLayout>(
+    () => hostConfig.layout ?? "default",
+  );
   const [query, setQuery] = useState(() => hostConfig.query ?? "");
   const [prompt, setPrompt] = useState(() => hostConfig.prompt ?? "");
   const [aspectRatio, setAspectRatio] = useState<string>(
@@ -2046,6 +2057,7 @@ export function AssetPickerSurface() {
   useEffect(() => {
     setHostConfig((current) => ({ ...current, ...urlHostConfig }));
     setMediaType(urlHostConfig.mediaType ?? "image");
+    setPickerLayout(urlHostConfig.layout ?? "default");
     setQuery(urlHostConfig.query ?? "");
     setPrompt(urlHostConfig.prompt ?? "");
     setSelectedLibraryId(urlHostConfig.libraryId ?? "");
@@ -2504,6 +2516,7 @@ export function AssetPickerSurface() {
         const next = normalizeHostConfig(payload);
         setHostConfig((current) => ({ ...current, ...next }));
         if (next.mediaType !== undefined) setMediaType(next.mediaType);
+        if (next.layout !== undefined) setPickerLayout(next.layout);
         if (next.query !== undefined) setQuery(next.query);
         if (next.prompt !== undefined) setPrompt(next.prompt);
         if (next.libraryId !== undefined) setSelectedLibraryId(next.libraryId);
@@ -2533,10 +2546,11 @@ export function AssetPickerSurface() {
         query,
         prompt,
         aspectRatio,
+        layout: pickerLayout,
       },
       { requestSource: "assets-picker-ui" },
     ).catch(() => {});
-  }, [aspectRatio, mediaType, prompt, query, selectedLibraryId]);
+  }, [aspectRatio, mediaType, pickerLayout, prompt, query, selectedLibraryId]);
 
   const canGenerate =
     mediaType === "image" &&
@@ -2652,14 +2666,22 @@ export function AssetPickerSurface() {
     waitingForRequestedPreset,
   ]);
 
+  const verticalLayout = pickerLayout === "vertical";
+
   return (
     <div
       className={cn(
         "flex flex-col overflow-hidden bg-background text-foreground",
         embedded ? "h-screen w-screen" : "h-full w-full",
+        verticalLayout && "assets-picker-vertical",
       )}
     >
-      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
+      <header
+        className={cn(
+          "flex shrink-0 items-center justify-between gap-3 border-b border-border",
+          verticalLayout ? "h-10 px-2" : "h-12 px-3",
+        )}
+      >
         <div className="min-w-0 truncate text-sm font-semibold">
           {embedded ? t("navigation.brand") : t("library.library")}
         </div>
@@ -2668,7 +2690,7 @@ export function AssetPickerSurface() {
             <Button
               variant={showCreatePane ? "secondary" : "default"}
               size="sm"
-              className="h-8 gap-1.5"
+              className={cn("gap-1.5", verticalLayout ? "h-7 px-2" : "h-8")}
               onClick={() => setShowCreatePane((open) => !open)}
             >
               {showCreatePane ? (
@@ -2676,7 +2698,9 @@ export function AssetPickerSurface() {
               ) : (
                 <IconPhotoPlus className="h-3.5 w-3.5" />
               )}
-              {showCreatePane ? t("library.close") : t("library.createPane")}
+              <span className={verticalLayout ? "sr-only" : undefined}>
+                {showCreatePane ? t("library.close") : t("library.createPane")}
+              </span>
             </Button>
           )}
           {embedded && (
@@ -2705,9 +2729,14 @@ export function AssetPickerSurface() {
       </header>
 
       {showCreatePane && mediaType === "image" && (
-        <section className="shrink-0 border-b border-border px-3 py-3">
+        <section
+          className={cn(
+            "shrink-0 border-b border-border",
+            verticalLayout ? "px-2 py-2" : "px-3 py-3",
+          )}
+        >
           {mediaType === "image" ? (
-            <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
+            <div className="rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
               <Input
                 type="text"
                 value={prompt}
@@ -2724,10 +2753,23 @@ export function AssetPickerSurface() {
                   if (canGenerate) runGenerate();
                 }}
                 placeholder={t("library.generateImagePlaceholder")}
-                className="h-11 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                className={cn(
+                  "border-0 bg-transparent px-3 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0",
+                  verticalLayout ? "h-9 py-2 text-xs" : "h-11 py-2.5",
+                )}
               />
-              <div className="flex items-center gap-1 px-2 pb-2">
-                <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
+              <div
+                className={cn(
+                  "flex gap-1 px-2 pb-2",
+                  verticalLayout ? "flex-col items-stretch" : "items-center",
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-0.5 sm:gap-1",
+                    verticalLayout ? "justify-between" : "justify-end",
+                  )}
+                >
                   <Select value={aspectRatio} onValueChange={setAspectRatio}>
                     <SelectTrigger
                       aria-label={t("brandKitDetail.aspectRatio")}
@@ -2792,7 +2834,10 @@ export function AssetPickerSurface() {
                   ) : null}
                 </div>
                 <Button
-                  className="h-7 min-w-[5.75rem] shrink-0 px-3 text-xs"
+                  className={cn(
+                    "h-7 shrink-0 px-3 text-xs",
+                    !verticalLayout && "min-w-[5.75rem]",
+                  )}
                   disabled={!canGenerate}
                   onClick={runGenerate}
                 >
@@ -2932,12 +2977,33 @@ export function AssetPickerSurface() {
         </section>
       )}
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-3">
+      <main
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto",
+          verticalLayout ? "p-2" : "p-3",
+        )}
+      >
         {displayLibraries.length > 0 && (
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div
+            className={cn(
+              "mb-3 flex flex-col gap-2",
+              !verticalLayout &&
+                "sm:flex-row sm:items-center sm:justify-between",
+            )}
+          >
+            <div
+              className={cn(
+                "flex flex-col gap-2",
+                !verticalLayout && "sm:flex-row sm:items-center",
+              )}
+            >
               {draftsGlobalView ? (
-                <div className="flex h-9 items-center rounded-md border border-border/70 bg-background px-3 text-sm text-muted-foreground sm:w-48">
+                <div
+                  className={cn(
+                    "flex h-9 items-center rounded-md border border-border/70 bg-background px-3 text-sm text-muted-foreground",
+                    !verticalLayout && "sm:w-48",
+                  )}
+                >
                   {t("library.allLibraries")}
                 </div>
               ) : (
@@ -2945,7 +3011,12 @@ export function AssetPickerSurface() {
                   value={selectedLibraryId}
                   onValueChange={setSelectedLibraryId}
                 >
-                  <SelectTrigger className="h-9 w-full border-border/70 bg-background sm:w-48">
+                  <SelectTrigger
+                    className={cn(
+                      "h-9 w-full border-border/70 bg-background",
+                      !verticalLayout && "sm:w-48",
+                    )}
+                  >
                     <SelectValue placeholder={t("library.library")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -2990,7 +3061,10 @@ export function AssetPickerSurface() {
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={t("library.searchMedia", { mediaLabel })}
-                className="h-9 border-border/70 bg-background sm:max-w-xs"
+                className={cn(
+                  "h-9 border-border/70 bg-background",
+                  !verticalLayout && "sm:max-w-xs",
+                )}
               />
             )}
           </div>

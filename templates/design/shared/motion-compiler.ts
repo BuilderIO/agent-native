@@ -125,6 +125,7 @@ export function compile(timeline: MotionTimeline): CompileResult {
  */
 export function parse(css: string): MotionTrack[] {
   const tracks: MotionTrack[] = [];
+  const targetByAnimationName = parseAnimationTargets(css);
   const kfRe = /@keyframes\s+(an-motion-[^\s{]+)\s*\{/g;
   let m: RegExpExecArray | null;
 
@@ -138,13 +139,31 @@ export function parse(css: string): MotionTrack[] {
     if (body === null) continue;
 
     tracks.push({
-      targetNodeId: decoded.targetNodeId,
+      targetNodeId: targetByAnimationName.get(fullName) ?? decoded.targetNodeId,
       property: decoded.property,
-      keyframes: parseKeyframeBody(body),
+      keyframes: parseKeyframeBody(body, decoded.property),
     });
   }
 
   return tracks;
+}
+
+/**
+ * Extract the CSS body from a managed `<style data-agent-native-motion>` block
+ * inside an HTML document. Returns `null` when the document has no managed block
+ * or the block is malformed.
+ */
+export function extractManagedMotionCss(html: string): string | null {
+  const openRe = /<style\b(?=[^>]*\bdata-agent-native-motion\b)[^>]*>/i;
+  const openMatch = openRe.exec(html);
+  if (!openMatch) return null;
+
+  const bodyStart = openMatch.index + openMatch[0].length;
+  const afterOpen = html.slice(bodyStart);
+  const closeMatch = /<\s*\/\s*style\b[^>]*>/i.exec(afterOpen);
+  if (!closeMatch) return null;
+
+  return afterOpen.slice(0, closeMatch.index).trim();
 }
 
 /**
@@ -292,6 +311,30 @@ function escAttr(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function unescAttr(value: string): string {
+  return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+function parseAnimationTargets(css: string): Map<string, string> {
+  const targets = new Map<string, string>();
+  const ruleRe =
+    /\[data-agent-native-node-id="((?:\\.|[^"\\])*)"\]\s*\{([^}]*)\}/g;
+  let m: RegExpExecArray | null;
+
+  while ((m = ruleRe.exec(css)) !== null) {
+    const targetNodeId = unescAttr(m[1]);
+    const body = m[2];
+    const nameMatch = body.match(/animation-name\s*:\s*([^;]+)/);
+    if (!nameMatch) continue;
+    for (const name of nameMatch[1].split(",")) {
+      const trimmed = name.trim();
+      if (trimmed) targets.set(trimmed, targetNodeId);
+    }
+  }
+
+  return targets;
+}
+
 /**
  * Find the content of the CSS block that starts just after position `start`
  * (i.e., just after the opening `{`). Returns `null` on unbalanced braces.
@@ -309,10 +352,14 @@ function extractBlock(css: string, start: number): string | null {
 }
 
 /** Parse the interior of a `@keyframes` block into `MotionKeyframe[]`. */
-function parseKeyframeBody(body: string): MotionKeyframe[] {
+function parseKeyframeBody(body: string, property: string): MotionKeyframe[] {
   const frames: MotionKeyframe[] = [];
   const stopRe = /([\d.]+%|from|to)\s*\{([^}]*)\}/g;
   let m: RegExpExecArray | null;
+  const propRe = new RegExp(
+    `^\\s*${escapeRegExp(property)}\\s*:\\s*([^;]+)`,
+    "m",
+  );
 
   while ((m = stopRe.exec(body)) !== null) {
     const pctStr = m[1];
@@ -323,16 +370,20 @@ function parseKeyframeBody(body: string): MotionKeyframe[] {
     const easeMatch = content.match(/animation-timing-function\s*:\s*([^;]+)/);
     const ease = easeMatch ? (easeMatch[1].trim() as MotionEase) : undefined;
 
-    // Extract the first non-timing property as the animated value.
-    const propMatch = content.match(
-      /^(?!.*animation-timing-function)[a-zA-Z-]+\s*:\s*([^;]+)/m,
-    );
+    // Extract the animated property's value. The compiler emits the same
+    // property for every stop, so parsing by the decoded property avoids
+    // confusing `animation-timing-function` with the animated value.
+    const propMatch = content.match(propRe);
     const value = propMatch ? propMatch[1].trim() : "";
 
     frames.push({ t, value, ...(ease !== undefined ? { ease } : {}) });
   }
 
   return frames;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

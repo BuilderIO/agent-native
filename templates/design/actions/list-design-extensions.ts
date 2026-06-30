@@ -68,15 +68,23 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     id: "design.asset-library",
     name: "Asset Library",
     description:
-      "Browse and insert generated or uploaded assets into the active design screen. " +
+      "Browse and insert Design-native primitives, generated or uploaded media, and rendered Figma library components into the active design screen. " +
       "Selection-aware: inserts near the selected element when one is active.",
     icon: "Photo",
     availability: "available",
-    availabilityNote: "Fully available — call insert-asset with an asset URL.",
+    availabilityNote:
+      "Fully available — call list-design-native-assets then insert-design-native-asset for editable Design primitives, insert-asset for media, or list-figma-library-assets then insert-figma-library-asset for Figma components.",
     capabilities: [
       {
-        id: "browse",
-        label: "Browse asset library",
+        id: "native",
+        label: "Browse Design-native assets",
+        status: "available",
+        reason:
+          "Uses list-design-native-assets and insert-design-native-asset for editable HTML primitives/components.",
+      },
+      {
+        id: "media",
+        label: "Browse generated and uploaded media",
         status: "available",
       },
       {
@@ -93,8 +101,22 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
         reason:
           "Delegate to the Assets app via call-agent or the Assets MCP tool.",
       },
+      {
+        id: "figma",
+        label: "Browse Figma library assets",
+        status: "available",
+        reason:
+          "Uses FIGMA_ACCESS_TOKEN to list Figma file components/component sets and insert rendered nodes with provenance.",
+      },
     ],
-    actions: ["insert-asset", "get-design-snapshot"],
+    actions: [
+      "list-design-native-assets",
+      "insert-design-native-asset",
+      "insert-asset",
+      "list-figma-library-assets",
+      "insert-figma-library-asset",
+      "get-design-snapshot",
+    ],
     slotId: "design.editor.inspector",
   },
 
@@ -212,12 +234,12 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     description:
       "One-click animation presets (fade-in, slide-up, pulse, bounce, spin) that " +
       "apply to the selected node via the motion timeline.  Preview is live; " +
-      "Write to CSS commits the keyframes atomically.",
+      "track edits persist to managed CSS atomically.",
     icon: "PlayerPlay",
     availability: "available",
     availabilityNote:
-      "Motion preview is available for all source types.  Write to CSS (apply-motion-edit) " +
-      "is atomic and available for inline + localhost.  Source write-back to real CSS " +
+      "Motion preview is available for all source types.  Managed CSS persistence " +
+      "(apply-motion-edit) is atomic and available for inline + localhost. Source write-back to real CSS " +
       "modules remains planned for the fusion tier.",
     capabilities: [
       {
@@ -229,7 +251,7 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
       },
       {
         id: "apply",
-        label: "Write keyframes to CSS (apply-motion-edit)",
+        label: "Persist keyframes to managed CSS (apply-motion-edit)",
         status: "available",
         reason:
           "apply-motion-edit is atomic: persists timeline row + compiled CSS + " +
@@ -259,7 +281,7 @@ export default defineAction({
 List the first-party Design Studio extensions with their capability and availability status.
 
 Returns the four built-in extensions:
-  1. Asset Library     — selection-aware asset insertion (available now).
+  1. Asset Library     — native components, media, and Figma imports (available now).
   2. Shader Fills      — GPU shader fill previews (preview-only; apply is gated).
   3. Token Auditor     — token usage reads + edits (available; source write-back planned).
   4. Motion Presets    — one-click animation presets (available; source write-back planned).

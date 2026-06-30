@@ -77,6 +77,12 @@ export default defineAction({
       .array(capabilitySchema)
       .optional()
       .describe("Bridge operation capabilities."),
+    bridgeToken: z
+      .string()
+      .optional()
+      .describe(
+        "The bridge's real auth token minted at bridge start. Stored on the connection so grant-localhost-write-consent can read it without minting its own.",
+      ),
     status: z
       .enum(["connected", "detected", "manual", "error"])
       .optional()
@@ -118,6 +124,21 @@ export default defineAction({
         status: "available" as const,
       }));
 
+    const existing = await db
+      .select({
+        id: schema.designLocalhostConnections.id,
+        bridgeToken: schema.designLocalhostConnections.bridgeToken,
+      })
+      .from(schema.designLocalhostConnections)
+      .where(
+        and(
+          eq(schema.designLocalhostConnections.id, id),
+          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+
+    const nextBridgeToken = args.bridgeToken?.trim() || undefined;
     const values = {
       id,
       name: args.name ?? new URL(devServerUrl).host,
@@ -127,23 +148,13 @@ export default defineAction({
       rootPath: routeManifest.rootPath ?? null,
       routeManifest: JSON.stringify(routeManifest),
       capabilities: JSON.stringify(capabilities),
+      bridgeToken: nextBridgeToken ?? existing[0]?.bridgeToken ?? null,
       status: args.status,
       lastSeenAt: now,
       ownerEmail,
       orgId: getRequestOrgId() ?? null,
       updatedAt: now,
     };
-
-    const existing = await db
-      .select({ id: schema.designLocalhostConnections.id })
-      .from(schema.designLocalhostConnections)
-      .where(
-        and(
-          eq(schema.designLocalhostConnections.id, id),
-          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
-        ),
-      )
-      .limit(1);
 
     if (existing[0]) {
       await db

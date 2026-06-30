@@ -36,6 +36,11 @@ export interface DesignConnectArgs {
   port: number;
   root: string;
   routeManifest?: string;
+  /** Optional deployed design app URL used to self-register the bridge on
+   *  startup.  When set (or when AGENT_NATIVE_URL / DESIGN_APP_URL env vars
+   *  are present) the CLI POSTs to `/_agent-native/actions/connect-localhost`
+   *  with the real bridge token so the server can store it for grant minting. */
+  appUrl?: string;
   json: boolean;
   once: boolean;
   dryRun: boolean;
@@ -137,6 +142,11 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
       index += 1;
     } else if (arg.startsWith("--route-manifest=")) {
       parsed.routeManifest = arg.slice("--route-manifest=".length);
+    } else if (arg === "--app-url") {
+      parsed.appUrl = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--app-url=")) {
+      parsed.appUrl = arg.slice("--app-url=".length);
     } else if (arg === "--json") {
       parsed.json = true;
       parsed.once = true;
@@ -677,6 +687,116 @@ export async function startDesignConnectBridge(
   return { server, manifest, bridgeToken };
 }
 
+/**
+ * Resolve the design app URL from an explicit value or environment variables.
+ * Returns undefined when no URL is configured (registration is optional).
+ */
+export function resolveAppUrl(explicit?: string): string | undefined {
+  const raw =
+    explicit ||
+    process.env["AGENT_NATIVE_URL"] ||
+    process.env["DESIGN_APP_URL"] ||
+    process.env["APP_URL"] ||
+    process.env["VITE_APP_URL"] ||
+    process.env["BETTER_AUTH_URL"] ||
+    process.env["VITE_BETTER_AUTH_URL"];
+  if (!raw) return undefined;
+  try {
+    const parsed = new URL(raw.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return undefined;
+    }
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve a bearer token from environment variables for authenticating the
+ * self-registration POST.  The CLI does not perform a device-code flow — it
+ * relies on a pre-minted token supplied via env var (e.g. the same token
+ * already written into the agent's MCP config).
+ */
+function resolveAuthToken(): string | undefined {
+  return (
+    process.env["AGENT_NATIVE_TOKEN"] ||
+    process.env["DESIGN_ACCESS_TOKEN"] ||
+    process.env["ACCESS_TOKEN"] ||
+    undefined
+  );
+}
+
+/**
+ * POST to the design app's `connect-localhost` action endpoint to register
+ * (or refresh) the bridge connection and persist the real bridge token on the
+ * server row.  This is a best-effort call: failures are logged but do not
+ * abort the bridge process.
+ *
+ * @param appUrl - Deployed design app base URL (e.g. https://design.agent-native.com)
+ * @param bridge - The running bridge returned by startDesignConnectBridge
+ * @param authToken - Optional bearer token for the authenticated action route
+ */
+export async function registerConnectionWithServer(
+  appUrl: string,
+  bridge: DesignConnectBridge,
+  authToken?: string,
+): Promise<void> {
+  const endpoint = `${appUrl}/_agent-native/actions/connect-localhost`;
+  const { manifest, bridgeToken } = bridge;
+  const payload = {
+    devServerUrl: manifest.devServerUrl,
+    bridgeUrl: manifest.bridgeUrl,
+    rootPath: manifest.rootPath,
+    capabilities: manifest.capabilities,
+    routeManifest: {
+      version: 1 as const,
+      sourceType: "localhost" as const,
+      devServerUrl: manifest.devServerUrl,
+      rootPath: manifest.rootPath,
+      routes: manifest.routes,
+      generatedAt: manifest.generatedAt,
+    },
+    // Include the real bridge token so the server stores it on the connection
+    // row.  grant-localhost-write-consent then reads it from the row instead of
+    // minting its own unrelated token, which would always produce a 401.
+    bridgeToken,
+    status: "connected" as const,
+  };
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (authToken) {
+    headers["authorization"] = `Bearer ${authToken}`;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const message = await res.text().catch(() => res.statusText);
+      throw new Error(`${res.status} ${message || res.statusText}`);
+    }
+  } catch (error) {
+    // Best-effort: network errors or auth issues are non-fatal, but make the
+    // problem discoverable before the user tries "Apply to source".
+    console.error(
+      `[design connect] Could not register bridge with ${endpoint}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function printHelp() {
   console.log(`Usage:
   agent-native design connect [options]
@@ -686,6 +806,8 @@ Options:
   --port <number>         Local bridge port (default ${DEFAULT_BRIDGE_PORT})
   --root <path>           App/repo root for route discovery (default cwd)
   --route-manifest <path> Non-destructive route manifest output path
+  --app-url <url>         Deployed design app URL for self-registration
+                          (also reads AGENT_NATIVE_URL / DESIGN_APP_URL env)
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
   --dry-run               Print what would be exposed without writing files
@@ -743,6 +865,17 @@ export async function runDesign(argv: string[]) {
   console.error(`Manifest: ${manifest.bridgeUrl}/manifest.json`);
   console.error(`Routes:   ${manifest.routeCount}`);
   console.error(`Dev URL:  ${manifest.devServerUrl}`);
+
+  // Self-register with the design app server (best-effort).  When an app URL
+  // is available (via --app-url or env var) the CLI POSTs the bridge token to
+  // connect-localhost so the server row stores the real token.  Without this
+  // step grant-localhost-write-consent would mint a different token, causing
+  // every bridge write to return 401.
+  const appUrl = resolveAppUrl(parsed.appUrl);
+  if (appUrl) {
+    const authToken = resolveAuthToken();
+    void registerConnectionWithServer(appUrl, bridge, authToken);
+  }
 
   return await new Promise<number>((resolve) => {
     const stop = () => {

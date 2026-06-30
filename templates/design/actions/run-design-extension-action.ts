@@ -146,7 +146,7 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
   "design.motion-presets:apply": {
     action: "apply-motion-edit",
     paramHint:
-      "Call apply-motion-edit with { designId, fileId?, timeline: { tracks, durationMs } } for an atomic Write to CSS commit.",
+      "Call apply-motion-edit with { designId, fileId?, timeline: { tracks, durationMs } } for an atomic managed CSS timeline save.",
     readOnly: false,
   },
   "design.motion-presets:write-source": {

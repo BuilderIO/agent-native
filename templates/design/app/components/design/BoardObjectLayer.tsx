@@ -65,8 +65,9 @@ export function BoardObjectLayer({
       }}
     >
       <BoardObjectContent boardObject={boardObject} />
-      {/* Selection/hover outline — matches DraftPrimitiveLayer chrome */}
+      {/* Board-object chrome sits on the object edge, unlike screen frames. */}
       <span
+        data-board-object-selection-outline
         className={cn(
           "pointer-events-none absolute rounded-sm border transition-opacity",
           selected
@@ -74,7 +75,7 @@ export function BoardObjectLayer({
             : "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100",
         )}
         style={{
-          inset: -5 * chromeScale,
+          inset: 0,
           borderWidth: 1.5 * chromeScale,
           transition: getChromeBorderTransition(chromeSettling),
         }}

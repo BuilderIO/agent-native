@@ -10,7 +10,7 @@ import {
   emailToColor,
   emailToName,
   PresenceBar,
-  AgentToggleButton,
+  AgentChatSurface,
   ShareButton,
   agentNativePath,
   appBasePath,
@@ -61,6 +61,7 @@ import {
   hasCapability,
 } from "@shared/design-source-capabilities";
 import { shouldUseLiveFileContent } from "@shared/html-content";
+import type { MotionTrack } from "@shared/motion-timeline";
 import {
   resolveTweaksToCssVars,
   type TweakSelections,
@@ -85,11 +86,14 @@ import {
   IconFrame,
   IconX,
   IconPin,
+  IconAssembly,
   IconCode,
   IconArchive,
+  IconFile,
   IconPhoto,
   IconRefresh,
   IconChevronDown,
+  IconChevronRight,
   IconCheck,
   IconPointer,
   IconTypography,
@@ -143,7 +147,11 @@ import {
   type MotionTrackWire,
 } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
-import type { DesignExtensionSlotContext } from "@/components/design/DesignExtensionsPanel";
+import {
+  AssetLibraryPanel,
+  DesignExtensionsPanel,
+  type DesignExtensionSlotContext,
+} from "@/components/design/DesignExtensionsPanel";
 import {
   EditPanel,
   type InspectCodeData,
@@ -169,9 +177,11 @@ import {
   MultiScreenCanvas,
   OVERVIEW_FRAME_WIDTH,
   type CanvasPrimitiveInsert,
+  type DraftPrimitiveKind,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
+import { TokensPanel } from "@/components/design/TokensPanel";
 import type { ElementInfo, DeviceFrameType } from "@/components/design/types";
 import {
   DEVICE_FRAME_VIEWPORTS,
@@ -205,6 +215,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -252,6 +267,12 @@ const AUTO_RETRY_DELAY_MS = 1200;
 const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
 const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
+const MOTION_DOCK_TRANSITION_MS = 200;
+const MOTION_AUTOSAVE_DELAY_MS = 500;
+/** Extensions that the localhost bridge allows to be written back to source. */
+const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
+const NO_LOCALHOST_WRITE_CONTENT_MESSAGE =
+  "No content to write. Open the screen first." /* i18n-ignore */;
 const FOCUSED_SCREEN_ZOOM = 100;
 const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
@@ -760,6 +781,83 @@ interface CodingHandoffResult {
   fileCount?: number;
 }
 
+export interface MotionTimelineRow {
+  id: string | null;
+  designId: string;
+  sourceRef: string | null;
+  filePath: string | null;
+  tracks: unknown;
+  durationMs: number;
+  defaultEase: string;
+  compiledHash: string | null;
+  cssHash?: string | null;
+  source?: "stored" | "recovered-css" | "stored-css-drift";
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+interface MotionTimelineQueryResult {
+  designId: string;
+  timelines: MotionTimelineRow[];
+  count: number;
+}
+
+function isMotionTrack(value: unknown): value is MotionTrack {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as {
+    targetNodeId?: unknown;
+    property?: unknown;
+    keyframes?: unknown;
+  };
+  return (
+    typeof candidate.targetNodeId === "string" &&
+    typeof candidate.property === "string" &&
+    Array.isArray(candidate.keyframes)
+  );
+}
+
+function normalizeMotionTracks(value: unknown): MotionTrack[] {
+  return Array.isArray(value) ? value.filter(isMotionTrack) : [];
+}
+
+function labelForMotionTrack(
+  track: MotionTrack,
+  projection: CodeLayerProjection,
+): string {
+  const node = projection.nodes.find(
+    (candidate) =>
+      candidate.dataAttributes["data-agent-native-node-id"] ===
+        track.targetNodeId || candidate.id === track.targetNodeId,
+  );
+  return node?.layerName || node?.tag || track.targetNodeId;
+}
+
+export function hydrateMotionDockTracks(
+  tracks: unknown,
+  projection: CodeLayerProjection,
+): MotionDockTrack[] {
+  return normalizeMotionTracks(tracks).map((track) => ({
+    ...track,
+    label: labelForMotionTrack(track, projection),
+  }));
+}
+
+export function motionTimelineFingerprint(
+  fileId: string,
+  timeline: MotionTimelineRow | null | undefined,
+): string {
+  if (!timeline) return `${fileId}:empty`;
+  return [
+    fileId,
+    timeline.id ?? "css",
+    timeline.updatedAt ?? "no-updated-at",
+    timeline.compiledHash ?? "no-compiled-hash",
+    timeline.cssHash ?? "no-css-hash",
+    timeline.source ?? "stored",
+    JSON.stringify(timeline.tracks),
+  ].join(":");
+}
+
 function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
   const base = agentNativePath("/_agent-native/sign-in");
   if (typeof window === "undefined") return base;
@@ -920,6 +1018,7 @@ function designEditorCommandFromSearchParams(
 ): DesignEditorCommand | null {
   const editorView = searchParams.get("view");
   const inspector = searchParams.get("inspector");
+  const leftPanel = normalizeDesignLeftPanel(searchParams.get("panel"));
   const screen =
     searchParams.get("screen") ??
     searchParams.get("fileId") ??
@@ -933,6 +1032,7 @@ function designEditorCommandFromSearchParams(
     inspector !== "design" &&
     inspector !== "tweaks" &&
     inspector !== "extensions" &&
+    !leftPanel &&
     !screen &&
     !tool
   ) {
@@ -952,6 +1052,7 @@ function designEditorCommandFromSearchParams(
   ) {
     command.inspectorTab = inspector;
   }
+  if (leftPanel) command.leftPanel = leftPanel;
   if (screen) command.screen = screen;
   if (Number.isFinite(zoom)) {
     command.zoom = zoom;
@@ -2442,6 +2543,110 @@ function AgentNativeMenuMark({ className }: { className?: string }) {
   );
 }
 
+type DesignLeftPanel = "file" | "agent" | "assets" | "tools" | "tokens";
+
+function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
+  if (value === "extensions") return "tools";
+  return value === "file" ||
+    value === "agent" ||
+    value === "assets" ||
+    value === "tools" ||
+    value === "tokens"
+    ? value
+    : undefined;
+}
+
+function DesignWorkspaceRail({
+  activePanel,
+  projectMenu,
+  onPanelChange,
+}: {
+  activePanel: DesignLeftPanel;
+  projectMenu: ReactNode;
+  onPanelChange: (panel: DesignLeftPanel) => void;
+}) {
+  const t = useT();
+  const items: Array<{
+    panel: DesignLeftPanel;
+    label: string;
+    icon: ReactNode;
+  }> = [
+    {
+      panel: "file",
+      label: t("designEditor.leftRail.file"),
+      icon: <IconFile className="size-[15px]" />,
+    },
+    {
+      panel: "agent",
+      label: t("designEditor.leftRail.agent"),
+      icon: <IconMessage className="size-[15px]" />,
+    },
+    {
+      panel: "assets",
+      label: t("designEditor.leftRail.assets"),
+      icon: <IconPhoto className="size-[15px]" />,
+    },
+    {
+      panel: "tools",
+      label: t("designEditor.leftRail.tools"),
+      icon: <IconTerminal2 className="size-[15px]" />,
+    },
+    {
+      panel: "tokens",
+      label: t("designEditor.leftRail.tokens"),
+      icon: <IconAssembly className="size-[15px]" />,
+    },
+  ];
+
+  return (
+    <nav
+      aria-label={t("designEditor.leftRail.label")}
+      className="flex w-[52px] shrink-0 flex-col items-center border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
+    >
+      <div className="mb-3 flex h-8 items-center justify-center">
+        {projectMenu}
+      </div>
+      <div className="mb-5 h-px w-8 bg-border/70" />
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
+        {items.map((item) => {
+          const active = item.panel === activePanel;
+          return (
+            <Tooltip key={item.panel}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={item.label}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => onPanelChange(item.panel)}
+                  className={cn(
+                    "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1.5 rounded-none text-[10px] font-medium leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    active && "text-foreground",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-lg transition-colors",
+                      active
+                        ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                        : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                    )}
+                  >
+                    {item.icon}
+                  </span>
+                  <span className="max-w-full truncate leading-none">
+                    {item.label}
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{item.label}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 interface DesignCollaborator {
   user: CollabUser;
   image?: string;
@@ -3263,6 +3468,10 @@ export default function DesignEditor() {
   const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
   const embedded = isEmbedAuthActive();
+  const designChatScope = useMemo(
+    () => (id ? ({ type: "design" as const, id } as const) : null),
+    [id],
+  );
 
   const isBuilderDesignEmbed = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -3307,6 +3516,8 @@ export default function DesignEditor() {
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>("design");
+  const [activeLeftPanel, setActiveLeftPanel] =
+    useState<DesignLeftPanel>("file");
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(256);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
@@ -3324,6 +3535,40 @@ export default function DesignEditor() {
   const pendingOverviewLayerSelectionClearTimerRef = useRef<number | null>(
     null,
   );
+
+  useEffect(() => {
+    const focusAgentComposer = () => {
+      requestAnimationFrame(() => {
+        const panel = document.querySelector("[data-design-agent-panel]");
+        const prosemirror = panel?.querySelector(
+          ".ProseMirror",
+        ) as HTMLElement | null;
+        if (prosemirror) {
+          prosemirror.focus();
+          return;
+        }
+        const textarea = panel?.querySelector("textarea") as HTMLElement | null;
+        textarea?.focus();
+      });
+    };
+    const openAgentPanel = () => {
+      setActiveLeftPanel("agent");
+      focusAgentComposer();
+    };
+    const toggleAgentPanel = () =>
+      setActiveLeftPanel((current) => {
+        const next = current === "agent" ? "file" : "agent";
+        if (next === "agent") focusAgentComposer();
+        return next;
+      });
+    window.addEventListener("agent-panel:open", openAgentPanel);
+    window.addEventListener("agent-panel:toggle", toggleAgentPanel);
+    return () => {
+      window.removeEventListener("agent-panel:open", openAgentPanel);
+      window.removeEventListener("agent-panel:toggle", toggleAgentPanel);
+    };
+  }, []);
+
   const clearPendingOverviewLayerSelectionTimer = useCallback(() => {
     if (pendingOverviewLayerSelectionClearTimerRef.current === null) return;
     window.clearTimeout(pendingOverviewLayerSelectionClearTimerRef.current);
@@ -3375,10 +3620,63 @@ export default function DesignEditor() {
 
   // ── Motion dock state (§6.3) ────────────────────────────────────────────────
   // The MotionDock is mounted below the canvas and shown when motionDockOpen.
-  // Tracks and durationMs are local state; "Write to CSS" calls applyMotionEdit.
+  // Tracks and durationMs are local state; edits autosave via applyMotionEdit.
   const [motionDockOpen, setMotionDockOpen] = useState(false);
+  const [motionDockMounted, setMotionDockMounted] = useState(false);
+  const motionDockUnmountTimerRef = useRef<number | null>(null);
+  const [motionTimelineId, setMotionTimelineId] = useState<string | null>(null);
   const [motionTracks, setMotionTracks] = useState<MotionDockTrack[]>([]);
   const [motionDurationMs, setMotionDurationMs] = useState(1000);
+  const [motionTracksDirty, setMotionTracksDirty] = useState(false);
+  const [motionAutosaveRevision, setMotionAutosaveRevision] = useState(0);
+  const [motionHydrationFingerprint, setMotionHydrationFingerprint] = useState<
+    string | null
+  >(null);
+  const motionAutosaveRevisionRef = useRef(0);
+  const motionAutosaveFailedRevisionRef = useRef<number | null>(null);
+  const motionAutosaveTimerRef = useRef<number | null>(null);
+  const lastScheduledMotionAutosaveRevisionRef = useRef(0);
+  const previousMotionFileIdRef = useRef<string | null>(null);
+  const clearMotionDockUnmountTimer = useCallback(() => {
+    if (motionDockUnmountTimerRef.current === null) return;
+    window.clearTimeout(motionDockUnmountTimerRef.current);
+    motionDockUnmountTimerRef.current = null;
+  }, []);
+  const clearMotionAutosaveTimer = useCallback(() => {
+    if (motionAutosaveTimerRef.current === null) return;
+    window.clearTimeout(motionAutosaveTimerRef.current);
+    motionAutosaveTimerRef.current = null;
+  }, []);
+  const setMotionDockOpenAnimated = useCallback(
+    (open: boolean) => {
+      clearMotionDockUnmountTimer();
+      if (open) {
+        setMotionDockMounted(true);
+        if (typeof window === "undefined") {
+          setMotionDockOpen(true);
+          return;
+        }
+        window.requestAnimationFrame(() => setMotionDockOpen(true));
+        return;
+      }
+
+      setMotionDockOpen(false);
+      if (typeof window === "undefined") {
+        setMotionDockMounted(false);
+        return;
+      }
+      motionDockUnmountTimerRef.current = window.setTimeout(() => {
+        setMotionDockMounted(false);
+        motionDockUnmountTimerRef.current = null;
+      }, MOTION_DOCK_TRANSITION_MS);
+    },
+    [clearMotionDockUnmountTimer],
+  );
+  useEffect(
+    () => () => clearMotionDockUnmountTimer(),
+    [clearMotionDockUnmountTimer],
+  );
+  useEffect(() => () => clearMotionAutosaveTimer(), [clearMotionAutosaveTimer]);
   const [shaderFillPreview, setShaderFillPreview] = useState<{
     selector?: string;
     nodeId?: string;
@@ -3457,9 +3755,7 @@ export default function DesignEditor() {
   }, [isBuilderDesignEmbed]);
 
   const focusDesignInspectorForSelection = useCallback(() => {
-    setActiveInspectorTab((current) =>
-      current === "extensions" ? current : "design",
-    );
+    setActiveInspectorTab("design");
   }, []);
 
   useEffect(() => {
@@ -3468,9 +3764,7 @@ export default function DesignEditor() {
 
   useEffect(() => {
     if (hasSelectedElement) return;
-    setActiveInspectorTab((current) =>
-      current === "extensions" ? current : "tweaks",
-    );
+    setActiveInspectorTab("tweaks");
   }, [hasSelectedElement]);
 
   const startSidebarResize = useCallback(
@@ -3590,6 +3884,8 @@ export default function DesignEditor() {
   // Active localhost connection id for the consent dialog.
   const [localhostConsentConnectionId, setLocalhostConsentConnectionId] =
     useState<string>("");
+  // Tracks whether an "Apply to source" write is in progress.
+  const [applyToSourcePending, setApplyToSourcePending] = useState(false);
   // Shared visual-editor annotate overlays. drawMode owns the send toolbar,
   // while pinMode temporarily routes canvas clicks to comment pins that queue
   // into the same agent submission.
@@ -4001,6 +4297,8 @@ export default function DesignEditor() {
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
   const applyMotionEditMutation = useActionMutation("apply-motion-edit");
+  const applyMotionEdit = applyMotionEditMutation.mutate;
+  const motionAutosavePending = applyMotionEditMutation.isPending;
   // §6.4 breakpoint mutations — wired to MultiScreenCanvas + affordance
   const addBreakpointMutation = useActionMutation("add-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
@@ -4024,6 +4322,16 @@ export default function DesignEditor() {
 
   // Dialog open/close state for the "Make this a real app" flow.
   const [makeRealDialogOpen, setMakeRealDialogOpen] = useState(false);
+  const [publishWaitlistPopoverOpen, setPublishWaitlistPopoverOpen] =
+    useState(false);
+  const [publishWaitlistPopoverView, setPublishWaitlistPopoverView] = useState<
+    "actions" | "waitlist"
+  >("actions");
+  const [publishWaitlistJoined, setPublishWaitlistJoined] = useState(false);
+  const [joiningPublishWaitlist, setJoiningPublishWaitlist] = useState(false);
+  const [publishWaitlistError, setPublishWaitlistError] = useState<
+    string | null
+  >(null);
 
   // Result payload returned by migrate-inline-design-to-app on success.
   // `null` = not yet migrated; populated once the Builder agent accepts the job.
@@ -4494,6 +4802,12 @@ export default function DesignEditor() {
 
   const boardObjectsSaveTimerRef = useRef<number | null>(null);
 
+  // Selection state for board objects in the layers panel.
+  // Kept in DesignEditor so LayersPanel can reflect which objects are selected.
+  const [selectedBoardObjectIds, setSelectedBoardObjectIds] = useState<
+    string[]
+  >([]);
+
   const overviewScreens = useMemo(() => {
     const metadataByFileId = getDesignDataRecord(
       designDataJson,
@@ -4793,6 +5107,7 @@ export default function DesignEditor() {
       return;
     }
 
+    const shouldSkipQuestions = pending.skipQuestions === true;
     const context = [
       sourceContext,
       `Design id: "${id}"`,
@@ -4803,18 +5118,26 @@ export default function DesignEditor() {
         : "",
       fileContext,
       "",
-      ...designIntakeQuestionDirectives(id, pendingDesignSystemId),
+      ...(shouldSkipQuestions
+        ? designGenerationDirectives(id, pendingDesignSystemId)
+        : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
     ].join("\n");
 
     clearGenerationCompleteTimer();
     setGenerationIssue(null);
-    const runTabId = agentSubmit(`Create design: ${prompt}`, context, {
-      model: pending.model,
-      engine: pending.engine,
-      effort: pending.effort,
-      newTab: true,
-      images,
-    });
+    const runTabId = agentSubmit(
+      shouldSkipQuestions
+        ? `Generate design for "${design.title}": ${prompt}`
+        : `Create design: ${prompt}`,
+      context,
+      {
+        model: pending.model,
+        engine: pending.engine,
+        effort: pending.effort,
+        newTab: true,
+        images,
+      },
+    );
     setGenerationChatTabId(runTabId);
     patchPendingGeneration(id, {
       runTabId,
@@ -4849,6 +5172,25 @@ export default function DesignEditor() {
   }, [files, activeFileId]);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+  const motionTimelineQueryParams =
+    id && activeFile?.id
+      ? { designId: id, sourceRef: activeFile.id }
+      : { designId: "", sourceRef: "" };
+  const { data: motionTimelineResult } =
+    useActionQuery<MotionTimelineQueryResult>(
+      "get-motion-timeline",
+      motionTimelineQueryParams,
+      {
+        enabled: Boolean(id && activeFile?.id),
+        refetchOnMount: "always",
+      },
+    );
+  useEffect(() => {
+    if (activeFile && !embedded) return;
+    clearMotionDockUnmountTimer();
+    setMotionDockOpen(false);
+    setMotionDockMounted(false);
+  }, [activeFile, clearMotionDockUnmountTimer, embedded]);
   useEffect(() => {
     if (!reviewFileId || reviewFileId === activeFile?.id) return;
     setReviewFileId(null);
@@ -4962,16 +5304,18 @@ export default function DesignEditor() {
       if (target && !targetFile) return false;
 
       const inspectorTab =
-        command.inspectorTab === "design" ||
-        command.inspectorTab === "tweaks" ||
-        command.inspectorTab === "extensions"
+        command.inspectorTab === "design" || command.inspectorTab === "tweaks"
           ? command.inspectorTab
-          : command.inspector === "design" ||
-              command.inspector === "tweaks" ||
-              command.inspector === "extensions"
+          : command.inspector === "design" || command.inspector === "tweaks"
             ? command.inspector
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
+      const leftPanel =
+        normalizeDesignLeftPanel(command.leftPanel) ??
+        normalizeDesignLeftPanel(command.panel) ??
+        normalizeDesignLeftPanel(command.inspectorTab) ??
+        normalizeDesignLeftPanel(command.inspector);
+      if (leftPanel) setActiveLeftPanel(leftPanel);
 
       const commandTool = normalizeDesignTool(command.tool);
       const effectiveCommandTool =
@@ -5989,6 +6333,56 @@ export default function DesignEditor() {
     () => buildCodeLayerProjection(activeContent),
     [activeContent],
   );
+  const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
+  const activeMotionHydrationFingerprint = activeFile?.id
+    ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
+    : null;
+  const activeMotionProjectionFingerprint = activeMotionHydrationFingerprint
+    ? activeMotionHydrationFingerprint
+    : null;
+
+  useEffect(() => {
+    const fileId = activeFile?.id ?? null;
+    if (previousMotionFileIdRef.current === fileId) return;
+    previousMotionFileIdRef.current = fileId;
+    clearMotionAutosaveTimer();
+    motionAutosaveRevisionRef.current = 0;
+    motionAutosaveFailedRevisionRef.current = null;
+    lastScheduledMotionAutosaveRevisionRef.current = 0;
+    setMotionTimelineId(null);
+    setMotionTracks([]);
+    setMotionDurationMs(1000);
+    setMotionTracksDirty(false);
+    setMotionAutosaveRevision(0);
+    setMotionHydrationFingerprint(null);
+  }, [activeFile?.id, clearMotionAutosaveTimer]);
+
+  useEffect(() => {
+    if (!activeFile?.id || !activeMotionProjectionFingerprint) return;
+    if (motionTracksDirty) return;
+    if (motionHydrationFingerprint === activeMotionProjectionFingerprint)
+      return;
+
+    const hydratedTracks = activeMotionTimeline
+      ? hydrateMotionDockTracks(
+          activeMotionTimeline.tracks,
+          activeCodeLayerProjection,
+        )
+      : [];
+
+    setMotionTimelineId(activeMotionTimeline?.id ?? null);
+    setMotionTracks(hydratedTracks);
+    setMotionDurationMs(activeMotionTimeline?.durationMs ?? 1000);
+    setMotionHydrationFingerprint(activeMotionProjectionFingerprint);
+  }, [
+    activeCodeLayerProjection,
+    activeFile?.id,
+    activeMotionProjectionFingerprint,
+    activeMotionTimeline,
+    motionHydrationFingerprint,
+    motionTracksDirty,
+  ]);
+
   const selectedCodeLayerNode = useMemo(() => {
     if (!selectedElement) return null;
     return resolveCodeLayerNodeFromElementInfo(
@@ -6136,11 +6530,37 @@ export default function DesignEditor() {
     return { nodeId, label };
   }, [selectedCodeLayerNode, selectedElement?.tagName]);
 
+  const markMotionTracksDirty = useCallback(() => {
+    setMotionTracksDirty(true);
+    setMotionAutosaveRevision((revision) => {
+      const next = revision + 1;
+      motionAutosaveRevisionRef.current = next;
+      motionAutosaveFailedRevisionRef.current = null;
+      return next;
+    });
+  }, []);
+
+  const handleMotionTracksChange = useCallback(
+    (tracks: MotionDockTrack[]) => {
+      setMotionTracks(tracks);
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty],
+  );
+
+  const handleMotionDurationChange = useCallback(
+    (durationMs: number) => {
+      setMotionDurationMs(durationMs);
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty],
+  );
+
   // Serialisable subset of the dock's tracks for the DesignCanvas motion-preview
   // bridge. Strips the UI-only `label` field. Only populated while the dock is
   // open so a closed dock never leaves preview overrides on the canvas; an empty
   // array makes DesignCanvas send `motion-preview-clear`. Scrubbing previews
-  // these tracks live in the iframe — it never writes (that is "Write to CSS").
+  // these tracks live in the iframe; autosave only runs for track/duration edits.
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {
     if (!motionDockOpen || motionTracks.length === 0) return [];
     return motionTracks.map(({ label: _label, ...track }) => track);
@@ -6458,6 +6878,99 @@ export default function DesignEditor() {
     ],
   );
 
+  useEffect(() => {
+    if (!id || !activeFile?.id || !motionTracksDirty) return;
+    if (motionTracks.length === 0) return;
+    if (motionAutosavePending) return;
+    if (motionAutosaveFailedRevisionRef.current === motionAutosaveRevision)
+      return;
+    if (
+      lastScheduledMotionAutosaveRevisionRef.current ===
+        motionAutosaveRevision &&
+      motionAutosaveTimerRef.current !== null
+    ) {
+      return;
+    }
+
+    const revisionAtSchedule = motionAutosaveRevision;
+    lastScheduledMotionAutosaveRevisionRef.current = revisionAtSchedule;
+    clearMotionAutosaveTimer();
+    motionAutosaveTimerRef.current = window.setTimeout(() => {
+      motionAutosaveTimerRef.current = null;
+      if (motionAutosaveRevisionRef.current !== revisionAtSchedule) return;
+      applyMotionEdit(
+        {
+          designId: id,
+          fileId: activeFile.id,
+          timelineId: motionTimelineId ?? undefined,
+          sourceRef: activeFile.id,
+          tracks: motionTracks.map(({ label: _label, ...track }) => track),
+          durationMs: motionDurationMs,
+          currentContent: getFreshActiveFileContent({
+            activeContent,
+            latestContent: latestActiveContentRef.current,
+            lastLocalContent: lastLocalContentRef.current,
+          }),
+          includeContent: true,
+        },
+        {
+          onSuccess: (result) => {
+            const response = result as {
+              fileId?: unknown;
+              timelineId?: unknown;
+              patchedContent?: unknown;
+            };
+            if (typeof response.timelineId === "string") {
+              setMotionTimelineId(response.timelineId);
+            }
+            if (motionAutosaveRevisionRef.current === revisionAtSchedule) {
+              setMotionTracksDirty(false);
+              setMotionHydrationFingerprint(null);
+              lastScheduledMotionAutosaveRevisionRef.current = 0;
+            }
+            if (
+              typeof response.fileId === "string" &&
+              typeof response.patchedContent === "string"
+            ) {
+              applyFileContentUpdate(response.fileId, response.patchedContent, {
+                refreshPreview: response.fileId === activeFile.id,
+              });
+            }
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-motion-timeline"],
+            });
+          },
+          onError: (error) => {
+            if (motionAutosaveRevisionRef.current === revisionAtSchedule) {
+              motionAutosaveFailedRevisionRef.current = revisionAtSchedule;
+              lastScheduledMotionAutosaveRevisionRef.current = 0;
+            }
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : // i18n-ignore: fallback toast for motion autosave failure.
+                  "Motion changes could not be saved.",
+            );
+          },
+        },
+      );
+    }, MOTION_AUTOSAVE_DELAY_MS);
+  }, [
+    activeFile?.id,
+    activeContent,
+    applyFileContentUpdate,
+    applyMotionEdit,
+    clearMotionAutosaveTimer,
+    id,
+    motionAutosaveRevision,
+    motionAutosavePending,
+    motionDurationMs,
+    motionTimelineId,
+    motionTracks,
+    motionTracksDirty,
+    queryClient,
+  ]);
+
   const handleComponentPropApplied = useCallback(
     (fileId: string, nextContent: string, updatedAt?: string) => {
       applyFileContentUpdate(fileId, nextContent, {
@@ -6765,6 +7278,113 @@ export default function DesignEditor() {
     ],
   );
 
+  /** Called from LayersPanel when the user clicks a board-object row. */
+  const handleSelectBoardObject = useCallback(
+    (boId: string, additive: boolean) => {
+      setSelectedBoardObjectIds((prev) => {
+        if (additive) {
+          return prev.includes(boId)
+            ? prev.filter((id) => id !== boId)
+            : [...prev, boId];
+        }
+        return [boId];
+      });
+    },
+    [],
+  );
+
+  /** Called from LayersPanel when the user renames a board-object row. */
+  const handleRenameBoardObject = useCallback(
+    (boId: string, name: string) => {
+      handleBoardObjectsChange([{ id: boId, name }]);
+    },
+    [handleBoardObjectsChange],
+  );
+
+  /** Called from LayersPanel when the user deletes a board-object row. */
+  const handleDeleteBoardObject = useCallback(
+    (boId: string) => {
+      handleBoardObjectsChange([], [boId]);
+      setSelectedBoardObjectIds((prev) => prev.filter((id) => id !== boId));
+    },
+    [handleBoardObjectsChange],
+  );
+
+  /**
+   * Promote a board object into a screen frame.
+   *
+   * Fired by MultiScreenCanvas when a board-object drag ends with the primary
+   * object's centre over a screen frame.  The handler:
+   *   1. Reads the board object's geometry from the current merged state.
+   *   2. Converts the board-space centre (localPoint) to screen-local pixels
+   *      by subtracting the frame's canvas origin.
+   *   3. Builds a CanvasPrimitiveInsert and appends it to the target screen's
+   *      HTML via handleCreatePrimitive (the same path used when drawing into
+   *      a screen from the overview).
+   *   4. Removes the board object via handleBoardObjectsChange (deletes).
+   */
+  const handlePromoteBoardObjectToScreen = useCallback(
+    (
+      boardObjectId: string,
+      screenId: string,
+      localPoint: { x: number; y: number },
+    ) => {
+      const bo = boardObjects[boardObjectId];
+      if (!bo) return;
+
+      // Convert the board-space centre back to a screen-local top-left.
+      // localPoint is the board-space centre of the object at drop time.
+      // The canvas frame's x/y is the screen origin in board space.
+      const frameGeo = canvasFrameGeometryById[screenId];
+      const frameOriginX = frameGeo?.x ?? 0;
+      const frameOriginY = frameGeo?.y ?? 0;
+
+      // Compute the object's top-left in screen-local coords.
+      const screenLocalX = bo.geometry.x - frameOriginX;
+      const screenLocalY = bo.geometry.y - frameOriginY;
+
+      const primitive: CanvasPrimitiveInsert = {
+        kind: bo.kind as DraftPrimitiveKind,
+        geometry: {
+          x: screenLocalX,
+          y: screenLocalY,
+          width: bo.geometry.width,
+          height: bo.geometry.height,
+          rotation: bo.geometry.rotation,
+        },
+        ...(bo.fill !== undefined && { fill: bo.fill }),
+        ...(bo.stroke !== undefined && { stroke: bo.stroke }),
+        ...(bo.strokeWidth !== undefined && { strokeWidth: bo.strokeWidth }),
+        ...(bo.text !== undefined && { text: bo.text }),
+        ...(bo.pathData !== undefined && { pathData: bo.pathData }),
+        ...(bo.points !== undefined && { points: bo.points }),
+        ...(bo.autoSize !== undefined && { autoSize: bo.autoSize }),
+      };
+
+      // Suppress unused warning — localPoint is provided by MultiScreenCanvas
+      // as the board-space centre; we derived screenLocalX/Y from bo.geometry instead.
+      void localPoint;
+
+      const inserted = handleCreatePrimitive(screenId, primitive);
+      if (!inserted) {
+        // Insert failed — leave the board object in place.
+        return;
+      }
+
+      // Remove the board object; do NOT queue a geometry update for it.
+      handleBoardObjectsChange([], [boardObjectId]);
+      setSelectedBoardObjectIds((prev) =>
+        prev.filter((id) => id !== boardObjectId),
+      );
+    },
+    [
+      boardObjects,
+      canvasFrameGeometryById,
+      handleBoardObjectsChange,
+      handleCreatePrimitive,
+    ],
+  );
+
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[]) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
@@ -7029,6 +7649,7 @@ export default function DesignEditor() {
       mode,
       activeTool,
       inspectorTab: activeInspectorTab,
+      leftPanel: activeLeftPanel,
       // §8 DesignNavigationState additions — dock + breakpoint context
       dock: { kind: "motion" as const, open: motionDockOpen },
       motion: {
@@ -7096,6 +7717,7 @@ export default function DesignEditor() {
       mode: selection.mode,
       activeTool: selection.activeTool,
       inspectorTab: selection.inspectorTab,
+      leftPanel: selection.leftPanel,
       dock: selection.dock,
       motion: selection.motion,
       breakpoint: selection.breakpoint,
@@ -7136,6 +7758,7 @@ export default function DesignEditor() {
     mode,
     activeTool,
     activeInspectorTab,
+    activeLeftPanel,
     overviewSelectedScreenIds,
     viewMode,
     zoom,
@@ -11230,6 +11853,8 @@ ${serializedHtml}
     return defaultMatch?.id ?? "auto";
   }, [activeBreakpointWidthState, statesPanelBreakpoints]);
 
+  const publishDesignTitle = design?.title?.trim() || "Untitled design";
+
   const handleOpenDesignPreview = useCallback(() => {
     if (activeScreenPreviewUrl) {
       window.open(activeScreenPreviewUrl, "_blank", "noopener,noreferrer");
@@ -11245,6 +11870,53 @@ ${serializedHtml}
     window.open(blobUrl, "_blank", "noopener,noreferrer");
     window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   }, [activeContent, activeScreenPreviewUrl]);
+
+  const handleJoinPublishWaitlist = useCallback(async () => {
+    if (!isSignedIn) {
+      handleSignInToSave();
+      return;
+    }
+
+    setJoiningPublishWaitlist(true);
+    setPublishWaitlistError(null);
+
+    try {
+      const res = await fetch(
+        new URL(
+          agentNativePath("/_agent-native/builder/branch-waitlist"),
+          window.location.origin,
+        ).href,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pageUrl: window.location.href,
+            prompt: `Publish design "${publishDesignTitle}" as an app.`,
+            source: "design_editor_publish_app_menu",
+            useCase: "design_publish_app",
+          }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `Request failed (${res.status})`,
+        );
+      }
+
+      setPublishWaitlistJoined(true);
+    } catch (err) {
+      setPublishWaitlistError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't join the waitlist. Please try again.",
+      );
+    } finally {
+      setJoiningPublishWaitlist(false);
+    }
+  }, [handleSignInToSave, isSignedIn, publishDesignTitle]);
 
   const activeLayerId =
     selectedLayerIds[selectedLayerIds.length - 1] ??
@@ -11326,6 +11998,151 @@ ${serializedHtml}
   // requestLocalhostWrite is consumed via the component instance or by
   // connected inspector components; not all render paths call it directly.
   void requestLocalhostWrite;
+
+  /**
+   * Derive a relative file path from the active localhost screen.
+   * Prefers `sourceFile` (the build-output relative path recorded at connect
+   * time) over the URL pathname so the path maps to the actual file on disk.
+   * Returns undefined when no usable path can be determined.
+   */
+  const activeLocalhostRelPath = useMemo<string | undefined>(() => {
+    if (!activeScreenIsLocalSource) return undefined;
+    // Prefer the explicit sourceFile (e.g. "src/index.html").
+    const sf = activeScreenRouteSourceFile;
+    if (sf?.trim()) return sf.trim();
+    // Fall back to URL pathname (e.g. "/page.html" → "page.html").
+    const url = activeOverviewScreen?.url;
+    if (!url) return undefined;
+    try {
+      const pathname = new URL(url).pathname.replace(/^\//, "");
+      return pathname || undefined;
+    } catch {
+      return undefined;
+    }
+  }, [
+    activeScreenIsLocalSource,
+    activeScreenRouteSourceFile,
+    activeOverviewScreen?.url,
+  ]);
+
+  /** True when the active localhost screen maps to an HTML/CSS file we can write. */
+  const activeLocalhostRouteIsWritable =
+    activeScreenIsLocalSource &&
+    Boolean(activeLocalhostRelPath) &&
+    LOCALHOST_WRITE_EXTENSIONS.has(
+      (activeLocalhostRelPath?.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "",
+    );
+
+  /**
+   * Strip editor-only node-id attributes from HTML source so they are not
+   * written back to the user's local file.
+   *
+   * Kept attributes (intentional user content):
+   *   - data-agent-native-layer-name  (human-readable display name)
+   *   - data-screen="…"               (prototype navigation)
+   *   - any other data-* not listed below
+   *
+   * Stripped attributes (editor plumbing only):
+   *   - data-agent-native-node-id     (stable selection id stamped by the editor)
+   *   - data-code-layer-id            (alternative layer id for localhost components)
+   */
+  function stripEditorOnlyAttributes(html: string): string {
+    if (typeof window === "undefined") return html;
+    try {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const STRIP_ATTRS = [
+        "data-agent-native-node-id",
+        "data-code-layer-id",
+      ] as const;
+      for (const attr of STRIP_ATTRS) {
+        doc.querySelectorAll(`[${attr}]`).forEach((el) => {
+          el.removeAttribute(attr);
+        });
+      }
+      // Serialise back.  Use outerHTML of <html> to preserve doctype-less
+      // fragments; for full documents prefer innerHTML wrapping.
+      const doctype = doc.doctype
+        ? new XMLSerializer().serializeToString(doc.doctype) + "\n"
+        : "";
+      const htmlEl = doc.documentElement;
+      return doctype + htmlEl.outerHTML;
+    } catch {
+      // If DOMParser fails (e.g. malformed HTML) fall back to the raw content.
+      return html;
+    }
+  }
+
+  /**
+   * "Apply to source" — write the current editor content back to the local
+   * file via the bridge. Opens the consent dialog if no grant exists yet, then
+   * calls write-local-file with a clean version of the editor content (editor-
+   * only attribute stamps stripped).
+   *
+   * Only operates on HTML/CSS routes (gated by activeLocalhostRouteIsWritable).
+   * For non-HTML routes (React/JSX/TS), keep routing to the agent chat instead.
+   */
+  const handleApplyToSource = useCallback(() => {
+    if (
+      !id ||
+      !canEditDesign ||
+      !activeLocalhostConnectionId ||
+      !activeLocalhostRelPath
+    )
+      return;
+    const relPath = activeLocalhostRelPath;
+    const connectionId = activeLocalhostConnectionId;
+    // Snapshot current editor content at call time.
+    const rawContent = latestActiveContentRef.current;
+    if (!rawContent) {
+      toast.error(NO_LOCALHOST_WRITE_CONTENT_MESSAGE);
+      return;
+    }
+    // Strip editor-only attributes before writing so the on-disk file stays
+    // clean.  Only strip for HTML routes; CSS files have no DOM attributes.
+    const ext = (relPath.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "";
+    const content =
+      ext === ".html" || ext === ".htm"
+        ? stripEditorOnlyAttributes(rawContent)
+        : rawContent;
+
+    requestLocalhostWrite({
+      files: [relPath],
+      onGranted: ({ bridgeToken, rootPath: grantedRootPath, grantId }) => {
+        void (async () => {
+          setApplyToSourcePending(true);
+          try {
+            await callAction("write-local-file", {
+              designId: id,
+              connectionId,
+              relPath,
+              content,
+            });
+            toast.success(
+              `Written to ${relPath} (grant ${grantId.slice(0, 6)}…, root ${grantedRootPath})`,
+            );
+          } catch (err) {
+            toast.error(
+              `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          } finally {
+            setApplyToSourcePending(false);
+          }
+          // Suppress unused-var warning; bridgeToken is checked by the bridge
+          // internally via the X-Bridge-Token header (set in write-local-file).
+          void bridgeToken;
+        })();
+      },
+      onCancel: () => {
+        setApplyToSourcePending(false);
+      },
+    });
+  }, [
+    id,
+    canEditDesign,
+    activeLocalhostConnectionId,
+    activeLocalhostRelPath,
+    requestLocalhostWrite,
+  ]);
 
   // canGroup: 2+ DOM-node layers selected in the active screen (not file rows).
   const fileIdSet = new Set(files.map((f) => f.id));
@@ -11909,6 +12726,51 @@ ${serializedHtml}
 
   const zoomLabel = `${Math.round(zoom)}%`;
 
+  const handleTokensApplied = useCallback(
+    (resolvedCssVars: Record<string, string>) => {
+      if (!canEditDesign || !id) return;
+      setTweakSelections((prev) => ({
+        ...prev,
+        ...resolvedCssVars,
+      }));
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        let currentData: Record<string, unknown> = {};
+        if (typeof old.data === "string" && old.data) {
+          try {
+            const parsed = JSON.parse(old.data);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              !Array.isArray(parsed)
+            ) {
+              currentData = parsed;
+            }
+          } catch {
+            currentData = {};
+          }
+        }
+        const currentSelections =
+          currentData.tweakSelections &&
+          typeof currentData.tweakSelections === "object" &&
+          !Array.isArray(currentData.tweakSelections)
+            ? currentData.tweakSelections
+            : {};
+        return {
+          ...old,
+          data: JSON.stringify({
+            ...currentData,
+            tweakSelections: {
+              ...currentSelections,
+              ...resolvedCssVars,
+            },
+          }),
+        };
+      });
+    },
+    [canEditDesign, id, queryClient],
+  );
+
   // Hooks must not be called conditionally; keep navigate as an effect so the
   // render phase stays pure. This branch is unreachable in practice because the
   // design.$id.tsx route always supplies an id param.
@@ -11973,7 +12835,7 @@ ${serializedHtml}
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 shrink-0 cursor-pointer gap-0.5 rounded-md px-0 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="ml-1 h-8 shrink-0 cursor-pointer gap-0.5 rounded-md px-0 text-muted-foreground hover:bg-accent hover:text-foreground"
               aria-label={t("designEditor.devicePreview")}
             >
               {deviceFrameIcon}
@@ -12015,10 +12877,10 @@ ${serializedHtml}
         <Button
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[calc(var(--spacing)*6.4)]"
+          className="size-8 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[calc(var(--spacing)*5.5)]"
           aria-label={t("designEditor.more")}
         >
-          <AgentNativeMenuMark className="size-[calc(var(--spacing)*6.4)] text-foreground dark:text-white" />
+          <AgentNativeMenuMark className="size-[calc(var(--spacing)*5.5)] text-foreground dark:text-white" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -12293,43 +13155,124 @@ ${serializedHtml}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 cursor-pointer rounded-md text-foreground hover:bg-accent hover:text-foreground"
-                onClick={handleOpenDesignPreview}
-                disabled={!activeScreenPreviewUrl && !activeContent.trim()}
-                aria-label={t("designEditor.designPreview")}
-              >
-                <IconPlayerPlay className="size-5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("designEditor.designPreview")}</TooltipContent>
-          </Tooltip>
-
-          {/* §6.6 — "Make this a real app" shortcut button (signed-in only).
-              Surfaces the migration CTA without requiring the project menu. */}
-          {isSignedIn && (
+          <Popover
+            open={publishWaitlistPopoverOpen}
+            onOpenChange={(open) => {
+              setPublishWaitlistPopoverOpen(open);
+              setPublishWaitlistPopoverView("actions");
+              if (open) {
+                setPublishWaitlistError(null);
+              }
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                  onClick={handleOpenMakeReal}
-                  disabled={migrateMutation.isPending}
-                  aria-label={"Make this a real app" /* i18n-ignore */}
-                >
-                  <IconRocket className="size-4" />
-                </Button>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 cursor-pointer gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-foreground"
+                    aria-label={"Preview or publish app" /* i18n-ignore */}
+                  >
+                    <IconPlayerPlay className="size-5" />
+                    <IconChevronDown className="size-3 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
               </TooltipTrigger>
               <TooltipContent>
-                {"Make this a real app" /* i18n-ignore */}
+                {"Preview or publish app" /* i18n-ignore */}
               </TooltipContent>
             </Tooltip>
-          )}
+            <PopoverContent
+              align="end"
+              sideOffset={8}
+              className="z-[100010] w-72 space-y-3 p-3"
+            >
+              {publishWaitlistPopoverView === "actions" ? (
+                <div className="space-y-1">
+                  <Button
+                    variant="ghost"
+                    className="h-9 w-full justify-start gap-2 px-2 text-sm"
+                    onClick={() => {
+                      handleOpenDesignPreview();
+                      setPublishWaitlistPopoverOpen(false);
+                    }}
+                    disabled={!activeScreenPreviewUrl && !activeContent.trim()}
+                  >
+                    <IconPlayerPlay className="size-4" />
+                    {t("designEditor.designPreview")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="h-9 w-full justify-start gap-2 px-2 text-sm"
+                    onClick={() => setPublishWaitlistPopoverView("waitlist")}
+                  >
+                    <IconArrowUpRight className="size-4" />
+                    {"Publish app" /* i18n-ignore */}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {
+                        publishWaitlistJoined
+                          ? "You're on the waitlist" /* i18n-ignore */
+                          : "Publish app" /* i18n-ignore */
+                      }
+                    </p>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {
+                        publishWaitlistJoined
+                          ? "We'll follow up when app publishing is ready for your workspace." /* i18n-ignore */
+                          : isSignedIn
+                            ? "Publish directly from Design is opening soon. Want early access?" /* i18n-ignore */
+                            : "Publish directly from Design is opening soon. Sign in to join the waitlist." /* i18n-ignore */
+                      }
+                    </p>
+                  </div>
+                  {publishWaitlistError ? (
+                    <p role="alert" className="text-xs text-destructive">
+                      {publishWaitlistError}
+                    </p>
+                  ) : null}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 cursor-pointer"
+                      onClick={() => setPublishWaitlistPopoverOpen(false)}
+                    >
+                      {
+                        publishWaitlistJoined
+                          ? "Done" /* i18n-ignore */
+                          : "Not now" /* i18n-ignore */
+                      }
+                    </Button>
+                    {!publishWaitlistJoined && (
+                      <Button
+                        size="sm"
+                        className="h-8 cursor-pointer"
+                        onClick={() => void handleJoinPublishWaitlist()}
+                        disabled={joiningPublishWaitlist}
+                      >
+                        {joiningPublishWaitlist ? (
+                          <>
+                            <Spinner className="mr-1.5 size-3.5" />
+                            {"Joining" /* i18n-ignore */}
+                          </>
+                        ) : isSignedIn ? (
+                          "Add me to waitlist" /* i18n-ignore */
+                        ) : (
+                          "Sign in to join" /* i18n-ignore */
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </PopoverContent>
+          </Popover>
 
           {isSignedIn ? (
             <ShareButton
@@ -12348,12 +13291,36 @@ ${serializedHtml}
           ) : (
             signedOutPersistenceActions
           )}
-
-          {isSignedIn && <AgentToggleButton />}
         </div>
       </div>
     </div>
   );
+
+  const leftContentWidth = Math.max(leftSidebarWidth, 320);
+  const motionDockLauncherHidden = motionDockMounted || motionDockOpen;
+  const motionDockLauncher =
+    !embedded && activeFile ? (
+      <div
+        aria-hidden={motionDockLauncherHidden ? true : undefined}
+        className={cn(
+          "overflow-hidden border-t border-[var(--design-editor-panel-divider-color)] transition-[max-height,opacity,border-color] duration-200 ease-out",
+          motionDockLauncherHidden
+            ? "max-h-0 border-transparent opacity-0"
+            : "max-h-9 opacity-100",
+        )}
+      >
+        <button
+          type="button"
+          aria-label={"Expand motion dock" /* i18n-ignore */}
+          className="flex h-8 w-full cursor-pointer items-center gap-2 bg-[var(--design-editor-panel-bg)] px-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
+          disabled={motionDockLauncherHidden}
+          onClick={() => setMotionDockOpenAnimated(true)}
+        >
+          <IconChevronRight className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">Motion</span>
+        </button>
+      </div>
+    ) : null;
 
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
@@ -12748,8 +13715,6 @@ ${serializedHtml}
             ) : !embedded ? (
               signedOutPersistenceActions
             ) : null}
-
-            {!embedded && isSignedIn && <AgentToggleButton />}
           </div>
         </div>
       </header>
@@ -12757,42 +13722,127 @@ ${serializedHtml}
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
         {!embedded ? (
-          <div
-            className="relative flex min-h-0 shrink-0 flex-col border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]"
-            style={{ width: leftSidebarWidth }}
-          >
-            <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-2">
-              {projectMenu}
-              {projectTitleControl}
-            </div>
-            <div className="min-h-0 flex-1">
-              <LayersPanel
-                screens={layerPanelFiles}
-                activeScreenId={activeFileId ?? undefined}
-                screenOverviewActive={viewMode === "overview"}
-                files={
-                  viewMode === "overview" ? overviewLayerPanelFiles : undefined
-                }
-                layers={
-                  viewMode === "overview" ? undefined : activeLayerPanelNodes
-                }
-                selectedIds={layerPanelSelectedIds}
-                expandedIds={layerPanelExpandedIds}
-                searchQuery={layersSearchQuery}
-                onScreenSelect={handleSidebarScreenSelect}
-                onScreenOverview={handleSidebarScreenOverview}
-                onAddScreen={handleAddScreen}
-                onSearchQueryChange={setLayersSearchQuery}
-                onExpandedIdsChange={setExpandedLayerIds}
-                onSelectionChange={handleLayerSelectionChange}
-                onRename={handleLayerRename}
-                onToggleLocked={handleToggleLayerLocked}
-                onToggleHidden={handleToggleLayerHidden}
-                onHoverLayer={handleLayerHover}
-                onLeaveLayer={handleLayerLeave}
-                onMoveLayer={handleLayerMove}
-                canMoveLayer={canMoveLayer}
-              />
+          <div className="relative flex min-h-0 shrink-0 border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]">
+            <DesignWorkspaceRail
+              activePanel={activeLeftPanel}
+              projectMenu={projectMenu}
+              onPanelChange={setActiveLeftPanel}
+            />
+            <div
+              className="flex min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out"
+              style={{ width: leftContentWidth }}
+            >
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "file" ? "flex" : "hidden",
+                )}
+              >
+                <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
+                  {projectTitleControl}
+                </div>
+                <div className="min-h-0 flex-1">
+                  <LayersPanel
+                    screens={layerPanelFiles}
+                    activeScreenId={activeFileId ?? undefined}
+                    screenOverviewActive={viewMode === "overview"}
+                    files={
+                      viewMode === "overview"
+                        ? overviewLayerPanelFiles
+                        : undefined
+                    }
+                    layers={
+                      viewMode === "overview"
+                        ? undefined
+                        : activeLayerPanelNodes
+                    }
+                    selectedIds={layerPanelSelectedIds}
+                    expandedIds={layerPanelExpandedIds}
+                    searchQuery={layersSearchQuery}
+                    footer={motionDockLauncher}
+                    onScreenSelect={handleSidebarScreenSelect}
+                    onScreenOverview={handleSidebarScreenOverview}
+                    onAddScreen={handleAddScreen}
+                    onSearchQueryChange={setLayersSearchQuery}
+                    onExpandedIdsChange={setExpandedLayerIds}
+                    onSelectionChange={handleLayerSelectionChange}
+                    onRename={handleLayerRename}
+                    onToggleLocked={handleToggleLayerLocked}
+                    onToggleHidden={handleToggleLayerHidden}
+                    onHoverLayer={handleLayerHover}
+                    onLeaveLayer={handleLayerLeave}
+                    onMoveLayer={handleLayerMove}
+                    canMoveLayer={canMoveLayer}
+                  />
+                </div>
+              </div>
+              <div
+                data-design-agent-panel
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "agent" ? "flex" : "hidden",
+                )}
+              >
+                <AgentChatSurface
+                  mode="panel"
+                  className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
+                  emptyStateText={t("chat.emptyState")}
+                  suggestions={[
+                    t("chat.suggestionLandingPage"),
+                    t("chat.suggestionBrandMatch"),
+                    t("chat.suggestionMobile"),
+                  ]}
+                  scope={designChatScope}
+                  browserTabId={browserTabId}
+                />
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "assets" ? "flex" : "hidden",
+                )}
+              >
+                <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+                  <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                    {t("designEditor.leftRail.assets")}
+                  </h3>
+                </div>
+                <AssetLibraryPanel context={designExtensionContext} />
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "tools" ? "flex" : "hidden",
+                )}
+              >
+                <DesignExtensionsPanel
+                  context={designExtensionContext}
+                  hideAssetLibrary
+                  title={t("designEditor.leftRail.tools")}
+                />
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "tokens" ? "flex" : "hidden",
+                )}
+              >
+                {id ? (
+                  <>
+                    <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+                      <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                        {t("designEditor.tokens.title")}
+                      </h3>
+                    </div>
+                    <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                      <TokensPanel
+                        designId={id}
+                        onTokensApplied={handleTokensApplied}
+                      />
+                    </div>
+                  </>
+                ) : null}
+              </div>
             </div>
             <div
               role="separator"
@@ -12930,9 +13980,34 @@ ${serializedHtml}
                       onDismiss={() => setLocalSourceBannerDismissed(true)}
                     />
                   )}
+                {/* "Apply to source" affordance: write the current editor
+                    content back to the local HTML/CSS file via the bridge.
+                    Only shown for localhost-backed screens where the route
+                    maps to an .html/.htm/.css file and the user has editor
+                    access. Opens the consent dialog on first use. */}
+                {activeLocalhostRouteIsWritable && canEditDesign && id && (
+                  <div className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 gap-1.5 px-2 text-[11px]"
+                      disabled={applyToSourcePending}
+                      onClick={handleApplyToSource}
+                    >
+                      <IconDeviceFloppy className="size-3 shrink-0" />
+                      {applyToSourcePending
+                        ? t("designEditor.writingToSource")
+                        : activeLocalhostRelPath
+                          ? t("designEditor.applyToSourcePath", {
+                              path: activeLocalhostRelPath,
+                            })
+                          : t("designEditor.applyToSource")}
+                    </Button>
+                  </div>
+                )}
                 <div
                   ref={canvasContainerRef}
-                  className="relative mx-1 min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-canvas-bg)]"
+                  className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   onPointerMove={handleCanvasPointerMove}
                 >
                   {/* Transparent shield that blocks pointer events reaching the
@@ -12985,6 +14060,9 @@ ${serializedHtml}
                       boardObjects={boardObjects}
                       onCreateBoardObject={handleCreateBoardObject}
                       onBoardObjectsChange={handleBoardObjectsChange}
+                      onPromoteBoardObjectToScreen={
+                        handlePromoteBoardObjectToScreen
+                      }
                       onCreateScreenFrame={handleCreateScreenFrame}
                       onDeleteSelection={handleDeleteOverviewSelection}
                       onSelectionChange={handleOverviewScreenSelectionChange}
@@ -13385,55 +14463,10 @@ ${serializedHtml}
                   onActiveTabChange={setActiveInspectorTab}
                   tweaks={tweaks}
                   tweakValues={tweakSelections}
-                  extensionContext={designExtensionContext}
                   readOnly={initialGenerationReadOnly}
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFile?.updatedAt ?? null}
                   onComponentPropApplied={handleComponentPropApplied}
-                  onTokensApplied={(resolvedCssVars) => {
-                    if (!canEditDesign || !id) return;
-                    setTweakSelections((prev) => ({
-                      ...prev,
-                      ...resolvedCssVars,
-                    }));
-                    queryClient.setQueryData(
-                      ["action", "get-design", { id }],
-                      (old: any) => {
-                        if (!old || typeof old !== "object") return old;
-                        let currentData: Record<string, unknown> = {};
-                        if (typeof old.data === "string" && old.data) {
-                          try {
-                            const parsed = JSON.parse(old.data);
-                            if (
-                              parsed &&
-                              typeof parsed === "object" &&
-                              !Array.isArray(parsed)
-                            ) {
-                              currentData = parsed;
-                            }
-                          } catch {
-                            currentData = {};
-                          }
-                        }
-                        const currentSelections =
-                          currentData.tweakSelections &&
-                          typeof currentData.tweakSelections === "object" &&
-                          !Array.isArray(currentData.tweakSelections)
-                            ? currentData.tweakSelections
-                            : {};
-                        return {
-                          ...old,
-                          data: JSON.stringify({
-                            ...currentData,
-                            tweakSelections: {
-                              ...currentSelections,
-                              ...resolvedCssVars,
-                            },
-                          }),
-                        };
-                      },
-                    );
-                  }}
                   onTweakChange={(tweakId, value) =>
                     setTweakSelections((prev) => {
                       if (!canEditDesign) return prev;
@@ -13515,60 +14548,21 @@ ${serializedHtml}
         ) : null}
       </div>
 
-      {/* Motion dock (§6.3) — collapsible bottom dock; visible when activeFile
-          is open and the user has opened it. Canvas remains visible above.
+      {/* Motion dock (§6.3) — bottom timeline mounted while opening, open, or
+          closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
-          canvas iframe (via canvasIframeRef); "Write to CSS" fires
-          apply-motion-edit. */}
-      {!embedded && activeFile ? (
+          canvas iframe; track/duration edits autosave through apply-motion-edit. */}
+      {!embedded && activeFile && motionDockMounted ? (
         <MotionDock
           tracks={motionTracks}
           durationMs={motionDurationMs}
           open={motionDockOpen}
-          onOpenChange={setMotionDockOpen}
-          onTracksChange={setMotionTracks}
-          onDurationChange={setMotionDurationMs}
+          onOpenChange={setMotionDockOpenAnimated}
+          onTracksChange={handleMotionTracksChange}
+          onDurationChange={handleMotionDurationChange}
           canvasIframeRef={canvasIframeRef}
           selectedTarget={motionSelectedTarget}
-          onApply={(tracks, durationMs) => {
-            if (!id) return;
-            applyMotionEditMutation.mutate(
-              {
-                designId: id,
-                fileId: activeFile.id,
-                tracks: tracks.map(({ label: _label, ...t }) => t),
-                durationMs,
-                currentContent: getFreshActiveFileContent({
-                  activeContent,
-                  latestContent: latestActiveContentRef.current,
-                  lastLocalContent: lastLocalContentRef.current,
-                }),
-                includeContent: true,
-              },
-              {
-                onSuccess: (result) => {
-                  const response = result as {
-                    fileId?: unknown;
-                    patchedContent?: unknown;
-                  };
-                  if (
-                    typeof response.fileId === "string" &&
-                    typeof response.patchedContent === "string"
-                  ) {
-                    applyFileContentUpdate(
-                      response.fileId,
-                      response.patchedContent,
-                      {
-                        refreshPreview: response.fileId === activeFile.id,
-                        persist: false,
-                      },
-                    );
-                  }
-                },
-              },
-            );
-          }}
-          applying={applyMotionEditMutation.isPending}
+          applying={motionAutosavePending}
         />
       ) : null}
 

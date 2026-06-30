@@ -19,6 +19,7 @@ import {
   refreshElementInfoFromContent,
   removeUndoRedoOrderKind,
   getSidebarCodeLayerSelectionState,
+  hydrateMotionDockTracks,
   isScreenRootElementInfo,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
@@ -165,6 +166,45 @@ describe("DesignEditor screen root hover", () => {
         isFlexContainer: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("DesignEditor motion timeline hydration", () => {
+  it("labels persisted motion tracks from the active code-layer projection", () => {
+    const projection = buildCodeLayerProjection(`
+      <button
+        data-agent-native-node-id="e2e-alpha-button"
+        data-agent-native-layer-name="Alpha Button"
+      >
+        Alpha Button
+      </button>
+    `);
+
+    expect(
+      hydrateMotionDockTracks(
+        [
+          {
+            targetNodeId: "e2e-alpha-button",
+            property: "opacity",
+            keyframes: [
+              { t: 0, value: "0" },
+              { t: 1, value: "1" },
+            ],
+          },
+        ],
+        projection,
+      ),
+    ).toEqual([
+      {
+        targetNodeId: "e2e-alpha-button",
+        label: "Alpha Button",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ]);
   });
 });
 

@@ -7,6 +7,7 @@ import {
   ensureCodeLayerNodeIdsInHtml,
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
+  stripEditorOnlyAttributes,
   type EditIntent,
 } from "./code-layer";
 
@@ -1219,5 +1220,56 @@ describe("autoLayout (regression)", () => {
     // Child absolute positioning is also stripped
     expect(patch.content).not.toContain("position: absolute");
     expect(patch.content).not.toContain("left: 5px");
+  });
+});
+
+describe("stripEditorOnlyAttributes", () => {
+  it("removes data-agent-native-node-id from simple elements", () => {
+    const html = `<div data-agent-native-node-id="an-abc123" class="foo">hello</div>`;
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).not.toContain("data-agent-native-node-id");
+    expect(result).toContain('class="foo"');
+    expect(result).toContain("hello");
+  });
+
+  it("removes data-agent-native-node-id with single-quoted value", () => {
+    const html = `<span data-agent-native-node-id='an-xyz' style="color:red">text</span>`;
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).not.toContain("data-agent-native-node-id");
+    expect(result).toContain('style="color:red"');
+  });
+
+  it("strips the attribute from multiple elements", () => {
+    const html = [
+      `<div data-agent-native-node-id="an-1" id="a">`,
+      `  <p data-agent-native-node-id="an-2" class="text-sm">content</p>`,
+      `</div>`,
+    ].join("\n");
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).not.toContain("data-agent-native-node-id");
+    expect(result).toContain('id="a"');
+    expect(result).toContain('class="text-sm"');
+  });
+
+  it("preserves data-agent-native-layer-name (developer-authored, not editor-only)", () => {
+    const html = `<div data-agent-native-node-id="an-abc" data-agent-native-layer-name="Card">body</div>`;
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).not.toContain("data-agent-native-node-id");
+    expect(result).toContain('data-agent-native-layer-name="Card"');
+  });
+
+  it("is idempotent on already-clean source", () => {
+    const html = `<section class="p-4"><h1>Title</h1></section>`;
+    expect(stripEditorOnlyAttributes(html)).toBe(html);
+  });
+
+  it("handles empty string input", () => {
+    expect(stripEditorOnlyAttributes("")).toBe("");
+  });
+
+  it("does not corrupt adjacent attributes when removing the stamp", () => {
+    const html = `<button data-agent-native-node-id="an-z" type="button" class="btn">Click</button>`;
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).toBe(`<button type="button" class="btn">Click</button>`);
   });
 });

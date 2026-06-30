@@ -498,6 +498,57 @@ async function uploadChunk(
   return data;
 }
 
+function uploadAbortUrl(uploadUrl: string): string | null {
+  try {
+    const url = new URL(uploadUrl);
+    url.pathname = url.pathname.replace(/\/chunk$/, "/abort");
+    url.search = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function abortServerUpload(
+  recording: ActiveRecording,
+  reason: string,
+): Promise<void> {
+  const url = uploadAbortUrl(recording.uploadUrl);
+  if (!url) return;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Agent-Native-Frontend": "1",
+  };
+  if (recording.authToken) {
+    headers.Authorization = `Bearer ${recording.authToken}`;
+  }
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  const timer = controller
+    ? window.setTimeout(() => controller.abort(), 4_000)
+    : undefined;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify({ reason }),
+      signal: controller?.signal,
+    });
+    if (!response.ok) {
+      console.warn(
+        "[clips-offscreen] abort upload returned",
+        response.status,
+        await response.text().catch(() => ""),
+      );
+    }
+  } catch (err) {
+    console.warn("[clips-offscreen] abort upload failed", err);
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
+}
+
 // Keep a local copy of every recorded blob so a failed upload can still be
 // saved to disk. Blob references are browser-managed (often disk-backed), so
 // this is far cheaper than holding ArrayBuffers. We stop retaining past the
@@ -1018,6 +1069,9 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     });
     // The upload failed — save the buffered recording to disk so it isn't lost.
     const saved = await saveRecordingToDisk(recording);
+    if (!(error as { storageSetupRequired?: boolean }).storageSetupRequired) {
+      await abortServerUpload(recording, error.message);
+    }
     reportStatus(recording.sessionId, "error", {
       recordingId: recording.recordingId,
       error: error.message,

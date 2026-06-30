@@ -76,7 +76,7 @@ function homeLayerRow(page: Page): Locator {
 }
 
 function screenShell(page: Page, name = "Home"): Locator {
-  return page.locator("[data-frame-shell]").filter({ hasText: name }).first();
+  return page.locator("[data-screen-shell]").filter({ hasText: name }).first();
 }
 
 async function dragBetween(

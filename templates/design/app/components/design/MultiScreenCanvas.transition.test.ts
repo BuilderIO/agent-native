@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getChromeBorderTransition,
+  getDraftPreviewGeometryForTool,
   getPreviewDeviceFrameGeometry,
   getSelectionBoxTransition,
   isDirectScreenHoverTarget,
@@ -33,6 +34,28 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
 
     expect(isDirectScreenHoverTarget(frame, frame)).toBe(true);
     expect(isDirectScreenHoverTarget(screenContentChild, frame)).toBe(false);
+  });
+
+  it("keeps rectangle creation preview collapsed before the drag threshold", () => {
+    expect(
+      getDraftPreviewGeometryForTool(
+        "rect",
+        { x: 50, y: 60 },
+        { x: 51, y: 61 },
+        false,
+      ),
+    ).toEqual({ x: 50, y: 60, width: 0, height: 0 });
+  });
+
+  it("uses drawn rectangle bounds after the drag threshold", () => {
+    expect(
+      getDraftPreviewGeometryForTool(
+        "rect",
+        { x: 50, y: 60 },
+        { x: 54, y: 72 },
+        true,
+      ),
+    ).toEqual({ x: 50, y: 60, width: 8, height: 12 });
   });
 
   it("updates both dimensions when switching to a concrete device preview", () => {

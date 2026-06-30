@@ -52,7 +52,6 @@ import {
   IconLock,
   IconMaximize,
   IconMinus,
-  IconPalette,
   IconPhoto,
   IconPlus,
   IconShadow,
@@ -112,10 +111,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
-  DesignExtensionsPanel,
-  type DesignExtensionSlotContext,
-} from "./DesignExtensionsPanel";
-import {
   AutoLayoutMatrix,
   ConstraintsWidget,
   ExportSettingsPanel,
@@ -143,18 +138,10 @@ import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import { StatesPanel } from "./StatesPanel";
 import type { StatesPanelProps } from "./StatesPanel";
-import { TokensPanel } from "./TokensPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
-export type InspectorTab = "design" | "tweaks" | "extensions";
-
-/**
- * Sub-tab within the Tweaks area: "tokens" = TokensPanel face (CSS-var
- * editing through the Tweaks loop); "tweaks" = raw TweakDefinition controls.
- * Defaults to "tokens" when a designId is provided, otherwise "tweaks".
- */
-type TweaksSubTab = "tokens" | "tweaks";
+export type InspectorTab = "design" | "tweaks";
 
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
@@ -166,7 +153,6 @@ interface EditPanelProps {
   onActiveTabChange?: (tab: InspectorTab) => void;
   tweaks?: TweakDefinition[];
   tweakValues?: Record<string, string | number | boolean>;
-  extensionContext?: DesignExtensionSlotContext;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: (property: string, value: string) => void;
@@ -2687,12 +2673,6 @@ function InspectorTabsHeader({
             className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {t("designEditor.tweaks")}
-          </TabsTrigger>
-          <TabsTrigger
-            value="extensions"
-            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-          >
-            {t("designEditor.extensions")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -5590,8 +5570,8 @@ function MakeItRealCard({
   // height so the inspector doesn't jump when the data arrives.
   if (isLoading || !data) {
     return (
-      <div className="rounded-md border border-dashed border-[var(--design-editor-accent-color)]/20 bg-[var(--design-editor-accent-color)]/3 px-2.5 py-2">
-        <div className="h-3 w-32 animate-pulse rounded bg-muted/40" />
+      <div className="flex h-7 items-center rounded-[5px] bg-[var(--design-editor-control-bg)] px-2">
+        <div className="h-3 w-28 animate-pulse rounded bg-muted/40" />
       </div>
     );
   }
@@ -5636,85 +5616,86 @@ function MakeItRealCard({
 
   if (migrateResult?.status === "processing" && migrateResult.url) {
     return (
-      <div className="rounded-md border border-[var(--design-editor-accent-color)]/30 bg-[var(--design-editor-accent-color)]/8 px-2.5 py-2 space-y-1.5">
-        <p className="text-[10px] font-semibold text-[var(--design-editor-accent-color)]">
-          {"Builder is working on it" /* i18n-ignore make-it-real card */}
-        </p>
-        <p className="text-[10px] leading-snug text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-[5px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 py-1.5">
+        <IconLoader2 className="size-3.5 shrink-0 animate-spin text-[var(--design-editor-accent-color)]" />
+        <p className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
           {migrateResult.message ??
-            `Branch "${migrateResult.branchName}" is being generated.`}
+            `Generating ${migrateResult.branchName ?? "React app"}.`}
         </p>
         <a
           href={migrateResult.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[10px] font-medium text-[var(--design-editor-accent-color)] hover:underline"
+          className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-semibold text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-panel-raised-bg)]"
         >
-          {"Open in Builder" /* i18n-ignore make-it-real card */}
+          {"Open" /* i18n-ignore make-it-real card */}
           <IconExternalLink className="size-2.5" />
         </a>
       </div>
     );
   }
 
+  const summary =
+    cta.kind === "configure-project"
+      ? `Configure Builder to enable ${featureLabel}.`
+      : `Connect Builder to enable ${featureLabel}.`;
+  const primaryLabel =
+    cta.kind === "configure-project"
+      ? "Configure" /* i18n-ignore make-it-real card */
+      : "Connect"; /* i18n-ignore make-it-real card */
+
   return (
-    <div className="rounded-md border border-dashed border-[var(--design-editor-accent-color)]/30 bg-[var(--design-editor-accent-color)]/5 px-2.5 py-2 space-y-1.5">
-      {/* Header */}
-      <p className="text-[10px] font-semibold text-foreground">
-        {"Make this a real app" /* i18n-ignore make-it-real card */}
-      </p>
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 rounded-[5px] border border-dashed border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]/70 px-2 py-1.5">
+        <span
+          className="size-1.5 shrink-0 rounded-full bg-[var(--design-editor-accent-color)]"
+          aria-hidden="true"
+        />
+        <p
+          className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"
+          title={summary}
+        >
+          {summary}
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          onClick={handlePrimary}
+          title={cta.primaryAction}
+          className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-white hover:bg-[var(--design-editor-accent-hover-color)]"
+        >
+          {primaryLabel}
+          <IconArrowRight className="size-2.5" />
+        </Button>
 
-      {/* Body */}
-      <p className="text-[10px] leading-snug text-muted-foreground">
-        {cta.description}
-        {featureLabel ? (
-          <>
-            {" "}
-            <span className="italic">{featureLabel}</span>
-            {" requires a real-app source."}
-          </>
-        ) : null}
-      </p>
-
-      {/* Error */}
+        {/* When Builder is fully connected, also offer direct migration */}
+        {data.connected && data.builderEnabled && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleMigrate}
+            disabled={isPending}
+            className="h-6 shrink-0 gap-1 rounded-md px-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+          >
+            {isPending ? (
+              <>
+                <IconLoader2 className="size-2.5 animate-spin" />
+                {"Generating" /* i18n-ignore make-it-real card */}
+              </>
+            ) : (
+              <>{"Generate" /* i18n-ignore make-it-real card */}</>
+            )}
+          </Button>
+        )}
+      </div>
       {migrateError ? (
-        <p className="text-[10px] text-destructive">
+        <p className="px-2 text-[10px] text-destructive">
           {migrateError instanceof Error
             ? migrateError.message
             : "Migration failed. Please try again."}
         </p>
       ) : null}
-
-      {/* Actions */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <button
-          type="button"
-          onClick={handlePrimary}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium bg-[var(--design-editor-accent-color)] text-white hover:opacity-90 transition-opacity"
-        >
-          {cta.primaryAction}
-          <IconArrowRight className="size-2.5" />
-        </button>
-
-        {/* When Builder is fully connected, also offer direct migration */}
-        {data.connected && data.builderEnabled && (
-          <button
-            type="button"
-            onClick={handleMigrate}
-            disabled={isPending}
-            className="inline-flex items-center gap-1 rounded border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:cursor-wait disabled:opacity-60"
-          >
-            {isPending ? (
-              <>
-                <IconLoader2 className="size-2.5 animate-spin" />
-                {"Migrating…" /* i18n-ignore make-it-real card */}
-              </>
-            ) : (
-              <>{"Generate React app" /* i18n-ignore make-it-real card */}</>
-            )}
-          </button>
-        )}
-      </div>
     </div>
   );
 }
@@ -6258,7 +6239,6 @@ export function EditPanel({
   onActiveTabChange,
   tweaks = [],
   tweakValues = {},
-  extensionContext,
   onTweakChange,
   onRequestTweaks,
   onStyleChange,
@@ -6273,7 +6253,6 @@ export function EditPanel({
   activeFileUpdatedAt,
   designId,
   onComponentPropApplied,
-  onTokensApplied,
   statesPanelProps,
   reviewPanelProps,
   componentNodeId,
@@ -6288,12 +6267,6 @@ export function EditPanel({
     DEFAULT_EXPORT_SETTINGS,
   );
   const [showExportPreview, setShowExportPreview] = useState(false);
-  // Sub-tab within the Tweaks area: "tokens" (TokensPanel face) or "tweaks"
-  // (raw TweakDefinition controls). Always default to the existing "tweaks"
-  // controls so opening Tweaks lands on the user's TweakDefinition controls
-  // (and the + affordance) rather than auto-firing token indexing. "Tokens"
-  // remains available as a sub-tab the user can click when designId is set.
-  const [tweaksSubTab, setTweaksSubTab] = useState<TweaksSubTab>("tweaks");
 
   const selectedElementKey = selectedElement
     ? elementIdentityKey(selectedElement)
@@ -6311,12 +6284,8 @@ export function EditPanel({
     },
     [onTweakChange],
   );
-  // The "Add Tweaks" (+) flow lives only on the "tweaks" sub-tab. Switch to it
-  // before opening the prompt so the + button and the newly added control are
-  // visible (avoids leaving the user on the Tokens sub-tab where + isn't shown).
   const handleRequestTweaks = useCallback(
     (anchor: HTMLElement) => {
-      setTweaksSubTab("tweaks");
       onRequestTweaks?.(anchor);
     },
     [onRequestTweaks],
@@ -6683,132 +6652,41 @@ export function EditPanel({
         </>
       ) : activeTab === "tweaks" ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {/* Tweaks tab header: when designId is present show a Tokens | Tweaks
-              sub-tab switcher so the TokensPanel is the first-class face of
-              this area per §6.2. When there is no designId only the raw tweaks
-              title is shown (original behaviour). */}
-          {designId ? (
-            <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border/90 px-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "h-6 rounded-md px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground",
-                  tweaksSubTab === "tokens" &&
-                    "bg-[var(--design-editor-panel-raised-bg)] text-foreground",
-                )}
-                onClick={() => setTweaksSubTab("tokens")}
-              >
-                <IconPalette className="mr-1 size-3" />
-                {"Tokens" /* i18n-ignore design inspector sub-tab */}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "h-6 rounded-md px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground",
-                  tweaksSubTab === "tweaks" &&
-                    "bg-[var(--design-editor-panel-raised-bg)] text-foreground",
-                )}
-                onClick={() => setTweaksSubTab("tweaks")}
-              >
-                {t("designEditor.tweaks")}
-              </Button>
-            </div>
-          ) : (
-            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-              <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-                {t("designEditor.tweaks")}
-              </h3>
-              {onRequestTweaks ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label={t("designEditor.addTweaks")}
-                      onClick={(event) =>
-                        handleRequestTweaks(event.currentTarget)
-                      }
-                    >
-                      <IconPlus className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("designEditor.addTweaks")}</TooltipContent>
-                </Tooltip>
-              ) : null}
-            </div>
-          )}
+          <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
+            <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+              {t("designEditor.tweaks")}
+            </h3>
+            {onRequestTweaks ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-label={t("designEditor.addTweaks")}
+                    onClick={(event) =>
+                      handleRequestTweaks(event.currentTarget)
+                    }
+                  >
+                    <IconPlus className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("designEditor.addTweaks")}</TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
 
           <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            {designId && tweaksSubTab === "tokens" ? (
-              /* §6.2 Tokens face — first-class view of the Tweaks area.
-                 TokensPanel calls apply-design-token-edit which routes through
-                 the Tweaks loop (designs.data.tweakSelections persist). */
-              <>
-                <TokensPanel
-                  designId={designId}
-                  onTokensApplied={onTokensApplied}
-                />
-                {/* §5 / §6.6 — token write-back to source is a real-app
-                    capability. On inline sources (sourceCapabilities lacks
-                    "writeFile") show a compact "Make it real" CTA after the
-                    token list so the user knows write-back is one step away. */}
-                {!sourceCapabilities.includes("writeFile") && (
-                  <div className="px-3 pb-3 pt-1">
-                    <MakeItRealCard
-                      designId={designId}
-                      featureLabel="token write-back to source files"
-                    />
-                  </div>
-                )}
-              </>
-            ) : (
-              /* Raw TweakDefinition controls — shown when no designId, or when
-                 the user switches to the Tweaks sub-tab. */
-              <>
-                {designId && onRequestTweaks ? (
-                  /* When in sub-tab mode, show the add-tweaks action in the
-                     scrollable content area above the raw controls. */
-                  <div className="flex items-center justify-end px-3 pt-2">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-                          aria-label={t("designEditor.addTweaks")}
-                          onClick={(event) =>
-                            handleRequestTweaks(event.currentTarget)
-                          }
-                        >
-                          <IconPlus className="size-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("designEditor.addTweaks")}
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                ) : null}
-                <TweaksPanelContent
-                  tweaks={tweaks}
-                  values={tweakValues}
-                  onChange={handleTweakChange}
-                  onRequestTweaks={!designId ? handleRequestTweaks : undefined}
-                  className="px-3 py-3"
-                />
-              </>
-            )}
+            <TweaksPanelContent
+              tweaks={tweaks}
+              values={tweakValues}
+              onChange={handleTweakChange}
+              onRequestTweaks={handleRequestTweaks}
+              className="px-3 py-3"
+            />
           </div>
         </div>
-      ) : extensionContext ? (
-        <DesignExtensionsPanel context={extensionContext} />
       ) : null}
     </div>
   );

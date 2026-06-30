@@ -138,8 +138,8 @@ export const MOTION_PROPERTY_PRESETS: MotionPropertyPreset[] = [
 /**
  * Build a brand-new {@link MotionTrack} for a target node + property, seeded
  * with two keyframes (start/end) so it is immediately valid for both the live
- * preview bridge and the `apply-motion-edit` "Write to CSS" commit. Used by the
- * MotionDock "create first track" path.
+ * preview bridge and the `apply-motion-edit` managed CSS persist path. Used by
+ * the MotionDock "create first track" path.
  *
  * When `preset` is omitted, a neutral 0 → 1 opacity-style pair is used so the
  * track still compiles; callers normally pass a {@link MotionPropertyPreset}.

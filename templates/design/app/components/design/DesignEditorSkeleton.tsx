@@ -13,29 +13,39 @@ export function DesignEditorSkeleton({
   return (
     <div className="flex h-full overflow-hidden bg-background">
       {!embedded && (
-        <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-[var(--design-editor-panel-bg)] lg:flex">
-          <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2">
-            <Skeleton className="size-8 rounded-md" />
-            <Skeleton className="h-5 min-w-0 flex-1 rounded" />
-          </div>
-          <div className="shrink-0 border-b border-border p-2">
-            <div className="mb-2 flex items-center justify-between">
-              <Skeleton className="h-3 w-16 rounded" />
-              <div className="flex gap-1">
-                <Skeleton className="size-6 rounded-sm" />
-                <Skeleton className="size-6 rounded-sm" />
-              </div>
+        <aside className="hidden w-80 shrink-0 border-r border-border bg-[var(--design-editor-panel-bg)] lg:flex">
+          <div className="flex w-[52px] shrink-0 flex-col items-center border-r border-border py-3">
+            <Skeleton className="mb-3 size-8 rounded-md" />
+            <Skeleton className="mb-5 h-px w-8 rounded-none" />
+            <div className="flex flex-1 flex-col items-center gap-4">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <Skeleton key={index} className="h-[48px] w-12 rounded-lg" />
+              ))}
             </div>
-            <Skeleton className="h-7 w-full rounded-sm" />
           </div>
-          <div className="shrink-0 border-b border-border p-2">
-            <Skeleton className="h-7 w-full rounded-sm" />
-          </div>
-          <div className="flex-1 space-y-1 p-2">
-            <Skeleton className="h-6 w-full rounded-sm" />
-            <Skeleton className="h-6 w-11/12 rounded-sm" />
-            <Skeleton className="h-6 w-4/5 rounded-sm" />
-            <Skeleton className="h-6 w-2/3 rounded-sm" />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex h-10 shrink-0 items-center border-b border-border px-3">
+              <Skeleton className="h-5 min-w-0 flex-1 rounded" />
+            </div>
+            <div className="shrink-0 border-b border-border p-2">
+              <div className="mb-2 flex items-center justify-between">
+                <Skeleton className="h-3 w-16 rounded" />
+                <div className="flex gap-1">
+                  <Skeleton className="size-6 rounded-sm" />
+                  <Skeleton className="size-6 rounded-sm" />
+                </div>
+              </div>
+              <Skeleton className="h-7 w-full rounded-sm" />
+            </div>
+            <div className="shrink-0 border-b border-border p-2">
+              <Skeleton className="h-7 w-full rounded-sm" />
+            </div>
+            <div className="flex-1 space-y-1 p-2">
+              <Skeleton className="h-6 w-full rounded-sm" />
+              <Skeleton className="h-6 w-11/12 rounded-sm" />
+              <Skeleton className="h-6 w-4/5 rounded-sm" />
+              <Skeleton className="h-6 w-2/3 rounded-sm" />
+            </div>
           </div>
         </aside>
       )}

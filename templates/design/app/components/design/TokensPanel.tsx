@@ -25,6 +25,8 @@ import {
   IconChevronRight,
   IconCircle,
   IconCode,
+  IconFileText,
+  IconFolder,
   IconLetterCase,
   IconPalette,
   IconPlus,
@@ -32,6 +34,7 @@ import {
   IconRuler,
   IconSpacingVertical,
   IconShadow,
+  IconUpload,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -43,6 +46,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -73,6 +77,18 @@ interface IndexDesignTokensResult {
   tokenCount: number;
   groups: TokenGroup[];
   tokens: DesignToken[];
+}
+
+interface ImportDesignTokensResult {
+  designId: string;
+  importedCount: number;
+  filesAnalyzed: string[];
+  resolvedCssVars?: Record<string, string>;
+}
+
+interface TokenImportFile {
+  filename: string;
+  content: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +405,200 @@ function NewTokenPopover({ onAdd }: NewTokenPopoverProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Import popover
+// ---------------------------------------------------------------------------
+
+const TOKEN_IMPORT_ACCEPT = [
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+  ".json",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".md",
+  ".mdx",
+  ".txt",
+].join(",");
+
+async function readImportFiles(fileList: FileList): Promise<TokenImportFile[]> {
+  const selected = [...fileList].slice(0, 20);
+  const files = await Promise.all(
+    selected.map(async (file) => ({
+      filename:
+        (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+        file.name,
+      content: await file.text(),
+    })),
+  );
+
+  return files.filter((file) => file.content.trim().length > 0);
+}
+
+interface ImportTokensPopoverProps {
+  onImportFiles: (
+    files: TokenImportFile[],
+  ) => Promise<ImportDesignTokensResult>;
+  onImportText: (text: string) => Promise<ImportDesignTokensResult>;
+  onImportCurrentDesign: () => Promise<ImportDesignTokensResult>;
+  isPending: boolean;
+}
+
+function ImportTokensPopover({
+  onImportFiles,
+  onImportText,
+  onImportCurrentDesign,
+  isPending,
+}: ImportTokensPopoverProps) {
+  const t = useT();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+
+  const runImport = async (
+    importer: () => Promise<ImportDesignTokensResult>,
+  ) => {
+    setStatus(null);
+    try {
+      const result = await importer();
+      setStatus(
+        t("designEditor.tokens.importedCount", {
+          count: result.importedCount,
+        }),
+      );
+      if (result.importedCount > 0) {
+        setText("");
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.currentTarget.files;
+    event.currentTarget.value = "";
+    if (!files?.length) return;
+    void runImport(async () => onImportFiles(await readImportFiles(files)));
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 cursor-pointer text-muted-foreground/60 hover:text-foreground"
+              aria-label={t("designEditor.tokens.import")}
+            >
+              <IconUpload className="size-3" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("designEditor.tokens.import")}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="w-72 p-3 text-[12px]">
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-[11px] font-medium text-foreground">
+              {t("designEditor.tokens.importTitle")}
+            </p>
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              {t("designEditor.tokens.importHint")}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 cursor-pointer gap-1 px-2 text-[10px]"
+              disabled={isPending}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <IconFileText className="size-3" />
+              {t("designEditor.tokens.files")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 cursor-pointer gap-1 px-2 text-[10px]"
+              disabled={isPending}
+              onClick={() => folderInputRef.current?.click()}
+            >
+              <IconFolder className="size-3" />
+              {t("designEditor.tokens.folder")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 cursor-pointer px-2 text-[10px]"
+              disabled={isPending}
+              onClick={() => void runImport(onImportCurrentDesign)}
+            >
+              {t("designEditor.tokens.current")}
+            </Button>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={TOKEN_IMPORT_ACCEPT}
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            accept={TOKEN_IMPORT_ACCEPT}
+            className="hidden"
+            onChange={handleFileChange}
+            {...({ directory: "", webkitdirectory: "" } as Record<
+              string,
+              string
+            >)}
+          />
+
+          <div className="space-y-1.5">
+            <Textarea
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder={t("designEditor.tokens.pastePlaceholder")}
+              className="min-h-24 resize-none font-mono text-[11px]"
+            />
+            <Button
+              type="button"
+              className="h-7 w-full cursor-pointer text-[11px]"
+              disabled={isPending || !text.trim()}
+              onClick={() => void runImport(() => onImportText(text))}
+            >
+              {t("designEditor.tokens.importPasted")}
+            </Button>
+          </div>
+
+          {status && (
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              {status}
+            </p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main panel
 // ---------------------------------------------------------------------------
 
@@ -409,6 +619,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   );
 
   const applyMutation = useActionMutation("apply-design-token-edit");
+  const importMutation = useActionMutation("import-design-tokens");
 
   // ------------------------------------------------------------------
   // Local edit state
@@ -463,6 +674,40 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     );
   };
 
+  const handleImportSuccess = (result: ImportDesignTokensResult) => {
+    void refetch();
+    if (result.resolvedCssVars && onTokensApplied) {
+      onTokensApplied(result.resolvedCssVars);
+    }
+    return result;
+  };
+
+  const importFiles = async (files: TokenImportFile[]) => {
+    const result = (await importMutation.mutateAsync({
+      designId,
+      source: "files",
+      files,
+    })) as ImportDesignTokensResult;
+    return handleImportSuccess(result);
+  };
+
+  const importText = async (text: string) => {
+    const result = (await importMutation.mutateAsync({
+      designId,
+      source: "paste",
+      text,
+    })) as ImportDesignTokensResult;
+    return handleImportSuccess(result);
+  };
+
+  const importCurrentDesign = async () => {
+    const result = (await importMutation.mutateAsync({
+      designId,
+      source: "current-design",
+    })) as ImportDesignTokensResult;
+    return handleImportSuccess(result);
+  };
+
   // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
@@ -500,6 +745,12 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
             </TooltipTrigger>
             <TooltipContent>{t("designEditor.tokens.refresh")}</TooltipContent>
           </Tooltip>
+          <ImportTokensPopover
+            onImportFiles={importFiles}
+            onImportText={importText}
+            onImportCurrentDesign={importCurrentDesign}
+            isPending={importMutation.isPending}
+          />
           <NewTokenPopover onAdd={handleNewToken} />
         </div>
       </div>

@@ -157,10 +157,10 @@ function StateRow({
         if (e.key === "Enter" || e.key === " ") onSelect();
       }}
       className={cn(
-        "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
+        "group flex h-7 cursor-pointer items-center gap-2 rounded-[5px] px-2 outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
         isActive
-          ? "bg-primary/10 text-foreground"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+          ? "bg-[var(--design-editor-active-row-color)] text-foreground"
+          : "text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
       )}
     >
       {/* Active indicator */}
@@ -172,7 +172,7 @@ function StateRow({
       />
 
       {/* Name */}
-      <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+      <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">
         {row.name}
       </span>
 
@@ -267,11 +267,11 @@ export function StatesPanel({
   };
 
   return (
-    <div className="flex flex-col gap-3 px-3 py-3">
+    <div className="flex flex-col gap-2">
       {/* ── Responsive breakpoints ── */}
       <section aria-label="Breakpoints">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-[11px] font-medium text-muted-foreground">
             Responsive
           </span>
           {onAddBreakpoint && (
@@ -281,11 +281,11 @@ export function StatesPanel({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-5 cursor-pointer text-muted-foreground/50 hover:text-foreground"
+                  className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
                   onClick={onAddBreakpoint}
                   aria-label="Add breakpoint"
                 >
-                  <IconPlus className="size-3" />
+                  <IconPlus className="size-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Add breakpoint</TooltipContent>
@@ -294,7 +294,7 @@ export function StatesPanel({
         </div>
 
         {/* Segmented control */}
-        <div className="flex h-7 overflow-hidden rounded-md border border-border">
+        <div className="flex h-7 min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
           {/* Auto = single-frame, all breakpoints */}
           <BreakpointButton
             id="auto"
@@ -341,29 +341,12 @@ export function StatesPanel({
             </>
           )}
         </div>
-
-        {/* Active-frame hint */}
-        {activeBreakpointId !== "auto" && (
-          <p className="mt-1 text-[10px] text-muted-foreground/60">
-            Edits in this frame write{" "}
-            <span className="font-mono font-semibold">
-              {activeBreakpointId === "bp-mobile"
-                ? "base:"
-                : activeBreakpointId === "bp-tablet"
-                  ? "md:"
-                  : activeBreakpointId === "bp-desktop"
-                    ? "xl:"
-                    : "breakpoint:"}
-            </span>{" "}
-            classes
-          </p>
-        )}
       </section>
 
       {/* ── Design states ── */}
       <section aria-label="Design states">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-[11px] font-medium text-muted-foreground">
             States
           </span>
           <div className="flex items-center gap-0.5">
@@ -374,11 +357,11 @@ export function StatesPanel({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-5 cursor-pointer text-muted-foreground/50 hover:text-foreground"
+                    className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
                     onClick={onCapture}
                     aria-label="Capture from running app"
                   >
-                    <IconCamera className="size-3" />
+                    <IconCamera className="size-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Capture from running app</TooltipContent>
@@ -390,13 +373,13 @@ export function StatesPanel({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-5 cursor-pointer text-muted-foreground/50 hover:text-foreground"
+                  className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
                   onClick={() => refetch()}
                   aria-label="Refresh states"
                   disabled={isLoading}
                 >
                   <IconRefresh
-                    className={cn("size-3", isLoading && "animate-spin")}
+                    className={cn("size-3.5", isLoading && "animate-spin")}
                   />
                 </Button>
               </TooltipTrigger>
@@ -408,11 +391,11 @@ export function StatesPanel({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-5 cursor-pointer text-muted-foreground/50 hover:text-foreground"
+                  className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
                   onClick={() => setIsAdding(true)}
                   aria-label="Add state"
                 >
-                  <IconPlus className="size-3" />
+                  <IconPlus className="size-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Add state</TooltipContent>
@@ -429,10 +412,10 @@ export function StatesPanel({
             if (e.key === "Enter" || e.key === " ") onStateSelect(null);
           }}
           className={cn(
-            "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
+            "flex h-7 cursor-pointer items-center gap-2 rounded-[5px] px-2 outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
             activeStateId === null
-              ? "bg-primary/10 text-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              ? "bg-[var(--design-editor-active-row-color)] text-foreground"
+              : "text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
           )}
         >
           <div
@@ -441,7 +424,9 @@ export function StatesPanel({
               activeStateId === null ? "bg-primary" : "bg-muted-foreground/30",
             )}
           />
-          <span className="text-[12px] font-medium">Default</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">
+            Default
+          </span>
           <span className="ml-auto text-[10px] text-muted-foreground/40">
             Live
           </span>
@@ -476,10 +461,9 @@ export function StatesPanel({
 
         {/* Empty state (no user-created states yet) */}
         {!isLoading && states.length === 0 && !isAdding && (
-          <p className="mt-2 text-center text-[11px] leading-snug text-muted-foreground/50">
-            Add states like Loading, Empty, or Error to preview different UI
-            variants.
-          </p>
+          <div className="mt-1 flex h-7 items-center rounded-[5px] px-2 text-[11px] text-muted-foreground/55">
+            No saved states
+          </div>
         )}
 
         {/* Inline add-state form */}
@@ -496,7 +480,7 @@ export function StatesPanel({
               value={newStateName}
               onChange={(e) => setNewStateName(e.target.value)}
               placeholder="State name…"
-              className="h-7 flex-1 rounded-md border border-border bg-background px-2 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+              className="h-6 min-w-0 flex-1 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   setIsAdding(false);
@@ -507,7 +491,7 @@ export function StatesPanel({
             <Button
               type="submit"
               size="sm"
-              className="h-7 cursor-pointer px-2.5 text-[11px]"
+              className="h-6 cursor-pointer px-2 text-[11px]"
               disabled={!newStateName.trim() || createState.isPending}
             >
               Add
@@ -516,7 +500,7 @@ export function StatesPanel({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 cursor-pointer px-2 text-[11px]"
+              className="h-6 cursor-pointer px-2 text-[11px]"
               onClick={() => {
                 setIsAdding(false);
                 setNewStateName("");
@@ -525,15 +509,6 @@ export function StatesPanel({
               Cancel
             </Button>
           </form>
-        )}
-
-        {/* Real-app capture CTA (inline, only when not already canCapture) */}
-        {!canCapture && (
-          <div className="mt-3 rounded-md border border-dashed border-border/60 bg-muted/30 px-3 py-2.5 text-center">
-            <p className="text-[11px] leading-snug text-muted-foreground/70">
-              Connect Builder to capture live app data and route states.
-            </p>
-          </div>
         )}
       </section>
     </div>
@@ -563,17 +538,17 @@ function BreakpointButton({
       onClick={onClick}
       aria-pressed={isActive}
       className={cn(
-        "flex flex-1 cursor-pointer items-center justify-center gap-1 px-1 text-[11px] font-medium transition-colors",
+        "flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-[4px] px-1 text-[10px] font-semibold transition-colors",
         isActive
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground/70 hover:bg-accent/50 hover:text-foreground",
+          ? "bg-[var(--design-editor-panel-bg)] text-foreground shadow-[0_0_0_1px_var(--design-editor-control-border),0_1px_2px_rgba(0,0,0,0.18)]"
+          : "text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
       )}
       title={widthPx ? `${label} (${widthPx}px)` : label}
     >
       {widthPx != null && (
         <BreakpointIcon widthPx={widthPx} className="shrink-0" />
       )}
-      <span className="hidden sm:inline">{label}</span>
+      <span className="min-w-0 truncate">{label}</span>
     </button>
   );
 }

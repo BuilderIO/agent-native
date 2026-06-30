@@ -1,9 +1,6 @@
 import { useT } from "@agent-native/core/client";
-import {
-  applyBoardObjectResize,
-  getBoardObjectResizeCursor,
-} from "@shared/board-objects";
 import type { BoardObjectEntry } from "@shared/board-objects";
+import { isBoardFile } from "@shared/board-file";
 import {
   DEFAULT_ASSIGNED_REGION_GAP,
   DEFAULT_ASSIGNED_REGION_HEIGHT,
@@ -52,9 +49,9 @@ import {
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
-import { BoardObjectLayer } from "./BoardObjectLayer";
 import { canvasPrimitiveReactStyle } from "./canvas-primitive-style";
 import {
+  DesignCanvas,
   LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT,
   appendHitTestResponder,
 } from "./DesignCanvas";
@@ -233,34 +230,32 @@ interface MultiScreenCanvasProps {
     /** DOM insertion placement relative to the anchor node. */
     targetAnchorPlacement?: "before" | "after" | "inside";
   }) => void;
-  // ── Board objects ────────────────────────────────────────────────────────
+  // ── Board file (new model) ───────────────────────────────────────────────
   /**
-   * Persisted board objects stored in designs.data.boardObjects.  These float
-   * on the canvas surface and are not bound to any screen iframe.
+   * The id of the reserved "__board__.html" design file.
+   * When provided, a full-surface board <DesignCanvas> is rendered below
+   * the screen iframes so board elements are editable through the bridge.
    */
-  boardObjects?: Record<string, BoardObjectEntry>;
+  boardFileId?: string;
+  /**
+   * The current HTML content of the board file.
+   * Passed as `content` to the board <DesignCanvas> instance.
+   */
+  boardFileContent?: string;
+  /**
+   * The logical geometry of the board iframe in canvas coordinates.
+   * Should be { x:0, y:0, width:totalSurfaceWidth, height:totalSurfaceHeight }.
+   * Used to translate cross-screen-drag coords when the source is the board.
+   */
+  boardFrameGeometry?: FrameGeometry;
   /**
    * Called when a draft primitive is committed outside all screen frames
-   * (and there is more than one screen).  The caller should persist the board
-   * object via the create-board-object action.
+   * (and there is more than one screen).  The caller should append the
+   * primitive into the board file's HTML content.
+   *
+   * Replaces the legacy onCreateBoardObject.
    */
-  onCreateBoardObject?: (obj: BoardObjectEntry) => void;
-  /**
-   * Called with geometry / style updates and optional deletes for persisted
-   * board objects after a move, resize, or delete gesture.
-   */
-  onBoardObjectsChange?: (
-    updates: Array<{
-      id: string;
-      geometry?: BoardObjectEntry["geometry"];
-      fill?: string;
-      stroke?: string;
-      strokeWidth?: number;
-      text?: string;
-      name?: string;
-    }>,
-    deletes?: string[],
-  ) => void;
+  onBoardDrawPrimitive?: (primitive: CanvasPrimitiveInsert) => void;
 }
 
 /**
@@ -603,9 +598,10 @@ export function MultiScreenCanvas({
   onActiveBreakpointChange,
   onSelectionChange,
   onCrossScreenElementDrop,
-  boardObjects,
-  onCreateBoardObject,
-  onBoardObjectsChange,
+  boardFileId,
+  boardFileContent,
+  boardFrameGeometry,
+  onBoardDrawPrimitive,
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -684,15 +680,9 @@ export function MultiScreenCanvas({
     null,
   );
   const onCrossScreenElementDropRef = useRef(onCrossScreenElementDrop);
-  const onCreateBoardObjectRef = useRef(onCreateBoardObject);
-  const onBoardObjectsChangeRef = useRef(onBoardObjectsChange);
-  // Selected board-object ids tracked independently from screen-frame ids.
-  const [selectedBoardObjectIds, setSelectedBoardObjectIds] = useState<
-    Set<string>
-  >(new Set());
-  const selectedBoardObjectIdsRef = useRef(selectedBoardObjectIds);
-  // Ref wrapper for finishDrag so board-object drag/resize callbacks can be
-  // declared before finishDrag without hitting the const TDZ.
+  const onBoardDrawPrimitiveRef = useRef(onBoardDrawPrimitive);
+  // Ref wrapper for finishDrag so callbacks declared before finishDrag can
+  // reference it via the ref without hitting the const TDZ.
   const finishDragRef = useRef<() => void>(() => {});
   const suppressNextPick = useRef(false);
   const feedbackTimerRef = useRef<number | null>(null);
@@ -734,16 +724,8 @@ export function MultiScreenCanvas({
   }, [onCrossScreenElementDrop]);
 
   useEffect(() => {
-    onCreateBoardObjectRef.current = onCreateBoardObject;
-  }, [onCreateBoardObject]);
-
-  useEffect(() => {
-    onBoardObjectsChangeRef.current = onBoardObjectsChange;
-  }, [onBoardObjectsChange]);
-
-  useEffect(() => {
-    selectedBoardObjectIdsRef.current = selectedBoardObjectIds;
-  }, [selectedBoardObjectIds]);
+    onBoardDrawPrimitiveRef.current = onBoardDrawPrimitive;
+  }, [onBoardDrawPrimitive]);
 
   useEffect(() => {
     screensRef.current = screens;
@@ -1313,19 +1295,7 @@ export function MultiScreenCanvas({
     const draftIds = selectedDraftIdsRef.current.filter((id) =>
       draftPrimitivesRef.current.some((draft) => draft.id === id),
     );
-    const boardObjIds = Array.from(selectedBoardObjectIdsRef.current);
-    if (
-      frameIds.length === 0 &&
-      draftIds.length === 0 &&
-      boardObjIds.length === 0
-    )
-      return false;
-
-    // Delete selected board objects.
-    if (boardObjIds.length > 0) {
-      onBoardObjectsChangeRef.current?.([], boardObjIds);
-      setSelectedBoardObjectIds(new Set());
-    }
+    if (frameIds.length === 0 && draftIds.length === 0) return false;
 
     if (draftIds.length > 0) {
       updateDraftPrimitives((current) =>
@@ -1416,190 +1386,6 @@ export function MultiScreenCanvas({
       feedbackTimerRef.current = null;
     }, 650);
   }, []);
-
-  // ── Board-object interaction handlers ────────────────────────────────────
-
-  const handleBoardObjectClick = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      updateSelectedIds(() => []);
-      updateSelectedDraftIds(() => []);
-      setSelectedBoardObjectIds((prev) => {
-        if (e.shiftKey) {
-          const next = new Set(prev);
-          if (next.has(id)) {
-            next.delete(id);
-          } else {
-            next.add(id);
-          }
-          return next;
-        }
-        return new Set([id]);
-      });
-    },
-    [updateSelectedDraftIds, updateSelectedIds],
-  );
-
-  const handleBoardObjectDrag = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      if (e.button !== 0 || e.shiftKey) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      setSelectedBoardObjectIds((prev) => {
-        if (prev.has(id)) return prev;
-        return new Set([id]);
-      });
-      updateSelectedIds(() => []);
-      updateSelectedDraftIds(() => []);
-
-      const originClient = { x: e.clientX, y: e.clientY };
-      let hasMoved = false;
-
-      const boardObjectsSnap: Record<string, BoardObjectEntry> =
-        boardObjects ?? {};
-      const originGeometries: Record<string, BoardObjectEntry["geometry"]> =
-        Object.fromEntries(
-          Object.entries(boardObjectsSnap).map(([k, v]) => [
-            k,
-            { ...v.geometry },
-          ]),
-        );
-
-      const handleMouseMove = (ev: MouseEvent) => {
-        if (
-          !hasMoved &&
-          Math.hypot(
-            ev.clientX - originClient.x,
-            ev.clientY - originClient.y,
-          ) >= DRAG_THRESHOLD
-        ) {
-          hasMoved = true;
-        }
-        const scale = zoomRef.current / 100;
-        const dx = (ev.clientX - originClient.x) / scale;
-        const dy = (ev.clientY - originClient.y) / scale;
-        const currentIds = selectedBoardObjectIdsRef.current;
-        const targetIds = currentIds.has(id) ? Array.from(currentIds) : [id];
-        const updates = targetIds
-          .map((targetId) => {
-            const origin = originGeometries[targetId];
-            if (!origin) return null;
-            return {
-              id: targetId,
-              geometry: { ...origin, x: origin.x + dx, y: origin.y + dy },
-            };
-          })
-          .filter(
-            (u): u is { id: string; geometry: BoardObjectEntry["geometry"] } =>
-              u !== null,
-          );
-        if (updates.length > 0) {
-          onBoardObjectsChangeRef.current?.(updates);
-        }
-      };
-
-      const handleMouseUp = (ev: MouseEvent) => {
-        if (hasMoved) {
-          const scale = zoomRef.current / 100;
-          const dx = (ev.clientX - originClient.x) / scale;
-          const dy = (ev.clientY - originClient.y) / scale;
-          const currentIds = selectedBoardObjectIdsRef.current;
-          const targetIds = currentIds.has(id) ? Array.from(currentIds) : [id];
-          const updates = targetIds
-            .map((targetId) => {
-              const origin = originGeometries[targetId];
-              if (!origin) return null;
-              return {
-                id: targetId,
-                geometry: { ...origin, x: origin.x + dx, y: origin.y + dy },
-              };
-            })
-            .filter(
-              (
-                u,
-              ): u is {
-                id: string;
-                geometry: BoardObjectEntry["geometry"];
-              } => u !== null,
-            );
-          if (updates.length > 0) {
-            onBoardObjectsChangeRef.current?.(updates);
-          }
-        }
-        finishDragRef.current();
-      };
-
-      setIsDragging(true);
-      setDragCursor("grabbing");
-      installDragListeners(handleMouseMove, handleMouseUp);
-    },
-    [
-      boardObjects,
-      installDragListeners,
-      updateSelectedDraftIds,
-      updateSelectedIds,
-    ],
-  );
-
-  const handleBoardObjectResize = useCallback(
-    (id: string, handle: string, e: React.MouseEvent) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      const boardObjectsSnap: Record<string, BoardObjectEntry> =
-        boardObjects ?? {};
-      const originGeometry = boardObjectsSnap[id]?.geometry;
-      if (!originGeometry) return;
-
-      const originClient = { x: e.clientX, y: e.clientY };
-      let hasMoved = false;
-
-      const handleMouseMove = (ev: MouseEvent) => {
-        if (
-          !hasMoved &&
-          Math.hypot(
-            ev.clientX - originClient.x,
-            ev.clientY - originClient.y,
-          ) >= DRAG_THRESHOLD
-        ) {
-          hasMoved = true;
-        }
-        const scale = zoomRef.current / 100;
-        const dx = (ev.clientX - originClient.x) / scale;
-        const dy = (ev.clientY - originClient.y) / scale;
-        const newGeometry = applyBoardObjectResize(
-          originGeometry,
-          handle,
-          dx,
-          dy,
-        );
-        onBoardObjectsChangeRef.current?.([{ id, geometry: newGeometry }]);
-      };
-
-      const handleMouseUp = (ev: MouseEvent) => {
-        if (hasMoved) {
-          const scale = zoomRef.current / 100;
-          const dx = (ev.clientX - originClient.x) / scale;
-          const dy = (ev.clientY - originClient.y) / scale;
-          const newGeometry = applyBoardObjectResize(
-            originGeometry,
-            handle,
-            dx,
-            dy,
-          );
-          onBoardObjectsChangeRef.current?.([{ id, geometry: newGeometry }]);
-        }
-        finishDragRef.current();
-      };
-
-      setIsDragging(true);
-      setDragCursor(getBoardObjectResizeCursor(handle));
-      installDragListeners(handleMouseMove, handleMouseUp);
-    },
-    [boardObjects, installDragListeners],
-  );
 
   const showTransformFeedback = useCallback(
     (text: string, clientX: number, clientY: number) => {
@@ -1793,13 +1579,9 @@ export function MultiScreenCanvas({
         hasMoved: false,
       };
       setMarquee({ ...originCanvas, width: 0, height: 0 });
-      const baseSelectedBoardObjectIds = new Set(
-        selectedBoardObjectIdsRef.current,
-      );
       if (!e.shiftKey) {
         updateSelectedIds(() => []);
         updateSelectedDraftIds(() => []);
-        setSelectedBoardObjectIds(new Set());
       }
       setIsDragging(true);
 
@@ -1840,21 +1622,6 @@ export function MultiScreenCanvas({
           )
           .map((entry) => entry.id);
 
-        // Also hit-test board objects.
-        const hitBoardObjIds: string[] = [];
-        for (const [boId, bo] of Object.entries(boardObjects ?? {})) {
-          if (
-            rotatedRectIntersects(
-              rect,
-              getSelectableBounds(bo.geometry),
-              getFrameCenter(bo.geometry),
-              bo.geometry.rotation ?? 0,
-            )
-          ) {
-            hitBoardObjIds.push(boId);
-          }
-        }
-
         updateSelectedIds(() =>
           state.additive
             ? dedupeIds([...state.baseSelectedIds, ...hitIds])
@@ -1865,14 +1632,6 @@ export function MultiScreenCanvas({
             ? dedupeIds([...state.baseSelectedDraftIds, ...hitDraftIds])
             : hitDraftIds,
         );
-        setSelectedBoardObjectIds(() => {
-          if (state.additive) {
-            const next = new Set(baseSelectedBoardObjectIds);
-            hitBoardObjIds.forEach((id) => next.add(id));
-            return next;
-          }
-          return new Set(hitBoardObjIds);
-        });
       };
 
       const handleMouseUp = () => {
@@ -1880,7 +1639,6 @@ export function MultiScreenCanvas({
         if (state?.type === "marquee" && !state.hasMoved && !state.additive) {
           updateSelectedIds(() => []);
           updateSelectedDraftIds(() => []);
-          setSelectedBoardObjectIds(new Set());
         }
         finishDrag();
       };
@@ -1888,7 +1646,6 @@ export function MultiScreenCanvas({
       installDragListeners(handleMouseMove, handleMouseUp);
     },
     [
-      boardObjects,
       finishDrag,
       getCanvasPoint,
       getCurrentDraftEntries,
@@ -2016,8 +1773,14 @@ export function MultiScreenCanvas({
         );
         updateSelectedDraftIds(() => []);
         updateSelectedIds(() => []);
-        // Do not call onPrimitiveCreated for board objects (sentinel frameId).
-        if (persisted.frameId !== "__board__") {
+        if (persisted.frameId === "__board__") {
+          const nextSelection = new Set([persisted.nodeId]);
+          selectedBoardObjectIdsRef.current = nextSelection;
+          setSelectedBoardObjectIds(nextSelection);
+        } else {
+          const emptyBoardSelection = new Set<string>();
+          selectedBoardObjectIdsRef.current = emptyBoardSelection;
+          setSelectedBoardObjectIds(emptyBoardSelection);
           onPrimitiveCreated?.(persisted.frameId, persisted.nodeId);
         }
         return;
@@ -2273,15 +2036,12 @@ export function MultiScreenCanvas({
 
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
       const originFrameId = getFrameEntryAtPoint(originCanvas)?.id;
-      // B1 fix: seed a zero-size preview at the click origin instead of
-      // getDraftGeometryForTool(tool, origin, origin) which returns the
-      // default 160x120 size and causes a visible flash before the drag delta
-      // applies.  The real size only matters at mouseup (createDraftPrimitive)
-      // which already handles the "no drag" click-to-place case correctly.
-      const initialGeometry =
-        tool === "pen" || tool === "line" || tool === "arrow"
-          ? getDraftGeometryForTool(tool, originCanvas, originCanvas)
-          : { x: originCanvas.x, y: originCanvas.y, width: 0, height: 0 };
+      const initialGeometry = getDraftPreviewGeometryForTool(
+        tool,
+        originCanvas,
+        originCanvas,
+        false,
+      );
       const initialPoints =
         tool === "pen"
           ? [originCanvas]
@@ -2340,10 +2100,11 @@ export function MultiScreenCanvas({
 
         setCreationPreview({
           tool,
-          geometry: getDraftGeometryForTool(
+          geometry: getDraftPreviewGeometryForTool(
             tool,
             state.originCanvas,
             nextCanvas,
+            state.hasMoved,
           ),
           points:
             state.tool === "line" || state.tool === "arrow"
@@ -4231,6 +3992,7 @@ function DraftPrimitiveLayer({
   return (
     <button
       data-frame-shell
+      data-screen-shell
       type="button"
       className={cn(
         "group/artboard pointer-events-auto absolute block overflow-visible text-left outline-none",
@@ -4662,6 +4424,7 @@ const Screen = memo(function Screen({
   return (
     <div
       data-frame-shell
+      data-screen-shell
       className="group/frame pointer-events-auto absolute"
       style={{
         left: SURFACE_PADDING + geometry.x,
@@ -4852,7 +4615,7 @@ const Screen = memo(function Screen({
         <span
           data-screen-content
           className={cn(
-            "relative block h-full w-full overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-inset ring-border transition-colors",
+            "relative block h-full w-full overflow-hidden rounded-[inherit] bg-white shadow-2xl ring-1 ring-inset ring-border transition-colors",
           )}
           style={{ pointerEvents: screenContentInteractive ? "auto" : "none" }}
         >
@@ -4900,20 +4663,20 @@ const Screen = memo(function Screen({
               aria-hidden="true"
             />
           ) : null}
-          <span
-            data-screen-hover-outline
-            className={cn(
-              "pointer-events-none absolute inset-0 z-10 rounded-[3px] border border-[var(--design-editor-accent-color)] transition-opacity",
-              showHoverChrome ? "opacity-100" : "opacity-0",
-            )}
-            style={{
-              borderWidth: 1.5 * chromeScale,
-              transition: getChromeBorderTransition(chromeSettling),
-            }}
-            aria-hidden="true"
-          />
-          <span className="pointer-events-none absolute inset-0 rounded-[7px] border border-black/5" />
         </span>
+        <span
+          data-screen-hover-outline
+          className={cn(
+            "pointer-events-none absolute inset-0 z-10 rounded-[inherit] border border-[var(--design-editor-accent-color)] transition-opacity",
+            showHoverChrome ? "opacity-100" : "opacity-0",
+          )}
+          style={{
+            borderWidth: 1.5 * chromeScale,
+            transition: getChromeBorderTransition(chromeSettling),
+          }}
+          aria-hidden="true"
+        />
+        <span className="pointer-events-none absolute inset-0 rounded-[inherit] border border-black/5" />
         <ResizeHandles
           active={false}
           enabled={
@@ -4941,6 +4704,7 @@ const Screen = memo(function Screen({
           screen={screen}
           primaryGeometry={geometry}
           previewUrl={previewUrl}
+          srcdocWithHitTest={srcdocWithHitTest}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           penActive={penActive}
           creationToolActive={creationToolActive}
@@ -4989,6 +4753,7 @@ function BreakpointPreviewRow({
   screen,
   primaryGeometry,
   previewUrl,
+  srcdocWithHitTest,
   activeBreakpointWidth,
   penActive,
   creationToolActive,
@@ -4999,6 +4764,13 @@ function BreakpointPreviewRow({
   screen: ScreenFile;
   primaryGeometry: FrameGeometry;
   previewUrl: string | undefined;
+  /**
+   * The primary screen's srcdoc with the lightweight hit-test responder already
+   * injected (memoised in the parent Screen component).  Passed down so
+   * breakpoint sub-iframes carry the same responder and can be found via
+   * [data-screen-iframe-id] by the cross-screen drop-into-container handler.
+   */
+  srcdocWithHitTest: string;
   activeBreakpointWidth: number | undefined;
   penActive: boolean;
   creationToolActive: boolean;
@@ -5087,8 +4859,9 @@ function BreakpointPreviewRow({
               style={{ width: frameWidth, height: frameHeight }}
             >
               <iframe
+                data-screen-iframe-id={screen.id}
                 src={previewUrl}
-                srcDoc={previewUrl ? undefined : screen.content}
+                srcDoc={previewUrl ? undefined : srcdocWithHitTest}
                 sandbox="allow-scripts"
                 loading="lazy"
                 className="pointer-events-none border-0"
@@ -5762,6 +5535,23 @@ function isDraftPrimitive(
   value: DraftPrimitive | undefined,
 ): value is DraftPrimitive {
   return Boolean(value);
+}
+
+export function getDraftPreviewGeometryForTool(
+  tool: DraftCreationTool,
+  start: Point,
+  end: Point,
+  hasMoved: boolean,
+): FrameGeometry {
+  if (tool === "pen" || tool === "line" || tool === "arrow") {
+    return getDraftGeometryForTool(tool, start, end);
+  }
+
+  if (!hasMoved) {
+    return { x: start.x, y: start.y, width: 0, height: 0 };
+  }
+
+  return getDraftGeometryForTool(tool, start, end);
 }
 
 function getDraftGeometryForTool(

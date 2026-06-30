@@ -153,13 +153,13 @@ interface SharesResponse {
   policy?: SharesPolicy;
 }
 
-// Mirror shadcn's <Button size="sm" variant="outline"> class string so the
-// trigger sits flush next to other sm outline buttons in the template.
+// Match shadcn's <Button size="sm" variant="outline"> sizing so the trigger
+// sits flush next to other controls while staying transparent at rest.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const BUTTON_OUTLINE_SM = cn(
   BUTTON_BASE,
-  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-[hsl(var(--sidebar-background,var(--background)))] text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
+  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-transparent text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
 );
 const BUTTON_PRIMARY_SM = cn(
   BUTTON_BASE,

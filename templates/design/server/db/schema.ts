@@ -75,6 +75,7 @@ export const designLocalhostConnections = table(
       .notNull()
       .default("connected"),
     lastSeenAt: text("last_seen_at"),
+    bridgeToken: text("bridge_token"),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
     createdAt: text("created_at").default(now()),

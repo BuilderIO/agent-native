@@ -9,6 +9,8 @@ import {
   discoverDesignRoutes,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
+  registerConnectionWithServer,
+  resolveAppUrl,
   startDesignConnectBridge,
 } from "./design-connect.js";
 
@@ -70,6 +72,17 @@ async function postJson(
 }
 
 const tmpRoots: string[] = [];
+const appUrlEnvKeys = [
+  "AGENT_NATIVE_URL",
+  "DESIGN_APP_URL",
+  "APP_URL",
+  "VITE_APP_URL",
+  "BETTER_AUTH_URL",
+  "VITE_BETTER_AUTH_URL",
+] as const;
+const originalAppUrlEnv = new Map(
+  appUrlEnvKeys.map((key) => [key, process.env[key]]),
+);
 
 function tmpDir() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-design-cli-"));
@@ -80,6 +93,11 @@ function tmpDir() {
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+  for (const key of appUrlEnvKeys) {
+    const original = originalAppUrlEnv.get(key);
+    if (original === undefined) delete process.env[key];
+    else process.env[key] = original;
   }
 });
 
@@ -103,6 +121,36 @@ describe("design connect CLI", () => {
       json: true,
       once: true,
     });
+  });
+
+  it("parses --app-url flag", () => {
+    expect(
+      parseDesignConnectArgs([
+        "connect",
+        "--app-url",
+        "https://design.example.com",
+      ]),
+    ).toMatchObject({
+      appUrl: "https://design.example.com",
+    });
+  });
+
+  it("parses --app-url= inline form", () => {
+    expect(
+      parseDesignConnectArgs([
+        "connect",
+        "--app-url=https://design.example.com",
+      ]),
+    ).toMatchObject({
+      appUrl: "https://design.example.com",
+    });
+  });
+
+  it("resolves standard app URL env vars for self-registration", () => {
+    for (const key of appUrlEnvKeys) delete process.env[key];
+    process.env.APP_URL = "https://design.example.com/";
+
+    expect(resolveAppUrl()).toBe("https://design.example.com");
   });
 
   it("discovers React Router route files without AST parsing", () => {
@@ -466,6 +514,66 @@ describe("design connect bridge endpoints", () => {
       // Must be an error (status 500 with traversal message or 404 if OS resolves
       // to a non-existent file that still escapes the root — we just want not-200).
       expect(result.status).not.toBe(200);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("registerConnectionWithServer sends bridgeToken in the payload", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      // Spin up a small HTTP server to capture the registration payload.
+      let captured: Record<string, unknown> | null = null;
+      const captureServer = http.createServer((req, res) => {
+        const chunks: Buffer[] = [];
+        req.on("data", (c: Buffer) => chunks.push(c));
+        req.on("end", () => {
+          try {
+            captured = JSON.parse(
+              Buffer.concat(chunks).toString("utf8"),
+            ) as Record<string, unknown>;
+          } catch {
+            captured = null;
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+        });
+      });
+      const capturePort = await freePort();
+      await new Promise<void>((resolve, reject) => {
+        captureServer.once("error", reject);
+        captureServer.listen(capturePort, "127.0.0.1", () => {
+          captureServer.off("error", reject);
+          resolve();
+        });
+      });
+
+      try {
+        await registerConnectionWithServer(
+          `http://127.0.0.1:${capturePort}`,
+          bridge,
+          "test-auth-token",
+        );
+        // Give the async handler a tick to finish.
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+        expect(captured).not.toBeNull();
+        expect(captured?.["bridgeToken"]).toBe(bridge.bridgeToken);
+        expect(captured?.["devServerUrl"]).toBe(manifest.devServerUrl);
+        expect(captured?.["bridgeUrl"]).toBe(manifest.bridgeUrl);
+      } finally {
+        await new Promise<void>((resolve) =>
+          captureServer.close(() => resolve()),
+        );
+      }
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),

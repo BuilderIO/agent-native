@@ -32,6 +32,11 @@ patterns live in `.agents/skills/`.
   per direction; avoid lorem ipsum, generic SaaS filler, and decorative
   placeholders. Include expected responsive/accessibility states and visually
   inspect the result before calling it ready.
+- For editable reusable building blocks inside Design, use
+  `list-design-native-assets` first, then `insert-design-native-asset` with the
+  chosen kind. These are Design-native HTML primitives/components, not external
+  media, so prefer them when the user asks for a Figma Assets-style library that
+  supports our own primitives.
 - For raster image generation, restyling, or editing existing screenshots/photos,
   use the available first-party Assets MCP tool such as `generate-asset` instead
   of placeholders or generic stock imagery. When the Assets picker returns a
@@ -43,6 +48,15 @@ patterns live in `.agents/skills/`.
   chat-attachment URL or call `upload-image` to create one before delegating. If
   no image/upload provider is configured, say that specific setup is needed and
   continue any non-image Design work separately.
+- For reusable Figma library components, use `list-figma-library-assets` with a
+  Figma file URL or file key. It returns components/component sets with
+  thumbnails, rendered insert URLs, and Figma provenance. Insert with
+  `insert-figma-library-asset`, preserving `fileKey`, `nodeId`, `componentKey`,
+  `sourceUrl`, and the rendered URL. This path requires the saved
+  `FIGMA_ACCESS_TOKEN` secret; never ask the user to paste that token into chat
+  or pass it as an action parameter. Figma styles and variables are design-system
+  inputs, not draggable media assets; route full file/design-system extraction
+  through Builder-backed indexing.
 - Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
   directives over raw inline event handlers.
 - Navigate between prototype screens with Alpine state (`x-show`), a
@@ -72,6 +86,13 @@ patterns live in `.agents/skills/`.
   `inspectorTab: "extensions"` after installing it.
 - Follow linked design-system tokens and `customInstructions` whenever present;
   explicit user instructions in the current turn still win.
+- When a user wants tokens from design.md, CSS, theme/tokens JSON, Tailwind
+  config, local files, or the current design, call `import-design-tokens` and
+  preserve its `tokens`, `filesAnalyzed`, and provenance in your answer. Manual
+  `apply-design-token-edit` / one-by-one token entry is the fallback for a small
+  one-off token, not the primary import workflow. For Figma variables/styles or
+  raw `.fig` files, keep using Builder-backed design-system indexing instead of
+  local `.fig` parsing.
 - Persist useful work early: create/update the design and files as soon as a
   coherent candidate exists, then iterate.
 - For non-trivial new design prompts, ask before generating: create/open the
@@ -104,6 +125,12 @@ patterns live in `.agents/skills/`.
   generated CSS selectors as a compatibility fallback only. For localhost React
   screens, resolve through build-time source/debug metadata (stable generated
   ids, component name, file, and line) before falling back to selectors.
+- For inline/Alpine motion, use `get-motion-timeline` to inspect the active
+  file's saved or CSS-recovered timeline, then call `apply-motion-edit` with the
+  same `sourceRef`/`fileId` to update it. Motion edits persist as durable
+  managed keyframes in `<style data-agent-native-motion>` plus editable timeline
+  metadata; it is not a one-way export. Real CSS module or `motion/react`
+  write-back remains a localhost/fusion follow-up capability.
 - For multi-variant work, use `present-design-variants` so every candidate is
   saved as a normal overview-board screen and the user gets one inline chat
   button per screen name. After the user picks, delete the unchosen variant

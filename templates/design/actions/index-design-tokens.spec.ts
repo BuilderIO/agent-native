@@ -171,4 +171,39 @@ describe("index-design-tokens design-system access boundary", () => {
       value: glow,
     });
   });
+
+  it("uses import provenance as the source chip for imported tweak tokens", async () => {
+    const fakeDesign = {
+      id: "design_1",
+      data: JSON.stringify({
+        tweakSelections: {
+          "--color-accent": "#2563eb",
+        },
+        tokenImportSources: {
+          "--color-accent": "design.md",
+        },
+      }),
+      designSystemId: null,
+    };
+
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: fakeDesign,
+    });
+
+    mockFrom.mockReturnValue({
+      where: () => Promise.resolve([]),
+    });
+
+    const result = await action.run({ designId: "design_1" });
+    const token = result.tokens.find(
+      (t: { cssVar: string }) => t.cssVar === "--color-accent",
+    );
+
+    expect(token).toMatchObject({
+      cssVar: "--color-accent",
+      source: "design.md",
+      value: "#2563eb",
+    });
+  });
 });

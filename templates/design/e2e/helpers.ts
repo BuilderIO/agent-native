@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, type Page, type FrameLocator } from "@playwright/test";
+import {
+  expect,
+  type Page,
+  type FrameLocator,
+  type Locator,
+} from "@playwright/test";
 
 import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
 
@@ -112,6 +117,32 @@ export function designFrame(page: Page): FrameLocator {
   return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first().contentFrame();
 }
 
+async function selectableNodeByText(
+  page: Page,
+  text: string,
+): Promise<Locator> {
+  const candidates = designFrame(page).locator("[data-agent-native-node-id]", {
+    hasText: text,
+  });
+  const fallback = designFrame(page).getByText(text, { exact: false }).first();
+  const count = await candidates.count();
+  if (count === 0) return fallback;
+
+  let bestIndex = 0;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates.nth(index);
+    const box = await candidate.boundingBox().catch(() => null);
+    if (!box || box.width <= 0 || box.height <= 0) continue;
+    const area = box.width * box.height;
+    if (area < bestArea) {
+      bestIndex = index;
+      bestArea = area;
+    }
+  }
+  return candidates.nth(bestIndex);
+}
+
 /** Open the editor for a design and wait for the toolbar + iframe to be ready. */
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await page.goto(appPath(`/design/${designId}`), {
@@ -146,14 +177,14 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
     .isVisible()
     .catch(() => false);
   if (overviewChromeVisible) {
-    await expect(page.locator("[data-frame-shell]").first()).toBeVisible({
+    await expect(page.locator("[data-screen-shell]").first()).toBeVisible({
       timeout: 10_000,
     });
     await expect
       .poll(
         async () => {
           const box = await page
-            .locator("[data-frame-shell]")
+            .locator("[data-screen-shell]")
             .first()
             .locator("[data-screen-card]")
             .boundingBox();
@@ -242,17 +273,8 @@ export async function selectByText(page: Page, text: string): Promise<any> {
   await enterDirectMode(page);
   await installBridge(page);
   await page.evaluate(() => ((window as any).__bridge = []));
-  const target = designFrame(page).getByText(text, { exact: false }).first();
+  const target = await selectableNodeByText(page, text);
   await target.waitFor({ state: "visible", timeout: 8_000 });
-  await expect
-    .poll(
-      async () =>
-        target.evaluate((element) =>
-          Boolean(element.closest("[data-agent-native-node-id]")),
-        ),
-      { timeout: 15_000 },
-    )
-    .toBeTruthy();
   const box = await target.boundingBox();
   if (!box) throw new Error(`no bounding box for "${text}"`);
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -273,60 +295,25 @@ async function dispatchShieldClickByText(
   page: Page,
   text: string,
 ): Promise<void> {
+  const target = await selectableNodeByText(page, text);
+  await target.waitFor({ state: "visible", timeout: 8_000 });
+  const rect = await target.boundingBox();
+  if (!rect) throw new Error(`unable to dispatch selection for "${text}"`);
+  const frameRect = await page
+    .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
+    .first()
+    .boundingBox();
+  if (!frameRect) throw new Error("unable to locate design iframe");
   await designFrame(page)
-    .locator("body")
-    .evaluate((_, targetText) => {
-      const normalizeText = (element: HTMLElement) =>
-        (element.textContent ?? "").replace(/\s+/g, " ").trim();
-      const isVisible = (element: HTMLElement) => {
-        const rect = element.getBoundingClientRect();
-        const styles = window.getComputedStyle(element);
-        return (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          styles.display !== "none" &&
-          styles.visibility !== "hidden"
-        );
-      };
-      const shield = document.querySelector<HTMLElement>(
-        '[data-agent-native-edit-overlay="shield"]',
-      );
-      const leafCandidates = Array.from(
-        document.querySelectorAll<HTMLElement>(
-          "h1, h2, h3, h4, h5, h6, p, button, a, label, span, input, textarea",
-        ),
-      ).filter(isVisible);
-      const nodeCandidates = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
-      ).filter(isVisible);
-      const target =
-        nodeCandidates.find(
-          (element) => normalizeText(element) === targetText,
-        ) ??
-        leafCandidates.find(
-          (element) => normalizeText(element) === targetText,
-        ) ??
-        nodeCandidates.find((element) =>
-          normalizeText(element).includes(targetText),
-        ) ??
-        leafCandidates.find((element) =>
-          normalizeText(element).includes(targetText),
-        );
-      if (!shield || !target) {
-        throw new Error(`unable to dispatch selection for "${targetText}"`);
-      }
-      const rect = target.getBoundingClientRect();
-      shield.dispatchEvent(
-        new MouseEvent("click", {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-          detail: 1,
-        }),
-      );
-    }, text);
+    .locator('[data-agent-native-edit-overlay="shield"]')
+    .first()
+    .dispatchEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.x - frameRect.x + rect.width / 2,
+      clientY: rect.y - frameRect.y + rect.height / 2,
+      detail: 1,
+    });
 }
 
 /** Number of inputs in the right-hand inspector (proxy for "inspector populated"). */
@@ -347,10 +334,8 @@ export async function dragCanvasByText(
 ): Promise<string[]> {
   await selectByText(page, text);
   await page.evaluate(() => ((window as any).__bridge = []));
-  const box = await designFrame(page)
-    .getByText(text, { exact: false })
-    .first()
-    .boundingBox();
+  const target = await selectableNodeByText(page, text);
+  const box = await target.boundingBox();
   if (!box) throw new Error(`no bounding box for "${text}"`);
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;

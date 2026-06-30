@@ -166,6 +166,24 @@ pnpm action index-design-system-with-builder --codeFiles '[{"filename":"globals.
 
 Uploads code/design files to Builder and starts design-system indexing. Do not create a local design system from uploaded code files unless the user explicitly asks for a manual local fallback.
 
+For the active design's Tokens panel, use `import-design-tokens` when the user
+wants to pull reusable CSS vars/tokens straight into the open design without
+creating a full design system:
+
+```bash
+pnpm action import-design-tokens \
+  --designId "design_123" \
+  --source files \
+  --files '[{"filename":"design.md","content":"Primary color: #2563eb"}]'
+```
+
+Supported sources are `files`, `paste`, and `current-design`. The action parses
+CSS variables, design.md-style labeled lines, Tailwind/theme JSON, colors,
+spacing, radii, and fonts, then persists them through the design's
+`tweakSelections` so the canvas updates like any other token edit. Treat manual
+`apply-design-token-edit` calls as a last-resort one-off edit after import has
+been tried or ruled out.
+
 ### Source: Documents (DOCX, PPTX, PDF)
 
 ```bash
@@ -203,6 +221,20 @@ summary unless the user explicitly asks for a manual local fallback.
 indexing through the setup page upload route. Do not parse `.fig` files locally
 and do not call `create-design-system` from raw `.fig` output; Builder owns the
 indexed brand kit, generated docs, and usage guidance.
+
+**When the user wants a Figma Assets-style native component drawer inside
+Design**, do not use Figma or media assets. Use `list-design-native-assets` to
+choose an editable primitive/component/layout, then
+`insert-design-native-asset` to insert it into the active screen. These entries
+are Design-native HTML stamped with component/layer metadata.
+
+**When the user wants reusable Figma components/assets**, do not run
+design-system indexing just to insert a component. Use
+`list-figma-library-assets` with a Figma file URL/key, then
+`insert-figma-library-asset` with the returned `renderUrl`, `fileKey`,
+`nodeId`, `componentKey`, and `sourceUrl`. This inserts a rendered
+component/component set with provenance. Styles and variables still belong in
+the Builder-backed design-system path above.
 
 ### Source: Brand Analysis (combines website + notes)
 

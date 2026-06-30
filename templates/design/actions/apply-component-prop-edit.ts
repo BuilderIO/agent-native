@@ -25,7 +25,6 @@ import {
   agentLeaveDocument,
   agentUpdateSelection,
   applyText,
-  getText,
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
@@ -115,21 +114,6 @@ export function applyRootAttributeEdit(
       html.slice(0, source.openStart) + newOpenTag + html.slice(source.openEnd),
     changed: true,
   };
-}
-
-async function liveContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Collab reads are best-effort; SQL content is the fallback.
-  }
-  return storedContent;
 }
 
 async function persistEdit(file: {
@@ -322,10 +306,13 @@ export default defineAction({
       };
     }
 
+    // Prefer explicit editor content after the caller's revision check, and use
+    // the saved SQL content as the fallback. Collab/Yjs reads can be stale
+    // across local dev worker processes and make prop controls lag behind.
     const html =
       typeof source?.currentContent === "string"
         ? source.currentContent
-        : await liveContent(file.id, file.content ?? "");
+        : (file.content ?? "");
 
     // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {

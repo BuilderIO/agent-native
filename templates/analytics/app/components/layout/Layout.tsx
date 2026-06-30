@@ -17,6 +17,10 @@ import { TAB_ID } from "@/lib/tab-id";
 
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
+import {
+  isAnalyticsSessionsRoute,
+  shouldDefaultOpenAnalyticsSidebar,
+} from "./layout-route-policy";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 
@@ -82,6 +86,7 @@ export function Layout({ children }: LayoutProps) {
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
+  const isSessionsRoute = isAnalyticsSessionsRoute(location.pathname);
   const isAskRoute = location.pathname === "/ask";
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "analytics",
@@ -158,11 +163,11 @@ export function Layout({ children }: LayoutProps) {
         ) : (
           <AgentSidebar
             position="right"
-            defaultOpen
+            defaultOpen={shouldDefaultOpenAnalyticsSidebar(location.pathname)}
             chatViewTransition
             storageKey="analytics"
             browserTabId={TAB_ID}
-            openOnChatRunning={chatHomeHandoffActive}
+            openOnChatRunning={chatHomeHandoffActive && !isSessionsRoute}
             onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText={t("chat.emptyState")}
             suggestions={[

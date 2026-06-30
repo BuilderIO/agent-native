@@ -34,8 +34,8 @@ export default defineAction({
 
     const db = getDb();
 
-    // Fetch the connection to get the rootPath and bridgeUrl (needed to mint
-    // a token the bridge can verify).
+    // Fetch the connection to get rootPath and the real bridgeToken that the
+    // CLI registered when it started the bridge process.
     const [connection] = await db
       .select()
       .from(schema.designLocalhostConnections)
@@ -61,9 +61,16 @@ export default defineAction({
       );
     }
 
+    const bridgeToken = connection.bridgeToken;
+    if (!bridgeToken) {
+      throw new Error(
+        `Connection "${connectionId}" has no bridge token. ` +
+          "Re-run `npx @agent-native/core@latest design connect` so the CLI can register the real bridge token.",
+      );
+    }
+
     const now = new Date();
     const grantId = nanoid();
-    const bridgeToken = nanoid(32);
     const grantedUntil = new Date(now.getTime() + GRANT_TTL_MS).toISOString();
     const nowIso = now.toISOString();
 

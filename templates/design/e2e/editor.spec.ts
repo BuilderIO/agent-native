@@ -4,6 +4,7 @@ import {
   readSeedDesignId,
   gotoEditor,
   designFrame,
+  enterDirectMode,
   selectByText,
   inspectorInputCount,
   dragCanvasByText,
@@ -64,7 +65,7 @@ test("screen overview keeps the name readable when frame header space is tight",
   page,
 }) => {
   const screenShell = page
-    .locator("[data-frame-shell]")
+    .locator("[data-screen-shell]")
     .filter({ has: page.locator("[data-screen-card]") })
     .first();
   await expect(screenShell).toBeVisible();
@@ -119,7 +120,7 @@ test("screen overview lets users select elements inside the active screen", asyn
     .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
     .first();
   const activeScreenShell = page
-    .locator("[data-frame-shell]")
+    .locator("[data-screen-shell]")
     .filter({ has: activeScreenCard })
     .first();
   const frameTitle = activeScreenShell.locator("[data-frame-title]");
@@ -258,6 +259,48 @@ test("selected element handles stay above hover chrome", async ({ page }) => {
   expect(overlayChrome.selectionZ).toBeGreaterThan(overlayChrome.highlightZ);
   expect(overlayChrome.handleZ).toBeGreaterThan(0);
   expect(overlayChrome.handleBackground).not.toBe("rgba(0, 0, 0, 0)");
+});
+
+test("spacing handles stay visible at rest and remain draggable", async ({
+  page,
+}) => {
+  await enterDirectMode(page);
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+
+  const container = designFrame(page).locator("main").first();
+  const box = await container.boundingBox();
+  if (!box) throw new Error("missing fixture container bounds");
+
+  await page.mouse.click(box.x + 12, box.y + 12);
+  const selected = await waitForBridge(page, "element-select");
+  expect(
+    (selected?.payload?.tagName ?? selected?.tagName ?? "").toUpperCase(),
+  ).toBe("MAIN");
+
+  await page.mouse.move(box.x + box.width / 2, box.y + 12);
+  const topPaddingHandle = designFrame(page).locator(
+    '[data-spacing-key="padding:top"]',
+  );
+  await expect(topPaddingHandle).toBeVisible({ timeout: 5_000 });
+
+  const handleBox = await topPaddingHandle.boundingBox();
+  if (!handleBox) throw new Error("missing top padding handle bounds");
+  const handleX = handleBox.x + handleBox.width / 2;
+  const handleY = handleBox.y + handleBox.height / 2;
+
+  await page.mouse.move(handleX, handleY);
+  await page.waitForTimeout(500);
+  await expect(topPaddingHandle).toBeVisible();
+
+  await page.evaluate(() => ((window as any).__bridge = []));
+  await page.mouse.down();
+  await page.mouse.move(handleX, handleY + 14, { steps: 4 });
+  await page.mouse.up();
+
+  const styleChange = await waitForBridge(page, "visual-style-change");
+  const styles = styleChange?.styles ?? {};
+  expect(styles.paddingTop ?? "").toMatch(/px$/);
 });
 
 test("selecting a different element changes the selection", async ({

@@ -57,6 +57,7 @@ export type LayersPanelNodeType =
   | "image"
   | "code"
   | "element"
+  | "board-element"
   | "unknown";
 
 export interface LayersPanelNode {
@@ -151,6 +152,7 @@ export interface LayersPanelProps {
   expandedIds: readonly string[];
   searchQuery: string;
   className?: string;
+  footer?: ReactNode;
   labels?: Partial<LayersPanelLabels>;
   onSearchQueryChange: (query: string) => void;
   onScreenSelect?: (id: string) => void;
@@ -168,6 +170,9 @@ export interface LayersPanelProps {
   onLeaveLayer?: (id: string) => void;
   onMoveLayer?: (intent: LayersPanelMoveIntent) => void;
   canMoveLayer?: (intent: LayersPanelMoveIntent) => boolean;
+  // Board elements — top-level layer nodes projected from the board file.
+  // When absent the panel is unchanged.
+  boardElements?: LayersPanelNode[];
 }
 
 export interface FlatLayerRow {
@@ -283,14 +288,16 @@ function buildRootNodes({
   layers,
   codeLayers,
   elementLayers,
+  boardElements,
   labels,
 }: Pick<
   LayersPanelProps,
-  "files" | "layers" | "codeLayers" | "elementLayers"
+  "files" | "layers" | "codeLayers" | "elementLayers" | "boardElements"
 > & {
   labels: LayersPanelLabels;
 }) {
   const roots: LayersPanelNode[] = [
+    ...(boardElements ?? []),
     ...(files?.map(asFileNode) ?? []),
     ...(layers ?? []),
   ];
@@ -491,6 +498,7 @@ export function LayersPanel({
   expandedIds,
   searchQuery,
   className,
+  footer,
   labels: labelsProp,
   onSearchQueryChange,
   onScreenSelect,
@@ -505,6 +513,7 @@ export function LayersPanel({
   onLeaveLayer,
   onMoveLayer,
   canMoveLayer,
+  boardElements,
 }: LayersPanelProps) {
   const t = useT();
   const labels = useMemo(() => mergeLabels(labelsProp, t), [labelsProp, t]);
@@ -529,9 +538,10 @@ export function LayersPanel({
         layers,
         codeLayers,
         elementLayers,
+        boardElements,
         labels,
       }),
-    [codeLayers, elementLayers, files, labels, layers],
+    [boardElements, codeLayers, elementLayers, files, labels, layers],
   );
 
   const visibleRows = useMemo(() => {
@@ -916,9 +926,11 @@ export function LayersPanel({
           </div>
         )}
       </div>
+      {footer ? <div className="shrink-0">{footer}</div> : null}
     </aside>
   );
 }
+
 
 function LayerRow({
   row,
@@ -1557,6 +1569,7 @@ function LayerGlyph({
     case "component":
     case "instance":
       return <ComponentLayerGlyph className={cn(common, componentColor)} />;
+    case "board-element":
     case "shape":
     case "rectangle":
       return <RectangleLayerGlyph className={common} />;

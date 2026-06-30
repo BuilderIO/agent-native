@@ -235,7 +235,7 @@ export default function SessionsPage() {
                     >
                       <span className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-md bg-primary/10 font-medium text-primary">
                         <IconPlayerPlay className="h-4 w-4 fill-current" />
-                        {formatDuration(recording.durationMs)}
+                        {formatSessionDuration(recording.durationMs)}
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-foreground">
@@ -523,13 +523,11 @@ function formatDateTime(value: string): string {
   }).format(date);
 }
 
-function formatDuration(ms: number | null): string {
-  if (!ms || !Number.isFinite(ms) || ms <= 0) return "0s";
+export function formatSessionDuration(ms: number | null): string {
+  if (!ms || !Number.isFinite(ms) || ms <= 0) return "0m";
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+  if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return `${hours}h ${remainingMinutes}m`;
