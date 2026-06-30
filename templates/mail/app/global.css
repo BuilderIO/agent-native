@@ -525,12 +525,13 @@
 .bubble-toolbar {
   display: flex;
   align-items: center;
-  background: hsl(0 0% 15%);
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
   border-radius: 8px;
   padding: 4px;
   box-shadow:
     0 4px 20px rgb(0 0 0 / 0.25),
-    0 0 0 1px rgb(255 255 255 / 0.06);
+    0 0 0 1px hsl(var(--border));
 }
 
 /* ===== Slash Command Menu ===== */

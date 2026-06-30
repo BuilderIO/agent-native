@@ -36,7 +36,7 @@ export const templates = [
     demoUrl: "https://design.agent-native.com",
     color: "#F472B6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe2c86908c2fa4f119ee4aa90b4823944?format=webp&width=800",
   },
   {
     name: "Content",

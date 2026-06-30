@@ -1518,6 +1518,10 @@ function appendCanvasPrimitiveToHtml(
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
+      // Kind marker so the layers panel shows a true vector/line/arrow icon for
+      // this SVG primitive instead of falling through to the rectangle glyph.
+      // Read by treeTypeForNode in shared/code-layer.ts.
+      svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.setAttribute(
         "style",
@@ -1557,6 +1561,10 @@ function appendCanvasPrimitiveToHtml(
       polygon.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
+      // Kind marker so the layers panel shows a true polygon/star icon for this
+      // SVG primitive instead of falling through to the rectangle glyph.
+      // Read by treeTypeForNode in shared/code-layer.ts.
+      svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.setAttribute(
         "style",
@@ -1943,7 +1951,13 @@ function layerTypeForCodeLayer(
 ): LayersPanelNode["type"] {
   if (node.type === "group") return "group";
   if (node.type === "component") return "component";
+  if (node.type === "ellipse") return "ellipse";
   if (node.type === "shape") return "shape";
+  if (node.type === "vector") return "vector";
+  if (node.type === "line") return "line";
+  if (node.type === "arrow") return "arrow";
+  if (node.type === "polygon") return "polygon";
+  if (node.type === "star") return "star";
   if (node.type === "text") return "text";
   if (node.type === "image") return "image";
   return "element";
@@ -7280,35 +7294,37 @@ export default function DesignEditor() {
       const result = handleCreatePrimitive(boardFileId, primitive);
       if (!result) return false;
 
+      // Make the board the active surface so it owns the global runtime bridge
+      // before any begin-text-edit fires — mirroring the in-screen
+      // handlePrimitiveCreated, which flushSyncs setActiveFileId(screenId)
+      // before begin-text-edit.  Without this, the FIRST text drawn on a board
+      // that is not yet active misses immediate editing because
+      // window.__designCanvasBeginTextEdit is unregistered (or owned by a
+      // screen) at the moment the timeout runs.
+      flushSync(() => {
+        setActiveFileId(boardFileId);
+      });
+
       // For TEXT primitives drawn on the board surface, immediately enter
-      // text-editing mode via begin-text-edit.  The board DesignCanvas uses
-      // registerRuntimeBridge=false so window.__designCanvasBeginTextEdit is
-      // not set; instead we broadcast the message to all preview iframes — the
-      // one that contains the new nodeId will handle it, others ignore it.
-      // The 50 ms delay lets the board iframe receive its content update first.
+      // text-editing mode via begin-text-edit.  The board now owns the global
+      // runtime bridge (registerRuntimeBridge=boardIsActive), so
+      // window.__designCanvasBeginTextEdit targets the board iframe exactly like
+      // the in-screen path does.  The 50 ms delay gives the board iframe a tick
+      // to receive its content update first.
       if (primitive.kind === "text") {
         const textNodeId =
           pendingTextEditNodeIdRef.current ?? primitive.nodeId ?? null;
         pendingTextEditNodeIdRef.current = null;
         if (textNodeId) {
           setTimeout(() => {
-            document
-              .querySelectorAll<HTMLIFrameElement>(
-                "iframe[data-design-preview-iframe]",
-              )
-              .forEach((iframe) => {
-                iframe.contentWindow?.postMessage(
-                  { type: "begin-text-edit", nodeId: textNodeId },
-                  "*",
-                );
-              });
+            (window as any).__designCanvasBeginTextEdit?.(textNodeId);
           }, 50);
         }
       }
 
       return result;
     },
-    [boardFileId, canEditDesign, handleCreatePrimitive],
+    [boardFileId, canEditDesign, handleCreatePrimitive, setActiveFileId],
   );
 
   const handleOverviewScreenSelectionChange = useCallback(
@@ -14143,6 +14159,7 @@ ${serializedHtml}
                       onPrimitiveReparent={handleOverviewPrimitiveReparent}
                       onCrossScreenElementDrop={handleCrossScreenElementDrop}
                       boardFileId={boardFileId}
+                      boardIsActive={activeFileId === boardFileId}
                       boardFileContent={boardFileContent}
                       boardFrameGeometry={boardFrameGeometry}
                       onBoardDrawPrimitive={

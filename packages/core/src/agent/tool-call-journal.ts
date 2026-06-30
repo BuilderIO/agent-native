@@ -86,6 +86,13 @@ function inputSignature(input: Record<string, string> | undefined): string {
   } catch {
     sig = String(input);
   }
+  return sig;
+}
+
+function displayInputSignature(
+  input: Record<string, string> | undefined,
+): string {
+  const sig = inputSignature(input);
   return sig.length > INPUT_SIGNATURE_MAX_CHARS
     ? sig.slice(0, INPUT_SIGNATURE_MAX_CHARS)
     : sig;
@@ -123,7 +130,7 @@ export function classifyToolCallJournal(
         | Record<string, string>
         | undefined;
       const entry: ToolCallJournalEntry = {
-        key: `${tool}#${order}:${inputSignature(input)}`,
+        key: `${tool}#${order}:${displayInputSignature(input)}`,
         tool,
         ...(input ? { input } : {}),
         order,
@@ -140,6 +147,12 @@ export function classifyToolCallJournal(
       const queue = openByTool.get(tool);
       const entry = queue?.shift();
       if (entry) {
+        if (isNonCompletedToolDone(event)) {
+          // Failed/blocked calls reached a terminal tool_done, but their side
+          // effect did not complete. Drop the matching start instead of
+          // classifying it as completed or interrupted.
+          continue;
+        }
         entry.result = event.result ?? "";
         completed.push(entry);
       }
@@ -157,6 +170,30 @@ export function classifyToolCallJournal(
   interrupted.sort((a, b) => a.order - b.order);
 
   return { completed, interrupted };
+}
+
+function isNonCompletedToolDone(
+  event: Extract<AgentChatEvent, { type: "tool_done" }>,
+): boolean {
+  if (event.completedSideEffect === false) return true;
+  if (event.isError === true) return true;
+
+  const result = (event.result ?? "").trim();
+  if (!result) return false;
+
+  // Legacy run events did not persist isError. Keep known non-execution results
+  // from becoming durable "completed" write calls after deploy.
+  return (
+    result.startsWith("Error: Unknown tool") ||
+    result.startsWith("Error running ") ||
+    result.startsWith("Invalid action parameters for ") ||
+    result.startsWith("Plan mode blocked ") ||
+    result.startsWith("Skipped ") ||
+    result.startsWith("Stopped after ") ||
+    result.startsWith("The tool was not executed") ||
+    result.startsWith("Awaiting human approval") ||
+    result.includes(" did NOT execute")
+  );
 }
 
 /** True when the journal has nothing worth telling a resuming model about. */
@@ -220,7 +257,7 @@ function summarizeResult(result: string | undefined): string {
 
 function describeInput(input: Record<string, string> | undefined): string {
   if (!input) return "";
-  const sig = inputSignature(input);
+  const sig = displayInputSignature(input);
   return sig && sig !== "{}" ? ` input: ${sig}` : "";
 }
 

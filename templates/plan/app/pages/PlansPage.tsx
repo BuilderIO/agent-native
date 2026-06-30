@@ -7225,7 +7225,7 @@ function PlanDocumentSkeleton() {
 
 function DesktopArtboardSkeleton() {
   return (
-    <div className="h-[20rem] overflow-hidden rounded-[12px] border border-plan-line bg-plan-wireframe p-6 shadow-[0_10px_34px_rgba(24,24,27,0.08)] sm:h-[23rem] sm:p-8">
+    <div className="h-[20rem] overflow-hidden rounded-[12px] border border-plan-line bg-muted p-6 shadow-[0_10px_34px_rgba(24,24,27,0.08)] sm:h-[23rem] sm:p-8">
       <Skeleton
         className="h-14 w-2/5 max-w-[20rem] rounded-lg"
         style={PLAN_SKELETON_FILL.heading}
@@ -7244,7 +7244,7 @@ function DesktopArtboardSkeleton() {
 
 function PhoneArtboardSkeleton() {
   return (
-    <div className="h-[22rem] overflow-hidden rounded-[26px] border border-plan-line bg-plan-wireframe p-5 shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
+    <div className="h-[22rem] overflow-hidden rounded-[26px] border border-plan-line bg-muted p-5 shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
       <PlanSkeletonBox className="h-28" />
       <div className="mt-5 space-y-3">
         <PlanSkeletonBar className="h-3 w-full" />

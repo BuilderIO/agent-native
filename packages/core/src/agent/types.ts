@@ -217,6 +217,8 @@ export type AgentChatEvent =
       type: "tool_done";
       tool: string;
       result: string;
+      isError?: boolean;
+      completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
     }

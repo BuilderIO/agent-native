@@ -265,6 +265,18 @@ interface MultiScreenCanvasProps {
    */
   boardEditMode?: boolean;
   /**
+   * When true the board is the active surface (activeFileId === boardFileId),
+   * so the board <DesignCanvas> owns the global window runtime bridge
+   * (`registerRuntimeBridge={boardIsActive}`). This mirrors how the active
+   * screen owns the bridge in single/overview mode: at most one surface
+   * registers the global `window.__designCanvas*` helpers at a time
+   * (active screen XOR active board, since `activeFileId` is exclusive), so
+   * in-place ops — delete removal, begin-text-edit — reach the board exactly
+   * like a screen. DesignEditor passes `activeFileId === boardFileId`.
+   * Defaults to false.
+   */
+  boardIsActive?: boolean;
+  /**
    * Called when the user selects an element on the board surface.
    * DesignEditor should set boardFileId as the active file and push the
    * selection to the inspector.
@@ -670,6 +682,7 @@ export function MultiScreenCanvas({
   boardFrameGeometry,
   onBoardDrawPrimitive,
   boardEditMode = false,
+  boardIsActive = false,
   onBoardElementSelect,
   onBoardElementHover,
   onBoardVisualStructureChange,
@@ -3790,7 +3803,17 @@ export function MultiScreenCanvas({
                   deviceFrame="none"
                   editMode={boardEditMode}
                   interactMode={false}
-                  registerRuntimeBridge={false}
+                  // Board owns the global window runtime bridge only when it is
+                  // the active surface (activeFileId === boardFileId). This is
+                  // the XOR counterpart to the active screen's
+                  // registerRuntimeBridge={screenIsActive}: since activeFileId
+                  // is exclusive, the board and any screen can never both
+                  // register at once, so window.__designCanvas* in-place ops
+                  // (delete removal, begin-text-edit) target the board exactly
+                  // like a screen. editMode stays always-editable so a board
+                  // element can still be clicked to select it before the board
+                  // becomes active.
+                  registerRuntimeBridge={boardIsActive}
                   onElementSelect={onBoardElementSelect ?? (() => {})}
                   onElementHover={onBoardElementHover ?? (() => {})}
                   onVisualStructureChange={onBoardVisualStructureChange}

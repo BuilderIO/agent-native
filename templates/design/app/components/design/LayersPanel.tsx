@@ -52,7 +52,13 @@ export type LayersPanelNodeType =
   | "instance"
   | "section"
   | "shape"
+  | "ellipse"
   | "rectangle"
+  | "vector"
+  | "line"
+  | "arrow"
+  | "polygon"
+  | "star"
   | "text"
   | "image"
   | "code"
@@ -1568,10 +1574,22 @@ function LayerGlyph({
     case "component":
     case "instance":
       return <ComponentLayerGlyph className={cn(common, componentColor)} />;
+    case "ellipse":
+      return <EllipseLayerGlyph className={common} />;
     case "board-element":
     case "shape":
     case "rectangle":
       return <RectangleLayerGlyph className={common} />;
+    case "vector":
+      return <VectorLayerGlyph className={common} />;
+    case "line":
+      return <LineLayerGlyph className={common} />;
+    case "arrow":
+      return <ArrowLayerGlyph className={common} />;
+    case "polygon":
+      return <PolygonLayerGlyph className={common} />;
+    case "star":
+      return <StarLayerGlyph className={common} />;
     case "text":
       return <TextLayerGlyph className={common} />;
     case "image":
@@ -1798,6 +1816,21 @@ function ComponentLayerGlyph({ className }: { className?: string }) {
   );
 }
 
+function EllipseLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      className={className}
+      aria-hidden="true"
+    >
+      <ellipse cx="8" cy="8" rx="4.8" ry="4" />
+    </svg>
+  );
+}
+
 function RectangleLayerGlyph({ className }: { className?: string }) {
   return (
     <svg
@@ -1809,6 +1842,94 @@ function RectangleLayerGlyph({ className }: { className?: string }) {
       aria-hidden="true"
     >
       <rect x="3.2" y="4" width="9.6" height="8" rx="1" />
+    </svg>
+  );
+}
+
+function VectorLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 11.5C5.5 6.5 9 5 12 4.5" />
+      <rect x="2.6" y="10.1" width="2.8" height="2.8" rx=".5" />
+      <rect x="10.6" y="3.1" width="2.8" height="2.8" rx=".5" />
+    </svg>
+  );
+}
+
+function LineLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4.6 11.4 11.4 4.6" />
+      <circle cx="3.6" cy="12.4" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12.4" cy="3.6" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function ArrowLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3.6 12.4 11.6 4.4" />
+      <path d="M7.4 4.2h4.4v4.4" />
+    </svg>
+  );
+}
+
+function PolygonLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 2.8 13.2 12.2H2.8L8 2.8Z" />
+    </svg>
+  );
+}
+
+function StarLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 2.6 9.65 6.1l3.85.5-2.8 2.7.68 3.8L8 11.9l-3.38 1.9.68-3.8-2.8-2.7 3.85-.5L8 2.6Z" />
     </svg>
   );
 }
