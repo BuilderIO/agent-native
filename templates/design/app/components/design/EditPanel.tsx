@@ -182,6 +182,10 @@ interface EditPanelProps {
   fileId?: string;
   /** Active file name (e.g. "index.html") — forwarded to InspectorAiActions. */
   filename?: string;
+  /** Latest active file HTML, used to compose rapid sequential source edits. */
+  activeContent?: string;
+  /** Server revision for activeContent. */
+  activeFileUpdatedAt?: string | null;
   // -------------------------------------------------------------------------
   // Design Studio panels (§6.2, §6.4, §6.5)
   // Pass `designId` to unlock Tokens, States, and Review sections.
@@ -192,7 +196,11 @@ interface EditPanelProps {
    * Called after a component prop edit returns the patched source so the parent
    * editor can sync local/Yjs content instead of waiting for query invalidation.
    */
-  onComponentPropApplied?: (fileId: string, content: string) => void;
+  onComponentPropApplied?: (
+    fileId: string,
+    content: string,
+    updatedAt?: string,
+  ) => void;
   /**
    * Called after a token edit is applied so the parent can push the resolved
    * CSS-var map into the iframe via the tweak-values postMessage.
@@ -5702,20 +5710,42 @@ interface ComponentDetailsResult {
 export function ComponentSection({
   designId,
   fileId,
+  activeContent,
+  activeFileUpdatedAt,
   nodeId,
   onComponentPropApplied,
   sourceCapabilities = [],
 }: {
   designId: string;
   fileId?: string;
+  activeContent?: string;
+  activeFileUpdatedAt?: string | null;
   nodeId: string;
-  onComponentPropApplied?: (fileId: string, content: string) => void;
+  onComponentPropApplied?: (
+    fileId: string,
+    content: string,
+    updatedAt?: string,
+  ) => void;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
 }) {
   const queryClient = useQueryClient();
   const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
   const detailsKey = ["action", "get-component-details", detailsParams];
+  const latestSourceRef = useRef<{
+    content: string;
+    revision?: string | null;
+  }>({
+    content: activeContent ?? "",
+    revision: activeFileUpdatedAt ?? null,
+  });
+
+  useEffect(() => {
+    latestSourceRef.current = {
+      content: activeContent ?? "",
+      revision: activeFileUpdatedAt ?? null,
+    };
+  }, [activeContent, activeFileUpdatedAt, fileId, nodeId]);
 
   const { data, isLoading, error, refetch } =
     useActionQuery<ComponentDetailsResult>(
@@ -5762,19 +5792,58 @@ export function ComponentSection({
     if (edit.kind === "attribute") {
       postComponentPropPreview(edit.attribute, edit.value);
     }
+    const latestSource = latestSourceRef.current;
     applyPropMutation.mutate(
-      { designId, nodeId, ...(fileId ? { fileId } : {}), edit },
+      {
+        designId,
+        nodeId,
+        ...(fileId ? { fileId } : {}),
+        edit,
+        ...(latestSource.content
+          ? {
+              source: {
+                currentContent: latestSource.content,
+                ...(latestSource.revision
+                  ? { revision: latestSource.revision }
+                  : {}),
+              },
+            }
+          : {}),
+      },
       {
         onSuccess: (result) => {
           const response = result as {
             content?: unknown;
             fileId?: unknown;
+            updatedAt?: unknown;
+            conflict?: unknown;
+            error?: unknown;
           };
+          if (response.conflict) {
+            toast.error(
+              typeof response.error === "string"
+                ? response.error
+                : "This file changed since this component prop edit was prepared. Refresh and try again.",
+            );
+            return;
+          }
           if (
             typeof response.fileId === "string" &&
             typeof response.content === "string"
           ) {
-            onComponentPropApplied?.(response.fileId, response.content);
+            const updatedAt =
+              typeof response.updatedAt === "string"
+                ? response.updatedAt
+                : undefined;
+            latestSourceRef.current = {
+              content: response.content,
+              revision: updatedAt ?? latestSourceRef.current.revision,
+            };
+            onComponentPropApplied?.(
+              response.fileId,
+              response.content,
+              updatedAt,
+            );
           }
         },
         onSettled: () => {
@@ -6147,6 +6216,8 @@ export function EditPanel({
   readOnly = false,
   fileId,
   filename,
+  activeContent,
+  activeFileUpdatedAt,
   designId,
   onComponentPropApplied,
   onTokensApplied,
@@ -6367,6 +6438,8 @@ export function EditPanel({
               <ComponentSection
                 designId={designId}
                 fileId={fileId}
+                activeContent={activeContent}
+                activeFileUpdatedAt={activeFileUpdatedAt}
                 nodeId={componentNodeId}
                 onComponentPropApplied={onComponentPropApplied}
                 sourceCapabilities={sourceCapabilities}

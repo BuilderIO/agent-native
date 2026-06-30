@@ -256,7 +256,7 @@ async function persistDesignFileEdit(file: {
   designId: string;
   content: string;
   expectedUpdatedAt?: string;
-}): Promise<void> {
+}): Promise<string> {
   await assertAccess("design", file.designId, "editor");
 
   const db = getDb();
@@ -312,6 +312,8 @@ async function persistDesignFileEdit(file: {
     .update(schema.designs)
     .set({ updatedAt: now })
     .where(eq(schema.designs.id, file.designId));
+
+  return now;
 }
 
 // ─── Action ──────────────────────────────────────────────────────────────────
@@ -439,10 +441,11 @@ snippet (WebGL canvas / JSX component), call apply-shader.
 
     const changed =
       patch.result.status === "applied" && patch.result.changed === true;
+    let updatedAt: string | undefined;
 
     if (changed) {
       try {
-        await persistDesignFileEdit({
+        updatedAt = await persistDesignFileEdit({
           id: file.id,
           designId: file.designId,
           content: patch.content,
@@ -480,6 +483,7 @@ snippet (WebGL canvas / JSX component), call apply-shader.
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
+      updatedAt,
       result: patch.result,
       patchedContent: patch.content,
       bytesBefore: file.content.length,

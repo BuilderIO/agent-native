@@ -40,6 +40,9 @@ export function appPath(path: string): string {
   const route = new URL(path, "http://agent-native.local");
   if (E2E_BASE_URL && E2E_BASE_PATH) {
     const url = new URL(E2E_BASE_URL);
+    // dev-lazy strips the app mount (/design) before handing the request to the
+    // app, so the editor's own /design/:id route intentionally becomes
+    // /design/design/:id when E2E_BASE_URL points at the gateway mount.
     url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
     url.search = route.search;
     url.hash = route.hash;

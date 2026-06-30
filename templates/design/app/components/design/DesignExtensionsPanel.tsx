@@ -90,7 +90,11 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   tweakValues: Record<string, string | number | boolean>;
   onShaderFillPreview?: (descriptor: ShaderDescriptor, css: string) => void;
   onShaderFillPreviewClear?: () => void;
-  onShaderFillApplied?: (fileId: string, content: string) => void;
+  onShaderFillApplied?: (
+    fileId: string,
+    content: string,
+    updatedAt?: string,
+  ) => void;
 }
 
 interface DesignExtensionsPanelProps {
@@ -529,6 +533,10 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
                 fileId?: unknown;
                 patchedContent?: unknown;
                 persisted?: boolean;
+                conflict?: boolean;
+                error?: unknown;
+                note?: unknown;
+                updatedAt?: unknown;
               }
             | undefined;
           if (r?.persisted) {
@@ -536,9 +544,19 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
               typeof r.fileId === "string" &&
               typeof r.patchedContent === "string"
             ) {
-              context.onShaderFillApplied?.(r.fileId, r.patchedContent);
+              context.onShaderFillApplied?.(
+                r.fileId,
+                r.patchedContent,
+                typeof r.updatedAt === "string" ? r.updatedAt : undefined,
+              );
             }
             toast.success("Shader fill applied to the selected element.");
+          } else if (r?.conflict) {
+            toast.error(
+              typeof r.error === "string" || typeof r.note === "string"
+                ? String(r.error ?? r.note)
+                : "This file changed since the shader fill was previewed. Refresh and try again.",
+            );
           } else {
             toast.message("Shader fill previewed — nothing was written.");
           }

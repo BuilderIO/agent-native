@@ -439,6 +439,8 @@ test("shader preview is transient while apply-shader-fill persists", async ({
   });
   expect(applied.ok).toBe(true);
   expect(applied.persisted).toBe(true);
+  expect(typeof applied.updatedAt).toBe("string");
+  expect(applied.updatedAt).not.toBe(shaderSourceFile.updatedAt);
 
   await gotoEditor(page, designId);
   await expect
@@ -450,6 +452,28 @@ test("shader preview is transient while apply-shader-fill persists", async ({
   expect(saved).toMatch(
     /data-agent-native-node-id="e2e-alpha-button"[\s\S]*background:\s*(?:linear|radial|conic)-gradient/,
   );
+
+  const sameTabSentinel = "<!-- shader-same-tab-second-apply -->";
+  const sameTabContent = saved.replace(
+    "</body>",
+    `${sameTabSentinel}\n  </body>`,
+  );
+  const secondApplied = await postAction(request, "apply-shader-fill", {
+    descriptor: { preset: "MeshGradient", rotation: 0.2 },
+    target: { nodeId: "e2e-alpha-button" },
+    source: {
+      kind: "design-file",
+      designId,
+      fileId,
+      revision: applied.updatedAt,
+      currentContent: sameTabContent,
+    },
+  });
+  expect(secondApplied.ok).toBe(true);
+  expect(secondApplied.persisted).toBe(true);
+  expect(typeof secondApplied.updatedAt).toBe("string");
+  expect(secondApplied.updatedAt).not.toBe(applied.updatedAt);
+  expect(await fileContent(request)).toContain(sameTabSentinel);
 
   const staleSourceFile = await fileRecord(request);
   if (!staleSourceFile.updatedAt) {

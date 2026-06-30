@@ -5945,6 +5945,7 @@ export default function DesignEditor() {
         skipPreview?: boolean;
         immediateSave?: boolean;
         persist?: boolean;
+        updatedAt?: string;
       } = {},
     ) => {
       if (!activeFile || !canEditDesignRef.current) return;
@@ -5977,11 +5978,15 @@ export default function DesignEditor() {
         redoOrderRef.current = [];
         syncUndoRedoState();
       }
-      markPendingLocalFileContent(
-        activeFile.id,
-        nextContent,
-        activeFile.updatedAt,
-      );
+      if (options.updatedAt) {
+        clearPendingLocalFileContent(activeFile.id);
+      } else {
+        markPendingLocalFileContent(
+          activeFile.id,
+          nextContent,
+          activeFile.updatedAt,
+        );
+      }
       setCollabContent(nextContent);
       setCollabContentFileId(activeFile.id);
       lastLocalContentRef.current = nextContent;
@@ -6002,7 +6007,13 @@ export default function DesignEditor() {
                     // from a client-clock timestamp can, under clock skew, make a
                     // later server-authored agent edit look "older" and get
                     // dropped by the watermark gate (agent edit silently lost).
-                    { ...file, content: nextContent }
+                    {
+                      ...file,
+                      content: nextContent,
+                      ...(options.updatedAt
+                        ? { updatedAt: options.updatedAt }
+                        : {}),
+                    }
                   : file,
               ),
             };
@@ -6039,6 +6050,7 @@ export default function DesignEditor() {
     [
       activeFile,
       cancelQueuedFileContentSave,
+      clearPendingLocalFileContent,
       id,
       isSynced,
       markPendingLocalFileContent,
@@ -6058,6 +6070,7 @@ export default function DesignEditor() {
         refreshPreview?: boolean;
         skipPreview?: boolean;
         persist?: boolean;
+        updatedAt?: string;
       } = {},
     ) => {
       if (!canEditDesignRef.current) return;
@@ -6066,7 +6079,15 @@ export default function DesignEditor() {
         return;
       }
       const previousFile = files.find((file) => file.id === fileId);
-      markPendingLocalFileContent(fileId, nextContent, previousFile?.updatedAt);
+      if (options.updatedAt) {
+        clearPendingLocalFileContent(fileId);
+      } else {
+        markPendingLocalFileContent(
+          fileId,
+          nextContent,
+          previousFile?.updatedAt,
+        );
+      }
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
         if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
           return old;
@@ -6074,7 +6095,15 @@ export default function DesignEditor() {
         return {
           ...old,
           files: old.files.map((file: DesignFile) =>
-            file.id === fileId ? { ...file, content: nextContent } : file,
+            file.id === fileId
+              ? {
+                  ...file,
+                  content: nextContent,
+                  ...(options.updatedAt
+                    ? { updatedAt: options.updatedAt }
+                    : {}),
+                }
+              : file,
           ),
         };
       });
@@ -6092,6 +6121,7 @@ export default function DesignEditor() {
       activeFile?.id,
       applyLocalContentUpdate,
       cancelQueuedFileContentSave,
+      clearPendingLocalFileContent,
       files,
       id,
       markPendingLocalFileContent,
@@ -6101,10 +6131,11 @@ export default function DesignEditor() {
   );
 
   const handleComponentPropApplied = useCallback(
-    (fileId: string, nextContent: string) => {
+    (fileId: string, nextContent: string, updatedAt?: string) => {
       applyFileContentUpdate(fileId, nextContent, {
         refreshPreview: fileId === activeFile?.id,
         persist: false,
+        updatedAt,
       });
     },
     [activeFile?.id, applyFileContentUpdate],
@@ -6667,10 +6698,11 @@ export default function DesignEditor() {
         });
       },
       onShaderFillPreviewClear: () => setShaderFillPreview(null),
-      onShaderFillApplied: (fileId, content) => {
+      onShaderFillApplied: (fileId, content, updatedAt) => {
         applyFileContentUpdate(fileId, content, {
           refreshPreview: fileId === activeFile?.id,
           persist: false,
+          updatedAt,
         });
       },
     }),
@@ -12511,6 +12543,8 @@ ${serializedHtml}
                   tweakValues={tweakSelections}
                   extensionContext={designExtensionContext}
                   readOnly={initialGenerationReadOnly}
+                  activeContent={activeContent}
+                  activeFileUpdatedAt={activeFile?.updatedAt ?? null}
                   onComponentPropApplied={handleComponentPropApplied}
                   onTokensApplied={(resolvedCssVars) => {
                     if (!canEditDesign || !id) return;
