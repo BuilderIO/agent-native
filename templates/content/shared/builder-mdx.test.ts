@@ -245,6 +245,61 @@ describe("Builder MDX conversion", () => {
     });
   });
 
+  it("reverses emitted markdown image URL escaping when round-tripping Builder images", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-image-url-escape",
+      model: "blog-article",
+      name: "Article Image URL Escape",
+      data: {
+        title: "Article Image URL Escape",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "image-paren",
+            component: {
+              name: "Image",
+              options: {
+                image: "https://cdn.example.com/screenshots/plan(1).png",
+                altText: "Plan screenshot",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toContain(
+      "![Plan screenshot](https://cdn.example.com/screenshots/plan(1%29.png)",
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks?.[0]).toMatchObject({
+      component: {
+        name: "Image",
+        options: {
+          image: "https://cdn.example.com/screenshots/plan(1).png",
+          altText: "Plan screenshot",
+        },
+      },
+    });
+  });
+
   it("blocks pushability when a raw sidecar hash is tampered", async () => {
     const bundle = await builderEntryToMdxBundle(entry);
     const rawPath = Object.keys(bundle.files).find((path) =>
@@ -327,6 +382,49 @@ describe("Builder MDX conversion", () => {
 
     expect(result.blocks).toEqual(testBlocks(tabbedEntry));
     expect(result.blocksHash).toBe(builderBlocksHash(testBlocks(tabbedEntry)));
+  });
+
+  it("merges readable edits inside Builder tab content", async () => {
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(tabbedEntry),
+      builderEntryToMdxBundle(tabbedEntry),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toContain("### React");
+    expect(readable.mdx.body).toContain("npm install @builder.io/sdk-react");
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body
+        .replace("### React", "### React SDK")
+        .replace(
+          "npm install @builder.io/sdk-react",
+          "pnpm add @builder.io/sdk-react",
+        ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    const tabsBlock = result.blocks?.[0] as any;
+    expect(tabsBlock.component.options.tabs[0]).toMatchObject({
+      label: "React SDK",
+      analyticsId: "react-tab",
+    });
+    expect(tabsBlock.component.options.tabs[0].content[1]).toMatchObject({
+      id: "nested-code",
+      component: {
+        name: "Code Block",
+        options: {
+          code: "pnpm add @builder.io/sdk-react",
+          language: "bash",
+        },
+      },
+    });
   });
 
   it("emits readable child text for unknown Builder container blocks", async () => {

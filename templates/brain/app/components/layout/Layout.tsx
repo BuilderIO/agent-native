@@ -97,7 +97,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </Button>
         <span className="text-sm font-semibold">{t("navigation.brand")}</span>
       </div>
-      <main className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
+      <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {children}
       </main>
     </div>

@@ -11,7 +11,7 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 
 function buildSignInHref(): string {
-  const ret = "/?intent=save";
+  const ret = "/visual-edit?intent=save";
   return `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(ret)}`;
 }
 

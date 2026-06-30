@@ -826,6 +826,13 @@ const enUS = {
     noMatchingAssets: "No matching assets across your kits.",
     noMatchingLibraryAssets:
       "No matching {{mediaLabel}} assets in this library.",
+    drafts: "Drafts",
+    allLibraries: "All libraries",
+    noDrafts: "No drafts yet.",
+    noMatchingDrafts: "No matching drafts.",
+    recentDrafts: "Recent Drafts",
+    viewAllDrafts: "View all drafts",
+    draftAsset: "Draft asset",
     noReusableAssets:
       "No reusable assets yet. Select a kit to upload references or generate assets.",
     noNewAssetsUploaded: "No new assets were uploaded.",
@@ -2762,6 +2769,12 @@ export const messagesByLocale = {
   "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     library: {
+      allLibraries: "所有库",
+      noDrafts: "暂无草稿。",
+      noMatchingDrafts: "没有匹配的草稿。",
+      recentDrafts: "最近草稿",
+      viewAllDrafts: "查看所有草稿",
+      draftAsset: "草稿资产",
       addAssets: "添加资产",
       addAssetsDescription:
         "上传源素材或生成候选项，然后只将应指导未来生成的资产标记为参考。",
@@ -3500,6 +3513,12 @@ export const messagesByLocale = {
   }),
   "es-ES": mergeMessages({
     library: {
+      allLibraries: "Todas las bibliotecas",
+      noDrafts: "Aún no hay borradores.",
+      noMatchingDrafts: "No hay borradores coincidentes.",
+      recentDrafts: "Borradores recientes",
+      viewAllDrafts: "Ver todos los borradores",
+      draftAsset: "Borrador",
       addAssets: "Agregar activos",
       addAssetsDescription:
         "Cargue material fuente o genere candidatos, luego marque solo los activos que deberían guiar a las generaciones futuras como referencias.",
@@ -3963,6 +3982,12 @@ export const messagesByLocale = {
   }),
   "fr-FR": mergeMessages({
     library: {
+      allLibraries: "Toutes les bibliothèques",
+      noDrafts: "Aucun brouillon pour l'instant.",
+      noMatchingDrafts: "Aucun brouillon correspondant.",
+      recentDrafts: "Brouillons récents",
+      viewAllDrafts: "Voir tous les brouillons",
+      draftAsset: "Brouillon",
       addAssets: "Ajouter des éléments",
       addAssetsDescription:
         "Téléchargez le matériel source ou générez des candidats, puis marquez uniquement les atouts qui devraient guider les générations futures comme références.",
@@ -4404,6 +4429,12 @@ export const messagesByLocale = {
   }),
   "de-DE": mergeMessages({
     library: {
+      allLibraries: "Alle Bibliotheken",
+      noDrafts: "Noch keine Entwürfe.",
+      noMatchingDrafts: "Keine passenden Entwürfe.",
+      recentDrafts: "Letzte Entwürfe",
+      viewAllDrafts: "Alle Entwürfe anzeigen",
+      draftAsset: "Entwurf",
       addAssets: "Assets hinzufügen",
       addAssetsDescription:
         "Laden Sie Quellmaterial hoch oder generieren Sie Kandidaten und markieren Sie dann nur die Assets, die künftigen Generationen als Referenz dienen sollen.",
@@ -4753,6 +4784,12 @@ export const messagesByLocale = {
   }),
   "ja-JP": mergeMessages({
     library: {
+      allLibraries: "すべてのライブラリ",
+      noDrafts: "下書きはまだありません。",
+      noMatchingDrafts: "一致する下書きはありません。",
+      recentDrafts: "最近の下書き",
+      viewAllDrafts: "すべての下書きを表示",
+      draftAsset: "下書きアセット",
       addAssets: "アセットの追加",
       addAssetsDescription:
         "ソース素材をアップロードするか候補を生成し、将来の世代を導く必要がある資産のみを参照としてマークします。",
@@ -5092,6 +5129,12 @@ export const messagesByLocale = {
   }),
   "ko-KR": mergeMessages({
     library: {
+      allLibraries: "모든 라이브러리",
+      noDrafts: "아직 초안이 없습니다.",
+      noMatchingDrafts: "일치하는 초안이 없습니다.",
+      recentDrafts: "최근 초안",
+      viewAllDrafts: "모든 초안 보기",
+      draftAsset: "초안 자산",
       addAssets: "자산 추가",
       addAssetsDescription:
         "원본 자료를 업로드하거나 후보를 생성한 후, 미래 세대를 이끌어야 할 자산만 참고 자료로 표시하세요.",
@@ -5430,6 +5473,12 @@ export const messagesByLocale = {
   }),
   "pt-BR": mergeMessages({
     library: {
+      allLibraries: "Todas as bibliotecas",
+      noDrafts: "Ainda não há rascunhos.",
+      noMatchingDrafts: "Nenhum rascunho correspondente.",
+      recentDrafts: "Rascunhos recentes",
+      viewAllDrafts: "Ver todos os rascunhos",
+      draftAsset: "Rascunho",
       addAssets: "Adicionar recursos",
       addAssetsDescription:
         "Carregue o material de origem ou gere candidatos e marque apenas os ativos que devem orientar as gerações futuras como referências.",
@@ -5870,6 +5919,12 @@ export const messagesByLocale = {
   }),
   "hi-IN": mergeMessages({
     library: {
+      allLibraries: "सभी लाइब्रेरी",
+      noDrafts: "अभी तक कोई ड्राफ़्ट नहीं।",
+      noMatchingDrafts: "कोई मिलान वाला ड्राफ़्ट नहीं।",
+      recentDrafts: "हाल के ड्राफ़्ट",
+      viewAllDrafts: "सभी ड्राफ़्ट देखें",
+      draftAsset: "ड्राफ़्ट एसेट",
       addAssets: "संपत्तियां जोड़ें",
       addAssetsDescription:
         "स्रोत सामग्री अपलोड करें या उम्मीदवार तैयार करें, फिर केवल उन संपत्तियों को चिह्नित करें जो भविष्य की पीढ़ियों को संदर्भ के रूप में मार्गदर्शन करें।",
@@ -6206,6 +6261,12 @@ export const messagesByLocale = {
   }),
   "ar-SA": mergeMessages({
     library: {
+      allLibraries: "جميع المكتبات",
+      noDrafts: "لا توجد مسودات بعد.",
+      noMatchingDrafts: "لا توجد مسودات مطابقة.",
+      recentDrafts: "المسودات الأخيرة",
+      viewAllDrafts: "عرض جميع المسودات",
+      draftAsset: "مسودة",
       addAssets: "أضف الأصول",
       addAssetsDescription:
         "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",

@@ -550,7 +550,7 @@ export default function MeetingDetailRoute() {
         <Skeleton className="h-6 w-32 mb-4" />
         <Skeleton className="h-9 w-96 mb-2" />
         <Skeleton className="h-4 w-64 mb-6" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="clips-meeting-detail-skeleton-grid grid grid-cols-1 gap-6">
           <Skeleton className="h-[480px] w-full" />
           <Skeleton className="h-[480px] w-full" />
         </div>
@@ -765,11 +765,11 @@ export default function MeetingDetailRoute() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] lg:grid-rows-[minmax(0,1fr)] gap-6 flex-1 min-h-0">
+      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0">
         {/* Two-tone canvas: user notes (black) + AI summary/bullets (gray) */}
         <div
           className={cn(
-            "rounded-lg border border-border bg-background min-h-[480px] lg:min-h-0 overflow-hidden flex flex-col",
+            "clips-meeting-notes-panel rounded-lg border border-border bg-background min-h-[480px] overflow-hidden flex flex-col",
             notesJustArrived && "animate-in fade-in duration-500",
           )}
         >

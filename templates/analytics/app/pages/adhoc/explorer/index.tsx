@@ -191,7 +191,7 @@ export default function ExplorerPage() {
       </div>
 
       {/* Config panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 items-start">
+      <div className="analytics-explorer-config-grid grid grid-cols-1 gap-4 items-start">
         <div className="space-y-4">
           <EventPanel
             events={config.events}

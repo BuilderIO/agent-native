@@ -432,6 +432,10 @@ function escapeMarkdownImageUrl(value: string) {
   return value.replace(/\\/g, "%5C").replace(/\)/g, "%29");
 }
 
+function unescapeMarkdownImageUrl(value: string) {
+  return value.replace(/%29/gi, ")").replace(/%5C/gi, "\\");
+}
+
 function parseMarkdownImage(markdown: string) {
   const trimmed = markdown.trim();
   const match = trimmed.match(
@@ -440,7 +444,7 @@ function parseMarkdownImage(markdown: string) {
   if (!match) return null;
   return {
     alt: unescapeMarkdownImageAlt(match[1]),
-    src: match[2],
+    src: unescapeMarkdownImageUrl(match[2]),
   };
 }
 
@@ -1201,7 +1205,7 @@ function fencedCodeFromMarkdown(markdown: string) {
 }
 
 interface ReadableEditableSegment {
-  kind: "text" | "code" | "image";
+  kind: "text" | "code" | "image" | "tab-label";
   block: Record<string, unknown>;
   baseline: string;
 }
@@ -1234,6 +1238,28 @@ function collectReadableEditableSegments(
     if (name === "Image") {
       const baseline = builderImageMarkdown(options);
       if (baseline) segments.push({ kind: "image", block, baseline });
+      continue;
+    }
+    if (name === "Tabbed Content") {
+      const tabs = Array.isArray(options.tabs) ? options.tabs : [];
+      for (let index = 0; index < tabs.length; index += 1) {
+        const tab = tabs[index];
+        const tabRecord = isRecord(tab) ? tab : {};
+        const content = Array.isArray(tabRecord.content)
+          ? tabRecord.content
+          : [];
+        if (!content.some(builderBlockHasReadableOutput)) continue;
+        const label =
+          typeof tabRecord.label === "string" && tabRecord.label.trim()
+            ? tabRecord.label.trim()
+            : `Tab ${index + 1}`;
+        segments.push({
+          kind: "tab-label",
+          block: tabRecord,
+          baseline: `### ${label}`,
+        });
+        collectReadableEditableSegments(content, segments);
+      }
       continue;
     }
     collectReadableEditableSegments(childBlocks(block), segments);
@@ -1377,17 +1403,22 @@ export async function builderReadableBodyToBuilderBlocks(args: {
       .slice(offset, offset + count)
       .join("\n\n");
     offset += count;
-    const options = ensureComponentOptions(
-      segment.block,
-      segment.kind === "text"
-        ? "Text"
-        : segment.kind === "image"
-          ? "Image"
-          : (componentName(segment.block) ?? "Code Block"),
-    );
-    if (segment.kind === "text") {
+    if (segment.kind === "tab-label") {
+      const match = nextMarkdown.trim().match(/^#{3}\s+(.+)$/);
+      if (!match?.[1]?.trim()) {
+        return {
+          blocks: null,
+          warnings: [
+            "Readable Builder tab heading changed into unsupported markdown; keep it as a level-3 heading before pushing.",
+          ],
+        };
+      }
+      segment.block.label = match[1].trim();
+    } else if (segment.kind === "text") {
+      const options = ensureComponentOptions(segment.block, "Text");
       options.text = markdownToBuilderTextHtml(nextMarkdown);
     } else if (segment.kind === "image") {
+      const options = ensureComponentOptions(segment.block, "Image");
       const image = parseMarkdownImage(nextMarkdown);
       if (!image?.src) {
         return {
@@ -1400,6 +1431,10 @@ export async function builderReadableBodyToBuilderBlocks(args: {
       options.image = image.src;
       options.altText = image.alt;
     } else {
+      const options = ensureComponentOptions(
+        segment.block,
+        componentName(segment.block) ?? "Code Block",
+      );
       options.code = fencedCodeFromMarkdown(nextMarkdown);
     }
   }

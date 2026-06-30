@@ -797,6 +797,26 @@ async function processBuilderBodyHydrationJob(
   now: string,
 ) {
   const db = getDb();
+  const [claimed] = await db
+    .update(schema.contentDatabaseBodyHydrationQueue)
+    .set({
+      attempts: row.attempts + 1,
+      lastAttemptedAt: now,
+      lastError: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+        eq(
+          schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+          row.sourceEntryJson,
+        ),
+      ),
+    )
+    .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+  if (!claimed) return;
+
   await db
     .update(schema.contentDatabaseItems)
     .set({
@@ -806,15 +826,6 @@ async function processBuilderBodyHydrationJob(
       updatedAt: now,
     })
     .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-  await db
-    .update(schema.contentDatabaseBodyHydrationQueue)
-    .set({
-      attempts: row.attempts + 1,
-      lastAttemptedAt: now,
-      lastError: null,
-      updatedAt: now,
-    })
-    .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
 
   const entry = parseHydrationEntry(row);
   if (!entry) throw new Error("Builder body hydration entry is missing.");
@@ -865,6 +876,91 @@ async function processBuilderBodyHydrationJob(
     });
   let wroteBody = false;
   await db.transaction(async (tx) => {
+    if (shouldWriteBody) {
+      const [updatedDocument] = await tx
+        .update(schema.documents)
+        .set({ content: nextContent, updatedAt: now })
+        .where(
+          and(
+            eq(schema.documents.id, row.documentId),
+            eq(schema.documents.content, currentContent),
+          ),
+        )
+        .returning({ id: schema.documents.id });
+      wroteBody = Boolean(updatedDocument);
+    }
+    if (shouldWriteBody && !wroteBody) {
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationAttemptedAt: now,
+          bodyHydrationError:
+            "Skipped Builder body hydration because the document changed during sync.",
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      await tx
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          lastError:
+            "Skipped Builder body hydration because the document changed during sync.",
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+            eq(
+              schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+              row.sourceEntryJson,
+            ),
+          ),
+        );
+      return;
+    }
+    const [deleted] = await tx
+      .delete(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        and(
+          eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+          eq(
+            schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+            row.sourceEntryJson,
+          ),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+    if (!deleted) {
+      if (wroteBody) {
+        await tx
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify(nextValues),
+            lastSyncedAt: now,
+            lastSourceUpdatedAt: entry.updatedAt ?? now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+              eq(
+                schema.contentDatabaseSourceRows.databaseItemId,
+                row.databaseItemId,
+              ),
+            ),
+          );
+      }
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationAttemptedAt: now,
+          bodyHydrationError: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      return;
+    }
     await tx
       .update(schema.contentDatabaseSourceRows)
       .set({
@@ -882,19 +978,6 @@ async function processBuilderBodyHydrationJob(
           ),
         ),
       );
-    if (shouldWriteBody) {
-      const [updatedDocument] = await tx
-        .update(schema.documents)
-        .set({ content: nextContent, updatedAt: now })
-        .where(
-          and(
-            eq(schema.documents.id, row.documentId),
-            eq(schema.documents.content, currentContent),
-          ),
-        )
-        .returning({ id: schema.documents.id });
-      wroteBody = Boolean(updatedDocument);
-    }
     await tx
       .update(schema.contentDatabaseItems)
       .set({
@@ -905,9 +988,6 @@ async function processBuilderBodyHydrationJob(
         updatedAt: now,
       })
       .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-    await tx
-      .delete(schema.contentDatabaseBodyHydrationQueue)
-      .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
   });
   if (wroteBody) {
     try {

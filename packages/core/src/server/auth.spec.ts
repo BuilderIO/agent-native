@@ -2985,6 +2985,19 @@ describe("server/auth", () => {
       expect(decoded.app).toBe("mail");
     });
 
+    it("encodes and decodes org id through signed state for scoped OAuth credentials", async () => {
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
+      const state = encodeOAuthState({
+        redirectUri: "http://x/cb",
+        owner: "owner@example.com",
+        orgId: "org-123",
+      });
+      const decoded = decodeOAuthState(state, "http://x/cb");
+      expect(decoded.owner).toBe("owner@example.com");
+      expect(decoded.orgId).toBe("org-123");
+    });
+
     it("produces undefined returnUrl when none was encoded (backwards compat)", async () => {
       const { encodeOAuthState, decodeOAuthState } =
         await import("./google-oauth.js");

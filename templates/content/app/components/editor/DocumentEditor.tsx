@@ -22,7 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ClipboardEvent } from "react";
+import type { ClipboardEvent, MutableRefObject } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -68,6 +68,54 @@ const TAB_ID = generateTabId();
 
 interface DocumentEditorProps {
   documentId: string;
+}
+
+type FieldSaveWatermark = { title: string; updatedAt: string | null };
+type ContentSaveWatermark = { content: string; updatedAt: string | null };
+
+function adoptConfirmedSaveWatermarks({
+  saved,
+  savedAt,
+  title,
+  content,
+  updates,
+  lastSavedTitleRef,
+  lastSavedContentRef,
+}: {
+  saved: Document | undefined;
+  savedAt: string;
+  title: string;
+  content: string;
+  updates: {
+    title?: string;
+    content?: string;
+    icon?: string | null;
+  };
+  lastSavedTitleRef: MutableRefObject<FieldSaveWatermark>;
+  lastSavedContentRef: MutableRefObject<ContentSaveWatermark>;
+}) {
+  if (updates.title !== undefined) {
+    lastSavedTitleRef.current = { title, updatedAt: savedAt };
+  } else if (
+    (updates.content !== undefined || updates.icon !== undefined) &&
+    saved?.title === lastSavedTitleRef.current.title
+  ) {
+    lastSavedTitleRef.current = {
+      ...lastSavedTitleRef.current,
+      updatedAt: savedAt,
+    };
+  }
+  if (updates.content !== undefined) {
+    lastSavedContentRef.current = { content, updatedAt: savedAt };
+  } else if (
+    (updates.title !== undefined || updates.icon !== undefined) &&
+    saved?.content === lastSavedContentRef.current.content
+  ) {
+    lastSavedContentRef.current = {
+      ...lastSavedContentRef.current,
+      updatedAt: savedAt,
+    };
+  }
 }
 
 function DocumentEditorSkeleton() {
@@ -158,8 +206,17 @@ interface DocumentEditorBodyProps {
 type PendingDocumentSave = {
   title: string;
   content: string;
-  save: (title: string, content: string) => unknown | Promise<unknown>;
+  save: (
+    title: string,
+    content: string,
+    options?: DocumentSaveOptions,
+  ) => unknown | Promise<unknown>;
+  canEditWhenQueued: boolean;
   timeout: ReturnType<typeof setTimeout>;
+};
+
+type DocumentSaveOptions = {
+  allowQueuedSave?: boolean;
 };
 
 type DocumentSaveResult = {
@@ -278,6 +335,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     document.databaseMembership?.databaseDocumentId ?? documentId,
   );
   const canEdit = document.canEdit ?? true;
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
   // The block render context (asset/upload resolvers, inline markdown reader,
   // panel popover) is stable for the editor's lifetime. Created once here and
   // provided alongside the content block registry so every registry block in the
@@ -329,6 +388,16 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     document.updatedAt ?? null,
   );
   documentUpdatedAtRef.current = document.updatedAt ?? null;
+  const handleBackgroundSaveError = useCallback(
+    (error: unknown) => {
+      toast.error(t("empty.genericError"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    },
+    [t],
+  );
+
   useEffect(() => {
     const membership = document.databaseMembership;
     const hydration = membership?.bodyHydration;
@@ -399,7 +468,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     : undefined;
 
-  // Collaborative editing — stable Y.Doc per document, always-on
+  // Collaborative editing is write-only for now. Viewers get the SQL snapshot
+  // and skip collab endpoints that reject non-editor access.
   const {
     ydoc,
     awareness,
@@ -408,7 +478,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     agentActive,
     agentPresent,
   } = useCollaborativeDoc({
-    docId: isLocalFileDocument ? "" : documentId,
+    docId: canEdit && !isLocalFileDocument ? documentId : "",
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -590,11 +660,16 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
   const persistDocumentUpdates = useCallback(
-    async (updates: {
-      title?: string;
-      content?: string;
-      icon?: string | null;
-    }): Promise<Document> => {
+    async (
+      updates: {
+        title?: string;
+        content?: string;
+        icon?: string | null;
+      },
+      options: DocumentSaveOptions = {},
+    ): Promise<Document> => {
+      if (!options.allowQueuedSave && !canEditRef.current) return document;
+
       const localSource = document.source;
       const isLinkedLocalSource = canWriteLinkedLocalSource(
         documentId,
@@ -653,7 +728,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
 
   const saveDocumentImmediately = useCallback(
-    async (title: string, content: string): Promise<DocumentSaveResult> => {
+    async (
+      title: string,
+      content: string,
+      options: DocumentSaveOptions = {},
+    ): Promise<DocumentSaveResult> => {
       // Never clobber a newer server version (e.g. an agent edit we haven't
       // reconciled into the editor yet) with the editor's current — possibly
       // stale — content. Guard per-field using the field's own watermark.
@@ -677,15 +756,18 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         return { contentPersisted: !contentChanged };
       }
 
-      const saved = await persistDocumentUpdates(updates);
+      const saved = await persistDocumentUpdates(updates, options);
       // Adopt the server updatedAt per saved field.
       const savedAt = saved?.updatedAt ?? new Date().toISOString();
-      if (updates.title !== undefined) {
-        lastSavedTitleRef.current = { title, updatedAt: savedAt };
-      }
-      if (updates.content !== undefined) {
-        lastSavedContentRef.current = { content, updatedAt: savedAt };
-      }
+      adoptConfirmedSaveWatermarks({
+        saved,
+        savedAt,
+        title,
+        content,
+        updates,
+        lastSavedTitleRef,
+        lastSavedContentRef,
+      });
 
       // Push-on-save: when auto-sync is on, trigger a Notion push
       // immediately after the save lands in SQL. This eliminates the
@@ -724,25 +806,38 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       queryClient,
     ],
   );
+  const flushPendingDocumentSave = useCallback(
+    (pending: PendingDocumentSave) => {
+      if (!pending.canEditWhenQueued) return;
+      void Promise.resolve(
+        pending.save(pending.title, pending.content, {
+          allowQueuedSave: true,
+        }),
+      ).catch(handleBackgroundSaveError);
+    },
+    [handleBackgroundSaveError],
+  );
   const debouncedSave = useCallback(
     (title: string, content: string) => {
+      if (!canEditRef.current) return;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       const pending: PendingDocumentSave = {
         title,
         content,
         save: saveDocumentImmediately,
+        canEditWhenQueued: canEditRef.current,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
             pendingDocumentSaveRef.current = null;
           }
           saveTimeoutRef.current = null;
-          void pending.save(pending.title, pending.content);
+          flushPendingDocumentSave(pending);
         }, 500),
       };
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
     },
-    [saveDocumentImmediately],
+    [flushPendingDocumentSave, saveDocumentImmediately],
   );
 
   useEffect(() => {
@@ -752,9 +847,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       clearTimeout(pending.timeout);
       saveTimeoutRef.current = null;
       pendingDocumentSaveRef.current = null;
-      void pending.save(pending.title, pending.content);
+      flushPendingDocumentSave(pending);
     };
-  }, [documentId]);
+  }, [documentId, flushPendingDocumentSave]);
+
+  useEffect(() => {
+    if (canEdit) return;
+    const pending = pendingDocumentSaveRef.current;
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    saveTimeoutRef.current = null;
+    pendingDocumentSaveRef.current = null;
+    flushPendingDocumentSave(pending);
+  }, [canEdit, documentId, flushPendingDocumentSave]);
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
   // `flush-request-<id>` app-state key when an external agent wants to ingest
@@ -789,15 +894,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdates(updates);
                 const savedAt = saved?.updatedAt ?? new Date().toISOString();
-                if (updates.title !== undefined) {
-                  lastSavedTitleRef.current = { title, updatedAt: savedAt };
-                }
-                if (updates.content !== undefined) {
-                  lastSavedContentRef.current = {
-                    content,
-                    updatedAt: savedAt,
-                  };
-                }
+                adoptConfirmedSaveWatermarks({
+                  saved,
+                  savedAt,
+                  title,
+                  content,
+                  updates,
+                  lastSavedTitleRef,
+                  lastSavedContentRef,
+                });
               }
             } finally {
               // Acknowledge the flush even if nothing changed — the SQL row is
@@ -870,7 +975,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
-    isLocalFileDocument ? null : documentId,
+    canEdit && !isLocalFileDocument ? documentId : null,
   );
   const hasComments =
     !isLocalFileDocument &&
@@ -1084,8 +1189,20 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           }
                           onSelect={(emoji) => {
                             void (async () => {
-                              await persistDocumentUpdates({ icon: emoji });
-                            })();
+                              const saved = await persistDocumentUpdates({
+                                icon: emoji,
+                              });
+                              adoptConfirmedSaveWatermarks({
+                                saved,
+                                savedAt:
+                                  saved?.updatedAt ?? new Date().toISOString(),
+                                title: localTitleRef.current,
+                                content: localContentRef.current,
+                                updates: { icon: emoji },
+                                lastSavedTitleRef,
+                                lastSavedContentRef,
+                              });
+                            })().catch(handleBackgroundSaveError);
                           }}
                         />
                       ) : document.icon ? (

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Agent-Native Clips",
   "short_name": "Clips",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Start Clips recordings from Chrome, capture optional diagnostics, and preview Clips links on GitHub.",
   "minimum_chrome_version": "116",
   "action": {

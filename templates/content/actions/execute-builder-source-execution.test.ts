@@ -722,7 +722,7 @@ describe("execute Builder source execution", () => {
     });
   });
 
-  it("keeps autosave writes on the no-preflight path", async () => {
+  it("preflights existing-entry autosave writes before patching Builder", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({ changeSets: [approvedChangeSet] });
     const execution = executionFor({
@@ -742,8 +742,65 @@ describe("execute Builder source execution", () => {
       ),
     ).resolves.toBe(RESPONSE);
 
-    expect(deps.readLiveEntry).not.toHaveBeenCalled();
+    expect(deps.readLiveEntry).toHaveBeenCalledWith({
+      model: BUILDER_CMS_SAFE_WRITE_MODEL,
+      entryId: "builder-entry-1",
+    });
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks existing-entry autosaves when the live Builder body changed", async () => {
+    const approvedChangeSet = changeSet({
+      bodyChange: {
+        summary: "Builder body changed.",
+        currentExcerpt: "Old body",
+        proposedExcerpt: "New body",
+        currentHash: "local-baseline-hash",
+        proposedHash: "local-next-hash",
+        proposedContent: "New body",
+        proposedBlocksJson: "[]",
+        sidecarsJson: "{}",
+        warnings: [],
+      },
+    });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "draft",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: "new-live-builder-hash",
+        id: "builder-entry-1",
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).rejects.toThrow(
+      "Builder body changed since this diff was approved; refresh and re-review.",
+    );
+
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: "blocked",
+        lastError:
+          "Builder body changed since this diff was approved; refresh and re-review.",
+      }),
+    );
   });
 
   it("records and throws write failures without applying the change set", async () => {

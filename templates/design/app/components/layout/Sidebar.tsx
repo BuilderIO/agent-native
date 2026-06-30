@@ -163,7 +163,7 @@ export function Sidebar() {
             </div>
 
             <div className="px-3 py-2">
-              <OrgSwitcher />
+              <OrgSwitcher reserveSpace />
             </div>
 
             <div className="px-3 py-2">

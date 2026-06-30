@@ -317,6 +317,7 @@ function sourceRowForChangeSet(
 
 function requiresLivePreflight(effect: BuilderCmsExecutionPayload["effect"]) {
   return (
+    effect === "autosave" ||
     effect === "update_in_place" ||
     effect === "publish" ||
     effect === "unpublish"

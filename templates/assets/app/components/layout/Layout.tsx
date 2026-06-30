@@ -130,7 +130,9 @@ export function Layout({ children }: LayoutProps) {
         </div>
         {!hideHeader && <Header />}
         <InvitationBanner />
-        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="agent-native-app-main min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </main>
       </div>
     </div>
   );

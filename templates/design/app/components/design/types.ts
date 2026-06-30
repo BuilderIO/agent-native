@@ -36,6 +36,15 @@ export interface ElementInfo {
 
 export type DeviceFrameType = "none" | "desktop" | "tablet" | "mobile";
 
+export const DEVICE_FRAME_VIEWPORTS = {
+  desktop: { width: 1280, height: 800 },
+  tablet: { width: 768, height: 1024 },
+  mobile: { width: 390, height: 844 },
+} as const satisfies Record<
+  Exclude<DeviceFrameType, "none">,
+  { width: number; height: number }
+>;
+
 export interface ViewportTab {
   id: string;
   filename: string;

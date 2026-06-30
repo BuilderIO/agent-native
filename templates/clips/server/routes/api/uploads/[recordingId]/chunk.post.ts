@@ -14,7 +14,6 @@
  */
 
 import {
-  listAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -36,6 +35,7 @@ import {
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
+import { sumRecordingChunkBytes } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -80,14 +80,6 @@ function stateNumber(
 ): number | undefined {
   const raw = value?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
-}
-
-async function sumPersistedChunkBytes(recordingId: string): Promise<number> {
-  const chunks = await listAppState(`recording-chunks-${recordingId}-`);
-  return chunks.reduce(
-    (total, entry) => total + (stateNumber(entry.value, "bytes") ?? 0),
-    0,
-  );
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -278,7 +270,7 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           status: "failed",
           failureReason: reason,
-          bytesReceived: await sumPersistedChunkBytes(recordingId),
+          bytesReceived: await sumRecordingChunkBytes(ownerEmail, recordingId),
           maxBytes: MAX_RECORDING_UPLOAD_BYTES,
           updatedAt: new Date().toISOString(),
         });
@@ -323,7 +315,10 @@ export default defineEventHandler(async (event: H3Event) => {
       const chunkKey = `recording-chunks-${recordingId}-${paddedIndex}`;
       const previousChunk = await readAppState(chunkKey);
       const previousBytes = stateNumber(previousChunk, "bytes") ?? 0;
-      const persistedBytesBefore = await sumPersistedChunkBytes(recordingId);
+      const persistedBytesBefore = await sumRecordingChunkBytes(
+        ownerEmail,
+        recordingId,
+      );
       const nextBytes =
         Math.max(0, persistedBytesBefore - previousBytes) + bytes.byteLength;
 
@@ -339,7 +334,7 @@ export default defineEventHandler(async (event: H3Event) => {
         data: toBase64(bytes),
         createdAt: new Date().toISOString(),
       });
-      bytesReceived = await sumPersistedChunkBytes(recordingId);
+      bytesReceived = await sumRecordingChunkBytes(ownerEmail, recordingId);
       if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
         return failRecordingTooLarge(bytesReceived);
       }
@@ -396,7 +391,7 @@ export default defineEventHandler(async (event: H3Event) => {
     // Final chunk — kick off finalize. We await so the client gets a single
     // "done" response with the final URL (instead of needing to poll).
     if (isFinal) {
-      bytesReceived = await sumPersistedChunkBytes(recordingId);
+      bytesReceived = await sumRecordingChunkBytes(ownerEmail, recordingId);
       if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
         return failRecordingTooLarge(bytesReceived);
       }
@@ -437,6 +432,61 @@ export default defineEventHandler(async (event: H3Event) => {
         };
       } catch (err) {
         console.error("[clips] finalize-recording failed:", err);
+        const [committed] = await db
+          .select({
+            id: schema.recordings.id,
+            status: schema.recordings.status,
+            videoUrl: schema.recordings.videoUrl,
+            durationMs: schema.recordings.durationMs,
+            width: schema.recordings.width,
+            height: schema.recordings.height,
+            hasAudio: schema.recordings.hasAudio,
+            hasCamera: schema.recordings.hasCamera,
+          })
+          .from(schema.recordings)
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ),
+          );
+        if (committed?.status === "ready" && committed.videoUrl) {
+          console.warn(
+            "[clips] finalize reported an error after committing a ready recording; returning committed success.",
+            {
+              recordingId,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
+          try {
+            await writeAppState(`recording-upload-${recordingId}`, {
+              recordingId,
+              status: "ready",
+              progress: 100,
+              videoUrl: committed.videoUrl,
+              finishedAt: new Date().toISOString(),
+            });
+          } catch (stateErr) {
+            console.warn("[clips] committed-ready state repair failed:", {
+              recordingId,
+              err:
+                stateErr instanceof Error ? stateErr.message : String(stateErr),
+            });
+          }
+          return {
+            ok: true,
+            finalized: true,
+            recoveredAfterFinalizeError: true,
+            id: committed.id,
+            status: "ready",
+            videoUrl: committed.videoUrl,
+            durationMs: committed.durationMs,
+            width: committed.width,
+            height: committed.height,
+            hasAudio: committed.hasAudio,
+            hasCamera: committed.hasCamera,
+          };
+        }
         await db
           .update(schema.recordings)
           .set({
