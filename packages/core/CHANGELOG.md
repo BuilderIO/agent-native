@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.83.0
+
+### Minor Changes
+
+- 1a8d939: Add dynamic command menu results and an opt-in contenteditable Cmd+K shortcut path for editor-backed apps.
+
 ## 0.82.0
 
 ### Minor Changes
