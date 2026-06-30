@@ -121,6 +121,22 @@ describe("document editor layout", () => {
     );
   });
 
+  it("keeps title and content save watermarks independent after partial saves", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain(
+      "saved?.title === lastSavedTitleRef.current.title",
+    );
+    expect(source).toContain(
+      "saved?.content === lastSavedContentRef.current.content",
+    );
+  });
+
   it("lets slash-created page references use the editor save pipeline", () => {
     const documentEditorSource = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
