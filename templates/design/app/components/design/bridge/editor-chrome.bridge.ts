@@ -11,6 +11,7 @@
  *   __TEXT_EDITING_ENABLED__   — boolean literal "true"/"false"
  *   __EDITOR_CHROME_SCALE_X__  — number string, e.g. "1.5"
  *   __EDITOR_CHROME_SCALE_Y__  — number string, e.g. "1.5"
+ *   __DESIGN_CANVAS_SCREEN_ID__ — string literal for the owning screen/file id
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -24,10 +25,12 @@ declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
 declare var __EDITOR_CHROME_SCALE_X__: string;
 declare var __EDITOR_CHROME_SCALE_Y__: string;
+declare var __DESIGN_CANVAS_SCREEN_ID__: string;
 
 (function () {
   var readOnly = __READ_ONLY__;
   var textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
+  var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
   var scaleToolEnabled = false;
   var editorChromeScaleX = Math.max(
     0.05,
@@ -2533,6 +2536,43 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     return true;
   }
 
+  function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
+    return (
+      clientX < 0 ||
+      clientY < 0 ||
+      clientX > window.innerWidth ||
+      clientY > window.innerHeight
+    );
+  }
+
+  function postCrossScreenDrag(
+    phase: "start" | "move" | "end" | "cancel",
+    el?: Element | null,
+    ev?: { clientX?: number; clientY?: number } | null,
+  ): void {
+    if (phase === "cancel") {
+      (window.parent as Window).postMessage(
+        { type: "agent-native:cross-screen-drag", phase: "cancel" },
+        "*",
+      );
+      return;
+    }
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:cross-screen-drag",
+        phase,
+        screenId: designCanvasScreenId,
+        selector: getSelector(el ?? null),
+        sourceId: getSourceId(el ?? null),
+        iframeX: ev?.clientX ?? 0,
+        iframeY: ev?.clientY ?? 0,
+        viewportW: window.innerWidth,
+        viewportH: window.innerHeight,
+      },
+      "*",
+    );
+  }
+
   // keep in sync with EditPanel.tsx CONTAINER_TAGS/LEAF_TAGS (~line 1679)
   var BRIDGE_CONTAINER_TAGS = [
     "div",
@@ -3000,6 +3040,9 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     }
     ensurePositionable(selectedEl);
     var cs = window.getComputedStyle(selectedEl);
+    var originalInlinePosition = (selectedEl as HTMLElement).style.position;
+    var originalInlineLeft = (selectedEl as HTMLElement).style.left;
+    var originalInlineTop = (selectedEl as HTMLElement).style.top;
     var originLeft = readPx((selectedEl as HTMLElement).style.left || cs.left);
     var originTop = readPx(selectedEl.style.top || cs.top);
     var startX = e.clientX;
@@ -3010,6 +3053,9 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     var dragEl = selectedEl;
     var moved = false;
     var DRAG_THRESHOLD = 3;
+    if (!duplicatedForDrag) {
+      postCrossScreenDrag("start", dragEl, e);
+    }
     function onMove(ev) {
       if (
         !moved &&
@@ -3021,18 +3067,44 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       var nextTop = originTop + ev.clientY - startY;
       (dragEl as HTMLElement).style.left = Math.round(nextLeft) + "px";
       (dragEl as HTMLElement).style.top = Math.round(nextTop) + "px";
-      showTransformBadge(
-        "X " + Math.round(nextLeft) + "  Y " + Math.round(nextTop),
-        ev.clientX,
-        ev.clientY,
-      );
+      if (!duplicatedForDrag) {
+        postCrossScreenDrag("move", dragEl, ev);
+      }
+      if (
+        !duplicatedForDrag &&
+        isOutsideIframeViewport(ev.clientX, ev.clientY)
+      ) {
+        showTransformBadge("Move layer", ev.clientX, ev.clientY);
+      } else {
+        showTransformBadge(
+          "X " + Math.round(nextLeft) + "  Y " + Math.round(nextTop),
+          ev.clientX,
+          ev.clientY,
+        );
+      }
       refreshOverlays();
     }
-    function onUp() {
+    function restoreSourceDragPosition(): void {
+      (dragEl as HTMLElement).style.position = originalInlinePosition;
+      (dragEl as HTMLElement).style.left = originalInlineLeft;
+      (dragEl as HTMLElement).style.top = originalInlineTop;
+      selectedEl = originalSelectedEl;
+      positionOverlay(selectionOverlay, selectedEl);
+    }
+    function onUp(ev) {
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       hideTransformBadge();
       if (!dragEl) return;
+      if (
+        ev &&
+        !duplicatedForDrag &&
+        isOutsideIframeViewport(ev.clientX, ev.clientY)
+      ) {
+        postCrossScreenDrag("end", dragEl, ev);
+        restoreSourceDragPosition();
+        return;
+      }
       if (duplicatedForDrag && !moved) {
         // Alt-click with no real drag — remove the premature clone and restore the original selection.
         if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
@@ -3060,6 +3132,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
           },
           "*",
         );
+        postCrossScreenDrag("cancel");
       }
     }
     document.addEventListener(events.move, onMove, true);
@@ -3274,6 +3347,14 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       pendingShieldDrag.onUp,
       true,
     );
+    if (
+      pendingShieldDrag.pointerId !== undefined &&
+      shieldOverlay.releasePointerCapture
+    ) {
+      try {
+        shieldOverlay.releasePointerCapture(pendingShieldDrag.pointerId);
+      } catch (_err) {}
+    }
     pendingShieldDrag = null;
   }
 
@@ -3299,6 +3380,18 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     ) {
       return;
     }
+    if (
+      e.pointerId !== undefined &&
+      shieldOverlay.setPointerCapture &&
+      !e.altKey
+    ) {
+      try {
+        shieldOverlay.setPointerCapture(e.pointerId);
+      } catch (_err) {}
+    }
+    if (!e.altKey) {
+      postCrossScreenDrag("start", dragTarget, e);
+    }
     var startX = e.clientX;
     var startY = e.clientY;
     var didStartDrag = false;
@@ -3321,6 +3414,9 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
     function onUp(ev) {
       clearPendingShieldDrag();
       if (didStartDrag) return;
+      if (!e.altKey) {
+        postCrossScreenDrag("cancel");
+      }
       if (ev) stopNativeInteraction(ev);
       selectTarget(clickTarget || dragTarget);
       suppressNextShieldClickBriefly();
@@ -3331,6 +3427,7 @@ declare var __EDITOR_CHROME_SCALE_Y__: string;
       up: events.up,
       onMove: onMove,
       onUp: onUp,
+      pointerId: e.pointerId,
     };
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
