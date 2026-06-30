@@ -161,7 +161,12 @@ async function markRecordingReady(params: {
       uploadProgress: 100,
       updatedAt: now,
     })
-    .where(eq(schema.recordings.id, id));
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
