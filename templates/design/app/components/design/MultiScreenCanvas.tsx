@@ -3573,6 +3573,7 @@ interface ScreenProps {
   geometry: FrameGeometry;
   isActive: boolean;
   isSelected: boolean;
+  isDirectlyHovered: boolean;
   hasHoveredChild: boolean;
   groupSelected: boolean;
   handlesEnabled: boolean;
@@ -3604,6 +3605,7 @@ const Screen = memo(function Screen({
   geometry,
   isActive,
   isSelected,
+  isDirectlyHovered,
   hasHoveredChild,
   groupSelected,
   handlesEnabled,
@@ -3627,7 +3629,9 @@ const Screen = memo(function Screen({
   const suppressNextClick = useRef(false);
   const [directlyHovered, setDirectlyHovered] = useState(false);
   const frameDirectlyHovered =
-    directlyHovered && !creationToolActive && !canvasGestureActive;
+    (directlyHovered || isDirectlyHovered) &&
+    !creationToolActive &&
+    !canvasGestureActive;
   const emphasized = isSelected || frameDirectlyHovered;
   const activeOrEmphasized = isActive || emphasized;
   const selectionOutlined = isSelected && !groupSelected;
@@ -3950,6 +3954,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     sameFrameGeometry(prev.geometry, next.geometry) &&
     prev.isActive === next.isActive &&
     prev.isSelected === next.isSelected &&
+    prev.isDirectlyHovered === next.isDirectlyHovered &&
     prev.hasHoveredChild === next.hasHoveredChild &&
     prev.groupSelected === next.groupSelected &&
     prev.handlesEnabled === next.handlesEnabled &&

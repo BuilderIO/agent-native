@@ -242,6 +242,11 @@ function getContentSignature(content: string): string {
   return `${content.length}:${hash.toString(36)}`;
 }
 
+export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
+  const tagName = info?.tagName?.toUpperCase();
+  return tagName === "BODY" || tagName === "HTML";
+}
+
 export function getSelectedScreenIdsForEditorState(args: {
   activeFileId: string | null | undefined;
   overviewSelectedScreenIds: string[];
@@ -2126,19 +2131,17 @@ function DesignToolbarTool({
 }) {
   const hasOptionsMenu = options.length > 1;
   return (
-    <div
-      className={cn(
-        "flex h-8 items-center overflow-hidden rounded-md text-neutral-200 transition-colors",
-        active
-          ? "bg-[var(--design-editor-accent-color)] text-white"
-          : "hover:bg-white/10 hover:text-white",
-      )}
-    >
+    <div className="flex h-8 items-center text-neutral-200">
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="flex size-8 cursor-pointer items-center justify-center"
+            className={cn(
+              "flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors",
+              active
+                ? "bg-[var(--design-editor-accent-color)] text-white"
+                : "hover:bg-white/10 hover:text-white",
+            )}
             onClick={onPrimary}
             aria-label={label}
             aria-pressed={active}
@@ -2155,8 +2158,8 @@ function DesignToolbarTool({
             <button
               type="button"
               className={cn(
-                "flex h-8 w-4 cursor-pointer items-center justify-center rounded-r-md transition-colors",
-                active ? "hover:bg-white/15" : "hover:bg-white/10",
+                "flex h-8 w-4 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/10 hover:text-white",
+                active && "text-neutral-200",
               )}
               aria-label={`${label} options`}
             >
@@ -4832,18 +4835,27 @@ export default function DesignEditor() {
   const selectedCanvasSelector = selectedCanvasSelectorCandidates[0] ?? null;
   const hoveredCodeLayerNode = useMemo(() => {
     if (!hoveredElement) return null;
+    if (isScreenRootElementInfo(hoveredElement)) return null;
     return resolveCodeLayerNodeFromElementInfo(
       activeCodeLayerProjection,
       hoveredElement,
     );
   }, [activeCodeLayerProjection, hoveredElement]);
   const hoveredCanvasSelectorCandidates = useMemo(() => {
+    if (isScreenRootElementInfo(hoveredElement)) return [];
     if (hoveredCodeLayerNode) {
       return codeLayerSelectorAliases(hoveredCodeLayerNode);
     }
     return hoveredElement?.selector ? [hoveredElement.selector] : [];
-  }, [hoveredCodeLayerNode, hoveredElement?.selector]);
+  }, [hoveredCodeLayerNode, hoveredElement]);
   const hoveredCanvasSelector = hoveredCanvasSelectorCandidates[0] ?? null;
+  const hoveredElementIsScreenRoot = isScreenRootElementInfo(hoveredElement);
+  const hoveredScreenRootId = hoveredElementIsScreenRoot
+    ? hoveredElementScreenId
+    : null;
+  const hoveredChildScreenId = hoveredElementIsScreenRoot
+    ? null
+    : hoveredElementScreenId;
   const getCodeLayerProjectionForScreen = useCallback(
     (screenId: string) => {
       if (screenId === activeFile?.id) return activeCodeLayerProjection;
@@ -9811,9 +9823,11 @@ ${serializedHtml}
                     selectedScreenIds={overviewSelectedScreenIds}
                     activeScreenHasHoveredChild={
                       Boolean(hoveredElement) &&
+                      !hoveredElementIsScreenRoot &&
                       hoveredElementScreenId === activeFileId
                     }
-                    hoveredChildScreenId={hoveredElementScreenId}
+                    hoveredChildScreenId={hoveredChildScreenId}
+                    directlyHoveredScreenId={hoveredScreenRootId}
                     previewDeviceFrame={deviceFrame}
                     activeTool={activeTool}
                     onActiveToolChange={(tool) =>

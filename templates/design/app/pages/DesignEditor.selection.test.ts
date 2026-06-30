@@ -8,6 +8,7 @@ import {
   getOverviewEnterTarget,
   getOverviewZoomScale,
   getSidebarCodeLayerSelectionState,
+  isScreenRootElementInfo,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
   shouldLockInspectorForInitialGeneration,
@@ -88,6 +89,31 @@ describe("DesignEditor sidebar code layer selection", () => {
       viewMode: "single",
       overviewSelectedScreenIds: ["screen-a"],
     });
+  });
+});
+
+describe("DesignEditor screen root hover", () => {
+  it("classifies document roots as screen hover instead of child-layer hover", () => {
+    expect(
+      isScreenRootElementInfo({
+        tagName: "body",
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 0, y: 0, width: 320, height: 640 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+    ).toBe(true);
+    expect(
+      isScreenRootElementInfo({
+        tagName: "h1",
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 0, y: 0, width: 100, height: 40 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+    ).toBe(false);
   });
 });
 
