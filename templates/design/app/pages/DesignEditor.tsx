@@ -5362,13 +5362,15 @@ export default function DesignEditor() {
       setReviewAuditedAt(result.auditedAt ?? new Date().toISOString());
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unable to run design audit";
+        error instanceof Error
+          ? error.message
+          : t("designEditor.toasts.auditRunFailed");
       setReviewAuditError(message);
       toast.error(message);
     } finally {
       setReviewAuditLoading(false);
     }
-  }, [activeFile?.id, id]);
+  }, [activeFile?.id, id, t]);
 
   const handleReviewFindingClick = useCallback(
     (finding: A11yFinding) => {

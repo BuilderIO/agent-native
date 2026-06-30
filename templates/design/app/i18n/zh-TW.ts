@@ -425,6 +425,7 @@ const messages = {
       layerMoveFailed: "無法移動該圖層",
       duplicateElementFailed: "無法複製該元素",
       saveCopyError: "無法儲存這個設計的副本",
+      auditRunFailed: "無法執行設計稽核",
     },
     localSourceEdit: {
       bannerNotice: "對已連結本機程式碼的編輯由 AI 代理套用，不會直接寫入。",
