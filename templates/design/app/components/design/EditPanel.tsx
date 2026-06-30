@@ -574,7 +574,7 @@ function ColorInput({
       onImageFillChange={onImageFillChange}
       blendMode={blendMode}
       onBlendModeChange={onBlendModeChange}
-      showBlendMode={supportsLayeredFills}
+      showBlendMode={Boolean(onBlendModeChange)}
       fillRows={fillRows}
       selectedFillId={selectedFillId}
       onFillSelect={supportsLayeredFills ? setSelectedFillId : undefined}
