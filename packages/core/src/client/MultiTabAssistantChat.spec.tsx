@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  requestAgentChatThreadOpen,
+  requestAgentTaskOpen,
   sendToAgentChat,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
@@ -935,6 +937,98 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
       "Once only",
       undefined,
+    );
+  });
+
+  it("replays an open-thread request sent before the lazy panel mounted", async () => {
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-2",
+        title: "Run thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+
+    act(() => {
+      requestAgentChatThreadOpen({ threadId: "thread-2" });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+  });
+
+  it("replays an agent-task open request sent before the lazy panel mounted", async () => {
+    let tabs: Array<{
+      id: string;
+      parentThreadId?: string;
+      subAgentName?: string;
+    }> = [];
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-child",
+        title: "Research child",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+
+    act(() => {
+      requestAgentTaskOpen({
+        threadId: "thread-child",
+        parentThreadId: "thread-1",
+        name: "Research",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="mode-b"
+          renderHeader={(props) => {
+            tabs = props.tabs;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-child");
+    expect(tabs).toContainEqual(
+      expect.objectContaining({
+        id: "thread-child",
+        parentThreadId: "thread-1",
+        subAgentName: "Research",
+      }),
     );
   });
 });

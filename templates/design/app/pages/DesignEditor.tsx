@@ -15617,11 +15617,13 @@ ${serializedHtml}
   );
 
   const zoomLabel = `${Math.round(zoom)}%`;
-  const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
+  const [openZoomControl, setOpenZoomControl] = useState<
+    "toolbar" | "inspector" | null
+  >(null);
   const [zoomInputValue, setZoomInputValue] = useState(zoomLabel);
   useEffect(() => {
-    if (!zoomMenuOpen) setZoomInputValue(zoomLabel);
-  }, [zoomLabel, zoomMenuOpen]);
+    if (!openZoomControl) setZoomInputValue(zoomLabel);
+  }, [zoomLabel, openZoomControl]);
   const commitZoomInput = useCallback(() => {
     const next = Number(zoomInputValue.replace("%", "").trim());
     if (!Number.isFinite(next)) {
@@ -15629,7 +15631,7 @@ ${serializedHtml}
       return;
     }
     setZoom(Math.max(10, Math.min(500, next)));
-    setZoomMenuOpen(false);
+    setOpenZoomControl(null);
   }, [setZoom, zoomInputValue, zoomLabel]);
 
   const handleTokensApplied = useCallback(
@@ -15970,8 +15972,20 @@ ${serializedHtml}
       </span>
     );
 
-  const renderZoomControl = () => (
-    <DropdownMenu open={zoomMenuOpen} onOpenChange={setZoomMenuOpen}>
+  const renderZoomControl = (controlId: "toolbar" | "inspector") => (
+    <DropdownMenu
+      open={openZoomControl === controlId}
+      onOpenChange={(open) => {
+        if (open) {
+          setZoomInputValue(zoomLabel);
+          setOpenZoomControl(controlId);
+          return;
+        }
+        setOpenZoomControl((current) =>
+          current === controlId ? null : current,
+        );
+      }}
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -16005,7 +16019,7 @@ ${serializedHtml}
               } else if (event.key === "Escape") {
                 event.preventDefault();
                 setZoomInputValue(zoomLabel);
-                setZoomMenuOpen(false);
+                setOpenZoomControl(null);
               }
             }}
             className="h-10 rounded-md border-[var(--design-editor-accent-color)] bg-[var(--design-editor-control-bg)] px-3 text-base font-medium tabular-nums text-foreground shadow-none focus-visible:ring-2 focus-visible:ring-[var(--design-editor-accent-color)]"
@@ -16563,7 +16577,7 @@ ${serializedHtml}
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                {renderZoomControl()}
+                {renderZoomControl("toolbar")}
 
                 <div className="mx-1 h-5 w-px bg-border" />
               </>
@@ -17637,7 +17651,7 @@ ${serializedHtml}
                   selectedElements={selectedInspectorElements}
                   pageStyles={pageStyles}
                   zoom={zoom}
-                  headerTrailing={renderZoomControl()}
+                  headerTrailing={renderZoomControl("inspector")}
                   width={rightSidebarWidth}
                   activeTab={activeInspectorTab}
                   onActiveTabChange={setActiveInspectorTab}

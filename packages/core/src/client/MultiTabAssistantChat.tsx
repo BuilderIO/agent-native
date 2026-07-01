@@ -26,7 +26,9 @@ import {
   AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
   appendAgentChatContextToMessage,
+  claimAgentChatOpenRequest,
   claimAgentChatSubmit,
+  drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
   normalizeAgentChatContextItem,
   parseSubmitChatMessage,
@@ -2087,11 +2089,12 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handleOpenThread = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { threadId?: unknown; newThread?: unknown }
+        | { threadId?: unknown; newThread?: unknown; openRequestId?: unknown }
         | undefined;
       const threadId =
         typeof detail?.threadId === "string" ? detail.threadId : "";
-      if (!threadId) return;
+      if (!detail || !threadId) return;
+      if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
 
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
@@ -2143,6 +2146,7 @@ export function MultiTabAssistantChat({
       const detail = (e as CustomEvent).detail;
       const threadId = detail?.threadId;
       if (!threadId) return;
+      if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
       dismissedSubAgentTabsRef.current.delete(threadId);
       // Prefer an explicit parent (RunsTray/background hydration knows it);
       // inline task cards fall back to the active orchestrator thread.
@@ -2195,6 +2199,17 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-task-open", handleOpenTask);
     return () => window.removeEventListener("agent-task-open", handleOpenTask);
   }, [openTabIds, switchThread, refreshThreads, parentMap]);
+
+  // Replay thread/task opens requested before this lazy panel's listeners
+  // attached. Live events claim their id; replay drains only unclaimed requests.
+  useEffect(() => {
+    const buffered = drainBufferedAgentChatOpenRequests();
+    for (const request of buffered) {
+      window.dispatchEvent(
+        new CustomEvent(request.eventType, { detail: request.detail }),
+      );
+    }
+  }, []);
 
   // Watch for agent-issued chat-command in application-state
   const lastChatCommandRef = useRef(0);
