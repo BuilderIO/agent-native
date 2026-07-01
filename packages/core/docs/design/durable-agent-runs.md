@@ -83,10 +83,11 @@ terminate with an untruthful "done" state.
 not buy more time — it just converts a graceful hand-off into a hard kill. The
 walls, in order:
 
-1. **Builder model gateway hard cap — ~45s.**
-   `MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000` in
-   `packages/core/src/agent/engine/builder-engine.ts`. A single model call is
-   killed at the gateway after 45s. **Not raisable** by the framework.
+1. **Builder model gateway foreground cap — ~45s.**
+   Hosted foreground calls keep a 45s cap in
+   `packages/core/src/agent/engine/builder-engine.ts`. Local/non-hosted and
+   proven background-function calls use the longer background-style cap because
+   they are not constrained by the synchronous function wall.
 2. **Serverless function kill — ~60–65s.** The hosting function is terminated
    shortly after; the heartbeat then reaps the run row as `stale_run`.
 
@@ -366,8 +367,8 @@ The whole `auto_continue` / 40s soft-timeout dance exists to stay under the
 **serverless function wall** (~60–65s synchronous on Netlify), not under any
 model limit. Evidence:
 
-- `builder-engine.ts:62` `MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS = 180_000`
-  (3 min) is allowed locally; the run loop has no inherent reason to stop at 40s.
+- `builder-engine.ts` allows the long background gateway cap in local/non-hosted
+  runs; the run loop has no inherent reason to stop at 40s.
 - `run-manager.ts:58,68` `DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS` /
   `HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000` are pinned just under the function
   wall, and `templates/brain/netlify.toml` sets `[functions."*"] timeout = 75`.
@@ -379,10 +380,9 @@ function there is no ~60s wall, so:
 
 - The agent loop can run for minutes in a single invocation with **few or no
   `auto_continue` continuations**.
-- The per-model-call gateway cap (`MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000`,
-  `builder-engine.ts:60`) still applies per call — see
-  [Per-model-call gateway cap](#per-model-call-gateway-cap) — but the _run_ is no
-  longer chopped into 40s chunks.
+- The foreground hosted per-model-call gateway cap still applies per call — see
+  [Per-model-call gateway cap](#per-model-call-gateway-cap) — but the _run_ is
+  no longer chopped into 40s chunks.
 
 This is exactly the Layer 1 worker with a concrete long-lived host: Netlify is
 the durable worker, reached through the existing self-dispatch primitive — the

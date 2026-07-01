@@ -785,13 +785,13 @@ describe("createBuilderEngine", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(settledEarly).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(135_000);
+    await vi.advanceTimersByTimeAsync(795_000);
     const events = await eventsPromise;
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
-    expect(stop?.error).toContain("180s");
+    expect(stop?.error).toContain("840s");
   });
 
   it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {

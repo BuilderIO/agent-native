@@ -59,14 +59,15 @@ export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 // before the host hard-kills the invocation.
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
-/** Local and non-hosted runtimes have no synchronous serverless wall. */
-const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS = 180_000;
 /**
  * Netlify background functions have a 15-minute wall. Keep the Builder gateway
  * ceiling below that, but above the run-manager's 13-minute soft-timeout so
  * durable background runs checkpoint before this timer wins.
  */
 const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
+/** Local and non-hosted runtimes have no synchronous serverless wall. */
+const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS =
+  MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
