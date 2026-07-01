@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
@@ -44,6 +45,7 @@ export interface DesignConnectArgs {
   json: boolean;
   once: boolean;
   dryRun: boolean;
+  daemon: boolean;
   help: boolean;
 }
 
@@ -115,6 +117,7 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
     json: false,
     once: false,
     dryRun: false,
+    daemon: false,
     help: false,
   };
 
@@ -155,6 +158,8 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
     } else if (arg === "--dry-run") {
       parsed.dryRun = true;
       parsed.once = true;
+    } else if (arg === "--daemon") {
+      parsed.daemon = true;
     } else if (arg.startsWith("-")) {
       throw new Error(`Unknown option: ${arg}`);
     } else {
@@ -164,6 +169,11 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
 
   if (!Number.isInteger(parsed.port) || parsed.port <= 0) {
     throw new Error("--port must be a positive integer");
+  }
+  if (parsed.daemon && (parsed.json || parsed.once || parsed.dryRun)) {
+    throw new Error(
+      "--daemon cannot be combined with --json, --once, or --dry-run",
+    );
   }
   parsed.root = path.resolve(parsed.root);
   parsed.url = parsed.url ? normalizeHttpUrl(parsed.url) : undefined;
@@ -296,6 +306,86 @@ async function probeDevServer(url: string): Promise<boolean> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function waitForBridgeHealth(
+  bridgeUrl: string,
+  timeoutMs = 5_000,
+): Promise<boolean> {
+  const healthUrl = new URL("/health", bridgeUrl).toString();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 400);
+    try {
+      const response = await fetch(healthUrl, {
+        method: "GET",
+        signal: controller.signal,
+      });
+      if (response.ok) return true;
+    } catch {
+      // Keep polling until the detached process finishes binding the port.
+    } finally {
+      clearTimeout(timeout);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return false;
+}
+
+function isDesignConnectManifest(
+  value: unknown,
+): value is DesignConnectManifest {
+  if (!value || typeof value !== "object") return false;
+  const manifest = value as Partial<DesignConnectManifest>;
+  return (
+    manifest.version === 1 &&
+    manifest.source === "agent-native-design-connect" &&
+    manifest.sourceType === "localhost" &&
+    manifest.localOnly === true &&
+    typeof manifest.devServerUrl === "string" &&
+    typeof manifest.bridgeUrl === "string" &&
+    typeof manifest.rootPath === "string"
+  );
+}
+
+async function fetchRunningBridgeManifest(
+  bridgeUrl: string,
+): Promise<DesignConnectManifest | null> {
+  const manifestUrl = new URL("/manifest.json", bridgeUrl).toString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 800);
+  try {
+    const response = await fetch(manifestUrl, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as unknown;
+    return isDesignConnectManifest(body) ? body : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function designConnectManifestsTargetSameApp(
+  running: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
+  requested: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
+): boolean {
+  let runningUrl = running.devServerUrl;
+  let requestedUrl = requested.devServerUrl;
+  try {
+    runningUrl = normalizeHttpUrl(runningUrl);
+    requestedUrl = normalizeHttpUrl(requestedUrl);
+  } catch {
+    // Fall through to direct string comparison for malformed legacy manifests.
+  }
+  return (
+    runningUrl === requestedUrl &&
+    path.resolve(running.rootPath) === path.resolve(requested.rootPath)
+  );
 }
 
 async function resolveDevServerUrl(url?: string): Promise<string> {
@@ -942,6 +1032,7 @@ Options:
   --route-manifest <path> Non-destructive route manifest output path
   --app-url <url>         Deployed design app URL for self-registration
                           (also reads AGENT_NATIVE_URL / DESIGN_APP_URL env)
+  --daemon                Start the bridge detached, wait for /health, then exit
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
   --dry-run               Print what would be exposed without writing files
@@ -966,6 +1057,87 @@ Element provenance (resolveNodeToFile):
   Cross-origin localhost iframes cannot be read regardless of attributes (CSP).`);
 }
 
+function removeDaemonFlag(argv: string[]): string[] {
+  return argv.filter((arg) => arg !== "--daemon");
+}
+
+function resolveCurrentCliInvocation(argv: string[]): {
+  command: string;
+  args: string[];
+} {
+  const suffixLength = argv.length + 1; // leading "design" command + runDesign argv
+  const prefixEnd = Math.max(1, process.argv.length - suffixLength);
+  const cliPrefix = process.argv.slice(1, prefixEnd);
+  const entry = cliPrefix[0] ?? process.argv[1];
+  if (!entry) {
+    throw new Error("Could not resolve current CLI entrypoint for --daemon");
+  }
+  if (entry.endsWith(".ts") || entry.endsWith(".tsx")) {
+    return {
+      command: "tsx",
+      args: [...cliPrefix, "design", ...removeDaemonFlag(argv)],
+    };
+  }
+  return {
+    command: process.execPath,
+    args: [...cliPrefix, "design", ...removeDaemonFlag(argv)],
+  };
+}
+
+async function startDetachedDesignBridge(
+  argv: string[],
+  manifest: DesignConnectManifest,
+): Promise<number> {
+  if (await waitForBridgeHealth(manifest.bridgeUrl, 800)) {
+    const runningManifest = await fetchRunningBridgeManifest(
+      manifest.bridgeUrl,
+    );
+    if (
+      runningManifest &&
+      designConnectManifestsTargetSameApp(runningManifest, manifest)
+    ) {
+      console.error(
+        `Design localhost bridge already running at ${manifest.bridgeUrl}`,
+      );
+      console.log(JSON.stringify(runningManifest, null, 2));
+      return 0;
+    }
+
+    console.error(
+      [
+        `Design localhost bridge already running at ${manifest.bridgeUrl} for a different app.`,
+        runningManifest
+          ? `Running app: ${runningManifest.devServerUrl} (${runningManifest.rootPath})`
+          : "Running bridge did not expose a compatible manifest.",
+        `Requested app: ${manifest.devServerUrl} (${manifest.rootPath})`,
+        "Stop the existing bridge or choose a different --port.",
+      ].join("\n"),
+    );
+    return 1;
+  }
+
+  const invocation = resolveCurrentCliInvocation(argv);
+  const child = spawn(invocation.command, invocation.args, {
+    cwd: process.cwd(),
+    detached: true,
+    env: process.env,
+    stdio: "ignore",
+    shell: process.platform === "win32",
+  });
+  child.unref();
+
+  if (await waitForBridgeHealth(manifest.bridgeUrl)) {
+    console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
+    console.log(JSON.stringify(manifest, null, 2));
+    return 0;
+  }
+
+  console.error(
+    `Timed out waiting for detached Design bridge at ${manifest.bridgeUrl}`,
+  );
+  return 1;
+}
+
 export async function runDesign(argv: string[]) {
   const subcommand = argv[0];
   if (subcommand !== "connect") {
@@ -988,6 +1160,9 @@ export async function runDesign(argv: string[]) {
   }
 
   const manifest = await prepareDesignConnectManifest(parsed);
+  if (parsed.daemon) {
+    return startDetachedDesignBridge(argv, manifest);
+  }
   if (parsed.json || parsed.once || parsed.dryRun) {
     console.log(JSON.stringify(manifest, null, 2));
     return 0;

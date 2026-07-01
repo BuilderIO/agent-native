@@ -936,6 +936,11 @@ describe("SSE event processor error classification", () => {
 
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "builder_gateway_network_error",
+      message: "Builder gateway network error: socket hang up",
+      recoverable: true,
+    });
   });
 
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {

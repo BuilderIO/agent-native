@@ -148,6 +148,7 @@ export function Layout({ children }: LayoutProps) {
             t("chat.suggestionMobile"),
           ]}
           scope={designScope}
+          showScopeBadge={false}
           browserTabId={browserTabId}
           threadFooterSlot={designQuestionsWaitingSlot}
         >

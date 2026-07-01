@@ -36,6 +36,9 @@ describe("DesignCanvas spacing overlay bridge", () => {
     expect(source).toContain(
       "var activeHandle = spacingDrag ? spacingDrag.handle : null",
     );
+    expect(source).toContain("function activeSpacingGroupKeys");
+    expect(source).toContain("spacingDrag.mirrorOpposite");
+    expect(source).toContain("activeHandle.oppositeProperty");
     expect(source).not.toContain("handle.key === hoveredSpacingHandleKey");
   });
 
@@ -57,6 +60,10 @@ describe("DesignCanvas spacing overlay bridge", () => {
     );
     expect(source).toContain("activateSpacingHandle(spacingKey)");
     expect(source).toContain(
+      "function setHoverToSelectedElementFromSpacingSurface",
+    );
+    expect(source).toContain("setHoverToSelectedElementFromSpacingSurface();");
+    expect(source).toContain(
       "return selectedSpacingSurfaceContainsPoint(e.clientX, e.clientY)",
     );
     expect(source).toContain("data-agent-native-spacing-region");
@@ -64,6 +71,20 @@ describe("DesignCanvas spacing overlay bridge", () => {
     expect(source).toContain("shouldKeepSpacingOverlayForLeave(e)");
     expect(source).not.toContain("regionNode.addEventListener('mouseenter'");
     expect(source).not.toContain("regionNode.addEventListener('mouseleave'");
+  });
+
+  it("updates mirrored padding drag affordances when Alt changes", () => {
+    expect(source).toContain("function updateSpacingDragMirrorState");
+    expect(source).toContain(
+      'document.addEventListener("keydown", onKey, true)',
+    );
+    expect(source).toContain('document.addEventListener("keyup", onKey, true)');
+    expect(source).toContain(
+      'document.removeEventListener("keydown", onKey, true)',
+    );
+    expect(source).toContain(
+      'document.removeEventListener("keyup", onKey, true)',
+    );
   });
 
   it("hit-tests through editor chrome instead of selecting injected overlays", () => {

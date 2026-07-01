@@ -929,6 +929,8 @@ export type MultiTabAssistantChatProps = Omit<
    * the composer.
    */
   scope?: ChatThreadScope | null;
+  /** Show the compact scope chip above the composer. Default: true. */
+  showScopeBadge?: boolean;
 };
 
 export function MultiTabAssistantChat({
@@ -942,6 +944,7 @@ export function MultiTabAssistantChat({
   browserTabId,
   threadUrlSync = false,
   scope = null,
+  showScopeBadge = true,
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -2625,7 +2628,7 @@ export function MultiTabAssistantChat({
                 ? props.dynamicSuggestions
                 : false;
             const scopeComposerSlot =
-              tabId === activeThreadId && !contentHidden ? (
+              showScopeBadge && tabId === activeThreadId && !contentHidden ? (
                 tabScope && activeThreadId ? (
                   <ScopeBadge
                     scope={tabScope}

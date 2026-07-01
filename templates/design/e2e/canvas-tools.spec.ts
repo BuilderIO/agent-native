@@ -7,7 +7,7 @@ import {
 } from "@playwright/test";
 
 import { FIXTURE_HTML } from "./global-setup";
-import { gotoEditor } from "./helpers";
+import { gotoEditor, installBridge } from "./helpers";
 
 let designId: string;
 let baseURLForActions: string;
@@ -876,6 +876,10 @@ test("dragging a rectangle between screens moves it across files", async ({
   });
   await gotoEditor(page, designId);
   await expect(screenShell(page, "About")).toBeVisible();
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
 
   const homeShell = screenShell(page, "Home");
   const aboutShell = screenShell(page, "About");

@@ -11,6 +11,7 @@ import {
   cdpScreenshot,
   installBridge,
   waitForBridge,
+  bridgeMessages,
 } from "./helpers";
 
 let designId: string;
@@ -418,6 +419,53 @@ test("dragging an element on the canvas drives the bridge (move/reorder)", async
   // move path, not just the hover/select bridge messages.
   const fired = await dragCanvasByText(page, "Alpha Button", 0, 90);
   expect(fired).toContain("visual-structure-change");
+});
+
+test("Escape cancels an in-progress element drag on the canvas", async ({
+  page,
+}) => {
+  await enterDirectMode(page);
+  await installBridge(page);
+
+  const alpha = designFrame(page).locator(
+    '[data-agent-native-node-id="e2e-alpha-button"]',
+  );
+  await alpha.evaluate((el) => {
+    const node = el as HTMLElement;
+    node.style.position = "absolute";
+    node.style.left = "80px";
+    node.style.top = "220px";
+  });
+  await selectByText(page, "Alpha Button");
+
+  const before = await alpha.boundingBox();
+  if (!before) throw new Error("missing Alpha Button bounds before drag");
+  const cx = before.x + before.width / 2;
+  const cy = before.y + before.height / 2;
+
+  await page.evaluate(() => ((window as any).__bridge = []));
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 96, cy + 64, { steps: 8 });
+
+  const during = await alpha.boundingBox();
+  if (!during) throw new Error("missing Alpha Button bounds during drag");
+  expect(during.x).toBeGreaterThan(before.x + 20);
+
+  await page.keyboard.press("Escape");
+  await page.mouse.move(cx + 144, cy + 96, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+
+  const after = await alpha.boundingBox();
+  if (!after) throw new Error("missing Alpha Button bounds after cancel");
+  expect(Math.abs(after.x - before.x)).toBeLessThan(4);
+  expect(Math.abs(after.y - before.y)).toBeLessThan(4);
+
+  const fired = (await bridgeMessages(page)).map((message) => message.type);
+  expect(fired).not.toContain("visual-style-change");
+  expect(fired).not.toContain("visual-structure-change");
+  expect(fired).not.toContain("visual-duplicate-change");
 });
 
 test("can capture a screenshot of the editor via CDP", async ({

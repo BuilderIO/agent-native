@@ -63,18 +63,16 @@ iframe-backed screens on the infinite canvas.
 From the target app repo, make sure its dev server is running, then run:
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
 ```
 
-Use the app's real port. The command starts a local bridge on
-`http://127.0.0.1:7331` by default and exposes `/manifest.json`,
-`/routes.json`, and `/health`.
+Use the app's real port. The command starts a detached local bridge on
+`http://127.0.0.1:7331` by default, waits for `/health`, prints the
+manifest JSON, and keeps the bridge alive after the agent command exits.
 
-For one-shot agent setup, ask for JSON and keep the long-running bridge open in
-a second terminal if the user needs live updates:
+For a manual health/manifest check:
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
 curl http://127.0.0.1:7331/manifest.json
 ```
 

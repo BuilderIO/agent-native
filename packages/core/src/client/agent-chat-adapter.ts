@@ -17,6 +17,7 @@ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   AgentAutoContinueSignal,
   type AgentActivityTrailEntry,
+  type AgentAutoContinueErrorInfo,
   type ContentPart,
   readSSEStream,
   settleInterruptedToolCalls,
@@ -1353,6 +1354,7 @@ export function createAgentChatAdapter(
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
       let lastAutoContinueReason: string | null = null;
+      let lastRecoverableRunError: AgentAutoContinueErrorInfo | null = null;
       const attemptedRunIds: string[] = [];
       let authRecoveryAttempted = false;
       let continuationToolCallCounter = 0;
@@ -1363,6 +1365,12 @@ export function createAgentChatAdapter(
         return [
           lastAutoContinueReason
             ? `last_auto_continue_reason: ${lastAutoContinueReason}`
+            : "",
+          lastRecoverableRunError?.errorCode
+            ? `last_recoverable_error_code: ${lastRecoverableRunError.errorCode}`
+            : "",
+          lastRecoverableRunError?.message
+            ? `last_recoverable_error: ${lastRecoverableRunError.message}`
             : "",
           `stale_run_continuations: ${staleRunContinuationAttempts}`,
           `stalled_transient_continuations: ${stalledTransientContinuationAttempts}`,
@@ -1677,6 +1685,9 @@ export function createAgentChatAdapter(
           signal: AgentAutoContinueSignal,
         ): { ok: boolean; resetVisibleContent: boolean } => {
           lastAutoContinueReason = signal.reason;
+          if (signal.errorInfo) {
+            lastRecoverableRunError = signal.errorInfo;
+          }
           const isTransient = signal.reason !== "loop_limit";
           const visibleContent = visibleContentForContinuation();
           const currentPartialHistory =
@@ -1686,14 +1697,12 @@ export function createAgentChatAdapter(
           // whitespace-only output cannot keep the run alive indefinitely.
           const madeContentProgress = hasContinuationProgress(visibleContent);
           // An action was streamed but has not returned yet (a tool_start with
-          // no tool_done), or the activity trail shows the server was working
-          // on a tool. A run_timeout that fires in this window means the agent
-          // was actively making progress — the server's foldAssistantTurn
-          // persisted the in-flight call — so it must NOT count against the
-          // stalled/empty continuation budgets.
-          const hasInFlightTool =
-            hasInFlightToolCall(visibleContent) ||
-            Boolean(lastActivityTool(signal.activityTrail));
+          // no tool_done). This is durable enough to survive continuation: the
+          // server already emitted a real tool call. A tool-scoped activity
+          // card ("Preparing generate-design") is useful UI, but it happens
+          // before tool_start; treating it as progress caused silent retry
+          // loops when the LLM timed out while assembling a large tool input.
+          const hasInFlightTool = hasInFlightToolCall(visibleContent);
           // Either real output or an actively-running tool counts as progress
           // for the stalled/empty caps.
           const madeProgress = madeContentProgress || hasInFlightTool;
@@ -2174,15 +2183,28 @@ export function createAgentChatAdapter(
               }
               const continuation = prepareAutoContinuation(err);
               if (!continuation.ok) {
-                const message = exhaustedRecoveryMessage(err.reason);
+                const preservedError =
+                  err.errorInfo ?? lastRecoverableRunError ?? null;
+                const message =
+                  preservedError?.message ??
+                  exhaustedRecoveryMessage(err.reason);
+                const details = [
+                  preservedError?.details,
+                  connectionRecoveryDetails(),
+                ]
+                  .filter(Boolean)
+                  .join("\n\n");
+                const errorCode =
+                  preservedError?.errorCode ?? "connection_error";
                 captureChatClientError(err, "auto-continuation-exhausted", {
                   autoContinueReason: err.reason,
+                  ...(errorCode ? { errorCode } : {}),
                 });
                 const runError = {
                   message,
-                  details: connectionRecoveryDetails(),
-                  errorCode: "connection_error",
-                  recoverable: true,
+                  ...(details ? { details } : {}),
+                  errorCode,
+                  recoverable: preservedError?.recoverable ?? true,
                   ...(runId ? { runId } : {}),
                 };
                 if (typeof window !== "undefined") {
@@ -2192,10 +2214,16 @@ export function createAgentChatAdapter(
                     }),
                   );
                 }
-                settleInterruptedToolCalls(content);
+                settleInterruptedToolCalls(content, undefined, {
+                  includeActivity: true,
+                });
                 content.push({
                   type: "text",
-                  text: `Something went wrong: ${message}`,
+                  text: formatChatErrorText(
+                    message,
+                    preservedError?.upgradeUrl,
+                    errorCode,
+                  ),
                 });
                 yield {
                   content: [...content],
@@ -2343,7 +2371,9 @@ export function createAgentChatAdapter(
                     }),
                   );
                 }
-                settleInterruptedToolCalls(content);
+                settleInterruptedToolCalls(content, undefined, {
+                  includeActivity: true,
+                });
                 content.push({
                   type: "text",
                   text: `Something went wrong: ${message}`,

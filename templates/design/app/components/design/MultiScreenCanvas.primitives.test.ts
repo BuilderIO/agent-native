@@ -108,7 +108,7 @@ describe("board surface pointer capture", () => {
       "body>:not([data-agent-native-node-id]):not(style):not(script)",
     );
     expect(result).toContain(
-      "body>[data-agent-native-node-id]:not([data-an-primitive]):has([data-agent-native-node-id])",
+      'body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id])',
     );
     expect(result).toContain('body>[data-agent-native-layer-name="<body>"]');
     expect(result).toContain(
@@ -185,14 +185,14 @@ describe("board surface pointer capture", () => {
     );
   });
 
-  it("changes the active board iframe content key when layer ids change", () => {
+  it("keeps the active board iframe content key stable when layer ids change", () => {
     expect(
       getBoardContentKey({
         boardFileId: "board",
         boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div></body>`,
         boardIsActive: true,
       }),
-    ).not.toBe(
+    ).toBe(
       getBoardContentKey({
         boardFileId: "board",
         boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
@@ -210,7 +210,7 @@ describe("board surface pointer capture", () => {
     );
   });
 
-  it("changes the active board iframe content key when layer hierarchy changes", () => {
+  it("keeps the active board iframe content key stable when layer hierarchy changes", () => {
     const before = `<body><div data-agent-native-node-id="parent"></div><div data-agent-native-node-id="child"></div></body>`;
     const after = `<body><div data-agent-native-node-id="parent"><div data-agent-native-node-id="child"></div></div></body>`;
 
@@ -220,7 +220,7 @@ describe("board surface pointer capture", () => {
         boardFileContent: before,
         boardIsActive: true,
       }),
-    ).not.toBe(
+    ).toBe(
       getBoardContentKey({
         boardFileId: "board",
         boardFileContent: after,
@@ -248,14 +248,14 @@ describe("board surface pointer capture", () => {
     );
   });
 
-  it("changes inactive board iframe content keys when layer ids change", () => {
+  it("keeps inactive board iframe content keys stable when layer ids change", () => {
     expect(
       getBoardContentKey({
         boardFileId: "board",
         boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div></body>`,
         boardIsActive: false,
       }),
-    ).not.toBe(
+    ).toBe(
       getBoardContentKey({
         boardFileId: "board",
         boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
@@ -487,6 +487,45 @@ describe("getPrimitiveDropTargetForPoint", () => {
       getMeta,
     );
     expect(result?.nodeId).toBe("inner");
+  });
+
+  it("treats board-surface primitives as canvas-space drop targets", () => {
+    const boardScreen: ScreenStub = {
+      id: "board",
+      filename: "__board__.html",
+      content: "",
+    };
+    seedCache(boardScreen, [
+      primEntry("outer-board-rect", "board", {
+        left: 100,
+        top: 100,
+        width: 220,
+        height: 160,
+      }),
+      primEntry("inner-board-rect", "board", {
+        left: 140,
+        top: 130,
+        width: 40,
+        height: 40,
+      }),
+    ]);
+
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 150, y: 145 },
+      null,
+      [boardScreen],
+      { board: makeGeom(-65536, -65536, 131072, 131072) },
+      () => ({ width: 131072, height: 131072 }),
+      { identityCoordinateScreenIds: new Set(["board"]) },
+    );
+
+    expect(result?.nodeId).toBe("inner-board-rect");
+    expect(result?.boardRect).toEqual({
+      x: 140,
+      y: 130,
+      width: 40,
+      height: 40,
+    });
   });
 
   it("returns outer when point inside outer but not inner", () => {

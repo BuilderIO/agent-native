@@ -527,6 +527,37 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(composerChildren).toEqual([hostSlot, badges[0]]);
   });
 
+  it("can hide the scoped context composer tab", async () => {
+    threadMocks.threads = [
+      {
+        ...threadMocks.threads[0],
+        scope: { type: "design", id: "design-1" },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "design", id: "design-1" }}
+          showScopeBadge={false}
+          composerSlot={<div data-testid="host-composer-slot">Host slot</div>}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelectorAll(".agent-scope-badge-wrapper"),
+    ).toHaveLength(0);
+    expect(
+      container.querySelector("[data-testid='host-composer-slot']"),
+    ).not.toBeNull();
+  });
+
   it("keeps previous scoped chats out of the empty chat state", async () => {
     const now = Date.now();
     threadMocks.threads = [
