@@ -266,6 +266,39 @@ function appendActivityTrail(
   }
 }
 
+function deletePreparingActionEntryForToolEvent(
+  state: PreparingActionState,
+  ev: SSEEvent,
+): void {
+  const tool = ev.tool?.trim();
+  const id = ev.id?.trim();
+  if (!state.entries?.size) return;
+  if (id) {
+    state.entries.delete(id);
+    return;
+  }
+  if (!tool) return;
+
+  // Legacy production streams may omit ids on tool_start/tool_done. Treat that
+  // as one matching action starting/finishing, not as proof that every parallel
+  // same-tool preparation has completed.
+  if (state.entries.has(tool)) {
+    state.entries.delete(tool);
+    return;
+  }
+
+  let oldestMatchingKey: string | null = null;
+  let oldestStartedAt = Number.POSITIVE_INFINITY;
+  for (const [key, entry] of state.entries) {
+    if (entry.tool !== tool) continue;
+    if (entry.startedAt < oldestStartedAt) {
+      oldestMatchingKey = key;
+      oldestStartedAt = entry.startedAt;
+    }
+  }
+  if (oldestMatchingKey) state.entries.delete(oldestMatchingKey);
+}
+
 function updatePreparingActionState(
   state: PreparingActionState,
   ev: SSEEvent,
@@ -318,13 +351,7 @@ function updatePreparingActionState(
     ev.type === "missing_api_key"
   ) {
     if (ev.type === "tool_start" || ev.type === "tool_done") {
-      const tool = ev.tool?.trim();
-      const id = ev.id?.trim();
-      for (const [key, entry] of state.entries ?? []) {
-        if ((id && key === id) || (!id && entry.tool === tool)) {
-          state.entries?.delete(key);
-        }
-      }
+      deletePreparingActionEntryForToolEvent(state, ev);
     } else {
       state.entries?.clear();
     }

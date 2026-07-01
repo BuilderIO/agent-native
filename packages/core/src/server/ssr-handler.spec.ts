@@ -837,7 +837,7 @@ describe("createH3SSRHandler", () => {
       }
     });
 
-    it("merges GA allowances into an existing enforced script-src", async () => {
+    it("merges GA-specific allowances into an existing enforced script-src", async () => {
       const previousNodeEnv = process.env.NODE_ENV;
       const previousGa = process.env.GA_MEASUREMENT_ID;
       process.env.NODE_ENV = "production";
@@ -860,6 +860,48 @@ describe("createH3SSRHandler", () => {
         expect(csp).toContain("https://www.googletagmanager.com");
         expect(csp).toContain("https://www.google-analytics.com");
         expect(csp).toMatch(/'sha256-[A-Za-z0-9+/]+=*'/);
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+        if (previousGa === undefined) {
+          delete process.env.GA_MEASUREMENT_ID;
+        } else {
+          process.env.GA_MEASUREMENT_ID = previousGa;
+        }
+      }
+    });
+
+    it("does not widen strict enforced script-src policies", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      const previousGa = process.env.GA_MEASUREMENT_ID;
+      process.env.NODE_ENV = "production";
+      process.env.GA_MEASUREMENT_ID = "G-CSPTEST123";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy":
+                "script-src 'nonce-abc123' 'strict-dynamic'; object-src 'none'",
+            },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/"));
+
+        const csp = response.headers.get("content-security-policy");
+        expect(csp).toContain("script-src 'nonce-abc123' 'strict-dynamic'");
+        expect(csp).not.toContain("https://www.googletagmanager.com");
+        expect(csp).not.toContain("https://www.google-analytics.com");
+        expect(csp).not.toMatch(/'sha256-[A-Za-z0-9+/]+=*'/);
+        const reportOnly = response.headers.get(
+          "content-security-policy-report-only",
+        );
+        expect(reportOnly).toContain("https://www.googletagmanager.com");
       } finally {
         if (previousNodeEnv === undefined) {
           delete process.env.NODE_ENV;

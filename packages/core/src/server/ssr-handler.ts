@@ -312,6 +312,19 @@ function appendCspTokens(
   return next;
 }
 
+function isStrictScriptCsp(tokens: readonly string[]): boolean {
+  return tokens.some((token) => {
+    const normalized = token.toLowerCase();
+    return (
+      normalized === "'strict-dynamic'" ||
+      normalized.startsWith("'nonce-") ||
+      normalized.startsWith("'sha256-") ||
+      normalized.startsWith("'sha384-") ||
+      normalized.startsWith("'sha512-")
+    );
+  });
+}
+
 function findCspDirective(
   directives: CspDirective[],
   name: string,
@@ -323,16 +336,29 @@ function appendToExistingOrDefaultCspDirective(
   directives: CspDirective[],
   name: string,
   additions: readonly string[],
+  options: { skipStrictScriptPolicies?: boolean } = {},
 ): void {
   if (!additions.length) return;
   const existing = findCspDirective(directives, name);
   if (existing) {
+    if (
+      options.skipStrictScriptPolicies &&
+      isStrictScriptCsp(existing.tokens)
+    ) {
+      return;
+    }
     existing.tokens = appendCspTokens(existing.tokens, additions);
     return;
   }
 
   const defaultSrc = findCspDirective(directives, "default-src");
   if (!defaultSrc) return;
+  if (
+    options.skipStrictScriptPolicies &&
+    isStrictScriptCsp(defaultSrc.tokens)
+  ) {
+    return;
+  }
   directives.push({
     name,
     tokens: appendCspTokens([...defaultSrc.tokens], additions),
@@ -343,9 +369,13 @@ function appendToExistingCspDirective(
   directives: CspDirective[],
   name: string,
   additions: readonly string[],
+  options: { skipStrictScriptPolicies?: boolean } = {},
 ): void {
   const existing = findCspDirective(directives, name);
   if (!existing) return;
+  if (options.skipStrictScriptPolicies && isStrictScriptCsp(existing.tokens)) {
+    return;
+  }
   existing.tokens = appendCspTokens(existing.tokens, additions);
 }
 
@@ -353,6 +383,7 @@ function augmentExistingCspForFrameworkScripts(
   policy: string,
   options: {
     scriptSrcTokens: readonly string[];
+    preserveStrictScriptPolicies?: boolean;
     gaEnabled: boolean;
   },
 ): string {
@@ -363,12 +394,14 @@ function augmentExistingCspForFrameworkScripts(
     directives,
     "script-src",
     options.scriptSrcTokens,
+    { skipStrictScriptPolicies: options.preserveStrictScriptPolicies },
   );
   // `script-src-elem` overrides `script-src` for script tags when present.
   appendToExistingCspDirective(
     directives,
     "script-src-elem",
     options.scriptSrcTokens,
+    { skipStrictScriptPolicies: options.preserveStrictScriptPolicies },
   );
 
   if (options.gaEnabled) {
@@ -440,17 +473,14 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
   const gaInlineBody = getGaInlineConfigScriptBody();
   const gaHash = gaInlineBody ? computeInlineScriptHash(gaInlineBody) : null;
   const gaHosts = gaInlineBody ? [...GA_CSP_SCRIPT_HOSTS] : [];
-  const scriptSrcTokens = [
+  const reportOnlyScriptSrcTokens = [
     "'self'",
     ...(sentryHash ? [sentryHash] : []),
     ...(gaHash ? [gaHash] : []),
     ...gaHosts,
   ];
+  const enforcedGaScriptSrcTokens = [...(gaHash ? [gaHash] : []), ...gaHosts];
 
-  const cspAugmentOptions = {
-    scriptSrcTokens,
-    gaEnabled: Boolean(gaInlineBody),
-  };
   const existing = headers.get("content-security-policy") ?? "";
   if (!existing) {
     headers.set(
@@ -460,18 +490,25 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
   } else {
     headers.set(
       "content-security-policy",
-      augmentExistingCspForFrameworkScripts(existing, cspAugmentOptions),
+      augmentExistingCspForFrameworkScripts(existing, {
+        scriptSrcTokens: enforcedGaScriptSrcTokens,
+        preserveStrictScriptPolicies: true,
+        gaEnabled: Boolean(gaInlineBody),
+      }),
     );
   }
 
-  const scriptSrc = `script-src ${scriptSrcTokens.join(" ")}`;
+  const scriptSrc = `script-src ${reportOnlyScriptSrcTokens.join(" ")}`;
   const existingRo = headers.get("content-security-policy-report-only") ?? "";
   if (!existingRo) {
     headers.set("content-security-policy-report-only", scriptSrc);
   } else {
     headers.set(
       "content-security-policy-report-only",
-      augmentExistingCspForFrameworkScripts(existingRo, cspAugmentOptions),
+      augmentExistingCspForFrameworkScripts(existingRo, {
+        scriptSrcTokens: reportOnlyScriptSrcTokens,
+        gaEnabled: Boolean(gaInlineBody),
+      }),
     );
   }
 }
