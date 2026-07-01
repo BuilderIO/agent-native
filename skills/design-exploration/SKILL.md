@@ -23,7 +23,8 @@ iteration, or a human-in-the-loop choice among design directions.
   full app per variant. Design saves every option as a normal screen on the
   overview board and renders an inline chat choice with one button per screen
   name. After the user picks, delete the unchosen variant screens and continue
-  from the kept screen.
+  from the kept screen by first calling `get-design-snapshot`, then making a
+  bounded single-file pass.
 - If the chat choice buttons are not available in the host, ask the user to
   tell you the screen name they prefer. The variants are already real screens
   on the board, so do not ask them to paste HTML or copy a generated handoff
