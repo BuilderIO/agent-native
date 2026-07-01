@@ -347,7 +347,7 @@ export function SqlChartCard({
                   }
                 >
                   <IconExternalLink className="h-4 w-4 mr-2" />
-                  Open extension
+                  Open extension {/* i18n-ignore */}
                 </DropdownMenuItem>
               ) : null}
               <DropdownMenuSeparator />
