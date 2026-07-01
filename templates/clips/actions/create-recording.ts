@@ -26,6 +26,14 @@ import { setResumableSession } from "../server/lib/resumable-session.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
+// Temporary kill switch: streaming resumable uploads caused a spike of
+// recording issues. Set CLIPS_DISABLE_STREAMING_UPLOAD=false to re-enable
+// once the root cause is fixed. Defaults to disabled (streaming off).
+function streamingUploadDisabled(): boolean {
+  const flag = process.env.CLIPS_DISABLE_STREAMING_UPLOAD ?? "";
+  return flag.toLowerCase() !== "false";
+}
+
 export default defineAction({
   description:
     "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk. Recorders can pass app/window title context for an immediate fallback title.",
@@ -86,7 +94,11 @@ export default defineAction({
     // init fails.
     let uploadMode: UploadMode = "buffered";
     const uploadProvider = await getActiveFileUploadProviderForRequest();
-    if (args.requestStreaming && uploadProvider?.resumable) {
+    if (
+      args.requestStreaming &&
+      !streamingUploadDisabled() &&
+      uploadProvider?.resumable
+    ) {
       try {
         const recordingMimeType =
           args.mimeType?.split(";")[0]?.trim() || "video/webm";
