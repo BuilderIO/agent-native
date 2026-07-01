@@ -152,7 +152,10 @@ function boundedDimension(value: unknown, min: number, max: number) {
     : undefined;
 }
 
-function inferVariantSize(variant: z.infer<typeof variantSchema>) {
+function inferVariantSize(
+  variant: z.infer<typeof variantSchema>,
+  prompt?: string,
+) {
   const explicitWidth = boundedDimension(variant.width, 240, 1920);
   const explicitHeight = boundedDimension(variant.height, 240, 3000);
   if (explicitWidth && explicitHeight) {
@@ -182,7 +185,15 @@ function inferVariantSize(variant: z.infer<typeof variantSchema>) {
     };
   }
 
-  const lowercase = content.toLowerCase();
+  const lowercase = [
+    content,
+    variant.label,
+    variant.description ?? "",
+    ...(variant.features ?? []),
+    prompt ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
   if (
     /\b(?:mobile|phone|iphone|android)\b/.test(lowercase) ||
     /\b(?:max-w-sm|max-w-md|w-\[(?:360|375|390|393|414)px\])\b/.test(lowercase)
@@ -226,31 +237,46 @@ function fallbackVariantContent(
   variant: z.infer<typeof variantSchema>,
   index: number,
   prompt?: string,
+  size: { width: number; height: number } = {
+    width: DESKTOP_WIDTH,
+    height: DESKTOP_HEIGHT,
+  },
 ) {
   const label = escapeHtml(variant.label.trim() || optionName(index));
   const description = escapeHtml(
     variant.description?.trim() ||
-      "A compact dark-mode task workspace direction with projects, priorities, due dates, and fast keyboard-first flow.",
+      "A compact dark-mode product direction with a clear primary workflow, crisp hierarchy, and fast keyboard-first flow.",
   );
   const sourcePrompt = escapeHtml(
     prompt?.trim() ||
-      "Dark-mode todo app with projects, priorities, due dates, subtasks, board/list/calendar views, drag-to-reorder, inline editing, keyboard shortcuts, and polished completion interactions.",
+      "Generated app interface direction with a polished workflow and production-ready interaction model.",
   );
   const accent = escapeHtml(colorForVariant(variant, index));
   const features =
     variant.features && variant.features.length > 0
       ? variant.features.slice(0, 6)
       : [
-          "Project lanes",
-          "Priority chips",
-          "Due today",
-          "Subtasks",
-          "Drag ordering",
+          "Primary workflow",
+          "Fast capture",
+          "Structured details",
+          "Status tracking",
+          "Inline editing",
           "Shortcut hints",
         ];
   const safeFeatures = features.map((feature) => escapeHtml(feature));
+  const cardTitles = [
+    safeFeatures[0] ?? "Primary workflow",
+    safeFeatures[1] ?? "Structured details",
+    safeFeatures[2] ?? "Polished interactions",
+    safeFeatures[3] ?? "Status tracking",
+    safeFeatures[4] ?? "Review flow",
+  ];
   const density =
     index % 3 === 0 ? "spacious" : index % 3 === 1 ? "glass" : "dense";
+  const screenWidth = Math.round(size.width);
+  const screenHeight = Math.round(size.height);
+  const compact = screenWidth <= 560;
+  const tablet = screenWidth > 560 && screenWidth <= 900;
 
   return `<!doctype html>
 <html lang="en">
@@ -261,10 +287,10 @@ function fallbackVariantContent(
 <style>
 :root { color-scheme: dark; --accent: ${accent}; --bg: #080a0f; --panel: rgba(18, 22, 33, 0.82); --line: rgba(255,255,255,.11); --muted: #94a3b8; }
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 900px; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
+body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
   radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 30%),
   linear-gradient(140deg, #05070b 0%, #111827 48%, #05070b 100%); }
-.shell { width: 1280px; height: 900px; padding: 34px; display: grid; grid-template-columns: 258px 1fr 304px; gap: 22px; }
+.shell { width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
 .panel { border: 1px solid var(--line); background: var(--panel); border-radius: ${density === "dense" ? "14" : "22"}px; box-shadow: 0 24px 80px rgba(0,0,0,.35); backdrop-filter: blur(${density === "glass" ? "26" : "10"}px); }
 .sidebar { padding: 22px; display: flex; flex-direction: column; gap: 18px; }
 .brand { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -278,7 +304,7 @@ p { margin: 0; color: var(--muted); line-height: 1.5; }
 .main { padding: 24px; display:flex; flex-direction:column; gap:18px; }
 .top { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
 .badge { border:1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); color:#fff; background: color-mix(in srgb, var(--accent) 20%, transparent); padding:8px 11px; border-radius:999px; font-size:12px; }
-.board { display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; flex:1; min-height:0; }
+.board { display:grid; grid-template-columns: ${compact ? "1fr" : "repeat(3, 1fr)"}; gap:14px; flex:1; min-height:0; }
 .column { border:1px solid var(--line); border-radius:18px; background:rgba(255,255,255,.035); padding:14px; display:flex; flex-direction:column; gap:12px; }
 .column header { display:flex; justify-content:space-between; align-items:center; color:#cbd5e1; font-size:13px; }
 .task { display:grid; gap:10px; padding:14px; }
@@ -294,6 +320,8 @@ p { margin: 0; color: var(--muted); line-height: 1.5; }
 .calendar .hot { color:#05070b; background:var(--accent); font-weight:800; }
 .features { display:flex; flex-wrap:wrap; gap:8px; }
 .shortcut { margin-top:auto; border-top:1px solid var(--line); padding-top:14px; display:flex; justify-content:space-between; gap:10px; color:#cbd5e1; font-size:12px; }
+${tablet ? ".right { display: none; }" : ""}
+${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nav div { padding: 10px; } .main { padding: 18px; } .top { display: grid; } .top .badge { width: fit-content; } h1 { font-size: 26px; } .right { display: none; } .column:nth-child(n+3) { display: none; }" : ""}
 </style>
 </head>
 <body>
@@ -305,7 +333,7 @@ p { margin: 0; color: var(--muted); line-height: 1.5; }
       <p>${description}</p>
     </div>
     <div class="nav">
-      <div>Today focus</div><div>Projects</div><div>Board</div><div>Calendar</div><div>Completed</div>
+      <div>Overview</div><div>Primary flow</div><div>Details</div><div>Timeline</div><div>Output</div>
     </div>
     <div class="features">${safeFeatures.map((feature) => `<span class="chip">${feature}</span>`).join("")}</div>
     <div class="shortcut"><span>⌘K command</span><span>G then B</span></div>
@@ -313,31 +341,31 @@ p { margin: 0; color: var(--muted); line-height: 1.5; }
   <section class="panel main">
     <div class="top">
       <div><h1>${label}</h1><p>${sourcePrompt}</p></div>
-      <span class="badge">3 views · live priorities</span>
+      <span class="badge">${compact ? "Mobile" : tablet ? "Tablet" : "Desktop"} concept · live data</span>
     </div>
     <div class="board">
-      <section class="column"><header><span>Now</span><b>4</b></header>
-        <article class="task"><strong>Finalize launch checklist</strong><div class="meta"><span class="chip priority">P1</span><span class="chip">Due 2 PM</span><span class="chip">3 subtasks</span></div></article>
-        <article class="task"><strong>Review dashboard empty state</strong><div class="meta"><span class="chip">Design</span><span class="chip">Shortcut E</span></div></article>
+      <section class="column"><header><span>Focus</span><b>4</b></header>
+        <article class="task"><strong>${cardTitles[0]}</strong><div class="meta"><span class="chip priority">Primary</span><span class="chip">Now</span><span class="chip">Fast path</span></div></article>
+        <article class="task"><strong>${cardTitles[1]}</strong><div class="meta"><span class="chip">Detail view</span><span class="chip">Shortcut E</span></div></article>
       </section>
-      <section class="column"><header><span>Next</span><b>6</b></header>
-        <article class="task"><strong>Drag reorder onboarding tasks</strong><div class="meta"><span class="chip priority">P2</span><span class="chip">Project Ops</span></div></article>
-        <article class="task"><strong>Inline edit due-date labels</strong><div class="meta"><span class="chip">QA</span><span class="chip">Tomorrow</span></div></article>
+      <section class="column"><header><span>Build</span><b>6</b></header>
+        <article class="task"><strong>${cardTitles[2]}</strong><div class="meta"><span class="chip priority">P2</span><span class="chip">Flow</span></div></article>
+        <article class="task"><strong>${cardTitles[3]}</strong><div class="meta"><span class="chip">Inline edit</span><span class="chip">Next</span></div></article>
       </section>
-      <section class="column"><header><span>Done</span><b>12</b></header>
-        <article class="task"><strong>Keyboard shortcut map</strong><div class="meta"><span class="chip">Completed</span><span class="chip">Confetti ready</span></div></article>
+      <section class="column"><header><span>Ready</span><b>12</b></header>
+        <article class="task"><strong>${cardTitles[4]}</strong><div class="meta"><span class="chip">Complete</span><span class="chip">Motion ready</span></div></article>
       </section>
     </div>
   </section>
   <aside class="panel right">
     <h2>Progress</h2>
-    <div class="metric"><p>Today</p><b>68%</b><p>9 of 13 tasks completed</p></div>
-    <h2>Due dates</h2>
+    <div class="metric"><p>Current flow</p><b>68%</b><p>Representative state for this direction</p></div>
+    <h2>Timeline</h2>
     <div class="calendar">${Array.from({ length: 14 }, (_, day) => `<span class="${day === 4 || day === 9 ? "hot" : ""}">${day + 1}</span>`).join("")}</div>
-    <h2>Focus queue</h2>
+    <h2>Key moments</h2>
     <div class="tasks">
-      <div class="task"><strong>Prototype board/list toggle</strong><div class="meta"><span class="chip priority">P1</span><span class="chip">45m</span></div></div>
-      <div class="task"><strong>Polish complete interaction</strong><div class="meta"><span class="chip">Motion</span><span class="chip">⌘ Enter</span></div></div>
+      <div class="task"><strong>${safeFeatures[0] ?? "Primary workflow"}</strong><div class="meta"><span class="chip priority">Hero</span><span class="chip">45m</span></div></div>
+      <div class="task"><strong>${safeFeatures[1] ?? "Polished interaction"}</strong><div class="meta"><span class="chip">Motion</span><span class="chip">⌘ Enter</span></div></div>
     </div>
   </aside>
 </main>
@@ -437,10 +465,14 @@ export default defineAction({
       const preferredFilename = `variant-${slug}.html`;
       const filename = uniqueFilename(preferredFilename, usedFilenames);
       const fileId = nanoid();
+      const providedContent = variant.content?.trim();
+      const initialSize = inferVariantSize(variant, prompt);
       const content =
-        variant.content?.trim() ||
-        fallbackVariantContent(variant, index, prompt);
-      const { width, height } = inferVariantSize({ ...variant, content });
+        providedContent ||
+        fallbackVariantContent(variant, index, prompt, initialSize);
+      const { width, height } = providedContent
+        ? inferVariantSize({ ...variant, content }, prompt)
+        : initialSize;
 
       await db.insert(schema.designFiles).values({
         id: fileId,

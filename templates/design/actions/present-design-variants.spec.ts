@@ -227,7 +227,7 @@ describe("present-design-variants", () => {
     expect(data.canvasFrames).toMatchObject({
       "file-a": { x: 0, y: 0, width: 390, height: 844 },
       "file-b": { x: 486, y: 0, width: 390, height: 844 },
-      "file-c": { x: 972, y: 0, width: 1280, height: 900 },
+      "file-c": { x: 972, y: 0, width: 390, height: 844 },
     });
     expect(data.screenMetadata["file-a"]).toMatchObject({
       title: "Pure White",
@@ -360,6 +360,55 @@ describe("present-design-variants", () => {
     expect(mocks.seedFromText).toHaveBeenCalledWith(
       expect.any(String),
       expect.stringContaining("Keyboard hints"),
+    );
+  });
+
+  it("renders compact fallback variants from non-todo mobile direction data", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt:
+        "Mobile recipe planner with pantry scanning, meal prep, shopping lists, and nutrition summaries",
+      variants: [
+        {
+          id: "pantry",
+          label: "Pantry Scanner",
+          description:
+            "A handheld-first recipe flow centered on scanning ingredients.",
+          width: 390,
+          height: 844,
+          features: ["Pantry scanning", "Meal prep", "Shopping lists"],
+        },
+        {
+          id: "nutrition",
+          label: "Nutrition Coach",
+          description: "A coaching direction for macros and weekly planning.",
+          width: 390,
+          height: 844,
+          features: ["Macro summary", "Weekly plan", "Grocery sync"],
+        },
+      ],
+    });
+
+    const firstContent = (
+      mocks.insertChain.values.mock.calls[0]?.[0] as {
+        content: string;
+      }
+    ).content;
+    expect(firstContent).toContain("Pantry Scanner");
+    expect(firstContent).toContain("Pantry scanning");
+    expect(firstContent).toContain("Mobile recipe planner");
+    expect(firstContent).toContain("width: 390px");
+    expect(firstContent).not.toContain("Finalize launch checklist");
+
+    const dataUpdate = mocks.txUpdateChain.set.mock.calls[0]?.[0] as {
+      data: string;
+    };
+    const data = JSON.parse(dataUpdate.data);
+    expect(Object.values(data.canvasFrames)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ width: 390, height: 844 }),
+        expect.objectContaining({ width: 390, height: 844 }),
+      ]),
     );
   });
 
