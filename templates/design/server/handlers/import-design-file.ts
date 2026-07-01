@@ -46,9 +46,12 @@ export const importDesignFile = defineEventHandler(async (event) => {
     return { error: "Unauthorized" };
   }
 
-  const contentLength = Number(
-    getRequestHeader(event, "content-length") ?? "0",
-  );
+  const rawContentLength = getRequestHeader(event, "content-length");
+  const contentLength = Number(rawContentLength);
+  if (!rawContentLength || !Number.isFinite(contentLength)) {
+    setResponseStatus(event, 411);
+    return { error: "Content-Length header is required" };
+  }
   if (contentLength > TOTAL_BODY_LIMIT) {
     setResponseStatus(event, 413);
     return { error: "Request body too large" };

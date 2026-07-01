@@ -349,6 +349,20 @@ function appendToExistingCspDirective(
   existing.tokens = appendCspTokens(existing.tokens, additions);
 }
 
+function appendToRequiredCspDirective(
+  directives: CspDirective[],
+  name: string,
+  additions: readonly string[],
+): void {
+  if (!additions.length) return;
+  const existing = findCspDirective(directives, name);
+  if (existing) {
+    existing.tokens = appendCspTokens(existing.tokens, additions);
+    return;
+  }
+  directives.push({ name, tokens: appendCspTokens([], additions) });
+}
+
 function augmentExistingCspForFrameworkScripts(
   policy: string,
   options: {
@@ -358,6 +372,10 @@ function augmentExistingCspForFrameworkScripts(
 ): string {
   const directives = parseCsp(policy);
   if (!directives.length) return policy;
+  const existingScriptSrc = findCspDirective(directives, "script-src");
+  const hasStrictDynamic = Boolean(
+    existingScriptSrc?.tokens.includes("'strict-dynamic'"),
+  );
 
   appendToExistingOrDefaultCspDirective(
     directives,
@@ -370,6 +388,13 @@ function augmentExistingCspForFrameworkScripts(
     "script-src-elem",
     options.scriptSrcTokens,
   );
+  if (options.gaEnabled && hasStrictDynamic) {
+    appendToRequiredCspDirective(
+      directives,
+      "script-src-elem",
+      options.scriptSrcTokens,
+    );
+  }
 
   if (options.gaEnabled) {
     appendToExistingOrDefaultCspDirective(

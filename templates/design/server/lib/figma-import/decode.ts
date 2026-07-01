@@ -104,6 +104,30 @@ function decompressZstdChunk(buf: Buffer, maxOutputLength: number): Buffer {
   return Buffer.concat(chunks, totalBytes);
 }
 
+function decompressPakoChunk(
+  buf: Buffer,
+  maxOutputLength: number,
+  raw: boolean,
+): Buffer {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  const inflator = new pako.Inflate({ raw });
+  inflator.onData = (chunk) => {
+    totalBytes += chunk.length;
+    if (totalBytes > maxOutputLength) {
+      throw new Error(
+        `Decompressed chunk exceeds size limit (${totalBytes} > ${maxOutputLength})`,
+      );
+    }
+    chunks.push(Buffer.from(chunk));
+  };
+  inflator.push(buf, true);
+  if (inflator.err) {
+    throw new Error(inflator.msg || "Pako inflate failed");
+  }
+  return Buffer.concat(chunks, totalBytes);
+}
+
 function decompressChunk(buf: Buffer, remainingBytes: number): Buffer {
   const maxOutputLength = Math.min(MAX_DECOMPRESSED_BYTES, remainingBytes);
   if (maxOutputLength <= 0) {
@@ -132,19 +156,19 @@ function decompressChunk(buf: Buffer, remainingBytes: number): Buffer {
     if (error instanceof RangeError) throw error;
   }
   try {
-    return checkDecompressedSize(
-      Buffer.from(pako.inflateRaw(buf)),
-      maxOutputLength,
-    );
-  } catch {
+    return decompressPakoChunk(buf, maxOutputLength, true);
+  } catch (error) {
+    if (error instanceof Error && /size limit/i.test(error.message)) {
+      throw error;
+    }
     // Fall through.
   }
   try {
-    return checkDecompressedSize(
-      Buffer.from(pako.inflate(buf)),
-      maxOutputLength,
-    );
-  } catch {
+    return decompressPakoChunk(buf, maxOutputLength, false);
+  } catch (error) {
+    if (error instanceof Error && /size limit/i.test(error.message)) {
+      throw error;
+    }
     // Fall through.
   }
   return checkDecompressedSize(Buffer.from(buf), maxOutputLength);

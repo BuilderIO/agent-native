@@ -1028,5 +1028,42 @@ describe("createH3SSRHandler", () => {
         }
       }
     });
+
+    it("adds script-src-elem for GA hosts when an existing CSP uses strict-dynamic", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      const previousGaMeasurementId = process.env.GA_MEASUREMENT_ID;
+      process.env.NODE_ENV = "production";
+      process.env.GA_MEASUREMENT_ID = "G-EXAMPLE123";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy":
+                "default-src 'self'; script-src 'nonce-example' 'strict-dynamic'",
+            },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/analytics"));
+        const csp = response.headers.get("content-security-policy") ?? "";
+
+        expect(csp).toContain("script-src 'nonce-example' 'strict-dynamic'");
+        expect(csp).toContain("script-src-elem");
+        expect(csp).toContain("https://www.googletagmanager.com");
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+        if (previousGaMeasurementId === undefined) {
+          delete process.env.GA_MEASUREMENT_ID;
+        } else {
+          process.env.GA_MEASUREMENT_ID = previousGaMeasurementId;
+        }
+      }
+    });
   });
 });
