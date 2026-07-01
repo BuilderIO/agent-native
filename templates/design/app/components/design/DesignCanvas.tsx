@@ -659,6 +659,13 @@ export function DesignCanvas({
     url: string;
     html: string;
   } | null>(null);
+  const [externalSnapshotState, setExternalSnapshotState] = useState<{
+    url: string;
+    status: "loading" | "error";
+    message?: string;
+  } | null>(null);
+  const [externalSnapshotRetryNonce, setExternalSnapshotRetryNonce] =
+    useState(0);
   const onExternalContentSnapshotRef = useRef(onExternalContentSnapshot);
   const isEmbeddedFrame = Boolean(embeddedFrame);
   // Resolve the URL to render in the iframe:
@@ -685,10 +692,20 @@ export function DesignCanvas({
     (fetchedExternalSnapshot?.url === rawExternalPreviewUrl
       ? fetchedExternalSnapshot.html
       : undefined);
-  const iframeRenderContent = activeExternalSnapshotHtml ?? renderedContent;
-  const externalPreviewUrl = activeExternalSnapshotHtml
-    ? null
-    : rawExternalPreviewUrl;
+  const requiresEditableExternalSnapshot =
+    sourceType === "localhost" &&
+    Boolean(bridgeUrl && rawExternalPreviewUrl) &&
+    !interactMode &&
+    !readOnly;
+  const iframeRenderContent =
+    activeExternalSnapshotHtml ??
+    (requiresEditableExternalSnapshot ? "" : renderedContent);
+  const externalPreviewUrl =
+    activeExternalSnapshotHtml || requiresEditableExternalSnapshot
+      ? null
+      : rawExternalPreviewUrl;
+  const waitingForEditableExternalSnapshot =
+    requiresEditableExternalSnapshot && !activeExternalSnapshotHtml;
   zoomRef.current = zoom;
 
   useEffect(() => {
@@ -697,20 +714,28 @@ export function DesignCanvas({
 
   useEffect(() => {
     const previewUrl = rawExternalPreviewUrl;
-    if (
-      sourceType !== "localhost" ||
-      !bridgeUrl ||
-      !previewUrl ||
-      externalSnapshotHtml
-    ) {
+    if (sourceType !== "localhost" || !bridgeUrl || !previewUrl) {
       setFetchedExternalSnapshot((current) =>
         current?.url === previewUrl ? current : null,
       );
+      setExternalSnapshotState(null);
+      return;
+    }
+    if (externalSnapshotHtml) {
+      setExternalSnapshotState(null);
       return;
     }
     let cancelled = false;
     const controller = new AbortController();
+    let retryTimer: number | undefined;
     const endpoint = snapshotEndpointUrl(bridgeUrl, previewUrl);
+    const scheduleRetry = () => {
+      if (!requiresEditableExternalSnapshot || cancelled) return;
+      retryTimer = window.setTimeout(() => {
+        setExternalSnapshotRetryNonce((nonce) => nonce + 1);
+      }, 1500);
+    };
+    setExternalSnapshotState({ url: previewUrl, status: "loading" });
     void (async () => {
       try {
         const response = await fetch(endpoint, {
@@ -724,8 +749,20 @@ export function DesignCanvas({
           html?: string;
           status?: number;
           contentType?: string;
+          error?: string;
         } | null;
-        if (cancelled || !response.ok || !payload?.ok) return;
+        if (cancelled) return;
+        if (!response.ok || !payload?.ok) {
+          setExternalSnapshotState({
+            url: previewUrl,
+            status: "error",
+            message:
+              payload?.error ||
+              `Bridge snapshot failed (${payload?.status ?? response.status})`,
+          });
+          scheduleRetry();
+          return;
+        }
         const sourceUrl = payload.url || previewUrl;
         const html = prepareStaticSnapshotHtml(payload.html ?? "", sourceUrl);
         const stamped = ensureCodeLayerNodeIdsInHtml(html, {
@@ -738,6 +775,7 @@ export function DesignCanvas({
         }).content;
         if (cancelled) return;
         setFetchedExternalSnapshot({ url: previewUrl, html: stamped });
+        setExternalSnapshotState(null);
         onExternalContentSnapshotRef.current?.({
           url: previewUrl,
           html: stamped,
@@ -747,14 +785,28 @@ export function DesignCanvas({
       } catch (error) {
         if (!cancelled && !(error instanceof DOMException)) {
           console.warn("[DesignCanvas] preview snapshot failed", error);
+          setExternalSnapshotState({
+            url: previewUrl,
+            status: "error",
+            message: error instanceof Error ? error.message : String(error),
+          });
+          scheduleRetry();
         }
       }
     })();
     return () => {
       cancelled = true;
       controller.abort();
+      if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [bridgeUrl, externalSnapshotHtml, rawExternalPreviewUrl, sourceType]);
+  }, [
+    bridgeUrl,
+    externalSnapshotHtml,
+    externalSnapshotRetryNonce,
+    rawExternalPreviewUrl,
+    requiresEditableExternalSnapshot,
+    sourceType,
+  ]);
 
   const queuedAnnotationPins = useMemo(
     () =>
@@ -1630,6 +1682,17 @@ export function DesignCanvas({
         }}
         title={t("designEditor.designPreview")}
       />
+      {waitingForEditableExternalSnapshot ? (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
+          <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
+            {
+              externalSnapshotState?.status === "error"
+                ? "Waiting for localhost bridge snapshot..." /* i18n-ignore local dev bridge status */
+                : "Preparing editable preview..." /* i18n-ignore local dev snapshot status */
+            }
+          </div>
+        </div>
+      ) : null}
       {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}
       <SharedDrawOverlay
         visible={!!drawMode}

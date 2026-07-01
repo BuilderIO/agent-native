@@ -306,6 +306,8 @@
 .design-motion-dock-space {
   --design-motion-dock-duration: 200ms;
   --design-motion-dock-easing: ease-out;
+  transition: height var(--design-motion-dock-duration)
+    var(--design-motion-dock-easing);
 }
 
 .design-motion-dock {
@@ -317,6 +319,10 @@
 }
 
 .design-motion-dock-space.design-motion-dock-resizing .design-motion-dock {
+  transition-duration: 0ms;
+}
+
+.design-motion-dock-space.design-motion-dock-resizing {
   transition-duration: 0ms;
 }
 

@@ -53,7 +53,11 @@ describe("buildChatModelGroups", () => {
 
   it("includes installed API-key-backed providers beyond Claude, OpenAI, and Gemini", () => {
     const groups = buildChatModelGroups({
-      configuredKeys: ["GOOGLE_GENERATIVE_AI_API_KEY", "GROQ_API_KEY"],
+      configuredKeys: [
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
+      ],
       engines: [
         {
           name: "builder",
@@ -92,6 +96,12 @@ describe("buildChatModelGroups", () => {
           requiredEnvVars: ["GROQ_API_KEY"],
         },
         {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+        {
           name: "ai-sdk:mistral",
           label: "Mistral",
           supportedModels: ["mistral-large-latest"],
@@ -112,6 +122,7 @@ describe("buildChatModelGroups", () => {
       "OpenAI",
       "Gemini",
       "Groq",
+      "OpenRouter",
     ]);
     expect(groups.find((group) => group.label === "Gemini")).toMatchObject({
       engine: "ai-sdk:google",
@@ -123,6 +134,11 @@ describe("buildChatModelGroups", () => {
     });
     expect(groups.find((group) => group.label === "OpenAI")).toMatchObject({
       configured: false,
+    });
+    expect(groups.find((group) => group.label === "OpenRouter")).toMatchObject({
+      engine: "ai-sdk:openrouter",
+      models: ["z-ai/glm-5.2"],
+      configured: true,
     });
   });
 

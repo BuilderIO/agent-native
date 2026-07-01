@@ -191,6 +191,10 @@
   overflow: visible;
 }
 
+.analytics-chat-panel .agent-composer-area--hero {
+  padding-inline: 1rem;
+}
+
 .analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
   width: 100%;
   max-width: min(760px, 90%);

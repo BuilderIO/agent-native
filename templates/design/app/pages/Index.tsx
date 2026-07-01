@@ -271,10 +271,7 @@ export default function Index() {
       });
 
       setNewDesignHandoffPending(true);
-      setShowNewPrompt(false);
-      window.requestAnimationFrame(() => {
-        window.setTimeout(() => navigate(`/design/${id}`), 0);
-      });
+      navigate(`/design/${id}`);
     },
     [createDesign, navigate, newDesignSystemId, resolveDefaultDesignSystemId],
   );

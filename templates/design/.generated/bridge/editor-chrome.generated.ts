@@ -2963,23 +2963,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
           dragEl.style.opacity = originalInlineOpacity;
-          showTransformBadge("Move layer", ev.clientX, ev.clientY);
         } else {
           currentAutoLayoutTarget = !duplicatedForDrag ? autoLayoutInsertionTargetForPoint(dragEl, ev.clientX, ev.clientY) : null;
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
             dragEl.style.opacity = "0.4";
-            showTransformBadge("Move layer", ev.clientX, ev.clientY);
           } else {
             hideInsertionGuide();
             dragEl.style.opacity = originalInlineOpacity;
-            showTransformBadge(
-              "X " + Math.round(nextLeft) + "  Y " + Math.round(nextTop),
-              ev.clientX,
-              ev.clientY
-            );
           }
         }
+        hideTransformBadge();
         refreshOverlays();
       }
       function restoreSourceDragPosition() {

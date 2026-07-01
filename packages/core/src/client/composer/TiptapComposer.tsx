@@ -750,6 +750,7 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
+  "z-ai/glm-5.2": "GLM 5.2",
 };
 
 export const MODEL_SELECTOR_POPOVER_STYLE = {

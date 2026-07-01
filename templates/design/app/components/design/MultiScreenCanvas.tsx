@@ -3244,14 +3244,6 @@ export function MultiScreenCanvas({
           }),
         );
         setAlignmentGuides(snap.guides);
-        const primary = state.originDrafts[state.primaryId].geometry;
-        showTransformFeedback(
-          `X ${Math.round(primary.x + dx + snap.dx)}  Y ${Math.round(
-            primary.y + dy + snap.dy,
-          )}`,
-          ev.clientX,
-          ev.clientY,
-        );
 
         // Primitive drop-into-container detection: check if the dragged draft
         // is hovering over a committed container primitive on any screen.
@@ -3354,7 +3346,6 @@ export function MultiScreenCanvas({
       getCurrentCanvasEntries,
       installDragListeners,
       persistDraftPrimitive,
-      showTransformFeedback,
       updateDraftPrimitives,
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,
@@ -3596,14 +3587,6 @@ export function MultiScreenCanvas({
           return next;
         });
         setAlignmentGuides(snap.guides);
-        const primary = state.originFrames[state.primaryId];
-        showTransformFeedback(
-          `X ${Math.round(primary.x + dx + snap.dx)}  Y ${Math.round(
-            primary.y + dy + snap.dy,
-          )}`,
-          ev.clientX,
-          ev.clientY,
-        );
 
         // When all dragged ids are committed primitive nodeIds (not screen
         // frames), check for a container primitive drop target to highlight.
@@ -3669,7 +3652,6 @@ export function MultiScreenCanvas({
       getCurrentFrameEntries,
       installDragListeners,
       onPick,
-      showTransformFeedback,
       updateFrameGeometry,
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,

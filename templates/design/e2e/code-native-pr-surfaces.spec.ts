@@ -238,28 +238,26 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
   await selectByText(page, "Alpha Button");
 
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  const expandMotionDockButton = page.getByRole("button", {
-    name: "Expand motion dock",
+  const motionRailButton = page.getByRole("button", {
+    name: "Motion",
     exact: true,
   });
-  await expect(expandMotionDockButton).toBeVisible();
+  await expect(motionRailButton).toBeVisible();
   await expect
     .poll(async () => {
-      const [triggerBox, layersBox] = await Promise.all([
-        expandMotionDockButton.boundingBox(),
-        page.locator('aside[aria-label="Layers"]').boundingBox(),
+      const [triggerBox, railBox] = await Promise.all([
+        motionRailButton.boundingBox(),
+        page.locator('nav[aria-label="Design workspace"]').boundingBox(),
       ]);
-      if (!triggerBox || !layersBox) return false;
+      if (!triggerBox || !railBox) return false;
       return (
-        Math.abs(triggerBox.x - layersBox.x) <= 2 &&
-        Math.abs(triggerBox.width - layersBox.width) <= 2 &&
-        Math.abs(
-          triggerBox.y + triggerBox.height - (layersBox.y + layersBox.height),
-        ) <= 2
+        triggerBox.x >= railBox.x &&
+        triggerBox.x + triggerBox.width <= railBox.x + railBox.width &&
+        railBox.y + railBox.height - (triggerBox.y + triggerBox.height) <= 16
       );
     })
     .toBe(true);
-  await expandMotionDockButton.click();
+  await motionRailButton.click();
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await page
     .getByRole("button", { name: "Collapse motion dock", exact: true })
@@ -269,7 +267,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
       async () => {
         const [dockCount, launcherVisible, dockState] = await Promise.all([
           page.locator('[aria-label="Motion dock"]').count(),
-          expandMotionDockButton.isVisible(),
+          motionRailButton.isVisible(),
           page
             .locator('[aria-label="Motion dock"]')
             .first()
@@ -296,9 +294,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     )
     .toBe(true);
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Expand motion dock", exact: true })
-    .click();
+  await motionRailButton.click();
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await expect(
     page.getByText("Pick a property to add the first track.", { exact: false }),
@@ -348,7 +344,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     .toContain("e2e-alpha-button");
 
   const reopenMotionDockButton = page.getByRole("button", {
-    name: "Expand motion dock",
+    name: "Motion",
     exact: true,
   });
   await expect(reopenMotionDockButton).toBeVisible();

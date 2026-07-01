@@ -499,6 +499,7 @@ function ManualSetupCard({
 // ─── LLM helpers ────────────────────────────────────────────────────────────
 
 function friendlyModelName(model: string): string {
+  if (model === "z-ai/glm-5.2") return "GLM 5.2";
   const claude = model.match(
     /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
   );
@@ -718,6 +719,10 @@ function LLMSectionInner({
     envVar,
     builderConnected,
   });
+  const manualSetupHint =
+    selectedEngine === "ai-sdk:openrouter"
+      ? "Provide an OpenRouter key to use OpenRouter models like GLM 5.2."
+      : "Choose your AI provider and model.";
 
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
@@ -889,7 +894,7 @@ function LLMSectionInner({
           />
           {!builderConnected && (
             <ManualSetupCard
-              hint="Choose your AI provider and model."
+              hint={manualSetupHint}
               docsUrl={PROVIDER_DOCS[selectedEngine]}
               sourceBadge={sourceBadge}
               docsLabel="Get an API key"

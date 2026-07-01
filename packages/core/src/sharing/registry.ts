@@ -69,7 +69,11 @@ export interface ShareableResourceRegistration {
     | ((
         resource: any,
         ctx: { userEmail?: string; orgId?: string },
-      ) => "viewer" | "editor" | "admin" | Promise<"viewer" | "editor" | "admin">);
+      ) =>
+        | "viewer"
+        | "editor"
+        | "admin"
+        | Promise<"viewer" | "editor" | "admin">);
   /**
    * When `true`, individual user shares (`principalType: "user"`) must target
    * an email that is already a member of the same org as the resource, OR has

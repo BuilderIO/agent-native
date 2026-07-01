@@ -93,7 +93,7 @@ import {
   IconPhoto,
   IconRefresh,
   IconChevronDown,
-  IconChevronRight,
+  IconChevronUp,
   IconCheck,
   IconPointer,
   IconTypography,
@@ -288,6 +288,7 @@ const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
 const NO_LOCALHOST_WRITE_CONTENT_MESSAGE =
   "No content to write. Open the screen first." /* i18n-ignore */;
 const FOCUSED_SCREEN_ZOOM = 100;
+export const DEFAULT_OVERVIEW_ZOOM = 60;
 const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
   /\b(?:color|color-mix|oklch|oklab|lab|lch)\(/i;
@@ -450,6 +451,10 @@ export function getOverviewCanvasZoom(
 ) {
   const scale = overviewZoomScale > 0 ? overviewZoomScale : 1;
   return displayZoom / scale;
+}
+
+export function getDefaultOverviewCanvasZoom(overviewZoomScale: number) {
+  return getOverviewCanvasZoom(DEFAULT_OVERVIEW_ZOOM, overviewZoomScale);
 }
 
 export function getDesignEditorShareUrl(
@@ -2934,12 +2939,18 @@ function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
 function DesignWorkspaceRail({
   activePanel,
   disabledPanels,
+  motionOpen,
+  motionDisabled,
   projectMenu,
+  onMotionToggle,
   onPanelChange,
 }: {
   activePanel: DesignLeftPanel;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
+  motionOpen?: boolean;
+  motionDisabled?: boolean;
   projectMenu: ReactNode;
+  onMotionToggle?: () => void;
   onPanelChange: (panel: DesignLeftPanel) => void;
 }) {
   const t = useT();
@@ -3033,6 +3044,53 @@ function DesignWorkspaceRail({
           );
         })}
       </div>
+      {onMotionToggle ? (
+        <div className="mt-4 flex w-full flex-col items-center border-t border-border/70 pt-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={"Motion" /* i18n-ignore */}
+                aria-disabled={motionDisabled || undefined}
+                aria-pressed={motionOpen || undefined}
+                tabIndex={motionDisabled ? -1 : undefined}
+                onClick={(event) => {
+                  if (motionDisabled) {
+                    event.preventDefault();
+                    return;
+                  }
+                  onMotionToggle();
+                }}
+                className={cn(
+                  "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none !text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  motionDisabled &&
+                    "cursor-default opacity-35 hover:text-muted-foreground",
+                  motionOpen && "text-foreground",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-lg transition-colors",
+                    motionOpen
+                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                      : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                    motionDisabled &&
+                      "group-hover:bg-transparent group-hover:text-muted-foreground",
+                  )}
+                >
+                  <IconChevronUp className="size-[15px]" />
+                </span>
+                <span className="max-w-full truncate leading-none">
+                  {"Motion" /* i18n-ignore */}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {"Motion" /* i18n-ignore */}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
     </nav>
   );
 }
@@ -3899,7 +3957,9 @@ export default function DesignEditor() {
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [screenZoom, setScreenZoom] = useState(FOCUSED_SCREEN_ZOOM);
-  const [overviewCanvasZoom, setOverviewCanvasZoom] = useState(100);
+  const [explicitOverviewCanvasZoom, setExplicitOverviewCanvasZoom] = useState<
+    number | null
+  >(null);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   const viewModeRef = useRef<"single" | "overview">("overview");
@@ -5781,6 +5841,9 @@ export default function DesignEditor() {
     overviewZoomScaleRef.current = overviewZoomScale;
   }, [overviewZoomScale]);
 
+  const overviewCanvasZoom =
+    explicitOverviewCanvasZoom ??
+    getDefaultOverviewCanvasZoom(overviewZoomScale);
   const overviewZoom = getOverviewDisplayZoom(
     overviewCanvasZoom,
     overviewZoomScale,
@@ -5789,10 +5852,12 @@ export default function DesignEditor() {
   const setZoomForView = useCallback(
     (targetView: "single" | "overview", update: SetStateAction<number>) => {
       if (targetView === "overview") {
-        setOverviewCanvasZoom((currentCanvasZoom) => {
+        setExplicitOverviewCanvasZoom((currentCanvasZoom) => {
           const scale = overviewZoomScaleRef.current;
+          const resolvedCanvasZoom =
+            currentCanvasZoom ?? getDefaultOverviewCanvasZoom(scale);
           const currentDisplayZoom = getOverviewDisplayZoom(
-            currentCanvasZoom,
+            resolvedCanvasZoom,
             scale,
           );
           const nextDisplayZoom = resolveZoomUpdate(update, currentDisplayZoom);
@@ -11367,7 +11432,7 @@ export default function DesignEditor() {
     viewModeRef.current = "overview";
     setViewMode("overview");
     setActiveTool("move");
-    setOverviewCanvasZoom(100);
+    setExplicitOverviewCanvasZoom(100);
   }, []);
 
   const runEditorViewTransition = useCallback((update: () => void) => {
@@ -14368,7 +14433,12 @@ ${serializedHtml}
   if (!id) return null;
 
   if (designLoading || (!design && pendingGenerationActive)) {
-    return <DesignEditorSkeleton embedded={embedded} />;
+    return (
+      <DesignEditorSkeleton
+        embedded={embedded}
+        pendingGeneration={pendingGenerationActive}
+      />
+    );
   }
 
   if (!design) {
@@ -14893,31 +14963,6 @@ ${serializedHtml}
   );
 
   const leftContentWidth = Math.max(leftSidebarWidth, 320);
-  const motionDockLauncherHidden = motionDockOpen;
-  const motionDockLauncher =
-    !embedded && activeFile ? (
-      <div
-        aria-hidden={motionDockLauncherHidden ? true : undefined}
-        className={cn(
-          "overflow-hidden border-t border-[var(--design-editor-panel-divider-color)] transition-[max-height,opacity,border-color] duration-200 ease-out",
-          motionDockLauncherHidden
-            ? "max-h-0 border-transparent opacity-0"
-            : "max-h-9 opacity-100",
-        )}
-      >
-        <button
-          type="button"
-          aria-label={"Expand motion dock" /* i18n-ignore */}
-          className="flex h-8 w-full cursor-pointer items-center gap-2 bg-[var(--design-editor-panel-bg)] px-3 text-left !text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
-          disabled={motionDockLauncherHidden}
-          onClick={() => setMotionDockOpenAnimated(true)}
-        >
-          <IconChevronRight className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">Motion</span>
-        </button>
-      </div>
-    ) : null;
-
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
     // so flex-1 on the child doesn't resolve to the available height. h-full
@@ -15326,7 +15371,10 @@ ${serializedHtml}
                   ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
                   : undefined
               }
+              motionOpen={motionDockOpen}
+              motionDisabled={!activeFile}
               projectMenu={projectMenu}
+              onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
               onPanelChange={setActiveLeftPanel}
             />
             <div
@@ -15360,7 +15408,6 @@ ${serializedHtml}
                     selectedIds={layerPanelSelectedIds}
                     expandedIds={layerPanelExpandedIds}
                     searchQuery={layersSearchQuery}
-                    footer={motionDockLauncher}
                     onScreenSelect={handleSidebarScreenSelect}
                     onScreenOverview={handleSidebarScreenOverview}
                     onAddScreen={handleAddScreen}
@@ -15622,7 +15669,7 @@ ${serializedHtml}
                     <MultiScreenCanvas
                       screens={overviewScreens}
                       zoom={overviewCanvasZoom}
-                      onZoomChange={setOverviewCanvasZoom}
+                      onZoomChange={setExplicitOverviewCanvasZoom}
                       activeId={activeFileId}
                       selectedScreenIds={overviewSelectedScreenIds}
                       fullViewScreenIds={fullViewScreenIds}

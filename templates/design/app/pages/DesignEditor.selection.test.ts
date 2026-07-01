@@ -9,6 +9,7 @@ import {
   getFreshScreenContent,
   getUndoRedoPriorityOrder,
   getContentHistoryChanges,
+  getDefaultOverviewCanvasZoom,
   getDesignEditorShareUrl,
   getDesignEditorStateUrlSearch,
   getLayerMoveIterationOrder,
@@ -268,6 +269,17 @@ describe("DesignEditor overview zoom display", () => {
 
     expect(getOverviewDisplayZoom(100, scale)).toBe(25);
     expect(getOverviewCanvasZoom(100, scale)).toBe(400);
+  });
+
+  it("defaults the overview display zoom to 60%", () => {
+    const scale = getOverviewZoomScale({
+      frameWidth: 1440,
+      sourceWidth: 1024,
+    });
+
+    expect(
+      getOverviewDisplayZoom(getDefaultOverviewCanvasZoom(scale), scale),
+    ).toBe(60);
   });
 });
 

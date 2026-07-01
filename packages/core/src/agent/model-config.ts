@@ -14,6 +14,7 @@
 //  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.5
 //             https://developers.openai.com/api/docs/models/gpt-5.4
 //  Google     https://ai.google.dev/gemini-api/docs/models
+//  OpenRouter https://openrouter.ai/api/v1/models
 //
 // Family defaults (used when a model id isn't listed explicitly):
 //  claude-*        → 200_000  (Haiku 4.5 and earlier models)
@@ -54,6 +55,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "openai/gpt-5.5": 1_050_000,
   "openai/gpt-5.4": 1_050_000,
   "google/gemini-2.5-flash": 1_048_576,
+  "z-ai/glm-5.2": 1_048_576,
 
   // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
   "gpt-5.5": 1_050_000,
@@ -111,6 +113,9 @@ export function getContextWindowForModel(modelId: string): number {
     id.includes("/gemini-3")
   )
     return 1_048_576;
+
+  // Z.ai GLM 5.x on OpenRouter — 1M context.
+  if (id.startsWith("glm-5") || id.includes("/glm-5")) return 1_048_576;
 
   return DEFAULT_CONTEXT_WINDOW;
 }
@@ -203,6 +208,7 @@ export const AGENT_MODEL_CONFIG = {
         "openai/gpt-5.4",
         // Current stable Gemini on OpenRouter (2.5 Flash is GA)
         "google/gemini-2.5-flash",
+        "z-ai/glm-5.2",
       ],
     },
     google: {

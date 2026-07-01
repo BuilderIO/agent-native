@@ -478,7 +478,6 @@ const messages = {
     show: "顯示圖層",
     rename: "重新命名圖層",
     deleteBoardObject: "刪除畫布物件",
-    selected: "已選取 {{count}} 個",
   },
   multiScreenCanvas: {
     duplicate: "複製",

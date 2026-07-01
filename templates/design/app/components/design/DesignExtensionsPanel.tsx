@@ -321,8 +321,7 @@ function FirstPartyExtRow({
           <span className="block truncate text-sm font-medium leading-tight text-foreground">
             {label}
           </span>
-          <span className="mt-0.5 flex items-center gap-1.5 truncate text-xs leading-none text-muted-foreground">
-            <IconPuzzle className="size-3 shrink-0" />
+          <span className="mt-0.5 block truncate text-xs leading-none text-muted-foreground">
             <span className="truncate">Built-in</span>
           </span>
         </span>

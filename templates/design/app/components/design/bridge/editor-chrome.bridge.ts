@@ -3958,7 +3958,6 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
         (dragEl as HTMLElement).style.opacity = originalInlineOpacity;
-        showTransformBadge("Move layer", ev.clientX, ev.clientY);
       } else {
         currentAutoLayoutTarget = !duplicatedForDrag
           ? autoLayoutInsertionTargetForPoint(dragEl, ev.clientX, ev.clientY)
@@ -3966,17 +3965,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
           (dragEl as HTMLElement).style.opacity = "0.4";
-          showTransformBadge("Move layer", ev.clientX, ev.clientY);
         } else {
           hideInsertionGuide();
           (dragEl as HTMLElement).style.opacity = originalInlineOpacity;
-          showTransformBadge(
-            "X " + Math.round(nextLeft) + "  Y " + Math.round(nextTop),
-            ev.clientX,
-            ev.clientY,
-          );
         }
       }
+      hideTransformBadge();
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {

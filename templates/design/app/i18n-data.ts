@@ -491,7 +491,6 @@ const enUS = {
     show: "Show layer",
     rename: "Rename layer",
     deleteBoardObject: "Delete board object",
-    selected: "{{count}} selected",
   },
   multiScreenCanvas: {
     duplicate: "Duplicate",
@@ -8164,7 +8163,6 @@ const designCanvasFeatureOverrides = {
       show: "顯示圖層",
       rename: "重新命名圖層",
       deleteBoardObject: "刪除畫布物件",
-      selected: "已選取 {{count}} 個",
     },
   },
   "zh-CN": {
@@ -8225,7 +8223,6 @@ const designCanvasFeatureOverrides = {
       show: "显示图层",
       rename: "重命名图层",
       deleteBoardObject: "删除画布对象",
-      selected: "已选择 {{count}} 个",
     },
   },
   "es-ES": {
@@ -8286,7 +8283,6 @@ const designCanvasFeatureOverrides = {
       show: "Mostrar capa",
       rename: "Renombrar capa",
       deleteBoardObject: "Eliminar objeto del lienzo",
-      selected: "{{count}} seleccionadas",
     },
   },
   "fr-FR": {
@@ -8347,7 +8343,6 @@ const designCanvasFeatureOverrides = {
       show: "Afficher le calque",
       rename: "Renommer le calque",
       deleteBoardObject: "Supprimer l’objet du canevas",
-      selected: "{{count}} sélectionnés",
     },
   },
   "de-DE": {
@@ -8409,7 +8404,6 @@ const designCanvasFeatureOverrides = {
       show: "Ebene anzeigen",
       rename: "Ebene umbenennen",
       deleteBoardObject: "Canvas-Objekt löschen",
-      selected: "{{count}} ausgewählt",
     },
   },
   "ja-JP": {
@@ -8470,7 +8464,6 @@ const designCanvasFeatureOverrides = {
       show: "レイヤーを表示",
       rename: "レイヤー名を変更",
       deleteBoardObject: "キャンバスオブジェクトを削除",
-      selected: "{{count}} 件選択",
     },
   },
   "ko-KR": {
@@ -8531,7 +8524,6 @@ const designCanvasFeatureOverrides = {
       show: "레이어 표시",
       rename: "레이어 이름 변경",
       deleteBoardObject: "캔버스 오브젝트 삭제",
-      selected: "{{count}}개 선택됨",
     },
   },
   "pt-BR": {
@@ -8592,7 +8584,6 @@ const designCanvasFeatureOverrides = {
       show: "Mostrar camada",
       rename: "Renomear camada",
       deleteBoardObject: "Excluir objeto da tela",
-      selected: "{{count}} selecionadas",
     },
   },
   "hi-IN": {
@@ -8653,7 +8644,6 @@ const designCanvasFeatureOverrides = {
       show: "परत दिखाएं",
       rename: "परत का नाम बदलें",
       deleteBoardObject: "कैनवास ऑब्जेक्ट हटाएं",
-      selected: "{{count}} चयनित",
     },
   },
   "ar-SA": {
@@ -8714,7 +8704,6 @@ const designCanvasFeatureOverrides = {
       show: "إظهار الطبقة",
       rename: "إعادة تسمية الطبقة",
       deleteBoardObject: "حذف كائن اللوحة",
-      selected: "{{count}} محددة",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;

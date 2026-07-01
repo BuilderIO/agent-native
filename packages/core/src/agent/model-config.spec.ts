@@ -156,6 +156,7 @@ describe("agent model config catalog", () => {
         : "anthropic/claude-sonnet-4.6",
     );
     expect(openrouterModels).toContain("google/gemini-2.5-flash");
+    expect(openrouterModels).toContain("z-ai/glm-5.2");
   });
 });
 
@@ -193,6 +194,11 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("gemini-3.1-pro-preview")).toBe(1_048_576);
     expect(getContextWindowForModel("gemini-3-5-flash")).toBe(1_048_576);
     expect(getContextWindowForModel("google/gemini-2.5-flash")).toBe(1_048_576);
+  });
+
+  it("returns 1M for GLM 5.x models", () => {
+    expect(getContextWindowForModel("z-ai/glm-5.2")).toBe(1_048_576);
+    expect(getContextWindowForModel("glm-5.3")).toBe(1_048_576);
   });
 
   it("returns 128K safe default for unknown models", () => {

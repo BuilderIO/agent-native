@@ -144,7 +144,6 @@ export interface LayersPanelLabels {
   hide: string;
   show: string;
   rename: string;
-  selected: (count: number) => string;
 }
 
 export interface LayersPanelProps {
@@ -242,7 +241,6 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
     hide: t("layersPanel.hide"),
     show: t("layersPanel.show"),
     rename: t("layersPanel.rename"),
-    selected: (count) => t("layersPanel.selected", { count }),
   };
 }
 
@@ -721,7 +719,6 @@ export function LayersPanel({
   );
 
   const hasAnyRows = roots.length > 0;
-  const selectedCount = selectedIds.length;
   const screenRows = screens ?? files ?? [];
   const openSearch = useCallback(() => {
     setSearchOpen(true);
@@ -835,11 +832,6 @@ export function LayersPanel({
           <h2 className="truncate text-[12px] font-semibold text-foreground">
             {labels.title}
           </h2>
-          {selectedCount > 1 ? (
-            <p className="truncate text-[10px] text-muted-foreground">
-              {labels.selected(selectedCount)}
-            </p>
-          ) : null}
         </div>
         <div className="flex items-center gap-0.5 text-muted-foreground">
           <button
