@@ -62,7 +62,15 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
-import { readBackgroundRunClaim } from "../agent/run-store.js";
+import {
+  CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+  ensureTerminalRunEvent,
+  readBackgroundRunClaim,
+  recordRunDiagnostic,
+  RUN_DIAG_STAGE,
+  setRunError,
+  updateRunStatusIfRunning,
+} from "../agent/run-store.js";
 import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
@@ -3862,6 +3870,50 @@ export function shouldDisableRecurringJobsRuntime(
   }
 
   return isLocalRuntime;
+}
+
+type AgentChatProcessRunFailureDeps = {
+  readBackgroundRunClaim?: typeof readBackgroundRunClaim;
+  recordRunDiagnostic?: typeof recordRunDiagnostic;
+  setRunError?: typeof setRunError;
+  updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
+  ensureTerminalRunEvent?: typeof ensureTerminalRunEvent;
+};
+
+export async function finalizeClaimedAgentChatProcessRunFailure(
+  runId: string,
+  err: unknown,
+  deps: AgentChatProcessRunFailureDeps = {},
+): Promise<boolean> {
+  const readClaim = deps.readBackgroundRunClaim ?? readBackgroundRunClaim;
+  const record = deps.recordRunDiagnostic ?? recordRunDiagnostic;
+  const setError = deps.setRunError ?? setRunError;
+  const updateStatus =
+    deps.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
+  const ensureTerminal = deps.ensureTerminalRunEvent ?? ensureTerminalRunEvent;
+  const message = err instanceof Error ? err.message : String(err);
+
+  await record(runId, RUN_DIAG_STAGE.routeThrew, message).catch(() => {});
+
+  const claim = await readClaim(runId).catch(() => null);
+  if (
+    claim?.status !== "running" ||
+    claim.dispatchMode !== "background-processing"
+  ) {
+    return false;
+  }
+
+  await setError(
+    runId,
+    CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
+    `${CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.details} setupError=${message}`,
+  ).catch(() => {});
+  await updateStatus(runId, "errored").catch(() => {});
+  await ensureTerminal(
+    runId,
+    CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+  ).catch(() => {});
+  return true;
 }
 
 export function createAgentChatPlugin(
@@ -8030,17 +8082,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            // DIAGNOSTIC: the worker invocation threw at the route boundary —
-            // record the message so the failure cause is readable client-side.
-            if (diag) {
-              await diag
-                .record(
-                  prepared.runId,
-                  diag.stages.routeThrew,
-                  err instanceof Error ? err.message : String(err),
-                )
-                .catch(() => {});
-            }
+            await finalizeClaimedAgentChatProcessRunFailure(
+              prepared.runId,
+              err,
+            );
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           }

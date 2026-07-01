@@ -65,6 +65,23 @@ export const UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT = {
 } as const;
 
 /**
+ * Terminal error for a background worker that DID claim the run, then failed
+ * during route/handler setup before `startRun` could emit its own error event.
+ * Claimed runs are no longer eligible for foreground inline recovery, so the
+ * route boundary must fail them loudly instead of leaving subscribers to wait
+ * for stale-run recovery.
+ */
+export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The background agent worker stopped before it could start the turn. You can retry from the preserved chat context.",
+  errorCode: "background_worker_failed",
+  recoverable: true,
+  details:
+    "The durable background worker claimed the run but threw during setup before it could emit agent events.",
+} as const;
+
+/**
  * Grace period before a never-claimed background run (dispatch_mode still
  * 'background', no worker claim) is treated as a dead handoff and reaped.
  *

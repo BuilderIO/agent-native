@@ -16,6 +16,7 @@ import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   buildUserContentWithAttachments,
+  claimBackgroundWorkerRunEarly,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
   isContextTooLongError,
@@ -4072,6 +4073,114 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS - 1,
       }),
     ).toBe(true);
+  });
+});
+
+describe("claimBackgroundWorkerRunEarly", () => {
+  function deps(claimResult = true) {
+    const calls: string[] = [];
+    return {
+      calls,
+      recordRunDiagnostic: vi.fn(async (_runId: string, stage: string) => {
+        calls.push(`record:${stage}`);
+      }),
+      insertRun: vi.fn(
+        async (
+          _runId: string,
+          _threadId: string,
+          _turnId: string,
+          _options?: { dispatchMode?: "foreground" | "background" },
+        ) => {
+          calls.push("insert");
+        },
+      ),
+      claimBackgroundRun: vi.fn(async (_runId: string) => {
+        calls.push("claim");
+        return claimResult;
+      }),
+      updateRunHeartbeat: vi.fn(async (_runId: string) => {
+        calls.push("heartbeat");
+      }),
+    };
+  }
+
+  it("claims the first background chunk before expensive setup can race foreground fallback", async () => {
+    const d = deps();
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-bg",
+        threadId: "thread-bg",
+        markerTurnId: "turn-bg",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: true });
+
+    expect(d.insertRun).not.toHaveBeenCalled();
+    expect(d.calls).toEqual([
+      "record:worker_entered",
+      "claim",
+      "record:worker_claimed",
+      "heartbeat",
+    ]);
+    expect(d.recordRunDiagnostic).toHaveBeenNthCalledWith(
+      1,
+      "run-bg",
+      "worker_entered",
+      "runsInBackgroundFunction=true continuationCount=0",
+    );
+  });
+
+  it("inserts a chained background continuation row before claiming it", async () => {
+    const d = deps();
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-next",
+        threadId: "thread-next",
+        markerTurnId: "turn-next",
+        continuationCount: 2,
+        runsInBackgroundFunction: true,
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: true });
+
+    expect(d.insertRun).toHaveBeenCalledWith(
+      "run-next",
+      "thread-next",
+      "turn-next",
+      { dispatchMode: "background" },
+    );
+    expect(d.calls).toEqual([
+      "record:worker_entered",
+      "insert",
+      "claim",
+      "record:worker_claimed",
+      "heartbeat",
+    ]);
+  });
+
+  it("records duplicate deliveries and does not heartbeat or execute the turn", async () => {
+    const d = deps(false);
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-dupe",
+        threadId: "thread-dupe",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: false, skipped: "already-claimed" });
+
+    expect(d.updateRunHeartbeat).not.toHaveBeenCalled();
+    expect(d.calls).toEqual([
+      "record:worker_entered",
+      "claim",
+      "record:worker_claim_lost",
+    ]);
   });
 });
 
