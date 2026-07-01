@@ -1456,6 +1456,7 @@ const AssistantChatInner = forwardRef<
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
+  const reconnectTailOnlyRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
   // lets new submissions go through immediately — prevents the "stuck
@@ -1774,6 +1775,7 @@ const AssistantChatInner = forwardRef<
 
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
+      reconnectTailOnlyRef.current = afterSeq > 0;
       const storedActivityTool = getActiveRunActivityTool(threadId, runId);
       setRunningActivityTool(storedActivityTool);
       setActiveRun({
@@ -1939,6 +1941,7 @@ const AssistantChatInner = forwardRef<
             await refreshThreadFromServer();
             setReconnectContent([]);
             setReconnectFrozen(false);
+            reconnectTailOnlyRef.current = false;
           } else {
             settleInterruptedToolCalls(latestContent);
             setReconnectContent([...latestContent]);
@@ -1956,6 +1959,7 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
+          reconnectTailOnlyRef.current = false;
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -1983,6 +1987,7 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
+          reconnectTailOnlyRef.current = false;
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -2004,6 +2009,7 @@ const AssistantChatInner = forwardRef<
     useCallback(async (): Promise<boolean> => {
       if (!threadId) return false;
       try {
+        const storedActiveRun = getActiveRun();
         const runRes = await fetch(
           `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
         );
@@ -2014,6 +2020,11 @@ const AssistantChatInner = forwardRef<
           runInfo.status !== "running" ||
           activeRunLooksStale(runInfo)
         ) {
+          if (storedActiveRun?.threadId === threadId) {
+            clearActiveRunIfMatches(threadId, storedActiveRun.runId);
+          } else if (runInfo.runId) {
+            clearActiveRunIfMatches(threadId, String(runInfo.runId));
+          }
           await refreshThreadFromServer();
           return false;
         }
@@ -2792,7 +2803,10 @@ const AssistantChatInner = forwardRef<
       reconnectAbortRef.current = null;
       reconnectRunIdRef.current = null;
       setIsReconnecting(false);
-      setReconnectFrozen(reconnectContent.length > 0);
+      setReconnectFrozen(
+        !reconnectTailOnlyRef.current && reconnectContent.length > 0,
+      );
+      reconnectTailOnlyRef.current = false;
     }
     threadRuntime.cancelRun();
     if (typeof window !== "undefined") {

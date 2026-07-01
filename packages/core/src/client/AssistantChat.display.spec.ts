@@ -211,6 +211,46 @@ describe("waitForThreadRunToClear", () => {
     expect(labelSource).toContain('"Thinking"');
   });
 
+  it("clears stale stored active-run state when the server has no usable run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const reconnectActiveRunForThread");
+    const end = source.indexOf("useEffect(() => {\n    if (!threadId");
+    const reconnectSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(reconnectSource).toContain("const storedActiveRun = getActiveRun()");
+    expect(reconnectSource).toContain(
+      "clearActiveRunIfMatches(threadId, storedActiveRun.runId)",
+    );
+  });
+
+  it("does not freeze tail-only reconnect snapshots when stopped", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const reconnectStart = source.indexOf("const startReconnectToRun");
+    const reconnectEnd = source.indexOf("const reconnectActiveRunForThread");
+    const reconnectSource = source.slice(reconnectStart, reconnectEnd);
+    const stopStart = source.indexOf("const stopActiveRun = useCallback");
+    const stopEnd = source.indexOf("const addToQueue = useCallback");
+    const stopSource = source.slice(stopStart, stopEnd);
+
+    expect(reconnectStart).toBeGreaterThan(-1);
+    expect(reconnectEnd).toBeGreaterThan(reconnectStart);
+    expect(stopStart).toBeGreaterThan(-1);
+    expect(stopEnd).toBeGreaterThan(stopStart);
+    expect(reconnectSource).toContain(
+      "reconnectTailOnlyRef.current = afterSeq > 0",
+    );
+    expect(stopSource).toContain(
+      "!reconnectTailOnlyRef.current && reconnectContent.length > 0",
+    );
+    expect(stopSource).toContain("reconnectTailOnlyRef.current = false");
+  });
+
   it("builds a running tool card for tail-reconnect activity", () => {
     expect(reconnectActivityFallbackContent(" generate-design ")).toEqual([
       expect.objectContaining({
