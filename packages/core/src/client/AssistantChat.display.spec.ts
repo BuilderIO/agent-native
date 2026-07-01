@@ -290,14 +290,30 @@ describe("waitForThreadRunToClear", () => {
     const start = source.indexOf("setReconnectFrozen(afterSeq === 0)");
     const end = source.indexOf("const reconnectActiveRunForThread");
     const completionSource = source.slice(start, end);
+    const materializeStart = source.indexOf(
+      "const materializeFrozenReconnectContent = useCallback",
+    );
+    const materializeEnd = source.indexOf(
+      "// Abort the active server run",
+      materializeStart,
+    );
+    const materializeSource = source.slice(materializeStart, materializeEnd);
 
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
+    expect(materializeStart).toBeGreaterThan(-1);
+    expect(materializeEnd).toBeGreaterThan(materializeStart);
+    expect(source).toContain(
+      "reconnectCanMaterializeRef.current = afterSeq === 0",
+    );
     expect(completionSource).toContain("setReconnectFrozen(afterSeq === 0)");
     expect(completionSource).toContain("if (afterSeq > 0)");
     expect(completionSource).toContain("setReconnectContent([])");
     expect(completionSource).toContain("setReconnectFrozen(false)");
     expect(completionSource).not.toContain("setReconnectFrozen(true)");
+    expect(materializeSource).toContain("!reconnectCanMaterializeRef.current");
+    expect(materializeSource).toContain("setReconnectContent([])");
+    expect(materializeSource).toContain("return;");
   });
 });
 
