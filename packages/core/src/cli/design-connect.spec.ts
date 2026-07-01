@@ -179,6 +179,16 @@ describe("design connect CLI", () => {
     });
   });
 
+  it("parses --daemon and rejects one-shot modes", () => {
+    expect(parseDesignConnectArgs(["connect", "--daemon"])).toMatchObject({
+      daemon: true,
+      once: false,
+    });
+    expect(() =>
+      parseDesignConnectArgs(["connect", "--daemon", "--json"]),
+    ).toThrow(/--daemon cannot be combined/);
+  });
+
   it("resolves standard app URL env vars for self-registration", () => {
     for (const key of appUrlEnvKeys) delete process.env[key];
     process.env.APP_URL = "https://design.example.com/";

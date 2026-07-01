@@ -251,6 +251,181 @@ export const editorChromeBridgeScript: string = `"use strict";
         boundingRect: rectInfoForElement(parent)
       };
     }
+    var PORTABLE_STYLE_PROPERTIES = [
+      "alignContent",
+      "alignItems",
+      "alignSelf",
+      "aspectRatio",
+      "background",
+      "backgroundAttachment",
+      "backgroundClip",
+      "backgroundColor",
+      "backgroundImage",
+      "backgroundOrigin",
+      "backgroundPosition",
+      "backgroundRepeat",
+      "backgroundSize",
+      "border",
+      "borderBottom",
+      "borderBottomColor",
+      "borderBottomLeftRadius",
+      "borderBottomRightRadius",
+      "borderBottomStyle",
+      "borderBottomWidth",
+      "borderColor",
+      "borderLeft",
+      "borderLeftColor",
+      "borderLeftStyle",
+      "borderLeftWidth",
+      "borderRadius",
+      "borderRight",
+      "borderRightColor",
+      "borderRightStyle",
+      "borderRightWidth",
+      "borderStyle",
+      "borderTop",
+      "borderTopColor",
+      "borderTopLeftRadius",
+      "borderTopRightRadius",
+      "borderTopStyle",
+      "borderTopWidth",
+      "borderWidth",
+      "boxShadow",
+      "boxSizing",
+      "color",
+      "columnGap",
+      "display",
+      "filter",
+      "flex",
+      "flexBasis",
+      "flexDirection",
+      "flexGrow",
+      "flexShrink",
+      "flexWrap",
+      "font",
+      "fontFamily",
+      "fontSize",
+      "fontStyle",
+      "fontWeight",
+      "gap",
+      "gridAutoColumns",
+      "gridAutoFlow",
+      "gridAutoRows",
+      "gridColumn",
+      "gridColumnEnd",
+      "gridColumnStart",
+      "gridRow",
+      "gridRowEnd",
+      "gridRowStart",
+      "gridTemplateColumns",
+      "gridTemplateRows",
+      "height",
+      "justifyContent",
+      "justifyItems",
+      "justifySelf",
+      "letterSpacing",
+      "lineHeight",
+      "margin",
+      "marginBottom",
+      "marginLeft",
+      "marginRight",
+      "marginTop",
+      "maxHeight",
+      "maxWidth",
+      "minHeight",
+      "minWidth",
+      "mixBlendMode",
+      "objectFit",
+      "objectPosition",
+      "opacity",
+      "order",
+      "outline",
+      "outlineColor",
+      "outlineOffset",
+      "outlineStyle",
+      "outlineWidth",
+      "overflow",
+      "overflowX",
+      "overflowY",
+      "padding",
+      "paddingBottom",
+      "paddingLeft",
+      "paddingRight",
+      "paddingTop",
+      "placeContent",
+      "placeItems",
+      "placeSelf",
+      "position",
+      "rowGap",
+      "textAlign",
+      "textDecoration",
+      "textDecorationColor",
+      "textDecorationLine",
+      "textDecorationStyle",
+      "textShadow",
+      "textTransform",
+      "transform",
+      "transformOrigin",
+      "verticalAlign",
+      "whiteSpace",
+      "width",
+      "wordBreak",
+      "zIndex"
+    ];
+    function elementPathFromRoot(root, node) {
+      var path = [];
+      var current = node;
+      while (current && current !== root && current.parentElement) {
+        var siblings = Array.prototype.slice.call(current.parentElement.children);
+        path.unshift(Math.max(0, siblings.indexOf(current)));
+        current = current.parentElement;
+      }
+      return path;
+    }
+    function collectPortableComputedStyles(el) {
+      if (!el) return {};
+      var cs = window.getComputedStyle(el);
+      var styles = {};
+      PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
+        var value = cs[property] || cs.getPropertyValue(property);
+        if (typeof value === "string" && value.trim()) {
+          styles[property] = value;
+        }
+      });
+      for (var index = 0; index < cs.length; index += 1) {
+        var name = cs.item(index);
+        if (name && name.indexOf("--") === 0) {
+          var customValue = cs.getPropertyValue(name);
+          if (customValue && customValue.trim()) {
+            styles[name] = customValue.trim();
+          }
+        }
+      }
+      return styles;
+    }
+    function collectPortableStyleSnapshot(root) {
+      if (!root || isDocumentRootElement(root)) return void 0;
+      var nodes = [];
+      var maxNodes = 80;
+      function pushNode(node) {
+        if (nodes.length >= maxNodes) return;
+        nodes.push({
+          sourceId: getSourceId(node) || void 0,
+          path: elementPathFromRoot(root, node),
+          styles: collectPortableComputedStyles(node)
+        });
+      }
+      pushNode(root);
+      var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
+      for (var index = 0; index < descendants.length && nodes.length < maxNodes; index += 1) {
+        pushNode(descendants[index]);
+      }
+      return {
+        version: 1,
+        rootSourceId: getSourceId(root) || void 0,
+        nodes
+      };
+    }
     function chromeColorForElement(el) {
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-color)" : "var(--design-editor-accent-color)";
     }
@@ -410,6 +585,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           mixBlendMode: cs.mixBlendMode,
           zIndex: cs.zIndex
         },
+        portableStyleSnapshot: collectPortableStyleSnapshot(el),
         boundingRect: {
           x: rect.x + (window.scrollX || window.pageXOffset || 0),
           y: rect.y + (window.scrollY || window.pageYOffset || 0),
@@ -714,6 +890,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var spacingHandleStateByKey = {};
     var spacingHandleNodesByKey = {};
     var spacingOverlayRenderKey = "";
+    var activeDragCancel = null;
+    var activeCrossScreenStyleSnapshot = void 0;
     var spacingDrag = null;
     var lockedSelectors = [];
     var hiddenSelectors = [];
@@ -733,6 +911,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       clearActiveMarqueeSelection();
       hideSpacingOverlay();
       hideMeasurements();
+    }
+    function postEditorDragState(active) {
+      window.parent.postMessage(
+        { type: "agent-native:editor-drag-state", active },
+        "*"
+      );
+    }
+    function setActiveDragCancel(cancel) {
+      activeDragCancel = cancel;
+      postEditorDragState(true);
+    }
+    function clearActiveDragCancel(cancel) {
+      if (cancel && activeDragCancel !== cancel) return;
+      if (!activeDragCancel) return;
+      activeDragCancel = null;
+      postEditorDragState(false);
+    }
+    function cancelActiveBridgeDrag() {
+      var cancel = activeDragCancel;
+      if (!cancel) return false;
+      activeDragCancel = null;
+      postEditorDragState(false);
+      return cancel();
     }
     function removePassiveSelectionOverlays() {
       passiveSelectionOverlays.forEach(function(overlay) {
@@ -1296,12 +1497,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingBadge.style.top = y + "px";
       spacingBadge.style.transform = "translate(-50%, -50%)";
     }
-    function renderSpacingHandle(handle, activeGroupKey) {
+    function renderSpacingHandle(handle, activeGroupKeys) {
       if (!handle) return;
       spacingHandleStateByKey[handle.key] = handle;
-      var highlighted = Boolean(
-        activeGroupKey && handle.groupKey === activeGroupKey
-      );
+      var highlighted = Boolean(activeGroupKeys[handle.groupKey]);
       var lineNode = document.createElement("span");
       lineNode.setAttribute("data-agent-native-spacing-line", handle.kind);
       lineNode.style.position = "absolute";
@@ -1349,17 +1548,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingHandleNodesByKey[handle.key] = regionNode;
       spacingOverlay.appendChild(regionNode);
     }
-    function updateSpacingHandleHighlights(handles, activeGroupKey) {
+    function updateSpacingHandleHighlights(handles, activeGroupKeys) {
       handles.forEach(function(handle) {
         if (!handle) return;
         var regionNode = spacingHandleNodesByKey[handle.key];
         if (!regionNode) return;
-        var highlighted = Boolean(
-          activeGroupKey && handle.groupKey === activeGroupKey
-        );
+        var highlighted = Boolean(activeGroupKeys[handle.groupKey]);
         regionNode.style.background = highlighted ? spacingFill(handle.kind, handle.orientation) : "transparent";
         regionNode.style.outline = highlighted ? "1px solid " + spacingColor(handle.kind) : "0";
       });
+    }
+    function activeSpacingGroupKeys(handles, activeHandle) {
+      var activeGroupKeys = {};
+      if (!activeHandle) return activeGroupKeys;
+      activeGroupKeys[activeHandle.groupKey] = true;
+      if (spacingDrag && spacingDrag.mirrorOpposite && activeHandle.kind === "padding" && activeHandle.oppositeProperty) {
+        handles.forEach(function(handle) {
+          if (!handle) return;
+          if (handle.property === activeHandle.oppositeProperty) {
+            activeGroupKeys[handle.groupKey] = true;
+          }
+        });
+      }
+      return activeGroupKeys;
     }
     function updateSpacingOverlay(el) {
       if (el && el !== selectedEl) {
@@ -1376,7 +1587,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       var activeHandle = spacingDrag ? spacingDrag.handle : null;
-      var activeGroupKey = activeHandle ? activeHandle.groupKey : "";
+      var activeGroupKeys = activeSpacingGroupKeys(handles, activeHandle);
       var nextRenderKey = handles.map(function(handle) {
         return [
           handle.key,
@@ -1392,7 +1603,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         ].join(",");
       }).join("|");
       if (spacingOverlay.style.display === "block" && spacingOverlayRenderKey === nextRenderKey) {
-        updateSpacingHandleHighlights(handles, activeGroupKey);
+        updateSpacingHandleHighlights(handles, activeGroupKeys);
         if (activeHandle) {
           showSpacingBadgeForHandle(
             activeHandle,
@@ -1409,7 +1620,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingHandleStateByKey = {};
       spacingHandleNodesByKey = {};
       handles.forEach(function(handle) {
-        renderSpacingHandle(handle, activeGroupKey);
+        renderSpacingHandle(handle, activeGroupKeys);
       });
       if (activeHandle) {
         showSpacingBadgeForHandle(
@@ -1424,10 +1635,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       var region = target && target.closest ? target.closest("[data-agent-native-spacing-region]") : null;
       return region && region.getAttribute ? region.getAttribute("data-spacing-key") || "" : "";
     }
+    function setHoverToSelectedElementFromSpacingSurface() {
+      if (!selectedEl || !document.documentElement.contains(selectedEl)) return;
+      var changed = hoveredEl !== selectedEl;
+      hoveredEl = selectedEl;
+      highlightOverlay.style.display = "none";
+      hideMeasurements();
+      if (changed) {
+        window.parent.postMessage(
+          { type: "element-hover", payload: getElementInfo(selectedEl) },
+          "*"
+        );
+      }
+    }
     function activateSpacingHandle(spacingKey) {
       if (!spacingKey) return;
       clearSpacingHoverTimer();
       selectedSpacingHovered = true;
+      setHoverToSelectedElementFromSpacingSurface();
       if (hoveredSpacingHandleKey !== spacingKey || spacingOverlay.style.display !== "block") {
         hoveredSpacingHandleKey = spacingKey;
         updateSpacingOverlay(selectedEl);
@@ -1460,6 +1685,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (region) {
         var spacingKey = region.getAttribute ? region.getAttribute("data-spacing-key") : "";
         if (spacingKey) activateSpacingHandle(spacingKey);
+        setHoverToSelectedElementFromSpacingSurface();
         return true;
       }
       var hit = elementFromEditorPoint(clientX, clientY);
@@ -2304,6 +2530,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var dragEl = selectedEl;
       var originValue = handle.value;
+      var originInlineValue = dragEl.style[handle.property];
+      var originInlineOppositeValue = handle.oppositeProperty ? dragEl.style[handle.oppositeProperty] : "";
       var startX = e.clientX;
       var startY = e.clientY;
       lastSpacingPointerPoint = { x: startX, y: startY };
@@ -2315,6 +2543,50 @@ export const editorChromeBridgeScript: string = `"use strict";
         mirrorOpposite: !!e.altKey
       };
       showSpacingBadgeForHandle(handle, originValue);
+      function updateSpacingDragMirrorState(mirrorOpposite) {
+        if (!spacingDrag) return;
+        if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+        spacingDrag = {
+          handle,
+          currentValue: spacingDrag.currentValue,
+          mirrorOpposite
+        };
+        positionOverlay(selectionOverlay, dragEl);
+        showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
+      }
+      function cleanupSpacingDrag() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onKey, true);
+        document.removeEventListener("keyup", onKey, true);
+        clearActiveDragCancel(cancelSpacingDrag);
+      }
+      function restoreSpacingDragValue() {
+        if (dragEl && document.documentElement.contains(dragEl)) {
+          dragEl.style[handle.property] = originInlineValue;
+          if (handle.oppositeProperty) {
+            dragEl.style[handle.oppositeProperty] = originInlineOppositeValue;
+          }
+          selectedEl = dragEl;
+          positionOverlay(selectionOverlay, dragEl);
+        }
+        spacingDrag = null;
+        spacingBadge.style.display = "none";
+      }
+      function cancelSpacingDrag() {
+        cleanupSpacingDrag();
+        restoreSpacingDragValue();
+        return true;
+      }
+      function onKey(ev) {
+        if (ev.key === "Escape") {
+          stopNativeInteraction(ev);
+          cancelSpacingDrag();
+          return;
+        }
+        if (ev.key !== "Alt") return;
+        updateSpacingDragMirrorState(!!ev.altKey);
+      }
       function onMove(ev) {
         if (!dragEl || !document.documentElement.contains(dragEl)) return;
         var nextValue = spacingValueFromPointer(
@@ -2336,10 +2608,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         showSpacingBadgeForHandle(handle, nextValue);
       }
       function onUp(ev) {
-        document.removeEventListener(events.move, onMove, true);
-        document.removeEventListener(events.up, onUp, true);
+        cleanupSpacingDrag();
         if (!dragEl || !document.documentElement.contains(dragEl)) {
           spacingDrag = null;
+          spacingBadge.style.display = "none";
           return;
         }
         var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
@@ -2357,6 +2629,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onKey, true);
+      document.addEventListener("keyup", onKey, true);
+      setActiveDragCancel(cancelSpacingDrag);
     }
     function postTextContentChange(el, value, html) {
       window.parent.postMessage(
@@ -2476,16 +2751,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
+    function isAbsolutePrimitiveContainer(el) {
+      if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+      var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (primitive !== "rectangle" && primitive !== "rect") return false;
+      var cs = window.getComputedStyle(el);
+      return cs.position === "absolute" || cs.position === "fixed";
+    }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
     function postCrossScreenDrag(phase, el, ev) {
       if (phase === "cancel") {
+        activeCrossScreenStyleSnapshot = void 0;
         window.parent.postMessage(
           { type: "agent-native:cross-screen-drag", phase: "cancel" },
           "*"
         );
         return;
+      }
+      if (phase === "start") {
+        activeCrossScreenStyleSnapshot = collectPortableStyleSnapshot(el ?? null);
       }
       var rect = el ? el.getBoundingClientRect() : null;
       var pointerOffset = rect && ev?.clientX !== void 0 && ev.clientY !== void 0 ? {
@@ -2510,10 +2796,14 @@ export const editorChromeBridgeScript: string = `"use strict";
             width: rect.width,
             height: rect.height
           } : void 0,
-          pointerOffset
+          pointerOffset,
+          styleSnapshot: activeCrossScreenStyleSnapshot
         },
         "*"
       );
+      if (phase === "end") {
+        activeCrossScreenStyleSnapshot = void 0;
+      }
     }
     var BRIDGE_CONTAINER_TAGS = [
       "div",
@@ -2619,10 +2909,16 @@ export const editorChromeBridgeScript: string = `"use strict";
             return {
               anchor: hit,
               placement: "inside",
-              axis: parentFlowAxis(hit)
+              axis: parentFlowAxis(hit),
+              dropMode: isAbsolutePrimitiveContainer(hit) ? "absolute-container" : "flow-insert"
             };
           }
-          return { anchor: hit, placement: edgePlacement, axis: edgeAxis };
+          return {
+            anchor: hit,
+            placement: edgePlacement,
+            axis: edgeAxis,
+            dropMode: "flow-insert"
+          };
         }
         var hitParent = hit.parentElement;
         if (hitParent) {
@@ -2633,7 +2929,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return {
             anchor: hit,
             placement: hitPointer < hitCenter ? "before" : "after",
-            axis: hitAxis
+            axis: hitAxis,
+            dropMode: "flow-insert"
           };
         }
       }
@@ -2655,7 +2952,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var anchor = beforeTarget || siblings[siblings.length - 1];
       var placement = beforeTarget ? "before" : "after";
-      return { anchor, placement, axis };
+      return {
+        anchor,
+        placement,
+        axis,
+        dropMode: "flow-insert"
+      };
     }
     function elementFromEditorPointIgnoring(clientX, clientY, ignore) {
       var previousPointerEvents = null;
@@ -2689,14 +2991,24 @@ export const editorChromeBridgeScript: string = `"use strict";
           return {
             anchor: cursor,
             placement: childPointer < childCenter ? "before" : "after",
-            axis: parentAxis
+            axis: parentAxis,
+            dropMode: "flow-insert"
           };
         }
         if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
           return {
             anchor: cursor,
             placement: "inside",
-            axis: parentFlowAxis(cursor)
+            axis: parentFlowAxis(cursor),
+            dropMode: "flow-insert"
+          };
+        }
+        if (isAbsolutePrimitiveContainer(cursor)) {
+          return {
+            anchor: cursor,
+            placement: "inside",
+            axis: "y",
+            dropMode: "absolute-container"
           };
         }
         cursor = parent;
@@ -2771,6 +3083,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           anchorSelector: getSelector(target.anchor),
           anchorSourceId: getSourceId(target.anchor),
           placement: target.placement,
+          dropMode: target.dropMode || "flow-insert",
+          sourceRect: rectInfoForElement(el),
+          anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el)
         },
         "*"
@@ -2827,7 +3142,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               iframeX: cx,
               iframeY: cy,
               viewportW: vw,
-              viewportH: vh
+              viewportH: vh,
+              pointerOffset: reorderPointerOffset,
+              styleSnapshot: reorderStyleSnapshot
             },
             "*"
           );
@@ -2839,10 +3156,13 @@ export const editorChromeBridgeScript: string = `"use strict";
             showInsertionGuideFor(currentTarget);
             showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
           }
-        }, onReorderEscape2 = function() {
+        }, cleanupReorderDrag2 = function() {
           document.removeEventListener(events.move, onReorderMove2, true);
           document.removeEventListener(events.up, onReorderUp2, true);
           document.removeEventListener("keydown", onReorderKeyDown2, true);
+          clearActiveDragCancel(onReorderEscape2);
+        }, onReorderEscape2 = function() {
+          cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
           window.parent.postMessage(
@@ -2856,17 +3176,15 @@ export const editorChromeBridgeScript: string = `"use strict";
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
           }
+          suppressNextShieldClickBriefly();
+          return true;
         }, onReorderKeyDown2 = function(ev) {
           if (ev.key === "Escape") {
-            ev.preventDefault();
-            ev.stopPropagation();
-            if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+            stopNativeInteraction(ev);
             onReorderEscape2();
           }
         }, onReorderUp2 = function(ev) {
-          document.removeEventListener(events.move, onReorderMove2, true);
-          document.removeEventListener(events.up, onReorderUp2, true);
-          document.removeEventListener("keydown", onReorderKeyDown2, true);
+          cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
           var vw = window.innerWidth;
@@ -2883,7 +3201,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               iframeX: cx,
               iframeY: cy,
               viewportW: vw,
-              viewportH: vh
+              viewportH: vh,
+              pointerOffset: reorderPointerOffset,
+              styleSnapshot: reorderStyleSnapshot
             },
             "*"
           );
@@ -2915,7 +3235,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           }
         };
-        var onReorderMove = onReorderMove2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderUp = onReorderUp2;
+        var onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderUp = onReorderUp2;
         var reorderEl = selectedEl;
         var currentTarget = reorderTargetForPoint(
           reorderEl,
@@ -2926,17 +3246,24 @@ export const editorChromeBridgeScript: string = `"use strict";
         var pointerOutsideIframe = false;
         var reorderSelector = getSelector(reorderEl);
         var reorderSourceId = getSourceId(reorderEl);
+        var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
+        var reorderRect = reorderEl.getBoundingClientRect();
+        var reorderPointerOffset = {
+          x: e.clientX - reorderRect.left,
+          y: e.clientY - reorderRect.top
+        };
         document.addEventListener(events.move, onReorderMove2, true);
         document.addEventListener(events.up, onReorderUp2, true);
         document.addEventListener("keydown", onReorderKeyDown2, true);
+        setActiveDragCancel(onReorderEscape2);
         return;
       }
-      ensurePositionable(selectedEl);
-      var cs = window.getComputedStyle(selectedEl);
       var originalInlinePosition = selectedEl.style.position;
       var originalInlineLeft = selectedEl.style.left;
       var originalInlineTop = selectedEl.style.top;
       var originalInlineOpacity = selectedEl.style.opacity;
+      ensurePositionable(selectedEl);
+      var cs = window.getComputedStyle(selectedEl);
       var originLeft = readPx(selectedEl.style.left || cs.left);
       var originTop = readPx(selectedEl.style.top || cs.top);
       var startX = e.clientX;
@@ -2984,9 +3311,39 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectedEl = originalSelectedEl;
         positionOverlay(selectionOverlay, selectedEl);
       }
-      function onUp(ev) {
+      function cleanupMoveDrag() {
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onMoveKeyDown, true);
+        clearActiveDragCancel(cancelMoveDrag);
+      }
+      function cancelMoveDrag() {
+        cleanupMoveDrag();
+        hideTransformBadge();
+        hideInsertionGuide();
+        currentAutoLayoutTarget = null;
+        if (duplicatedForDrag) {
+          if (dragEl && dragEl.parentElement) {
+            dragEl.parentElement.removeChild(dragEl);
+          }
+          selectedEl = originalSelectedEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          postElementSelect(selectedEl);
+        } else if (dragEl && document.documentElement.contains(dragEl)) {
+          restoreSourceDragPosition();
+          postCrossScreenDrag("cancel");
+        }
+        suppressNextShieldClickBriefly();
+        refreshOverlays();
+        return true;
+      }
+      function onMoveKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        cancelMoveDrag();
+      }
+      function onUp(ev) {
+        cleanupMoveDrag();
         hideTransformBadge();
         hideInsertionGuide();
         if (!dragEl) return;
@@ -2997,6 +3354,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (ev && !duplicatedForDrag && outsideOnDrop) {
           restoreSourceDragPosition();
           return;
+        }
+        if (ev && !duplicatedForDrag && !outsideOnDrop && moved) {
+          var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
+            dragEl,
+            ev.clientX,
+            ev.clientY
+          );
+          if (finalAutoLayoutTarget) {
+            currentAutoLayoutTarget = finalAutoLayoutTarget;
+          }
         }
         if (duplicatedForDrag && !moved) {
           if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
@@ -3036,6 +3403,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onMoveKeyDown, true);
+      setActiveDragCancel(cancelMoveDrag);
     }
     function startResize(handle, e) {
       if (!selectedEl) return;
@@ -3043,20 +3412,25 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       var events = dragEventNames(e);
-      ensurePositionable(selectedEl);
-      var cs = window.getComputedStyle(selectedEl);
-      var originW = readPx(selectedEl.style.width || cs.width);
-      var originH = readPx(selectedEl.style.height || cs.height);
+      var resizeEl = selectedEl;
+      var originalInlinePosition = resizeEl.style.position;
+      var originalInlineLeft = resizeEl.style.left;
+      var originalInlineTop = resizeEl.style.top;
+      var originalInlineWidth = resizeEl.style.width;
+      var originalInlineHeight = resizeEl.style.height;
+      ensurePositionable(resizeEl);
+      var cs = window.getComputedStyle(resizeEl);
+      var originW = readPx(resizeEl.style.width || cs.width);
+      var originH = readPx(resizeEl.style.height || cs.height);
       var origin = {
-        left: readPx(selectedEl.style.left || cs.left),
-        top: readPx(selectedEl.style.top || cs.top),
+        left: readPx(resizeEl.style.left || cs.left),
+        top: readPx(resizeEl.style.top || cs.top),
         width: originW,
         height: originH,
         ratio: originW / Math.max(1, originH)
       };
       var startX = e.clientX;
       var startY = e.clientY;
-      var resizeEl = selectedEl;
       var resizeTheta = currentRotation(resizeEl) * Math.PI / 180;
       function nextRect(ev) {
         var screenDx = ev.clientX - startX;
@@ -3136,9 +3510,35 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         refreshOverlays();
       }
-      function onUp() {
+      function cleanupResizeDrag() {
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onResizeKeyDown, true);
+        clearActiveDragCancel(cancelResizeDrag);
+      }
+      function cancelResizeDrag() {
+        cleanupResizeDrag();
+        hideTransformBadge();
+        if (resizeEl && document.documentElement.contains(resizeEl)) {
+          resizeEl.style.position = originalInlinePosition;
+          resizeEl.style.left = originalInlineLeft;
+          resizeEl.style.top = originalInlineTop;
+          resizeEl.style.width = originalInlineWidth;
+          resizeEl.style.height = originalInlineHeight;
+          selectedEl = resizeEl;
+          positionOverlay(selectionOverlay, selectedEl);
+        }
+        suppressNextShieldClickBriefly();
+        refreshOverlays();
+        return true;
+      }
+      function onResizeKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        cancelResizeDrag();
+      }
+      function onUp() {
+        cleanupResizeDrag();
         hideTransformBadge();
         if (!resizeEl) return;
         window.parent.postMessage(
@@ -3159,6 +3559,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onResizeKeyDown, true);
+      setActiveDragCancel(cancelResizeDrag);
     }
     function startRotate(e) {
       if (!selectedEl) return;
@@ -3174,6 +3576,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originAngle = Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180 / Math.PI;
       var originRotation = currentRotation(selectedEl);
       var rotateEl = selectedEl;
+      var originalInlineTransform = rotateEl.style.transform;
       function onMove(ev) {
         if (!rotateEl) return;
         var pointerAngle = Math.atan2(ev.clientY - center.y, ev.clientX - center.x) * 180 / Math.PI;
@@ -3184,9 +3587,31 @@ export const editorChromeBridgeScript: string = `"use strict";
         showTransformBadge(next + "deg", ev.clientX, ev.clientY);
         refreshOverlays();
       }
-      function onUp() {
+      function cleanupRotateDrag() {
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onRotateKeyDown, true);
+        clearActiveDragCancel(cancelRotateDrag);
+      }
+      function cancelRotateDrag() {
+        cleanupRotateDrag();
+        hideTransformBadge();
+        if (rotateEl && document.documentElement.contains(rotateEl)) {
+          rotateEl.style.transform = originalInlineTransform;
+          selectedEl = rotateEl;
+          positionOverlay(selectionOverlay, selectedEl);
+        }
+        suppressNextShieldClickBriefly();
+        refreshOverlays();
+        return true;
+      }
+      function onRotateKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        cancelRotateDrag();
+      }
+      function onUp() {
+        cleanupRotateDrag();
         hideTransformBadge();
         if (!rotateEl) return;
         window.parent.postMessage(
@@ -3201,6 +3626,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onRotateKeyDown, true);
+      setActiveDragCancel(cancelRotateDrag);
     }
     function clearPendingShieldDrag() {
       if (!pendingShieldDrag) return;
@@ -3359,6 +3786,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keydown",
       function(e) {
         if (!shouldForwardDesignHotkey(e)) return;
+        if (e.key === "Escape" && cancelActiveBridgeDrag()) {
+          stopNativeInteraction(e);
+          return;
+        }
         stopNativeInteraction(e);
         if (e.key === "Escape") clearRuntimeSelection();
         window.parent.postMessage(
@@ -3689,6 +4120,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "scale-tool-mode") {
         scaleToolEnabled = !!e.data.enabled;
+        return;
+      }
+      if (e.data.type === "agent-native:cancel-active-drag") {
+        cancelActiveBridgeDrag();
         return;
       }
       if (e.data.type === "clear-selection") {

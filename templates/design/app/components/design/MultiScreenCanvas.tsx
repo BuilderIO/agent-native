@@ -60,6 +60,7 @@ import {
   type DeviceFrameType,
   type ElementInfo,
   type ElementSelectionIntent,
+  type PortableStyleSnapshot,
 } from "./types";
 
 // Re-export so consumers of MultiScreenCanvas can use the same script without
@@ -241,12 +242,18 @@ interface MultiScreenCanvasProps {
     targetAnchorNodeId?: string;
     /** DOM insertion placement relative to the anchor node. */
     targetAnchorPlacement?: "before" | "after" | "inside";
+    /** Whether the target should receive an in-flow insert or an absolute child. */
+    targetDropMode?: CrossScreenDropMode;
+    /** Target anchor rect in the destination iframe/content coordinate space. */
+    targetAnchorRect?: CrossScreenHitTestAnchorRect;
     /** Final drop point in logical overview canvas coordinates. */
     targetCanvasPoint?: Point;
     /** Final drop point in the destination iframe/content coordinate space. */
     targetLocalPoint?: Point;
     /** Pointer offset from the dragged element's top-left in source iframe px. */
     sourcePointerOffset?: Point;
+    /** Portable computed styles captured in the source iframe before the move. */
+    styleSnapshot?: PortableStyleSnapshot;
   }) => void;
   // ── Board file (new model) ───────────────────────────────────────────────
   /**
@@ -338,6 +345,9 @@ interface MultiScreenCanvasProps {
       sourceId?: string;
       anchorSourceId?: string;
       requestId?: string;
+      dropMode?: "flow-insert" | "absolute-container";
+      sourceRect?: { x: number; y: number; width: number; height: number };
+      anchorRect?: { x: number; y: number; width: number; height: number };
     },
   ) => boolean | void;
   /**
@@ -480,7 +490,7 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
-const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-render>html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
+const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-render>html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
 const BOARD_SURFACE_BACKGROUND = "hsl(0 0% 10%)";
 
 const BOARD_SURFACE_BACKDROP_MIN_EDGE_PX = 2400;
@@ -678,7 +688,7 @@ export function getBoardContentKey(args: {
   boardFileContent: string;
   boardIsActive: boolean;
 }) {
-  return `${args.boardFileId}:layers:${getBoardContentLayerSignature(args.boardFileContent)}`;
+  return `${args.boardFileId}:surface`;
 }
 
 function getChromeHandleTransition(chromeSettling: boolean) {
@@ -746,6 +756,7 @@ export interface Point {
 
 export type CrossScreenDropPlacement = "before" | "after" | "inside";
 export type CrossScreenDropAxis = "x" | "y";
+export type CrossScreenDropMode = "flow-insert" | "absolute-container";
 
 export interface CrossScreenHitTestAnchorRect {
   left: number;
@@ -758,6 +769,7 @@ export interface CrossScreenHitTestResult {
   anchorNodeId?: string;
   placement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
+  dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
 }
 
@@ -772,6 +784,14 @@ function isFinitePoint(value: unknown): value is Point {
   if (!value || typeof value !== "object") return false;
   const point = value as Record<string, unknown>;
   return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function isPortableStyleSnapshot(
+  value: unknown,
+): value is PortableStyleSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Record<string, unknown>;
+  return snapshot.version === 1 && Array.isArray(snapshot.nodes);
 }
 
 interface CanvasLayerMarqueeCandidate {
@@ -800,6 +820,10 @@ function isCrossScreenDropPlacement(
 
 function isCrossScreenDropAxis(value: unknown): value is CrossScreenDropAxis {
   return value === "x" || value === "y";
+}
+
+function isCrossScreenDropMode(value: unknown): value is CrossScreenDropMode {
+  return value === "flow-insert" || value === "absolute-container";
 }
 
 function isCrossScreenHitTestAnchorRect(
@@ -1183,6 +1207,9 @@ export function MultiScreenCanvas({
     /** Board-space point where the ghost is shown (follows the cursor). */
     boardX: number;
     boardY: number;
+    width?: number;
+    height?: number;
+    dimmed?: boolean;
   }
   interface CrossScreenDragTarget {
     /** The screen frame that is the candidate drop target. */
@@ -1206,6 +1233,8 @@ export function MultiScreenCanvas({
     selector: string;
     sourceId?: string;
     sourcePointerOffset?: Point;
+    sourceElementSize?: { width: number; height: number };
+    styleSnapshot?: PortableStyleSnapshot;
   } | null>(null);
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
   /** Board-space point from the last cross-screen-drag "move" message. */
@@ -1715,6 +1744,9 @@ export function MultiScreenCanvas({
             axis: isCrossScreenDropAxis(ev.data.axis)
               ? ev.data.axis
               : undefined,
+            dropMode: isCrossScreenDropMode(ev.data.dropMode)
+              ? ev.data.dropMode
+              : undefined,
             anchorRect: isCrossScreenHitTestAnchorRect(ev.data.anchorRect)
               ? ev.data.anchorRect
               : undefined,
@@ -1767,26 +1799,23 @@ export function MultiScreenCanvas({
     const requestCrossScreenDropGuide = (
       candidate: CrossScreenDragTarget,
       boardPoint: Point,
-      sourceIsBoard: boolean,
     ) => {
       const requestSeq = ++crossScreenHitTestSeqRef.current;
-      void runHitTest(candidate, boardPoint, { preview: sourceIsBoard }).then(
-        (hit) => {
-          if (crossScreenHitTestSeqRef.current !== requestSeq) return;
-          if (crossScreenTargetRef.current?.id !== candidate.id) return;
-          const targetScreen = screensRef.current.find(
-            (s) => s.id === candidate.id,
-          );
-          const guide = targetScreen
-            ? getCrossScreenDropGuideForHitTest({
-                hit,
-                targetGeometry: candidate.geometry,
-                targetMetadata: getResolvedMetadata(targetScreen),
-              })
-            : null;
-          setCrossScreenDropGuide(sourceIsBoard ? null : guide);
-        },
-      );
+      void runHitTest(candidate, boardPoint).then((hit) => {
+        if (crossScreenHitTestSeqRef.current !== requestSeq) return;
+        if (crossScreenTargetRef.current?.id !== candidate.id) return;
+        const targetScreen = screensRef.current.find(
+          (s) => s.id === candidate.id,
+        );
+        const guide = targetScreen
+          ? getCrossScreenDropGuideForHitTest({
+              hit,
+              targetGeometry: candidate.geometry,
+              targetMetadata: getResolvedMetadata(targetScreen),
+            })
+          : null;
+        setCrossScreenDropGuide(guide);
+      });
     };
 
     const updateCrossScreenTargetFromBoardPoint = (
@@ -1796,9 +1825,6 @@ export function MultiScreenCanvas({
       crossScreenLastBoardPointRef.current = boardPoint;
       const sourceIsBoard = sourceScreenId === boardFileId;
       setCrossScreenSourceIsBoard(sourceIsBoard);
-      setCrossScreenGhost(
-        sourceIsBoard ? null : { boardX: boardPoint.x, boardY: boardPoint.y },
-      );
       const target = getFrameEntryAtPoint(boardPoint);
       if (target && target.id !== sourceScreenId) {
         const nextTarget = { id: target.id, geometry: target.geometry };
@@ -1807,11 +1833,30 @@ export function MultiScreenCanvas({
         }
         crossScreenTargetRef.current = nextTarget;
         setCrossScreenTarget(nextTarget);
-        requestCrossScreenDropGuide(nextTarget, boardPoint, sourceIsBoard);
+        const dragPayload = crossScreenDragMsgRef.current;
+        const sourceElementSize = dragPayload?.sourceElementSize;
+        const sourcePointerOffset = dragPayload?.sourcePointerOffset;
+        setCrossScreenGhost(
+          sourceIsBoard && sourceElementSize && sourcePointerOffset
+            ? {
+                boardX: boardPoint.x - sourcePointerOffset.x,
+                boardY: boardPoint.y - sourcePointerOffset.y,
+                width: sourceElementSize.width,
+                height: sourceElementSize.height,
+                dimmed: true,
+              }
+            : sourceIsBoard
+              ? null
+              : { boardX: boardPoint.x, boardY: boardPoint.y },
+        );
+        requestCrossScreenDropGuide(nextTarget, boardPoint);
       } else {
         clearCrossScreenPreviewGuide();
         crossScreenTargetRef.current = null;
         setCrossScreenTarget(null);
+        setCrossScreenGhost(
+          sourceIsBoard ? null : { boardX: boardPoint.x, boardY: boardPoint.y },
+        );
         clearCrossScreenDropGuide();
       }
     };
@@ -1823,6 +1868,7 @@ export function MultiScreenCanvas({
         selector: string;
         sourceId?: string;
         sourcePointerOffset?: Point;
+        styleSnapshot?: PortableStyleSnapshot;
       },
       lastBoardPoint: Point | null,
     ) => {
@@ -1847,12 +1893,13 @@ export function MultiScreenCanvas({
           targetCanvasPoint: lastBoardPoint,
           targetLocalPoint: lastBoardPoint,
           sourcePointerOffset: payload.sourcePointerOffset,
+          styleSnapshot: payload.styleSnapshot,
         });
         return;
       }
 
       void runHitTest(targetCandidate, lastBoardPoint).then(
-        ({ anchorNodeId, placement }) => {
+        ({ anchorNodeId, placement, dropMode, anchorRect }) => {
           const targetAnchorPlacement = isCrossScreenDropPlacement(placement)
             ? placement
             : undefined;
@@ -1867,9 +1914,12 @@ export function MultiScreenCanvas({
             targetScreenId: targetCandidate.id,
             targetAnchorNodeId: anchorNodeId,
             targetAnchorPlacement,
+            targetDropMode: dropMode,
+            targetAnchorRect: anchorRect,
             targetCanvasPoint: lastBoardPoint,
             targetLocalPoint: targetLocalPoint ?? undefined,
             sourcePointerOffset: payload.sourcePointerOffset,
+            styleSnapshot: payload.styleSnapshot,
           });
         },
       );
@@ -1891,7 +1941,22 @@ export function MultiScreenCanvas({
         viewportH?: number;
         elementRect?: CrossScreenDragElementRect;
         pointerOffset?: Point;
+        styleSnapshot?: unknown;
       };
+      const sourcePointerOffset = isFinitePoint(msg.pointerOffset)
+        ? msg.pointerOffset
+        : undefined;
+      const sourceElementSize =
+        msg.elementRect &&
+        Number.isFinite(msg.elementRect.width) &&
+        Number.isFinite(msg.elementRect.height) &&
+        msg.elementRect.width > 0 &&
+        msg.elementRect.height > 0
+          ? { width: msg.elementRect.width, height: msg.elementRect.height }
+          : undefined;
+      const styleSnapshot = isPortableStyleSnapshot(msg.styleSnapshot)
+        ? msg.styleSnapshot
+        : undefined;
 
       if (msg.phase === "cancel") {
         clearCrossScreenDrag();
@@ -1919,9 +1984,9 @@ export function MultiScreenCanvas({
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
-          sourcePointerOffset: isFinitePoint(msg.pointerOffset)
-            ? msg.pointerOffset
-            : undefined,
+          sourcePointerOffset,
+          sourceElementSize,
+          styleSnapshot,
         };
         stopParentCrossScreenDrag();
         const restorePreviewPointerEvents = mutePreviewIframePointerEvents(
@@ -1944,9 +2009,9 @@ export function MultiScreenCanvas({
           const payload = crossScreenDragMsgRef.current ?? {
             selector: msg.selector ?? "",
             sourceId: msg.sourceId,
-            sourcePointerOffset: isFinitePoint(msg.pointerOffset)
-              ? msg.pointerOffset
-              : undefined,
+            sourcePointerOffset,
+            sourceElementSize,
+            styleSnapshot,
           };
           const lastBoardPoint = crossScreenLastBoardPointRef.current;
           finalizeCrossScreenDrop(
@@ -1993,9 +2058,14 @@ export function MultiScreenCanvas({
         crossScreenDragMsgRef.current = {
           selector: selector ?? "",
           sourceId,
-          sourcePointerOffset: isFinitePoint(msg.pointerOffset)
-            ? msg.pointerOffset
-            : (crossScreenDragMsgRef.current?.sourcePointerOffset ?? undefined),
+          sourcePointerOffset:
+            sourcePointerOffset ??
+            crossScreenDragMsgRef.current?.sourcePointerOffset,
+          sourceElementSize:
+            sourceElementSize ??
+            crossScreenDragMsgRef.current?.sourceElementSize,
+          styleSnapshot:
+            styleSnapshot ?? crossScreenDragMsgRef.current?.styleSnapshot,
         };
 
         const pointerInsideSourceIframe =
@@ -2060,9 +2130,9 @@ export function MultiScreenCanvas({
         const payload = crossScreenDragMsgRef.current ?? {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
-          sourcePointerOffset: isFinitePoint(msg.pointerOffset)
-            ? msg.pointerOffset
-            : undefined,
+          sourcePointerOffset,
+          sourceElementSize,
+          styleSnapshot,
         };
         const lastBoardPoint = crossScreenLastBoardPointRef.current;
         finalizeCrossScreenDrop(
@@ -2341,15 +2411,62 @@ export function MultiScreenCanvas({
       draggedNodeId: string | null,
     ): PrimitiveDropTarget | null => {
       if (!onPrimitiveReparentRef.current) return null;
+      const screensForPrimitiveHitTest =
+        boardFileId && boardFileContent !== undefined && boardFrameGeometry
+          ? [
+              ...screensRef.current,
+              {
+                id: boardFileId,
+                filename: "__board__.html",
+                content: boardFileContent,
+              },
+            ]
+          : screensRef.current;
+      const frameGeometryForPrimitiveHitTest =
+        boardFileId && boardFrameGeometry
+          ? {
+              ...frameGeometryRef.current,
+              [boardFileId]: boardFrameGeometry,
+            }
+          : frameGeometryRef.current;
       return getPrimitiveDropTargetForPoint(
         point,
         draggedNodeId,
-        screensRef.current,
-        frameGeometryRef.current,
-        getResolvedMetadata,
+        screensForPrimitiveHitTest,
+        frameGeometryForPrimitiveHitTest,
+        (screen) =>
+          screen.id === boardFileId && boardFrameGeometry
+            ? {
+                width: Math.max(1, boardFrameGeometry.width),
+                height: Math.max(1, boardFrameGeometry.height),
+              }
+            : getResolvedMetadata(screen),
+        {
+          identityCoordinateScreenIds: boardFileId
+            ? new Set([boardFileId])
+            : undefined,
+        },
       );
     },
-    [getResolvedMetadata],
+    [boardFileContent, boardFileId, boardFrameGeometry, getResolvedMetadata],
+  );
+
+  const resolvePrimitiveScreenId = useCallback(
+    (nodeId: string): string | null => {
+      const screensForPrimitiveLookup =
+        boardFileId && boardFileContent !== undefined
+          ? [
+              ...screensRef.current,
+              {
+                id: boardFileId,
+                filename: "__board__.html",
+                content: boardFileContent,
+              },
+            ]
+          : screensRef.current;
+      return resolveNodeScreenId(nodeId, screensForPrimitiveLookup);
+    },
+    [boardFileContent, boardFileId],
   );
 
   const finishDrag = useCallback(() => {
@@ -3613,10 +3730,7 @@ export function MultiScreenCanvas({
             (targetId) => !currentFrameIds.includes(targetId),
           );
           if (allCommitted && dropTarget) {
-            const sourceScreenId = resolveNodeScreenId(
-              state.primaryId,
-              screensRef.current,
-            );
+            const sourceScreenId = resolvePrimitiveScreenId(state.primaryId);
             if (sourceScreenId) {
               onPrimitiveReparentRef.current?.({
                 sourceNodeId: state.primaryId,
@@ -3652,6 +3766,7 @@ export function MultiScreenCanvas({
       getCurrentFrameEntries,
       installDragListeners,
       onPick,
+      resolvePrimitiveScreenId,
       updateFrameGeometry,
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,
@@ -4711,6 +4826,8 @@ export function MultiScreenCanvas({
               boardFileContent,
               boardIsActive,
             });
+            const boardLayerSignature =
+              getBoardContentLayerSignature(boardFileContent);
             const boardRenderContent =
               getBoardSurfaceRenderContent(boardFileContent);
             return (
@@ -4727,6 +4844,8 @@ export function MultiScreenCanvas({
                 <DesignCanvas
                   content={boardRenderContent}
                   contentKey={boardContentKey}
+                  runtimeReplacementContent={boardRenderContent}
+                  runtimeReplacementKey={`${boardFileId}:layers:${boardLayerSignature}`}
                   screenId={boardFileId}
                   zoom={100}
                   deviceFrame="none"
@@ -5060,22 +5179,27 @@ export function MultiScreenCanvas({
         />
       ) : null}
 
-      {/* Cross-screen element drag: small ghost following the board-space cursor. */}
+      {/* Cross-screen element drag: ghost follows the board-space cursor. */}
       {crossScreenGhost &&
-      !crossScreenSourceIsBoard &&
-      !crossScreenDropGuide ? (
+      (crossScreenSourceIsBoard || !crossScreenDropGuide) ? (
         <span
           data-cross-screen-drag-ghost
-          className="pointer-events-none absolute z-50 rounded border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/20 shadow"
+          className="pointer-events-none absolute z-40 rounded border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/20 shadow"
           style={{
-            // A fixed-size ghost (16×16 canvas-px) centred on the board point.
-            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
+            // Board-origin drags use the real layer size/top-left so the
+            // proxy stays above screen iframes; screen-origin drags keep the
+            // older compact cursor ghost.
             left:
-              pan.x + (SURFACE_PADDING + crossScreenGhost.boardX) * scale - 8,
+              pan.x +
+              (SURFACE_PADDING + crossScreenGhost.boardX) * scale -
+              (crossScreenGhost.width ? 0 : 8),
             top:
-              pan.y + (SURFACE_PADDING + crossScreenGhost.boardY) * scale - 8,
-            width: 16,
-            height: 16,
+              pan.y +
+              (SURFACE_PADDING + crossScreenGhost.boardY) * scale -
+              (crossScreenGhost.height ? 0 : 8),
+            width: Math.max(1, (crossScreenGhost.width ?? 16) * scale),
+            height: Math.max(1, (crossScreenGhost.height ?? 16) * scale),
+            opacity: crossScreenGhost.dimmed ? 0.4 : 1,
           }}
         />
       ) : null}
@@ -7334,6 +7458,9 @@ export function parsePrimitivesFromScreen(
       const htmlEl = el as HTMLElement;
       const style = htmlEl.style;
       const tag = el.tagName.toLowerCase();
+      const primitiveKind = (
+        el.getAttribute("data-an-primitive") || ""
+      ).toLowerCase();
 
       // Only block elements with explicit absolute positioning are considered
       // positioned primitives drawn by appendCanvasPrimitiveToHtml.
@@ -7347,9 +7474,9 @@ export function parsePrimitivesFromScreen(
       // Validity: must have non-zero size
       if (width <= 0 || height <= 0) return;
 
-      // Only explicit auto-layout primitives should accept drops. Plain absolute
-      // rectangles are visual layers, not flow containers; treating every div as a
-      // container made top-level rectangles disappear into each other on drag.
+      // Only explicit layout primitives and canvas-created rectangles accept
+      // drops. Avoid treating every absolute div as a container, because imported
+      // app markup can contain structural wrappers that should stay inert here.
       const isDiv = tag === "div";
       const isEllipse =
         style.borderRadius === "50%" ||
@@ -7360,8 +7487,13 @@ export function parsePrimitivesFromScreen(
         style.display === "inline-flex" ||
         style.display === "grid" ||
         style.display === "inline-grid";
+      const isCanvasRectangle =
+        isDiv && (primitiveKind === "rectangle" || primitiveKind === "rect");
       const isContainer =
-        isDiv && !isEllipse && !isTextAutoSize && isAutoLayout;
+        isDiv &&
+        !isEllipse &&
+        !isTextAutoSize &&
+        (isAutoLayout || isCanvasRectangle);
 
       result.push({
         nodeId,
@@ -7429,7 +7561,31 @@ export function getPrimitiveDropTargetForPoint(
   screens: ScreenFile[],
   frameGeometryById: FrameGeometryById,
   getMetadata: (screen: ScreenFile) => { width: number; height: number },
+  options: { identityCoordinateScreenIds?: ReadonlySet<string> } = {},
 ): PrimitiveDropTarget | null {
+  const toBoardRect = (
+    prim: ParsedScreenPrimitive,
+    frameGeometry: FrameGeometry,
+    metadata: { width: number; height: number },
+  ): FrameGeometry => {
+    if (options.identityCoordinateScreenIds?.has(prim.screenId)) {
+      return {
+        x: prim.localLeft,
+        y: prim.localTop,
+        width: Math.max(1, prim.localWidth),
+        height: Math.max(1, prim.localHeight),
+      };
+    }
+    return primitiveLocalToBoardRect(
+      prim.localLeft,
+      prim.localTop,
+      prim.localWidth,
+      prim.localHeight,
+      frameGeometry,
+      metadata,
+    );
+  };
+
   // Pre-compute the dragged node's board rect so we can exclude its descendants.
   let draggedBoardRect: FrameGeometry | null = null;
   if (draggedNodeId) {
@@ -7440,14 +7596,7 @@ export function getPrimitiveDropTargetForPoint(
       const primitives = parsePrimitivesFromScreen(screen);
       for (const prim of primitives) {
         if (prim.nodeId === draggedNodeId) {
-          draggedBoardRect = primitiveLocalToBoardRect(
-            prim.localLeft,
-            prim.localTop,
-            prim.localWidth,
-            prim.localHeight,
-            frameGeometry,
-            metadata,
-          );
+          draggedBoardRect = toBoardRect(prim, frameGeometry, metadata);
           break outer;
         }
       }
@@ -7477,14 +7626,7 @@ export function getPrimitiveDropTargetForPoint(
       if (!prim.isContainer) continue;
       if (draggedNodeId && prim.nodeId === draggedNodeId) continue;
 
-      const boardRect = primitiveLocalToBoardRect(
-        prim.localLeft,
-        prim.localTop,
-        prim.localWidth,
-        prim.localHeight,
-        frameGeometry,
-        metadata,
-      );
+      const boardRect = toBoardRect(prim, frameGeometry, metadata);
 
       // Exclude geometric descendants: a primitive whose board rect is fully
       // contained within the dragged node's board rect is a child/descendant

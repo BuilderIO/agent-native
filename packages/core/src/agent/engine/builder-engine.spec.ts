@@ -721,11 +721,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
-  it("uses the localhost gateway timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
-    vi.stubEnv(
-      "BUILDER_GATEWAY_BASE_URL",
-      "http://localhost:8080/agent-native/gateway/v1",
-    );
+  it("uses the long local timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
       (_url: string, init?: RequestInit) =>
@@ -758,6 +754,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {
+    vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
@@ -779,6 +776,41 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
     expect(stop?.error).toContain("45s");
+  });
+
+  it("allows background function gateway timeouts above the foreground cap", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "server-agent-background");
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("60s");
   });
 
   it("maps mid-stream rate_limited into a retryable error stop", async () => {

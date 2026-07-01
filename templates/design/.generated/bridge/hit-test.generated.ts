@@ -128,6 +128,13 @@ export const hitTestBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
+    function isAbsolutePrimitiveContainer(el) {
+      if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+      var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (primitive !== "rectangle" && primitive !== "rect") return false;
+      var cs = window.getComputedStyle(el);
+      return cs.position === "absolute" || cs.position === "fixed";
+    }
     function edgePlacementForRect(rect, axis, clientX, clientY) {
       var size = axis === "x" ? rect.width : rect.height;
       if (!size) return null;
@@ -160,7 +167,8 @@ export const hitTestBridgeScript: string = `"use strict";
           return {
             anchor: cursor,
             placement: childPointer < childCenter ? "before" : "after",
-            axis: parentAxis
+            axis: parentAxis,
+            dropMode: "flow-insert"
           };
         }
         if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
@@ -173,12 +181,26 @@ export const hitTestBridgeScript: string = `"use strict";
             clientY
           );
           if (edgePlacement && parent && isAutoLayoutElement(parent)) {
-            return { anchor: cursor, placement: edgePlacement, axis: edgeAxis };
+            return {
+              anchor: cursor,
+              placement: edgePlacement,
+              axis: edgeAxis,
+              dropMode: "flow-insert"
+            };
           }
           return {
             anchor: cursor,
             placement: "inside",
-            axis: parentFlowAxis(cursor)
+            axis: parentFlowAxis(cursor),
+            dropMode: "flow-insert"
+          };
+        }
+        if (isAbsolutePrimitiveContainer(cursor)) {
+          return {
+            anchor: cursor,
+            placement: "inside",
+            axis: "y",
+            dropMode: "absolute-container"
           };
         }
         cursor = parent;
@@ -239,6 +261,7 @@ export const hitTestBridgeScript: string = `"use strict";
       var anchorNodeId = result ? getNodeId(result.anchor) : "";
       var placement = result ? result.placement : "inside";
       var axis = result ? result.axis : "y";
+      var dropMode = result ? result.dropMode : "flow-insert";
       var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
       try {
         window.parent.postMessage(
@@ -248,6 +271,7 @@ export const hitTestBridgeScript: string = `"use strict";
             anchorNodeId,
             placement,
             axis,
+            dropMode,
             anchorRect: anchorRect ? {
               left: anchorRect.left,
               top: anchorRect.top,

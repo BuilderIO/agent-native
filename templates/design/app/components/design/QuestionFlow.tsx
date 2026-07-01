@@ -70,20 +70,20 @@ export function QuestionFlow({
       : Math.round((answeredCount / guidedQuestions.length) * 100);
 
   return (
-    <div className="flex h-full w-full justify-center overflow-y-auto bg-transparent px-6 py-10 text-foreground sm:px-10 lg:px-14">
-      <main className="w-full max-w-4xl pb-10">
-        <div className="mb-9">
-          <h2 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
+    <div className="flex h-full w-full justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">
+      <main className="w-full max-w-[820px] pb-8">
+        <div className="mb-6 border-b border-[var(--design-editor-panel-divider-color)] pb-5">
+          <h2 className="text-[22px] font-semibold leading-7 tracking-normal text-foreground sm:text-2xl sm:leading-8">
             {title ?? t("questionFlow.defaultTitle")}
           </h2>
           {description ? (
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+            <p className="mt-2 max-w-2xl text-[13px] leading-5 text-muted-foreground">
               {description}
             </p>
           ) : null}
         </div>
 
-        <div className="space-y-10">
+        <div className="divide-y divide-[var(--design-editor-panel-divider-color)]">
           {guidedQuestions.map((question) => (
             <QuestionCard
               key={question.id}
@@ -94,13 +94,13 @@ export function QuestionFlow({
           ))}
         </div>
 
-        <div className="mt-10 flex flex-wrap items-center gap-3">
+        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-[var(--design-editor-panel-divider-color)] pt-4">
           <Button
             type="button"
             size="sm"
             onClick={() => onSubmit(normalizeGuidedAnswers(answers))}
             disabled={!allRequiredAnswered}
-            className="cursor-pointer"
+            className="h-8 cursor-pointer rounded-md bg-[var(--design-editor-accent-color)] px-3 text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
           >
             {submitLabel ?? t("questionFlow.continue")}
           </Button>
@@ -109,7 +109,7 @@ export function QuestionFlow({
             variant="ghost"
             size="sm"
             onClick={onSkip}
-            className="cursor-pointer"
+            className="h-8 cursor-pointer rounded-md px-3 text-[12px] text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
           >
             {skipLabel ?? t("questionFlow.skip")}
           </Button>
@@ -131,13 +131,13 @@ function QuestionCard({
   const t = useT();
 
   return (
-    <section className="min-w-0">
+    <section className="min-w-0 py-5 first:pt-0 last:pb-0">
       <div className="mb-3">
-        <h3 className="text-lg font-semibold leading-6 text-foreground">
+        <h3 className="text-[13px] font-semibold leading-5 text-foreground">
           {question.question}
         </h3>
         {question.description && (
-          <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-[12px] leading-5 text-muted-foreground">
             {question.description}
           </p>
         )}
@@ -162,7 +162,7 @@ function QuestionCard({
           placeholder={
             question.placeholder ?? t("questionFlow.textPlaceholder")
           }
-          className="min-h-[92px] resize-none bg-transparent text-sm shadow-none"
+          className="min-h-[88px] resize-none rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       )}
     </section>
@@ -287,7 +287,7 @@ function TextOptions({
           placeholder={
             question.placeholder ?? t("questionFlow.customPlaceholder")
           }
-          className="min-h-[72px] max-w-xl resize-none bg-transparent text-sm shadow-none"
+          className="min-h-[72px] max-w-xl resize-none rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       )}
     </div>
@@ -314,30 +314,30 @@ function OptionButton({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        "group inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-full border text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        compact ? "px-3 py-2" : "px-4 py-2.5",
+        "group inline-flex min-h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border text-start transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0",
+        compact ? "px-2.5 py-1.5" : "px-3 py-2",
         selected
-          ? "border-foreground bg-foreground text-background"
-          : "border-border bg-background/35 text-foreground hover:border-muted-foreground hover:bg-background/70",
+          ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
+          : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]",
       )}
     >
       <span
         className={cn(
-          "flex size-4 shrink-0 items-center justify-center border",
-          multiSelect ? "rounded-sm" : "rounded-full",
+          "flex size-3.5 shrink-0 items-center justify-center border",
+          multiSelect ? "rounded-[3px]" : "rounded-full",
           selected
-            ? "border-background bg-background text-foreground"
-            : "border-muted-foreground/40 bg-transparent",
+            ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)] text-[var(--design-editor-accent-contrast-color)]"
+            : "border-muted-foreground/40 bg-[var(--design-editor-panel-bg)]",
         )}
         aria-hidden
       >
         {selected && <IconCheck className="size-3" />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-medium leading-5">
+        <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] font-semibold leading-4">
           <span className="min-w-0 truncate">{option.label}</span>
           {option.recommended && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+            <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none text-muted-foreground">
               {t("questionFlow.recommended")}
             </span>
           )}
@@ -346,7 +346,7 @@ function OptionButton({
           <span className="sr-only">{option.description}</span>
         )}
         {option.preview && (
-          <span className="mt-2 block max-h-36 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-background/70 px-2 py-1.5 font-mono !text-[11px] leading-4 text-muted-foreground">
+          <span className="mt-2 block max-h-36 overflow-auto whitespace-pre-wrap rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] px-2 py-1.5 font-mono !text-[11px] leading-4 text-muted-foreground">
             {option.preview}
           </span>
         )}
@@ -393,21 +393,21 @@ function ColorOptions({
             onClick={() => toggleOption(option.value)}
             aria-pressed={selected}
             className={cn(
-              "group inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              "group inline-flex min-h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0",
               selected
-                ? "border-foreground bg-foreground text-background"
-                : "border-border bg-background/35 text-foreground hover:border-muted-foreground hover:bg-background/70",
+                ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
+                : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]",
             )}
           >
             <span
               className={cn(
-                "size-6 shrink-0 rounded-full border border-border",
+                "size-5 shrink-0 rounded-full border border-[var(--design-editor-control-border)]",
                 selected &&
-                  "ring-2 ring-background/70 ring-offset-1 ring-offset-foreground",
+                  "ring-1 ring-[var(--design-editor-accent-color)] ring-offset-1 ring-offset-[var(--design-editor-control-bg)]",
               )}
               style={{ backgroundColor: option.color || option.value }}
             />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-4">
               {option.label}
             </span>
             {selected && <IconPalette className="size-3.5 shrink-0" />}
@@ -438,8 +438,8 @@ function SliderQuestion({
   // display-only midpoint fallback for the rendered slider position.
 
   return (
-    <div className="max-w-xl px-1 py-2">
-      <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+    <div className="max-w-xl rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-3 py-3">
+      <div className="mb-3 flex items-center justify-between text-[11px] text-muted-foreground">
         <span>{min}</span>
         <span className="font-medium tabular-nums text-foreground">
           {current}
@@ -488,14 +488,14 @@ function FileDropZone({
         className={cn(
           "flex max-w-xl cursor-pointer flex-col items-center justify-center rounded-md border border-dashed p-5 transition-colors",
           dragOver
-            ? "border-primary bg-primary/5"
-            : "border-border bg-transparent hover:border-muted-foreground/50",
+            ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)]"
+            : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] hover:bg-[var(--design-editor-panel-raised-bg)]",
         )}
       >
         <IconUpload className="mb-2 size-5 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[12px] text-muted-foreground">
           {t("questionFlow.dragFiles")}{" "}
-          <label className="cursor-pointer text-primary hover:underline">
+          <label className="cursor-pointer text-[var(--design-editor-accent-color)] hover:underline">
             {t("questionFlow.browse")}
             <input
               type="file"
@@ -516,9 +516,9 @@ function FileDropZone({
           {files.map((file, index) => (
             <div
               key={`${file.name}:${index}`}
-              className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1 text-xs text-muted-foreground"
+              className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1 text-[11px] text-muted-foreground"
             >
-              <IconCheck className="size-3 text-primary" />
+              <IconCheck className="size-3 text-[var(--design-editor-accent-color)]" />
               <span className="min-w-0 flex-1 truncate">{file.name}</span>
               <button
                 type="button"

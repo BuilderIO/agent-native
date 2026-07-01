@@ -2,9 +2,9 @@
 name: reliable-mutations
 description: >-
   How the agent must perform writes so they actually persist under the hosted
-  ~40s run budget. Use whenever you create, update, delete, or batch-write app
-  data — especially "do this for many items" loops, or any task where the user
-  expects N things to end up saved.
+  foreground run budget and long-running background handoffs. Use whenever you
+  create, update, delete, or batch-write app data — especially "do this for many
+  items" loops, or any task where the user expects N things to end up saved.
 ---
 
 # Reliable Mutations
@@ -18,15 +18,12 @@ tool ✓ alone.
 
 ## Why
 
-Hosted agent runs have a ~40s soft budget (it exists to hand off cleanly under
-the upstream gateway/function walls — it is correct and is not raisable; see the
-durable-agent-runs design doc). When you loop many sequential writes inside one
-turn, the budget can cut you off mid-loop. The run resumes in a new chunk, but
-the resume often re-does earlier steps instead of advancing, so the loop churns
-and the *saved* result ends up partial — or empty — even though each individual
-tool call appeared to succeed. The user gets told "done" while the data says
-otherwise. One atomic call commits or fails as a unit; verification turns a
-hopeful ✓ into a fact.
+Hosted foreground agent runs have a short soft budget so they can hand off
+cleanly under synchronous serverless walls. Durable background runs get a much
+longer budget, but they still should not rely on loops of many small writes:
+continuations can retry the same intent and leave partial state if each item is
+committed separately. One atomic call commits or fails as a unit; verification
+turns a hopeful ✓ into a fact.
 
 ## How
 
@@ -34,11 +31,12 @@ hopeful ✓ into a fact.
    many, set all, bulk update), pass the full batch in one call so it commits
    atomically. Check the action surface for a batch/plural form before reaching
    for a loop.
-2. **Do not loop many small writes under the run budget.** A sequence of N
-   per-item writes in one turn will race the ~40s cutoff and can leave partial
-   or no state. If no batch action exists, that is a gap in the action layer —
-   add or extend an action that accepts the batch (see the `actions` skill)
-   rather than papering over it with a loop.
+2. **Do not loop many small writes under any run budget.** A sequence of N
+   per-item writes can still leave partial or no state when a foreground run
+   hands off, a background run continues, or an upstream provider fails. If no
+   batch action exists, that is a gap in the action layer — add or extend an
+   action that accepts the batch (see the `actions` skill) rather than papering
+   over it with a loop.
 3. **Verify the end state after writing.** Re-read the data (a list/read action,
    a count query) and confirm the result matches intent — the right number of
    rows, the expected ids/fields. Do this before you tell the user it worked.

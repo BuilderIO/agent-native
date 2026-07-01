@@ -20,7 +20,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -69,6 +69,33 @@ const trackSchema = z.object({
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+export function resolveMotionTimelineInsertOwnership(args: {
+  requestUserEmail?: string | null;
+  requestOrgId?: string | null;
+  designOwnerEmail?: unknown;
+  designOrgId?: unknown;
+}): { ownerEmail: string; orgId: string | null } {
+  const ownerEmail =
+    nonEmptyString(args.requestUserEmail) ??
+    nonEmptyString(args.designOwnerEmail);
+
+  if (!ownerEmail) throw new Error("no authenticated user");
+
+  return {
+    ownerEmail,
+    orgId:
+      nonEmptyString(args.requestOrgId) ?? nonEmptyString(args.designOrgId),
+  };
+}
+
+export function canPatchManagedMotionCss(content: string): boolean {
+  return /<\s*(?:!doctype|[a-z][a-z0-9:-]*(?:\s|>|\/>))/i.test(content);
+}
 
 async function persistFileContent(
   fileId: string,
@@ -179,16 +206,13 @@ export default defineAction({
     includeContent,
     currentContent: currentContentInput,
   }) => {
-    await assertAccess("design", designId, "editor");
+    const access = await assertAccess("design", designId, "editor");
 
     const db = getDb();
     const now = new Date().toISOString();
 
     // ── 1. Resolve the target design file ──────────────────────────────────
-    const conditions = [
-      accessFilter(schema.designs, schema.designShares),
-      eq(schema.designFiles.designId, designId),
-    ];
+    const conditions = [eq(schema.designFiles.designId, designId)];
     if (fileIdInput) {
       conditions.push(eq(schema.designFiles.id, fileIdInput));
     } else {
@@ -256,7 +280,10 @@ export default defineAction({
     });
 
     // ── 3. Inject the managed CSS block into the HTML ───────────────────────
-    const patchedContent = injectManagedMotionCss(currentContent, css);
+    const contentPatched = canPatchManagedMotionCss(currentContent);
+    const patchedContent = contentPatched
+      ? injectManagedMotionCss(currentContent, css)
+      : currentContent;
     const bytesBefore = currentContent.length;
     const bytesAfter = patchedContent.length;
 
@@ -303,11 +330,18 @@ export default defineAction({
       if (existingForSource) {
         existingTimelineId = existingForSource.id;
       } else {
-        // Insert new row — derive ownership from the request context (same
-        // pattern as create-design-state and other create actions).
-        insertOwnerEmail = getRequestUserEmail() ?? null;
-        if (!insertOwnerEmail) throw new Error("no authenticated user");
-        insertOrgId = getRequestOrgId() ?? null;
+        // Insert new row — derive ownership from the request context, falling
+        // back to the already-authorized design owner for local/public editor
+        // sessions that do not carry an authenticated request user.
+        const insertOwnership = resolveMotionTimelineInsertOwnership({
+          requestUserEmail: getRequestUserEmail(),
+          requestOrgId: getRequestOrgId(),
+          designOwnerEmail: (access.resource as { ownerEmail?: unknown })
+            .ownerEmail,
+          designOrgId: (access.resource as { orgId?: unknown }).orgId,
+        });
+        insertOwnerEmail = insertOwnership.ownerEmail;
+        insertOrgId = insertOwnership.orgId;
       }
     }
 
@@ -352,12 +386,9 @@ export default defineAction({
     // Written after the row so a SQL failure here leaves the timeline row
     // accurate (correct tracks + hash) and the stale HTML can be recompiled on
     // the next apply-motion-edit call via compiledHash drift detection.
-    const updatedAt = await persistFileContent(
-      fileId,
-      designId,
-      patchedContent,
-      now,
-    );
+    const updatedAt = contentPatched
+      ? await persistFileContent(fileId, designId, patchedContent, now)
+      : now;
 
     return {
       timelineId: resolvedTimelineId,
@@ -371,6 +402,7 @@ export default defineAction({
       bytesAfter,
       bytesDelta: bytesAfter - bytesBefore,
       persisted: true,
+      contentPatched,
       patchedContent: includeContent ? patchedContent : undefined,
     };
   },

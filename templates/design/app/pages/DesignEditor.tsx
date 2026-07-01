@@ -131,7 +131,14 @@ import {
   type SetStateAction,
 } from "react";
 import { flushSync } from "react-dom";
-import { useParams, useNavigate, Link, useLocation } from "react-router";
+import {
+  useParams,
+  useNavigate,
+  Link,
+  useLocation,
+  useBlocker,
+  useBeforeUnload,
+} from "react-router";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
@@ -186,6 +193,8 @@ import type {
   ElementInfo,
   ElementSelectionIntent,
   DeviceFrameType,
+  PortableStyleSnapshot,
+  PortableStyleSnapshotNode,
 } from "@/components/design/types";
 import {
   DEVICE_FRAME_VIEWPORTS,
@@ -193,6 +202,16 @@ import {
 } from "@/components/design/types";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -332,9 +351,27 @@ function dedupeStringIds(ids: string[]): string[] {
   return Array.from(new Set(ids.filter(Boolean)));
 }
 
+function sameStringIds(a: string[], b: string[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   const tagName = info?.tagName?.toUpperCase();
   return tagName === "BODY" || tagName === "HTML";
+}
+
+export function shouldIgnoreOverviewLayerCreationEcho(args: {
+  pendingLayerId: string | null | undefined;
+  pendingScreenId: string | null | undefined;
+  screenId: string;
+  info?: ElementInfo | null;
+  event: "select" | "clear";
+}) {
+  if (!args.pendingLayerId) return false;
+  if (args.pendingScreenId && args.pendingScreenId !== args.screenId) {
+    return false;
+  }
+  return args.event === "clear" || isScreenRootElementInfo(args.info);
 }
 
 export function getSelectedScreenIdsForEditorState(args: {
@@ -866,6 +903,99 @@ interface LiveScreenSnapshot {
   contentType?: string;
 }
 
+export interface PendingVisualStyleEdit {
+  screenId: string;
+  filename: string;
+  screenName: string;
+  selector: string;
+  sourceId?: string | null;
+  tagName?: string | null;
+  classes: string[];
+  styles: Record<string, string>;
+  updatedAt: number;
+}
+
+function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
+  return [
+    edit.screenId,
+    edit.sourceId?.trim() || edit.selector.trim() || "unknown",
+  ].join("::");
+}
+
+export function mergePendingVisualStyleEdit(
+  edits: readonly PendingVisualStyleEdit[],
+  nextEdit: PendingVisualStyleEdit,
+): PendingVisualStyleEdit[] {
+  const nextKey = pendingVisualStyleEditKey(nextEdit);
+  let merged = false;
+  const next = edits.map((edit) => {
+    if (pendingVisualStyleEditKey(edit) !== nextKey) return edit;
+    merged = true;
+    return {
+      ...edit,
+      ...nextEdit,
+      classes: nextEdit.classes.length > 0 ? nextEdit.classes : edit.classes,
+      styles: { ...edit.styles, ...nextEdit.styles },
+    };
+  });
+  return merged ? next : [...edits, nextEdit];
+}
+
+export function getPendingVisualStylePropertyCount(
+  edits: readonly PendingVisualStyleEdit[],
+): number {
+  return edits.reduce(
+    (count, edit) => count + Object.keys(edit.styles).length,
+    0,
+  );
+}
+
+export function shouldBlockPendingVisualStyleNavigation(args: {
+  hasPendingVisualStyleEdits: boolean;
+  currentPathname: string;
+  nextPathname: string;
+}): boolean {
+  return (
+    args.hasPendingVisualStyleEdits &&
+    args.currentPathname !== args.nextPathname
+  );
+}
+
+export function formatPendingVisualStylePrompt(args: {
+  designId?: string | null;
+  designTitle?: string | null;
+  activeFileId?: string | null;
+  activeFilename?: string | null;
+  edits: readonly PendingVisualStyleEdit[];
+}): string {
+  const title = args.designTitle?.trim();
+  const editPayload = args.edits.map((edit) => ({
+    screenId: edit.screenId,
+    filename: edit.filename,
+    screenName: edit.screenName,
+    selector: edit.selector,
+    sourceId: edit.sourceId ?? null,
+    tagName: edit.tagName ?? null,
+    classes: edit.classes,
+    styles: edit.styles,
+  }));
+
+  return [
+    `Apply these pending visual style edits${title ? ` to "${title}"` : ""}.`,
+    args.designId ? `Design id: "${args.designId}".` : "",
+    args.activeFileId
+      ? `Active screen: "${args.activeFilename ?? args.activeFileId}" (${args.activeFileId}).`
+      : "",
+    "",
+    "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    "",
+    "Pending style edits:",
+    JSON.stringify(editPayload, null, 2),
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
 interface DesignData {
   id: string;
   title: string;
@@ -893,6 +1023,7 @@ interface CanvasLayerClipboardEntry {
   html: string;
   rootNodeId?: string;
   sourceFileId: string;
+  portableStyleSnapshot?: PortableStyleSnapshot;
 }
 
 interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
@@ -1451,6 +1582,80 @@ function setAbsolutePositioningForNodeInHtml(
   }
 }
 
+function getAbsolutePositioningForNodeInHtml(
+  content: string,
+  nodeAttrId: string,
+): { x: number; y: number } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const element = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    ) as HTMLElement | null;
+    if (!element) return null;
+    return {
+      x: Number.parseFloat(element.style.left || "0") || 0,
+      y: Number.parseFloat(element.style.top || "0") || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function elementAtPortableStylePath(
+  root: Element,
+  node: PortableStyleSnapshotNode,
+): Element | null {
+  let current: Element | null = root;
+  for (const index of node.path) {
+    if (!current || !Number.isInteger(index) || index < 0) return null;
+    current = current.children.item(index);
+  }
+  return current;
+}
+
+function applyPortableStyles(
+  element: Element | null,
+  styles: Record<string, string>,
+) {
+  if (!element) return;
+  const host = styleHost(element);
+  if (!host) return;
+  Object.entries(styles).forEach(([property, value]) => {
+    if (!value) return;
+    if (property.startsWith("--") || property.includes("-")) {
+      host.style.setProperty(property, value);
+      return;
+    }
+    (host.style as any)[property] = value;
+  });
+}
+
+function applyPortableStyleSnapshotToHtml(
+  content: string,
+  nodeAttrId: string,
+  snapshot?: PortableStyleSnapshot,
+): string {
+  if (typeof window === "undefined" || !snapshot?.nodes?.length) {
+    return content;
+  }
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const root = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    );
+    if (!root) return content;
+    root.setAttribute("data-agent-native-preserve-styles", "true");
+    snapshot.nodes.forEach((node) => {
+      const target = elementAtPortableStylePath(root, node);
+      if (target) applyPortableStyles(target, node.styles);
+    });
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
 function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
   const position = String(node?.style.position ?? "").toLowerCase();
   return position === "absolute" || position === "fixed";
@@ -1951,6 +2156,7 @@ function setRootLayerPosition(
 function prepareClonedHtmlLayer(
   doc: Document,
   layerHtml: string,
+  styleSnapshot?: PortableStyleSnapshot,
 ): { element: Element; rootNodeId: string } | null {
   const layerDoc = new DOMParser().parseFromString(
     `<template>${layerHtml}</template>`,
@@ -1961,6 +2167,13 @@ function prepareClonedHtmlLayer(
     layerDoc.body.firstElementChild;
   if (!source) return null;
   const clone = doc.importNode(source, true) as Element;
+  if (styleSnapshot) {
+    clone.setAttribute("data-agent-native-preserve-styles", "true");
+    styleSnapshot.nodes.forEach((node) => {
+      const target = elementAtPortableStylePath(clone, node);
+      if (target) applyPortableStyles(target, node.styles);
+    });
+  }
   const rootNodeId = uniqueLayerId("copy");
   clone.setAttribute("data-agent-native-node-id", rootNodeId);
   Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
@@ -1983,6 +2196,7 @@ function insertClonedHtmlLayers(
     placement?: "before" | "after" | "inside";
     stripRootPosition?: boolean;
     positions?: Array<{ x: number; y: number } | null | undefined>;
+    styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
   } = {},
 ): { content: string; rootNodeIds: string[] } | null {
   if (typeof window === "undefined" || layerHtmls.length === 0) return null;
@@ -1992,7 +2206,11 @@ function insertClonedHtmlLayers(
     const fragment = doc.createDocumentFragment();
     const rootNodeIds: string[] = [];
     layerHtmls.forEach((layerHtml, index) => {
-      const prepared = prepareClonedHtmlLayer(doc, layerHtml);
+      const prepared = prepareClonedHtmlLayer(
+        doc,
+        layerHtml,
+        options.styleSnapshots?.[index] ?? undefined,
+      );
       if (!prepared) return;
       const position = options.positions?.[index];
       if (position) {
@@ -3078,7 +3296,11 @@ function DesignWorkspaceRail({
                       "group-hover:bg-transparent group-hover:text-muted-foreground",
                   )}
                 >
-                  <IconChevronUp className="size-[15px]" />
+                  {motionOpen ? (
+                    <IconChevronDown className="size-[15px]" />
+                  ) : (
+                    <IconChevronUp className="size-[15px]" />
+                  )}
                 </span>
                 <span className="max-w-full truncate leading-none">
                   {"Motion" /* i18n-ignore */}
@@ -3970,6 +4192,9 @@ export default function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
+  const [pendingVisualStyleEdits, setPendingVisualStyleEdits] = useState<
+    PendingVisualStyleEdit[]
+  >([]);
   const [textEditingState, setTextEditingState] = useState<{
     active: boolean;
     selector?: string;
@@ -6738,6 +6963,7 @@ export default function DesignEditor() {
   // Canvas container ref for cursor overlay coordinate mapping.
   const canvasContextMenuRef = useRef<CanvasContextMenuHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const activeEditorDragRef = useRef(false);
 
   // Live handle to the active DesignCanvas preview iframe. DesignCanvas owns the
   // <iframe> internally (tagged data-design-preview-iframe) and does not forward
@@ -6754,6 +6980,25 @@ export default function DesignEditor() {
     }),
     [],
   );
+
+  const handleEditorDragStateChange = useCallback((active: boolean) => {
+    activeEditorDragRef.current = active;
+  }, []);
+
+  const cancelActiveEditorDrag = useCallback(() => {
+    if (!activeEditorDragRef.current) return false;
+    activeEditorDragRef.current = false;
+    if (typeof document === "undefined") return true;
+    document
+      .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+      .forEach((iframe) => {
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:cancel-active-drag" },
+          "*",
+        );
+      });
+    return true;
+  }, []);
 
   const handleRunDesignAudit = useCallback(async () => {
     if (!id || !activeFile?.id) return;
@@ -7001,6 +7246,98 @@ export default function DesignEditor() {
       return true;
     },
     [liveScreenSnapshotsById],
+  );
+  const recordPendingVisualStyleEdit = useCallback(
+    (
+      screenId: string,
+      selector: string,
+      styles: Record<string, string>,
+      elementInfo?: ElementInfo,
+    ) => {
+      if (!canEditDesign) return;
+      const entries = Object.entries(styles).filter(
+        ([, value]) => value !== undefined,
+      );
+      if (entries.length === 0) return;
+      const stylePatch = Object.fromEntries(entries);
+      const screen = files.find((file) => file.id === screenId);
+      const fallbackName = screen?.filename ?? screenId;
+      const sourceId =
+        elementInfo?.sourceId ??
+        (screenId === activeFile?.id ? selectedElement?.sourceId : null);
+      const proofId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const [firstProperty, firstValue] = entries[0];
+
+      setPendingVisualStyleEdits((current) =>
+        mergePendingVisualStyleEdit(current, {
+          screenId,
+          filename: fallbackName,
+          screenName: prettyScreenName(fallbackName),
+          selector,
+          sourceId,
+          tagName: elementInfo?.tagName ?? null,
+          classes: elementInfo?.classes ?? [],
+          styles: stylePatch,
+          updatedAt: Date.now(),
+        }),
+      );
+      setPatchProof({
+        id: proofId,
+        fileId: screenId,
+        filename: fallbackName,
+        selector,
+        sourceId: sourceId ?? undefined,
+        property:
+          entries.length === 1
+            ? firstProperty
+            : entries.map(([property]) => property).join(", "),
+        previousValue:
+          elementInfo?.computedStyles?.[firstProperty] ??
+          (screenId === activeFile?.id
+            ? selectedElement?.computedStyles?.[firstProperty]
+            : undefined),
+        nextValue:
+          entries.length === 1
+            ? firstValue
+            : entries
+                .map(([property, value]) => `${property}: ${value}`)
+                .join("; "),
+        previousContent: getProjectionContentForScreen(screenId),
+        capability: "deterministic-style-edit",
+        confidence: 0.92,
+        status: "runtime",
+        createdAt: Date.now(),
+      });
+
+      if (screenId !== activeFile?.id) return;
+      setSelectedElement((prev) => {
+        const base = elementInfo ?? prev;
+        if (!base) return prev;
+        return {
+          ...base,
+          sourceId: sourceId ?? base.sourceId,
+          selector: selector || base.selector,
+          computedStyles: {
+            ...base.computedStyles,
+            ...stylePatch,
+          },
+        };
+      });
+      if (sourceId) {
+        setSelectedLayerIdsState([sourceId]);
+      }
+    },
+    [
+      activeFile?.id,
+      canEditDesign,
+      files,
+      getProjectionContentForScreen,
+      selectedElement?.computedStyles,
+      selectedElement?.sourceId,
+    ],
   );
   const activeProjectionContent =
     activeFile?.id !== undefined
@@ -7688,6 +8025,7 @@ export default function DesignEditor() {
               fileId?: unknown;
               timelineId?: unknown;
               updatedAt?: unknown;
+              contentPatched?: unknown;
             };
             if (typeof response.timelineId === "string") {
               setMotionTimelineId(response.timelineId);
@@ -7699,7 +8037,8 @@ export default function DesignEditor() {
             }
             if (
               typeof response.fileId === "string" &&
-              response.fileId === activeFile.id
+              response.fileId === activeFile.id &&
+              response.contentPatched !== false
             ) {
               applyFileContentUpdate(response.fileId, localPatchedContent, {
                 refreshPreview: true,
@@ -7925,7 +8264,8 @@ export default function DesignEditor() {
       // new primitive selected, matching Figma behaviour.  We activate the
       // target screen (so the layers panel shows its content) and select the
       // new node, but do NOT switch to single/full view.
-      pendingOverviewScreenSelectionRef.current = screenId;
+      pendingOverviewScreenSelectionRef.current =
+        options?.selectFrame === false ? null : screenId;
       pendingOverviewLayerSelectionRef.current = nodeId;
       clearPendingOverviewLayerSelectionTimer();
       flushSync(() => {
@@ -7980,13 +8320,14 @@ export default function DesignEditor() {
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[]) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
-      const fileIds = new Set(files.map((file) => file.id));
+      const fileIds = new Set(
+        files.filter((file) => file.id !== boardFileId).map((file) => file.id),
+      );
+      const nextIds = ids.filter((layerId) => fileIds.has(layerId));
       if (pendingId && ids.length === 0) return;
       if (pendingId && ids.includes(pendingId)) {
-        setOverviewSelectedScreenIds(
-          ids.filter(
-            (layerId) => fileIds.has(layerId) || layerId === pendingId,
-          ),
+        setOverviewSelectedScreenIds((current) =>
+          sameStringIds(current, nextIds) ? current : nextIds,
         );
         if (fileIds.has(pendingId)) {
           pendingOverviewScreenSelectionRef.current = null;
@@ -7999,11 +8340,11 @@ export default function DesignEditor() {
         clearPendingOverviewLayerSelectionTimer();
         setCreatedOverviewLayerSelection(null);
       }
-      setOverviewSelectedScreenIds(
-        ids.filter((layerId) => fileIds.has(layerId)),
+      setOverviewSelectedScreenIds((current) =>
+        sameStringIds(current, nextIds) ? current : nextIds,
       );
     },
-    [clearPendingOverviewLayerSelectionTimer, files],
+    [boardFileId, clearPendingOverviewLayerSelectionTimer, files],
   );
 
   const shouldPreserveBlockedOverviewLayerSelectionRef = useRef<
@@ -8469,14 +8810,14 @@ export default function DesignEditor() {
     (screenId: string, info: ElementInfo, intent?: ElementSelectionIntent) => {
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
-      const createdSelection = createdOverviewLayerSelection;
-      if (createdSelection?.screenId === screenId) {
-        return;
-      }
       if (
-        (pendingLayerId || createdSelection?.layerId) &&
-        (!pendingScreenId || pendingScreenId === screenId) &&
-        isScreenRootElementInfo(info)
+        shouldIgnoreOverviewLayerCreationEcho({
+          pendingLayerId,
+          pendingScreenId,
+          screenId,
+          info,
+          event: "select",
+        })
       ) {
         return;
       }
@@ -8535,7 +8876,6 @@ export default function DesignEditor() {
     },
     [
       clearPendingOverviewLayerSelectionTimer,
-      createdOverviewLayerSelection,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       selectedLayerIdsState,
@@ -8546,13 +8886,13 @@ export default function DesignEditor() {
     (screenId: string) => {
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
-      const createdSelection = createdOverviewLayerSelection;
-      if (createdSelection?.screenId === screenId) {
-        return;
-      }
       if (
-        (pendingLayerId || createdSelection?.layerId) &&
-        (!pendingScreenId || pendingScreenId === screenId)
+        shouldIgnoreOverviewLayerCreationEcho({
+          pendingLayerId,
+          pendingScreenId,
+          screenId,
+          event: "clear",
+        })
       ) {
         return;
       }
@@ -8574,7 +8914,7 @@ export default function DesignEditor() {
       setActiveTool("move");
       setMode("edit");
     },
-    [clearPendingOverviewLayerSelectionTimer, createdOverviewLayerSelection],
+    [clearPendingOverviewLayerSelectionTimer],
   );
 
   const handleElementSelect = useCallback(
@@ -9252,12 +9592,15 @@ export default function DesignEditor() {
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
     ) => {
-      commitVisualStyles(selector, styles, {
-        runtimeApplied: true,
+      if (!activeFile?.id) return;
+      recordPendingVisualStyleEdit(
+        activeFile.id,
+        selector,
+        styles,
         elementInfo,
-      });
+      );
     },
-    [commitVisualStyles],
+    [activeFile?.id, recordPendingVisualStyleEdit],
   );
 
   const handleVisualStructureChange = useCallback(
@@ -9270,6 +9613,9 @@ export default function DesignEditor() {
         sourceId?: string;
         anchorSourceId?: string;
         requestId?: string;
+        dropMode?: "flow-insert" | "absolute-container";
+        sourceRect?: { x: number; y: number; width: number; height: number };
+        anchorRect?: { x: number; y: number; width: number; height: number };
       },
     ) => {
       if (!canEditDesign) return false;
@@ -9319,12 +9665,29 @@ export default function DesignEditor() {
               (node) => node.id === patch.result.after?.nodeId,
             )?.dataAttributes["data-agent-native-node-id"]
           : undefined);
+      const absoluteContainerOffset =
+        details?.dropMode === "absolute-container" &&
+        details.sourceRect &&
+        details.anchorRect
+          ? {
+              x: details.sourceRect.x - details.anchorRect.x,
+              y: details.sourceRect.y - details.anchorRect.y,
+            }
+          : null;
       const nextContent =
         isAbsoluteCodeLayerNode(targetNode) && movedNodeAttrId
-          ? removeAbsolutePositioningFromNodeInHtml(
-              patch.content,
-              movedNodeAttrId,
-            )
+          ? details?.dropMode === "absolute-container"
+            ? absoluteContainerOffset
+              ? setAbsolutePositioningForNodeInHtml(
+                  patch.content,
+                  movedNodeAttrId,
+                  absoluteContainerOffset,
+                )
+              : patch.content
+            : removeAbsolutePositioningFromNodeInHtml(
+                patch.content,
+                movedNodeAttrId,
+              )
           : patch.content;
       const nextProjection = buildCodeLayerProjection(nextContent);
       const movedNode =
@@ -9554,76 +9917,9 @@ export default function DesignEditor() {
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
     ) => {
-      if (screenId === activeFile?.id) {
-        handleVisualStyleChange(selector, styles, elementInfo);
-        return;
-      }
-      if (!canEditDesign) return;
-      const entries = Object.entries(styles).filter(
-        ([, value]) => value !== undefined,
-      );
-      if (entries.length === 0) return;
-      const liveSnapshot = liveScreenSnapshotsById[screenId];
-      const baseContent = liveSnapshot?.html ?? getScreenContent(screenId);
-      const projection = buildCodeLayerProjection(baseContent);
-      const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
-      const targetNode = targetInfo
-        ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
-        : resolveCodeLayerNodeFromBridge(projection, selector);
-      const fallbackContent = applyInlineStylesToHtml(baseContent, selector, {
-        ...Object.fromEntries(entries),
-      });
-      const stylePatch = entries.reduce<{
-        content: string;
-        failed: string | null;
-      }>(
-        (current, [property, value]) => {
-          if (current.failed) return current;
-          const patch = applyVisualEdit(current.content, {
-            kind: "style",
-            target: targetNode ? { nodeId: targetNode.id } : { selector },
-            property,
-            value,
-          });
-          if (patch.result.status !== "applied") {
-            return {
-              content: current.content,
-              failed: codeLayerPatchMessage(
-                patch.result.message,
-                t("designEditor.patchProof.selectorMissing"),
-              ),
-            };
-          }
-          return { content: patch.content, failed: null };
-        },
-        { content: baseContent, failed: null },
-      );
-      const nextContent = stylePatch.failed
-        ? fallbackContent
-        : stylePatch.content;
-      if (!nextContent) {
-        toast.error(
-          stylePatch.failed ?? t("designEditor.patchProof.selectorMissing"),
-          { duration: 4000 },
-        );
-        return;
-      }
-      if (liveSnapshot) {
-        updateLiveScreenSnapshotContent(screenId, nextContent);
-        return;
-      }
-      applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      recordPendingVisualStyleEdit(screenId, selector, styles, elementInfo);
     },
-    [
-      activeFile?.id,
-      applyFileContentUpdate,
-      canEditDesign,
-      getScreenContent,
-      handleVisualStyleChange,
-      liveScreenSnapshotsById,
-      t,
-      updateLiveScreenSnapshotContent,
-    ],
+    [recordPendingVisualStyleEdit],
   );
 
   const handleScreenVisualStructureChange = useCallback(
@@ -9637,6 +9933,9 @@ export default function DesignEditor() {
         sourceId?: string;
         anchorSourceId?: string;
         requestId?: string;
+        dropMode?: "flow-insert" | "absolute-container";
+        sourceRect?: { x: number; y: number; width: number; height: number };
+        anchorRect?: { x: number; y: number; width: number; height: number };
       },
     ) => {
       if (screenId === activeFile?.id) {
@@ -9687,15 +9986,51 @@ export default function DesignEditor() {
         );
         return false;
       }
-      applyFileContentUpdate(screenId, patch.content, { skipPreview: true });
-      const movedNode =
+      const movedNodeAttrId =
+        targetNode?.dataAttributes["data-agent-native-node-id"] ??
+        details?.sourceId ??
+        elementInfo?.sourceId ??
         (patch.result.after?.nodeId
           ? patch.projection.nodes.find(
               (node) => node.id === patch.result.after?.nodeId,
+            )?.dataAttributes["data-agent-native-node-id"]
+          : undefined);
+      const absoluteContainerOffset =
+        details?.dropMode === "absolute-container" &&
+        details.sourceRect &&
+        details.anchorRect
+          ? {
+              x: details.sourceRect.x - details.anchorRect.x,
+              y: details.sourceRect.y - details.anchorRect.y,
+            }
+          : null;
+      const nextContent =
+        isAbsoluteCodeLayerNode(targetNode) && movedNodeAttrId
+          ? details?.dropMode === "absolute-container"
+            ? absoluteContainerOffset
+              ? setAbsolutePositioningForNodeInHtml(
+                  patch.content,
+                  movedNodeAttrId,
+                  absoluteContainerOffset,
+                )
+              : patch.content
+            : removeAbsolutePositioningFromNodeInHtml(
+                patch.content,
+                movedNodeAttrId,
+              )
+          : patch.content;
+      const nextProjection = buildCodeLayerProjection(nextContent);
+      applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      const movedNode =
+        (movedNodeAttrId
+          ? nextProjection.nodes.find(
+              (node) =>
+                node.dataAttributes["data-agent-native-node-id"] ===
+                movedNodeAttrId,
             )
           : null) ??
         resolveCodeLayerNodeFromBridge(
-          patch.projection,
+          nextProjection,
           selector,
           details?.sourceId ??
             elementInfo?.sourceId ??
@@ -9925,11 +10260,18 @@ export default function DesignEditor() {
             candidate.dataAttributes["data-agent-native-node-id"] === layerId,
         );
         if (!node?.source) continue;
+        const portableStyleSnapshot =
+          selectedElementLayerId &&
+          node.id === selectedElementLayerId &&
+          selectedElement?.portableStyleSnapshot
+            ? selectedElement.portableStyleSnapshot
+            : undefined;
         snapshots.push({
           html: content.slice(node.source.start, node.source.end),
           rootNodeId:
             node.dataAttributes["data-agent-native-node-id"] ?? node.id,
           sourceFileId: file.id,
+          portableStyleSnapshot,
           node,
           sourceIndex: node.source.start,
           tree,
@@ -9956,6 +10298,7 @@ export default function DesignEditor() {
             selectedElement.sourceId ??
             selectedElement.id,
           sourceFileId: activeFile.id,
+          portableStyleSnapshot: selectedElement.portableStyleSnapshot,
           node,
           sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
           tree,
@@ -10020,19 +10363,31 @@ export default function DesignEditor() {
         )
         .filter((node): node is CodeLayerNode => Boolean(node));
       if (insertedNodes.length === 0) return;
+      const lastNode = insertedNodes[insertedNodes.length - 1];
+      if (lastNode) {
+        pendingOverviewScreenSelectionRef.current =
+          screenId === boardFileId ? null : screenId;
+        pendingOverviewLayerSelectionRef.current = lastNode.id;
+        clearPendingOverviewLayerSelectionTimer();
+        setCreatedOverviewLayerSelection({
+          screenId,
+          layerId: lastNode.id,
+        });
+      }
       setActiveFileId(screenId);
       setSelectedLayerIdsState(insertedNodes.map((node) => node.id));
-      const lastNode = insertedNodes[insertedNodes.length - 1];
       setSelectedElement(
         lastNode ? elementInfoFromCodeLayerNode(lastNode) : null,
       );
       setActiveTool("move");
       setMode("edit");
       if (viewModeRef.current === "overview") {
-        setOverviewSelectedScreenIds([screenId]);
+        setOverviewSelectedScreenIds(
+          screenId === boardFileId ? [] : [screenId],
+        );
       }
     },
-    [],
+    [boardFileId, clearPendingOverviewLayerSelectionTimer],
   );
 
   const handleCopySelection = useCallback(async () => {
@@ -10040,6 +10395,7 @@ export default function DesignEditor() {
       html: snapshot.html,
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
+      portableStyleSnapshot: snapshot.portableStyleSnapshot,
     }));
     if (entries.length === 0) return;
     const clipboardText = entries.map((entry) => entry.html).join("\n");
@@ -10057,9 +10413,32 @@ export default function DesignEditor() {
   const handlePasteSelection = useCallback(
     (position?: { x: number; y: number }) => {
       const entries = getCanvasClipboardEntries();
-      if (!activeFile || !canEditDesign || entries.length === 0) return;
-      const baseContent = getFreshActiveContent();
+      const targetFileId =
+        viewModeRef.current === "overview" && position && boardFileId
+          ? boardFileId
+          : activeFile?.id;
+      if (!targetFileId || !canEditDesign || entries.length === 0) return;
+      const targetIsBoard = targetFileId === boardFileId;
+      const baseContent =
+        targetFileId === activeFile?.id
+          ? getFreshActiveContent()
+          : (getScreenContent(targetFileId) ?? "");
+      if (!baseContent && targetFileId !== boardFileId) return;
       const layerHtmls = entries.map((entry) => entry.html);
+      const styleSnapshots = targetIsBoard
+        ? entries.map((entry) => entry.portableStyleSnapshot)
+        : undefined;
+      const applyPasteContentUpdate = (nextContent: string) => {
+        if (targetFileId === activeFile?.id) {
+          applyLocalContentUpdate(nextContent, {
+            forcePreviewFullDocument: true,
+          });
+          return;
+        }
+        applyFileContentUpdate(targetFileId, nextContent, {
+          forcePreviewFullDocument: true,
+        });
+      };
 
       // B7 fix: when an element is selected and no explicit canvas position was
       // given, insert the clone as an in-flow sibling right AFTER the selected
@@ -10067,20 +10446,19 @@ export default function DesignEditor() {
       // in normal document flow instead of being an absolutely-positioned body
       // child.  Fall back to the old position-based clone when nothing is
       // selected or a "Paste here" position is provided.
-      if (!position && selectedElement?.selector) {
+      if (!position && !targetIsBoard && selectedElement?.selector) {
         const selector = selectedCanvasSelector ?? selectedElement.selector;
         const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
           targetSelectors: [selector],
           placement: "after",
           stripRootPosition: true,
+          styleSnapshots,
         });
         if (result) {
           pasteCascadeRef.current += 1;
-          applyLocalContentUpdate(result.content, {
-            forcePreviewFullDocument: true,
-          });
+          applyPasteContentUpdate(result.content);
           selectInsertedLayers(
-            activeFile.id,
+            targetFileId,
             result.content,
             result.rootNodeIds,
           );
@@ -10127,20 +10505,22 @@ export default function DesignEditor() {
       });
       const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
         positions,
+        styleSnapshots,
       });
       if (!result) return;
       if (!position) pasteCascadeRef.current += 1;
-      applyLocalContentUpdate(result.content, {
-        forcePreviewFullDocument: true,
-      });
-      selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
+      applyPasteContentUpdate(result.content);
+      selectInsertedLayers(targetFileId, result.content, result.rootNodeIds);
     },
     [
       activeFile,
+      applyFileContentUpdate,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
       getCanvasClipboardEntries,
       getFreshActiveContent,
+      getScreenContent,
       selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
@@ -10153,6 +10533,7 @@ export default function DesignEditor() {
     const baseContent = getFreshActiveContent();
     if (selectedElement?.boundingRect) {
       const { x, y } = selectedElement.boundingRect;
+      const targetIsBoard = activeFile.id === boardFileId;
       const result = insertClonedHtmlLayers(
         baseContent,
         entries.map((entry) => entry.html),
@@ -10161,6 +10542,9 @@ export default function DesignEditor() {
             x: x + index * 16,
             y: y + index * 16,
           })),
+          styleSnapshots: targetIsBoard
+            ? entries.map((entry) => entry.portableStyleSnapshot)
+            : undefined,
         },
       );
       if (!result) return;
@@ -10174,6 +10558,7 @@ export default function DesignEditor() {
   }, [
     activeFile,
     applyLocalContentUpdate,
+    boardFileId,
     getCanvasClipboardEntries,
     getFreshActiveContent,
     handlePasteSelection,
@@ -10502,9 +10887,9 @@ export default function DesignEditor() {
    * Handle a primitive being drag-dropped onto another primitive in the
    * MultiScreenCanvas overview (CONTRACT: onPrimitiveReparent prop).
    *
-   * Same-screen: applies a moveNode intent then strips the moved node's
-   * absolute positioning so it becomes a flow child of the container.
-   * Cross-screen: uses moveNodeBetweenDocuments and persists both files.
+   * Same-screen: applies a moveNode intent then rebases the moved node's
+   * absolute coordinates relative to the target rectangle. Cross-screen uses
+   * moveNodeBetweenDocuments and persists both files.
    */
   const handleOverviewPrimitiveReparent = useCallback(
     ({
@@ -10544,27 +10929,38 @@ export default function DesignEditor() {
           return;
         }
 
-        // 2. Strip absolute positioning from the moved node so it flows naturally.
-        // Use removeAbsolutePositioningFromNodeInHtml (DOM-based) because the
-        // applyVisualEdit substrate rejects empty-string values in isSafeStyleValue,
-        // making applyVisualEdit({kind:"style",value:""}) a silent no-op.
         const movedNodeAttrId =
           movePatch.projection.nodes.find(
             (n) =>
               n.dataAttributes["data-agent-native-node-id"] === sourceNodeId ||
               n.id === sourceNodeId,
           )?.dataAttributes["data-agent-native-node-id"] ?? sourceNodeId;
-        const strippedContent = removeAbsolutePositioningFromNodeInHtml(
-          movePatch.content,
-          movedNodeAttrId,
+        const sourcePosition = getAbsolutePositioningForNodeInHtml(
+          baseContent,
+          sourceNodeId,
         );
+        const targetPosition = getAbsolutePositioningForNodeInHtml(
+          baseContent,
+          targetNodeId,
+        );
+        const nextContent =
+          sourcePosition && targetPosition
+            ? setAbsolutePositioningForNodeInHtml(
+                movePatch.content,
+                movedNodeAttrId,
+                {
+                  x: sourcePosition.x - targetPosition.x,
+                  y: sourcePosition.y - targetPosition.y,
+                },
+              )
+            : movePatch.content;
 
-        applyFileContentUpdate(sourceScreenId, strippedContent, {
+        applyFileContentUpdate(sourceScreenId, nextContent, {
           skipPreview: true,
         });
 
         // Re-select the moved node.
-        const nextProjection = buildCodeLayerProjection(strippedContent);
+        const nextProjection = buildCodeLayerProjection(nextContent);
         const movedNodeAfter = nextProjection.nodes.find(
           (n) =>
             n.dataAttributes["data-agent-native-node-id"] === sourceNodeId ||
@@ -10616,18 +11012,26 @@ export default function DesignEditor() {
         return;
       }
 
-      // Strip absolute positioning from the moved node in the destination.
-      // Use removeAbsolutePositioningFromNodeInHtml (DOM-based) because
-      // applyVisualEdit({kind:"style",value:""}) is a silent no-op (the
-      // substrate rejects empty-string values in isSafeStyleValue). Use
-      // result.movedNodeId (the final id in destHtml, which may differ from
-      // nodeAttrId when a collision triggered an id re-stamp) so the strip and
-      // re-selection always find the correct element.
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
-      const strippedDest = removeAbsolutePositioningFromNodeInHtml(
-        result.destHtml,
-        destNodeAttrId,
+      const sourcePosition = getAbsolutePositioningForNodeInHtml(
+        sourceContent,
+        nodeAttrId,
       );
+      const targetPosition = getAbsolutePositioningForNodeInHtml(
+        destContent,
+        anchorAttrId,
+      );
+      const nextDestContent =
+        sourcePosition && targetPosition
+          ? setAbsolutePositioningForNodeInHtml(
+              result.destHtml,
+              destNodeAttrId,
+              {
+                x: sourcePosition.x - targetPosition.x,
+                y: sourcePosition.y - targetPosition.y,
+              },
+            )
+          : result.destHtml;
 
       recordContentHistoryEntry({
         changes: [
@@ -10639,7 +11043,7 @@ export default function DesignEditor() {
           {
             fileId: targetScreenId,
             before: destContent,
-            after: strippedDest,
+            after: nextDestContent,
           },
         ],
       });
@@ -10648,13 +11052,13 @@ export default function DesignEditor() {
         recordHistory: false,
         refreshPreview: true,
       });
-      applyFileContentUpdate(targetScreenId, strippedDest, {
+      applyFileContentUpdate(targetScreenId, nextDestContent, {
         recordHistory: false,
         refreshPreview: true,
       });
 
       // Re-select the moved node in the destination.
-      const finalProjection = buildCodeLayerProjection(strippedDest);
+      const finalProjection = buildCodeLayerProjection(nextDestContent);
       const movedNodeFinal = finalProjection.nodes.find(
         (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
       );
@@ -10695,8 +11099,11 @@ export default function DesignEditor() {
       targetScreenId,
       targetAnchorNodeId,
       targetAnchorPlacement,
+      targetDropMode,
+      targetAnchorRect,
       targetLocalPoint,
       sourcePointerOffset,
+      styleSnapshot,
     }: {
       sourceSelector: string;
       sourceNodeId?: string;
@@ -10704,9 +11111,17 @@ export default function DesignEditor() {
       targetScreenId: string;
       targetAnchorNodeId?: string;
       targetAnchorPlacement?: "before" | "after" | "inside";
+      targetDropMode?: "flow-insert" | "absolute-container";
+      targetAnchorRect?: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      };
       targetCanvasPoint?: { x: number; y: number };
       targetLocalPoint?: { x: number; y: number };
       sourcePointerOffset?: { x: number; y: number };
+      styleSnapshot?: PortableStyleSnapshot;
     }) => {
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
@@ -10772,19 +11187,39 @@ export default function DesignEditor() {
       // there is no anchor, preserve absolute mode and rebase left/top to the
       // release point so screen↔board moves behave like Figma absolute layers.
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
+      const stylePreservedDest =
+        targetScreenId === boardFileId
+          ? applyPortableStyleSnapshotToHtml(
+              result.destHtml,
+              destNodeAttrId,
+              styleSnapshot,
+            )
+          : result.destHtml;
       const nextDestContent = targetAnchorAttrId
-        ? removeAbsolutePositioningFromNodeInHtml(
-            result.destHtml,
-            destNodeAttrId,
-          )
+        ? targetDropMode === "absolute-container"
+          ? targetLocalPoint && targetAnchorRect
+            ? setAbsolutePositioningForNodeInHtml(
+                stylePreservedDest,
+                destNodeAttrId,
+                {
+                  x: targetLocalPoint.x - targetAnchorRect.left,
+                  y: targetLocalPoint.y - targetAnchorRect.top,
+                },
+                sourcePointerOffset,
+              )
+            : stylePreservedDest
+          : removeAbsolutePositioningFromNodeInHtml(
+              stylePreservedDest,
+              destNodeAttrId,
+            )
         : targetLocalPoint
           ? setAbsolutePositioningForNodeInHtml(
-              result.destHtml,
+              stylePreservedDest,
               destNodeAttrId,
               targetLocalPoint,
               sourcePointerOffset,
             )
-          : result.destHtml;
+          : stylePreservedDest;
 
       recordContentHistoryEntry({
         changes: [
@@ -10812,19 +11247,34 @@ export default function DesignEditor() {
 
       // Switch active screen to the target and select the moved node; viewMode
       // stays "overview" (no setViewMode call).
+      pendingOverviewScreenSelectionRef.current =
+        targetScreenId === boardFileId ? null : targetScreenId;
+      pendingOverviewLayerSelectionRef.current = destNodeAttrId;
+      clearPendingOverviewLayerSelectionTimer();
       setActiveFileId(targetScreenId);
       const finalProjection = buildCodeLayerProjection(nextDestContent);
       const movedNodeFinal = finalProjection.nodes.find(
         (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
       );
       if (movedNodeFinal) {
+        setCreatedOverviewLayerSelection({
+          screenId: targetScreenId,
+          layerId: movedNodeFinal.id,
+        });
         setSelectedLayerIdsState([movedNodeFinal.id]);
         setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
+        if (viewModeRef.current === "overview") {
+          setOverviewSelectedScreenIds(
+            targetScreenId === boardFileId ? [] : [targetScreenId],
+          );
+        }
       }
     },
     [
       applyFileContentUpdate,
+      boardFileId,
       canEditDesign,
+      clearPendingOverviewLayerSelectionTimer,
       getScreenContent,
       recordContentHistoryEntry,
       t,
@@ -11707,6 +12157,7 @@ export default function DesignEditor() {
   ]);
 
   const handleEscapeHotkey = useCallback(() => {
+    if (cancelActiveEditorDrag()) return;
     if (
       shouldEscapeToOverview({
         activeTool,
@@ -11730,6 +12181,7 @@ export default function DesignEditor() {
     setMode("edit");
   }, [
     activeTool,
+    cancelActiveEditorDrag,
     drawMode,
     enterOverviewFromZoom,
     mode,
@@ -12105,6 +12557,84 @@ export default function DesignEditor() {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
   }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+
+  const hasPendingVisualStyleEdits = pendingVisualStyleEdits.length > 0;
+  useBeforeUnload(
+    useCallback(
+      (event: BeforeUnloadEvent) => {
+        if (!hasPendingVisualStyleEdits) return;
+        event.preventDefault();
+        event.returnValue = "";
+      },
+      [hasPendingVisualStyleEdits],
+    ),
+    { capture: true },
+  );
+  const pendingVisualStyleNavigationBlocker = useBlocker(
+    useCallback(
+      ({ currentLocation, nextLocation }) =>
+        shouldBlockPendingVisualStyleNavigation({
+          hasPendingVisualStyleEdits,
+          currentPathname: currentLocation.pathname,
+          nextPathname: nextLocation.pathname,
+        }),
+      [hasPendingVisualStyleEdits],
+    ),
+  );
+  const pendingVisualStyleWarningOpen =
+    pendingVisualStyleNavigationBlocker.state === "blocked";
+  const handleStayOnPendingVisualStyleNavigation = useCallback(() => {
+    if (pendingVisualStyleNavigationBlocker.state !== "blocked") return;
+    pendingVisualStyleNavigationBlocker.reset();
+  }, [pendingVisualStyleNavigationBlocker]);
+  const handleDiscardPendingVisualStylesAndNavigate = useCallback(() => {
+    if (pendingVisualStyleNavigationBlocker.state !== "blocked") return;
+    setPendingVisualStyleEdits([]);
+    pendingVisualStyleNavigationBlocker.proceed();
+  }, [pendingVisualStyleNavigationBlocker]);
+
+  const pendingVisualStylePropertyCount = useMemo(
+    () => getPendingVisualStylePropertyCount(pendingVisualStyleEdits),
+    [pendingVisualStyleEdits],
+  );
+  const pendingVisualStylePrompt = useMemo(
+    () =>
+      formatPendingVisualStylePrompt({
+        designId: id,
+        designTitle: design?.title,
+        activeFileId: activeFile?.id,
+        activeFilename: activeFile?.filename,
+        edits: pendingVisualStyleEdits,
+      }),
+    [
+      activeFile?.filename,
+      activeFile?.id,
+      design?.title,
+      id,
+      pendingVisualStyleEdits,
+    ],
+  );
+  const handleApplyPendingVisualStylesWithAgent = useCallback(() => {
+    if (pendingVisualStyleEdits.length === 0) return;
+    sendToDesignAgentChat({
+      message: "Apply the pending visual style edits to the source.",
+      context: pendingVisualStylePrompt,
+      submit: true,
+      openSidebar: true,
+    });
+    setPendingVisualStyleEdits([]);
+    setActiveLeftPanel("agent");
+    toast.success("Style edits sent to the Design agent");
+  }, [pendingVisualStyleEdits.length, pendingVisualStylePrompt]);
+  const handleCopyPendingVisualStylePrompt = useCallback(async () => {
+    if (pendingVisualStyleEdits.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(pendingVisualStylePrompt);
+      toast.success("Style prompt copied");
+    } catch {
+      toast.error(t("designEditor.toasts.clipboardBlocked"));
+    }
+  }, [pendingVisualStyleEdits.length, pendingVisualStylePrompt, t]);
 
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -15445,6 +15975,7 @@ ${serializedHtml}
                     t("chat.suggestionMobile"),
                   ]}
                   scope={designChatScope}
+                  showScopeBadge={false}
                   browserTabId={browserTabId}
                 />
               </div>
@@ -15665,6 +16196,45 @@ ${serializedHtml}
                       }}
                     />
                   )}
+                  {pendingVisualStyleEdits.length > 0 ? (
+                    <div className="pointer-events-none absolute bottom-5 right-5 z-[70] flex items-end">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            className="pointer-events-auto h-11 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(37,99,235,0.9)] hover:bg-blue-400 focus-visible:ring-blue-400"
+                            aria-label="Apply pending visual style edits"
+                          >
+                            <IconBrush className="h-4 w-4" />
+                            Apply styles
+                            <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
+                              {pendingVisualStylePropertyCount}
+                            </span>
+                            <IconChevronDown className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          className="design-editor-app-menu-content w-64"
+                        >
+                          <DropdownMenuLabel className="text-xs text-muted-foreground">
+                            Pending visual preview
+                          </DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={handleApplyPendingVisualStylesWithAgent}
+                          >
+                            <IconMessage className="mr-2 h-4 w-4" />
+                            Apply with Design agent
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={handleCopyPendingVisualStylePrompt}
+                          >
+                            <IconClipboard className="mr-2 h-4 w-4" />
+                            Copy prompt to your agent
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  ) : null}
                   {viewMode === "overview" ? (
                     <MultiScreenCanvas
                       screens={overviewScreens}
@@ -16019,6 +16589,9 @@ ${serializedHtml}
                             onElementHover={(info) =>
                               handleScreenElementHover(screen.id, info)
                             }
+                            onEditorDragStateChange={
+                              handleEditorDragStateChange
+                            }
                             onClearSelection={() =>
                               handleScreenElementClear(screen.id)
                             }
@@ -16139,6 +16712,7 @@ ${serializedHtml}
                         onElementSelect={handleElementSelect}
                         onElementMarqueeSelect={handleElementMarqueeSelect}
                         onElementHover={handleElementHover}
+                        onEditorDragStateChange={handleEditorDragStateChange}
                         onClearSelection={() => {
                           setSelectedElement(null);
                           setHoveredElement(null);
@@ -16398,6 +16972,33 @@ ${serializedHtml}
           </div>
         ) : null}
       </div>
+
+      <AlertDialog open={pendingVisualStyleWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apply styles before leaving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have {pendingVisualStylePropertyCount} pending visual style{" "}
+              {pendingVisualStylePropertyCount === 1 ? "edit" : "edits"} in the
+              live preview. Leaving now will discard those unapplied style
+              changes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={handleStayOnPendingVisualStyleNavigation}
+            >
+              Stay here
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDiscardPendingVisualStylesAndNavigate}
+            >
+              Leave without applying
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Motion dock (§6.3) — bottom timeline mounted while opening, open, or
           closing. Canvas remains visible above.

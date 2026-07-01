@@ -2055,6 +2055,97 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("surfaces repeated Builder gateway timeouts while preparing action input", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return sseResponse([
+          {
+            type: "activity",
+            label: "Preparing generate-design action",
+            tool: "generate-design",
+          },
+          {
+            type: "error",
+            error: "Builder gateway timed out after 45s while streaming.",
+            errorCode: "builder_gateway_timeout",
+          },
+        ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-design-timeout-loop",
+      threadId: "thread-design-timeout-loop",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Generate a todo app design" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    expect(postCount).toBe(4);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "builder_gateway_timeout",
+          message: expect.stringContaining("Builder gateway timed out"),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError).toMatchObject({
+      errorCode: "builder_gateway_timeout",
+      recoverable: true,
+    });
+    expect(last.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "generate-design",
+          activity: true,
+          result: "Stopped before this action started.",
+        }),
+      ]),
+    );
+    expect(last.content.at(-1).text).toContain(
+      "Builder gateway timed out after 45s",
+    );
+  });
+
   it("recovers when a silent run timeout is followed by real output", async () => {
     // The point of the empty-continuation budget: a transient slow start (the
     // model thinks through the soft-timeout window with no visible output) must
@@ -2738,7 +2829,7 @@ describe("createAgentChatAdapter", () => {
       expect.objectContaining({
         type: "agent-chat:run-error",
         detail: expect.objectContaining({
-          errorCode: "connection_error",
+          errorCode: "stale_run",
           details: expect.stringContaining("stale_run_continuations: 4"),
         }),
       }),
@@ -2746,7 +2837,7 @@ describe("createAgentChatAdapter", () => {
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
     expect(last.content.at(-1).text).toContain(
-      "The agent connection kept failing",
+      "The agent stopped before it could finish",
     );
   });
 

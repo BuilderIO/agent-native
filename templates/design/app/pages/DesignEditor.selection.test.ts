@@ -20,6 +20,7 @@ import {
   getOverviewEnterTarget,
   getOverviewScreenIdsFromLayerSelection,
   getOverviewZoomScale,
+  getPendingVisualStylePropertyCount,
   parseInlineStyleAttribute,
   refreshElementInfoFromContent,
   removeUndoRedoOrderKind,
@@ -31,7 +32,11 @@ import {
   shouldReplacePreviewAfterVisualStyleCommit,
   shouldLimitEditorChromeUntilContentReady,
   shouldEscapeToOverview,
+  shouldIgnoreOverviewLayerCreationEcho,
+  shouldBlockPendingVisualStyleNavigation,
   sortCodeLayerIdsByTreeOrder,
+  formatPendingVisualStylePrompt,
+  mergePendingVisualStyleEdit,
 } from "./DesignEditor";
 
 describe("DesignEditor overview selection state", () => {
@@ -85,7 +90,145 @@ describe("DesignEditor visual style preview replacement", () => {
   });
 });
 
+describe("DesignEditor pending visual style edits", () => {
+  it("merges repeated edits for the same screen target", () => {
+    const first = {
+      screenId: "home",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "[data-agent-native-node-id='hero']",
+      sourceId: "hero",
+      tagName: "section",
+      classes: ["hero"],
+      styles: { color: "red" },
+      updatedAt: 1,
+    };
+    const second = {
+      ...first,
+      styles: { backgroundColor: "blue" },
+      updatedAt: 2,
+    };
+
+    const edits = mergePendingVisualStyleEdit([first], second);
+
+    expect(edits).toHaveLength(1);
+    expect(edits[0].styles).toEqual({
+      color: "red",
+      backgroundColor: "blue",
+    });
+    expect(getPendingVisualStylePropertyCount(edits)).toBe(2);
+  });
+
+  it("formats a handoff prompt with screen and style details", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      designId: "design-1",
+      designTitle: "Docs homepage",
+      activeFileId: "home",
+      activeFilename: "index.html",
+      edits: [
+        {
+          screenId: "home",
+          filename: "index.html",
+          screenName: "Home",
+          selector: ".hero",
+          sourceId: "hero",
+          tagName: "section",
+          classes: ["hero"],
+          styles: { color: "rgb(37, 99, 235)" },
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    expect(prompt).toContain(
+      'Apply these pending visual style edits to "Docs homepage"',
+    );
+    expect(prompt).toContain('"screenId": "home"');
+    expect(prompt).toContain('"color": "rgb(37, 99, 235)"');
+  });
+
+  it("blocks navigation away while pending visual styles exist", () => {
+    expect(
+      shouldBlockPendingVisualStyleNavigation({
+        hasPendingVisualStyleEdits: true,
+        currentPathname: "/design/design-1",
+        nextPathname: "/",
+      }),
+    ).toBe(true);
+  });
+
+  it("allows same-route updates and clean navigation", () => {
+    expect(
+      shouldBlockPendingVisualStyleNavigation({
+        hasPendingVisualStyleEdits: true,
+        currentPathname: "/design/design-1",
+        nextPathname: "/design/design-1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldBlockPendingVisualStyleNavigation({
+        hasPendingVisualStyleEdits: false,
+        currentPathname: "/design/design-1",
+        nextPathname: "/",
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("DesignEditor overview layer selection", () => {
+  it("ignores only the root echo after creating an overview layer", () => {
+    const rootInfo = {
+      tagName: "body",
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 320, height: 640 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+    const layerInfo = {
+      ...rootInfo,
+      tagName: "div",
+    };
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "new-rect",
+        pendingScreenId: "board",
+        screenId: "board",
+        info: rootInfo,
+        event: "select",
+      }),
+    ).toBe(true);
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "new-rect",
+        pendingScreenId: "board",
+        screenId: "board",
+        info: layerInfo,
+        event: "select",
+      }),
+    ).toBe(false);
+  });
+
+  it("allows normal element selection after the creation echo has cleared", () => {
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: null,
+        pendingScreenId: null,
+        screenId: "board",
+        info: {
+          tagName: "div",
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 0, y: 0, width: 100, height: 100 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        event: "select",
+      }),
+    ).toBe(false);
+  });
+
   it("extracts selected screen ids from file layer rows", () => {
     expect(
       getOverviewScreenIdsFromLayerSelection({

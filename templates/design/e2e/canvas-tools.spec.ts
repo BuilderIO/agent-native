@@ -7,7 +7,7 @@ import {
 } from "@playwright/test";
 
 import { FIXTURE_HTML } from "./global-setup";
-import { gotoEditor } from "./helpers";
+import { bridgeMessages, gotoEditor, installBridge } from "./helpers";
 
 let designId: string;
 let baseURLForActions: string;
@@ -246,6 +246,31 @@ async function primitiveNodeIds(
         .filter(Boolean);
     },
     { html: content, primitiveKind: kind },
+  );
+}
+
+async function isPrimitiveNestedUnder(
+  page: Page,
+  filename: string,
+  parentNodeId: string,
+  childNodeId: string,
+): Promise<boolean> {
+  const content = await fileContent(page, filename);
+  return page.evaluate(
+    ({ html, parentId, childId }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const nodes = Array.from(
+        doc.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
+      );
+      const parent = nodes.find(
+        (node) => node.dataset.agentNativeNodeId === parentId,
+      );
+      const child = nodes.find(
+        (node) => node.dataset.agentNativeNodeId === childId,
+      );
+      return !!parent && !!child && parent !== child && parent.contains(child);
+    },
+    { html: content, parentId: parentNodeId, childId: childNodeId },
   );
 }
 
@@ -642,6 +667,27 @@ async function primitiveViewportBox(
   return box;
 }
 
+async function primitiveViewportBoxInFile(
+  page: Page,
+  filename: string,
+  nodeId: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const file = (await designFiles(page)).find(
+    (candidate) => candidate.filename === filename,
+  );
+  if (!file) throw new Error(`File not found: ${filename}`);
+  const iframe = page
+    .locator(`iframe[data-screen-iframe-id="${file.id}"]`)
+    .first();
+  await expect(iframe).toBeVisible();
+  const box = await iframe
+    .contentFrame()
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .boundingBox();
+  if (!box) throw new Error(`primitive not found in ${filename}: ${nodeId}`);
+  return box;
+}
+
 function expectCloseToFrameSize(
   viewport: { width: number; height: number },
   frame: { width: number; height: number },
@@ -876,6 +922,8 @@ test("dragging a rectangle between screens moves it across files", async ({
   });
   await gotoEditor(page, designId);
   await expect(screenShell(page, "About")).toBeVisible();
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
 
   const homeShell = screenShell(page, "Home");
   const aboutShell = screenShell(page, "About");
@@ -1076,6 +1124,131 @@ test("rectangle drawn left of the first screen persists on the board", async ({
       return Math.min(...positions);
     })
     .toBeLessThan(0);
+});
+
+test("dragging a board rectangle into another board rectangle reparents it", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const boardRectanglesBefore = await primitiveNodeIds(
+    page,
+    "__board__.html",
+    "rectangle",
+  );
+
+  await toolButton(page, "Rectangle").click();
+  await expect(toolButton(page, "Rectangle")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await dragInEmptyCanvasLeftOf(page, "Home", {
+    width: 180,
+    height: 130,
+    topOffset: 220,
+  });
+  await expect
+    .poll(() => primitiveNodeIds(page, "__board__.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toHaveLength(boardRectanglesBefore.length + 1);
+  const idsAfterParentCreate = await primitiveNodeIds(
+    page,
+    "__board__.html",
+    "rectangle",
+  );
+  const parentId = idsAfterParentCreate.find(
+    (id) => !boardRectanglesBefore.includes(id),
+  );
+  if (!parentId) throw new Error("parent board rectangle id was not found");
+
+  await toolButton(page, "Rectangle").click();
+  await expect(toolButton(page, "Rectangle")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await dragInEmptyCanvasLeftOf(page, "Home", {
+    width: 72,
+    height: 54,
+    topOffset: 420,
+  });
+  await expect
+    .poll(() => primitiveNodeIds(page, "__board__.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toHaveLength(boardRectanglesBefore.length + 2);
+  const idsAfterChildCreate = await primitiveNodeIds(
+    page,
+    "__board__.html",
+    "rectangle",
+  );
+  const childId = idsAfterChildCreate.find(
+    (id) => !idsAfterParentCreate.includes(id),
+  );
+  if (!childId) throw new Error("child board rectangle id was not found");
+
+  const parentBox = await primitiveViewportBoxInFile(
+    page,
+    "__board__.html",
+    parentId,
+  );
+  const childBox = await primitiveViewportBoxInFile(
+    page,
+    "__board__.html",
+    childId,
+  );
+  // eslint-disable-next-line no-console
+  console.log("board reparent boxes", JSON.stringify({ parentBox, childBox }));
+
+  await dragBetween(
+    page,
+    {
+      x: childBox.x + childBox.width / 2,
+      y: childBox.y + childBox.height / 2,
+    },
+    {
+      x: parentBox.x + parentBox.width / 2,
+      y: parentBox.y + parentBox.height / 2,
+    },
+  );
+
+  // eslint-disable-next-line no-console
+  console.log(
+    "bridge messages after board reparent drag",
+    JSON.stringify(
+      (await bridgeMessages(page)).map((message) => ({
+        type: message.type,
+        placement: message.placement,
+        dropMode: message.dropMode,
+        sourceId: message.sourceId,
+        anchorSourceId: message.anchorSourceId,
+      })),
+    ),
+  );
+
+  await expect
+    .poll(async () =>
+      (await bridgeMessages(page)).filter(
+        (message) => message.type === "visual-structure-change",
+      ),
+    )
+    .toHaveLength(1);
+  await expect
+    .poll(
+      () => isPrimitiveNestedUnder(page, "__board__.html", parentId, childId),
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+  await expect
+    .poll(() => primitiveNodeIds(page, "__board__.html", "rectangle"))
+    .toHaveLength(boardRectanglesBefore.length + 2);
 });
 
 test("pen escape cancels the in-progress path and enter commits vector art", async ({

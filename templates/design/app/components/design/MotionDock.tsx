@@ -449,15 +449,14 @@ export function MotionDock({
 
         {/* Dock toolbar */}
         <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border px-2">
-          {/* Collapse toggle. The label and nearby space are part of the target. */}
+          {/* Collapse toggle. The rail owns the visible Motion label. */}
           <button
             type="button"
-            className="-ml-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 !text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            className="-ml-1 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
             onClick={() => setOpen(false)}
             aria-label="Collapse motion dock"
           >
             <IconChevronDown className="size-3.5" />
-            <span>Motion</span>
           </button>
 
           <>

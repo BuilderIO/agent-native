@@ -24,6 +24,7 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import { isInBackgroundFunctionRuntime } from "../durable-background.js";
 import { BUILDER_MODEL_CONFIG } from "../model-config.js";
 import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
 import {
@@ -53,13 +54,19 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
 
 export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
-// Keep the gateway timeout below the hosted run soft timeout so the agent loop
-// can append a continuation and persist terminal state before serverless hosts
-// (Netlify synchronous Functions are 60s) hard-kill the invocation.
+// Keep the foreground hosted gateway timeout below the synchronous serverless
+// wall so the agent loop can append a continuation and persist terminal state
+// before the host hard-kills the invocation.
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
-const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
-/** Local ai-services has no serverless wall; allow longer streams in dev. */
+const MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
+/** Local and non-hosted runtimes have no synchronous serverless wall. */
 const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS = 180_000;
+/**
+ * Netlify background functions have a 15-minute wall. Keep the Builder gateway
+ * ceiling below that, but above the run-manager's 13-minute soft-timeout so
+ * durable background runs checkpoint before this timer wins.
+ */
+const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
@@ -761,6 +768,14 @@ export function createBuilderEngine(
 }
 
 function resolveMaxBuilderGatewayTimeoutMs(): number {
+  if (isInBackgroundFunctionRuntime()) {
+    return MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
+  }
+
+  if (!isHostedBuilderRuntime()) {
+    return MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS;
+  }
+
   try {
     const base = getBuilderGatewayBaseUrl();
     if (/^https?:\/\/(localhost|127\.0\.0\.1)([:/]|$)/i.test(base)) {
@@ -769,7 +784,31 @@ function resolveMaxBuilderGatewayTimeoutMs(): number {
   } catch {
     // ignore malformed override
   }
-  return MAX_BUILDER_GATEWAY_TIMEOUT_MS;
+  return MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
+}
+
+function isHostedBuilderRuntime(): boolean {
+  if (
+    process.env.NETLIFY &&
+    process.env.NETLIFY !== "false" &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  if (
+    process.env.AWS_LAMBDA_FUNCTION_NAME &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  return Boolean(
+    process.env.CF_PAGES ||
+    process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.RENDER ||
+    process.env.FLY_APP_NAME ||
+    process.env.K_SERVICE,
+  );
 }
 
 function getBuilderGatewayTimeoutMs(): number {

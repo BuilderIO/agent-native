@@ -80,21 +80,34 @@ export type AgentAutoContinueReason =
 
 export type AgentActivityTrailEntry = { label: string; tool?: string };
 
+export interface AgentAutoContinueErrorInfo {
+  message: string;
+  details?: string;
+  errorCode?: string;
+  recoverable?: boolean;
+  upgradeUrl?: string;
+}
+
 const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
+const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 export function settleInterruptedToolCalls(
   content: ContentPart[],
   result = INTERRUPTED_TOOL_RESULT,
+  options?: { includeActivity?: boolean; activityResult?: string },
 ): boolean {
   let changed = false;
   for (const part of content) {
     if (
       part.type === "tool-call" &&
       part.result === undefined &&
-      part.activity !== true
+      (part.activity !== true || options?.includeActivity === true)
     ) {
-      part.result = result;
+      part.result =
+        part.activity === true
+          ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
+          : result;
       changed = true;
     }
   }
@@ -105,17 +118,20 @@ export class AgentAutoContinueSignal extends Error {
   readonly reason: AgentAutoContinueReason;
   readonly maxIterations?: number;
   readonly activityTrail: AgentActivityTrailEntry[];
+  readonly errorInfo?: AgentAutoContinueErrorInfo;
 
   constructor(options: {
     reason: AgentAutoContinueReason;
     maxIterations?: number;
     activityTrail?: AgentActivityTrailEntry[];
+    errorInfo?: AgentAutoContinueErrorInfo;
   }) {
     super(`Agent run needs automatic continuation: ${options.reason}`);
     this.name = "AgentAutoContinueSignal";
     this.reason = options.reason;
     this.maxIterations = options.maxIterations;
     this.activityTrail = options.activityTrail ?? [];
+    this.errorInfo = options.errorInfo;
   }
 }
 
@@ -342,6 +358,7 @@ export function processEvent(
   autoContinue?: {
     reason: AgentAutoContinueReason;
     maxIterations?: number;
+    errorInfo?: AgentAutoContinueErrorInfo;
   };
 } {
   if (ev.type === "clear") {
@@ -598,7 +615,7 @@ export function processEvent(
         }),
       );
     }
-    settleInterruptedToolCalls(content);
+    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
       text: formatChatErrorText(errMsg, undefined, errorCode),
@@ -665,6 +682,7 @@ export function processEvent(
       (ev.errorCode === "run_timeout" && ev.recoverable) ||
       isAutoRecoverableError(ev, errMsg)
     ) {
+      const normalized = normalizeChatError(errMsg, ev.errorCode);
       return {
         action: "auto_continue",
         autoContinue: {
@@ -676,6 +694,15 @@ export function processEvent(
                   errMsg.toLowerCase().includes("timeout")
                 ? "run_timeout"
                 : "stream_ended",
+          errorInfo: {
+            message: normalized.message,
+            ...(ev.details || normalized.details
+              ? { details: ev.details ?? normalized.details }
+              : {}),
+            ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
+            recoverable: ev.recoverable ?? true,
+            ...(ev.upgradeUrl ? { upgradeUrl: ev.upgradeUrl } : {}),
+          },
         },
       };
     }
@@ -700,7 +727,7 @@ export function processEvent(
         }),
       );
     }
-    settleInterruptedToolCalls(content);
+    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
       text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),

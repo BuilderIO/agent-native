@@ -187,6 +187,18 @@
     );
   }
 
+  function isAbsolutePrimitiveContainer(el: Element | null): boolean {
+    if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+    var primitive = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (primitive !== "rectangle" && primitive !== "rect") return false;
+    var cs = window.getComputedStyle(el);
+    return cs.position === "absolute" || cs.position === "fixed";
+  }
+
   // keep in sync with editor-chrome.bridge.ts edgePlacementForRect
   function edgePlacementForRect(
     rect: DOMRect,
@@ -236,7 +248,12 @@
   function resolveHitTarget(
     clientX: number,
     clientY: number,
-  ): { anchor: Element; placement: string; axis: string } | null {
+  ): {
+    anchor: Element;
+    placement: string;
+    axis: string;
+    dropMode: string;
+  } | null {
     var hit = elementFromEditorPoint(clientX, clientY);
     if (!hit || hit === document.documentElement) return null;
 
@@ -256,6 +273,7 @@
           anchor: cursor,
           placement: childPointer < childCenter ? "before" : "after",
           axis: parentAxis,
+          dropMode: "flow-insert",
         };
       }
       if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
@@ -268,12 +286,26 @@
           clientY,
         );
         if (edgePlacement && parent && isAutoLayoutElement(parent)) {
-          return { anchor: cursor, placement: edgePlacement, axis: edgeAxis };
+          return {
+            anchor: cursor,
+            placement: edgePlacement,
+            axis: edgeAxis,
+            dropMode: "flow-insert",
+          };
         }
         return {
           anchor: cursor,
           placement: "inside",
           axis: parentFlowAxis(cursor),
+          dropMode: "flow-insert",
+        };
+      }
+      if (isAbsolutePrimitiveContainer(cursor)) {
+        return {
+          anchor: cursor,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container",
         };
       }
       cursor = parent;
@@ -340,6 +372,7 @@
     var anchorNodeId: string = result ? getNodeId(result.anchor) : "";
     var placement: string = result ? result.placement : "inside";
     var axis: string = result ? result.axis : "y";
+    var dropMode: string = result ? result.dropMode : "flow-insert";
     var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
     try {
       (window.parent as Window).postMessage(
@@ -349,6 +382,7 @@
           anchorNodeId: anchorNodeId,
           placement: placement,
           axis: axis,
+          dropMode: dropMode,
           anchorRect: anchorRect
             ? {
                 left: anchorRect.left,

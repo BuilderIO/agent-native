@@ -250,6 +250,16 @@ CREATE TABLE IF NOT EXISTS design_localhost_write_grants (
 CREATE INDEX IF NOT EXISTS design_localhost_connections_owner_idx ON design_localhost_connections (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS design_localhost_write_grants_lookup_idx ON design_localhost_write_grants (design_id, connection_id, owner_email)`,
     },
+    // v17: older local databases may already have motion_timeline from the
+    // pre-ownable prototype. Backfill the ownable columns additively so the
+    // first "Add track" insert can persist through the current Drizzle schema.
+    {
+      version: 17,
+      sql: `ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
+ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS org_id TEXT;
+ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private';
+CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timeline (owner_email, org_id, updated_at)`,
+    },
   ],
   { table: "design_migrations" },
 );

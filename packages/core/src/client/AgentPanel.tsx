@@ -548,6 +548,8 @@ export interface AgentPanelProps extends Omit<
    * see the `Layout` files for each template.
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Show the compact scope chip above the composer. Default: true. */
+  showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
@@ -673,6 +675,7 @@ function AgentPanelInner({
   storageKey,
   restoreActiveThread = true,
   scope,
+  showScopeBadge,
   browserTabId,
   threadUrlSync,
   chatNotice,
@@ -1710,6 +1713,7 @@ function AgentPanelInner({
               storageKey={storageKey}
               restoreActiveThread={restoreActiveThread}
               scope={scope}
+              showScopeBadge={showScopeBadge}
               browserTabId={browserTabId}
               threadUrlSync={threadUrlSync}
             />
@@ -2393,6 +2397,8 @@ export interface AgentSidebarProps {
    * Templates compute this from the active route (see template layouts).
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Show the compact scope chip above the composer. Default: true. */
+  showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
@@ -2422,6 +2428,7 @@ export function AgentSidebar({
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
+  showScopeBadge,
   browserTabId,
   threadUrlSync,
 }: AgentSidebarProps) {
@@ -2955,6 +2962,7 @@ export function AgentSidebar({
             }
             storageKey={storageKey}
             scope={scope}
+            showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
           />
