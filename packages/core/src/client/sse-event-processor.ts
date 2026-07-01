@@ -291,9 +291,10 @@ function deletePreparingActionEntryForToolEvent(
   let oldestStartedAt = Number.POSITIVE_INFINITY;
   for (const [key, entry] of state.entries) {
     if (entry.tool !== tool) continue;
-    if (entry.startedAt < oldestStartedAt) {
+    const startedAt = entry.startedAt ?? Number.POSITIVE_INFINITY;
+    if (startedAt < oldestStartedAt) {
       oldestMatchingKey = key;
-      oldestStartedAt = entry.startedAt;
+      oldestStartedAt = startedAt;
     }
   }
   if (oldestMatchingKey) state.entries.delete(oldestMatchingKey);
