@@ -308,12 +308,14 @@ export function SqlChartCard({
         data-dragging={isDragSource ? "true" : undefined}
         className="dashboard-extension-card group relative h-full"
       >
-        <SqlChart
-          key={extRefreshKey}
-          panel={panel}
-          resolvedSql={resolvedSql}
-          loadData
-        />
+        {!expanded && (
+          <SqlChart
+            key={extRefreshKey}
+            panel={panel}
+            resolvedSql={resolvedSql}
+            loadData
+          />
+        )}
         <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
           <DropdownMenu>
             <Tooltip>
