@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.1
+
+### Patch Changes
+
+- 87806ef: Report intentionally gated eval cases as skipped, keep skipped suites from setting up agent runners, and avoid action/engine setup for eval cases that fully short-circuit with custom run handlers.
+
 ## 0.84.0
 
 ### Minor Changes
