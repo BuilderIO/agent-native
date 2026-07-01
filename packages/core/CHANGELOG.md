@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.84.11
+
+### Patch Changes
+
+- a2ce30e: Improve local SQLite collab write robustness for Design editor workflows.
+
+## 0.84.10
+
+### Patch Changes
+
+- 720b8b0: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+
 ## 0.84.9
 
 ### Patch Changes

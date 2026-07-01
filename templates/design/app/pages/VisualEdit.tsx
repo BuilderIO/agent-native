@@ -20,8 +20,6 @@ export default function VisualEditPage() {
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
   const primaryHref = hasSession ? "/" : buildSignInHref();
-  const primaryTarget = hasSession ? undefined : "_blank";
-  const primaryRel = hasSession ? undefined : "noopener noreferrer";
   const primaryAriaLabel = hasSession
     ? t("visualEdit.openDesign")
     : t("designEditor.signUpToSave");
@@ -37,15 +35,10 @@ export default function VisualEditPage() {
             {t("navigation.brand")}
           </Link>
           <Button asChild variant="outline" size="sm">
-            <a
-              href={primaryHref}
-              target={primaryTarget}
-              rel={primaryRel}
-              aria-label={primaryAriaLabel}
-            >
+            <a href={primaryHref} aria-label={primaryAriaLabel}>
               {hasSession
                 ? t("visualEdit.openDesign")
-                : t("visualEdit.saveCta")}
+                : t("designEditor.signUpToSave")}
               <IconArrowUpRight className="size-4" />
             </a>
           </Button>
@@ -65,16 +58,11 @@ export default function VisualEditPage() {
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="gap-2">
-                <a
-                  href={primaryHref}
-                  target={primaryTarget}
-                  rel={primaryRel}
-                  aria-label={primaryAriaLabel}
-                >
+                <a href={primaryHref} aria-label={primaryAriaLabel}>
                   <IconDeviceFloppy className="size-4" />
                   {hasSession
                     ? t("visualEdit.openDesign")
-                    : t("visualEdit.saveCta")}
+                    : t("designEditor.signUpToSave")}
                 </a>
               </Button>
             </div>

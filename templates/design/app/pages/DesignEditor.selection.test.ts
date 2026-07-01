@@ -38,6 +38,7 @@ import {
   sortCodeLayerIdsByTreeOrder,
   formatPendingVisualStylePrompt,
   mergePendingVisualStyleEdit,
+  upsertMotionStyleKeyframes,
 } from "./DesignEditor";
 
 describe("DesignEditor overview selection state", () => {
@@ -446,6 +447,70 @@ describe("DesignEditor motion timeline hydration", () => {
           { t: 1, value: "1" },
         ],
       },
+    ]);
+  });
+
+  it("creates style-keyframe tracks at the current playhead", () => {
+    expect(
+      upsertMotionStyleKeyframes({
+        tracks: [],
+        targetNodeId: "e2e-alpha-button",
+        label: "Alpha Button",
+        styles: { opacity: "0.25", backgroundColor: "rgb(255, 0, 0)" },
+        computedStyles: {
+          opacity: "1",
+          backgroundColor: "rgb(34, 197, 94)",
+        },
+        playhead: 0.5,
+      }),
+    ).toEqual([
+      {
+        targetNodeId: "e2e-alpha-button",
+        label: "Alpha Button",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "1", ease: "ease" },
+          { t: 0.5, value: "0.25", ease: "ease" },
+          { t: 1, value: "1", ease: "ease" },
+        ],
+      },
+      {
+        targetNodeId: "e2e-alpha-button",
+        label: "Alpha Button",
+        property: "background-color",
+        keyframes: [
+          { t: 0, value: "rgb(34, 197, 94)", ease: "ease" },
+          { t: 0.5, value: "rgb(255, 0, 0)", ease: "ease" },
+          { t: 1, value: "rgb(34, 197, 94)", ease: "ease" },
+        ],
+      },
+    ]);
+  });
+
+  it("replaces an existing keyframe at the same playhead", () => {
+    const next = upsertMotionStyleKeyframes({
+      tracks: [
+        {
+          targetNodeId: "e2e-alpha-button",
+          label: "Alpha Button",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "1" },
+            { t: 0.5, value: "0.5" },
+            { t: 1, value: "0" },
+          ],
+        },
+      ],
+      targetNodeId: "e2e-alpha-button",
+      label: "Alpha Button",
+      styles: { opacity: "0.2" },
+      playhead: 0.501,
+    });
+
+    expect(next[0]?.keyframes).toEqual([
+      { t: 0, value: "1" },
+      { t: 0.501, value: "0.2", ease: "ease" },
+      { t: 1, value: "0" },
     ]);
   });
 });
@@ -1057,6 +1122,16 @@ describe("DesignEditor undo order helpers", () => {
     ).toEqual([
       { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
     ]);
+  });
+
+  it("does not treat a stale active file id as available after deletion", () => {
+    expect(
+      getAvailableContentHistoryChanges(
+        { fileId: "deleted-screen", before: "<b>old</b>", after: "<b>new</b>" },
+        ["screen-a"],
+        "deleted-screen",
+      ),
+    ).toEqual([]);
   });
 
   it("keeps active content and grouped file-content stacks distinct", () => {

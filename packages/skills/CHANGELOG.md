@@ -1,5 +1,20 @@
 # @agent-native/skills
 
+## 0.2.185
+
+### Patch Changes
+
+- Updated dependencies [a2ce30e]
+  - @agent-native/core@0.84.11
+
+## 0.2.184
+
+### Patch Changes
+
+- 720b8b0: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+- Updated dependencies [720b8b0]
+  - @agent-native/core@0.84.10
+
 ## 0.2.183
 
 ### Patch Changes

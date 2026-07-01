@@ -8,6 +8,7 @@ import { and, asc, desc, inArray, isNull } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { getDb, schema } from "../db/index.js";
+import { preparePresetChatContext } from "../lib/preset-chat-context.js";
 import "../register-secrets.js";
 
 const ASSETS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -49,6 +50,10 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  // When a user tags an @preset, embed its aesthetics/philosophy into the
+  // model-facing message so the agent internalizes the brief before generating.
+  prepareRequest: ({ message, references }) =>
+    preparePresetChatContext({ message, references }),
   mentionProviders: {
     mediaTypes: {
       label: "Media type",

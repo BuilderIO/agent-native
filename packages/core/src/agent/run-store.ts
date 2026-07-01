@@ -429,6 +429,29 @@ function backgroundAwareStaleCutoffSql(): string {
 }
 
 /**
+ * Liveness basis for the stale reapers: the MOST RECENT of `heartbeat_at`
+ * ("process is up", bumped on a 1.5s timer) and `last_progress_at` ("real work
+ * is happening", bumped whenever the agent emits an event — including a
+ * long-running tool's periodic activity heartbeats, e.g. image generation every
+ * 8s), falling back to `started_at`.
+ *
+ * The reapers previously keyed liveness on `heartbeat_at` alone, so a run that
+ * was demonstrably progressing got reaped ('running' → 'errored') the moment the
+ * process-liveness write lagged (DB latency, a brief event-loop stall). The
+ * producing isolate's SQL-abort check then self-aborted the in-flight action
+ * with "Run aborted"; on the durable-background self-chaining path this re-drove
+ * the turn in a loop. Honoring progress means a run doing real work is never
+ * reaped mid-tool. It can only make reaping MORE conservative — a genuinely dead
+ * producer emits neither signal — so a truly-dead run is still reaped.
+ *
+ * Portable across SQLite and Postgres (CASE + COALESCE only; no GREATEST or
+ * scalar MAX, which differ between engines).
+ */
+function livenessBasisSql(): string {
+  return `(CASE WHEN COALESCE(last_progress_at, started_at) > COALESCE(heartbeat_at, started_at) THEN COALESCE(last_progress_at, started_at) ELSE COALESCE(heartbeat_at, started_at) END)`;
+}
+
+/**
  * Atomically claim a background-dispatched run for processing. The foreground
  * POST inserts the run row with `dispatch_mode = 'background'`; the FIRST
  * delivery of the background dispatch flips it to `background-processing` and
@@ -733,8 +756,8 @@ export async function reapIfStale(
   // override forces a flat window for callers that want one.
   const staleClause =
     typeof maxStaleMs === "number"
-      ? `COALESCE(heartbeat_at, started_at) < ?`
-      : `COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`;
+      ? `${livenessBasisSql()} < ?`
+      : `${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`;
   const staleArgs =
     typeof maxStaleMs === "number" ? [completedAt - maxStaleMs] : [completedAt];
   const { rowsAffected } = await client.execute({
@@ -1151,7 +1174,7 @@ export async function reapAllStaleRuns(): Promise<number> {
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
+            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [now],
   });
   const completedAt = Date.now();
@@ -1162,7 +1185,7 @@ export async function reapAllStaleRuns(): Promise<number> {
               error_code = ?,
               error_detail = ?
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
+            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
@@ -1207,7 +1230,7 @@ export async function cleanupOldRuns(
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND (
-              COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}
+              ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
               OR started_at < ?
     )`,
     args: [now, cutoff],
@@ -1236,7 +1259,7 @@ export async function cleanupOldRuns(
               error_code = ?,
               error_detail = ?
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
+            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
