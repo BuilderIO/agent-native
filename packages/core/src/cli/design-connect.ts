@@ -1,0 +1,1022 @@
+import crypto from "node:crypto";
+import fsSync from "node:fs";
+import fs from "node:fs/promises";
+import http, {
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import path from "node:path";
+
+const DEFAULT_BRIDGE_PORT = 7331;
+const ROUTE_MANIFEST_FILE = path.join(".agent-native", "design-routes.json");
+const DEFAULT_DEV_SERVER_CANDIDATES = [
+  "http://127.0.0.1:5173",
+  "http://localhost:5173",
+  "http://127.0.0.1:3000",
+  "http://localhost:3000",
+  "http://127.0.0.1:8080",
+  "http://localhost:8080",
+];
+
+const BRIDGE_OPERATIONS = [
+  "select",
+  "resolveNodeToFile",
+  "readFile",
+  "applyEdit",
+  "writeFile",
+  "captureSnapshot",
+  "captureState",
+] as const;
+
+type BridgeOperation = (typeof BRIDGE_OPERATIONS)[number];
+
+export interface DesignConnectArgs {
+  url?: string;
+  port: number;
+  root: string;
+  routeManifest?: string;
+  /** Optional deployed design app URL used to self-register the bridge on
+   *  startup.  When set (or when AGENT_NATIVE_URL / DESIGN_APP_URL env vars
+   *  are present) the CLI POSTs to `/_agent-native/actions/connect-localhost`
+   *  with the real bridge token so the server can store it for grant minting. */
+  appUrl?: string;
+  json: boolean;
+  once: boolean;
+  dryRun: boolean;
+  help: boolean;
+}
+
+export interface DesignConnectRoute {
+  id: string;
+  path: string;
+  title: string;
+  sourceFile?: string;
+  sourceKind: "react-router" | "html" | "manual";
+}
+
+export interface DesignConnectManifest {
+  version: 1;
+  source: "agent-native-design-connect";
+  sourceType: "localhost";
+  localOnly: true;
+  devServerUrl: string;
+  bridgeUrl: string;
+  rootPath: string;
+  routeManifestPath: string;
+  routeManifestCreated: boolean;
+  routes: DesignConnectRoute[];
+  routeCount: number;
+  generatedAt: string;
+  capabilities: Array<{
+    operation: BridgeOperation;
+    status: "available" | "planned" | "disabled";
+    reason?: string;
+  }>;
+}
+
+export interface DesignConnectBridge {
+  server: Server;
+  manifest: DesignConnectManifest;
+  /** Per-rootPath bridge token. Kept in-process only; never serialised into
+   *  the manifest JSON so it is not exposed over the network via GET /manifest.
+   *  The server-side grant action reads it from the running bridge instance. */
+  bridgeToken: string;
+}
+
+function stringFlagValue(argv: string[], index: number, flag: string) {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("-")) {
+    throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
+function normalizeSlash(value: string) {
+  return value.replace(/\\/g, "/");
+}
+
+function normalizeHttpUrl(value: string): string {
+  const raw = value.trim();
+  const withProtocol = /^[a-z]+:\/\//i.test(raw) ? raw : `http://${raw}`;
+  const parsed = new URL(withProtocol);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("--url must be an http(s) URL");
+  }
+  parsed.hash = "";
+  return parsed.toString().replace(/\/$/, "");
+}
+
+export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
+  const args = argv[0] === "connect" ? argv.slice(1) : argv;
+  const parsed: DesignConnectArgs = {
+    port: DEFAULT_BRIDGE_PORT,
+    root: process.cwd(),
+    json: false,
+    once: false,
+    dryRun: false,
+    help: false,
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "help" || arg === "--help" || arg === "-h") {
+      parsed.help = true;
+    } else if (arg === "--url") {
+      parsed.url = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--url=")) {
+      parsed.url = arg.slice("--url=".length);
+    } else if (arg === "--port") {
+      parsed.port = Number.parseInt(stringFlagValue(args, index, arg), 10);
+      index += 1;
+    } else if (arg.startsWith("--port=")) {
+      parsed.port = Number.parseInt(arg.slice("--port=".length), 10);
+    } else if (arg === "--root") {
+      parsed.root = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--root=")) {
+      parsed.root = arg.slice("--root=".length);
+    } else if (arg === "--route-manifest") {
+      parsed.routeManifest = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--route-manifest=")) {
+      parsed.routeManifest = arg.slice("--route-manifest=".length);
+    } else if (arg === "--app-url") {
+      parsed.appUrl = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--app-url=")) {
+      parsed.appUrl = arg.slice("--app-url=".length);
+    } else if (arg === "--json") {
+      parsed.json = true;
+      parsed.once = true;
+    } else if (arg === "--once") {
+      parsed.once = true;
+    } else if (arg === "--dry-run") {
+      parsed.dryRun = true;
+      parsed.once = true;
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown option: ${arg}`);
+    } else {
+      throw new Error(`Unexpected argument: ${arg}`);
+    }
+  }
+
+  if (!Number.isInteger(parsed.port) || parsed.port <= 0) {
+    throw new Error("--port must be a positive integer");
+  }
+  parsed.root = path.resolve(parsed.root);
+  parsed.url = parsed.url ? normalizeHttpUrl(parsed.url) : undefined;
+  return parsed;
+}
+
+function routeId(routePath: string): string {
+  if (routePath === "/") return "route-root";
+  const slug = routePath
+    .replace(/^\/+/, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return slug ? `route-${slug}` : "route-wildcard";
+}
+
+function titleFromRoutePath(routePath: string): string {
+  if (routePath === "/") return "Home";
+  if (routePath === "/*" || routePath === "*") return "Wildcard";
+  return (
+    routePath
+      .replace(/^\/+/, "")
+      .replace(/[:$]/g, "")
+      .replace(/[-_/]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase()) || "Screen"
+  );
+}
+
+function walkFiles(dir: string, files: string[] = []): string[] {
+  if (!fsSync.existsSync(dir)) return files;
+  for (const entry of fsSync.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === ".git") continue;
+    const absolute = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkFiles(absolute, files);
+    } else {
+      files.push(absolute);
+    }
+  }
+  return files;
+}
+
+function routePathFromReactRouterFile(filePath: string, routesDir: string) {
+  const withoutExt = normalizeSlash(path.relative(routesDir, filePath)).replace(
+    /\.[cm]?[jt]sx?$/,
+    "",
+  );
+  const parts: string[] = [];
+  for (const segment of withoutExt.split("/")) {
+    for (const token of segment.split(".")) {
+      if (!token || token === "route" || token === "index") continue;
+      if (token === "_index") continue;
+      if (token.startsWith("_")) continue;
+      const pathToken = token.endsWith("_") ? token.slice(0, -1) : token;
+      if (pathToken === "$") {
+        parts.push("*");
+      } else if (pathToken.startsWith("$")) {
+        const param = pathToken.slice(1) || "param";
+        parts.push(`:${param}`);
+      } else {
+        parts.push(pathToken);
+      }
+    }
+  }
+  return `/${parts.join("/")}`.replace(/\/+/g, "/");
+}
+
+export function discoverDesignRoutes(root: string): DesignConnectRoute[] {
+  const absoluteRoot = path.resolve(root);
+  const routeDirs = [
+    path.join(absoluteRoot, "app", "routes"),
+    path.join(absoluteRoot, "src", "routes"),
+    path.join(absoluteRoot, "pages"),
+  ].filter((dir) => fsSync.existsSync(dir));
+  const routes = new Map<string, DesignConnectRoute>();
+
+  for (const routeDir of routeDirs) {
+    for (const file of walkFiles(routeDir)) {
+      if (!/\.[cm]?[jt]sx?$/.test(file)) continue;
+      if (/\.test\.|\.spec\./.test(file)) continue;
+      const pathName = routePathFromReactRouterFile(file, routeDir);
+      routes.set(pathName, {
+        id: routeId(pathName),
+        path: pathName,
+        title: titleFromRoutePath(pathName),
+        sourceFile: normalizeSlash(path.relative(absoluteRoot, file)),
+        sourceKind: "react-router",
+      });
+    }
+  }
+
+  if (routes.size === 0) {
+    for (const dir of [absoluteRoot, path.join(absoluteRoot, "public")]) {
+      for (const file of walkFiles(dir)) {
+        if (!file.endsWith(".html")) continue;
+        const rel = normalizeSlash(path.relative(dir, file));
+        const pathName =
+          rel === "index.html" ? "/" : `/${rel.replace(/\.html$/, "")}`;
+        routes.set(pathName, {
+          id: routeId(pathName),
+          path: pathName,
+          title: titleFromRoutePath(pathName),
+          sourceFile: normalizeSlash(path.relative(absoluteRoot, file)),
+          sourceKind: "html",
+        });
+      }
+    }
+  }
+
+  return [...routes.values()].sort((a, b) => {
+    if (a.path === "/") return -1;
+    if (b.path === "/") return 1;
+    return a.path.localeCompare(b.path);
+  });
+}
+
+async function probeDevServer(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 800);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    return response.status < 500;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveDevServerUrl(url?: string): Promise<string> {
+  if (url) return normalizeHttpUrl(url);
+  for (const candidate of DEFAULT_DEV_SERVER_CANDIDATES) {
+    if (await probeDevServer(candidate)) return candidate;
+  }
+  return DEFAULT_DEV_SERVER_CANDIDATES[0]!;
+}
+
+async function ensureRouteManifest(options: {
+  root: string;
+  routeManifestPath: string;
+  routes: DesignConnectRoute[];
+  devServerUrl: string;
+  dryRun: boolean;
+}): Promise<{ path: string; created: boolean }> {
+  const manifestPath = path.isAbsolute(options.routeManifestPath)
+    ? options.routeManifestPath
+    : path.join(options.root, options.routeManifestPath);
+  if (fsSync.existsSync(manifestPath)) {
+    return { path: manifestPath, created: false };
+  }
+  if (!options.dryRun) {
+    await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fs.writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          sourceType: "localhost",
+          devServerUrl: options.devServerUrl,
+          rootPath: options.root,
+          routes: options.routes,
+          generatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+  }
+  return { path: manifestPath, created: !options.dryRun };
+}
+
+export async function prepareDesignConnectManifest(
+  options: Partial<DesignConnectArgs> & { root?: string } = {},
+): Promise<DesignConnectManifest> {
+  const root = path.resolve(options.root ?? process.cwd());
+  const port = options.port ?? DEFAULT_BRIDGE_PORT;
+  const devServerUrl = await resolveDevServerUrl(options.url);
+  const bridgeUrl = `http://127.0.0.1:${port}`;
+  const routes = discoverDesignRoutes(root);
+  const routeManifest = await ensureRouteManifest({
+    root,
+    routeManifestPath: options.routeManifest ?? ROUTE_MANIFEST_FILE,
+    routes,
+    devServerUrl,
+    dryRun: Boolean(options.dryRun),
+  });
+  const generatedAt = new Date().toISOString();
+
+  return {
+    version: 1,
+    source: "agent-native-design-connect",
+    sourceType: "localhost",
+    localOnly: true,
+    devServerUrl,
+    bridgeUrl,
+    rootPath: root,
+    routeManifestPath: routeManifest.path,
+    routeManifestCreated: routeManifest.created,
+    routes,
+    routeCount: routes.length,
+    generatedAt,
+    capabilities: BRIDGE_OPERATIONS.map((operation) => ({
+      operation,
+      status: "available" as const,
+      reason:
+        operation === "resolveNodeToFile"
+          ? // resolveNodeToFile maps a runtime DOM node id (from the editor's
+            // 'select' payload) to { file, line, component } provenance.  The
+            // bridge endpoint exists; per-element provenance data must be
+            // emitted by the connected app at build time — see the provenance
+            // note in the help text below.
+            "Requires the connected app to emit data-source-file / data-source-line / data-component-name attributes (e.g. via @vitejs/plugin-react jsxDEV or a Babel source plugin)."
+          : undefined,
+    })),
+  };
+}
+
+function sendJson(
+  res: ServerResponse,
+  statusCode: number,
+  body: Record<string, unknown>,
+) {
+  res.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type, x-bridge-token",
+    "access-control-allow-private-network": "true",
+  });
+  res.end(`${JSON.stringify(body, null, 2)}\n`);
+}
+
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
+function resolvePreviewSnapshotUrl(
+  devServerUrl: string,
+  rawUrl: string | null,
+): string {
+  const base = normalizeHttpUrl(devServerUrl);
+  const parsed = new URL(rawUrl?.trim() || "/", `${base}/`);
+  parsed.hash = "";
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Snapshot URL must use http(s).");
+  }
+  if (!sameOrigin(parsed.toString(), base)) {
+    throw new Error("Snapshot URL must stay on the connected dev server.");
+  }
+  return parsed.toString();
+}
+
+async function fetchPreviewSnapshot(
+  devServerUrl: string,
+  targetUrl: string,
+  redirects = 0,
+): Promise<{
+  url: string;
+  status: number;
+  contentType: string;
+  html: string;
+}> {
+  if (redirects > 5) {
+    throw new Error("Too many redirects while fetching preview snapshot.");
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(targetUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal: controller.signal,
+      headers: {
+        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+      },
+    });
+    const location = response.headers.get("location");
+    if (location && response.status >= 300 && response.status < 400) {
+      const redirected = new URL(location, targetUrl);
+      redirected.hash = "";
+      if (!sameOrigin(redirected.toString(), devServerUrl)) {
+        throw new Error("Snapshot redirect left the connected dev server.");
+      }
+      return fetchPreviewSnapshot(
+        devServerUrl,
+        redirected.toString(),
+        redirects + 1,
+      );
+    }
+    return {
+      url: response.url || targetUrl,
+      status: response.status,
+      contentType: response.headers.get("content-type") ?? "",
+      html: await response.text(),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Read the full request body as a UTF-8 string. */
+async function readRequestBody(req: IncomingMessage): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+/**
+ * Resolve `targetDir` under `rootPath` with realpath so that symlinks and
+ * traversal sequences (../../etc) cannot escape the root.  Throws if the
+ * resolved path does not start with the resolved root.
+ */
+async function assertPathInside(
+  rootPath: string,
+  targetPath: string,
+): Promise<void> {
+  const resolvedRoot = await fs.realpath(rootPath).catch(() => {
+    throw new Error(`Bridge root path does not exist: ${rootPath}`);
+  });
+
+  // Resolve the parent directory (the file itself may not exist yet for writes).
+  const targetParent = path.dirname(path.resolve(rootPath, targetPath));
+  const resolvedParent = await fs.realpath(targetParent).catch(async () => {
+    // Parent may not exist yet; walk up until we find a real ancestor.
+    let candidate = targetParent;
+    for (let i = 0; i < 32; i++) {
+      const up = path.dirname(candidate);
+      if (up === candidate) break;
+      candidate = up;
+      try {
+        return await fs.realpath(candidate);
+      } catch {
+        // keep walking
+      }
+    }
+    throw new Error(`Cannot resolve parent directory: ${targetParent}`);
+  });
+
+  if (
+    !resolvedParent.startsWith(resolvedRoot + path.sep) &&
+    resolvedParent !== resolvedRoot
+  ) {
+    throw new Error(`Path traversal detected: resolved target is outside root`);
+  }
+}
+
+/** Allowed file extensions for write/apply-edit operations. */
+const ALLOWED_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
+
+function assertAllowedExtension(relPath: string): void {
+  const ext = path.extname(relPath).toLowerCase();
+  if (!ALLOWED_WRITE_EXTENSIONS.has(ext)) {
+    throw new Error(
+      `Write rejected: only .html, .htm, and .css files may be written via the bridge (got ${ext || "(no extension)"})`,
+    );
+  }
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  let count = 0;
+  let index = haystack.indexOf(needle);
+  while (index !== -1) {
+    count += 1;
+    if (count > 1) return count;
+    index = haystack.indexOf(needle, index + 1);
+  }
+  return count;
+}
+
+export async function startDesignConnectBridge(
+  manifest: DesignConnectManifest,
+): Promise<DesignConnectBridge> {
+  // Mint a cryptographically random per-rootPath bridge token.  This token is
+  // kept in-process only and is never emitted via the public GET routes so that
+  // an unauthenticated caller cannot read it.  The server-side grant action
+  // obtains it out-of-band (via the exported bridge reference).
+  const bridgeToken = crypto.randomBytes(32).toString("hex");
+
+  const server = http.createServer(
+    (req: IncomingMessage, res: ServerResponse) => {
+      if (req.method === "OPTIONS") {
+        sendJson(res, 204, {});
+        return;
+      }
+
+      const pathname = new URL(req.url ?? "/", manifest.bridgeUrl).pathname;
+
+      // ── Public read-only routes (no token required) ──────────────────────
+
+      if (pathname === "/" || pathname === "/manifest.json") {
+        sendJson(res, 200, manifest as unknown as Record<string, unknown>);
+        return;
+      }
+      if (pathname === "/routes.json") {
+        sendJson(res, 200, {
+          version: 1,
+          sourceType: "localhost",
+          devServerUrl: manifest.devServerUrl,
+          rootPath: manifest.rootPath,
+          routes: manifest.routes,
+          generatedAt: manifest.generatedAt,
+        });
+        return;
+      }
+      if (pathname === "/health") {
+        sendJson(res, 200, { ok: true, source: manifest.source });
+        return;
+      }
+      if (pathname === "/snapshot") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { ok: false, error: "method not allowed" });
+          return;
+        }
+        void (async () => {
+          try {
+            const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+            const targetUrl = resolvePreviewSnapshotUrl(
+              manifest.devServerUrl,
+              requestUrl.searchParams.get("url") ??
+                requestUrl.searchParams.get("path"),
+            );
+            const snapshot = await fetchPreviewSnapshot(
+              manifest.devServerUrl,
+              targetUrl,
+            );
+            sendJson(res, snapshot.status >= 400 ? snapshot.status : 200, {
+              ok: snapshot.status < 400,
+              source: manifest.source,
+              url: snapshot.url,
+              status: snapshot.status,
+              contentType: snapshot.contentType,
+              html: snapshot.html,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 400, {
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        return;
+      }
+
+      // ── Token-gated write endpoints (POST only) ───────────────────────────
+
+      if (
+        pathname === "/read-file" ||
+        pathname === "/write-file" ||
+        pathname === "/apply-edit"
+      ) {
+        if (req.method !== "POST") {
+          sendJson(res, 405, { ok: false, error: "method not allowed" });
+          return;
+        }
+
+        // Authenticate with constant-time comparison to prevent timing attacks.
+        const tokenHeader = req.headers["x-bridge-token"];
+        const providedToken =
+          typeof tokenHeader === "string" ? tokenHeader : "";
+        let tokenValid = false;
+        try {
+          tokenValid =
+            providedToken.length === bridgeToken.length &&
+            crypto.timingSafeEqual(
+              Buffer.from(providedToken, "utf8"),
+              Buffer.from(bridgeToken, "utf8"),
+            );
+        } catch {
+          tokenValid = false;
+        }
+        if (!tokenValid) {
+          sendJson(res, 401, {
+            ok: false,
+            error: "invalid or missing bridge token",
+          });
+          return;
+        }
+
+        // Handle asynchronously so we can use await.
+        void (async () => {
+          try {
+            const raw = await readRequestBody(req);
+            const body = JSON.parse(raw) as Record<string, unknown>;
+            const relPath =
+              typeof body["relPath"] === "string" ? body["relPath"] : undefined;
+
+            if (!relPath) {
+              sendJson(res, 400, { ok: false, error: "relPath is required" });
+              return;
+            }
+
+            await assertPathInside(manifest.rootPath, relPath);
+            const absolutePath = path.resolve(manifest.rootPath, relPath);
+
+            if (pathname === "/read-file") {
+              // Read-file: no extension restriction — agents need to read any file.
+              let content: string;
+              try {
+                content = await fs.readFile(absolutePath, "utf8");
+              } catch (err: unknown) {
+                const code =
+                  err instanceof Error &&
+                  "code" in err &&
+                  (err as NodeJS.ErrnoException).code;
+                if (code === "ENOENT") {
+                  sendJson(res, 404, { ok: false, error: "file not found" });
+                } else {
+                  sendJson(res, 500, {
+                    ok: false,
+                    error: `read failed: ${err instanceof Error ? err.message : String(err)}`,
+                  });
+                }
+                return;
+              }
+              sendJson(res, 200, { ok: true, content });
+              return;
+            }
+
+            // write-file and apply-edit only allow .html/.htm/.css.
+            assertAllowedExtension(relPath);
+
+            if (pathname === "/write-file") {
+              const content =
+                typeof body["content"] === "string"
+                  ? body["content"]
+                  : undefined;
+              if (content === undefined) {
+                sendJson(res, 400, {
+                  ok: false,
+                  error: "content is required for write-file",
+                });
+                return;
+              }
+              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+              await fs.writeFile(absolutePath, content, "utf8");
+              sendJson(res, 200, { ok: true, relPath });
+              return;
+            }
+
+            // /apply-edit: supports either full replace ({content}) or
+            // search-and-replace ({search, replace}).
+            if (typeof body["content"] === "string") {
+              // Full-file replace via apply-edit — same as write-file but keeps
+              // the endpoint semantically separate for callers that want to
+              // distinguish intent.
+              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+              await fs.writeFile(
+                absolutePath,
+                body["content"] as string,
+                "utf8",
+              );
+              sendJson(res, 200, { ok: true, relPath, method: "replace" });
+              return;
+            }
+
+            const search =
+              typeof body["search"] === "string" ? body["search"] : undefined;
+            const replace =
+              typeof body["replace"] === "string" ? body["replace"] : undefined;
+            if (search === undefined || replace === undefined) {
+              sendJson(res, 400, {
+                ok: false,
+                error:
+                  "apply-edit requires either {content} for a full replace, or {search, replace} for a patch",
+              });
+              return;
+            }
+
+            let existing: string;
+            try {
+              existing = await fs.readFile(absolutePath, "utf8");
+            } catch (err: unknown) {
+              const code =
+                err instanceof Error &&
+                "code" in err &&
+                (err as NodeJS.ErrnoException).code;
+              if (code === "ENOENT") {
+                sendJson(res, 404, {
+                  ok: false,
+                  error: "file not found — use write-file to create new files",
+                });
+              } else {
+                sendJson(res, 500, {
+                  ok: false,
+                  error: `read failed: ${err instanceof Error ? err.message : String(err)}`,
+                });
+              }
+              return;
+            }
+
+            if (search.length === 0) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "search string must not be empty",
+              });
+              return;
+            }
+
+            const occurrenceCount = countOccurrences(existing, search);
+            if (occurrenceCount === 0) {
+              sendJson(res, 422, {
+                ok: false,
+                error: "search string not found in file",
+              });
+              return;
+            }
+            if (occurrenceCount > 1) {
+              sendJson(res, 422, {
+                ok: false,
+                error:
+                  "search string is ambiguous; it appears more than once in the file",
+              });
+              return;
+            }
+
+            const updated = existing.replace(search, replace);
+            await fs.writeFile(absolutePath, updated, "utf8");
+            sendJson(res, 200, { ok: true, relPath, method: "patch" });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        return;
+      }
+
+      sendJson(res, 404, { ok: false, error: "not found" });
+    },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(new URL(manifest.bridgeUrl).port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return { server, manifest, bridgeToken };
+}
+
+/**
+ * Resolve the design app URL from an explicit value or environment variables.
+ * Returns undefined when no URL is configured (registration is optional).
+ */
+export function resolveAppUrl(explicit?: string): string | undefined {
+  const raw =
+    explicit ||
+    process.env["AGENT_NATIVE_URL"] ||
+    process.env["DESIGN_APP_URL"] ||
+    process.env["APP_URL"] ||
+    process.env["VITE_APP_URL"] ||
+    process.env["BETTER_AUTH_URL"] ||
+    process.env["VITE_BETTER_AUTH_URL"];
+  if (!raw) return undefined;
+  try {
+    const parsed = new URL(raw.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return undefined;
+    }
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve a bearer token from environment variables for authenticating the
+ * self-registration POST.  The CLI does not perform a device-code flow — it
+ * relies on a pre-minted token supplied via env var (e.g. the same token
+ * already written into the agent's MCP config).
+ */
+function resolveAuthToken(): string | undefined {
+  return (
+    process.env["AGENT_NATIVE_TOKEN"] ||
+    process.env["DESIGN_ACCESS_TOKEN"] ||
+    process.env["ACCESS_TOKEN"] ||
+    undefined
+  );
+}
+
+/**
+ * POST to the design app's `connect-localhost` action endpoint to register
+ * (or refresh) the bridge connection and persist the real bridge token on the
+ * server row.  This is a best-effort call: failures are logged but do not
+ * abort the bridge process.
+ *
+ * @param appUrl - Deployed design app base URL (e.g. https://design.agent-native.com)
+ * @param bridge - The running bridge returned by startDesignConnectBridge
+ * @param authToken - Optional bearer token for the authenticated action route
+ */
+export async function registerConnectionWithServer(
+  appUrl: string,
+  bridge: DesignConnectBridge,
+  authToken?: string,
+): Promise<void> {
+  const endpoint = `${appUrl}/_agent-native/actions/connect-localhost`;
+  const { manifest, bridgeToken } = bridge;
+  const payload = {
+    devServerUrl: manifest.devServerUrl,
+    bridgeUrl: manifest.bridgeUrl,
+    rootPath: manifest.rootPath,
+    capabilities: manifest.capabilities,
+    routeManifest: {
+      version: 1 as const,
+      sourceType: "localhost" as const,
+      devServerUrl: manifest.devServerUrl,
+      rootPath: manifest.rootPath,
+      routes: manifest.routes,
+      generatedAt: manifest.generatedAt,
+    },
+    // Include the real bridge token so the server stores it on the connection
+    // row.  grant-localhost-write-consent then reads it from the row instead of
+    // minting its own unrelated token, which would always produce a 401.
+    bridgeToken,
+    status: "connected" as const,
+  };
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (authToken) {
+    headers["authorization"] = `Bearer ${authToken}`;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const message = await res.text().catch(() => res.statusText);
+      throw new Error(`${res.status} ${message || res.statusText}`);
+    }
+  } catch (error) {
+    // Best-effort: network errors or auth issues are non-fatal, but make the
+    // problem discoverable before the user tries "Apply to source".
+    console.error(
+      `[design connect] Could not register bridge with ${endpoint}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function printHelp() {
+  console.log(`Usage:
+  agent-native design connect [options]
+
+Options:
+  --url <url>             Dev server URL to inspect (auto-detected if omitted)
+  --port <number>         Local bridge port (default ${DEFAULT_BRIDGE_PORT})
+  --root <path>           App/repo root for route discovery (default cwd)
+  --route-manifest <path> Non-destructive route manifest output path
+  --app-url <url>         Deployed design app URL for self-registration
+                          (also reads AGENT_NATIVE_URL / DESIGN_APP_URL env)
+  --json                  Print the manifest JSON and exit
+  --once                  Prepare/scaffold the manifest and exit
+  --dry-run               Print what would be exposed without writing files
+
+Element provenance (resolveNodeToFile):
+  The design editor can map a selected DOM element back to its source file,
+  line, and React component name when the connected app emits provenance
+  attributes at build time.  Add one of the following to your app's build:
+
+  • @vitejs/plugin-react with jsxDEV enabled (development mode default):
+      Sets data-source-file and data-source-line on each JSX element
+      automatically when using the Babel transform.
+
+  • A Babel source plugin (e.g. babel-plugin-react-source or a custom plugin):
+      Emits data-source-file="src/Button.tsx" data-source-line="12"
+      data-source-column="4" data-component-name="Button" on each element.
+
+  • data-loc="src/Button.tsx:12:4" shorthand attribute (Babel source convention):
+      The bridge parses this as { sourceFile, line, column } automatically.
+
+  Without these attributes the editor still works; provenance is simply absent.
+  Cross-origin localhost iframes cannot be read regardless of attributes (CSP).`);
+}
+
+export async function runDesign(argv: string[]) {
+  const subcommand = argv[0];
+  if (subcommand !== "connect") {
+    if (
+      subcommand === "help" ||
+      subcommand === "--help" ||
+      subcommand === "-h"
+    ) {
+      printHelp();
+      return 0;
+    }
+    console.error("Usage: agent-native design connect [options]");
+    return 1;
+  }
+
+  const parsed = parseDesignConnectArgs(argv);
+  if (parsed.help) {
+    printHelp();
+    return 0;
+  }
+
+  const manifest = await prepareDesignConnectManifest(parsed);
+  if (parsed.json || parsed.once || parsed.dryRun) {
+    console.log(JSON.stringify(manifest, null, 2));
+    return 0;
+  }
+
+  const bridge = await startDesignConnectBridge(manifest);
+  console.error("Design localhost bridge running");
+  console.error(`Bridge:   ${manifest.bridgeUrl}`);
+  console.error(`Manifest: ${manifest.bridgeUrl}/manifest.json`);
+  console.error(`Routes:   ${manifest.routeCount}`);
+  console.error(`Dev URL:  ${manifest.devServerUrl}`);
+
+  // Self-register with the design app server (best-effort).  When an app URL
+  // is available (via --app-url or env var) the CLI POSTs the bridge token to
+  // connect-localhost so the server row stores the real token.  Without this
+  // step grant-localhost-write-consent would mint a different token, causing
+  // every bridge write to return 401.
+  const appUrl = resolveAppUrl(parsed.appUrl);
+  if (appUrl) {
+    const authToken = resolveAuthToken();
+    void registerConnectionWithServer(appUrl, bridge, authToken);
+  }
+
+  return await new Promise<number>((resolve) => {
+    const stop = () => {
+      bridge.server.close(() => resolve(0));
+    };
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+      process.once(signal, stop);
+    }
+  });
+}

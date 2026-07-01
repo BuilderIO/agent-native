@@ -228,7 +228,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: "8px",
     padding: "6px 12px",
     fontSize: "13px",
-    border: "1px solid rgba(255,255,255,0.15)",
+    border: "1px solid hsl(var(--border))",
     borderRadius: "6px",
     background: "transparent",
     color: "inherit",
@@ -242,8 +242,8 @@ const styles: Record<string, React.CSSProperties> = {
   keyCard: {
     padding: "10px 12px",
     borderRadius: "8px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)",
+    border: "1px solid hsl(var(--border))",
+    background: "hsl(var(--card))",
   },
   keyHeader: {
     display: "flex",
@@ -268,7 +268,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "14px",
   },
   unconfiguredDot: {
-    color: "rgba(255,255,255,0.25)",
+    color: "hsl(var(--muted-foreground) / 0.55)",
     fontSize: "8px",
   },
   requiredBadge: {
@@ -285,8 +285,8 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "7px 10px",
     fontSize: "13px",
     borderRadius: "6px",
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(0,0,0,0.2)",
+    border: "1px solid hsl(var(--input))",
+    background: "hsl(var(--background))",
     color: "inherit",
     outline: "none",
     boxSizing: "border-box" as const,
@@ -302,8 +302,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     borderRadius: "6px",
     border: "none",
-    background: "#3b82f6",
-    color: "#fff",
+    background: "hsl(var(--primary))",
+    color: "hsl(var(--primary-foreground))",
     cursor: "pointer",
   },
 };

@@ -112,12 +112,12 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
   // ── Google Gemini ───────────────────────────────────────────────────────────
   // Gemini 3 Pro / 3.1 Pro: ~$1.25/$10 per MTok (approximate; verify on billing)
   {
-    match: /gemini-3[\.\-]1-pro/i,
+    match: /gemini-3[.-]1-pro/i,
     pricing: { input: 125, output: 1000, cacheRead: 31, cacheWrite: 0 },
   },
   // Gemini 3.5 Flash / 3 Flash: ~$0.15/$0.60 per MTok
   {
-    match: /gemini-3[\.\-][0-9]+-flash/i,
+    match: /gemini-3[.-][0-9]+-flash/i,
     pricing: { input: 15, output: 60, cacheRead: 4, cacheWrite: 0 },
   },
   // Gemini 2.5 Pro/Flash (catch-all for older 2.5)

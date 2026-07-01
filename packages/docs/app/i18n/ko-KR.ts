@@ -77,10 +77,10 @@ const koKR = {
   home: {
     hero: {
       badge: "오픈소스 framework",
-      titleLine1: "에이전트 애플리케이션",
-      titleAccent: "직접 소유하는",
+      titleLine1: "agentic apps 를 위한",
+      titleAccent: "framework",
       body: "Chat-first app 과 app-agent loop 에서 시작하세요. agent 가 성장하면 actions, 화면, jobs, workflows 를 추가할 수 있습니다.",
-      primaryCta: "템플릿으로 시작",
+      primaryCta: "구축 시작",
       secondaryCta: "문서 보기",
     },
     code: {
@@ -90,6 +90,106 @@ const koKR = {
       frameworkComment:
         "하나의 action 이 agent, UI, HTTP, MCP, A2A, CLI 를 구동합니다.",
       frameworkDescription: "로컬 app-agent loop 에서 hello 를 보냅니다.",
+    },
+    actionSurface: {
+      eyebrow: "겉에 붙인 AI가 아니라 깊이 agentic",
+      title: "하나의 action이 앱 전체 표면을 엽니다",
+      body: "작업을 한 번만 정의하세요. Agent-Native는 이를 UI action, agent 도구, HTTP endpoint, MCP/A2A 표면, CLI 명령, 권한 검사, 감사 기록으로 바꿉니다.",
+      seeActions: "Actions 보기",
+      frameworkGuide: "프레임워크 가이드 읽기",
+      benefits: {
+        oneActionDefinition: {
+          title: "하나의 action 정의",
+          body: "UI, agent, HTTP, MCP, A2A, CLI가 모두 같은 작업을 호출합니다.",
+        },
+        scopedByDefault: {
+          title: "기본 범위 지정",
+          body: "Auth, 공유, 거버넌스, 감사 로그가 작업과 함께 적용됩니다.",
+        },
+        headedOrHeadless: {
+          title: "UI 포함 또는 headless",
+          body: "앱, agent workflow, queue, 예약 작업으로 실행할 수 있습니다.",
+        },
+        contextRichInput: {
+          title: "컨텍스트가 풍부한 입력",
+          body: "채팅, 음성, skills, 지침, UI 상태가 같은 루프에 남습니다.",
+        },
+        openAgentProtocols: {
+          title: "열린 agent 프로토콜",
+          body: "A2A, MCP, MCP apps, 외부 agents는 프레임워크 수준의 기본 요소입니다.",
+        },
+        observableByDesign: {
+          title: "설계부터 관측 가능",
+          body: "Trace, eval, 피드백, 감사 기록으로 agent 작업을 확인할 수 있습니다.",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "모듈형 프레임워크",
+      title: "agentic 앱을 위한 내장 모듈",
+      body: "Agents가 처음부터 즉흥적으로 만들면 안 되는 프로덕션 부분을 사람이 검증한 조각으로 제공합니다. 그대로 쓰거나, 소스를 확인하거나, 앱에 다른 것이 필요할 때 교체하세요.",
+      pageBody:
+        "Agent-Native는 agents가 즉흥적으로 만들면 안 되는 프로덕션 작업을 위해 사람이 검증한 조각을 제공합니다. 그대로 쓰거나, 소스를 확인하거나, 제품에 맞게 교체하세요.",
+      viewAll: "모든 모듈 보기",
+      browseApps: "모듈로 만든 앱 보기",
+      items: {
+        autoStateSyncing: {
+          title: "자동 상태 동기화",
+          body: "Agent 변경이 UI를 업데이트하고, UI 상태도 별도 브리지 없이 agent에게 계속 보입니다.",
+        },
+        actions: {
+          title: "작업 actions",
+          body: "작업을 한 번 정의하고 UI, agent, HTTP, MCP, A2A, CLI에서 사용합니다.",
+        },
+        sqlStateOrm: {
+          title: "SQL 상태와 ORM",
+          body: "지속되는 앱 데이터, application state, migration, 공급자 독립 schema.",
+        },
+        dbAdmin: {
+          title: "데이터베이스 관리",
+          body: "Agent가 읽을 수 있는 schema, query 표면, migration, 별도 back office 없는 admin 도구.",
+        },
+        authGovernance: {
+          title: "인증과 거버넌스",
+          body: "로그인, 조직, multi-tenancy, 권한, 승인, 정책 hook.",
+        },
+        sharing: {
+          title: "공유",
+          body: "공유 링크, 범위 지정 접근, 공개 또는 비공개 리소스, 댓글, 리뷰 표면.",
+        },
+        realtimeCollaboration: {
+          title: "실시간 협업",
+          body: "다중 사용자 편집, 라이브 presence, optimistic UI, 서버 기반 조정.",
+        },
+        agentInteroperability: {
+          title: "Agent 상호 운용성",
+          body: "A2A, MCP, MCP apps, 외부 agents, harness agents, 앱 간 handoff.",
+        },
+        automationsQueues: {
+          title: "자동화와 큐",
+          body: "이벤트 기반 작업, 예약 작업, background runs, 신뢰할 수 있는 mutations.",
+        },
+        agentUiSurface: {
+          title: "Agent UI 표면",
+          body: "채팅, skills, 지침, generative UI, 음성 입력, agent가 볼 수 있는 컨텍스트.",
+        },
+        observability: {
+          title: "관측성",
+          body: "Trace, eval, 피드백, 실험, agents가 수행한 일을 증명하는 근거.",
+        },
+        workspaces: {
+          title: "워크스페이스",
+          body: "UI가 있거나 headless인 앱들이 서로를 발견하고 A2A로 조정합니다.",
+        },
+        sourceOwnership: {
+          title: "소스 소유권",
+          body: "Docs와 source는 agents가 검사, fork, eject, patch, 교체할 수 있는 곳에 있습니다.",
+        },
+        auditLogs: {
+          title: "감사 로그",
+          body: "사람과 agent 변경을 사용자가 접근 가능한 리소스 범위로 오래 기록합니다.",
+        },
+      },
     },
     framework: {
       title: "agent-native apps 를 위한 framework",
@@ -122,9 +222,9 @@ const koKR = {
       },
     },
     templates: {
-      title: "완전한 기능의 app 을 fork 하고 맞춤화",
+      title: "Agent-Native app 사용해 보기",
       eyebrow: "100% 무료 오픈소스",
-      cta: "모든 템플릿 보기",
+      cta: "apps 보기",
     },
     skills: {
       title: "skill 로 사용해 보기",
@@ -199,7 +299,7 @@ const koKR = {
       body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
     },
     finalCta: {
-      title: "직접 소유하는 소프트웨어, agentic era 를 위해 구축",
+      title: "agentic era 를 위해 구축된 소프트웨어",
       body: "명령 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
       primaryCta: "Action 으로 시작",
       secondaryCta: "문서 읽기",
@@ -1106,16 +1206,16 @@ const koKR = {
   },
   skillsPage: {
     metaTitle:
-      "Agent Skills - 코딩 에이전트를 위한 Visual Plan 및 Visual Recap",
+      "Agent Skills - 코딩 에이전트를 위한 Visual Plan, Visual Recap, Visual Edit",
     metaDescription:
-      "코딩 에이전트가 시각적 계획과 PR 요약을 사용할 수 있도록 Agent-Native 앱 기반 스킬을 설치합니다.",
+      "코딩 에이전트가 시각적 계획, PR 요약, 로컬 시각적 편집을 사용할 수 있도록 Agent-Native 앱 기반 스킬을 설치합니다.",
     metaOgDescription:
       "호스팅, 검사, 커스터마이즈가 가능한 Agent-Native 앱으로 코딩 에이전트에 슬래시 명령을 추가하세요.",
     metaKeywords:
-      "agent skills, visual plan, visual recap, 코딩 에이전트, Claude Code, Codex, PR 리뷰, 계획, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, 코딩 에이전트, Claude Code, Codex, PR 리뷰, 계획, agent-native",
     heroTitle: "코딩 에이전트에 새로운 능력을 더하세요",
     heroBody:
-      "완전히 커스터마이즈할 수 있는 Agent-Native 앱 기반 스킬을 설치하세요. 구현 전 시각적 계획과 변경 후 시각적 PR 요약을 제공합니다.",
+      "완전히 커스터마이즈할 수 있는 Agent-Native 앱 기반 스킬을 설치하세요. 구현 전 시각적 계획, 변경 후 시각적 PR 요약, 로컬 UI 흐름의 시각적 편집을 제공합니다.",
     sectionTitle: "코딩 에이전트를 위한 앱 기반 스킬",
     sectionBody:
       "호스팅된 공유 앱 링크, 로컬 파일 또는 자체 호스팅/커스텀 앱을 사용할 수 있으며, 에이전트는 필요한 지침과 해당 MCP 표면을 받습니다.",
@@ -1140,6 +1240,15 @@ const koKR = {
       feature1: "스키마, API, 파일 변경을 요약",
       feature2: "선택적으로 고정 PR 댓글 게시",
       videoAriaLabel: "Visual Recap 스킬 데모 비디오",
+    },
+    visualEdit: {
+      name: "시각적 편집",
+      tagline: "로컬 UI 흐름 편집",
+      description:
+        "실행 중인 localhost 앱을 Design에서 URL 기반 화면으로 열어 시각적으로 검토하고 편집합니다.",
+      feature1: "정렬된 URL로 다중 화면 흐름 배치",
+      feature2: "라이브 라우트 상태를 검사, 복제, 개선",
+      videoAriaLabel: "Visual Edit 스킬 데모 비디오",
     },
   },
   downloadPage: {

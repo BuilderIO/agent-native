@@ -10,7 +10,7 @@ const enUS = {
   },
   header: {
     docs: "Docs",
-    templates: "Templates",
+    templates: "Apps",
     skills: "Skills",
     searchAria: "Search docs",
     searchPlaceholder: "Search docs...",
@@ -86,11 +86,11 @@ const enUS = {
   home: {
     hero: {
       badge: "Open source framework",
-      titleLine1: "Agentic Applications",
-      titleAccent: "You Own",
-      body: "Start with a chat-first app and the app-agent loop. Add actions, screens, jobs, and workflows as your agent grows.",
-      primaryCta: "Start with a Template",
-      secondaryCta: "View the Docs",
+      titleLine1: "The framework for",
+      titleAccent: "agentic apps",
+      body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context. Start headless, add a UI when you need one, or fork a working app and make it yours.",
+      primaryCta: "Start building",
+      secondaryCta: "Browse apps",
     },
     code: {
       quickStartComment: "Create an app with one command",
@@ -99,6 +99,106 @@ const enUS = {
       frameworkComment:
         "One action powers the agent, UI, HTTP, MCP, A2A, and CLI.",
       frameworkDescription: "Say hello from the local app-agent loop.",
+    },
+    actionSurface: {
+      eyebrow: "Deeply agentic, not AI-adjacent",
+      title: "One action gives you the whole app surface",
+      body: "Define an operation once. Agent-Native turns it into the UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check, and audit trail.",
+      seeActions: "See actions",
+      frameworkGuide: "Read the framework guide",
+      benefits: {
+        oneActionDefinition: {
+          title: "One action definition",
+          body: "UI, agent, HTTP, MCP, A2A, and CLI all call the same operation.",
+        },
+        scopedByDefault: {
+          title: "Scoped by default",
+          body: "Auth, sharing, governance, and audit logs travel with the work.",
+        },
+        headedOrHeadless: {
+          title: "Headed or headless",
+          body: "Run as an app, an agent workflow, a queue, or a scheduled task.",
+        },
+        contextRichInput: {
+          title: "Context-rich input",
+          body: "Chat, voice, skills, instructions, and UI state stay in the loop.",
+        },
+        openAgentProtocols: {
+          title: "Open agent protocols",
+          body: "A2A, MCP, MCP apps, and external agents are framework-level primitives.",
+        },
+        observableByDesign: {
+          title: "Observable by design",
+          body: "Traces, evals, feedback, and audit history make agent work inspectable.",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "Modular framework",
+      title: "Built-in modules for agentic apps",
+      body: "Human-verified pieces for the production parts agents should not invent from scratch. Use them as-is, inspect the source, or replace the module when your app needs something different.",
+      pageBody:
+        "Agent-Native ships human-verified pieces for the production work agents should not improvise from scratch. Use them as-is, inspect the source, or replace the module when your product needs something different.",
+      viewAll: "View all modules",
+      browseApps: "Browse apps built from modules",
+      items: {
+        autoStateSyncing: {
+          title: "Auto state syncing",
+          body: "Agent changes update the UI, and the UI state stays visible to the agent without another bridge.",
+        },
+        actions: {
+          title: "Actions",
+          body: "Define work once and use it from the UI, agent, HTTP, MCP, A2A, and CLI.",
+        },
+        sqlStateOrm: {
+          title: "SQL state and ORM",
+          body: "Durable app data, application state, migrations, and provider-agnostic schemas.",
+        },
+        dbAdmin: {
+          title: "DB admin",
+          body: "Agent-readable schemas, query surfaces, migrations, and admin tools without a custom back office.",
+        },
+        authGovernance: {
+          title: "Auth and governance",
+          body: "Login, organizations, multi-tenancy, permissions, approvals, and policy hooks.",
+        },
+        sharing: {
+          title: "Sharing",
+          body: "Share links, scoped access, public/private resources, comments, and review surfaces.",
+        },
+        realtimeCollaboration: {
+          title: "Realtime collaboration",
+          body: "Multi-user editing, live presence, optimistic UI, and server-backed reconciliation.",
+        },
+        agentInteroperability: {
+          title: "Agent interoperability",
+          body: "A2A, MCP, MCP apps, external agents, harness agents, and cross-app handoffs.",
+        },
+        automationsQueues: {
+          title: "Automations and queues",
+          body: "Event-triggered work, scheduled tasks, background runs, and reliable mutations.",
+        },
+        agentUiSurface: {
+          title: "Agent UI surface",
+          body: "Chat, skills, instructions, generative UI, voice input, and agent-visible context.",
+        },
+        observability: {
+          title: "Observability",
+          body: "Tracing, evals, feedback, experiments, and proof that agents did what they claimed.",
+        },
+        workspaces: {
+          title: "Workspaces",
+          body: "Composable headed or headless apps that discover each other and coordinate over A2A.",
+        },
+        sourceOwnership: {
+          title: "Source ownership",
+          body: "Docs and source live where agents can inspect, fork, eject, patch, or replace them.",
+        },
+        auditLogs: {
+          title: "Audit logs",
+          body: "A durable record of human and agent changes, scoped to the resources users can access.",
+        },
+      },
     },
     framework: {
       title: "The framework for agent-native apps",
@@ -131,13 +231,13 @@ const enUS = {
       },
     },
     templates: {
-      title: "Fork and customize a fully-featured app",
+      title: "Try an Agent-Native app",
       eyebrow: "100% free and open source",
-      cta: "View all templates",
+      cta: "Browse apps",
     },
     skills: {
-      title: "Try it with a skill",
-      body: "Add visual planning and PR recaps to Claude Code, Codex, Cursor, Pi, OpenCode, or VS Code with one command.",
+      title: "Skill-backed apps",
+      body: "Add app-backed skills like visual planning and PR recaps to Claude Code, Codex, Cursor, Pi, OpenCode, or VS Code with one command.",
       planBody:
         "Reviewable plans with diagrams, wireframes, file maps, and comments before code changes.",
       recapBody:
@@ -145,8 +245,8 @@ const enUS = {
       cta: "Browse the Skills Guide",
     },
     connected: {
-      title: "Agents and UIs — fully connected",
-      body: "The agent and the UI are equal citizens of the same system. Every action works both ways — click it or ask for it.",
+      title: "Agents and apps share the same core",
+      body: "The agent and the app are equal citizens of the same system. Every action works both ways: click it or ask for it.",
       tabs: {
         agentSees: {
           title: "The agent sees everything",
@@ -208,9 +308,9 @@ const enUS = {
       body: "One command creates a local app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
     },
     finalCta: {
-      title: "Software you own, built for the agentic era",
+      title: "Software built for the agentic era",
       body: "Start with a command or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
-      primaryCta: "Start with an Action",
+      primaryCta: "Start with an action",
       secondaryCta: "Read the Docs",
       githubCta: "View on GitHub",
     },
@@ -287,10 +387,10 @@ const enUS = {
       feedbackLoops: "Feedback loops",
       fileUploads: "File uploads",
       evals: "Evals",
-      templates: "Templates",
+      templates: "Apps",
       providerApis: "Provider APIs",
       agentWebSurfaces: "Agent web surfaces",
-      templateSkills: "Template skills",
+      templateSkills: "App skills",
       oneClickForks: "One-click forks",
       localFileMode: "Local file mode",
       memory: "Memory",
@@ -308,9 +408,9 @@ const enUS = {
     },
   },
   templatesPage: {
-    title: "Open-source, Agent-native apps you own",
+    title: "Open-source agentic apps you own",
     eyebrow: "100% free and open source",
-    body: "Fork a template, run it locally, and let the agent evolve it. You own the code and can customize everything.",
+    body: "Fork a working app, run it locally, and let the agent evolve it. You own the code and can customize everything.",
     community:
       "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",
@@ -318,15 +418,15 @@ const enUS = {
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",
     newToCli: "New to the CLI?",
-    screenshotAlt: "{{name}} template screenshot",
+    screenshotAlt: "{{name}} app screenshot",
   },
   templateDetail: {
-    allTemplates: "All Templates",
-    notFoundMetaTitle: "Template Not Found — Agent-Native",
-    notFoundTitle: "Template not found",
-    notFoundBody: "Browse the template catalog to find an available app.",
+    allTemplates: "All Apps",
+    notFoundMetaTitle: "App Not Found — Agent-Native",
+    notFoundTitle: "App not found",
+    notFoundBody: "Browse the app catalog to find an available app.",
     badge: "Agent-Native {{name}}",
-    title: "{{name}} template",
+    title: "{{name}} app",
   },
   templates: {
     clips: {
@@ -404,12 +504,12 @@ const enUS = {
   },
   templateLanding: {
     analytics: {
-      s001: "Analytics template screenshot",
+      s001: "Analytics app screenshot",
       s002: "Data connectors",
       s003: "Chart types",
       s004: "Query explorer",
       s005: "Natural language",
-      s006: "All Templates",
+      s006: "All Apps",
       s007: "The open-source alternative to Amplitude, Mixpanel & Looker",
       s008: "Connect any data source, prompt for any chart, build reusable dashboards — the AI agent writes the SQL.",
       s009: "Try It",
@@ -465,16 +565,16 @@ const enUS = {
       s059: "Subscription",
       s060: "Free & open source",
       s061: "Get started in minutes",
-      s062: "Fork the template, connect your data, start building dashboards.",
+      s062: "Fork the app, connect your data, start building dashboards.",
       s063: "Read the docs",
-      s064: "View all templates",
+      s064: "View all apps",
     },
     calendar: {
-      s001: "Calendar template screenshot",
+      s001: "Calendar app screenshot",
       s002: "Calendar views",
       s003: "Agent actions",
       s004: "Booking link types",
-      s005: "All Templates",
+      s005: "All Apps",
       s006: "The open-source Google Calendar & Calendly alternative",
       s007: "Multi-account Google Calendar sync, configurable availability, and customizable Calendly-style booking links — with an AI agent that schedules on your behalf.",
       s008: "Try It",
@@ -523,19 +623,19 @@ const enUS = {
       s051: "$10+/mo per seat",
       s052: "Free & open source",
       s053: "Get started in minutes",
-      s054: "Fork the template, connect Google Calendar, and start scheduling with AI.",
+      s054: "Fork the app, connect Google Calendar, and start scheduling with AI.",
       s055: "Read the docs",
-      s056: "View all templates",
+      s056: "View all apps",
       s057: "Hosted demo note",
       s058: "Two-way sync",
     },
     clips: {
-      s001: "Clips template screenshot",
+      s001: "Clips app screenshot",
       s002: "Screen Record",
       s003: "Browser Debug Logs",
       s004: "Dictate",
       s005: "Can See + Hear",
-      s006: "All Templates",
+      s006: "All Apps",
       s007: "The open-source alternative to Loom",
       s008: "Paste a Clips link into an agent and it can hear the transcript, read summaries, and see timestamped frames even if its model cannot ingest raw video or audio.",
       s009: "Try It",
@@ -589,13 +689,13 @@ const enUS = {
       s057: "$12-15/mo per user",
       s058: "Free & open source",
       s059: "Get started in minutes",
-      s060: "Fork the template, plug in your storage, and start recording clips your team actually owns.",
+      s060: "Fork the app, plug in your storage, and start recording clips your team actually owns.",
       s061: "Read the docs",
-      s062: "View all templates",
+      s062: "View all apps",
     },
     content: {
-      s001: "Content template screenshot",
-      s002: "All Templates",
+      s001: "Content app screenshot",
+      s002: "All Apps",
       s003: "Open-source Obsidian for MDX",
       s004: "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and write with an AI agent that knows your docs.",
       s005: "Try It",
@@ -655,14 +755,14 @@ const enUS = {
       s059: "Get started in minutes",
       s060: "Bring your MDX docs, generate interactive blocks, and start writing with AI.",
       s061: "Read the docs",
-      s062: "View all templates",
+      s062: "View all apps",
     },
     design: {
-      s001: "Design template screenshot",
+      s001: "Design app screenshot",
       s002: "Describe",
       s003: "Generate",
       s004: "Refine",
-      s005: "All Templates",
+      s005: "All Apps",
       s006: "The open-source AI HTML prototyping studio",
       s007: "Generate interactive Alpine/Tailwind prototypes from a prompt, compare variants, refine with tweak controls, and export real files you own.",
       s008: "Try It",
@@ -715,17 +815,17 @@ const enUS = {
       s055: "Per-image credits",
       s056: "Free & open source",
       s057: "Get started in minutes",
-      s058: "Fork the template and start generating interactive prototypes with an agent that edits the source.",
+      s058: "Fork the app and start generating interactive prototypes with an agent that edits the source.",
       s059: "Read the docs",
-      s060: "View all templates",
+      s060: "View all apps",
     },
     dispatch: {
-      s001: "Dispatch template screenshot",
+      s001: "Dispatch app screenshot",
       s002: "+ Telegram",
       s003: "Inter-agent",
       s004: "Memory",
       s005: "Recurring jobs",
-      s006: "All Templates",
+      s006: "All Apps",
       s007: "Your agent's home base",
       s008: "Talk to your agent from Slack, Telegram, or any messenger and it routes to your other apps. Jobs, memory, approvals, and A2A delegation — all in one place.",
       s009: "Try It",
@@ -771,16 +871,16 @@ const enUS = {
       s049: "$20+/mo per seat",
       s050: "Free & open source",
       s051: "Get started in minutes",
-      s052: "Fork the template, connect Slack or Telegram, and put your agent in every conversation.",
+      s052: "Fork the app, connect Slack or Telegram, and put your agent in every conversation.",
       s053: "Read the docs",
-      s054: "View all templates",
+      s054: "View all apps",
     },
     forms: {
-      s001: "Forms template screenshot",
+      s001: "Forms app screenshot",
       s002: "Describe",
       s003: "Generate",
       s004: "Route",
-      s005: "All Templates",
+      s005: "All Apps",
       s006: "The open-source AI alternative to Typeform & Google Forms",
       s007: "Generate a full form from a prompt, refine fields conversationally, and route submissions to Slack, Discord, Google Sheets, or webhooks. Own your data and your workflow — no per-response fees.",
       s008: "Try It",
@@ -813,7 +913,7 @@ const enUS = {
       s035: "How it compares",
       s036: "AI Form Generators",
       s037: "Visual editor",
-      s038: "Yes, template-bound",
+      s038: "Yes, app-bound",
       s039: "Limited / none",
       s040: "Visual + agent + code",
       s041: "AI generation",
@@ -832,17 +932,17 @@ const enUS = {
       s054: "Subscription",
       s055: "Free & open source",
       s056: "Get started in minutes",
-      s057: "Fork the template and start collecting submissions you fully own.",
+      s057: "Fork the app and start collecting submissions you fully own.",
       s058: "Read the docs",
-      s059: "View all templates",
+      s059: "View all apps",
     },
     mail: {
-      s001: "Mail template screenshot",
+      s001: "Mail app screenshot",
       s002: "Keyboard-first",
       s003: "Inbox triage",
       s004: "Views",
       s005: "Customizable",
-      s006: "All Templates",
+      s006: "All Apps",
       s007: "The open-source alternative to Superhuman and Gmail",
       s008: "Try It",
       s009: "The hosted demo uses Agent-Native's shared Google app for Gmail access, so Google may ask you to confirm before continuing. Run locally to use your own Google OAuth client.",
@@ -893,13 +993,13 @@ const enUS = {
       s054: "$30/mo per user",
       s055: "Free & open source",
       s056: "Get started in minutes",
-      s057: "Fork the template, connect your email provider, and start managing your inbox with AI.",
+      s057: "Fork the app, connect your email provider, and start managing your inbox with AI.",
       s058: "Read the docs",
-      s059: "View all templates",
+      s059: "View all apps",
       s060: "Hosted demo note",
     },
     plan: {
-      s001: "Plans template screenshot",
+      s001: "Plans app screenshot",
       s002: "Block types",
       s003: "Agent integrations",
       s004: "Shareable links",
@@ -912,7 +1012,7 @@ const enUS = {
       s011: "Pin comments to any block. Ask questions, flag concerns, or approve sections — the agent can see all feedback.",
       s012: "Agent iterates",
       s013: "The agent reads your comments and updates the plan in-place. Diffs show exactly what changed and why.",
-      s014: "All Templates",
+      s014: "All Apps",
       s015: "Visual plans for Codex, Claude Code & coding agents",
       s016: "Install in one command. Your agent opens structured plans with wireframes, diagrams, annotated code, and shareable review links — instead of dumping walls of markdown in the terminal.",
       s017: "Try It",
@@ -958,7 +1058,7 @@ const enUS = {
       s057: "Get started in seconds",
       s058: "One command adds visual planning to Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code, and similar agent projects. No separate deployment needed.",
       s059: "Read the docs",
-      s060: "View all templates",
+      s060: "View all apps",
       s061: "VS Code Handoffs",
       s062: "Open plan links in a VS Code side panel with the",
       s063: "Agent Native Plans extension",
@@ -975,11 +1075,11 @@ const enUS = {
       s074: "N/A",
     },
     slides: {
-      s001: "Slides template screenshot",
+      s001: "Slides app screenshot",
       s002: "Describe",
       s003: "Generate",
       s004: "Refine",
-      s005: "All Templates",
+      s005: "All Apps",
       s006: "The open-source AI alternative to PowerPoint & Canva",
       s007: "Generate a full deck from a prompt, then refine conversationally or edit visually.",
       s008: "Try It",
@@ -1012,7 +1112,7 @@ const enUS = {
       s035: "How it compares",
       s036: "AI Slide Generators",
       s037: "Visual editor",
-      s038: "Yes, template-bound",
+      s038: "Yes, app-bound",
       s039: "Limited / none",
       s040: "Visual + code + agent",
       s041: "AI generation",
@@ -1030,17 +1130,17 @@ const enUS = {
       s053: "Subscription",
       s054: "Free & open source",
       s055: "Get started in minutes",
-      s056: "Fork the template and start creating presentations with AI.",
+      s056: "Fork the app and start creating presentations with AI.",
       s057: "Read the docs",
-      s058: "View all templates",
+      s058: "View all apps",
     },
     video: {
-      s001: "Video template screenshot",
+      s001: "Video app screenshot",
       s002: "Easing curves",
       s003: "Example compositions",
       s004: "Track types",
       s005: "Camera controls",
-      s006: "All Templates",
+      s006: "All Apps",
       s007: "An open-source, Agent-native video editor",
       s008: "A full composition studio built on Remotion — keyframe animation, 30+ easing curves, and an agent that edits with you.",
       s009: "Try It",
@@ -1090,36 +1190,37 @@ const enUS = {
       s053: "React components",
       s054: "Customization",
       s055: "Plugins",
-      s056: "Templates only",
+      s056: "Apps only",
       s057: "Full source code",
       s058: "Pricing",
       s059: "$55+/mo subscription",
       s060: "Per-render",
       s061: "Free & open source",
       s062: "Get started in minutes",
-      s063: "Fork the template and start creating video compositions with AI.",
+      s063: "Fork the app and start creating video compositions with AI.",
       s064: "Read the docs",
-      s065: "View all templates",
+      s065: "View all apps",
     },
   },
   skillsPage: {
-    metaTitle: "Agent Skills - Visual Plan and Visual Recap for coding agents",
+    metaTitle:
+      "Agent Skills - Visual Plan, Visual Recap, and Visual Edit for coding agents",
     metaDescription:
-      "Install Agent-Native app-backed skills your coding agent can use for visual planning and PR recaps.",
+      "Install Agent-Native app-backed skills your coding agent can use for visual planning, PR recaps, and local visual editing.",
     metaOgDescription:
       "Give your coding agent slash commands powered by Agent-Native apps you can host, inspect, and customize.",
     metaKeywords:
-      "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, coding agent, Claude Code, Codex, PR review, planning, agent-native",
     heroTitle: "Give your coding agent new superpowers",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
+      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation, visual PR recaps after changes land, and visual editing for local UI flows.",
     sectionTitle: "App-backed skills for coding agents",
     sectionBody:
       "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
     ctaBody:
       "Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot / VS Code, and similar coding agents.",
     readVisualPlansDocs: "Read the Visual Plans docs",
-    browseTemplates: "Browse templates",
+    browseTemplates: "Browse apps",
     visualPlan: {
       name: "Visual Plan",
       tagline: "Review before code",
@@ -1137,6 +1238,15 @@ const enUS = {
       feature1: "Summarizes schema, API, and file changes",
       feature2: "Optionally posts one sticky PR comment",
       videoAriaLabel: "Visual Recap skill demo video",
+    },
+    visualEdit: {
+      name: "Visual Edit",
+      tagline: "Edit local UI flows",
+      description:
+        "Opens a running localhost app in Design as URL-backed screens for visual review and editing.",
+      feature1: "Lay out multi-screen flows from ordered URLs",
+      feature2: "Inspect, duplicate, and refine live route states",
+      videoAriaLabel: "Visual Edit skill demo video",
     },
   },
   downloadPage: {
@@ -1178,11 +1288,11 @@ const enUS = {
       eyebrow: "Privacy Policy",
       title: "Agent-Native hosted applications",
       intro:
-        "This policy explains how Builder.io collects, uses, shares, and retains data when it operates Agent-Native hosted applications, hosted templates, demos, and official browser extensions.",
+        "This policy explains how Builder.io collects, uses, shares, and retains data when it operates Agent-Native hosted applications, hosted apps, demos, and official browser extensions.",
       scopeCards: {
         hosted: {
           title: "Hosted apps",
-          body: "Covered when Builder.io operates the Agent-Native service or hosted template for you.",
+          body: "Covered when Builder.io operates the Agent-Native service or hosted app for you.",
         },
         openSource: {
           title: "Open source",
@@ -1206,7 +1316,7 @@ const enUS = {
       },
       paragraphs: {
         scope1:
-          "Agent-Native is open source, and the source code is available under the MIT license. This policy applies only to hosted applications and services operated by Builder.io for Agent-Native users. It does not apply to someone else's use of the code, including forks, customized templates, private deployments, or self-hosted versions. If you operate your own deployment, you are responsible for your own data practices and privacy policy.",
+          "Agent-Native is open source, and the source code is available under the MIT license. This policy applies only to hosted applications and services operated by Builder.io for Agent-Native users. It does not apply to someone else's use of the code, including forks, customized apps, private deployments, or self-hosted versions. If you operate your own deployment, you are responsible for your own data practices and privacy policy.",
         scope2Prefix:
           "This policy is intended to supplement Builder.io's broader",
         scope2Suffix: "for Agent-Native hosted application behavior.",
@@ -1240,7 +1350,7 @@ const enUS = {
         },
         hostedContent: {
           title: "Hosted application content",
-          body: "Content you create or upload in hosted Agent-Native templates, such as recordings, transcripts, documents, comments, tasks, prompts, agent responses, files, and configuration.",
+          body: "Content you create or upload in hosted Agent-Native apps, such as recordings, transcripts, documents, comments, tasks, prompts, agent responses, files, and configuration.",
         },
         integrations: {
           title: "Connected integration data",
@@ -1270,7 +1380,7 @@ const enUS = {
       eyebrow: "Terms of Service",
       title: "Agent-Native hosted applications",
       intro:
-        "These terms apply when Builder.io operates Agent-Native hosted applications, hosted templates, demos, and official hosted services for you.",
+        "These terms apply when Builder.io operates Agent-Native hosted applications, hosted apps, demos, and official hosted services for you.",
       scopeCards: {
         hosted: {
           title: "Hosted apps",
@@ -1299,13 +1409,13 @@ const enUS = {
       },
       paragraphs: {
         scope1:
-          "Agent-Native is open source, and its source code is available under the MIT license. These terms apply only to hosted applications and services operated by Builder.io for Agent-Native users. They do not govern forks, custom templates, private deployments, or self-hosted versions operated outside Builder.io.",
+          "Agent-Native is open source, and its source code is available under the MIT license. These terms apply only to hosted applications and services operated by Builder.io for Agent-Native users. They do not govern forks, custom apps, private deployments, or self-hosted versions operated outside Builder.io.",
         scope2Prefix: "These terms supplement Builder.io's broader",
         scope2Middle: "and the Agent-Native",
         scope2Suffix:
           "If you use a hosted Agent-Native app on behalf of a company or organization, you represent that you have authority to accept these terms for that organization.",
         hostedService:
-          "Builder.io may provide hosted Agent-Native applications, templates, demos, shared workspaces, browser extensions, and related agent workflows. The hosted service may be updated, limited, suspended, or discontinued as the product evolves.",
+          "Builder.io may provide hosted Agent-Native applications, apps, demos, shared workspaces, browser extensions, and related agent workflows. The hosted service may be updated, limited, suspended, or discontinued as the product evolves.",
         accounts1:
           "You are responsible for the accuracy of account information, activity under your account, and keeping credentials secure. Hosted Agent-Native apps may include organization features, invitations, shared resources, connected integrations, and app-specific access controls. Only invite users and connect services you are authorized to use.",
         accounts2:
@@ -1334,8 +1444,7 @@ const enUS = {
           "For questions about these terms, contact Builder.io through the support channels listed in Builder.io's",
       },
       hostedServicePoints: {
-        create:
-          "Create and operate hosted Agent-Native workspaces and template apps.",
+        create: "Create and operate hosted Agent-Native workspaces and apps.",
         workflows:
           "Run agent workflows, actions, automations, and integrations you choose to use.",
         store:
@@ -1368,12 +1477,12 @@ const enUS = {
     integrations: "Integrations",
     buildApps: "Build Apps",
     advancedRuntime: "Advanced: Extend the Runtime",
-    templatesSection: "Templates",
+    templatesSection: "Apps",
     gettingStarted: "Getting Started",
     whatIsAgentNative: "What Is Agent-Native?",
     agentSurfaces: "Agent Surfaces",
     keyConcepts: "Key Concepts",
-    templates: "Templates",
+    templates: "Apps",
     faq: "FAQ",
     server: "Server",
     client: "Client",
@@ -1424,7 +1533,7 @@ const enUS = {
     crossAppSso: "Cross-App SSO",
     notifications: "Notifications",
     workspaceConnections: "Workspace Connections",
-    creatingTemplates: "Creating Templates",
+    creatingTemplates: "Creating Apps",
     writingAgentInstructions: "Writing Agent Instructions",
     embeddingSdk: "Embedding SDK",
     frames: "Frames",

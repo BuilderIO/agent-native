@@ -12,7 +12,7 @@ describe("buildChatModelGroups", () => {
           label: "Builder.io Gateway",
           supportedModels: [
             "auto",
-            "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "gpt-5-5",
             "gemini-3-1-pro",
             "grok-code-fast",
@@ -27,7 +27,7 @@ describe("buildChatModelGroups", () => {
       {
         engine: "builder",
         label: "Claude",
-        models: ["claude-sonnet-4-6"],
+        models: ["claude-sonnet-5"],
         configured: true,
       },
       {
@@ -53,24 +53,28 @@ describe("buildChatModelGroups", () => {
 
   it("includes installed API-key-backed providers beyond Claude, OpenAI, and Gemini", () => {
     const groups = buildChatModelGroups({
-      configuredKeys: ["GOOGLE_GENERATIVE_AI_API_KEY", "GROQ_API_KEY"],
+      configuredKeys: [
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
+      ],
       engines: [
         {
           name: "builder",
           label: "Builder.io Gateway",
-          supportedModels: ["claude-sonnet-4-6"],
+          supportedModels: ["claude-sonnet-5"],
           requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
         },
         {
           name: "anthropic",
           label: "Claude",
-          supportedModels: ["claude-sonnet-4-6"],
+          supportedModels: ["claude-sonnet-5"],
           requiredEnvVars: ["ANTHROPIC_API_KEY"],
         },
         {
           name: "ai-sdk:anthropic",
           label: "Claude",
-          supportedModels: ["claude-sonnet-4-6"],
+          supportedModels: ["claude-sonnet-5"],
           requiredEnvVars: ["ANTHROPIC_API_KEY"],
         },
         {
@@ -90,6 +94,12 @@ describe("buildChatModelGroups", () => {
           label: "Groq",
           supportedModels: ["llama-3.3-70b-versatile"],
           requiredEnvVars: ["GROQ_API_KEY"],
+        },
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
         },
         {
           name: "ai-sdk:mistral",
@@ -112,6 +122,7 @@ describe("buildChatModelGroups", () => {
       "OpenAI",
       "Gemini",
       "Groq",
+      "OpenRouter",
     ]);
     expect(groups.find((group) => group.label === "Gemini")).toMatchObject({
       engine: "ai-sdk:google",
@@ -124,9 +135,14 @@ describe("buildChatModelGroups", () => {
     expect(groups.find((group) => group.label === "OpenAI")).toMatchObject({
       configured: false,
     });
+    expect(groups.find((group) => group.label === "OpenRouter")).toMatchObject({
+      engine: "ai-sdk:openrouter",
+      models: ["z-ai/glm-5.2"],
+      configured: true,
+    });
   });
 
-  it("keeps the current engine visible even when it is usually hidden", () => {
+  it("keeps the current engine visible without marking missing credentials configured", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "ai-sdk:anthropic",
       currentModel: "claude-fable-5",
@@ -134,7 +150,7 @@ describe("buildChatModelGroups", () => {
         {
           name: "ai-sdk:anthropic",
           label: "Claude",
-          supportedModels: ["claude-sonnet-4-6"],
+          supportedModels: ["claude-sonnet-5"],
           requiredEnvVars: ["ANTHROPIC_API_KEY"],
         },
       ],
@@ -144,8 +160,8 @@ describe("buildChatModelGroups", () => {
       {
         engine: "ai-sdk:anthropic",
         label: "Claude",
-        models: ["claude-fable-5", "claude-sonnet-4-6"],
-        configured: true,
+        models: ["claude-fable-5", "claude-sonnet-5"],
+        configured: false,
       },
     ]);
   });

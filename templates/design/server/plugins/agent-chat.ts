@@ -7,11 +7,17 @@ import {
 import actionsRegistry from "../../.generated/actions-registry.js";
 import "../register-secrets.js";
 
+const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-designs",
   "get-design",
+  "get-design-snapshot",
   "create-design",
+  "open-visual-edit",
+  "add-localhost-screens",
+  "list-localhost-connections",
   "edit-design",
   "generate-design",
   "present-design-variants",
@@ -36,8 +42,14 @@ export default createAgentChatPlugin({
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per GitHub endpoint.
   codeExecution: { production: "sandboxed" },
+  durableBackgroundRuns: true,
+  runSoftTimeoutMs: DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
+
+When the user asks you to refine an existing design, call view-screen if the open design is unclear, then read the live current file with get-design-snapshot before editing. For small localized changes, call edit-design with exact search/replace edits. For broad copy-only changes such as translating all visible text, call edit-design in replace-file mode with the complete updated file content from the snapshot so the HTML structure, scripts, styles, and tweaks are preserved without dozens of fragile search blocks. Do not claim the design is updated until the mutating action succeeds.
+
+When the user asks to visually inspect or edit a running local app, use open-visual-edit. It registers the localhost bridge, creates or reuses the Design project, places URL-backed iframe screens, stores the active visual-edit context, and navigates to overview mode in one authenticated step. For follow-ups like adding a mobile viewport or another route state, reuse the current designId and connectionId and call open-visual-edit or add-localhost-screens with explicit routes/paths and viewport sizes.
 
 Provider-specific Design actions are shortcuts, not limits. If a first-class action cannot express the exact GitHub endpoint, repository tree query, code search, issue or pull request query, request body, pagination mode, payload shape, metadata field, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real GitHub API. Use the raw provider API escape hatch instead of weakening the answer or claiming Design cannot do something the underlying GitHub API can do.
 

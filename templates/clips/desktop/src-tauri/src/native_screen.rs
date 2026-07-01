@@ -28,8 +28,8 @@ use screencapturekit::stream::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
-const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
+pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
+pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 // Keep native chunks comfortably under serverless request/event limits.
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
 // Master switch for native transcoding/compression.
@@ -85,7 +85,7 @@ const THUMBNAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
 const THUMBNAIL_WIDTH: &str = "1280";
 const SIPS_PATH: &str = "/usr/bin/sips";
 // Minimum free space required to start recording; below this we hard-block.
-const DISK_SPACE_BLOCK_BYTES: u64 = 500 * 1024 * 1024;
+pub(crate) const DISK_SPACE_BLOCK_BYTES: u64 = 500 * 1024 * 1024;
 // Free space below this at start time is logged as a warning but not blocked.
 const DISK_SPACE_WARN_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 // Mid-recording warning threshold (emits clips:disk-space-warning).
@@ -168,7 +168,7 @@ struct RestartInfo {
     capture_region: Option<NativeCaptureRegion>,
 }
 
-enum NativeFullscreenBackend {
+pub(crate) enum NativeFullscreenBackend {
     Screencapture {
         child: Child,
     },
@@ -195,7 +195,7 @@ enum NativeFullscreenBackend {
 /// stop path block on that callback (bounded by a timeout) before the file
 /// is moved.
 #[cfg(target_os = "macos")]
-struct RecordingFinish {
+pub(crate) struct RecordingFinish {
     /// `None` while recording; `Some(Ok)` finished; `Some(Err)` failed.
     state: Mutex<Option<Result<(), String>>>,
     cv: Condvar,
@@ -261,13 +261,13 @@ struct PreparedRecordingFile {
     temporary: bool,
 }
 
-fn format_mb(bytes: u64) -> String {
+pub(crate) fn format_mb(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
 }
 
 /// Returns free bytes on the volume containing `path`, or `None` on error.
 #[cfg(target_os = "macos")]
-fn free_disk_bytes(path: &Path) -> Option<u64> {
+pub(crate) fn free_disk_bytes(path: &Path) -> Option<u64> {
     use std::ffi::CString;
     let c_path = CString::new(path.to_str()?).ok()?;
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -1445,7 +1445,7 @@ fn start_segment_backend(
 /// Configure and start a fresh ScreenCaptureKit capture writing into
 /// `output_path`. Shared by the initial start and the resume path.
 #[cfg(target_os = "macos")]
-fn start_screencapturekit_backend_at(
+pub(crate) fn start_screencapturekit_backend_at(
     output_path: &Path,
     include_audio: bool,
     capture_system_audio: bool,
@@ -1576,7 +1576,7 @@ fn start_screencapturekit_backend_at(
 /// Spawn the macOS `screencapture` fallback writing into `output_path`.
 /// Shared by the initial start and the resume path.
 #[cfg(target_os = "macos")]
-fn start_screencapture_backend_at(
+pub(crate) fn start_screencapture_backend_at(
     app: &AppHandle,
     output_path: &Path,
     include_audio: bool,
@@ -2253,7 +2253,7 @@ fn persist_saved_recording_error(app: &AppHandle, saved: &mut SavedNativeRecordi
 /// Returns `None` when the tray anchor hasn't been set yet or any lookup
 /// fails — callers fall back to the first available display.
 #[cfg(target_os = "macos")]
-fn tray_display_id(app: &AppHandle) -> Option<u32> {
+pub(crate) fn tray_display_id(app: &AppHandle) -> Option<u32> {
     let tray_rect = app
         .try_state::<crate::state::TrayAnchor>()
         .and_then(|a| a.0.lock().ok().and_then(|g| *g))?;
@@ -2458,7 +2458,7 @@ fn new_fullscreen_session(
     }
 }
 
-fn primary_monitor_size(app: &AppHandle) -> (Option<u32>, Option<u32>) {
+pub(crate) fn primary_monitor_size(app: &AppHandle) -> (Option<u32>, Option<u32>) {
     let monitor_size = app
         .primary_monitor()
         .ok()
@@ -2544,7 +2544,7 @@ const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 /// signals the recording finished, so the caller never moves a half-written
 /// MP4. Cancel passes `false` (the file is discarded immediately, so there's
 /// nothing to wait for and no reason to delay teardown).
-fn stop_native_recording(
+pub(crate) fn stop_native_recording(
     backend: &mut NativeFullscreenBackend,
     wait_for_finalize: bool,
 ) -> Result<(), String> {
@@ -3074,7 +3074,7 @@ fn is_moov_corrupt_error(err: &str) -> bool {
 /// finding one (file is unplayable), or `None` when the file could not be
 /// read (transient I/O error — callers must not treat this as permanent
 /// corruption).
-fn mp4_has_moov(path: &Path) -> Option<bool> {
+pub(crate) fn mp4_has_moov(path: &Path) -> Option<bool> {
     use std::io::{ErrorKind, Read, Seek, SeekFrom};
     let mut f = match std::fs::File::open(path) {
         Ok(f) => f,

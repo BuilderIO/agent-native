@@ -17,6 +17,21 @@
         "skills",
         "app-backed-skill"
       ]
+    },
+    {
+      "name": "agent-native-design",
+      "displayName": "Design",
+      "description": "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
+      "source": "./.agents/plugins/agent-native-design",
+      "autoUpdate": true,
+      "homepage": "https://design.agent-native.com",
+      "keywords": [
+        "agent-native",
+        "design",
+        "mcp",
+        "skills",
+        "app-backed-skill"
+      ]
     }
   ]
 }

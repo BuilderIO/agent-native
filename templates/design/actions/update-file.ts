@@ -23,8 +23,15 @@ export default defineAction({
       .enum(["html", "css", "jsx", "asset"])
       .optional()
       .describe("Updated file type"),
+    syncCollab: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe(
+        "Whether to mirror content updates into the live collaboration document.",
+      ),
   }),
-  run: async ({ id, content, filename, fileType }) => {
+  run: async ({ id, content, filename, fileType, syncCollab }) => {
     // Path traversal guard on filename
     if (
       filename &&
@@ -63,18 +70,43 @@ export default defineAction({
 
     await assertAccess("design", file.designId, "editor");
 
-    const updates: Record<string, unknown> = { updatedAt: now };
-    if (content !== undefined) updates.content = content;
-    if (filename !== undefined) updates.filename = filename;
-    if (fileType !== undefined) updates.fileType = fileType;
+    // Reject a rename that would collide with an existing filename in the same
+    // design. The collision check and the write run in one transaction so they
+    // can't be interleaved by a concurrent rename. (A DB-level UNIQUE index on
+    // (designId, filename) would be the strongest guarantee but is a non-additive
+    // schema change on existing data, so it's deferred.)
+    await db.transaction(async (tx) => {
+      if (filename !== undefined) {
+        const [collision] = await tx
+          .select({ id: schema.designFiles.id })
+          .from(schema.designFiles)
+          .where(
+            and(
+              eq(schema.designFiles.designId, file.designId),
+              eq(schema.designFiles.filename, filename),
+            ),
+          )
+          .limit(1);
+        if (collision && collision.id !== id) {
+          throw new Error(
+            `File "${filename}" already exists in design ${file.designId}`,
+          );
+        }
+      }
 
-    await db
-      .update(schema.designFiles)
-      .set(updates)
-      .where(eq(schema.designFiles.id, id));
+      const updates: Record<string, unknown> = { updatedAt: now };
+      if (content !== undefined) updates.content = content;
+      if (filename !== undefined) updates.filename = filename;
+      if (fileType !== undefined) updates.fileType = fileType;
+
+      await tx
+        .update(schema.designFiles)
+        .set(updates)
+        .where(eq(schema.designFiles.id, id));
+    });
 
     // Push content through the collab layer so live editors see the change
-    if (content !== undefined) {
+    if (content !== undefined && syncCollab) {
       const collabExists = await hasCollabState(id);
       if (collabExists) {
         await applyText(id, content, "content", "agent");

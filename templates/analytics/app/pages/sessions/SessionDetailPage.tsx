@@ -110,6 +110,11 @@ type SkipRange = {
   endMs: number;
 };
 
+type ReplayViewportDimensions = {
+  width: number;
+  height: number;
+};
+
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
 const DEFAULT_SPEED = 2;
@@ -159,9 +164,9 @@ export default function SessionDetailPage() {
   const recording = data?.recording;
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
+    <div className="analytics-session-detail-page flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
       {codeRequiredDialog}
-      <div className="flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="analytics-session-detail-header flex shrink-0 flex-col gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Button variant="ghost" size="sm" asChild className="shrink-0">
             <Link to="/sessions">
@@ -287,7 +292,7 @@ function ReplayWorkbench({
   }, [currentTime, markers]);
 
   return (
-    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
+    <div className="analytics-session-detail-workbench grid h-full min-h-0 gap-3">
       <ReplayPlayer
         events={events}
         markers={markers}
@@ -334,9 +339,12 @@ function ReplayPlayer({
     height: number;
   } | null>(null);
   const [fitScale, setFitScale] = useState(1);
+  const initialDims = useMemo(() => replayViewportDimensions(events), [events]);
 
-  const playerWidth = streamedDims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const playerHeight = streamedDims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  const playerWidth =
+    streamedDims?.width ?? initialDims?.width ?? DEFAULT_PLAYER_WIDTH;
+  const playerHeight =
+    streamedDims?.height ?? initialDims?.height ?? DEFAULT_PLAYER_HEIGHT;
   const skipRanges = useMemo(() => buildIdleSkipRanges(events), [events]);
   const skipRangesRef = useLiveRef(skipRanges);
   const skipInactiveRef = useLiveRef(skipInactive);
@@ -414,7 +422,7 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      setStreamedDims(null);
+      setStreamedDims(initialDims);
       localReplayer = new Replayer(events as any[], {
         root: stageRootRef.current,
         speed: DEFAULT_SPEED,
@@ -431,6 +439,7 @@ function ReplayPlayer({
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(events));
       setTotalTime(Number.isFinite(total) ? total : 0);
+      applyReplayFrameDimensions(localReplayer, initialDims);
       localReplayer.on?.("finish", () => {
         setPlaying(false);
         const finalTime = Number(localReplayer.getCurrentTime?.() ?? total);
@@ -438,9 +447,19 @@ function ReplayPlayer({
       });
       localReplayer.on?.("resize", (payload: unknown) => {
         const dims = payload as { width?: unknown; height?: unknown };
-        if (typeof dims.width === "number" && typeof dims.height === "number") {
-          setStreamedDims({ width: dims.width, height: dims.height });
+        const nextDims = normalizeReplayDimensions(dims.width, dims.height);
+        if (nextDims) {
+          applyReplayFrameDimensions(localReplayer, nextDims);
+          revealReplayFrame(localReplayer);
+          setStreamedDims(nextDims);
         }
+      });
+      localReplayer.on?.("fullsnapshot-rebuilded", () => {
+        applyReplayFrameDimensions(
+          localReplayer,
+          replayViewportDimensions(events) ?? initialDims,
+        );
+        revealReplayFrame(localReplayer);
       });
       updateTime(0);
       setStatus("ready");
@@ -456,6 +475,13 @@ function ReplayPlayer({
         }
         setPlaying(false);
       }
+      window.requestAnimationFrame(() => {
+        applyReplayFrameDimensions(
+          localReplayer,
+          replayViewportDimensions(events) ?? initialDims,
+        );
+        revealReplayFrame(localReplayer);
+      });
     }
 
     void loadReplay().catch((loadError: any) => {
@@ -479,7 +505,7 @@ function ReplayPlayer({
       replayerRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
-  }, [events, t, updateTime]);
+  }, [events, initialDims, t, updateTime]);
 
   useEffect(() => {
     if (!playing || status !== "ready") {
@@ -842,7 +868,7 @@ function ReplayTimeline({
   const t = useT();
   const visibleMarkers = markers.slice(0, 120);
   return (
-    <Card className="flex min-h-0 overflow-hidden">
+    <Card className="analytics-session-detail-timeline min-h-0 overflow-hidden">
       <CardContent className="flex min-h-0 flex-1 flex-col p-0">
         <div className="shrink-0 border-b px-3 py-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
@@ -923,9 +949,9 @@ function MarkerIcon({ kind }: { kind: ReplayMarker["kind"] }) {
 
 function DetailSkeleton() {
   return (
-    <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
+    <div className="analytics-session-detail-workbench grid min-h-0 flex-1 gap-3">
       <Skeleton className="h-full min-h-[420px] w-full" />
-      <Skeleton className="h-full min-h-[420px] w-full" />
+      <Skeleton className="analytics-session-detail-timeline h-full min-h-[420px] w-full" />
     </div>
   );
 }
@@ -1008,13 +1034,13 @@ function sanitizeMutationData(data: AnyRecord): AnyRecord {
         typeof copy.value === "string" &&
         containsStylesheetNetworkLoad(copy.value)
       ) {
-        copy.value = "";
+        copy.value = sanitizeCssText(copy.value);
       }
       if (
         typeof copy.textContent === "string" &&
         containsStylesheetNetworkLoad(copy.textContent)
       ) {
-        copy.textContent = "";
+        copy.textContent = sanitizeCssText(copy.textContent);
       }
       return copy;
     });
@@ -1035,21 +1061,12 @@ function sanitizeSerializedNode(node: unknown): AnyRecord | null {
       childNodes: [],
     };
   }
-  if (next.type === 2 && tagName === "style") {
-    return {
-      ...next,
-      attributes: isRecord(next.attributes)
-        ? sanitizeAttributes(next.attributes)
-        : {},
-      childNodes: [],
-    };
-  }
   if (
     next.type === 3 &&
     typeof next.textContent === "string" &&
     containsStylesheetNetworkLoad(next.textContent)
   ) {
-    next.textContent = "";
+    next.textContent = sanitizeCssText(next.textContent);
   }
   if (
     next.type === 2 &&
@@ -1073,6 +1090,13 @@ function containsStylesheetNetworkLoad(value: string): boolean {
   return /@import\b/i.test(value) || /\burl\s*\(/i.test(value);
 }
 
+function sanitizeCssText(value: string): string {
+  if (!containsStylesheetNetworkLoad(value)) return value;
+  return value
+    .replace(/@import\s+(?:url\s*\()?[^;{}]+;?/gi, "")
+    .replace(/\burl\s*\((?:\\.|[^\\)])*\)/gi, "none");
+}
+
 function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
   const next: AnyRecord = {};
   for (const [key, value] of Object.entries(attributes)) {
@@ -1080,7 +1104,11 @@ function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
     if (normalized.startsWith("on")) continue;
     if (normalized === "srcdoc") continue;
     if (isReplayResourceAttribute(normalized)) continue;
-    if (normalized === "style" && /\burl\s*\(/i.test(String(value))) continue;
+    if (normalized === "style") {
+      const style = sanitizeCssText(String(value));
+      if (style.trim()) next[key] = style;
+      continue;
+    }
     next[key] = value;
   }
   return next;
@@ -1240,6 +1268,66 @@ function currentUrlAt(events: AnyReplayEvent[], currentTime: number): string {
   return current;
 }
 
+export function replayViewportDimensions(
+  events: AnyReplayEvent[],
+): ReplayViewportDimensions | null {
+  for (const event of events) {
+    if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
+    const dims = normalizeReplayDimensions(
+      event.data?.width,
+      event.data?.height,
+    );
+    if (dims) return dims;
+  }
+  return null;
+}
+
+function normalizeReplayDimensions(
+  width: unknown,
+  height: unknown,
+): ReplayViewportDimensions | null {
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+function applyReplayFrameDimensions(
+  replayer: any,
+  dims: ReplayViewportDimensions | null,
+) {
+  const width = dims?.width ?? DEFAULT_PLAYER_WIDTH;
+  const height = dims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  const wrapper = replayer?.wrapper as HTMLElement | undefined;
+  const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
+  const mouseTail = replayer?.mouseTail as HTMLCanvasElement | undefined;
+  for (const element of [wrapper, iframe]) {
+    if (!element) continue;
+    element.style.width = `${width}px`;
+    element.style.height = `${height}px`;
+  }
+  for (const element of [iframe, mouseTail]) {
+    if (!element) continue;
+    element.setAttribute("width", String(width));
+    element.setAttribute("height", String(height));
+  }
+}
+
+function revealReplayFrame(replayer: any) {
+  const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
+  if (iframe) iframe.style.display = "inherit";
+}
+
 function replayStartedAt(events: AnyReplayEvent[]): number {
   const first = events.find((event) =>
     Number.isFinite(Number(event.timestamp)),
@@ -1269,12 +1357,19 @@ function visitorLabel(
   recording: SessionRecordingSummary,
   t: ReturnType<typeof useT>,
 ): string {
+  const email = emailLike(recording.userId) || emailLike(recording.userKey);
+  if (email) return email;
   return (
     recording.userId ||
     recording.userKey ||
     recording.anonymousId ||
     t("sessions.anonymous")
   );
+}
+
+function emailLike(value: string | null): string | null {
+  if (!value?.includes("@")) return null;
+  return value;
 }
 
 function formatDuration(ms: number | null): string {

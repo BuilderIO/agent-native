@@ -57,6 +57,24 @@ export interface ShareableResourceRegistration {
    */
   allowPublic?: boolean;
   /**
+   * Optional role granted by a public-by-link read. Most resources should omit
+   * this so public visibility remains viewer-only. Use narrowly for local or
+   * otherwise constrained resources where the resource owner intentionally wants
+   * unauthenticated link holders to do more than view.
+   */
+  publicAccessRole?:
+    | "viewer"
+    | "editor"
+    | "admin"
+    | ((
+        resource: any,
+        ctx: { userEmail?: string; orgId?: string },
+      ) =>
+        | "viewer"
+        | "editor"
+        | "admin"
+        | Promise<"viewer" | "editor" | "admin">);
+  /**
    * When `true`, individual user shares (`principalType: "user"`) must target
    * an email that is already a member of the same org as the resource, OR has
    * a pending invitation to that org. Cross-org user shares are rejected.
@@ -101,6 +119,22 @@ const REGISTRY_KEY = "__agentNativeShareableResources__";
 type RegistryStore = Map<string, ShareableResourceRegistration>;
 const globalRegistry: { [K in typeof REGISTRY_KEY]?: RegistryStore } =
   globalThis as any;
+
+function isTestRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.VITEST === "true" ||
+    process.env.VITEST === "1"
+  );
+}
+
+function registrationCameFromTestFile(): boolean {
+  const stack = new Error().stack ?? "";
+  return /[./\\](?:[^/\\]+[.-])(?:test|spec)\.[cm]?[jt]sx?(?::\d+)?(?::\d+)?/.test(
+    stack,
+  );
+}
+
 function getRegistry(): RegistryStore {
   let r = globalRegistry[REGISTRY_KEY];
   if (!r) {
@@ -113,6 +147,7 @@ function getRegistry(): RegistryStore {
 export function registerShareableResource(
   entry: ShareableResourceRegistration,
 ): void {
+  if (!isTestRuntime() && registrationCameFromTestFile()) return;
   getRegistry().set(entry.type, entry);
 }
 

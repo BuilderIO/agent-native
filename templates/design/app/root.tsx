@@ -9,13 +9,21 @@ import {
   getThemeInitScript,
   getBrowserTabId,
   configureTracking,
+  useSession,
   useT,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
@@ -84,7 +92,7 @@ function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["designs", "design-systems", "design-files", "design-variants"],
+    queryKeys: ["designs", "design-systems", "design-files"],
     ignoreSource: getBrowserTabId(),
   });
   return null;
@@ -132,18 +140,43 @@ function DesignCommandMenu({
   );
 }
 
+function RootContent() {
+  const location = useLocation();
+  const { session } = useSession();
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  const hasSession = Boolean(session?.email);
+  const isPublicVisualEdit = location.pathname === "/visual-edit";
+  useCommandMenuShortcut(
+    useCallback(() => {
+      if (hasSession && !isPublicVisualEdit) setCmdkOpen(true);
+    }, [hasSession, isPublicVisualEdit]),
+  );
+
+  const content = isPublicVisualEdit ? (
+    <Outlet />
+  ) : (
+    <AppLayout>
+      <Outlet />
+    </AppLayout>
+  );
+
+  return (
+    <>
+      {hasSession && <DbSyncSetup />}
+      <Toaster richColors position="bottom-left" />
+      {hasSession && !isPublicVisualEdit && (
+        <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+      )}
+      {content}
+    </>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const [cmdkOpen, setCmdkOpen] = useState(false);
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-      <DbSyncSetup />
-      <Toaster richColors position="bottom-left" />
-      <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
+      <RootContent />
     </AppProviders>
   );
 }

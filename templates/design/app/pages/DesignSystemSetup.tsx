@@ -1,8 +1,6 @@
 import {
-  sendToAgentChat,
   openAgentSidebar,
   useActionQuery,
-  useActionMutation,
   appApiPath,
   useT,
 } from "@agent-native/core/client";
@@ -18,8 +16,8 @@ import {
   IconPhoto,
   IconPalette,
   IconCheck,
+  IconExternalLink,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -32,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 interface GitHubLink {
   id: string;
@@ -46,33 +45,18 @@ interface UploadedFile {
   textContent?: string;
 }
 
-interface FigImportResult {
+interface BuilderIndexResult {
   ok: boolean;
+  source: "builder";
   suggestedTitle: string;
-  data: {
-    colors?: Record<string, string>;
-    typography?: {
-      headingFont?: string;
-      bodyFont?: string;
-      headingWeight?: string;
-      bodyWeight?: string;
-      headingSizes?: { h1?: string; h2?: string; h3?: string };
-    };
-    spacing?: Record<string, string>;
-    borders?: Record<string, string>;
-    defaults?: Record<string, string>;
-    customCSS?: string;
-    notes?: string;
-  };
-  customInstructions: string;
-  preview: {
-    gradients: string[];
-    palette: { hex: string; name?: string; count: number }[];
-    namedColors: Record<string, string>;
-    thumbnailDataUrl: string | null;
-    nodeCount: number;
-    imageCount: number;
-  };
+  projectId: string;
+  jobId: string;
+  designSystemId: string;
+  builderUrl: string;
+  status: "in-progress";
+  localDesignSystemId?: string;
+  uploadedFileCount?: number;
+  instructions?: string;
 }
 
 export default function DesignSystemSetup() {
@@ -87,7 +71,6 @@ export default function DesignSystemSetup() {
   const [githubUrl, setGithubUrl] = useState("");
   const [githubLinks, setGithubLinks] = useState<GitHubLink[]>([]);
   const [codeFiles, setCodeFiles] = useState<UploadedFile[]>([]);
-  const [figFiles] = useState<UploadedFile[]>([]);
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
   const [imageFiles, setImageFiles] = useState<UploadedFile[]>([]);
   const [assets, setAssets] = useState<UploadedFile[]>([]);
@@ -113,87 +96,54 @@ export default function DesignSystemSetup() {
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
 
-  // --- Figma .fig import (deep brand extraction → design system) ----------
-  const queryClient = useQueryClient();
-  const createSystemMutation = useActionMutation("create-design-system");
+  // --- Figma .fig import (Builder design-system indexing) -----------------
   const realFigInputRef = useRef<HTMLInputElement>(null);
-  const [figParsing, setFigParsing] = useState(false);
-  const [figResult, setFigResult] = useState<FigImportResult | null>(null);
-  const [figError, setFigError] = useState<string | null>(null);
-  const [figTitle, setFigTitle] = useState("");
-  const [figCreating, setFigCreating] = useState(false);
+  const [builderIndexing, setBuilderIndexing] = useState(false);
+  const [builderIndexResult, setBuilderIndexResult] =
+    useState<BuilderIndexResult | null>(null);
+  const [builderIndexError, setBuilderIndexError] = useState<string | null>(
+    null,
+  );
 
-  const handleFigImport = useCallback(
+  const handleBuilderIndexUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       e.target.value = "";
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
-        setFigError(t("designSystemSetup.errors.chooseFig"));
+        setBuilderIndexError(t("designSystemSetup.errors.chooseFig"));
         return;
       }
-      setFigError(null);
-      setFigResult(null);
-      setFigParsing(true);
+      setBuilderIndexError(null);
+      setBuilderIndexResult(null);
+      setBuilderIndexing(true);
       try {
         const body = new FormData();
         body.append("file", file);
-        const res = await fetch(appApiPath("/api/import-figma-system"), {
-          method: "POST",
-          body,
-        });
+        const res = await fetch(
+          appApiPath("/api/index-design-system-with-builder"),
+          {
+            method: "POST",
+            body,
+          },
+        );
         const json = await res.json();
         if (!res.ok || json?.error) {
           throw new Error(json?.error || `Upload failed (${res.status})`);
         }
-        setFigResult(json as FigImportResult);
-        setFigTitle(
-          (json as FigImportResult).suggestedTitle ||
-            t("designSystemSetup.importedBrand"),
-        );
+        setBuilderIndexResult(json as BuilderIndexResult);
       } catch (err) {
-        setFigError(
+        setBuilderIndexError(
           err instanceof Error
             ? err.message
             : t("designSystemSetup.errors.parseFig"),
         );
       } finally {
-        setFigParsing(false);
+        setBuilderIndexing(false);
       }
     },
     [t],
   );
-
-  const handleCreateFromFig = useCallback(async () => {
-    if (!figResult) return;
-    const title =
-      figTitle.trim() ||
-      figResult.suggestedTitle ||
-      t("designSystemSetup.importedBrand");
-    setFigCreating(true);
-    try {
-      const created = (await createSystemMutation.mutateAsync({
-        title,
-        data: JSON.stringify(figResult.data),
-        customInstructions: figResult.customInstructions || "",
-      } as any)) as { id?: string } | undefined;
-      await queryClient.invalidateQueries({
-        queryKey: ["action", "list-design-systems"],
-      });
-      toast.success(t("designSystemSetup.figmaCreateSuccess"));
-      navigate(
-        created?.id
-          ? `/design-systems?designSystemId=${encodeURIComponent(created.id)}`
-          : "/design-systems",
-      );
-    } catch (err) {
-      setFigCreating(false);
-      toast.error(t("designSystemSetup.figmaCreateError"), {
-        description:
-          err instanceof Error ? err.message : t("common.genericError"),
-      });
-    }
-  }, [figResult, figTitle, createSystemMutation, queryClient, navigate, t]);
 
   useEffect(() => {
     if (!sourceId || appliedSourceIdRef.current === sourceId) return;
@@ -213,7 +163,7 @@ export default function DesignSystemSetup() {
       githubUrl.trim() ||
       githubLinks.length > 0 ||
       codeFiles.length > 0 ||
-      figFiles.length > 0 ||
+      builderIndexResult ||
       docFiles.length > 0 ||
       imageFiles.length > 0 ||
       assets.length > 0 ||
@@ -228,7 +178,7 @@ export default function DesignSystemSetup() {
     githubUrl,
     githubLinks,
     codeFiles,
-    figFiles,
+    builderIndexResult,
     docFiles,
     imageFiles,
     assets,
@@ -416,7 +366,7 @@ export default function DesignSystemSetup() {
 
     if (normalizedGithubLinks.length > 0) {
       parts.push(
-        `\n## GitHub Repositories\nExtract design tokens from code. Call \`import-github\` for each:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nIf a repository is private or GitHub denies access, tell me to save a fine-grained GitHub token as \`GITHUB_TOKEN\` in Settings > Secrets. The token should be limited to the repository with Repository permissions > Contents: Read-only. Do not ask me to paste a PAT into chat.`,
+        `\n## GitHub Repositories\nStart Builder design-system indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder from Settings instead of asking me to paste repository credentials into chat.`,
       );
     }
 
@@ -426,7 +376,7 @@ export default function DesignSystemSetup() {
 
       if (withContent.length > 0) {
         parts.push(
-          `\n## Code Files (${withContent.length} files with content)\nCall \`import-code\` with these files:`,
+          `\n## Code Files (${withContent.length} files with content)\nStart Builder design-system indexing with \`index-design-system-with-builder\` using these files:`,
         );
         for (const f of withContent) {
           parts.push(
@@ -441,9 +391,9 @@ export default function DesignSystemSetup() {
       }
     }
 
-    if (figFiles.length > 0) {
+    if (builderIndexResult) {
       parts.push(
-        `\n## Figma Files\nCall \`import-figma\` and describe the design system from:\n${figFiles.map((f) => `- ${f.name}`).join("\n")}`,
+        `\n## Builder-Indexed Figma File\nBuilder design-system indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Local selectable design system: ${builderIndexResult.localDesignSystemId ?? "(not returned)"}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for extracted tokens, assets, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
       );
     }
 
@@ -485,12 +435,12 @@ export default function DesignSystemSetup() {
 
     if (customInstructions.trim()) {
       parts.push(
-        `\n## Custom Instructions (durable — store on the design system)\nWhen you call \`create-design-system\`, pass these verbatim as the \`customInstructions\` argument. They will be re-applied every time the design system is used to generate a design:\n\n${customInstructions.trim()}`,
+        `\n## Custom Instructions (durable — store on the design system)\nIf you create a local design system from non-Builder sources, pass these verbatim as the \`customInstructions\` argument. They will be re-applied every time the design system is used to generate a design:\n\n${customInstructions.trim()}`,
       );
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder design-system indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for those Builder-indexed sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""
@@ -498,7 +448,11 @@ export default function DesignSystemSetup() {
     );
 
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true, newTab: true });
+    sendToDesignAgentChat({
+      message: parts.join("\n"),
+      submit: true,
+      newTab: true,
+    });
     navigate("/design-systems");
   }, [
     hasAnySources,
@@ -508,7 +462,7 @@ export default function DesignSystemSetup() {
     githubUrl,
     githubLinks,
     codeFiles,
-    figFiles,
+    builderIndexResult,
     docFiles,
     imageFiles,
     assets,
@@ -575,15 +529,15 @@ export default function DesignSystemSetup() {
               title={t("designSystemSetup.sections.figma.title")}
               description={t("designSystemSetup.sections.figma.description")}
             >
-              {!figResult ? (
+              {!builderIndexResult ? (
                 <>
                   <button
                     type="button"
                     onClick={() => realFigInputRef.current?.click()}
-                    disabled={figParsing}
+                    disabled={builderIndexing}
                     className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-[#609FF8]/40 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                   >
-                    {figParsing ? (
+                    {builderIndexing ? (
                       <div className="flex flex-col items-center gap-2">
                         <Spinner className="size-6 text-[#609FF8]" />
                         <p className="text-sm text-foreground/80">
@@ -611,28 +565,24 @@ export default function DesignSystemSetup() {
                     ref={realFigInputRef}
                     type="file"
                     accept=".fig"
-                    onChange={handleFigImport}
+                    onChange={handleBuilderIndexUpload}
                     className="hidden"
                   />
-                  {figError && (
+                  {builderIndexError && (
                     <div
                       role="alert"
                       className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
                     >
-                      {figError}
+                      {builderIndexError}
                     </div>
                   )}
                 </>
               ) : (
-                <FigImportPreview
-                  result={figResult}
-                  title={figTitle}
-                  onTitleChange={setFigTitle}
-                  creating={figCreating}
-                  onCreate={handleCreateFromFig}
+                <BuilderIndexPreview
+                  result={builderIndexResult}
                   onReset={() => {
-                    setFigResult(null);
-                    setFigError(null);
+                    setBuilderIndexResult(null);
+                    setBuilderIndexError(null);
                   }}
                 />
               )}
@@ -1098,170 +1048,68 @@ function FileList({
   );
 }
 
-function FigImportPreview({
+function BuilderIndexPreview({
   result,
-  title,
-  onTitleChange,
-  creating,
-  onCreate,
   onReset,
 }: {
-  result: FigImportResult;
-  title: string;
-  onTitleChange: (v: string) => void;
-  creating: boolean;
-  onCreate: () => void;
+  result: BuilderIndexResult;
   onReset: () => void;
 }) {
   const t = useT();
-  const colors = result.data.colors ?? {};
-  const colorEntries = (
-    [
-      [t("designSystemSetup.colorLabels.accent"), "accent"],
-      [t("designSystemSetup.colorLabels.primary"), "primary"],
-      [t("designSystemSetup.colorLabels.secondary"), "secondary"],
-      [t("designSystemSetup.colorLabels.background"), "background"],
-      [t("designSystemSetup.colorLabels.surface"), "surface"],
-      [t("designSystemSetup.colorLabels.text"), "text"],
-      [t("designSystemSetup.colorLabels.muted"), "textMuted"],
-    ] as const
-  ).filter(([, k]) => colors[k]);
-  const typo = result.data.typography ?? {};
-  const gradients = result.preview.gradients ?? [];
 
   return (
-    <div className="space-y-5 rounded-xl border border-border bg-card p-4">
-      <div className="flex items-start gap-4">
-        {result.preview.thumbnailDataUrl ? (
-          <img
-            src={result.preview.thumbnailDataUrl}
-            alt={t("designSystemSetup.figmaThumbnailAlt")}
-            className="h-20 w-28 shrink-0 rounded-md border border-border object-cover"
-          />
-        ) : null}
+    <div className="space-y-4 rounded-xl border border-border bg-card p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#609FF8]/10">
+          <IconBrandFigma className="h-5 w-5 text-[#609FF8]" />
+        </div>
         <div className="min-w-0 flex-1">
-          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t("designSystemSetup.designSystemName")}
-          </label>
-          <Input
-            value={title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            className="mt-1 bg-accent/50"
-            placeholder={t("designSystemSetup.brandNamePlaceholder")}
-          />
-          <p className="mt-2 text-xs text-muted-foreground/70">
-            {t("designSystemSetup.extractedSummary", {
-              nodes: result.preview.nodeCount.toLocaleString(),
-              gradients: gradients.length,
-              images: result.preview.imageCount,
-            })}
+          <h3 className="text-sm font-semibold text-foreground">
+            {result.suggestedTitle}
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {
+              "Builder is indexing this Figma file into a reusable design system." /* i18n-ignore Builder indexing status */
+            }
           </p>
         </div>
       </div>
 
-      {colorEntries.length > 0 && (
-        <div>
-          <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-            {t("designSystemSetup.previewColors")}
-          </h4>
-          <div className="flex flex-wrap gap-3">
-            {colorEntries.map(([label, k]) => (
-              <div key={k} className="flex items-center gap-2">
-                <div
-                  className="h-8 w-8 rounded-md border border-border"
-                  style={{ backgroundColor: colors[k] }}
-                />
-                <div className="text-xs">
-                  <div className="text-foreground/80">{label}</div>
-                  <div className="font-mono text-[11px] text-muted-foreground">
-                    {colors[k]}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {gradients.length > 0 && (
-        <div>
-          <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-            {t("designSystemSetup.signatureGradients")}
-          </h4>
-          <div className="flex flex-wrap gap-2">
-            {gradients.slice(0, 4).map((g, i) => (
-              <div
-                key={i}
-                className="h-10 w-28 rounded-md border border-border"
-                style={{ backgroundImage: g }}
-                title={g}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {(typo.headingFont || typo.bodyFont) && (
-        <div>
-          <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-            {t("designSystemSetup.previewTypography")}
-          </h4>
-          <div className="text-sm text-foreground/80">
-            {typo.headingFont && (
-              <span>
-                <span className="text-muted-foreground">
-                  {t("designSystemSetup.headingsLabel")}
-                </span>{" "}
-                {typo.headingFont}
-                {typo.headingWeight ? ` ${typo.headingWeight}` : ""}
-              </span>
-            )}
-            {typo.bodyFont && (
-              <span className="ml-4">
-                <span className="text-muted-foreground">
-                  {t("designSystemSetup.bodyLabel")}
-                </span>{" "}
-                {typo.bodyFont}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {result.customInstructions && (
-        <div>
-          <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-            {t("designSystemSetup.brandBrief")}
-          </h4>
-          <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
-            {result.customInstructions}
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground/60">
-            {t("designSystemSetup.brandBriefHelp")}
-          </p>
-        </div>
-      )}
+      <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/25 p-3 text-xs">
+        <dt className="text-muted-foreground">
+          {"Status" /* i18n-ignore Builder indexing field */}
+        </dt>
+        <dd className="font-medium text-foreground">{result.status}</dd>
+        <dt className="text-muted-foreground">
+          {"Project" /* i18n-ignore Builder indexing field */}
+        </dt>
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
+          {result.projectId}
+        </dd>
+        <dt className="text-muted-foreground">
+          {"Job" /* i18n-ignore Builder indexing field */}
+        </dt>
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
+          {result.jobId}
+        </dd>
+        <dt className="text-muted-foreground">
+          {"Design system" /* i18n-ignore Builder indexing field */}
+        </dt>
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
+          {result.designSystemId}
+        </dd>
+      </dl>
 
       <div className="flex items-center gap-2 border-t border-border pt-4">
-        <Button
-          onClick={onCreate}
-          disabled={creating || !title.trim()}
-          className="cursor-pointer"
-        >
-          {creating ? (
-            <>
-              <Spinner className="size-4" /> {t("designSystemSetup.creating")}
-            </>
-          ) : (
-            t("designSystemSetup.createDesignSystem")
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={onReset}
-          disabled={creating}
-          className="cursor-pointer"
-        >
+        {result.builderUrl ? (
+          <Button asChild className="cursor-pointer">
+            <a href={result.builderUrl} target="_blank" rel="noreferrer">
+              <IconExternalLink className="size-4" />
+              {"Open in Builder" /* i18n-ignore Builder link action */}
+            </a>
+          </Button>
+        ) : null}
+        <Button variant="ghost" onClick={onReset} className="cursor-pointer">
           {t("designSystemSetup.chooseDifferentFile")}
         </Button>
       </div>

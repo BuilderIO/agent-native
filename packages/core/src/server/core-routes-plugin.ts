@@ -236,6 +236,11 @@ export async function runDbHealthProbe(
 const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
 const DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN = "https://forms.agent-native.com";
 const BUILDER_WAITLIST_FORM_SOURCE = "connect_builder_card";
+const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
+const BUILDER_WAITLIST_USE_CASES = new Set([
+  BUILDER_WAITLIST_DEFAULT_USE_CASE,
+  "design_publish_app",
+]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
 
@@ -244,12 +249,13 @@ interface BuilderWaitlistFormTarget {
   formsOrigin: string;
 }
 
-interface BuilderWaitlistBody {
+export interface BuilderWaitlistBody {
   prompt?: unknown;
   orgName?: unknown;
   appUrl?: unknown;
   pageUrl?: unknown;
   source?: unknown;
+  useCase?: unknown;
 }
 
 export function resolveFrameworkSseRoutes(sseRoute?: string): string[] {
@@ -272,6 +278,13 @@ function cleanBuilderWaitlistText(
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return trimmed.slice(0, maxLength);
+}
+
+function normalizeBuilderWaitlistUseCase(value: unknown): string {
+  const useCase = cleanBuilderWaitlistText(value, 100);
+  return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
+    ? useCase
+    : BUILDER_WAITLIST_DEFAULT_USE_CASE;
 }
 
 function normalizeHttpOrigin(value: string): string | null {
@@ -317,6 +330,38 @@ export function resolveBuilderWaitlistFormTargetForRequest(
   return { formId, formsOrigin };
 }
 
+export function buildBuilderWaitlistFormPayload(
+  event: H3Event,
+  sessionEmail: string,
+  body: BuilderWaitlistBody,
+) {
+  const appUrl =
+    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+    getOrigin(event);
+  const source =
+    cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
+  const useCase = normalizeBuilderWaitlistUseCase(body.useCase);
+
+  return {
+    data: {
+      email: sessionEmail,
+      orgName: cleanBuilderWaitlistText(body.orgName, 500),
+      appUrl,
+      prompt: cleanBuilderWaitlistText(body.prompt),
+      source,
+      useCase,
+    },
+    _hp: "",
+    _meta: {
+      submitterEmail: sessionEmail,
+      pageUrl: appUrl,
+      source,
+      useCase,
+    },
+  };
+}
+
 async function submitBuilderWaitlistForm(
   event: H3Event,
   sessionEmail: string,
@@ -324,13 +369,6 @@ async function submitBuilderWaitlistForm(
 ): Promise<{ submitted: boolean; formId?: string }> {
   const target = resolveBuilderWaitlistFormTargetForRequest(event);
   if (!target) return { submitted: false };
-
-  const appUrl =
-    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
-    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
-    getOrigin(event);
-  const source =
-    cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
 
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -344,20 +382,9 @@ async function submitBuilderWaitlistForm(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          data: {
-            email: sessionEmail,
-            orgName: cleanBuilderWaitlistText(body.orgName, 500),
-            appUrl,
-            prompt: cleanBuilderWaitlistText(body.prompt),
-            source,
-          },
-          _hp: "",
-          _meta: {
-            submitterEmail: sessionEmail,
-            pageUrl: appUrl,
-          },
-        }),
+        body: JSON.stringify(
+          buildBuilderWaitlistFormPayload(event, sessionEmail, body),
+        ),
         signal: controller.signal,
       },
     );
@@ -382,6 +409,31 @@ function parseBuilderCallbackBoolean(
 // attributes that execute when the browser renders them as an <img> src or
 // inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
 export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
+
+export function resolveAvatarEmailParam(
+  pathname: string,
+  appBasePath = "",
+): string {
+  const base = appBasePath.replace(/\/+$/, "");
+  const avatarPaths = Array.from(
+    new Set([`${base}/_agent-native/avatar/`, "/_agent-native/avatar/"]),
+  );
+
+  for (const avatarPath of avatarPaths) {
+    const avatarIndex = pathname.indexOf(avatarPath);
+    if (avatarIndex >= 0) {
+      return pathname
+        .slice(avatarIndex + avatarPath.length)
+        .replace(/^\/+/, "")
+        .split("/")[0];
+    }
+  }
+
+  const firstSegment = pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+  if (!firstSegment || firstSegment === "_agent-native") return "";
+  if (base && firstSegment === base.replace(/^\/+/, "")) return "";
+  return firstSegment;
+}
 
 async function detectUsageEngineName(
   event: H3Event,
@@ -663,6 +715,9 @@ export interface CoreRoutesPluginOptions {
   /** Per-template override mapping deep-link params → client SPA path.
    *  See `createOpenRouteHandler`. */
   resolveOpenPath?: import("./open-route.js").OpenRouteOptions["resolveOpenPath"];
+  /** Per-template allowlist for open-route targets that may redirect without
+   *  a browser session. See `createOpenRouteHandler`. */
+  allowUnauthenticatedOpen?: import("./open-route.js").OpenRouteOptions["allowUnauthenticatedOpen"];
   /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
   /**
@@ -1646,6 +1701,13 @@ export function createCoreRoutesPlugin(
           }
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
+          const waitlistPayload = buildBuilderWaitlistFormPayload(
+            event,
+            session.email,
+            body,
+          );
+          const waitlistSource = waitlistPayload.data.source;
+          const waitlistUseCase = waitlistPayload.data.useCase;
           let formSubmission: { submitted: boolean; formId?: string };
           try {
             formSubmission = await submitBuilderWaitlistForm(
@@ -1661,7 +1723,9 @@ export function createCoreRoutesPlugin(
               {
                 reason:
                   err instanceof Error ? err.message : "unknown_waitlist_error",
+                source: waitlistSource,
                 stage: "waitlist",
+                useCase: waitlistUseCase,
               },
             );
             setResponseStatus(event, 502);
@@ -1677,7 +1741,9 @@ export function createCoreRoutesPlugin(
             {
               formId: formSubmission.formId ?? null,
               formSubmitted: formSubmission.submitted,
+              source: waitlistSource,
               stage: "waitlist",
+              useCase: waitlistUseCase,
             },
           );
           return { ok: true, formSubmitted: formSubmission.submitted };
@@ -2253,11 +2319,10 @@ export function createCoreRoutesPlugin(
             }
             return Promise.all(
               envKeys.map(async (cfg) => {
-                const configured =
-                  Boolean(process.env[cfg.key]) ||
-                  (await runWithRequestContext({ userEmail, orgId }, () =>
-                    resolveSecret(cfg.key).then(Boolean),
-                  ));
+                const configured = await runWithRequestContext(
+                  { userEmail, orgId },
+                  () => resolveSecret(cfg.key).then(Boolean),
+                );
                 return {
                   key: cfg.key,
                   label: cfg.label,
@@ -3010,9 +3075,10 @@ export function createCoreRoutesPlugin(
         `${P}/avatar`,
         defineEventHandler(async (event: H3Event) => {
           const method = getMethod(event);
-          const emailParam = (event.url?.pathname || "")
-            .replace(/^\/+/, "")
-            .split("/")[0];
+          const emailParam = resolveAvatarEmailParam(
+            event.url?.pathname || "",
+            getConfiguredAppBasePath(),
+          );
 
           if (method === "GET") {
             if (!emailParam) {
@@ -3133,7 +3199,10 @@ export function createCoreRoutesPlugin(
         // guard bypasses this exact path so it can serve its own login form.
         getH3App(nitroApp).use(
           `${P}/open`,
-          createOpenRouteHandler({ resolveOpenPath: options.resolveOpenPath }),
+          createOpenRouteHandler({
+            resolveOpenPath: options.resolveOpenPath,
+            allowUnauthenticatedOpen: options.allowUnauthenticatedOpen,
+          }),
         );
       }
 

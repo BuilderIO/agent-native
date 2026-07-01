@@ -10,13 +10,15 @@
 
 import { defineAction } from "@agent-native/core";
 import {
-  appStateList,
   readAppState,
   writeAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
-import { uploadFile } from "@agent-native/core/file-upload";
+import {
+  getActiveFileUploadProvider,
+  uploadFile,
+} from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
@@ -28,10 +30,15 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
+import { listRecordingChunkKeys } from "../server/lib/recording-upload-state.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import {
+  deleteResumableSession,
+  getResumableSession,
+} from "../server/lib/resumable-session.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -66,17 +73,6 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-async function listRecordingChunkKeys(
-  ownerEmail: string,
-  recordingId: string,
-): Promise<string[]> {
-  const rows = await appStateList(
-    ownerEmail,
-    `recording-chunks-${recordingId}-`,
-  );
-  return rows.map((row) => row.key);
-}
-
 function chunkIndexFromKey(key: string): number {
   return Number(key.split("-").pop() || 0);
 }
@@ -106,6 +102,120 @@ const cliBoolean = z.preprocess((value) => {
   if (value === "false") return false;
   return value;
 }, z.boolean());
+
+// Flip recording to 'ready', seed transcript row, fire background transcript,
+// emit clip.created. Used by both the resumable and buffered upload paths.
+async function markRecordingReady(params: {
+  id: string;
+  ownerEmail: string;
+  videoUrl: string;
+  videoSizeBytes: number;
+  videoFormat: "webm" | "mp4";
+  finalDurationMs: number;
+  finalWidth: number;
+  finalHeight: number;
+  finalHasAudio: boolean;
+  finalHasCamera: boolean;
+  existingTitle: string;
+}) {
+  const {
+    id,
+    ownerEmail,
+    videoUrl,
+    videoSizeBytes,
+    videoFormat,
+    finalDurationMs,
+    finalWidth,
+    finalHeight,
+    finalHasAudio,
+    finalHasCamera,
+    existingTitle,
+  } = params;
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  await db
+    .update(schema.recordings)
+    .set({
+      status: "ready",
+      videoUrl,
+      videoFormat,
+      videoSizeBytes,
+      durationMs: finalDurationMs,
+      width: finalWidth,
+      height: finalHeight,
+      hasAudio: finalHasAudio,
+      hasCamera: finalHasCamera,
+      failureReason: null,
+      uploadProgress: 100,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+
+  const [existingTranscript] = await db
+    .select({ recordingId: schema.recordingTranscripts.recordingId })
+    .from(schema.recordingTranscripts)
+    .where(eq(schema.recordingTranscripts.recordingId, id));
+  if (!existingTranscript) {
+    await db.insert(schema.recordingTranscripts).values({
+      recordingId: id,
+      ownerEmail,
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  await writeAppState(`recording-upload-${id}`, {
+    recordingId: id,
+    status: "ready",
+    progress: 100,
+    videoUrl,
+    finishedAt: now,
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+
+  // Kick off transcription in the background — fire-and-forget so the chunk
+  // endpoint gets a quick response. The request context (user email via
+  // AsyncLocalStorage) carries through to async continuations.
+  void Promise.resolve(
+    requestTranscript.run({ recordingId: id, force: true }),
+  ).catch((err: unknown) => {
+    console.error("[finalize] background transcript failed", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  try {
+    emit(
+      "clip.created",
+      {
+        clipId: id,
+        title: existingTitle,
+        createdBy: ownerEmail,
+        duration: finalDurationMs,
+        url: videoUrl,
+      },
+      { owner: ownerEmail },
+    );
+  } catch (err) {
+    console.warn("[finalize] clip.created emit failed:", err);
+  }
+
+  return {
+    id,
+    status: "ready" as const,
+    videoUrl,
+    videoSizeBytes,
+    durationMs: finalDurationMs,
+  };
+}
 
 export default defineAction({
   description:
@@ -165,6 +275,21 @@ export default defineAction({
         throw new Error(`Recording not found: ${id}`);
       }
 
+      // Idempotency guard: finalize can be re-invoked when a client retries the
+      // final chunk after a lost response. If already 'ready' return the existing
+      // result instead of re-running the complete/assembly path (session and
+      // chunks are gone by then).
+      if (existing.status === "ready" && existing.videoUrl) {
+        debugLog("[finalize] already finalized, returning existing", { id });
+        return {
+          id,
+          status: "ready" as const,
+          videoUrl: existing.videoUrl,
+          videoSizeBytes: existing.videoSizeBytes ?? 0,
+          durationMs: existing.durationMs ?? 0,
+        };
+      }
+
       const uploadStateRaw = await readAppState(`recording-upload-${id}`);
       const uploadState =
         uploadStateRaw && typeof uploadStateRaw === "object"
@@ -200,6 +325,62 @@ export default defineAction({
         typeof args.hasCamera === "boolean"
           ? args.hasCamera
           : (stateBoolean(uploadState, "hasCamera") ?? existing.hasCamera);
+
+      const readyParams = {
+        id,
+        ownerEmail,
+        videoFormat,
+        finalDurationMs,
+        finalWidth,
+        finalHeight,
+        finalHasAudio,
+        finalHasCamera,
+        existingTitle: existing.title,
+      };
+
+      // Resumable path: create-recording initialized a session and chunk.post.ts
+      // forwarded all chunks to the provider. Complete the session to get the CDN URL.
+      const resumableSession = await getResumableSession(id);
+      if (resumableSession) {
+        debugLog("[finalize] resumable session found, completing upload", {
+          id,
+          providerId: resumableSession.providerId,
+        });
+        try {
+          const uploadProvider = getActiveFileUploadProvider();
+          if (!uploadProvider?.resumable) {
+            throw new Error("No resumable upload provider configured");
+          }
+          const videoUrl = await uploadProvider.resumable.completeSession(
+            {
+              sessionId: resumableSession.sessionId,
+              meta: resumableSession.meta,
+            },
+            typeof resumableSession.meta.filename === "string"
+              ? resumableSession.meta.filename
+              : "",
+          );
+          debugLog("[finalize] resumable upload completed", { id, videoUrl });
+          const result = await markRecordingReady({
+            ...readyParams,
+            videoUrl,
+            videoSizeBytes: resumableSession.bytesUploaded,
+          });
+          // Delete only after durable state is written — so a retry before
+          // this point can still find the session and re-enter this path.
+          deleteResumableSession(id).catch((err) =>
+            console.warn("[finalize] failed to delete resumable session:", err),
+          );
+          return result;
+        } catch (err) {
+          console.error("[finalize] resumable complete failed:", err);
+          throw new Error(
+            `Upload completion failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
+      // Buffered path — assemble chunks from application_state, then upload.
 
       // The recorder stashes compression metadata at
       // `recording-compression-{id}` when its browser-side ffmpeg.wasm
@@ -525,99 +706,17 @@ export default defineAction({
         }
         throw err;
       }
-      const videoUrl = upload.url;
-
-      // Update the recording row with final metadata and flip to 'ready'.
-      await db
-        .update(schema.recordings)
-        .set({
-          status: "ready",
-          videoUrl,
-          videoFormat,
-          videoSizeBytes: assembled.byteLength,
-          durationMs: finalDurationMs,
-          width: finalWidth,
-          height: finalHeight,
-          hasAudio: finalHasAudio,
-          hasCamera: finalHasCamera,
-          failureReason: null,
-          uploadProgress: 100,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(schema.recordings.id, id));
-
-      // Seed a pending transcript row so the agent background task has a place
-      // to write results.
-      const [existingTranscript] = await db
-        .select({ recordingId: schema.recordingTranscripts.recordingId })
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, id));
-      if (!existingTranscript) {
-        await db.insert(schema.recordingTranscripts).values({
-          recordingId: id,
-          ownerEmail,
-          status: "pending",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-
-      await writeAppState(`recording-upload-${id}`, {
-        recordingId: id,
-        status: "ready",
-        progress: 100,
-        videoUrl,
-        finishedAt: new Date().toISOString(),
-      });
-
-      await writeAppState("refresh-signal", { ts: Date.now() });
-
-      // Kick off transcription in the background. Native web/macOS speech rows
-      // are preserved first; cloud transcription only fills gaps/refines when
-      // needed. The chunk endpoint already awaits this finalize call, so we
-      // fire-and-forget — the request context (user email via AsyncLocalStorage)
-      // carries through to async continuations started before this run()
-      // returns. Without this the transcript row stays in `pending` forever and
-      // the UI shows an infinite "Transcribing…" spinner.
-      void Promise.resolve(
-        requestTranscript.run({ recordingId: id, force: true }),
-      ).catch((err: unknown) => {
-        console.error("[finalize] background transcript failed", {
-          id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-
-      // Emit clip.created event — best-effort, never block the main flow.
-      try {
-        emit(
-          "clip.created",
-          {
-            clipId: id,
-            title: existing.title,
-            createdBy: ownerEmail,
-            duration: finalDurationMs,
-            url: videoUrl,
-          },
-          { owner: ownerEmail },
-        );
-      } catch (err) {
-        console.warn("[finalize] clip.created emit failed:", err);
-      }
 
       debugLog("[finalize] done", {
         id,
-        videoUrl,
+        videoUrl: upload.url,
         bytes: assembled.byteLength,
       });
-
-      return {
-        id,
-        status: "ready" as const,
-        videoUrl,
+      return markRecordingReady({
+        ...readyParams,
+        videoUrl: upload.url,
         videoSizeBytes: assembled.byteLength,
-        durationMs: finalDurationMs,
-      };
+      });
     } finally {
       // Unconditional chunk scratch-space cleanup. Runs on success AND on
       // error — a throw during uploadFile / drizzle update / anything else

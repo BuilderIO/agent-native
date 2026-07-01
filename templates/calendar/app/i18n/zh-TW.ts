@@ -149,6 +149,8 @@ const messages = {
       "已從 Google Calendar 同步 {{count}} 個事件",
   },
   sidebar: {
+    collapseSidebar: "收合側邊欄",
+    expandSidebar: "展開側邊欄",
     addGoogleAccount: "新增 Google 帳號",
     colorByMeetingType: "按會議型別著色（外部、內部、一對一、小組等）",
     googleCalendarSettings: "Google Calendar 設定",

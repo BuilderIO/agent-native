@@ -27,25 +27,25 @@
 }
 
 :root {
-  --background: 40 23% 97%;
-  --foreground: 30 5% 10%;
-  --card: 40 23% 99%;
-  --card-foreground: 30 5% 10%;
-  --popover: 40 23% 99%;
-  --popover-foreground: 30 5% 10%;
-  --primary: 30 5% 13%;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 45 14% 94%;
-  --secondary-foreground: 30 5% 13%;
-  --muted: 45 14% 94%;
-  --muted-foreground: 30 6% 43%;
-  --accent: 45 14% 94%;
-  --accent-foreground: 30 5% 13%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 36 10% 86%;
-  --input: 36 10% 86%;
-  --ring: 218 85% 57%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
   --radius: 0.5rem;
   /* Callout tone accents — info/decision/risk/warning/success. */
   --plan-tone-info: 218 85% 57%;
@@ -53,14 +53,14 @@
   --plan-tone-risk: 0 84% 60%;
   --plan-tone-warning: 25 95% 48%;
   --plan-tone-success: 142 71% 38%;
-  --sidebar-background: 42 18% 96%;
-  --sidebar-foreground: 30 6% 43%;
-  --sidebar-primary: 30 5% 13%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 45 14% 93%;
-  --sidebar-accent-foreground: 30 5% 13%;
-  --sidebar-border: 36 10% 86%;
-  --sidebar-ring: 218 85% 57%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
   /* ── Plan document font sizes — edit here to resize globally ──────────────
      --plan-code-size  : general monospace code surfaces and editors
      --plan-doc-code-size: dense read-only code surfaces such as diffs,
@@ -72,25 +72,25 @@
 }
 
 .dark {
-  --background: 30 4% 11%;
-  --foreground: 40 9% 95%;
-  --card: 30 5% 13%;
-  --card-foreground: 40 9% 95%;
-  --popover: 30 5% 13%;
-  --popover-foreground: 40 9% 95%;
-  --primary: 40 9% 92%;
-  --primary-foreground: 30 4% 11%;
-  --secondary: 36 5% 16%;
-  --secondary-foreground: 40 9% 95%;
-  --muted: 36 5% 16%;
-  --muted-foreground: 38 7% 63%;
-  --accent: 36 5% 17%;
-  --accent-foreground: 40 9% 95%;
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
   --destructive: 0 63% 51%;
   --destructive-foreground: 0 0% 98%;
-  --border: 35 5% 21%;
-  --input: 35 5% 21%;
-  --ring: 218 85% 67%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
   --radius: 0.5rem;
   /* Callout tone accents — brighter so they read on the dark surface. */
   --plan-tone-info: 218 85% 67%;
@@ -98,14 +98,14 @@
   --plan-tone-risk: 0 84% 67%;
   --plan-tone-warning: 28 96% 60%;
   --plan-tone-success: 142 60% 52%;
-  --sidebar-background: 30 5% 10%;
-  --sidebar-foreground: 38 7% 63%;
-  --sidebar-primary: 40 9% 92%;
-  --sidebar-primary-foreground: 30 4% 11%;
-  --sidebar-accent: 36 5% 16%;
-  --sidebar-accent-foreground: 40 9% 95%;
-  --sidebar-border: 35 5% 18%;
-  --sidebar-ring: 218 85% 67%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 60%;
 }
 
 @layer base {
@@ -129,37 +129,20 @@
 
 @layer utilities {
   .plan-content-surface {
-    --plan-document: hsl(42 18% 97%);
-    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
-    --plan-block: hsl(42 16% 94%);
-    --plan-chrome: hsl(42 15% 96% / 0.92);
-    --plan-line: hsl(36 9% 82%);
-    --plan-grid-line: hsl(36 9% 70% / 0.08);
-    --plan-text: hsl(30 5% 11%);
-    --plan-muted: hsl(30 5% 45%);
-    --plan-wireframe: hsl(42 16% 98%);
-    --plan-sketch-line: hsl(28 4% 20%);
-    --plan-muted-line: hsl(36 6% 78%);
-    --plan-placeholder-line: hsl(36 5% 72% / 0.72);
-    --plan-code: hsl(40 12% 96%);
-    --plan-code-text: hsl(28 5% 14%);
-  }
-
-  .dark .plan-content-surface {
-    --plan-document: hsl(32 3% 13%);
-    --plan-canvas: color-mix(in srgb, var(--plan-document) 80%, black);
-    --plan-block: hsl(32 3% 15.5%);
-    --plan-chrome: hsl(32 3% 15.5% / 0.92);
-    --plan-line: hsl(34 4% 24%);
-    --plan-grid-line: hsl(34 4% 36% / 0.08);
-    --plan-text: hsl(40 8% 94%);
-    --plan-muted: hsl(36 5% 65%);
-    --plan-wireframe: hsl(34 3% 13.4%);
-    --plan-sketch-line: hsl(38 5% 84%);
-    --plan-muted-line: hsl(36 4% 44%);
-    --plan-placeholder-line: hsl(36 4% 54% / 0.62);
-    --plan-code: hsl(32 4% 9.8%);
-    --plan-code-text: hsl(40 9% 92%);
+    --plan-document: hsl(var(--background));
+    --plan-canvas: color-mix(in srgb, var(--plan-document) 72%, black);
+    --plan-block: hsl(var(--secondary));
+    --plan-chrome: hsl(var(--background) / 0.92);
+    --plan-line: hsl(var(--border));
+    --plan-grid-line: hsl(var(--foreground) / 0.018);
+    --plan-text: hsl(var(--foreground));
+    --plan-muted: hsl(var(--muted-foreground));
+    --plan-wireframe: hsl(0 0% 6%);
+    --plan-sketch-line: hsl(var(--foreground) / 0.86);
+    --plan-muted-line: hsl(var(--border));
+    --plan-placeholder-line: hsl(var(--muted-foreground) / 0.42);
+    --plan-code: hsl(var(--muted));
+    --plan-code-text: hsl(var(--foreground));
   }
 
   .plan-content-surface[data-recap-screenshot-theme="light"] {
@@ -377,6 +360,40 @@
  * viewport. Wraps only the doc shell (not canvas) to avoid containing fixed UI. */
 .plan-document-region {
   container: plan-doc / inline-size;
+}
+
+@container plan-doc (min-width: 44rem) {
+  .plan-code-tabs-layout {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+
+  .plan-code-tabs-nav {
+    border-inline-end-width: 1px;
+  }
+
+  .plan-vertical-tabs-layout {
+    grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .plan-vertical-tabs-list {
+    max-height: 62vh;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    margin-bottom: 0;
+    padding-inline-end: 0.5rem;
+  }
+}
+
+@container plan-doc (min-width: 56rem) {
+  .plan-implementation-map-layout {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+
+  .plan-implementation-map-nav {
+    border-inline-end-width: 1px;
+  }
 }
 
 /* Header + flow + contents rail. Wide: a balanced 3-col grid via the container
@@ -2116,10 +2133,8 @@
   box-shadow: 0 0 0 4px hsl(var(--muted) / 0.35);
 }
 .plan-header-editable:focus {
-  background: hsl(var(--background) / 0.6);
-  box-shadow:
-    0 0 0 2px hsl(var(--background)),
-    0 0 0 4px hsl(var(--ring) / 0.4);
+  background: transparent;
+  box-shadow: none;
 }
 .plan-header-editable:empty::before {
   content: attr(data-placeholder);
@@ -2378,4 +2393,32 @@
   outline: 2px solid hsl(var(--ring) / 0.45);
   outline-offset: 2px;
   border-radius: 6px;
+}
+
+/* Embed mode (set by entry.client.tsx on `?embedded=1`). The app shell is
+ * fixed-viewport (`h-screen` + `overflow-hidden`), so inside the iframe
+ * scrollHeight equals the iframe height and the embed can't size to content.
+ * Flow the shell -> reader chain so frame.ts reports the real height. Scoped to
+ * [data-embed]; covers the AgentSidebar wrapper too since the chain spans
+ * several containers. */
+html[data-embed="1"],
+html[data-embed="1"] body,
+html[data-embed="1"] #root {
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+html[data-embed="1"] .agent-layout-shell,
+html[data-embed="1"] .agent-layout-main-surface,
+html[data-embed="1"] .agent-sidebar-root,
+html[data-embed="1"] .agent-sidebar-content,
+html[data-embed="1"] .plans-workspace,
+html[data-embed="1"] .plan-content-surface,
+html[data-embed="1"] [data-agent-sidebar],
+html[data-embed="1"] [data-agent-sidebar-content] {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
 }

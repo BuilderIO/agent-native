@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.79.27",
+  "version": "0.84.1",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -89,6 +89,7 @@
     "./embedding/react": "./dist/embedding/react.js",
     "./onboarding": "./dist/onboarding/index.js",
     "./shared": "./dist/shared/index.js",
+    "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
@@ -245,14 +246,12 @@
     "diff-match-patch": "^1.0.5",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.45.2",
-    "fzstd": "^0.1.1",
     "h3": "^2.0.1-rc.20",
     "highlight.js": "^11.11.1",
     "i18next": "26.3.1",
     "isbot": "^5",
     "jiti": "^2.6.1",
     "jose": "^6.2.2",
-    "kiwi-schema": "^0.5.0",
     "linkedom": "0.18.12",
     "lowlight": "^3.3.0",
     "minimatch": "^10.0.0",
@@ -260,7 +259,6 @@
     "next-themes": "^0.4.6",
     "nitro": "3.0.260415-beta",
     "p-limit": "^7.3.0",
-    "pako": "^2.1.0",
     "prettier": "^3.8.3",
     "react-i18next": "17.0.8",
     "react-markdown": "^10.1.0",
@@ -300,7 +298,6 @@
     "@types/diff-match-patch": "^1.0.36",
     "@types/express": "^5.0.6",
     "@types/node": "^24.2.1",
-    "@types/pako": "^2.0.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/turndown": "5.0.6",
@@ -316,7 +313,7 @@
     "express": "^5.2.1",
     "mermaid": "11.15.0",
     "node-pty": "^1.1.0",
-    "playwright": "^1.60.0",
+    "playwright": "^1.61.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router": "^8.0.1",
@@ -451,7 +448,7 @@
   },
   "optionalDependencies": {
     "@opentelemetry/api": "^1.9.1",
-    "playwright": "^1.60.0"
+    "playwright": "^1.61.1"
   },
   "engines": {
     "node": ">=22.22.0"

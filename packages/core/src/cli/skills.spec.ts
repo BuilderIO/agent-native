@@ -581,6 +581,34 @@ describe("agent-native skills", () => {
     );
   });
 
+  it("accepts visual-edit as a Design skill alias", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "visual-edit",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      { baseDir: root, runCommand: async () => 0 },
+    );
+
+    expect(result.id).toBe("design");
+    expect(result.skillNames).toEqual(["visual-edit"]);
+    const skillDir = path.join(root, ".agents", "skills", "visual-edit");
+    expect(result.written).toContain(skillDir);
+    expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
+    expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8")).toContain(
+      "npx @agent-native/core@latest design connect",
+    );
+    expect(result.mcpUrl).toBe(
+      "https://design.agent-native.com/_agent-native/mcp",
+    );
+  });
+
   it("accepts shorthand aliases for the built-in Plans skill", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");
@@ -1028,6 +1056,94 @@ describe("agent-native skills", () => {
     ).toBe("https://assets.agent-native.com/_agent-native/mcp");
   });
 
+  it("installs visual-plan into Claude Code user skills idempotently", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const skillDir = path.join(home, ".claude", "skills", "visual-plan");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "old.txt"), "stale copy\n");
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), "old visual plan\n");
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "visual-plan",
+          "--client",
+          "claude-code",
+          "--scope",
+          "user",
+          "--no-connect",
+        ]),
+        { baseDir: root, runCommand: async () => 0 },
+      );
+
+      expect(result.skillNames).toEqual(["visual-plan"]);
+      expect(result.planMode).toBe("hosted");
+      expect(result.mcpUrl).toBe(
+        "https://plan.agent-native.com/_agent-native/mcp",
+      );
+      expect(result.written).toContain(skillDir);
+      expect(fs.existsSync(path.join(skillDir, "old.txt"))).toBe(false);
+      expect(
+        fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8"),
+      ).toContain("# Agent-Native Plans");
+      const metadata = JSON.parse(
+        fs.readFileSync(
+          path.join(skillDir, AGENT_NATIVE_SKILL_METADATA_FILE),
+          "utf-8",
+        ),
+      );
+      expect(metadata).toMatchObject({
+        source: "agent-native",
+        appSkillId: "visual-plans",
+        skillName: "visual-plan",
+        mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+        planMode: "hosted",
+        installCommand: "npx @agent-native/core@latest skills add visual-plan",
+        updateCommand:
+          "npx @agent-native/core@latest skills update visual-plan",
+      });
+      expect(
+        fs.existsSync(path.join(home, ".claude", "commands", "visual-plan.md")),
+      ).toBe(true);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    }
+  });
+
+  it("fails loudly when the target skill folder cannot be written", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(path.join(home, ".claude"), "not a directory\n");
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+
+    try {
+      await expect(
+        addAgentNativeSkill(
+          parseSkillsArgs([
+            "add",
+            "visual-plan",
+            "--client",
+            "claude-code",
+            "--scope",
+            "user",
+            "--no-mcp",
+          ]),
+          { baseDir: root, runCommand: async () => 0 },
+        ),
+      ).rejects.toThrow(/Cannot write Agent Native skill folder .*visual-plan/);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    }
+  });
+
   it("delegates plain GitHub skill repos to @agent-native/skills", async () => {
     const root = tmpDir();
     const commands: { cmd: string; args: string[]; stdio?: string }[] = [];
@@ -1380,6 +1496,7 @@ describe("agent-native skills", () => {
       "assets",
       "content",
       "design-exploration",
+      "visual-edit",
       "context-xray",
     ]);
     expect(context?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
@@ -1454,6 +1571,7 @@ describe("agent-native skills", () => {
       "assets",
       "content",
       "design-exploration",
+      "visual-edit",
       "context-xray",
       "quick-recap",
     ]);
@@ -1932,6 +2050,37 @@ describe("agent-native skills", () => {
       status: "stale",
       managed: true,
     });
+  });
+
+  it("explains that update is not the first-time visual-plan installer", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    fs.mkdirSync(home, { recursive: true });
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await runSkills(
+        ["update", "visual-plan", "--client", "claude-code", "--scope", "user"],
+        { baseDir: root, runCommand: async () => 0 },
+      );
+
+      expect(stdout.join("")).toContain(
+        "The update command only refreshes skill folders that already exist",
+      );
+      expect(stdout.join("")).toContain(
+        "npx @agent-native/core@latest skills add visual-plan",
+      );
+      expect(stdout.join("")).toContain("MCP registration");
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    }
   });
 
   it("updates managed copied skill folders in place", async () => {

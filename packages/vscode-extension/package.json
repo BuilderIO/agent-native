@@ -1,14 +1,15 @@
 {
   "name": "agent-native",
-  "displayName": "Agent-Native Plans",
+  "displayName": "Agent-Native",
   "version": "0.0.2",
-  "description": "Open Agent-Native Plans and MCP handoff links inside VS Code.",
+  "description": "Open Agent-Native Plans, Design, and MCP handoff links inside VS Code.",
   "categories": [
     "Other"
   ],
   "keywords": [
     "agent-native",
     "coding agents",
+    "design",
     "mcp",
     "plans",
     "visual plans"
@@ -57,6 +58,11 @@
         "command": "agentNative.connectWorkspace",
         "title": "Connect Workspace to Agent Native MCP",
         "category": "Agent Native"
+      },
+      {
+        "command": "agentNative.openDesignCanvas",
+        "title": "Open Design Canvas",
+        "category": "Agent Native"
       }
     ],
     "configuration": {
@@ -73,6 +79,7 @@
   "activationEvents": [
     "onCommand:agentNative.connectWorkspace",
     "onCommand:agentNative.openDefaultApp",
+    "onCommand:agentNative.openDesignCanvas",
     "onCommand:agentNative.openUrl",
     "onUri"
   ],

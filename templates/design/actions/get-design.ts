@@ -13,6 +13,8 @@ export default defineAction({
     id: z.string().describe("Design ID"),
   }),
   readOnly: true,
+  requiresAuth: false,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
   run: async ({ id }) => {
     const access = await resolveAccess("design", id);
@@ -39,6 +41,7 @@ export default defineAction({
       visibility: row.visibility,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      accessRole: access.role,
       files: files.map((f) => ({
         id: f.id,
         filename: f.filename,

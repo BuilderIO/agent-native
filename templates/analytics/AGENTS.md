@@ -44,6 +44,12 @@ details live in `.agents/skills/`.
   request action uses the shared `@agent-native/core/provider-api` runtime,
   injects configured credentials, blocks private/internal URLs, and redacts
   secrets.
+- For questions about tracking events or instrumentation in GitHub-hosted code,
+  use `github-repo-files` before raw provider requests: check
+  `data-source-status` for GitHub, `operation="search"` likely event names/calls
+  with `includeTextMatches=true`, then `operation="read"` the relevant files.
+  Report the repo, ref/default branch, queries used, files read, and any
+  truncation or GitHub incomplete-results flags so absence claims are auditable.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
@@ -113,9 +119,10 @@ details live in `.agents/skills/`.
 
 ## Session Replay
 
-- `/sessions` lists scoped first-party session recordings. Filters live in the
-  URL (`range`, `app`, `q`) and are mirrored through application state so
-  the agent sees the same list the user sees.
+- `/sessions` lists scoped, signed-in first-party session recordings with an
+  email-backed visitor identity and playable replay events. Filters live in the
+  URL (`range`, `app`, `q`) and are mirrored through application state so the
+  agent sees the same list the user sees.
 - `/sessions/:recordingId` loads summary/timeline data through
   `get-session-replay-summary` and fetches rrweb payloads only through scoped
   chunk routes. Do not expose storage/provider URLs, raw chunk table access, or

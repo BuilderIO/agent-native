@@ -8,7 +8,7 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { recordChange } from "@agent-native/core/server";
+import { recordChange, runWithRequestContext } from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
@@ -988,11 +988,21 @@ function rowToSessionRecordingSummary(
 }
 
 function hasVisibleSessionRecordingIdentity(row: any): boolean {
-  return Boolean(replayEmail(row.userId) || replayString(row.anonymousId));
+  // /sessions intentionally lists signed-in, email-backed recordings only (see
+  // analytics CLAUDE.md + the "rejects anonymous recordings" spec). Keep this in
+  // sync with replayVisibleIdentityCondition().
+  return Boolean(replayEmail(row.userId) || replayEmail(row.userKey));
+}
+
+function hasPlayableSessionRecordingEvents(row: any): boolean {
+  return Number(row.chunkCount ?? 0) > 0 && Number(row.eventCount ?? 0) > 0;
 }
 
 function isVisibleSessionRecording(row: any): boolean {
-  return hasVisibleSessionRecordingIdentity(row);
+  return (
+    hasVisibleSessionRecordingIdentity(row) &&
+    hasPlayableSessionRecordingEvents(row)
+  );
 }
 
 function mergeReplayMetadata(
@@ -1043,9 +1053,18 @@ function replayTextContains(column: unknown, query: string) {
 }
 
 function replayVisibleIdentityCondition() {
+  // Email-backed identity only — /sessions lists signed-in recordings (see
+  // analytics CLAUDE.md). Mirror of hasVisibleSessionRecordingIdentity().
   return or(
     replayTextContains(schema.sessionRecordings.userId, "@"),
-    sql`nullif(trim(coalesce(${schema.sessionRecordings.anonymousId}, '')), '') is not null`,
+    replayTextContains(schema.sessionRecordings.userKey, "@"),
+  );
+}
+
+function replayPlayableEventsCondition() {
+  return and(
+    gte(schema.sessionRecordings.chunkCount, 1),
+    gte(schema.sessionRecordings.eventCount, 1),
   );
 }
 
@@ -1126,7 +1145,12 @@ export async function recordSessionReplayChunks(
         lastIngestedAt: ingestedAt,
         ownerEmail: key.ownerEmail,
         orgId: key.orgId,
-        visibility: "private",
+        // Session replay is an org-analytics surface: a recording captured under
+        // an org-scoped analytics key must be visible to everyone in that org
+        // (via accessFilter's "org" branch), not only the key owner. Without an
+        // org we fall back to owner-private. This is what makes /sessions show
+        // recordings to teammates instead of only the single key owner.
+        visibility: key.orgId ? "org" : "private",
       })
       .onConflictDoNothing();
 
@@ -1190,12 +1214,23 @@ export async function recordSessionReplayChunks(
           413,
         );
       }
-      const chunk = await storeReplayChunkBlob(rawChunk, {
-        publicKeyId: key.id,
-        recordingId: recording.id,
-        ownerEmail: key.ownerEmail,
-        orgId: key.orgId,
-      });
+      // Replay ingest is anonymous + cross-origin (no session), so blob storage
+      // would otherwise have no request context and `resolveBuilderPrivateKey()`
+      // (and any S3 provider's scoped-secret lookup) would resolve nothing —
+      // every chunk upload then 503s and recordings persist as empty shells.
+      // Run the upload in the public key owner's user/org scope so the org's
+      // connected Builder (or S3) credential in `app_secrets` resolves. Mirrors
+      // the resources upload precedent (core resources/handlers.ts).
+      const chunk = await runWithRequestContext(
+        { userEmail: key.ownerEmail, orgId: key.orgId ?? undefined },
+        () =>
+          storeReplayChunkBlob(rawChunk, {
+            publicKeyId: key.id,
+            recordingId: recording.id,
+            ownerEmail: key.ownerEmail,
+            orgId: key.orgId,
+          }),
+      );
       if (rawChunk.storageKind !== "blob" && chunk.storageKind === "blob") {
         const ref = decodeReplayBlobRef(chunk.storageRef);
         if (ref) uploadedBlobHandles.push(ref.handle);
@@ -1353,6 +1388,7 @@ export async function listSessionRecordings(
       orgId: scope.orgId ?? undefined,
     }),
     replayVisibleIdentityCondition(),
+    replayPlayableEventsCondition(),
   ];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
@@ -1363,7 +1399,12 @@ export async function listSessionRecordings(
     conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
   }
   if (filters.userId) {
-    conditions.push(eq(schema.sessionRecordings.userId, filters.userId));
+    conditions.push(
+      or(
+        eq(schema.sessionRecordings.userId, filters.userId),
+        eq(schema.sessionRecordings.userKey, filters.userId),
+      ),
+    );
   }
   if (filters.anonymousId) {
     conditions.push(

@@ -77,10 +77,10 @@ const zhCN = {
   home: {
     hero: {
       badge: "开源框架",
-      titleLine1: "Agentic 应用",
-      titleAccent: "由你掌控",
+      titleLine1: "面向",
+      titleAccent: "agentic apps 的框架",
       body: "从 Chat-first app 和 app-agent loop 开始。随着你的 agent 成长，添加 actions、界面、jobs 和 workflows。",
-      primaryCta: "从模板开始",
+      primaryCta: "开始构建",
       secondaryCta: "查看文档",
     },
     code: {
@@ -88,6 +88,106 @@ const zhCN = {
       skillInstallComment: "把 Agent-Native 规划加入你已经使用的 coding agent",
       frameworkComment: "一个 action 驱动 agent、UI、HTTP、MCP、A2A 和 CLI。",
       frameworkDescription: "从本地 app-agent loop 打招呼。",
+    },
+    actionSurface: {
+      eyebrow: "真正面向代理，而不是外挂式 AI",
+      title: "一个 action 覆盖整套应用能力面",
+      body: "只定义一次操作。Agent-Native 会把它变成 UI action、agent 工具、HTTP 端点、MCP/A2A 能力面、CLI 命令、权限检查和审计记录。",
+      seeActions: "查看 actions",
+      frameworkGuide: "阅读框架指南",
+      benefits: {
+        oneActionDefinition: {
+          title: "一个 action 定义",
+          body: "UI、agent、HTTP、MCP、A2A 和 CLI 都调用同一个操作。",
+        },
+        scopedByDefault: {
+          title: "默认带访问范围",
+          body: "Auth、共享、治理和审计日志会随工作一起生效。",
+        },
+        headedOrHeadless: {
+          title: "可带界面，也可 headless",
+          body: "可以作为 app、agent workflow、队列或定时任务运行。",
+        },
+        contextRichInput: {
+          title: "富上下文输入",
+          body: "聊天、语音、skills、指令和 UI 状态都会留在循环中。",
+        },
+        openAgentProtocols: {
+          title: "开放的 agent 协议",
+          body: "A2A、MCP、MCP apps 和外部 agents 都是框架级原语。",
+        },
+        observableByDesign: {
+          title: "天生可观测",
+          body: "Trace、eval、反馈和审计历史让 agent 工作可检查。",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "模块化框架",
+      title: "面向 agentic 应用的内置模块",
+      body: "这些生产级部分经过人工验证，agent 不应该从零临时发明。你可以直接使用、检查源码，或在应用需要不同能力时替换模块。",
+      pageBody:
+        "Agent-Native 提供经过人工验证的生产级组件，避免 agent 从零 improvisation。你可以直接使用、检查源码，或在产品需要不同能力时替换模块。",
+      viewAll: "查看所有模块",
+      browseApps: "浏览由模块构建的应用",
+      items: {
+        autoStateSyncing: {
+          title: "自动状态同步",
+          body: "Agent 的更改会更新 UI，UI 状态也会继续对 agent 可见，不需要另一座桥。",
+        },
+        actions: {
+          title: "操作 actions",
+          body: "一次定义工作，然后从 UI、agent、HTTP、MCP、A2A 和 CLI 使用它。",
+        },
+        sqlStateOrm: {
+          title: "SQL 状态与 ORM",
+          body: "持久应用数据、application state、迁移，以及不绑定供应商的 schema。",
+        },
+        dbAdmin: {
+          title: "数据库管理",
+          body: "Agent 可读的 schema、查询界面、迁移和管理工具，无需自建后台。",
+        },
+        authGovernance: {
+          title: "认证与治理",
+          body: "登录、组织、多租户、权限、审批和策略 hook。",
+        },
+        sharing: {
+          title: "共享能力",
+          body: "分享链接、限定访问、公开或私有资源、评论和审阅界面。",
+        },
+        realtimeCollaboration: {
+          title: "实时协作",
+          body: "多人编辑、在线状态、乐观 UI，以及服务端支持的协调。",
+        },
+        agentInteroperability: {
+          title: "Agent 互操作",
+          body: "A2A、MCP、MCP apps、外部 agents、harness agents 和跨应用交接。",
+        },
+        automationsQueues: {
+          title: "自动化与队列",
+          body: "事件触发工作、定时任务、后台运行和可靠 mutations。",
+        },
+        agentUiSurface: {
+          title: "Agent UI 能力面",
+          body: "聊天、skills、指令、生成式 UI、语音输入和 agent 可见上下文。",
+        },
+        observability: {
+          title: "可观测性",
+          body: "Trace、eval、反馈、实验，以及证明 agents 做了什么的证据。",
+        },
+        workspaces: {
+          title: "工作区",
+          body: "带界面或 headless 的应用可互相发现，并通过 A2A 协调。",
+        },
+        sourceOwnership: {
+          title: "源码所有权",
+          body: "文档和源码位于 agents 可以检查、fork、eject、patch 或替换的位置。",
+        },
+        auditLogs: {
+          title: "审计日志",
+          body: "持久记录人和 agent 的更改，并按用户可访问的资源限定范围。",
+        },
+      },
     },
     framework: {
       title: "面向 agent-native apps 的框架",
@@ -118,9 +218,9 @@ const zhCN = {
       },
     },
     templates: {
-      title: "Fork 并定制一个功能完整的 app",
+      title: "试用一个 Agent-Native app",
       eyebrow: "100% 免费且开源",
-      cta: "查看所有模板",
+      cta: "查看 apps",
     },
     skills: {
       title: "用一个 skill 试试",
@@ -194,7 +294,7 @@ const zhCN = {
       body: "一条命令会创建一个本地 app，背后有 actions、durable threads 和 SQLite 支撑。还没有浏览器 UI 需求时，可以改用 `--headless`。",
     },
     finalCta: {
-      title: "你拥有的软件，为 agentic 时代而建",
+      title: "为 agentic 时代而建的软件",
       body: "从一条命令或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
       primaryCta: "从 Action 开始",
       secondaryCta: "阅读文档",
@@ -1096,16 +1196,17 @@ const zhCN = {
     },
   },
   skillsPage: {
-    metaTitle: "代理技能 - 面向编码代理的 Visual Plan 和 Visual Recap",
+    metaTitle:
+      "代理技能 - 面向编码代理的 Visual Plan、Visual Recap 和 Visual Edit",
     metaDescription:
-      "安装由 Agent-Native 应用支持的技能，让你的编码代理能进行可视化规划和 PR 回顾。",
+      "安装由 Agent-Native 应用支持的技能，让你的编码代理能进行可视化规划、PR 回顾和本地可视化编辑。",
     metaOgDescription:
       "为你的编码代理添加由 Agent-Native 应用驱动的斜杠命令，可托管、检查并自定义。",
     metaKeywords:
-      "代理技能, visual plan, visual recap, 编码代理, Claude Code, Codex, PR 审查, 规划, agent-native",
+      "代理技能, visual plan, visual recap, visual edit, 编码代理, Claude Code, Codex, PR 审查, 规划, agent-native",
     heroTitle: "给你的编码代理新的超能力",
     heroBody:
-      "安装由 Agent-Native 应用支持、可完全自定义的应用技能：实现前做可视化规划，变更落地后做可视化 PR 回顾。",
+      "安装由 Agent-Native 应用支持、可完全自定义的应用技能：实现前做可视化规划，变更落地后做可视化 PR 回顾，并可视化编辑本地 UI 流程。",
     sectionTitle: "面向编码代理的应用支持技能",
     sectionBody:
       "使用托管的可分享应用链接、本地文件，或自托管/自定义应用；代理会获得指令，并在需要时获得匹配的 MCP 表面。",
@@ -1130,6 +1231,15 @@ const zhCN = {
       feature1: "总结 schema、API 和文件变更",
       feature2: "可选择发布一条固定的 PR 评论",
       videoAriaLabel: "Visual Recap 技能演示视频",
+    },
+    visualEdit: {
+      name: "可视化编辑",
+      tagline: "编辑本地 UI 流程",
+      description:
+        "把正在运行的 localhost 应用作为 URL 支撑的屏幕打开到 Design 中，用于可视化审阅和编辑。",
+      feature1: "从有序 URL 布局多屏流程",
+      feature2: "检查、复制并优化实时路由状态",
+      videoAriaLabel: "Visual Edit 技能演示视频",
     },
   },
   downloadPage: {

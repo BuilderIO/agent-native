@@ -1,16 +1,38 @@
 import crypto from "crypto";
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
+  getRequestHeader,
   readMultipartFormData,
   setResponseStatus,
 } from "h3";
 import { nanoid } from "nanoid";
 
-const UPLOADS_ROOT = path.join(process.cwd(), "data", "uploads");
+function isServerlessRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(
+    env.NETLIFY ||
+    env.VERCEL ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.LAMBDA_TASK_ROOT ||
+    env.CF_PAGES,
+  );
+}
+
+export function uploadsRootForRuntime(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const baseDir = isServerlessRuntime(env)
+    ? path.join(os.tmpdir(), "agent-native-design")
+    : cwd;
+  return path.join(baseDir, "data", "uploads");
+}
+
+const UPLOADS_ROOT = uploadsRootForRuntime();
 const MAX_EXTRACTED_TEXT_CHARS = 8_000;
 const TEXT_EXTENSIONS = new Set([
   ".html",
@@ -132,11 +154,40 @@ async function extractUploadText(
   return {};
 }
 
+type UploadedFileResult = {
+  path: string;
+  originalName: string;
+  filename: string;
+  type: string;
+  size: number;
+  textContent?: string;
+  textTruncated?: boolean;
+};
+
+type InternalUploadedFileResult = UploadedFileResult & {
+  _destPath: string;
+};
+
 export const uploadFiles = defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
+  }
+
+  const MAX_FILES = 20;
+  const MAX_FILE_SIZE = 50 * 1024 * 1024;
+  // Total-body pre-flight: reject before buffering if Content-Length is clearly
+  // over the theoretical max (MAX_FILES × MAX_FILE_SIZE each, plus overhead).
+  // Content-Length can be spoofed but cheaply eliminates accidental oversized
+  // uploads without allocating any memory for the body first.
+  const TOTAL_BODY_LIMIT = MAX_FILES * MAX_FILE_SIZE;
+  const contentLength = Number(
+    getRequestHeader(event, "content-length") ?? "0",
+  );
+  if (contentLength > TOTAL_BODY_LIMIT) {
+    setResponseStatus(event, 413);
+    return { error: "Request body too large" };
   }
 
   const parts = await readMultipartFormData(event);
@@ -146,9 +197,6 @@ export const uploadFiles = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "No files uploaded" };
   }
-
-  const MAX_FILES = 20;
-  const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
   if (fileParts.length > MAX_FILES) {
     setResponseStatus(event, 413);
@@ -161,41 +209,65 @@ export const uploadFiles = defineEventHandler(async (event) => {
     return { error: "File too large (max 50 MB per file)" };
   }
 
-  try {
-    return await Promise.all(
-      fileParts.map(async (part) => {
-        const originalName = part.filename || "upload";
-        const filename = safeFilename(originalName);
-        if (!filename) {
-          throw new Error(
-            "Unsupported file type. Allowed: code, docs, text, JSON, CSV, and raster images.",
-          );
-        }
-        const ext = path.extname(filename).toLowerCase();
-        if (!hasExpectedSignature(ext, part.data)) {
-          throw new Error(`File contents do not match ${ext} upload type`);
-        }
-        const uploadDir = tenantUploadDir(session.email);
-        await fs.promises.mkdir(uploadDir, { recursive: true });
-        const destPath = path.join(uploadDir, filename);
-        await fs.promises.writeFile(destPath, part.data);
-        const extracted = await extractUploadText(ext, part.data);
+  const results = await Promise.allSettled<InternalUploadedFileResult>(
+    fileParts.map(async (part) => {
+      const originalName = part.filename || "upload";
+      const filename = safeFilename(originalName);
+      if (!filename) {
+        throw new Error(
+          "Unsupported file type. Allowed: code, docs, text, JSON, CSV, and raster images.",
+        );
+      }
+      const ext = path.extname(filename).toLowerCase();
+      if (!hasExpectedSignature(ext, part.data)) {
+        throw new Error(`File contents do not match ${ext} upload type`);
+      }
+      const uploadDir = tenantUploadDir(session.email);
+      await fs.promises.mkdir(uploadDir, { recursive: true });
+      const destPath = path.join(uploadDir, filename);
+      await fs.promises.writeFile(destPath, part.data);
+      const extracted = await extractUploadText(ext, part.data);
 
-        return {
-          path: path
-            .relative(process.cwd(), destPath)
-            .split(path.sep)
-            .join("/"),
-          originalName,
-          filename,
-          type: part.type || "application/octet-stream",
-          size: part.data.length,
-          ...extracted,
-        };
-      }),
-    );
-  } catch (err) {
+      return {
+        // Return the filename (nanoid + ext) as the opaque path token rather
+        // than the internal filesystem path so we don't expose the server
+        // directory layout or per-tenant hash to the client.
+        path: filename,
+        originalName,
+        filename,
+        type: part.type || "application/octet-stream",
+        size: part.data.length,
+        ...extracted,
+        _destPath: destPath,
+      };
+    }),
+  );
+
+  const failures = results.filter((r) => r.status === "rejected");
+  if (failures.length > 0) {
+    // Clean up any files that were successfully written before the failure.
+    const writtenPaths = results
+      .filter((r) => r.status === "fulfilled")
+      .map(
+        (r) =>
+          (r as PromiseFulfilledResult<InternalUploadedFileResult>).value
+            ._destPath,
+      );
+    await Promise.allSettled(writtenPaths.map((p) => fs.promises.unlink(p)));
+
+    const firstError = (failures[0] as PromiseRejectedResult).reason;
     setResponseStatus(event, 400);
-    return { error: err instanceof Error ? err.message : "Invalid upload" };
+    return {
+      error:
+        firstError instanceof Error ? firstError.message : "Invalid upload",
+    };
   }
+
+  // Strip the internal _destPath field before returning to the client.
+  return results.map((r) => {
+    const { _destPath: _unused, ...rest } = (
+      r as PromiseFulfilledResult<InternalUploadedFileResult>
+    ).value;
+    return rest;
+  });
 });

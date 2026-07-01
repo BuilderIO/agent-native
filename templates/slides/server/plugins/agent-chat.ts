@@ -8,6 +8,8 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import "../register-secrets.js";
 
+const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-decks",
@@ -31,7 +33,8 @@ export default createAgentChatPlugin({
   appId: "slides",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
-  runSoftTimeoutMs: 240_000,
+  durableBackgroundRuns: true,
+  runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   // Enable sandboxed JavaScript execution so Slides agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Drive endpoint.

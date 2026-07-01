@@ -10,6 +10,8 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { getDb, schema } from "../db/index.js";
 import "../register-secrets.js";
 
+const ASSETS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-libraries",
@@ -240,5 +242,6 @@ export default createAgentChatPlugin({
       },
     },
   },
-  runSoftTimeoutMs: 240_000,
+  durableBackgroundRuns: true,
+  runSoftTimeoutMs: ASSETS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
 });

@@ -37,15 +37,16 @@ const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
   npx @agent-native/core@latest skills add assets
   npx @agent-native/core@latest skills add content --mode local-files
   npx @agent-native/core@latest skills add design-exploration
+  npx @agent-native/core@latest skills add visual-edit
   npx @agent-native/core@latest skills add visual-plan
   npx @agent-native/core@latest skills add visual-recap
   npx @agent-native/core@latest skills add visual-recap --with-github-action
@@ -322,17 +323,18 @@ iteration, or a human-in-the-loop choice among design directions.
 - Use \`create-design\` first to create a project shell. Do not report the
   design as ready until it has renderable HTML.
 - For open-ended UX exploration, generate distinct, complete HTML directions
-  (2-5, three by default) and call \`present-design-variants\`. The inline
-  Design MCP app shows the options, lets the user pick one, and persists the
-  selected variant.
-- If the Design app opens as a browser link instead of inline (CLI hosts like
-  Codex / Claude Code, where the deep link carries \`handoff=chat\`), the user
-  picks a direction there and the editor shows a copyable summary — ask them to
-  paste it back into chat so you can continue from the chosen direction. The
-  \`present-design-variants\` result's \`fallbackInstructions\` describe this.
+  (2-5, three by default) and call \`present-design-variants\`. Design saves
+  every option as a normal screen on the overview board and renders an inline
+  chat choice with one button per screen name. After the user picks, delete the
+  unchosen variant screens and continue from the kept screen.
+- If the chat choice buttons are not available in the host, ask the user to
+  tell you the screen name they prefer. The variants are already real screens
+  on the board, so do not ask them to paste HTML or copy a generated handoff
+  summary.
 - For direct refinements to an already chosen direction, call
-  \`get-design-snapshot\`, edit from the current tuned HTML, then call
-  \`generate-design\`.
+  \`get-design-snapshot\`, edit from the current tuned HTML, and use
+  \`edit-design\` for surgical changes. Use \`generate-design\` for new files
+  or larger structural rewrites.
 - Use \`export-coding-handoff\` when the user wants to implement the chosen
   design in a codebase.
 
@@ -346,8 +348,29 @@ iteration, or a human-in-the-loop choice among design directions.
 4. For product UI redesigns, prefer cleaner hierarchy, progressive disclosure,
    and realistic controls over decorative mockups.
 5. After \`present-design-variants\`, wait for the user's pick before
-   generating the next version. If they say "I like #2 but...", snapshot the
-   chosen design and refine that direction with \`generate-design\`.
+   generating the next version. Keep the chosen screen, delete the other
+   variant screens, then refine that direction with \`generate-design\` or
+   \`edit-design\`.
+
+## Design Quality Bar
+
+- Before generating, name the concrete audience, the screen's primary job, and
+  the visual thesis. If the brief is vague, make a reasonable choice and state
+  it instead of producing a generic dashboard/landing-page default.
+- For existing products, inspect the current screen, design system, tokens,
+  component language, or codebase context before inventing a new direction.
+- Make each direction distinct in structure and behavior, not just palette.
+  Give every variant one memorable signature choice, then keep the surrounding
+  chrome disciplined.
+- Treat copy, data, and imagery as design material. Use realistic domain
+  content and first-party/generated assets when images matter; avoid lorem
+  ipsum, vague SaaS filler, and decorative placeholder boxes.
+- Build to a quiet quality floor: responsive desktop/mobile layout, visible
+  keyboard focus, useful loading/empty/error states for app UI, and reduced
+  motion support when custom motion is present.
+- After broad generation or refinement, inspect the rendered Design surface or
+  a screenshot-capable host before calling it ready. Fix obvious hierarchy,
+  overflow, contrast, broken interaction, and placeholder-content issues first.
 
 ## Cross-App Use
 
@@ -374,6 +397,187 @@ iteration, or a human-in-the-loop choice among design directions.
   browser/deep-link fallback.
 - If you inspect local MCP config, redact \`Authorization\`, \`http_headers\`,
   and token values. Never paste bearer tokens into chat or logs.
+`;
+
+const DESIGN_VISUAL_EDIT_SKILL_MD = `---
+name: visual-edit
+description: >-
+  Open a running local app in Design overview mode as URL-backed iframe screens
+  for visual editing, flow review, duplication, and route-state exploration.
+  Use when the user asks to inspect, compare, or edit a real local app visually
+  in Design.
+metadata:
+  visibility: exported
+---
+
+# Visual Edit
+
+Use \`/visual-edit\` when the user wants to inspect or edit a real local app
+visually instead of generating standalone Alpine HTML. The source of truth is
+the running localhost app plus its route URLs. Design shows those routes as
+iframe-backed screens on the infinite canvas.
+
+## Core Model
+
+- Each screen is a URL-backed iframe, not copied HTML.
+- Each screen keeps URL metadata: \`connectionId\`, \`routeId\`, \`path\`,
+  \`url\`, \`bridgeUrl\`, title, and viewport size.
+- Start in Design's screen overview mode. In overview, screens are static
+  design frames; full-screen focus is for scrolling and app interaction.
+- Alt-drag duplicates a screen. For localhost screens, duplication copies the
+  iframe frame and URL metadata; change the copy's path/query for a new state.
+- Flow visualization is multiple URL states: \`/checkout?step=shipping\`,
+  \`/checkout?step=payment\`, \`/checkout?step=done\`, etc.
+- When the user gives a named flow or numbered screen list, preserve that order
+  and create one screen per URL/path. Shorthand like
+  \`localhost:1234/onboarding/1\` means
+  \`http://localhost:1234/onboarding/1\`.
+
+## Review Quality
+
+- Treat the running app as the truth. Preserve its component language, tokens,
+  route state, and real content unless the user explicitly asks for a new visual
+  direction.
+- Use multiple URL states to reveal meaningful UX moments: empty/loading/error
+  states, focused panels, modals, responsive breakpoints, and completed flow
+  steps when those matter to the review.
+- For visual edits, compare before/after at the relevant viewport sizes and
+  check key hover/focus/scroll states when the app exposes them.
+
+## Account And Sharing Model
+
+- The \`/visual-edit\` entry route can open before the viewer signs in. Public
+  \`/design/:id\` editor links can also render read-only public designs without a
+  session.
+- Prefer links returned by Design actions or \`/_agent-native/open\` deep links.
+  Do not surface URLs with \`_session=\` tokens. Query sessions are only a
+  fallback after normal cookie resolution, so an existing browser session can
+  still open the design as a different user and show "Design not found".
+- Do not attempt anonymous write actions. Bridge registration, design creation,
+  screen placement, generation, saving, and sharing are account-backed. If a
+  signed-out visitor wants to save or share, send them through the framework
+  sign-in return flow, then save or copy the design into that account before
+  opening the share dialog.
+
+## Required Local Bridge
+
+From the target app repo, make sure its dev server is running, then run:
+
+\`\`\`bash
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+\`\`\`
+
+Use the app's real port. The command starts a local bridge on
+\`http://127.0.0.1:7331\` by default and exposes \`/manifest.json\`,
+\`/routes.json\`, and \`/health\`.
+
+For one-shot agent setup, ask for JSON and keep the long-running bridge open in
+a second terminal if the user needs live updates:
+
+\`\`\`bash
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+curl http://127.0.0.1:7331/manifest.json
+\`\`\`
+
+Do not use \`--json\` for an editable session. \`--json\`, \`--once\`, and
+\`--dry-run\` print the manifest and exit, so Design will fall back to a
+non-editable live iframe as soon as it tries to refresh the snapshot.
+
+## Action Flow
+
+Prefer the single authenticated \`open-visual-edit\` action. It registers or
+refreshes the localhost bridge, creates or reuses a Design project, places
+URL-backed screens, stores the active visual-edit context, and navigates to
+overview mode in one call. This avoids creating a private design under a
+synthetic CLI user and then handing the browser a tokenized URL that may be
+shadowed by an existing session.
+
+\`\`\`bash
+pnpm action open-visual-edit '{
+  "title": "Docs homepage visual edit",
+  "devServerUrl": "http://localhost:5173",
+  "bridgeUrl": "http://127.0.0.1:7331",
+  "rootPath": "/absolute/path/to/app",
+  "routeManifest": { "...": "from /manifest.json" },
+  "paths": ["/", "/pricing", "/checkout?step=payment"]
+}'
+\`\`\`
+
+The action returns \`designId\`, \`connectionId\`, \`screens\`, \`urlPath\`, and
+\`openUrl\`. Keep those IDs in the chat context for follow-ups.
+
+For a numbered flow the user describes in chat, keep the labels and order:
+
+\`\`\`bash
+pnpm action open-visual-edit '{
+  "designId": "<existing-design-id>",
+  "connectionId": "<existing-connection-id>",
+  "devServerUrl": "http://localhost:1234",
+  "routes": [
+    { "url": "localhost:1234/onboarding/1", "title": "Screen 1" },
+    { "url": "localhost:1234/onboarding/2", "title": "Screen 2" },
+    { "url": "localhost:1234/onboarding/3", "title": "Screen 3" }
+  ]
+}'
+\`\`\`
+
+For responsive follow-ups, call \`open-visual-edit\` again with the same
+\`designId\` and \`connectionId\`, plus explicit viewport dimensions:
+
+\`\`\`bash
+pnpm action open-visual-edit '{
+  "designId": "<existing-design-id>",
+  "connectionId": "<existing-connection-id>",
+  "devServerUrl": "http://localhost:5173",
+  "paths": ["/"],
+  "defaultWidth": 390,
+  "defaultHeight": 844,
+  "startX": 1600,
+  "startY": 0
+}'
+\`\`\`
+
+If no \`routes\` or \`paths\` are supplied, \`open-visual-edit\` uses every route
+from the localhost manifest.
+
+Fallback, only when \`open-visual-edit\` is unavailable:
+
+1. Register or refresh the bridge with \`connect-localhost\`, passing the
+   \`/manifest.json\` result as \`routeManifest\` and \`capabilities\`.
+2. Create or reuse a Design project with \`create-design\`.
+3. Place URL-backed screens with \`add-localhost-screens\`.
+4. Navigate to overview mode with \`navigate\`.
+
+## Open The Design Surface
+
+- Use the \`link\`, \`deepLink\`, or MCP App embed returned by Design actions so
+  the user sees the canvas. In Codex Desktop or VS Code, prefer opening that
+  Design URL in the available preview/webview panel; otherwise surface the
+  "Open design" link.
+- Return or open the \`openUrl\` / action link, not a hand-built
+  \`/design/:id?_session=...\` URL.
+- If the user is working in VS Code, the Agent Native extension can open the
+  same URL via
+  \`vscode://builder.agent-native/open?url=<encoded-design-url>\`. Its
+  \`Agent Native: Open Design Canvas\` command also starts the local bridge and
+  opens hosted Design in the VS Code side panel.
+- After \`add-localhost-screens\`, confirm the Design editor is in overview mode
+  with the requested URL-backed frames visible. Do not stop at "screens added"
+  when the user asked to inspect or edit visually.
+
+## Editing URLs
+
+Keep localhost screens as URL files plus \`screenMetadata[fileId]\`. Do not
+replace them with copied \`srcdoc\` HTML unless the user explicitly asks for a
+frozen snapshot. To change a state, rerun \`add-localhost-screens\` with the new
+path/query or duplicate the screen and update the copy's URL metadata.
+
+## Verification
+
+- \`list-localhost-connections\` returns the expected connection and routes.
+- The Design editor opens in overview mode.
+- Every requested screen renders the intended localhost URL.
+- Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 `;
 
 /**
@@ -825,7 +1029,7 @@ and move any frame whose label, connector, or annotation crosses another frame.
 When in doubt, use larger values — the canvas auto-zooms to fit everything.
 
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
-present, sprinkle Figma-style notes near the frames they explain: a short
+present, sprinkle design-review notes near the frames they explain: a short
 heading, supporting text, and bullets — plain text layers, never bordered or
 shadowed cards, and never a box around a frame. The renderer spaces notes away
 from frames, so place each note by the frame it describes. Use an arrow only to
@@ -1300,8 +1504,10 @@ The local-files contract:
   \`id\` and \`label\`; and \`Code\` / \`AnnotatedCode\` / \`Diff\` are whitespace-sensitive
   — encode multiline code as JSON string attributes such as \`code={"const x =\\n  y"}\`
   (a static template literal is accepted only when it has no \`\${...}\`
-  interpolation). \`plan local check\` validates these required fields against the
-  renderer schema.
+  interpolation). \`plan local check\` is a quick OFFLINE lint (a subset of the
+  renderer schema), so a green \`check\` does not guarantee the plan renders;
+  \`plan local verify\` is the authoritative validation against the real renderer
+  schema.
 - **Write a local MDX folder.** Use \`plans/<slug>/\` to check the artifact into the
   repo, or a repo-ignored/temporary folder such as \`.agent-native/plans/<slug>/\`
   or \`/tmp/agent-native-plans/<slug>/\` when it should not be checked in. The
@@ -1326,9 +1532,16 @@ The local-files contract:
   running local Plan app.
 - **Headless verify.** Run
   \`npx @agent-native/core@latest plan local verify --dir <plan-dir> --kind <plan|recap>\`.
-  It starts the bridge, checks the private-network preflight and JSON payload,
-  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch the
-  \`bridgeUrl\` from the verify/serve JSON to read the concrete validation error.
+  It starts the bridge, checks the private-network preflight and JSON payload, AND
+  validates the content against the real renderer schema via the Plan app's
+  \`validate-local-plan-source\` action. A non-\`ok\` result with
+  \`validation.valid: false\` lists the renderer's exact schema-path issues (e.g.
+  \`blocks[1].data.tabs[0]...\`); fix those before handing off. If \`validation.ran\`
+  is \`false\`, the Plan app did not expose the validate endpoint (older/unreachable
+  deploy) — point \`--app-url\` at a current Plan app (e.g. a local
+  \`http://localhost:8096\`) for the authoritative check. If the browser hangs on
+  "Loading plan", fetch the \`bridgeUrl\` from the verify/serve JSON to read the
+  concrete validation error.
 - **Never call hosted tools for that plan/recap.** Do not call
   \`create-visual-plan\`, \`create-ui-plan\`, \`create-prototype-plan\`,
   \`create-plan-design\`, \`create-visual-recap\`, \`create-visual-questions\`,
@@ -2458,6 +2671,9 @@ export const BUILT_IN_APP_SKILLS = {
   },
   design: {
     skillName: "design-exploration",
+    extraSkills: {
+      "visual-edit": DESIGN_VISUAL_EDIT_SKILL_MD,
+    },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "design",
@@ -2480,12 +2696,22 @@ export const BUILT_IN_APP_SKILLS = {
           action: "present-design-variants",
           path: "/design",
         },
+        {
+          id: "visual-edit",
+          action: "add-localhost-screens",
+          path: "/design",
+        },
       ],
       skills: [
         {
           path: "skills/design-exploration",
           visibility: "exported",
           exportAs: "design-exploration",
+        },
+        {
+          path: "skills/visual-edit",
+          visibility: "exported",
+          exportAs: "visual-edit",
         },
       ],
       hostAdapters: [
@@ -2653,6 +2879,9 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "ui-design": "design",
   "ux-design": "design",
   "design-exploration": "design",
+  "visual-edit": "design",
+  "local-visual-edit": "design",
+  "design-visual-edit": "design",
   "ux-exploration": "design",
   "agent-native-design": "design",
   "agent-native-design-exploration": "design",
@@ -2686,6 +2915,8 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
   ],
   design: [
     "design-exploration",
+    "visual-edit",
+    "local-visual-edit",
     "ux-exploration",
     "agent-native-design-exploration",
   ],
@@ -2880,6 +3111,7 @@ interface SkillInstallMetadata {
   contentHash: string;
   mcpUrl: string;
   installedAt: string;
+  installCommand: string;
   updateCommand: string;
   planMode?: PlanInstallMode;
 }
@@ -3117,6 +3349,19 @@ function builtInOnlySkillNames(target: string): string[] | undefined {
   if (normalized === "visual-recap" || normalized === "visual-recaps") {
     return ["visual-recap"];
   }
+  if (
+    normalized === "design-exploration" ||
+    normalized === "agent-native-design-exploration"
+  ) {
+    return ["design-exploration"];
+  }
+  if (
+    normalized === "visual-edit" ||
+    normalized === "local-visual-edit" ||
+    normalized === "design-visual-edit"
+  ) {
+    return ["visual-edit"];
+  }
   return undefined;
 }
 
@@ -3283,30 +3528,48 @@ function writeSkillFolder(
   bundle: SkillFolderBundle,
   installedAt = new Date().toISOString(),
 ): void {
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
-  for (const [rel, content] of Object.entries(bundle.files)) {
-    const target = path.join(dir, rel);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content, "utf-8");
-  }
-  const metadata: SkillInstallMetadata = {
-    schemaVersion: 1,
-    source: "agent-native",
-    appSkillId: bundle.appSkillId,
-    displayName: bundle.displayName,
-    skillName: bundle.skillName,
-    contentHash: bundle.contentHash,
-    mcpUrl: bundle.mcpUrl,
-    installedAt,
-    updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
-    ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
-  };
-  fs.writeFileSync(
-    path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
-    `${JSON.stringify(metadata, null, 2)}\n`,
-    "utf-8",
+  const parent = path.dirname(dir);
+  const tempDir = path.join(
+    parent,
+    `.${path.basename(dir)}.${process.pid}.${Date.now()}.tmp`,
   );
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.mkdirSync(tempDir, { recursive: true });
+    for (const [rel, content] of Object.entries(bundle.files)) {
+      const target = path.join(tempDir, rel);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, content, "utf-8");
+    }
+    const metadata: SkillInstallMetadata = {
+      schemaVersion: 1,
+      source: "agent-native",
+      appSkillId: bundle.appSkillId,
+      displayName: bundle.displayName,
+      skillName: bundle.skillName,
+      contentHash: bundle.contentHash,
+      mcpUrl: bundle.mcpUrl,
+      installedAt,
+      installCommand: `npx @agent-native/core@latest skills add ${bundle.skillName}`,
+      updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
+      ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
+    };
+    fs.writeFileSync(
+      path.join(tempDir, AGENT_NATIVE_SKILL_METADATA_FILE),
+      `${JSON.stringify(metadata, null, 2)}\n`,
+      "utf-8",
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.renameSync(tempDir, dir);
+  } catch (error: any) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+    throw new Error(
+      `Cannot write Agent Native skill folder ${dir}: ${error?.message ?? error}`,
+      { cause: error },
+    );
+  }
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
@@ -4277,6 +4540,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     value: "design-exploration",
     label: "design-exploration",
     hint: BUILT_IN_APP_SKILLS.design.manifest.description,
+  },
+  {
+    value: "visual-edit",
+    label: "visual-edit",
+    hint: "Open a running local app in Design overview mode as URL-backed iframe screens.",
   },
   {
     value: "context-xray",
@@ -6017,7 +6285,9 @@ function runSkillsStatusOrUpdate(
     const target = parsed.target ? ` for ${parsed.target}` : "";
     const hint = isScaffoldGuidanceTarget(parsed.target)
       ? `Run this from a generated Agent Native app or workspace root.\n`
-      : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
+      : update
+        ? `The update command only refreshes skill folders that already exist; it does not do first-time install, MCP registration, or auth. Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" for one-step setup.\n`
+        : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
     process.stdout.write(
       `No installed Agent Native skill copies found${target}.\n${hint}`,
     );

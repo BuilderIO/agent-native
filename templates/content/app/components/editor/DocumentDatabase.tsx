@@ -9,12 +9,15 @@ import {
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
+  type BuilderCmsWriteEffect,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
   type ContentDatabaseSourceReviewPayload,
+  type ContentDatabaseSourceWriteMode,
+  type ExecuteBuilderSourceBatchResponse,
   type SourceJoinSuggestion,
   type ContentDatabaseView,
   type ContentDatabaseViewConfig,
@@ -134,13 +137,17 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import {
   useAddDatabaseItem,
+  useAddContentDatabaseSourceFieldProperty,
   useAttachContentDatabaseSource,
   useBuilderCmsModels,
+  useChangeContentDatabaseSourceRole,
   useContentDatabase,
   useContentDatabases,
+  useDeleteDatabaseItems,
   useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
-  useExecuteBuilderSourceExecution,
+  useDuplicateDatabaseItems,
+  useExecuteBuilderSourceBatch,
   useMoveDatabaseItem,
   usePrepareBuilderSourceReview,
   useRefreshContentDatabaseSource,
@@ -159,7 +166,9 @@ import {
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
+import { resolveBuilderCmsWriteEffect } from "../../../actions/_builder-cms-write-adapter.js";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
+import { type BuilderReviewPublicationTransitions } from "./database-sources/BuilderSourceReviewDialog";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import {
   AddProperty,
@@ -188,12 +197,18 @@ import {
 } from "./previewDocumentSaveRegistry";
 import { VisualEditor } from "./VisualEditor";
 
+type BuilderSourceWriteSettingsInput = {
+  writeMode: ContentDatabaseSourceWriteMode;
+  allowPublicationTransitions?: boolean;
+};
+
 interface DocumentDatabaseProps {
   document: Document;
   canEdit: boolean;
 }
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
+const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
 
 export type SortDirection = ContentDatabaseSortDirection;
 export type DatabaseSort = ContentDatabaseSort;
@@ -469,10 +484,11 @@ function DatabaseTable({
   const database = useContentDatabase(document.id, databaseItemLimit);
   const addItem = useAddDatabaseItem(document.id);
   const attachSource = useAttachContentDatabaseSource(document.id);
+  const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
   const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
-  const executeBuilderExecution = useExecuteBuilderSourceExecution(document.id);
+  const executeBuilderBatch = useExecuteBuilderSourceBatch(document.id);
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
@@ -480,10 +496,43 @@ function DatabaseTable({
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
-  const hasMoreItems = data?.pagination?.hasMore === true;
+  const hasMoreItems =
+    data?.pagination?.hasMore === true &&
+    databaseItemLimit < CONTENT_DATABASE_MAX_ITEM_LIMIT;
+  const isLoadingMoreItems =
+    database.isFetching && data?.pagination?.limit !== databaseItemLimit;
   const databaseId = data?.database.id ?? null;
   const source = data?.source ?? null;
   const sources = data?.sources ?? (source ? [source] : []);
+  // New-row source picker (row-union): when a database has 2+ sources, the auto
+  // -created "Source" select tags which collection a row belongs to. Surface a
+  // picker on "New" so a row is created already tagged for its collection (the
+  // backend then routes its create_draft to that source). Mirrors the server's
+  // SOURCE_PROPERTY_NAME ("Source", a select).
+  const sourceTagPicker = useMemo(() => {
+    if (sources.length < 2) return null;
+    const property = properties.find(
+      (item) =>
+        item.definition.name === "Source" && item.definition.type === "select",
+    );
+    if (!property) return null;
+    // Each Source option's id IS the source id (and "local" is the Local
+    // sentinel), so a collection always resolves to a valid tag — never a
+    // missing option that would silently create an untagged row.
+    const optionIds = new Set(
+      (property.definition.options.options ?? []).map((option) => option.id),
+    );
+    const collections = sources
+      .filter(
+        (item) => item.sourceType === "builder-cms" && optionIds.has(item.id),
+      )
+      .map((item) => ({ label: item.sourceName, optionId: item.id }));
+    return {
+      propertyId: property.definition.id,
+      collections,
+      localOptionId: optionIds.has("local") ? "local" : null,
+    };
+  }, [properties, sources]);
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
     null,
   );
@@ -499,7 +548,15 @@ function DatabaseTable({
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
   const [builderReviewResult, setBuilderReviewResult] =
     useState<ContentDatabaseSourceReviewPayload | null>(null);
+  const [builderBatchResult, setBuilderBatchResult] =
+    useState<ExecuteBuilderSourceBatchResponse | null>(null);
   const [builderReviewCheckedAt, setBuilderReviewCheckedAt] = useState<
+    string | null
+  >(null);
+  // Which Builder source the review dialog / push targets. null ⇒ the primary
+  // source (single-source behavior). Set when opening a non-primary source's
+  // writable leaf so review/push/write-mode scope to that collection.
+  const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
     string | null
   >(null);
   const [settingsPanel, setSettingsPanel] =
@@ -619,16 +676,30 @@ function DatabaseTable({
     () => databaseSelectedItems(visibleItems, selectedItemIds),
     [visibleItems, selectedItemIds],
   );
+  // The review dialog operates on the source the user opened, which may be a
+  // non-primary row-union collection. Fall back to the primary when no
+  // explicit target is set (single-source behavior).
+  const activeReviewSource = useMemo(
+    () =>
+      builderReviewSourceId
+        ? (sources.find((item) => item.id === builderReviewSourceId) ?? source)
+        : source,
+    [builderReviewSourceId, sources, source],
+  );
   const builderReviewChangeSets = useMemo(
-    () => builderReviewableChangeSets(source),
-    [source],
+    () => builderReviewableChangeSets(activeReviewSource),
+    [activeReviewSource],
   );
   const builderReviewPreview = useMemo(
     () =>
-      source?.sourceType === "builder-cms" && builderReviewChangeSets.length > 0
-        ? buildClientBuilderReviewPayload(source, builderReviewChangeSets)
+      activeReviewSource?.sourceType === "builder-cms" &&
+      builderReviewChangeSets.length > 0
+        ? buildClientBuilderReviewPayload(
+            activeReviewSource,
+            builderReviewChangeSets,
+          )
         : null,
-    [builderReviewChangeSets, source],
+    [builderReviewChangeSets, activeReviewSource],
   );
   const activeBuilderReview = builderReviewResult ?? builderReviewPreview;
 
@@ -937,56 +1008,59 @@ function DatabaseTable({
     updateActiveView((view) => ({ ...view, hideEmptyGroups }));
   }
 
-  async function handleBuilderReviewPush() {
+  async function handleBuilderReviewPush(
+    transitions: BuilderReviewPublicationTransitions = {},
+  ) {
     setBuilderReviewResult(null);
+    setBuilderBatchResult(null);
     setBuilderReviewCheckedAt(null);
+    // Target the SAME source the dialog renders. activeReviewSource falls back
+    // to the primary if the selected source was disconnected/refetched out, so
+    // the backend never receives a stale id that the UI no longer reflects.
+    const targetSourceId =
+      activeReviewSource && activeReviewSource.id !== source?.id
+        ? activeReviewSource.id
+        : undefined;
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
-        pushModeConfirmation: "autosave",
+        sourceId: targetSourceId,
       });
       let nextReview = prepared.review;
+      let batchResult: ExecuteBuilderSourceBatchResponse | null = null;
 
       if (
         nextReview.liveWritesEnabled &&
         nextReview.result.status === "validated"
       ) {
-        const executableRows = builderReviewExecutableRows(nextReview);
-        let executedResponse: ContentDatabaseResponse | null = null;
-        for (const row of executableRows) {
-          if (!row.execution?.idempotencyKey) continue;
-          executedResponse = await executeBuilderExecution.mutateAsync({
-            documentId: document.id,
-            changeSetId: row.changeSetId,
-            idempotencyKey: row.execution.idempotencyKey,
-            pushModeConfirmation: nextReview.pushMode,
-          });
-        }
-        const executedSource = executedResponse?.source ?? null;
-        if (executedSource) {
-          const reviewedIds = new Set(
-            nextReview.rows.map((row) => row.changeSetId),
-          );
-          const reviewedChangeSets = executedSource.changeSets.filter(
-            (changeSet) => reviewedIds.has(changeSet.id),
-          );
-          if (reviewedChangeSets.length > 0) {
-            nextReview = buildClientBuilderReviewPayload(
-              executedSource,
-              reviewedChangeSets,
-            );
-          }
-        }
+        const changeSetIds = nextReview.rows.map((row) => row.changeSetId);
+        const scopedTransitions = Object.fromEntries(
+          changeSetIds.flatMap((changeSetId) =>
+            transitions[changeSetId]
+              ? [[changeSetId, transitions[changeSetId]]]
+              : [],
+          ),
+        );
+        batchResult = await executeBuilderBatch.mutateAsync({
+          documentId: document.id,
+          sourceId: targetSourceId,
+          changeSetIds,
+          transitions:
+            Object.keys(scopedTransitions).length > 0
+              ? scopedTransitions
+              : undefined,
+        });
+        setBuilderBatchResult(batchResult);
       }
 
       setBuilderReviewResult(nextReview);
       setBuilderReviewCheckedAt(new Date().toISOString());
       toast.success(
-        nextReview.result.status === "succeeded"
-          ? "Builder update pushed"
+        builderBatchSucceeded(batchResult)
+          ? "Builder updates pushed"
           : "Builder update checked",
         {
-          description: nextReview.result.message,
+          description: builderBatchToastMessage(batchResult, nextReview),
         },
       );
     } catch (error) {
@@ -1021,11 +1095,14 @@ function DatabaseTable({
     const nextViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
     );
-    hydratedViewRef.current = databaseViewStateKey(
-      data.database.id,
-      nextViewConfig,
+    const nextKey = databaseViewStateKey(data.database.id, nextViewConfig);
+    if (hydratedViewRef.current === nextKey) return;
+    hydratedViewRef.current = nextKey;
+    setViewConfig((current) =>
+      databaseViewStateKey(data.database.id, current) === nextKey
+        ? current
+        : nextViewConfig,
     );
-    setViewConfig(nextViewConfig);
   }, [data?.database.id, data?.database.viewConfig]);
 
   useEffect(() => {
@@ -1194,18 +1271,76 @@ function DatabaseTable({
             ) : null}
           </Button>
           {canEdit ? (
-            <Button
-              type="button"
-              size="sm"
-              className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
-              disabled={addItem.isPending || !databaseId}
-              onClick={() => void createRow()}
-            >
-              {addItem.isPending ? (
-                <Spinner className="mr-1.5 size-3.5" />
-              ) : null}
-              New
-            </Button>
+            sourceTagPicker ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
+                    disabled={addItem.isPending || !databaseId}
+                  >
+                    {addItem.isPending ? (
+                      <Spinner className="mr-1.5 size-3.5" />
+                    ) : null}
+                    New
+                    <IconChevronDown className="ml-1 size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel>{db("addARowTo")}</DropdownMenuLabel>
+                  {sourceTagPicker.collections.map((collection) => (
+                    <DropdownMenuItem
+                      key={collection.label}
+                      onClick={() =>
+                        void createRow(
+                          "",
+                          collection.optionId
+                            ? {
+                                [sourceTagPicker.propertyId]:
+                                  collection.optionId,
+                              }
+                            : {},
+                        )
+                      }
+                    >
+                      <BuilderLogoMark className="mr-2 size-3.5 shrink-0" />
+                      <span className="truncate">{collection.label}</span>
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() =>
+                      void createRow(
+                        "",
+                        sourceTagPicker.localOptionId
+                          ? {
+                              [sourceTagPicker.propertyId]:
+                                sourceTagPicker.localOptionId,
+                            }
+                          : {},
+                      )
+                    }
+                  >
+                    <IconLayoutGrid className="mr-2 size-3.5 shrink-0" />
+                    <span className="truncate">{db("localNoCollection")}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
+                disabled={addItem.isPending || !databaseId}
+                onClick={() => void createRow()}
+              >
+                {addItem.isPending ? (
+                  <Spinner className="mr-1.5 size-3.5" />
+                ) : null}
+                New
+              </Button>
+            )
           ) : null}
         </div>
       </div>
@@ -1431,14 +1566,18 @@ function DatabaseTable({
             type="button"
             variant="outline"
             size="sm"
-            disabled={database.isFetching}
+            disabled={isLoadingMoreItems}
             onClick={() =>
-              setDatabaseItemLimit(
-                (current) => current + CONTENT_DATABASE_PAGE_SIZE,
+              setDatabaseItemLimit((current) =>
+                Math.min(
+                  current + CONTENT_DATABASE_PAGE_SIZE,
+                  totalItemCount,
+                  CONTENT_DATABASE_MAX_ITEM_LIMIT,
+                ),
               )
             }
           >
-            {database.isFetching
+            {isLoadingMoreItems
               ? "Loading..."
               : `Load more rows (${items.length} of ${totalItemCount})`}
           </Button>
@@ -1482,42 +1621,71 @@ function DatabaseTable({
         groupIds={toolbarGroups.map((group) => group.id)}
         onClose={() => setSettingsOpen(false)}
         onPanelChange={setSettingsPanel}
-        onAttachBuilderSource={(model) =>
-          attachSource.mutate({
+        onAttachBuilderSource={(model, relationshipMode) =>
+          attachSource.mutateAsync({
             documentId: document.id,
             sourceType: "builder-cms",
             sourceName: model.displayName,
             sourceTable: model.name,
+            relationshipMode,
+            mode:
+              relationshipMode === "items"
+                ? "add"
+                : sources.length > 0 || source
+                  ? undefined
+                  : "replace",
           })
         }
         onFederateSource={(candidate, join) =>
-          attachSource.mutate({
+          attachSource.mutateAsync({
             documentId: document.id,
             sourceType: candidate.sourceType,
             sourceName: candidate.sourceName,
             sourceTable: candidate.sourceTable,
+            relationshipMode: "details",
+            join,
+          })
+        }
+        onChangeSourceRole={(sourceId, relationshipMode, join) =>
+          changeSourceRole.mutateAsync({
+            documentId: document.id,
+            sourceId,
+            relationshipMode,
             join,
           })
         }
         onDisconnectSecondary={(sourceId) =>
-          disconnectSource.mutate({ documentId: document.id, sourceId })
+          disconnectSource.mutate(
+            { documentId: document.id, sourceId },
+            {
+              onSuccess: () => {
+                setBuilderReviewSourceId((current) =>
+                  current === sourceId ? null : current,
+                );
+              },
+            },
+          )
         }
-        onRefreshSource={() =>
+        onRefreshSource={(sourceId) =>
           refreshSource.mutate({
             documentId: document.id,
+            sourceId,
           })
         }
-        onDisconnectSource={() =>
+        onDisconnectSource={(sourceId) =>
           disconnectSource.mutate(
             {
               documentId: document.id,
+              sourceId,
             },
             {
               onSuccess: () => {
                 setSettingsPanel("source");
                 setBuilderReviewOpen(false);
                 setBuilderReviewResult(null);
+                setBuilderBatchResult(null);
                 setBuilderReviewCheckedAt(null);
+                setBuilderReviewSourceId(null);
                 toast.success(db("sourceDisconnected"), {
                   description: db(
                     "databaseRowsAndLocalPropertiesWereKeptIntact",
@@ -1533,30 +1701,34 @@ function DatabaseTable({
             },
           )
         }
-        onReviewBuilderUpdate={() => {
+        onReviewBuilderUpdate={(sourceId) => {
           setBuilderReviewResult(null);
+          setBuilderBatchResult(null);
           setBuilderReviewCheckedAt(null);
+          setBuilderReviewSourceId(sourceId ?? null);
           setBuilderReviewOpen(true);
         }}
-        onSetBuilderLiveWrites={(enabled) =>
+        onSetBuilderLiveWrites={(settings, sourceId) =>
           setSourceWriteMode.mutate(
             {
               documentId: document.id,
-              liveWritesEnabled: enabled,
-              allowedWriteModes: enabled ? ["autosave"] : [],
+              sourceId,
+              writeMode: settings.writeMode,
+              allowPublicationTransitions:
+                settings.writeMode === "publish_updates" &&
+                settings.allowPublicationTransitions === true,
             },
             {
               onSuccess: () => {
-                toast.success(
-                  enabled
-                    ? "Builder live writes enabled"
-                    : "Builder live writes disabled",
-                  {
-                    description: enabled
-                      ? "Only autosave writes to the Agent Native test collection can run."
-                      : "Push will return to local validation only.",
-                  },
-                );
+                const enabled = settings.writeMode !== "read_only";
+                toast.success(db("builderWriteModeUpdated"), {
+                  description:
+                    settings.writeMode === "publish_updates"
+                      ? "Approved updates can write through to Builder while preserving publication state."
+                      : enabled
+                        ? "Approved updates will stage Builder autosave revisions."
+                        : "Builder writes are disabled for this source.",
+                });
               },
               onError: (error) => {
                 toast.error(db("builderWriteModeWasNotChanged"), {
@@ -1569,10 +1741,11 @@ function DatabaseTable({
         }
         sourceActionPending={
           attachSource.isPending ||
+          changeSourceRole.isPending ||
           refreshSource.isPending ||
           disconnectSource.isPending ||
           prepareBuilderReview.isPending ||
-          executeBuilderExecution.isPending ||
+          executeBuilderBatch.isPending ||
           setSourceWriteMode.isPending
         }
         onViewTypeChange={(type) =>
@@ -1594,14 +1767,15 @@ function DatabaseTable({
       <BuilderSourceReviewDialog
         open={builderReviewOpen}
         review={activeBuilderReview}
-        source={source}
+        source={activeReviewSource}
         canEdit={canEdit}
         pending={
-          prepareBuilderReview.isPending || executeBuilderExecution.isPending
+          prepareBuilderReview.isPending || executeBuilderBatch.isPending
         }
+        batchResult={builderBatchResult}
         checkedAt={builderReviewCheckedAt}
         onClose={() => setBuilderReviewOpen(false)}
-        onValidate={() => void handleBuilderReviewPush()}
+        onValidate={(transitions) => void handleBuilderReviewPush(transitions)}
       />
 
       {!database.isLoading ? (
@@ -2690,9 +2864,9 @@ function DatabaseTableView({
   const db = useDatabaseT();
   const queryClient = useQueryClient();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
-  const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
+  const duplicateItems = useDuplicateDatabaseItems(databaseDocumentId);
   const setProperty = useSetDocumentProperty(databaseDocumentId);
-  const deleteDocument = useDeleteDocument();
+  const deleteItems = useDeleteDatabaseItems(databaseDocumentId);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
   const [draggedPropertyId, setDraggedPropertyId] = useState<string | null>(
@@ -2941,14 +3115,15 @@ function DatabaseTableView({
   async function deleteSelectedRows() {
     if (selectedItems.length === 0) return;
     const selectedSnapshot = selectedItems;
-    onClearSelection();
     setConfirmDeleteSelectedOpen(false);
 
     try {
+      await deleteItems.mutateAsync({
+        documentId: databaseDocumentId,
+        itemIds: selectedSnapshot.map((item) => item.id),
+      });
+      onClearSelection();
       onDeletedPreviewItems(selectedSnapshot);
-      for (const item of selectedSnapshot) {
-        await deleteDocument.mutateAsync({ id: item.document.id });
-      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -2972,22 +3147,11 @@ function DatabaseTableView({
     const selectedSnapshot = selectedItems;
     setIsDuplicatingSelected(true);
 
-    let duplicatedPreviewItem: ContentDatabaseItem | null = null;
-    let duplicatedCount = 0;
-    let failedCount = 0;
-
     try {
-      for (const item of selectedSnapshot) {
-        try {
-          const response = await duplicateItem.mutateAsync({ itemId: item.id });
-          duplicatedCount += 1;
-          duplicatedPreviewItem =
-            databaseDuplicatedItemFromResponse(response) ??
-            duplicatedPreviewItem;
-        } catch {
-          failedCount += 1;
-        }
-      }
+      const response = await duplicateItems.mutateAsync({
+        documentId: databaseDocumentId,
+        itemIds: selectedSnapshot.map((item) => item.id),
+      });
 
       await queryClient.invalidateQueries({
         queryKey: [
@@ -3000,16 +3164,15 @@ function DatabaseTableView({
         queryKey: ["action", "list-documents"],
       });
 
+      const duplicatedPreviewItem =
+        databaseDuplicatedItemFromResponse(response);
       if (duplicatedPreviewItem) onPreview(duplicatedPreviewItem);
-      if (duplicatedCount > 0) onClearSelection();
-      if (failedCount > 0) {
-        toast.error(db("failedToDuplicateEverySelectedRow"), {
-          description:
-            duplicatedCount > 0
-              ? `${duplicatedCount} duplicated, ${failedCount} failed.`
-              : "No rows were duplicated.",
-        });
-      }
+      onClearSelection();
+    } catch (err) {
+      toast.error(db("failedToDuplicateEverySelectedRow"), {
+        description:
+          err instanceof Error ? err.message : db("somethingWentWrong"),
+      });
     } finally {
       setIsDuplicatingSelected(false);
     }
@@ -3068,9 +3231,11 @@ function DatabaseTableView({
             canEdit={canEdit}
             properties={bulkEditableProperties}
             duplicateDisabled={
-              isDuplicatingSelected || deleteDocument.isPending
+              isDuplicatingSelected ||
+              duplicateItems.isPending ||
+              deleteItems.isPending
             }
-            deleteDisabled={deleteDocument.isPending}
+            deleteDisabled={deleteItems.isPending}
             updateDisabled={setProperty.isPending}
             onClearSelection={onClearSelection}
             onSetPropertyValue={setSelectedPropertyValue}
@@ -3109,6 +3274,7 @@ function DatabaseTableView({
                 property={property}
                 documentId={databaseDocumentId}
                 source={source}
+                sources={sources}
                 canEdit={canEdit}
                 isDragging={draggedPropertyId === property.definition.id}
                 dropSide={
@@ -3293,10 +3459,10 @@ function DatabaseTableView({
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
+              disabled={deleteItems.isPending}
               onClick={() => void deleteSelectedRows()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {deleteItems.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3396,6 +3562,7 @@ type PendingSourceCandidate = {
   sourceName: string;
   sourceTable: string;
   displayName: string;
+  existingSourceId?: string;
 };
 
 type SourceNavStep =
@@ -3404,16 +3571,18 @@ type SourceNavStep =
   | { kind: "model"; model: BuilderCmsModelSummary }
   | { kind: "addSource" }
   | { kind: "secondarySource"; sourceId: string; sourceName: string }
-  | { kind: "keyConfirm"; candidate: PendingSourceCandidate };
+  | { kind: "keyConfirm"; candidate: PendingSourceCandidate }
+  | { kind: "fieldPicker"; sourceId: string; sourceName: string };
 
-function sourceNavTitle(stack: SourceNavStep[]): string {
+function sourceNavTitle(stack: SourceNavStep[], db: DatabaseT): string {
   const top = stack[stack.length - 1];
-  if (!top) return "Sources";
+  if (!top) return db("sources");
   if (top.kind === "provider") return "Builder";
   if (top.kind === "space") return top.spaceName;
-  if (top.kind === "addSource") return "Add a source";
+  if (top.kind === "addSource") return db("addASource");
   if (top.kind === "secondarySource") return top.sourceName;
-  if (top.kind === "keyConfirm") return "Match on a key";
+  if (top.kind === "keyConfirm") return db("matchExistingItemsToDetails");
+  if (top.kind === "fieldPicker") return db("chooseFields");
   return top.model.displayName;
 }
 
@@ -3473,6 +3642,7 @@ function DatabaseSettingsPanelSheet({
   onPanelChange,
   onAttachBuilderSource,
   onFederateSource,
+  onChangeSourceRole,
   onDisconnectSecondary,
   onRefreshSource,
   onDisconnectSource,
@@ -3501,16 +3671,27 @@ function DatabaseSettingsPanelSheet({
   groupIds: string[];
   onClose: () => void;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
-  onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
+  onAttachBuilderSource: (
+    model: BuilderCmsModelSummary,
+    relationshipMode?: "items" | "details",
+  ) => Promise<ContentDatabaseResponse>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => void;
+  ) => Promise<ContentDatabaseResponse>;
+  onChangeSourceRole: (
+    sourceId: string,
+    relationshipMode: "items" | "details",
+    join?: ContentDatabaseSourceJoinRequest,
+  ) => Promise<ContentDatabaseResponse>;
   onDisconnectSecondary: (sourceId: string) => void;
-  onRefreshSource: () => void;
-  onDisconnectSource: () => void;
-  onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (enabled: boolean) => void;
+  onRefreshSource: (sourceId?: string) => void;
+  onDisconnectSource: (sourceId?: string) => void;
+  onReviewBuilderUpdate: (sourceId?: string) => void;
+  onSetBuilderLiveWrites: (
+    settings: BuilderSourceWriteSettingsInput,
+    sourceId?: string,
+  ) => void;
   sourceActionPending: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
@@ -3538,7 +3719,7 @@ function DatabaseSettingsPanelSheet({
     panel === "main"
       ? "Database settings"
       : panel === "source"
-        ? sourceNavTitle(sourceNavStack)
+        ? sourceNavTitle(sourceNavStack, db)
         : databaseSettingsPanelTitle(panel);
 
   const handleBack = () => {
@@ -3583,6 +3764,7 @@ function DatabaseSettingsPanelSheet({
           <DatabaseSettingsMainPanel
             activeView={activeView}
             source={source}
+            sources={sources}
             sourceCount={sources.length || (source ? 1 : 0)}
             propertyCount={properties.length}
             hiddenCount={hiddenCount}
@@ -3597,11 +3779,10 @@ function DatabaseSettingsPanelSheet({
             canEdit={canEdit}
             nav={sourceNavStack}
             onNavPush={(step) => setSourceNavStack((stack) => [...stack, step])}
+            onNavReplace={setSourceNavStack}
             onAttachBuilderSource={onAttachBuilderSource}
-            onFederateSource={(candidate, join) => {
-              onFederateSource(candidate, join);
-              setSourceNavStack([]);
-            }}
+            onFederateSource={onFederateSource}
+            onChangeSourceRole={onChangeSourceRole}
             onDisconnectSecondary={(sourceId) => {
               onDisconnectSecondary(sourceId);
               setSourceNavStack([]);
@@ -3657,6 +3838,7 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
 function DatabaseSettingsMainPanel({
   activeView,
   source,
+  sources,
   sourceCount,
   propertyCount,
   hiddenCount,
@@ -3664,6 +3846,7 @@ function DatabaseSettingsMainPanel({
 }: {
   activeView: ContentDatabaseView;
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
   sourceCount: number;
   propertyCount: number;
   hiddenCount: number;
@@ -3671,7 +3854,14 @@ function DatabaseSettingsMainPanel({
 }) {
   const db = useDatabaseT();
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
-  const sourceBadgeCount = builderReviewableChangeSets(source).length;
+  // Sum reviewable changes across EVERY source (row-union) so the collapsed
+  // Sources row badges pending pushes even when they're only on a secondary.
+  const sourceBadgeCount = (
+    sources.length > 0 ? sources : source ? [source] : []
+  ).reduce(
+    (total, item) => total + builderReviewableChangeSets(item).length,
+    0,
+  );
   return (
     <div className="grid gap-3">
       <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2">
@@ -3758,26 +3948,92 @@ export function builderReviewExecutableRows(
   );
 }
 
+function builderBatchSucceeded(
+  result: ExecuteBuilderSourceBatchResponse | null,
+) {
+  return (
+    !!result &&
+    result.summary.total > 0 &&
+    result.summary.blocked === 0 &&
+    result.summary.failed === 0
+  );
+}
+
+function builderBatchToastMessage(
+  result: ExecuteBuilderSourceBatchResponse | null,
+  review: ContentDatabaseSourceReviewPayload,
+) {
+  if (!result) return review.result.message;
+  const { succeeded, blocked, failed } = result.summary;
+  return `${succeeded} succeeded, ${blocked} blocked, ${failed} failed.`;
+}
+
 export function builderSourceLiveWriteControlState(
   source: ContentDatabaseSource | null,
 ) {
   const isBuilderSource = source?.sourceType === "builder-cms";
   const safeTarget =
     isBuilderSource && source?.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
-  const enabled = source?.capabilities.liveWritesEnabled === true;
+  const legacyAllowedWriteModes = source?.metadata.allowedWriteModes ?? [];
+  const writeMode =
+    source?.metadata.writeMode ??
+    (source?.capabilities.liveWritesEnabled === true
+      ? legacyAllowedWriteModes.some((mode) => mode !== "autosave")
+        ? "publish_updates"
+        : "stage_only"
+      : "read_only");
+  const enabled = writeMode !== "read_only";
   return {
     safeTarget,
     enabled,
+    writeMode,
+    allowPublicationTransitions:
+      writeMode === "publish_updates" &&
+      source?.metadata.allowPublicationTransitions === true,
     showAction: safeTarget,
     actionLabel: enabled ? "Disable" : "Enable",
     description: enabled
-      ? "Enabled for autosave writes to the Agent Native test collection."
+      ? writeMode === "publish_updates"
+        ? "Approved updates can write through to Builder while preserving publication state."
+        : "Enabled for autosave writes to the Agent Native test collection."
       : safeTarget
-        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent Native test collection."
+        ? "Off by default. Choose a write tier only when this source should send guarded Builder writes."
         : isBuilderSource
           ? "Unavailable here; live writes are locked to the Agent Native test collection."
           : "Live writes are not available for this source.",
   };
+}
+
+const BUILDER_WRITE_MODE_OPTIONS: Array<{
+  mode: ContentDatabaseSourceWriteMode;
+  labelKey: string;
+  descriptionKey: string;
+}> = [
+  {
+    mode: "read_only",
+    labelKey: "readOnly",
+    descriptionKey: "noBuilderWrites",
+  },
+  {
+    mode: "stage_only",
+    labelKey: "stageOnly",
+    descriptionKey: "savesDraftsNeverPublishes",
+  },
+  {
+    mode: "publish_updates",
+    labelKey: "publishUpdates",
+    descriptionKey: "writesUpdatesToLiveEntries",
+  },
+];
+
+function builderWriteModeSummary(
+  mode: ContentDatabaseSourceWriteMode,
+  db: DatabaseT,
+) {
+  const option = BUILDER_WRITE_MODE_OPTIONS.find(
+    (candidate) => candidate.mode === mode,
+  );
+  return db(option?.descriptionKey ?? "noBuilderWrites");
 }
 
 export function buildClientBuilderReviewPayload(
@@ -3819,6 +4075,7 @@ export function buildClientBuilderReviewPayload(
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      effect: resolveBuilderCmsWriteEffect({ source, changeSet }),
       execution: latestExecution,
     };
   });
@@ -3900,8 +4157,10 @@ function DatabaseSettingsSourcePanel({
   canEdit,
   nav,
   onNavPush,
+  onNavReplace,
   onAttachBuilderSource,
   onFederateSource,
+  onChangeSourceRole,
   onDisconnectSecondary,
   onRefreshSource,
   onDisconnectSource,
@@ -3916,33 +4175,31 @@ function DatabaseSettingsSourcePanel({
   canEdit: boolean;
   nav: SourceNavStep[];
   onNavPush: (step: SourceNavStep) => void;
-  onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
+  onNavReplace: (stack: SourceNavStep[]) => void;
+  onAttachBuilderSource: (
+    model: BuilderCmsModelSummary,
+    relationshipMode?: "items" | "details",
+  ) => Promise<ContentDatabaseResponse>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => void;
+  ) => Promise<ContentDatabaseResponse>;
+  onChangeSourceRole: (
+    sourceId: string,
+    relationshipMode: "items" | "details",
+    join?: ContentDatabaseSourceJoinRequest,
+  ) => Promise<ContentDatabaseResponse>;
   onDisconnectSecondary: (sourceId: string) => void;
-  onRefreshSource: () => void;
-  onDisconnectSource: () => void;
-  onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (enabled: boolean) => void;
+  onRefreshSource: (sourceId?: string) => void;
+  onDisconnectSource: (sourceId?: string) => void;
+  onReviewBuilderUpdate: (sourceId?: string) => void;
+  onSetBuilderLiveWrites: (
+    settings: BuilderSourceWriteSettingsInput,
+    sourceId?: string,
+  ) => void;
   sourceActionPending: boolean;
 }) {
   const db = useDatabaseT();
-  const outboundChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.direction === "outbound",
-    ) ?? [];
-  const reviewableBuilderChangeSets = outboundChangeSets.filter(
-    (changeSet) =>
-      changeSet.state === "pending_push" ||
-      changeSet.state === "staged_revision" ||
-      changeSet.state === "approved",
-  );
-  const conflictChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.conflictState === "source_changed",
-    ) ?? [];
   const { isCodeMode } = useCodeMode();
   const isBuilderSource = source?.sourceType === "builder-cms";
   const builderStatus = useBuilderStatus();
@@ -3963,33 +4220,42 @@ function DatabaseSettingsSourcePanel({
       void builderStatus.refetch();
     },
   });
-  const builderSyncFailed =
-    isBuilderSource &&
-    (source?.syncState === "error" || Boolean(source?.lastError));
-
   // Auto-sync: the manual Refresh button is gone, so pull the read-only
   // snapshot when the panel opens and whenever the window regains focus.
   // Throttled so rapid focus changes don't hammer Builder; the refresh
   // mutation is silent (no toast), so this stays quiet in the background.
   const refreshSourceRef = useRef(onRefreshSource);
   refreshSourceRef.current = onRefreshSource;
-  const lastAutoSyncRef = useRef(0);
+  const lastAutoSyncRef = useRef<{ at: number; sourceId?: string }>({ at: 0 });
   const autoSyncEnabled = Boolean(source) && isBuilderSource && canEdit;
+  const top = nav[nav.length - 1];
+  // When a non-primary Builder source's leaf is open, auto-sync should refresh
+  // THAT source, not the primary. At the root/list (no model leaf) we fall back
+  // to the primary (undefined ⇒ primary in the refresh action).
+  const autoSyncSourceId =
+    top?.kind === "model"
+      ? sources.find(
+          (item) =>
+            item.sourceType === "builder-cms" &&
+            item.sourceTable === top.model.name,
+        )?.id
+      : undefined;
   useEffect(() => {
     if (!autoSyncEnabled) return;
     const maybeSync = () => {
       const now = Date.now();
-      if (now - lastAutoSyncRef.current < 15_000) return;
-      lastAutoSyncRef.current = now;
-      refreshSourceRef.current();
+      const last = lastAutoSyncRef.current;
+      // Throttle repeated syncs of the SAME source, but always sync when the
+      // viewed source changes (so opening a secondary leaf refreshes it).
+      if (last.sourceId === autoSyncSourceId && now - last.at < 15_000) return;
+      lastAutoSyncRef.current = { at: now, sourceId: autoSyncSourceId };
+      refreshSourceRef.current(autoSyncSourceId);
     };
     maybeSync();
     const onFocus = () => maybeSync();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [autoSyncEnabled]);
-
-  const top = nav[nav.length - 1];
+  }, [autoSyncEnabled, autoSyncSourceId]);
 
   // ── Sources list (root) ───────────────────────────────────────────────
   if (!top) {
@@ -3997,11 +4263,11 @@ function DatabaseSettingsSourcePanel({
       <SourcesListView
         source={source}
         sources={sources}
-        builderConfigured={builderConfigured}
-        builderSpaceLabel={builderSpaceLabel}
-        reviewableCount={reviewableBuilderChangeSets.length}
-        onOpenBuilder={() =>
-          onNavPush({ kind: "provider", providerId: "builder" })
+        onOpenConnectedBuilder={(connected) =>
+          onNavPush({
+            kind: "model",
+            model: builderModelSummaryFromSource(connected),
+          })
         }
         onOpenSecondary={(secondary) =>
           onNavPush({
@@ -4026,6 +4292,11 @@ function DatabaseSettingsSourcePanel({
             .map((item) => item.sourceTable),
         ]}
         canEdit={canEdit}
+        builderConfigured={builderConfigured}
+        builderSpaceLabel={builderSpaceLabel}
+        onOpenBuilder={() =>
+          onNavPush({ kind: "provider", providerId: "builder" })
+        }
         onPickLocalTable={(table) =>
           onNavPush({
             kind: "keyConfirm",
@@ -4049,6 +4320,34 @@ function DatabaseSettingsSourcePanel({
         source={secondary}
         canEdit={canEdit}
         pending={sourceActionPending}
+        onAddDetails={() =>
+          secondary
+            ? onNavPush({
+                kind: "keyConfirm",
+                candidate: {
+                  sourceType: secondary.sourceType,
+                  sourceName: secondary.sourceName,
+                  sourceTable: secondary.sourceTable,
+                  displayName: secondary.sourceName,
+                  existingSourceId: secondary.id,
+                },
+              })
+            : undefined
+        }
+        onAddItems={async () => {
+          if (!secondary) return;
+          await onChangeSourceRole(secondary.id, "items");
+          onNavReplace([]);
+        }}
+        onChooseFields={() =>
+          secondary
+            ? onNavPush({
+                kind: "fieldPicker",
+                sourceId: secondary.id,
+                sourceName: secondary.sourceName,
+              })
+            : undefined
+        }
         onDisconnect={() => onDisconnectSecondary(top.sourceId)}
       />
     );
@@ -4062,7 +4361,41 @@ function DatabaseSettingsSourcePanel({
         candidate={top.candidate}
         canEdit={canEdit}
         pending={sourceActionPending}
-        onCommit={(join) => onFederateSource(top.candidate, join)}
+        onCommit={async (join) => {
+          const result = top.candidate.existingSourceId
+            ? await onChangeSourceRole(
+                top.candidate.existingSourceId,
+                "details",
+                join,
+              )
+            : await onFederateSource(top.candidate, join);
+          const detailsSource = findDetailsSource(result, top.candidate);
+          onNavReplace(
+            detailsSource
+              ? [
+                  {
+                    kind: "fieldPicker",
+                    sourceId: detailsSource.id,
+                    sourceName: detailsSource.sourceName,
+                  },
+                ]
+              : [],
+          );
+        }}
+      />
+    );
+  }
+
+  if (top.kind === "fieldPicker") {
+    const pickerSource =
+      sources.find((item) => item.id === top.sourceId) ?? null;
+    return (
+      <SourceDetailsFieldPicker
+        documentId={documentId}
+        source={pickerSource}
+        canEdit={canEdit}
+        pending={sourceActionPending}
+        onDone={() => onNavReplace([])}
       />
     );
   }
@@ -4127,9 +4460,9 @@ function DatabaseSettingsSourcePanel({
   if (top.kind === "space") {
     return (
       <BuilderSpaceModelsView
-        attachedModelName={
-          isBuilderSource ? (source?.sourceTable ?? null) : null
-        }
+        attachedModelNames={sources
+          .filter((item) => item.sourceType === "builder-cms")
+          .map((item) => item.sourceTable)}
         onOpenModel={(model) => onNavPush({ kind: "model", model })}
       />
     );
@@ -4137,12 +4470,21 @@ function DatabaseSettingsSourcePanel({
 
   // ── Model leaf ────────────────────────────────────────────────────────
   const model = top.model;
-  const isAttachedModel =
-    Boolean(source) && isBuilderSource && source?.sourceTable === model.name;
+  // Resolve the source this leaf operates on by the model being viewed, NOT by
+  // assuming the primary — a row-union database has multiple writable Builder
+  // sources, and opening any of them must land on its own writable leaf.
+  // Collection names are unique per database (duplicate-attach is guarded), so
+  // matching on sourceTable is unambiguous.
+  const leafSource =
+    sources.find(
+      (item) =>
+        item.sourceType === "builder-cms" && item.sourceTable === model.name,
+    ) ?? null;
+  const isAttachedModel = Boolean(leafSource);
 
   // Unattached model → the attach affordance (the model is already chosen by
   // drilling in, so there's no model picker here).
-  if (!isAttachedModel || !source) {
+  if (!isAttachedModel || !leafSource) {
     return (
       <div className="grid min-w-0 gap-3">
         <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
@@ -4161,147 +4503,317 @@ function DatabaseSettingsSourcePanel({
             </span>
           </div>
         </div>
-        <div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!canEdit || sourceActionPending}
-            onClick={() => onAttachBuilderSource(model)}
-          >
-            {sourceActionPending ? (
-              <Spinner className="mr-1.5 size-3.5" />
-            ) : (
-              <IconPlugConnected className="mr-1.5 size-3.5" />
-            )}
-            Attach
-          </Button>
-        </div>
+        {sources.length > 0 || source ? (
+          <SourceRelationshipChoice
+            documentId={documentId}
+            candidate={{
+              sourceType: "builder-cms",
+              sourceName: model.displayName,
+              sourceTable: model.name,
+              displayName: model.displayName,
+            }}
+            canEdit={canEdit}
+            pending={sourceActionPending}
+            onAddDetails={() =>
+              onNavPush({
+                kind: "keyConfirm",
+                candidate: {
+                  sourceType: "builder-cms",
+                  sourceName: model.displayName,
+                  sourceTable: model.name,
+                  displayName: model.displayName,
+                },
+              })
+            }
+            onAddItems={async () => {
+              await onAttachBuilderSource(model, "items");
+              onNavReplace([]);
+            }}
+          />
+        ) : (
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!canEdit || sourceActionPending}
+              onClick={async () => {
+                await onAttachBuilderSource(model);
+                onNavReplace([]);
+              }}
+            >
+              {sourceActionPending ? (
+                <Spinner className="mr-1.5 size-3.5" />
+              ) : (
+                <IconPlugConnected className="mr-1.5 size-3.5" />
+              )}
+              Attach
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
 
-  // Attached model → the minimal read-only leaf panel.
+  // Attached model → the writable leaf panel for THIS source (primary or a
+  // row-union secondary). All derived state below is scoped to `leafSource`,
+  // never the component-level primary `source`.
+  const liveWriteControl = builderSourceLiveWriteControlState(leafSource);
+  const builderLiveWritesDisabled = !canEdit || sourceActionPending;
+  const builderWriteMode = liveWriteControl.writeMode;
+  const leafOutboundChangeSets = leafSource.changeSets.filter(
+    (changeSet) => changeSet.direction === "outbound",
+  );
+  const leafReviewableChangeSets = leafOutboundChangeSets.filter(
+    (changeSet) =>
+      changeSet.state === "pending_push" ||
+      changeSet.state === "staged_revision" ||
+      changeSet.state === "approved",
+  );
+  const leafPendingChangeSets = leafOutboundChangeSets.filter(
+    (changeSet) => changeSet.state !== "applied",
+  );
+  const leafAppliedChangeSets = leafOutboundChangeSets.filter(
+    (changeSet) => changeSet.state === "applied",
+  );
+  const leafSyncFailed =
+    leafSource.syncState === "error" || Boolean(leafSource.lastError);
+
   return (
     <div className="grid min-w-0 gap-4">
       <>
         <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="truncate font-medium" title={source.sourceName}>
-              {source.sourceName}
+            <span
+              className="truncate font-medium"
+              title={leafSource.sourceName}
+            >
+              {leafSource.sourceName}
             </span>
-            {isBuilderSource ? (
-              source.capabilities.liveWritesEnabled ? (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
-                  <IconPencil className="size-3" />
-                  <DatabaseText k="liveWritesOn" />
-                </span>
-              ) : (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  <IconLock className="size-3" />
-                  <DatabaseText k="readOnly" />
-                </span>
-              )
-            ) : (
-              <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                {source.syncState}
+            {!liveWriteControl.safeTarget ? (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                <IconLock className="size-3" />
+                <DatabaseText k="readOnly" />
               </span>
-            )}
+            ) : null}
           </div>
+          {!liveWriteControl.safeTarget ? (
+            <div className="text-[11px] text-muted-foreground">
+              {db("liveWritesTestCollectionOnly")}
+            </div>
+          ) : null}
           <div className="min-w-0 break-words text-xs text-muted-foreground">
-            {builderSyncFailed ? (
+            {leafSyncFailed ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-destructive hover:underline disabled:opacity-60"
                 disabled={!canEdit || sourceActionPending}
-                onClick={onRefreshSource}
+                onClick={() => onRefreshSource(leafSource.id)}
               >
                 <IconRefresh className="size-3" />
                 <DatabaseText k="couldntSyncRetry" />
               </button>
-            ) : isBuilderSource ? (
+            ) : (
               [
                 builderConfigured ? (builderSpaceLabel ?? "Connected") : null,
-                source.lastRefreshedAt
+                leafSource.lastRefreshedAt
                   ? `synced ${
-                      formatRelativeSyncTime(source.lastRefreshedAt) ??
-                      source.freshness
+                      formatRelativeSyncTime(leafSource.lastRefreshedAt) ??
+                      leafSource.freshness
                     }`
-                  : source.freshness,
+                  : leafSource.freshness,
               ]
                 .filter(Boolean)
                 .join(" · ")
-            ) : (
-              `Local snapshot · ${source.freshness}`
             )}
           </div>
+          {liveWriteControl.safeTarget ? (
+            <div className="grid min-w-0 gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium text-foreground">
+                  {db("builderWriteMode")}
+                </span>
+                <span>{builderWriteModeSummary(builderWriteMode, db)}</span>
+              </div>
+              <div
+                className="grid grid-cols-3 gap-0.5 rounded-md border border-border bg-muted/35 p-0.5"
+                aria-label={db("builderWriteMode")}
+              >
+                {BUILDER_WRITE_MODE_OPTIONS.map((option) => {
+                  const selected = builderWriteMode === option.mode;
+                  return (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      aria-pressed={selected}
+                      title={db(option.descriptionKey)}
+                      disabled={builderLiveWritesDisabled}
+                      className={cn(
+                        "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
+                        selected
+                          ? "bg-[#2383e2] text-white shadow-sm"
+                          : "text-muted-foreground hover:bg-background hover:text-foreground",
+                      )}
+                      onClick={() =>
+                        onSetBuilderLiveWrites(
+                          {
+                            writeMode: option.mode,
+                            allowPublicationTransitions:
+                              option.mode === "publish_updates"
+                                ? liveWriteControl.allowPublicationTransitions
+                                : false,
+                          },
+                          leafSource.id,
+                        )
+                      }
+                    >
+                      <span className="block truncate">
+                        {db(option.labelKey)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {builderWriteMode === "publish_updates" ? (
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={liveWriteControl.allowPublicationTransitions}
+                  disabled={builderLiveWritesDisabled}
+                  className="flex min-w-0 items-start gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+                  onClick={() =>
+                    onSetBuilderLiveWrites(
+                      {
+                        writeMode: "publish_updates",
+                        allowPublicationTransitions:
+                          !liveWriteControl.allowPublicationTransitions,
+                      },
+                      leafSource.id,
+                    )
+                  }
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border",
+                      liveWriteControl.allowPublicationTransitions
+                        ? "border-[#2383e2] bg-[#2383e2] text-white"
+                        : "border-muted-foreground/40 bg-background text-transparent",
+                    )}
+                  >
+                    {liveWriteControl.allowPublicationTransitions ? (
+                      <IconCheck className="size-3" />
+                    ) : null}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-foreground">
+                      {db("allowPublishUnpublishPerItem")}
+                    </span>
+                    <span className="block break-words">
+                      Requires explicit item intent; unpublish still needs
+                      confirmation.
+                    </span>
+                  </span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
-        {reviewableBuilderChangeSets.length > 0 ||
-        conflictChangeSets.length > 0 ? (
-          <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">
-                  {conflictChangeSets.length > 0
-                    ? `${conflictChangeSets.length} change${
-                        conflictChangeSets.length === 1 ? "" : "s"
-                      } need review`
-                    : `${reviewableBuilderChangeSets.length} change${
-                        reviewableBuilderChangeSets.length === 1 ? "" : "s"
-                      } ready to push`}
-                </div>
-                <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                  <DatabaseText k="reviewBeforeTheyReachBuilder" />
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                className="shrink-0"
-                disabled={!canEdit || sourceActionPending}
-                onClick={onReviewBuilderUpdate}
-              >
-                <IconCheck className="mr-1.5 size-3.5" />
-                <DatabaseText k="reviewDiff" />
-              </Button>
+        {leafPendingChangeSets.length > 0 ||
+        leafAppliedChangeSets.length > 0 ||
+        isCodeMode ? (
+          <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
+            <div className="font-medium">{db("builderChanges")}</div>
+            <div className="text-xs text-muted-foreground">
+              {leafSource.capabilities.liveWritesEnabled
+                ? db("reviewLocalEditsBeforeBuilder")
+                : db("liveWritesOffStagedForReview")}
             </div>
-          </div>
-        ) : null}
 
-        {isCodeMode ? (
-          <>
-            <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-              <div className="font-medium">
-                {source.sourceType === "builder-cms"
-                  ? "Local Builder changes"
-                  : "Local outbound changes"}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {source.sourceType === "builder-cms"
-                  ? source.capabilities.liveWritesEnabled
-                    ? "Local edits can be reviewed and sent through the guarded Builder autosave path."
-                    : "Local edits can be staged as a Builder save revision/autosave record. Live Builder writes are disabled."
-                  : "No local outbound push lane is active for this mock source."}
-              </div>
+            {leafPendingChangeSets.length > 0 ? (
               <div className="grid min-w-0 gap-2">
-                {outboundChangeSets.slice(0, 6).map((changeSet) => (
+                {leafPendingChangeSets.slice(0, 6).map((changeSet) => (
                   <SourceChangeSetReviewCard
                     key={changeSet.id}
                     changeSet={changeSet}
-                    source={source}
+                    source={leafSource}
+                    showDetails={isCodeMode}
                   />
                 ))}
-                {outboundChangeSets.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">
-                    {source.sourceType === "builder-cms"
-                      ? "No pending local Builder changes yet. Rename a source-backed row to see a local outbound diff."
-                      : "No local outbound changes yet."}
+              </div>
+            ) : isCodeMode ? (
+              <div className="text-xs text-muted-foreground">
+                {db("noPendingChangesEditASourceBackedRow")}
+              </div>
+            ) : null}
+
+            {leafReviewableChangeSets.length > 0 ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!canEdit || sourceActionPending}
+                  onClick={() => onReviewBuilderUpdate(leafSource.id)}
+                >
+                  <IconCheck className="mr-1.5 size-3.5" />
+                  {db("reviewChanges")}
+                </Button>
+              </div>
+            ) : null}
+
+            {leafAppliedChangeSets.length > 0 ? (
+              <div className="mt-1 grid min-w-0 gap-1.5 border-t border-border/60 pt-2">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {db("recentlyPushed")}
+                </div>
+                {leafAppliedChangeSets.slice(0, 3).map((changeSet) => (
+                  <SourceChangeSetReviewCard
+                    key={changeSet.id}
+                    changeSet={changeSet}
+                    source={leafSource}
+                    showDetails={isCodeMode}
+                  />
+                ))}
+                {leafAppliedChangeSets.length > 3 ? (
+                  <div className="text-[11px] text-muted-foreground">
+                    +{leafAppliedChangeSets.length - 3} more
                   </div>
                 ) : null}
               </div>
-            </div>
-          </>
+            ) : null}
+          </div>
         ) : null}
+
+        <SourceRoleCard
+          source={leafSource}
+          canAddDetails={sources.some(
+            (item) => item.id !== leafSource.id && !sourceAddsDetails(item),
+          )}
+          canEdit={canEdit}
+          pending={sourceActionPending}
+          onAddDetails={() =>
+            onNavPush({
+              kind: "keyConfirm",
+              candidate: {
+                sourceType: leafSource.sourceType,
+                sourceName: leafSource.sourceName,
+                sourceTable: leafSource.sourceTable,
+                displayName: leafSource.sourceName,
+                existingSourceId: leafSource.id,
+              },
+            })
+          }
+          onAddItems={async () => {
+            await onChangeSourceRole(leafSource.id, "items");
+            onNavReplace([]);
+          }}
+          onChooseFields={() =>
+            onNavPush({
+              kind: "fieldPicker",
+              sourceId: leafSource.id,
+              sourceName: leafSource.sourceName,
+            })
+          }
+        />
 
         <div className="rounded-lg border border-border bg-background p-3">
           <div className="text-xs font-medium">
@@ -4316,7 +4828,7 @@ function DatabaseSettingsSourcePanel({
             variant="outline"
             className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
             disabled={!canEdit || sourceActionPending}
-            onClick={onDisconnectSource}
+            onClick={() => onDisconnectSource(leafSource.id)}
           >
             {sourceActionPending ? (
               <Spinner className="mr-1 size-3.5" />
@@ -4333,113 +4845,103 @@ function DatabaseSettingsSourcePanel({
 
 // Root of the Sources drill-down: third-party integrations + Agent-Native apps,
 // each provider a row. Builder is live; the rest are disabled "coming soon".
+function builderModelSummaryFromSource(
+  source: ContentDatabaseSource,
+): BuilderCmsModelSummary {
+  return {
+    id: source.sourceTable,
+    name: source.sourceTable,
+    displayName: source.sourceName,
+    kind: "data",
+    fields: [],
+  };
+}
+
+function reviewableCountForSource(source: ContentDatabaseSource): number {
+  return source.changeSets.filter(
+    (changeSet) =>
+      changeSet.direction === "outbound" &&
+      (changeSet.state === "pending_push" ||
+        changeSet.state === "staged_revision" ||
+        changeSet.state === "approved"),
+  ).length;
+}
+
 function SourcesListView({
   source,
   sources,
-  builderConfigured,
-  builderSpaceLabel,
-  reviewableCount,
-  onOpenBuilder,
+  onOpenConnectedBuilder,
   onOpenSecondary,
   onAddSource,
 }: {
   source: ContentDatabaseSource | null;
   sources: ContentDatabaseSource[];
-  builderConfigured: boolean;
-  builderSpaceLabel: string | null;
-  reviewableCount: number;
-  onOpenBuilder: () => void;
+  onOpenConnectedBuilder: (source: ContentDatabaseSource) => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
   const db = useDatabaseT();
-  const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
-  return (
-    <div className="grid min-w-0 gap-4">
-      {connectedSources.length === 0 ? (
-        <div className="min-w-0 break-words text-xs text-muted-foreground">
-          <DatabaseText k="thisDatabaseIsLocalConnectASourceToMapIts" />
-        </div>
-      ) : (
-        <div className="grid min-w-0 gap-1.5">
-          <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            <DatabaseText k="connectedSources" />
-          </div>
-          {connectedSources.map((connected, index) => (
-            <DatabaseSettingsRow
-              key={connected.id}
-              icon={
-                connected.sourceType === "builder-cms" ? (
-                  <BuilderLogoMark className="size-4" />
-                ) : (
-                  <IconLayoutGrid className="size-4" />
-                )
-              }
-              label={connected.sourceName}
-              value={
-                connected.metadata.federation?.role === "secondary"
-                  ? "Federated"
-                  : index === 0
-                    ? "Primary"
-                    : undefined
-              }
-              onClick={
-                connected.metadata.federation?.role === "secondary"
-                  ? () => onOpenSecondary(connected)
-                  : connected.sourceType === "builder-cms"
-                    ? onOpenBuilder
-                    : undefined
-              }
-              disabled={
-                connected.metadata.federation?.role !== "secondary" &&
-                connected.sourceType !== "builder-cms"
-              }
-            />
-          ))}
-          <DatabaseSettingsRow
-            icon={<IconPlus className="size-4" />}
-            label={db("addAnotherSource")}
-            onClick={onAddSource}
-          />
-        </div>
-      )}
-      <div className="grid min-w-0 gap-1.5">
-        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          <DatabaseText k="integrations" />
+
+  // A brand-new database has no sources — the only action is to add one.
+  // Integrations (Builder, Notion, …) live inside the "Add a source" flow.
+  if (connectedSources.length === 0) {
+    return (
+      <div className="grid min-w-0 gap-2">
+        <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
+          {db("connectABuilderCollectionToMapRows")}
         </div>
         <DatabaseSettingsRow
-          icon={<BuilderLogoMark className="size-4" />}
-          label="Builder"
-          value={
-            isBuilderSource
-              ? (builderSpaceLabel ?? "Connected")
-              : builderConfigured
-                ? "Connected"
+          icon={<IconPlus className="size-4" />}
+          label={db("addASource")}
+          onClick={onAddSource}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {db("connectedSources")}
+      </div>
+      {connectedSources.map((connected, index) => (
+        <DatabaseSettingsRow
+          key={connected.id}
+          icon={
+            connected.sourceType === "builder-cms" ? (
+              <BuilderLogoMark className="size-4" />
+            ) : (
+              <IconLayoutGrid className="size-4" />
+            )
+          }
+          label={connected.sourceName}
+          value={sourceRoleLabel(db, connected, index)}
+          badgeCount={
+            connected.metadata.federation?.role !== "secondary" &&
+            connected.sourceType === "builder-cms"
+              ? reviewableCountForSource(connected)
+              : 0
+          }
+          onClick={
+            connected.metadata.federation?.role === "secondary"
+              ? () => onOpenSecondary(connected)
+              : connected.sourceType === "builder-cms"
+                ? () => onOpenConnectedBuilder(connected)
                 : undefined
           }
-          badgeCount={reviewableCount}
-          onClick={onOpenBuilder}
+          disabled={
+            connected.metadata.federation?.role !== "secondary" &&
+            connected.sourceType !== "builder-cms"
+          }
         />
-        <DatabaseSettingsRow
-          icon={<NotionLogoMark className="size-4" />}
-          label="Notion"
-          value="Coming soon"
-          disabled
-        />
-      </div>
-      <div className="grid min-w-0 gap-1.5">
-        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          <DatabaseText k="agentNativeApps" />
-        </div>
-        <DatabaseSettingsRow
-          icon={<IconTimeline className="size-4" />}
-          label="Analytics"
-          value="Coming soon"
-          disabled
-        />
-      </div>
+      ))}
+      <DatabaseSettingsRow
+        icon={<IconPlus className="size-4" />}
+        label={db("addAnotherSource")}
+        onClick={onAddSource}
+      />
     </div>
   );
 }
@@ -4458,7 +4960,7 @@ function CanonicalKeyConfirmView({
   candidate: PendingSourceCandidate;
   canEdit: boolean;
   pending: boolean;
-  onCommit: (join: ContentDatabaseSourceJoinRequest) => void;
+  onCommit: (join: ContentDatabaseSourceJoinRequest) => void | Promise<void>;
 }) {
   const db = useDatabaseT();
   const suggestionQuery = useSuggestSourceJoinKey({
@@ -4517,7 +5019,7 @@ function CanonicalKeyConfirmView({
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
-        <DatabaseText k="analyzingBothSourcesForASharedKey" />
+        <DatabaseText k="checkingHowTheseRecordsMatch" />
       </div>
     );
   }
@@ -4526,7 +5028,7 @@ function CanonicalKeyConfirmView({
     return (
       <div className="min-w-0 break-words text-xs text-muted-foreground">
         {suggestionQuery.data?.message ??
-          "Couldn’t suggest a join key automatically."}
+          "Couldn't find a match field automatically."}
       </div>
     );
   }
@@ -4538,7 +5040,7 @@ function CanonicalKeyConfirmView({
           {candidate.displayName}
         </div>
         <div className="min-w-0 break-words text-xs text-muted-foreground">
-          Match rows on a shared key. Suggested key:{" "}
+          Match existing items to details. Suggested match:{" "}
           <span className="font-medium text-foreground">
             {suggestion.canonicalKey.label}
           </span>
@@ -4630,7 +5132,7 @@ function CanonicalKeyConfirmView({
         ) : (
           <IconPlugConnected className="mr-1.5 size-3.5" />
         )}
-        Confirm &amp; attach
+        Add details
       </Button>
     </div>
   );
@@ -4641,10 +5143,16 @@ function CanonicalKeyConfirmView({
 function AddSourceView({
   excludeDatabaseIds,
   canEdit,
+  builderConfigured,
+  builderSpaceLabel,
+  onOpenBuilder,
   onPickLocalTable,
 }: {
   excludeDatabaseIds: string[];
   canEdit: boolean;
+  builderConfigured: boolean;
+  builderSpaceLabel: string | null;
+  onOpenBuilder: () => void;
   onPickLocalTable: (table: {
     databaseId: string;
     documentId: string;
@@ -4691,8 +5199,28 @@ function AddSourceView({
           <DatabaseText k="integrations" />
         </div>
         <DatabaseSettingsRow
+          icon={<BuilderLogoMark className="size-4" />}
+          label="Builder"
+          value={
+            builderSpaceLabel ?? (builderConfigured ? "Connected" : undefined)
+          }
+          onClick={canEdit ? onOpenBuilder : undefined}
+          disabled={!canEdit}
+        />
+        <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
           label="Notion"
+          value="Coming soon"
+          disabled
+        />
+      </div>
+      <div className="grid min-w-0 gap-1.5">
+        <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <DatabaseText k="agentNativeApps" />
+        </div>
+        <DatabaseSettingsRow
+          icon={<IconTimeline className="size-4" />}
+          label="Analytics"
           value="Coming soon"
           disabled
         />
@@ -4706,11 +5234,17 @@ function SecondarySourceLeaf({
   source,
   canEdit,
   pending,
+  onAddDetails,
+  onAddItems,
+  onChooseFields,
   onDisconnect,
 }: {
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
+  onAddDetails: () => void;
+  onAddItems: () => void | Promise<void>;
+  onChooseFields: () => void;
   onDisconnect: () => void;
 }) {
   const db = useDatabaseT();
@@ -4736,12 +5270,22 @@ function SecondarySourceLeaf({
           </span>
         </div>
         <div className="min-w-0 break-words text-xs text-muted-foreground">
-          {`Federated · ${fieldCount} field${fieldCount === 1 ? "" : "s"}`}
+          {`${sourceRoleLabel(db, source, 0)} · ${fieldCount} field${
+            fieldCount === 1 ? "" : "s"
+          }`}
           {federation?.canonicalKey?.label
             ? ` · joined on ${federation.canonicalKey.label}`
             : ""}
         </div>
       </div>
+      <SourceRoleCard
+        source={source}
+        canEdit={canEdit}
+        pending={pending}
+        onAddDetails={onAddDetails}
+        onAddItems={onAddItems}
+        onChooseFields={onChooseFields}
+      />
       {federation ? (
         <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3 text-xs">
           <div className="font-medium">
@@ -4780,15 +5324,390 @@ function SecondarySourceLeaf({
   );
 }
 
+function sourceAddsDetails(source: ContentDatabaseSource | null | undefined) {
+  return source?.metadata.federation?.role === "secondary";
+}
+
+function sourceRoleLabel(
+  db: DatabaseT,
+  source: ContentDatabaseSource | null | undefined,
+  index: number,
+) {
+  if (sourceAddsDetails(source)) return db("addingDetails");
+  return index === 0 ? db("addingItems") : db("addingItems");
+}
+
+function detailsReasonText(
+  db: DatabaseT,
+  suggestion: SourceJoinSuggestion | null,
+) {
+  if (!suggestion) return db("recommendedWhenCollectionDescribesExistingRows");
+  const percent = Math.round(suggestion.confidence * 100);
+  return db("recommendedBecauseSampledRowsMatchOn", {
+    field: suggestion.canonicalKey.label,
+    percent,
+  });
+}
+
+function findDetailsSource(
+  response: ContentDatabaseResponse,
+  candidate: PendingSourceCandidate,
+) {
+  return (
+    (response.sources ?? []).find((source) => {
+      if (!sourceAddsDetails(source)) return false;
+      if (candidate.existingSourceId)
+        return source.id === candidate.existingSourceId;
+      return (
+        source.sourceType === candidate.sourceType &&
+        source.sourceTable === candidate.sourceTable
+      );
+    }) ?? null
+  );
+}
+
+function SourceRelationshipChoice({
+  documentId,
+  candidate,
+  canEdit,
+  pending,
+  onAddDetails,
+  onAddItems,
+}: {
+  documentId: string;
+  candidate: PendingSourceCandidate;
+  canEdit: boolean;
+  pending: boolean;
+  onAddDetails: () => void;
+  onAddItems: () => void | Promise<void>;
+}) {
+  const db = useDatabaseT();
+  const suggestionQuery = useSuggestSourceJoinKey({
+    documentId,
+    candidateSourceType: candidate.sourceType,
+    candidateSourceTable: candidate.sourceTable,
+    enabled: true,
+  });
+  const suggestion = suggestionQuery.data?.suggestion ?? null;
+  const detailsRecommended = Boolean(suggestion);
+  return (
+    <div className="grid min-w-0 gap-2">
+      <button
+        type="button"
+        disabled={!canEdit || pending}
+        className={cn(
+          "grid min-w-0 gap-1 rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
+          detailsRecommended
+            ? "border-foreground/30 bg-muted/30"
+            : "border-border bg-background hover:bg-muted/50",
+        )}
+        onClick={onAddDetails}
+      >
+        <span className="grid min-w-0 gap-1">
+          <span className="break-words text-sm font-medium leading-snug">
+            <DatabaseText k="addDetailsToExistingItems" />
+          </span>
+          {detailsRecommended ? (
+            <span className="w-fit rounded-full bg-foreground px-2 py-0.5 text-[10px] font-medium text-background">
+              <DatabaseText k="recommended" />
+            </span>
+          ) : null}
+        </span>
+        <span className="break-words text-xs text-muted-foreground">
+          {suggestionQuery.isLoading
+            ? db("checkingForMatchingFields")
+            : detailsReasonText(db, suggestion)}
+        </span>
+      </button>
+      <button
+        type="button"
+        disabled={!canEdit || pending}
+        className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
+        onClick={onAddItems}
+      >
+        <span className="truncate text-sm font-medium">
+          <DatabaseText k="addMoreItemsToThisList" />
+        </span>
+        <span className="break-words text-xs text-muted-foreground">
+          <DatabaseText k="bestWhenSameKindAdditionalRows" />
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function SourceRoleCard({
+  source,
+  canAddDetails = true,
+  canEdit,
+  pending,
+  onAddDetails,
+  onAddItems,
+  onChooseFields,
+}: {
+  source: ContentDatabaseSource;
+  canAddDetails?: boolean;
+  canEdit: boolean;
+  pending: boolean;
+  onAddDetails: () => void;
+  onAddItems: () => void | Promise<void>;
+  onChooseFields: () => void;
+}) {
+  const db = useDatabaseT();
+  const addingDetails = sourceAddsDetails(source);
+  return (
+    <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3">
+      <div className="grid min-w-0 gap-0.5">
+        <div className="text-xs font-medium">
+          <DatabaseText k="sourceRole" />
+        </div>
+        <div className="break-words text-xs text-muted-foreground">
+          {addingDetails
+            ? db("addingDetailsMatchedOn", {
+                field:
+                  source.metadata.federation?.canonicalKey?.label ??
+                  db("aField"),
+              })
+            : db("addingItemsAsRows")}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-wrap gap-2">
+        {addingDetails ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              disabled={!canEdit || pending}
+              onClick={onChooseFields}
+            >
+              <DatabaseText k="chooseFields" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              disabled={!canEdit || pending}
+              onClick={onAddItems}
+            >
+              <DatabaseText k="addAsItems" />
+            </Button>
+          </>
+        ) : canAddDetails ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            disabled={!canEdit || pending}
+            onClick={onAddDetails}
+          >
+            <DatabaseText k="addDetailsInstead" />
+          </Button>
+        ) : (
+          <div className="break-words text-xs text-muted-foreground">
+            <DatabaseText k="addAnotherItemSourceBeforeChangingToDetails" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const DETAIL_FIELD_NAME_HINTS = [
+  "name",
+  "title",
+  "bio",
+  "description",
+  "image",
+  "photo",
+  "avatar",
+  "url",
+  "handle",
+  "email",
+];
+
+function shouldPreselectDetailField(
+  field: ContentDatabaseSource["fields"][number],
+) {
+  const key = `${field.sourceFieldKey} ${field.sourceFieldLabel}`.toLowerCase();
+  if (
+    field.propertyId ||
+    field.mappingType === "system" ||
+    field.mappingType === "title"
+  ) {
+    return false;
+  }
+  if (/(\b|\.|_)(id|created|updated|published|rev)(\b|\.|_)/i.test(key)) {
+    return false;
+  }
+  return DETAIL_FIELD_NAME_HINTS.some((hint) => key.includes(hint));
+}
+
+function SourceDetailsFieldPicker({
+  documentId,
+  source,
+  canEdit,
+  pending,
+  onDone,
+}: {
+  documentId: string;
+  source: ContentDatabaseSource | null;
+  canEdit: boolean;
+  pending: boolean;
+  onDone: () => void;
+}) {
+  const db = useDatabaseT();
+  const addField = useAddContentDatabaseSourceFieldProperty(documentId);
+  const fields = useMemo(
+    () =>
+      (source?.fields ?? []).filter(
+        (field) =>
+          !field.propertyId &&
+          field.mappingType !== "system" &&
+          field.mappingType !== "title",
+      ),
+    [source],
+  );
+  const defaultSelectedIds = useMemo(
+    () =>
+      fields
+        .filter(shouldPreselectDetailField)
+        .slice(0, 8)
+        .map((field) => field.id),
+    [fields],
+  );
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setSelectedIds(defaultSelectedIds);
+  }, [defaultSelectedIds]);
+
+  if (!source) {
+    return (
+      <div className="min-w-0 break-words text-xs text-muted-foreground">
+        <DatabaseText k="thisSourceIsNoLongerConnected" />
+      </div>
+    );
+  }
+
+  const selected = new Set(selectedIds);
+  const toggleField = (fieldId: string) => {
+    setSelectedIds((current) =>
+      current.includes(fieldId)
+        ? current.filter((id) => id !== fieldId)
+        : [...current, fieldId],
+    );
+  };
+  const addSelected = async () => {
+    const sourceFieldIds = fields
+      .filter((field) => selected.has(field.id))
+      .map((field) => field.id);
+    if (sourceFieldIds.length === 0) {
+      onDone();
+      return;
+    }
+    try {
+      for (const sourceFieldId of sourceFieldIds) {
+        await addField.mutateAsync({ documentId, sourceFieldId });
+      }
+      toast.success(db("detailFieldsAdded"), {
+        description:
+          sourceFieldIds.length === 1
+            ? db("addedOneFieldFromSource")
+            : db("addedFieldsFromSource", { count: sourceFieldIds.length }),
+      });
+      onDone();
+    } catch (error) {
+      toast.error(db("fieldsWereNotAdded"), {
+        description: error instanceof Error ? error.message : db("tryAgain"),
+      });
+    }
+  };
+
+  return (
+    <div className="grid min-w-0 gap-3">
+      <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3">
+        <div className="truncate text-sm font-medium" title={source.sourceName}>
+          {source.sourceName}
+        </div>
+        <div className="break-words text-xs text-muted-foreground">
+          <DatabaseText k="pickDetailsBecomeColumns" />
+        </div>
+      </div>
+      {fields.length === 0 ? (
+        <div className="break-words text-xs text-muted-foreground">
+          <DatabaseText k="allAvailableDetailFieldsAlreadyVisible" />
+        </div>
+      ) : (
+        <div className="grid min-w-0 gap-1">
+          {fields.map((field) => (
+            <button
+              key={field.id}
+              type="button"
+              className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => toggleField(field.id)}
+            >
+              <span
+                className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded border",
+                  selected.has(field.id)
+                    ? "border-[#2383e2] bg-[#2383e2] text-white"
+                    : "border-muted-foreground/40 text-transparent",
+                )}
+              >
+                <IconCheck className="size-3" />
+              </span>
+              <span className="min-w-0 flex-1 truncate">
+                {field.sourceFieldLabel}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {field.sourceFieldType}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={addField.isPending}
+          onClick={onDone}
+        >
+          Done
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canEdit || pending || addField.isPending}
+          onClick={addSelected}
+        >
+          {addField.isPending ? (
+            <Spinner className="mr-1.5 size-3.5" />
+          ) : (
+            <IconPlus className="mr-1.5 size-3.5" />
+          )}
+          Add selected
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // A Builder space's data models, as drill-in rows. The attached model (if any)
 // is marked; selecting a row opens that model's leaf.
 function BuilderSpaceModelsView({
-  attachedModelName,
+  attachedModelNames,
   onOpenModel,
 }: {
-  attachedModelName: string | null;
+  attachedModelNames: string[];
   onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
+  const attachedModelNameSet = new Set(attachedModelNames);
   const db = useDatabaseT();
   const modelsQuery = useBuilderCmsModels(true);
   const models = modelsQuery.data?.models ?? [];
@@ -4860,15 +5779,15 @@ function BuilderSpaceModelsView({
     model.displayName.toLowerCase().includes(normalizedQuery) ||
     model.name.toLowerCase().includes(normalizedQuery);
   const filtered = models.filter(matchesQuery);
-  const attachedModels = filtered.filter(
-    (model) => attachedModelName === model.name,
+  const attachedModels = filtered.filter((model) =>
+    attachedModelNameSet.has(model.name),
   );
   const otherModels = filtered.filter(
-    (model) => attachedModelName !== model.name,
+    (model) => !attachedModelNameSet.has(model.name),
   );
 
   const renderRow = (model: BuilderCmsModelSummary) => {
-    const isAttached = attachedModelName === model.name;
+    const isAttached = attachedModelNameSet.has(model.name);
     return (
       <button
         key={model.id}
@@ -4933,12 +5852,38 @@ function BuilderSpaceModelsView({
   );
 }
 
+const BUILDER_DEV_EFFECT_LABEL: Record<
+  BuilderCmsWriteEffect,
+  { pending: string; done: string }
+> = {
+  create_draft: { pending: "Create draft", done: "Created draft" },
+  update_in_place: { pending: "Update entry", done: "Updated entry" },
+  autosave: { pending: "Save draft", done: "Saved draft" },
+  publish: { pending: "Publish", done: "Published" },
+  unpublish: { pending: "Unpublish", done: "Unpublished" },
+};
+
+function changeSetDisplayTitle(changeSet: ContentDatabaseSourceChangeSet) {
+  const titleChange = changeSet.fieldChanges.find(
+    (field) => field.localFieldKey === "title",
+  );
+  if (
+    typeof titleChange?.proposedValue === "string" &&
+    titleChange.proposedValue.trim()
+  ) {
+    return titleChange.proposedValue.trim();
+  }
+  return changeSet.summary;
+}
+
 function SourceChangeSetReviewCard({
   changeSet,
   source,
+  showDetails = false,
 }: {
   changeSet: ContentDatabaseSourceChangeSet;
   source: ContentDatabaseSource;
+  showDetails?: boolean;
 }) {
   const db = useDatabaseT();
   const latestReview =
@@ -4948,6 +5893,49 @@ function SourceChangeSetReviewCard({
   const dryRunStatus = latestExecution
     ? builderExecutionDryRunStatus(latestExecution.payload)
     : null;
+  const effect = resolveBuilderCmsWriteEffect({ source, changeSet });
+  const effectLabel = BUILDER_DEV_EFFECT_LABEL[effect];
+  const title = changeSetDisplayTitle(changeSet);
+
+  // A change that already pushed is done — collapse it to a one-line
+  // confirmation instead of repeating the full diff + gate ceremony.
+  if (changeSet.state === "applied") {
+    // Report the SUCCEEDED execution (a later blocked/stale gate row could
+    // otherwise overwrite the pushed result). Use the effect that actually ran
+    // (recorded in the payload) — the live resolver would now report
+    // update_in_place because the row is matched to its new entry, mislabeling
+    // a completed create as an update.
+    const succeededExecution =
+      [...changeSet.executions]
+        .reverse()
+        .find((execution) => execution.state === "succeeded") ??
+      latestExecution;
+    const appliedEffect =
+      (succeededExecution &&
+        builderExecutionEffect(succeededExecution.payload)) ??
+      effect;
+    const when =
+      formatRelativeSyncTime(
+        succeededExecution?.updatedAt ?? changeSet.updatedAt,
+      ) ?? formatSourceTimestamp(changeSet.updatedAt);
+    return (
+      <div className="flex min-w-0 items-start gap-2 rounded-md border border-border/70 px-2 py-1.5 text-xs">
+        <IconCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        <div className="min-w-0">
+          <div className="min-w-0 break-words font-medium leading-snug">
+            {title}
+          </div>
+          <div className="text-muted-foreground">
+            {BUILDER_DEV_EFFECT_LABEL[appliedEffect].done} · pushed {when}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const blockers = latestExecution
+    ? builderExecutionBlockers(latestExecution.payload)
+    : [];
 
   return (
     <div className="min-w-0 rounded-md border border-border/70 px-2 py-1.5">
@@ -4956,128 +5944,93 @@ function SourceChangeSetReviewCard({
           className="min-w-0 break-words font-medium leading-snug"
           title={changeSet.summary}
         >
-          {changeSet.summary}
+          {title}
         </span>
-        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {changeSet.state.replace(/_/g, " ")}
-        </span>
-      </div>
-
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-        <span className={sourceRiskClass(changeSet.riskLevel)}>
-          {changeSet.riskLevel} risk
-        </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {changeSet.conflictState === "source_changed"
-            ? "source changed"
-            : "no conflict"}
-        </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {sourcePushModeLabel(changeSet.pushMode)}
-        </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {changeSet.localOnly ? "local-only" : "external write"}
+        <span className="shrink-0 rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          {effectLabel.pending}
         </span>
       </div>
 
-      <div className="mt-2 grid min-w-0 gap-1.5">
-        {changeSet.fieldChanges.slice(0, 3).map((field) => (
-          <div
-            key={`${changeSet.id}-${field.localFieldKey}`}
-            className="min-w-0 rounded border border-border/60 bg-muted/20 p-1.5 text-xs"
-          >
-            <div className="font-medium">
-              {field.propertyName ?? field.sourceFieldKey}
-            </div>
-            <div className="mt-1 grid min-w-0 gap-1 text-muted-foreground">
-              <div className="min-w-0 break-words">
-                Current: {sourceValueText(field.currentValue)}
-              </div>
-              <div className="min-w-0 break-words">
-                Proposed: {sourceValueText(field.proposedValue)}
-              </div>
-            </div>
-          </div>
-        ))}
-        {changeSet.fieldChanges.length > 3 ? (
-          <div className="text-xs text-muted-foreground">
-            +{changeSet.fieldChanges.length - 3} more field changes
-          </div>
-        ) : null}
-        {changeSet.bodyChange ? (
-          <div className="rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
-            <div className="font-medium">{changeSet.bodyChange.summary}</div>
-            <div className="mt-1 text-muted-foreground">
-              <DatabaseText k="bodyDiff" />
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="mt-2 break-words text-xs text-muted-foreground">
-        {changeSet.riskReasons.join(", ")}
-        {" • "}
-        {source.capabilities.liveWritesEnabled
-          ? "live writes enabled"
-          : "live writes disabled"}
-        {" • "}
-        {formatSourceTimestamp(changeSet.updatedAt)}
-      </div>
-
-      {latestReview ? (
-        <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs text-muted-foreground">
-          {latestReview.decision} by {latestReview.reviewerEmail}
-          {" • "}
-          {formatSourceTimestamp(latestReview.createdAt)}
+      {changeSet.riskLevel !== "low" ||
+      changeSet.conflictState === "source_changed" ||
+      !changeSet.localOnly ? (
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+          {changeSet.riskLevel !== "low" ? (
+            <span className={sourceRiskClass(changeSet.riskLevel)}>
+              {changeSet.riskLevel} risk
+            </span>
+          ) : null}
+          {changeSet.conflictState === "source_changed" ? (
+            <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              source changed
+            </span>
+          ) : null}
+          {!changeSet.localOnly ? (
+            <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+              external write
+            </span>
+          ) : null}
         </div>
       ) : null}
 
-      {latestExecution ? (
-        <div className="mt-2 rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="font-medium">
-              <DatabaseText k="executionGate" />
-            </span>
-            <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-              {latestExecution.state.replace(/_/g, " ")}
-            </span>
-          </div>
-          <div className="mt-1 break-words text-muted-foreground">
-            {latestExecution.summary}
-          </div>
-          {builderExecutionRequestLine(latestExecution.payload) ? (
-            <div className="mt-1 break-words text-muted-foreground">
-              Would call {builderExecutionRequestLine(latestExecution.payload)}
+      <div className="mt-1.5 text-xs text-muted-foreground">
+        {changeSet.fieldChanges.length} field change
+        {changeSet.fieldChanges.length === 1 ? "" : "s"}
+        {changeSet.bodyChange ? " · body diff" : ""} · “Review changes” to see
+        the diff
+      </div>
+
+      {blockers.length > 0 ? (
+        <div className="mt-2 grid gap-1 text-xs text-amber-700 dark:text-amber-300">
+          {blockers.slice(0, 2).map((blocker) => (
+            <div key={blocker} className="break-words">
+              Blocked: {blocker}
             </div>
-          ) : null}
-          {builderExecutionBlockers(latestExecution.payload).length > 0 ? (
-            <div className="mt-1 grid gap-1 text-muted-foreground">
-              {builderExecutionBlockers(latestExecution.payload)
-                .slice(0, 2)
-                .map((blocker) => (
-                  <div key={blocker} className="break-words">
-                    Blocked: {blocker}
-                  </div>
-                ))}
-            </div>
-          ) : null}
-          {dryRunStatus ? (
-            <div className="mt-1 break-words text-muted-foreground">
-              Dry run {dryRunStatus.status}
-              {dryRunStatus.validatedAt
-                ? ` • ${formatSourceTimestamp(dryRunStatus.validatedAt)}`
-                : ""}
-            </div>
-          ) : null}
-          {latestExecution.lastError ? (
-            <div className="mt-1 break-words text-destructive">
-              {latestExecution.lastError}
-            </div>
-          ) : null}
-          <div className="mt-1 break-all text-muted-foreground">
-            {latestExecution.idempotencyKey}
-          </div>
+          ))}
         </div>
+      ) : null}
+      {latestExecution?.lastError ? (
+        <div className="mt-2 break-words text-xs text-destructive">
+          {latestExecution.lastError}
+        </div>
+      ) : null}
+
+      {showDetails ? (
+        <details className="mt-2 text-xs text-muted-foreground">
+          <summary className="cursor-pointer text-[11px] hover:text-foreground">
+            Details
+          </summary>
+          <div className="mt-1 grid gap-1">
+            <div className="break-words">
+              {changeSet.riskReasons.join(", ")}
+              {" • "}
+              {formatSourceTimestamp(changeSet.updatedAt)}
+            </div>
+            {latestReview ? (
+              <div className="break-words">
+                {latestReview.decision} by {latestReview.reviewerEmail}
+                {" • "}
+                {formatSourceTimestamp(latestReview.createdAt)}
+              </div>
+            ) : null}
+            {latestExecution ? (
+              <>
+                <div className="break-words">
+                  Execution gate: {latestExecution.state.replace(/_/g, " ")}
+                  {dryRunStatus ? ` · dry run ${dryRunStatus.status}` : ""}
+                </div>
+                {builderExecutionRequestLine(latestExecution.payload) ? (
+                  <div className="break-words">
+                    {builderExecutionRequestLine(latestExecution.payload)}
+                  </div>
+                ) : null}
+                <div className="break-all">
+                  {latestExecution.idempotencyKey}
+                </div>
+              </>
+            ) : null}
+          </div>
+        </details>
       ) : null}
     </div>
   );
@@ -5142,6 +6095,19 @@ function builderExecutionRequestLine(payload: Record<string, unknown>) {
   return `${method} ${path}${queryText ? `?${queryText}` : ""}`;
 }
 
+function builderExecutionEffect(
+  payload: Record<string, unknown>,
+): BuilderCmsWriteEffect | null {
+  const effect = payload.effect;
+  return effect === "create_draft" ||
+    effect === "update_in_place" ||
+    effect === "autosave" ||
+    effect === "publish" ||
+    effect === "unpublish"
+    ? effect
+    : null;
+}
+
 function builderExecutionBlockers(payload: Record<string, unknown>) {
   const safety =
     payload.safety &&
@@ -5202,15 +6168,6 @@ function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
     return "Local fixture; Builder credentials unavailable";
   }
   return "Local fixture";
-}
-
-function sourcePushModeLabel(
-  mode: ContentDatabaseSource["metadata"]["pushMode"] | null | undefined,
-) {
-  if (mode === "autosave") return "Save revision / autosave";
-  if (mode === "draft") return "Draft";
-  if (mode === "publish") return "Publish";
-  return "No push";
 }
 
 function sourceFieldMappingForColumn(
@@ -7824,7 +8781,7 @@ function DatabaseTimelineView({
                   <div
                     key={`${dateKey}-header`}
                     className={cn(
-                      "sticky top-0 z-10 grid gap-0.5 border-r border-b border-border bg-background/95 px-2 py-2 backdrop-blur last:border-r-0",
+                      "sticky top-0 z-10 grid gap-0.5 border-r border-b border-border bg-background px-2 py-2 last:border-r-0",
                       !inMonth && "bg-muted/70",
                     )}
                     style={{ gridColumn: index + 1, gridRow: 1 }}
@@ -11370,6 +12327,7 @@ function DatabasePropertyHeader({
   property,
   documentId,
   source,
+  sources,
   canEdit,
   isDragging,
   dropSide,
@@ -11381,6 +12339,7 @@ function DatabasePropertyHeader({
   property: DocumentProperty;
   documentId: string;
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
   canEdit: boolean;
   isDragging: boolean;
   dropSide: DatabaseDropSide | null;
@@ -11427,6 +12386,7 @@ function DatabasePropertyHeader({
             property.definition.id,
           )}
           sourceAttached={!!source}
+          sources={sources}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">

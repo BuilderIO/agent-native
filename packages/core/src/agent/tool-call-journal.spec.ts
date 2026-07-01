@@ -6,14 +6,22 @@ import {
   findCompletedJournalEntry,
   isJournalEmpty,
 } from "./tool-call-journal.js";
-import type { AgentChatEvent } from "./types.js";
+import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
-function start(tool: string, input?: Record<string, string>): AgentChatEvent {
+function start(tool: string, input?: AgentToolInput): AgentChatEvent {
   return { type: "tool_start", tool, input: input ?? {} };
 }
 
-function done(tool: string, result: string): AgentChatEvent {
-  return { type: "tool_done", tool, result };
+function done(
+  tool: string,
+  result: string,
+  options?: {
+    input?: AgentToolInput;
+    isError?: boolean;
+    completedSideEffect?: boolean;
+  },
+): AgentChatEvent {
+  return { type: "tool_done", tool, result, ...options };
 }
 
 describe("classifyToolCallJournal", () => {
@@ -54,6 +62,23 @@ describe("classifyToolCallJournal", () => {
     expect(journal.completed[0].input).toEqual({ path: "a.ts" });
     expect(journal.interrupted).toHaveLength(1);
     expect(journal.interrupted[0].input).toEqual({ path: "b.ts" });
+  });
+
+  it("uses tool_done input to match the correct same-name start when available", () => {
+    const events: AgentChatEvent[] = [
+      start("readFile", { path: "a.ts" }),
+      start("readFile", { path: "b.ts" }),
+      done("readFile", "contents of b.ts", { input: { path: "b.ts" } }),
+      // a.ts never completed
+    ];
+
+    const journal = classifyToolCallJournal(events);
+
+    expect(journal.completed).toHaveLength(1);
+    expect(journal.completed[0].input).toEqual({ path: "b.ts" });
+    expect(journal.completed[0].result).toBe("contents of b.ts");
+    expect(journal.interrupted).toHaveLength(1);
+    expect(journal.interrupted[0].input).toEqual({ path: "a.ts" });
   });
 
   it("treats all tool calls as completed when every start has a done", () => {
@@ -105,6 +130,53 @@ describe("classifyToolCallJournal", () => {
   it("ignores a tool_done with no matching open start", () => {
     const events: AgentChatEvent[] = [done("ghost", "result with no start")];
     const journal = classifyToolCallJournal(events);
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted).toHaveLength(0);
+  });
+
+  it("does not classify failed tool_done events as completed writes", () => {
+    const events: AgentChatEvent[] = [
+      start("add-slide", { deckId: "deck-1", layout: "content" }),
+      done("add-slide", "Error running add-slide: Run aborted", {
+        isError: true,
+      }),
+    ];
+
+    const journal = classifyToolCallJournal(events);
+
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted).toHaveLength(0);
+  });
+
+  it("does not classify legacy blocked tool_done text as completed writes", () => {
+    const events: AgentChatEvent[] = [
+      start("add-slide", { deckId: "deck-1", layout: "content" }),
+      done(
+        "add-slide",
+        "Plan mode blocked `add-slide`. Switch to Act mode after the user approves the plan, then retry the action.",
+      ),
+      start("update-slide", { slideId: "slide-1" }),
+      done("update-slide", 'Error: Unknown tool "update-slide"'),
+    ];
+
+    const journal = classifyToolCallJournal(events);
+
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted).toHaveLength(0);
+  });
+
+  it("does not classify explicitly skipped tool_done events as completed writes", () => {
+    const events: AgentChatEvent[] = [
+      start("add-slide", { deckId: "deck-1", layout: "content" }),
+      done(
+        "add-slide",
+        "Skipped add-slide because the call was blocked by a guard.",
+        { completedSideEffect: false },
+      ),
+    ];
+
+    const journal = classifyToolCallJournal(events);
+
     expect(journal.completed).toHaveLength(0);
     expect(journal.interrupted).toHaveLength(0);
   });
@@ -210,6 +282,57 @@ describe("findCompletedJournalEntry", () => {
         { to: "c@example.com" },
         consumed,
       ),
+    ).toBeUndefined();
+  });
+
+  it("matches nested inputs regardless of object key insertion order", () => {
+    const journal = classifyToolCallJournal([
+      start("save-card", {
+        id: "card-1",
+        fields: { title: "Launch", priority: "high" },
+      }),
+      done("save-card", "saved"),
+    ]);
+
+    expect(
+      findCompletedJournalEntry(journal, "save-card", {
+        fields: { priority: "high", title: "Launch" },
+        id: "card-1",
+      })?.result,
+    ).toBe("saved");
+  });
+
+  it("does not match a tool call whose prior journal entry was an error", () => {
+    const journal = classifyToolCallJournal([
+      start("add-slide", { deckId: "deck-1", layout: "content" }),
+      done("add-slide", "Error running add-slide: Run aborted", {
+        isError: true,
+      }),
+    ]);
+
+    expect(
+      findCompletedJournalEntry(journal, "add-slide", {
+        deckId: "deck-1",
+        layout: "content",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("does not match different long inputs that share a truncated prefix", () => {
+    const sharedPrefix = "<section>".repeat(30);
+    const journal = classifyToolCallJournal([
+      start("add-slide", {
+        deckId: "deck-1",
+        html: `${sharedPrefix}<h1>First slide</h1>`,
+      }),
+      done("add-slide", "slide added"),
+    ]);
+
+    expect(
+      findCompletedJournalEntry(journal, "add-slide", {
+        deckId: "deck-1",
+        html: `${sharedPrefix}<h1>Second slide</h1>`,
+      }),
     ).toBeUndefined();
   });
 });

@@ -306,7 +306,7 @@ describe("plan comment thread UI model", () => {
     ).toEqual(["document-root"]);
   });
 
-  it("groups replies and exposes participant avatars for Figma-style pins", () => {
+  it("groups replies and exposes participant avatars for design-review pins", () => {
     const anchor = JSON.stringify({ x: 42, y: 24, sectionTitle: "Summary" });
     const root = comment("root", {
       authorEmail: "damian@example.com",

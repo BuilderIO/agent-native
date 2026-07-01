@@ -82,6 +82,15 @@ export { fetchHubServers } from "./hub-client.js";
 export { isMcpToolAllowedForRequest } from "./visibility.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 export {
+  configureScreenMemory,
+  queryScreenMemoryContext,
+  readScreenMemoryStatus,
+  type ScreenMemoryConfig,
+  type ScreenMemoryContextItem,
+  type ScreenMemoryQueryResult,
+  type ScreenMemoryStatus,
+} from "./screen-memory-local.js";
+export {
   MCP_ACTION_RESULT_MARKER,
   isMcpActionResult,
   type AgentMcpAppPayload,

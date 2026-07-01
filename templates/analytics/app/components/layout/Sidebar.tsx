@@ -20,6 +20,8 @@ import {
   IconEye,
   IconEyeOff,
   IconPlayerPlay,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
 import {
   useQuery,
@@ -28,7 +30,14 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  Fragment,
+} from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -49,6 +58,8 @@ type SidebarDashboard = {
   subviews?: DashboardSubview[];
   source: "static" | "sql";
   visibility?: Visibility;
+  /** Id of the dashboard this one nests under in the sidebar, if any. */
+  parentId?: string;
 };
 import {
   DevDatabaseLink,
@@ -120,6 +131,7 @@ const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
 const ANALYSIS_SORT_MODE_KEY = "analysis-sort-mode";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
 const ANALYSES_OPEN_KEY = "analytics-sidebar-analyses-open";
+const SIDEBAR_COLLAPSE_KEY = "analytics.sidebar.collapsed";
 const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
@@ -1023,6 +1035,7 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
+  parentId?: string;
 };
 
 async function fetchSqlDashboards(
@@ -1042,6 +1055,10 @@ async function fetchSqlDashboards(
           d.visibility === "org" || d.visibility === "public"
             ? (d.visibility as Visibility)
             : ("private" as Visibility),
+        parentId:
+          typeof d.parentId === "string" && d.parentId.trim().length > 0
+            ? d.parentId
+            : undefined,
       }));
   } catch {
     return [];
@@ -1232,6 +1249,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     const saved = localStorage.getItem("sidebar-width");
     return saved ? Math.max(180, Math.min(480, Number(saved))) : 256;
   });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const effectiveCollapsed = Boolean(sidebarCollapsed && !mobile);
   const isResizing = useRef(false);
   const [hiddenIds, setHiddenIds] = useState(() =>
     typeof window === "undefined" ? new Set<string>() : getHiddenDashboards(),
@@ -1433,6 +1459,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       visibility: d.visibility,
+      parentId: d.parentId,
     }));
     const all = [...staticItems, ...sqlItems];
     if (dashboardSortMode === "alphabetical") {
@@ -1470,12 +1497,54 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [visibleDashboards, dashFilter],
   );
 
+  // Group dashboards that declare a parentId beneath their parent. Nesting is
+  // intentionally one level deep: a dashboard only nests when its parent is
+  // itself top-level. Orphans (parent missing/filtered out), self-references,
+  // cycles, and deeper descendants all fall back to top level so nothing is
+  // ever hidden.
+  const dashboardChildren = useMemo<Map<string, SidebarDashboard[]>>(() => {
+    const byId = new Map(filteredDashboards.map((d) => [d.id, d]));
+    const hasValidParent = (d: SidebarDashboard) =>
+      !!d.parentId && d.parentId !== d.id && byId.has(d.parentId);
+    const byParent = new Map<string, SidebarDashboard[]>();
+    for (const d of filteredDashboards) {
+      if (!hasValidParent(d)) continue;
+      const parent = byId.get(d.parentId as string);
+      if (!parent || hasValidParent(parent)) continue;
+      const arr = byParent.get(d.parentId as string) ?? [];
+      arr.push(d);
+      byParent.set(d.parentId as string, arr);
+    }
+    return byParent;
+  }, [filteredDashboards]);
+
+  const topLevelDashboards = useMemo(() => {
+    const childIds = new Set<string>();
+    for (const arr of dashboardChildren.values())
+      for (const c of arr) childIds.add(c.id);
+    return filteredDashboards.filter((d) => !childIds.has(d.id));
+  }, [filteredDashboards, dashboardChildren]);
+
   const displayedDashboards = useMemo(
     () =>
       dashShowAll
-        ? filteredDashboards
-        : filteredDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
-    [filteredDashboards, dashShowAll],
+        ? topLevelDashboards
+        : topLevelDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
+    [topLevelDashboards, dashShowAll],
+  );
+
+  // The flattened id order exactly as rendered (each parent immediately
+  // followed by its nested children). Drag reordering must use this so the
+  // arrayMove indices match what the user sees; the raw `visibleDashboards`
+  // order interleaves children at their sorted positions and would move the
+  // wrong rows once a dashboard is nested.
+  const dashboardRenderOrderIds = useMemo(
+    () =>
+      topLevelDashboards.flatMap((d) => [
+        d.id,
+        ...(dashboardChildren.get(d.id) ?? []).map((c) => c.id),
+      ]),
+    [topLevelDashboards, dashboardChildren],
   );
 
   const handleDashboardDelete = useCallback(
@@ -1789,18 +1858,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
+      const ids = dashboardRenderOrderIds;
+      const oldIndex = ids.indexOf(active.id as string);
+      const newIndex = ids.indexOf(over.id as string);
+      if (oldIndex === -1 || newIndex === -1) return;
       setDashboardSortMode("manual");
-      setDashboardOrderState((prev) => {
-        const ids = prev.length > 0 ? prev : visibleDashboards.map((d) => d.id);
-        const oldIndex = ids.indexOf(active.id as string);
-        const newIndex = ids.indexOf(over.id as string);
-        if (oldIndex === -1 || newIndex === -1) return prev;
-        const newOrder = arrayMove(ids, oldIndex, newIndex);
-        setDashboardOrder(newOrder);
-        return newOrder;
-      });
+      const newOrder = arrayMove(ids, oldIndex, newIndex);
+      setDashboardOrder(newOrder);
+      setDashboardOrderState(newOrder);
     },
-    [setDashboardSortMode, visibleDashboards],
+    [setDashboardSortMode, dashboardRenderOrderIds],
   );
 
   const handleAnalysisDragEnd = useCallback(
@@ -1823,6 +1890,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
+      if (effectiveCollapsed) return;
       e.preventDefault();
       isResizing.current = true;
       const startX = e.clientX;
@@ -1854,441 +1922,614 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [sidebarWidth],
+    [effectiveCollapsed, sidebarWidth],
   );
 
   const isAdhocActive =
     location.pathname.startsWith("/adhoc") ||
     location.pathname.startsWith("/dashboards");
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSE_KEY,
+        sidebarCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures; the in-memory preference still works.
+    }
+  }, [sidebarCollapsed]);
+
+  const collapsedNavItems = [
+    {
+      icon: IconMessageCircle,
+      label: t("navigation.ask"),
+      href: "/ask",
+      active: location.pathname === "/ask",
+      onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
+        if (
+          location.pathname !== "/ask" &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.shiftKey &&
+          !event.altKey
+        ) {
+          event.preventDefault();
+          navigateWithAgentChatViewTransition(navigate, "/ask");
+        }
+      },
+    },
+    {
+      icon: IconPlayerPlay,
+      label: t("navigation.sessions"),
+      href: "/sessions",
+      active: location.pathname.startsWith("/sessions"),
+    },
+    {
+      icon: IconDatabase,
+      label: t("navigation.dataSources"),
+      href: "/data-sources",
+      active: location.pathname === "/data-sources",
+    },
+    {
+      icon: IconBook2,
+      label: t("navigation.dataDictionary"),
+      href: "/data-dictionary",
+      active: location.pathname.startsWith("/data-dictionary"),
+    },
+    {
+      icon: IconChartBar,
+      label: t("navigation.dashboards"),
+      href: "/dashboards",
+      active: isAdhocActive,
+    },
+    {
+      icon: IconReportAnalytics,
+      label: t("navigation.analyses"),
+      href: "/analyses",
+      active: location.pathname.startsWith("/analyses"),
+    },
+    {
+      icon: IconSettings,
+      label: t("navigation.settings"),
+      href: "/settings",
+      active: location.pathname === "/settings",
+    },
+  ];
+
   return (
     <div
-      className="relative flex h-screen min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground"
-      style={mobile ? undefined : { width: sidebarWidth }}
+      className="relative flex h-screen min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
+      style={
+        mobile ? undefined : { width: effectiveCollapsed ? 48 : sidebarWidth }
+      }
     >
-      {!mobile && (
+      {!mobile && !effectiveCollapsed && (
         <div
           onMouseDown={handleResizeStart}
           className="absolute end-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
         />
       )}
-      <div className="flex h-12 shrink-0 items-center border-b border-border px-4 lg:px-6">
-        <Link to="/" className="flex items-center gap-2 font-semibold">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-5 w-auto shrink-0 dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-5 w-auto shrink-0 dark:block"
-          />
-          <span className="text-lg font-bold tracking-tight">
-            {t("navigation.brand")}
-          </span>
-        </Link>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
-        <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
-          {/* Ask link */}
-          <Link
-            to="/ask"
-            onClick={(event) => {
-              if (
-                location.pathname !== "/ask" &&
-                !event.metaKey &&
-                !event.ctrlKey &&
-                !event.shiftKey &&
-                !event.altKey
-              ) {
-                event.preventDefault();
-                navigateWithAgentChatViewTransition(navigate, "/ask");
-              }
-            }}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname === "/ask"
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconMessageCircle className="h-4 w-4" />
-            {t("navigation.ask")}
-          </Link>
-
-          {/* Sessions link */}
-          <Link
-            to="/sessions"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname.startsWith("/sessions")
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconPlayerPlay className="h-4 w-4" />
-            {t("navigation.sessions")}
-          </Link>
-
-          {/* Data Sources link */}
-          <Link
-            to="/data-sources"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname === "/data-sources"
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconDatabase className="h-4 w-4" />
-            {t("navigation.dataSources")}
-          </Link>
-
-          {/* Data Dictionary link */}
-          <Link
-            to="/data-dictionary"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname.startsWith("/data-dictionary")
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconBook2 className="h-4 w-4" />
-            {t("navigation.dataDictionary")}
-          </Link>
-
-          {/* Dashboards section */}
-          <div className="group/section min-w-0 space-y-1">
-            <div
-              className={cn(
-                "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
-                isAdhocActive
-                  ? "text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50",
-              )}
-            >
-              <button
-                type="button"
-                onClick={toggleDashOpen}
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
-                aria-expanded={dashOpen}
-              >
-                <IconChartBar className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">
-                  {t("navigation.dashboards")}
-                </span>
-              </button>
-              <SidebarSectionSettingsPopover
-                label={t("navigation.dashboards")}
-                sortMode={dashboardSortMode}
-                onSortModeChange={setDashboardSortMode}
-                sharedOnly={dashFilter === "org"}
-                onSharedOnlyChange={(checked) =>
-                  setDashFilter(checked ? "org" : "all")
-                }
-              />
-              <button
-                type="button"
-                onClick={toggleDashOpen}
-                className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
-                aria-label={
-                  dashOpen
-                    ? t("sidebar.collapseDashboards")
-                    : t("sidebar.expandDashboards")
-                }
-              >
-                <IconChevronDown
-                  className={cn(
-                    "h-3.5 w-3.5 shrink-0 transition-transform",
-                    !dashOpen && "-rotate-90",
-                  )}
-                />
-              </button>
-            </div>
-
-            {dashOpen && (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDashboardDragEnd}
-              >
-                <SortableContext
-                  items={displayedDashboards.map((d) => d.id)}
-                  strategy={verticalListSortingStrategy}
+      {effectiveCollapsed ? (
+        <>
+          <div className="flex h-12 shrink-0 items-center justify-center border-b border-border px-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setSidebarCollapsed(false)}
+                  aria-label={t("sidebar.expandSidebar")}
+                  className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
                 >
-                  <div className="ms-4 min-w-0 space-y-0.5">
-                    {displayedDashboards.map((d) => (
-                      <SortableDashboardItem
-                        key={d.id}
-                        d={d}
-                        isActive={activeDashboardId === d.id}
-                        location={location}
-                        favoriteIds={favoriteIds}
-                        onToggleFavorite={toggleFavorite}
-                        onDelete={handleDashboardDelete}
-                        onRename={handleDashboardRename}
-                        onArchive={handleDashboardArchive}
-                        onSetVisibility={handleDashboardSetVisibility}
-                        onPrefetch={prefetchDashboard}
-                        views={allViewsMap[d.id]}
-                      />
-                    ))}
-                    {filteredDashboards.length > SIDEBAR_PREVIEW_COUNT && (
-                      <button
-                        onClick={() => setDashShowAll(!dashShowAll)}
-                        className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
-                      >
-                        {dashShowAll
-                          ? t("sidebar.showLess")
-                          : t("sidebar.showMore", {
-                              count:
-                                filteredDashboards.length -
-                                SIDEBAR_PREVIEW_COUNT,
-                            })}
-                      </button>
-                    )}
-                    {sqlDashboardsLoading &&
-                      sqlDashboards.length === 0 &&
-                      Array.from({ length: 3 }).map((_, i) => (
-                        <div
-                          key={`sql-skeleton-${i}`}
-                          className="flex items-center gap-2 px-3 py-1"
-                        >
-                          <Skeleton
-                            className={cn(
-                              "h-3.5 w-3.5 shrink-0 rounded-sm",
-                              SIDEBAR_SKELETON_CLASS,
-                            )}
-                          />
-                          <Skeleton
-                            className={cn(
-                              "h-3 rounded",
-                              SIDEBAR_SKELETON_CLASS,
-                            )}
-                            style={{ width: `${60 + ((i * 17) % 30)}%` }}
-                          />
-                        </div>
-                      ))}
-                    <NewDashboardDialog />
-                  </div>
-                </SortableContext>
-              </DndContext>
-            )}
+                  <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("sidebar.expandSidebar")}
+              </TooltipContent>
+            </Tooltip>
           </div>
 
-          {/* Analyses section */}
-          <div className="group/section min-w-0 space-y-1">
-            <div
-              className={cn(
-                "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
-                location.pathname.startsWith("/analyses")
-                  ? "text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50",
-              )}
-            >
-              <button
-                type="button"
-                onClick={toggleAnalysesOpen}
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
-                aria-expanded={analysesOpen}
-              >
-                <IconReportAnalytics className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">
-                  {t("navigation.analyses")}
-                </span>
-              </button>
-              <SidebarSectionSettingsPopover
-                label={t("navigation.analyses")}
-                sortMode={analysisSortMode}
-                onSortModeChange={setAnalysisSortMode}
-                sharedOnly={analysisFilter === "org"}
-                onSharedOnlyChange={(checked) =>
-                  setAnalysisFilter(checked ? "org" : "all")
-                }
-                showHidden={analysisHiddenFilter === "hidden"}
-                onShowHiddenChange={(checked) =>
-                  setAnalysisHiddenFilter(checked ? "hidden" : "visible")
-                }
-              />
-              <button
-                type="button"
-                onClick={toggleAnalysesOpen}
-                className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
-                aria-label={
-                  analysesOpen
-                    ? t("sidebar.collapseAnalyses")
-                    : t("sidebar.expandAnalyses")
-                }
-              >
-                <IconChevronDown
-                  className={cn(
-                    "h-3.5 w-3.5 shrink-0 transition-transform",
-                    !analysesOpen && "-rotate-90",
-                  )}
-                />
-              </button>
-            </div>
-
-            {analysesOpen && (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleAnalysisDragEnd}
-              >
-                <SortableContext
-                  items={displayedAnalyses.map((a) => a.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div className="ms-4 min-w-0 space-y-0.5">
-                    {displayedAnalyses.map((a) => (
-                      <SortableRow
-                        key={a.id}
-                        id={a.id}
-                        favoriteKey={`analysis:${a.id}`}
-                        name={a.name}
-                        href={`/analyses/${a.id}`}
-                        isActive={location.pathname === `/analyses/${a.id}`}
-                        favoriteIds={favoriteIds}
-                        onToggleFavorite={toggleFavorite}
-                        onDelete={() => handleAnalysisDelete(a)}
-                        onRename={(name) => handleAnalysisRename(a, name)}
-                        hidden={analysisHiddenFilter === "hidden"}
-                        onHide={
-                          analysisHiddenFilter === "hidden"
-                            ? undefined
-                            : () => handleAnalysisHide(a)
-                        }
-                        onUnhide={
-                          analysisHiddenFilter === "hidden"
-                            ? () => handleAnalysisUnhide(a)
-                            : undefined
-                        }
-                        visibility={a.visibility}
-                        onSetVisibility={(v) =>
-                          handleAnalysisSetVisibility(a, v)
-                        }
-                        onPrefetch={() => prefetchAnalysis(a.id)}
-                      />
-                    ))}
-                    {filteredAnalyses.length > SIDEBAR_PREVIEW_COUNT && (
-                      <button
-                        onClick={() => setAnalysesShowAll(!analysesShowAll)}
-                        className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
-                      >
-                        {analysesShowAll
-                          ? t("sidebar.showLess")
-                          : t("sidebar.showMore", {
-                              count:
-                                filteredAnalyses.length - SIDEBAR_PREVIEW_COUNT,
-                            })}
-                      </button>
-                    )}
-                    {analysesLoading &&
-                      sortedAnalyses.length === 0 &&
-                      Array.from({ length: 3 }).map((_, i) => (
-                        <div
-                          key={`analysis-skeleton-${i}`}
-                          className="flex items-center gap-2 px-3 py-1"
-                        >
-                          <Skeleton
-                            className={cn(
-                              "h-3.5 w-3.5 shrink-0 rounded-sm",
-                              SIDEBAR_SKELETON_CLASS,
-                            )}
-                          />
-                          <Skeleton
-                            className={cn(
-                              "h-3 rounded",
-                              SIDEBAR_SKELETON_CLASS,
-                            )}
-                            style={{ width: `${60 + ((i * 17) % 30)}%` }}
-                          />
-                        </div>
-                      ))}
-                    {!analysesLoading && sortedAnalyses.length === 0 && (
-                      <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
-                        {t("sidebar.noAnalysesYet")}
-                      </p>
-                    )}
-                    <NewAnalysisDialog />
-                  </div>
-                </SortableContext>
-              </DndContext>
-            )}
-          </div>
-        </nav>
-
-        <div className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
-          <nav className="grid min-w-0 items-start space-y-1 pb-1">
-            {bottomItems.map((item) => {
+          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
+            {collapsedNavItems.map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.href;
               return (
-                <Link
-                  key={item.href}
-                  to={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {t(item.labelKey)}
-                </Link>
+                <Tooltip key={item.href}>
+                  <TooltipTrigger asChild>
+                    <Link
+                      to={item.href}
+                      onClick={item.onClick}
+                      aria-label={item.label}
+                      className={cn(
+                        "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                        item.active
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{item.label}</TooltipContent>
+                </Tooltip>
               );
             })}
           </nav>
-
-          <div className="min-w-0 border-t border-border/70">
-            <ExtensionsSidebarSection />
+        </>
+      ) : (
+        <>
+          <div className="flex h-12 shrink-0 items-center border-b border-border px-4 lg:px-6">
+            <Link
+              to="/"
+              className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
+            >
+              <img
+                src={appPath("/agent-native-icon-light.svg")}
+                alt=""
+                aria-hidden="true"
+                className="block h-5 w-auto shrink-0 dark:hidden"
+              />
+              <img
+                src={appPath("/agent-native-icon-dark.svg")}
+                alt=""
+                aria-hidden="true"
+                className="hidden h-5 w-auto shrink-0 dark:block"
+              />
+              <span className="text-lg font-bold tracking-tight">
+                {t("navigation.brand")}
+              </span>
+            </Link>
+            {!mobile && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarCollapsed(true)}
+                    aria-label={t("sidebar.collapseSidebar")}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+                  >
+                    <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  {t("sidebar.collapseSidebar")}
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
+            <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
+              {/* Ask link */}
+              <Link
+                to="/ask"
+                onClick={(event) => {
+                  if (
+                    location.pathname !== "/ask" &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    navigateWithAgentChatViewTransition(navigate, "/ask");
+                  }
+                }}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  location.pathname === "/ask"
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <IconMessageCircle className="h-4 w-4" />
+                {t("navigation.ask")}
+              </Link>
 
-          <div className="space-y-2 border-t border-border/70 pt-2">
-            <OrgSwitcher />
-            <TooltipProvider delayDuration={200}>
-              <div className="flex items-center gap-1">
-                <DevDatabaseLink />
-                <FeedbackButton className="min-w-0 flex-1" />
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() =>
-                          window.dispatchEvent(
-                            new CustomEvent("analytics:open-command-palette"),
-                          )
-                        }
-                        aria-label={t("sidebar.search")}
-                        className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                      >
-                        <IconSearch className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>
-                        {t("sidebar.searchShortcut", {
-                          shortcut: `${shortcutModifierLabel()}+K`,
-                        })}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <LanguagePicker
-                    variant="icon"
-                    label={t("settings.languageLabel")}
-                    className="[&_[data-language-picker-trigger]]:rounded-lg [&_[data-language-picker-trigger]]:border-0 [&_[data-language-picker-trigger]]:bg-transparent [&_[data-language-picker-trigger]]:text-muted-foreground [&_[data-language-picker-trigger]]:hover:bg-sidebar-accent/50 [&_[data-language-picker-trigger]]:hover:text-primary"
+              {/* Sessions link */}
+              <Link
+                to="/sessions"
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  location.pathname.startsWith("/sessions")
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <IconPlayerPlay className="h-4 w-4" />
+                {t("navigation.sessions")}
+              </Link>
+
+              {/* Data Sources link */}
+              <Link
+                to="/data-sources"
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  location.pathname === "/data-sources"
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <IconDatabase className="h-4 w-4" />
+                {t("navigation.dataSources")}
+              </Link>
+
+              {/* Data Dictionary link */}
+              <Link
+                to="/data-dictionary"
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  location.pathname.startsWith("/data-dictionary")
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <IconBook2 className="h-4 w-4" />
+                {t("navigation.dataDictionary")}
+              </Link>
+
+              {/* Dashboards section */}
+              <div className="group/section min-w-0 space-y-1">
+                <div
+                  className={cn(
+                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    isAdhocActive
+                      ? "text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={toggleDashOpen}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
+                    aria-expanded={dashOpen}
+                  >
+                    <IconChartBar className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("navigation.dashboards")}
+                    </span>
+                  </button>
+                  <SidebarSectionSettingsPopover
+                    label={t("navigation.dashboards")}
+                    sortMode={dashboardSortMode}
+                    onSortModeChange={setDashboardSortMode}
+                    sharedOnly={dashFilter === "org"}
+                    onSharedOnlyChange={(checked) =>
+                      setDashFilter(checked ? "org" : "all")
+                    }
                   />
+                  <button
+                    type="button"
+                    onClick={toggleDashOpen}
+                    className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                    aria-label={
+                      dashOpen
+                        ? t("sidebar.collapseDashboards")
+                        : t("sidebar.expandDashboards")
+                    }
+                  >
+                    <IconChevronDown
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0 transition-transform",
+                        !dashOpen && "-rotate-90",
+                      )}
+                    />
+                  </button>
                 </div>
+
+                {dashOpen && (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDashboardDragEnd}
+                  >
+                    <SortableContext
+                      items={displayedDashboards.flatMap((d) => [
+                        d.id,
+                        ...(dashboardChildren.get(d.id) ?? []).map((c) => c.id),
+                      ])}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="ms-4 min-w-0 space-y-0.5">
+                        {displayedDashboards.map((d) => {
+                          const children = dashboardChildren.get(d.id) ?? [];
+                          return (
+                            <Fragment key={d.id}>
+                              <SortableDashboardItem
+                                d={d}
+                                isActive={activeDashboardId === d.id}
+                                location={location}
+                                favoriteIds={favoriteIds}
+                                onToggleFavorite={toggleFavorite}
+                                onDelete={handleDashboardDelete}
+                                onRename={handleDashboardRename}
+                                onArchive={handleDashboardArchive}
+                                onSetVisibility={handleDashboardSetVisibility}
+                                onPrefetch={prefetchDashboard}
+                                views={allViewsMap[d.id]}
+                              />
+                              {children.length > 0 && (
+                                <div className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
+                                  {children.map((child) => (
+                                    <SortableDashboardItem
+                                      key={child.id}
+                                      d={child}
+                                      isActive={activeDashboardId === child.id}
+                                      location={location}
+                                      favoriteIds={favoriteIds}
+                                      onToggleFavorite={toggleFavorite}
+                                      onDelete={handleDashboardDelete}
+                                      onRename={handleDashboardRename}
+                                      onArchive={handleDashboardArchive}
+                                      onSetVisibility={
+                                        handleDashboardSetVisibility
+                                      }
+                                      onPrefetch={prefetchDashboard}
+                                      views={allViewsMap[child.id]}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                        {topLevelDashboards.length > SIDEBAR_PREVIEW_COUNT && (
+                          <button
+                            onClick={() => setDashShowAll(!dashShowAll)}
+                            className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                          >
+                            {dashShowAll
+                              ? t("sidebar.showLess")
+                              : t("sidebar.showMore", {
+                                  count:
+                                    topLevelDashboards.length -
+                                    SIDEBAR_PREVIEW_COUNT,
+                                })}
+                          </button>
+                        )}
+                        {sqlDashboardsLoading &&
+                          sqlDashboards.length === 0 &&
+                          Array.from({ length: 3 }).map((_, i) => (
+                            <div
+                              key={`sql-skeleton-${i}`}
+                              className="flex items-center gap-2 px-3 py-1"
+                            >
+                              <Skeleton
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0 rounded-sm",
+                                  SIDEBAR_SKELETON_CLASS,
+                                )}
+                              />
+                              <Skeleton
+                                className={cn(
+                                  "h-3 rounded",
+                                  SIDEBAR_SKELETON_CLASS,
+                                )}
+                                style={{ width: `${60 + ((i * 17) % 30)}%` }}
+                              />
+                            </div>
+                          ))}
+                        <NewDashboardDialog />
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                )}
               </div>
-            </TooltipProvider>
+
+              {/* Analyses section */}
+              <div className="group/section min-w-0 space-y-1">
+                <div
+                  className={cn(
+                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    location.pathname.startsWith("/analyses")
+                      ? "text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={toggleAnalysesOpen}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
+                    aria-expanded={analysesOpen}
+                  >
+                    <IconReportAnalytics className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("navigation.analyses")}
+                    </span>
+                  </button>
+                  <SidebarSectionSettingsPopover
+                    label={t("navigation.analyses")}
+                    sortMode={analysisSortMode}
+                    onSortModeChange={setAnalysisSortMode}
+                    sharedOnly={analysisFilter === "org"}
+                    onSharedOnlyChange={(checked) =>
+                      setAnalysisFilter(checked ? "org" : "all")
+                    }
+                    showHidden={analysisHiddenFilter === "hidden"}
+                    onShowHiddenChange={(checked) =>
+                      setAnalysisHiddenFilter(checked ? "hidden" : "visible")
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={toggleAnalysesOpen}
+                    className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                    aria-label={
+                      analysesOpen
+                        ? t("sidebar.collapseAnalyses")
+                        : t("sidebar.expandAnalyses")
+                    }
+                  >
+                    <IconChevronDown
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0 transition-transform",
+                        !analysesOpen && "-rotate-90",
+                      )}
+                    />
+                  </button>
+                </div>
+
+                {analysesOpen && (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleAnalysisDragEnd}
+                  >
+                    <SortableContext
+                      items={displayedAnalyses.map((a) => a.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="ms-4 min-w-0 space-y-0.5">
+                        {displayedAnalyses.map((a) => (
+                          <SortableRow
+                            key={a.id}
+                            id={a.id}
+                            favoriteKey={`analysis:${a.id}`}
+                            name={a.name}
+                            href={`/analyses/${a.id}`}
+                            isActive={location.pathname === `/analyses/${a.id}`}
+                            favoriteIds={favoriteIds}
+                            onToggleFavorite={toggleFavorite}
+                            onDelete={() => handleAnalysisDelete(a)}
+                            onRename={(name) => handleAnalysisRename(a, name)}
+                            hidden={analysisHiddenFilter === "hidden"}
+                            onHide={
+                              analysisHiddenFilter === "hidden"
+                                ? undefined
+                                : () => handleAnalysisHide(a)
+                            }
+                            onUnhide={
+                              analysisHiddenFilter === "hidden"
+                                ? () => handleAnalysisUnhide(a)
+                                : undefined
+                            }
+                            visibility={a.visibility}
+                            onSetVisibility={(v) =>
+                              handleAnalysisSetVisibility(a, v)
+                            }
+                            onPrefetch={() => prefetchAnalysis(a.id)}
+                          />
+                        ))}
+                        {filteredAnalyses.length > SIDEBAR_PREVIEW_COUNT && (
+                          <button
+                            onClick={() => setAnalysesShowAll(!analysesShowAll)}
+                            className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                          >
+                            {analysesShowAll
+                              ? t("sidebar.showLess")
+                              : t("sidebar.showMore", {
+                                  count:
+                                    filteredAnalyses.length -
+                                    SIDEBAR_PREVIEW_COUNT,
+                                })}
+                          </button>
+                        )}
+                        {analysesLoading &&
+                          sortedAnalyses.length === 0 &&
+                          Array.from({ length: 3 }).map((_, i) => (
+                            <div
+                              key={`analysis-skeleton-${i}`}
+                              className="flex items-center gap-2 px-3 py-1"
+                            >
+                              <Skeleton
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0 rounded-sm",
+                                  SIDEBAR_SKELETON_CLASS,
+                                )}
+                              />
+                              <Skeleton
+                                className={cn(
+                                  "h-3 rounded",
+                                  SIDEBAR_SKELETON_CLASS,
+                                )}
+                                style={{ width: `${60 + ((i * 17) % 30)}%` }}
+                              />
+                            </div>
+                          ))}
+                        {!analysesLoading && sortedAnalyses.length === 0 && (
+                          <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
+                            {t("sidebar.noAnalysesYet")}
+                          </p>
+                        )}
+                        <NewAnalysisDialog />
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                )}
+              </div>
+            </nav>
+
+            <div className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
+              <nav className="grid min-w-0 items-start space-y-1 pb-1">
+                {bottomItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      to={item.href}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                        isActive
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-muted-foreground hover:bg-sidebar-accent/50",
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {t(item.labelKey)}
+                    </Link>
+                  );
+                })}
+              </nav>
+
+              <div className="min-w-0">
+                <ExtensionsSidebarSection />
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <OrgSwitcher />
+                <TooltipProvider delayDuration={200}>
+                  <div className="flex items-center gap-1">
+                    <DevDatabaseLink />
+                    <FeedbackButton className="min-w-0 flex-1" />
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() =>
+                              window.dispatchEvent(
+                                new CustomEvent(
+                                  "analytics:open-command-palette",
+                                ),
+                              )
+                            }
+                            aria-label={t("sidebar.search")}
+                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
+                          >
+                            <IconSearch className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p>
+                            {t("sidebar.searchShortcut", {
+                              shortcut: `${shortcutModifierLabel()}+K`,
+                            })}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <LanguagePicker
+                        variant="icon"
+                        label={t("settings.languageLabel")}
+                        className="[&_[data-language-picker-trigger]]:rounded-lg [&_[data-language-picker-trigger]]:border-0 [&_[data-language-picker-trigger]]:bg-transparent [&_[data-language-picker-trigger]]:text-muted-foreground [&_[data-language-picker-trigger]]:hover:bg-sidebar-accent/50 [&_[data-language-picker-trigger]]:hover:text-primary"
+                      />
+                    </div>
+                  </div>
+                </TooltipProvider>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

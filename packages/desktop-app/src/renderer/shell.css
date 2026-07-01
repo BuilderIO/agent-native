@@ -9,24 +9,24 @@
   --sidebar-width: 56px;
   --tabbar-height: 38px;
   --macos-traffic-light-safe-area: 140px;
-  --sidebar-bg: #0a0a0a;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
-  --item-hover-bg: rgba(255, 255, 255, 0.05);
+  --sidebar-bg: #1a1a1a;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --item-hover-bg: rgba(255, 255, 255, 0.07);
   --icon-inactive: #555;
   --icon-hover: rgba(255, 255, 255, 0.55);
   --icon-active: #ffffff;
   --label-inactive: #444;
   --label-hover: rgba(255, 255, 255, 0.4);
   --label-active: rgba(255, 255, 255, 0.7);
-  --shell-bg: #0a0a0a;
-  --separator: rgba(255, 255, 255, 0.06);
-  --tabbar-bg: #0e0e0e;
+  --shell-bg: #1a1a1a;
+  --separator: rgba(255, 255, 255, 0.1);
+  --tabbar-bg: #212121;
   --tab-bg: transparent;
-  --tab-active-bg: #1a1a1a;
-  --tab-hover-bg: rgba(255, 255, 255, 0.04);
+  --tab-active-bg: #262626;
+  --tab-hover-bg: rgba(255, 255, 255, 0.06);
   --tab-text: #666;
   --tab-active-text: #ccc;
-  --tab-close-hover: rgba(255, 255, 255, 0.1);
+  --tab-close-hover: rgba(255, 255, 255, 0.12);
 
   /* Transition */
   --ease: 0.15s ease;
@@ -1134,7 +1134,7 @@ body {
   gap: 6px;
   border: 0;
   border-radius: 7px;
-  background: #f4f4f5;
+  background: #f5f5f5;
   color: #09090b;
   cursor: pointer;
   font-size: 11px;

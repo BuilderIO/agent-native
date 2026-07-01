@@ -498,7 +498,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
 
         {!showCollapsedSidebar && (
           <>
-            <div className="shrink-0 space-y-1.5 border-t border-border px-2 py-1.5">
+            <div className="shrink-0 space-y-1.5 px-2 py-1.5">
               {shouldShowSidebarLink && (
                 <CaptureInstallInlineLink className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60">
                   <IconAppWindow className="h-4 w-4" />
@@ -508,11 +508,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               <SearchBar />
             </div>
 
-            <div className="shrink-0 border-t border-border px-1 py-1">
+            <div className="shrink-0 px-1 py-1">
               <ExtensionsSidebarSection />
             </div>
 
-            <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
+            <div className="shrink-0 space-y-2 px-3 py-2">
               <OrgSwitcher settingsPath="/settings/organization" />
               <DevDatabaseLink />
               <FeedbackButton />
@@ -584,7 +584,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               </Tooltip>
             </div>
           )}
-          <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
             <PageHeaderSlotProvider slot={headerSlot}>
               {children}
             </PageHeaderSlotProvider>

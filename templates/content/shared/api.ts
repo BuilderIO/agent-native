@@ -309,6 +309,29 @@ export interface ContentDatabaseMembership {
   databaseDocumentId: string;
   databaseTitle: string;
   position: number;
+  sourceId?: string | null;
+  bodyHydration?: ContentDatabaseBodyHydration;
+}
+
+export type ContentDatabaseBodyHydrationState =
+  | "pending"
+  | "hydrating"
+  | "hydrated"
+  | "error";
+
+export interface ContentDatabaseBodyHydration {
+  status: ContentDatabaseBodyHydrationState;
+  attemptedAt: string | null;
+  error: string | null;
+  version: string | null;
+}
+
+export interface ContentDatabaseBodyHydrationSummary {
+  pending: number;
+  hydrating: number;
+  hydrated: number;
+  error: number;
+  total: number;
 }
 
 export interface ContentDatabaseItem {
@@ -317,6 +340,7 @@ export interface ContentDatabaseItem {
   document: Document;
   position: number;
   properties: DocumentProperty[];
+  bodyHydration?: ContentDatabaseBodyHydration;
   sourceRecord?: ContentDatabaseSourceRow;
   // Federation (NEXT): the row's normalized join key, and the read-only columns
   // a secondary source contributes on top of it. Absent for non-federated rows.
@@ -351,6 +375,11 @@ export type ContentDatabaseSourcePushMode =
   | "autosave"
   | "draft"
   | "publish";
+export type ContentDatabaseSourceWriteMode =
+  | "read_only"
+  | "stage_only"
+  | "publish_updates";
+export type BuilderCmsPublicationTransitionIntent = "publish" | "unpublish";
 export const BUILDER_CMS_SAFE_WRITE_MODEL = "agent-native-blog-article-test";
 export type ContentDatabaseSourceChangeDirection = "outbound";
 export type ContentDatabaseSourceChangeState =
@@ -434,6 +463,12 @@ export interface ContentDatabaseSourceBodyChange {
   summary: string;
   currentExcerpt: string | null;
   proposedExcerpt: string | null;
+  currentHash?: string | null;
+  proposedHash?: string | null;
+  proposedContent?: string | null;
+  proposedBlocksJson?: string | null;
+  sidecarsJson?: string | null;
+  warnings?: string[];
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -545,6 +580,8 @@ export interface ContentDatabaseSource {
     pushMode?: ContentDatabaseSourcePushMode;
     pushModeLabel?: string | null;
     pushModeDescription?: string | null;
+    writeMode?: ContentDatabaseSourceWriteMode;
+    allowPublicationTransitions?: boolean;
     notes?: string | null;
     readMode?: "fixture" | "builder-api" | string | null;
     liveReadConfigured?: boolean;
@@ -558,6 +595,7 @@ export interface ContentDatabaseSource {
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
   changeSets: ContentDatabaseSourceChangeSet[];
+  bodyHydration?: ContentDatabaseBodyHydrationSummary;
 }
 
 export interface ContentDatabaseSourceStatusResponse {
@@ -608,6 +646,10 @@ export interface ContentDatabaseResponse {
   createdDocumentId?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
+  duplicatedItemIds?: string[];
+  duplicatedDocumentIds?: string[];
+  deletedItemIds?: string[];
+  deletedDocumentIds?: string[];
 }
 
 export interface ContentDatabaseUnavailableResponse {
@@ -663,6 +705,13 @@ export interface DuplicateDatabaseItemRequest {
   title?: string;
 }
 
+export interface DatabaseItemsBatchRequest {
+  databaseId?: string;
+  documentId?: string;
+  itemIds?: string[];
+  documentIds?: string[];
+}
+
 export interface MoveDatabaseItemRequest {
   itemId?: string;
   documentId?: string;
@@ -688,6 +737,21 @@ export interface AttachContentDatabaseSourceRequest {
   sourceType?: ContentDatabaseSourceType;
   sourceName?: string;
   sourceTable?: string;
+  /** "items" adds more rows; "details" joins fields onto existing rows. */
+  relationshipMode?: "items" | "details";
+  join?: ContentDatabaseSourceJoinRequest;
+  /** "add" attaches an additional row-union source; "replace" (default) re-links the primary. */
+  mode?: "replace" | "add";
+  limit?: number;
+  offset?: number;
+}
+
+export interface ChangeContentDatabaseSourceRoleRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceId: string;
+  /** "items" adds more rows; "details" joins fields onto existing rows. */
+  relationshipMode: "items" | "details";
   join?: ContentDatabaseSourceJoinRequest;
   limit?: number;
   offset?: number;
@@ -748,6 +812,7 @@ export interface SuggestSourceJoinKeyResponse {
 export interface RefreshContentDatabaseSourceRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
 }
 
 export interface DisconnectContentDatabaseSourceRequest {
@@ -762,14 +827,24 @@ export interface AddContentDatabaseSourceFieldPropertyRequest {
   sourceFieldId: string;
 }
 
+export interface BindContentDatabaseSourceFieldRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceFieldId: string;
+  // Target column to bind the source field to, or null to unbind.
+  propertyId: string | null;
+}
+
 export interface StageBuilderRevisionRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
 }
 
 export interface ReviewContentDatabaseSourceChangeSetRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetId: string;
   decision: "approve" | "reject";
   note?: string;
@@ -778,29 +853,74 @@ export interface ReviewContentDatabaseSourceChangeSetRequest {
 export interface PrepareBuilderSourceExecutionRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetId: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
 }
 
 export interface ValidateBuilderSourceExecutionRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetId: string;
   idempotencyKey?: string;
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
 }
 
 export interface ExecuteBuilderSourceExecutionRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetId: string;
   idempotencyKey?: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
+}
+
+export interface ExecuteBuilderSourceBatchTransition {
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
+}
+
+export interface ExecuteBuilderSourceBatchRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceId?: string;
+  changeSetIds?: string[];
+  maxConcurrency?: number;
+  transitions?: Record<string, ExecuteBuilderSourceBatchTransition>;
+}
+
+export type BuilderSourceBatchItemStatus = "succeeded" | "blocked" | "failed";
+
+export interface BuilderSourceBatchItemResult {
+  changeSetId: string;
+  status: BuilderSourceBatchItemStatus;
+  message?: string;
+}
+
+export interface ExecuteBuilderSourceBatchResponse {
+  summary: {
+    total: number;
+    succeeded: number;
+    blocked: number;
+    failed: number;
+  };
+  results: BuilderSourceBatchItemResult[];
 }
 
 export interface SetContentDatabaseSourceWriteModeRequest {
   databaseId?: string;
   documentId?: string;
-  liveWritesEnabled: boolean;
+  sourceId?: string;
+  liveWritesEnabled?: boolean;
+  writeMode?: ContentDatabaseSourceWriteMode;
+  allowPublicationTransitions?: boolean;
   allowedWriteModes?: Exclude<ContentDatabaseSourcePushMode, "none">[];
   allowDraftWrites?: boolean;
   allowPublishWrites?: boolean;
@@ -809,8 +929,18 @@ export interface SetContentDatabaseSourceWriteModeRequest {
 export interface PrepareBuilderSourceReviewRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
 }
+
+export type BuilderCmsWriteEffect =
+  | "autosave"
+  | "update_in_place"
+  | "create_draft"
+  | "publish"
+  | "unpublish";
 
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;
@@ -822,6 +952,8 @@ export interface ContentDatabaseSourceReviewRowSummary {
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
+  /** Resolved write effect for this row — drives plain-language UI labels. */
+  effect: BuilderCmsWriteEffect;
   execution: ContentDatabaseSourceExecution | null;
 }
 
@@ -854,4 +986,18 @@ export interface PrepareBuilderSourceReviewResponse {
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
   review: ContentDatabaseSourceReviewPayload;
+}
+
+export interface ProcessBuilderBodyHydrationRequest {
+  sourceId: string;
+  documentId?: string;
+  limit?: number;
+}
+
+export interface ProcessBuilderBodyHydrationResponse {
+  sourceId: string;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  remaining: number;
 }

@@ -37,7 +37,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -47,6 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
@@ -83,6 +83,7 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
@@ -112,10 +113,8 @@ export default function Index() {
   const designs = designsData?.designs ?? [];
 
   const filtered = search
-    ? designs.filter(
-        (d) =>
-          d.title.toLowerCase().includes(search.toLowerCase()) ||
-          d.projectType.toLowerCase().includes(search.toLowerCase()),
+    ? designs.filter((d) =>
+        d.title.toLowerCase().includes(search.toLowerCase()),
       )
     : designs;
   const selectedDesignCount = selectedDesignIds.size;
@@ -249,6 +248,7 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
+      pendingOptions?: { skipQuestions?: boolean },
     ) => {
       // Derive a short title from the prompt — first line, ~40 chars max,
       // word-boundary truncated. The full prompt still drives generation;
@@ -266,10 +266,11 @@ export default function Index() {
         files,
         title,
         designSystemId,
+        skipQuestions: pendingOptions?.skipQuestions,
         ...options,
       });
 
-      setShowNewPrompt(false);
+      setNewDesignHandoffPending(true);
       navigate(`/design/${id}`);
     },
     [createDesign, navigate, newDesignSystemId, resolveDefaultDesignSystemId],
@@ -377,14 +378,6 @@ export default function Index() {
     });
   }, [renameId, renameDraft, queryClient, updateMutation]);
 
-  const projectTypeBadge = (type: ProjectType) => {
-    return (
-      <Badge variant="secondary" className="text-[10px] font-medium">
-        {type === "prototype" ? t("home.prototype") : t("home.other")}
-      </Badge>
-    );
-  };
-
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return "";
     const d = new Date(dateStr);
@@ -398,8 +391,8 @@ export default function Index() {
   useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    <div className="flex items-center gap-3">
-      {designs.length > 0 ? (
+    designs.length > 0 ? (
+      <div className="flex items-center gap-3">
         <div className="relative">
           <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
@@ -409,23 +402,37 @@ export default function Index() {
             className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />
         </div>
-      ) : null}
-      <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
-        <IconPlus className="w-3.5 h-3.5" />
-        {t("home.newDesign")}
-      </Button>
-    </div>,
+        <Button
+          size="sm"
+          onClick={openNewDesign}
+          disabled={newDesignHandoffPending}
+          className="cursor-pointer"
+        >
+          {newDesignHandoffPending ? (
+            <Spinner className="w-3.5 h-3.5" />
+          ) : (
+            <IconPlus className="w-3.5 h-3.5" />
+          )}
+          {newDesignHandoffPending
+            ? t("home.openingDesign")
+            : t("home.newDesign")}
+        </Button>
+      </div>
+    ) : null,
   );
 
   return (
     <>
+      {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <main className="px-4 sm:px-6 py-6 sm:py-10">
         {isLoading ? (
           <LoadingSkeleton />
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
+            onStarterPrompt={(prompt) =>
+              handleSubmitPrompt(prompt, [], {}, { skipQuestions: true })
+            }
           />
         ) : (
           <>
@@ -490,11 +497,16 @@ export default function Index() {
               {/* New design card */}
               <button
                 onClick={openNewDesign}
+                disabled={newDesignHandoffPending}
                 className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
               >
                 <div className="aspect-video flex items-center justify-center bg-muted/30">
                   <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                    <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                    {newDesignHandoffPending ? (
+                      <Spinner className="w-6 h-6 text-muted-foreground/70" />
+                    ) : (
+                      <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                    )}
                   </div>
                 </div>
                 <div className="p-4">
@@ -518,7 +530,6 @@ export default function Index() {
                         <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
                           {design.title}
                         </h3>
-                        {projectTypeBadge(design.projectType)}
                       </div>
                       <div className="text-xs text-muted-foreground/70">
                         {formatDate(design.updatedAt || design.createdAt)}
@@ -625,6 +636,7 @@ export default function Index() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={setNewDesignSystemId}
+        loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
           navigate("/design-systems/setup");
@@ -809,6 +821,22 @@ function DesignThumbnail({ html }: { html: string | null }) {
   );
 }
 
+function NewDesignHandoffOverlay() {
+  const t = useT();
+  return (
+    <div
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-background/70 backdrop-blur-sm"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 text-sm font-medium text-foreground shadow-lg">
+        <Spinner className="size-4 text-muted-foreground" />
+        {t("home.openingDesign")}
+      </div>
+    </div>
+  );
+}
+
 function LoadingSkeleton() {
   return (
     <>
@@ -890,11 +918,10 @@ function EmptyState({
         ))}
       </div>
       <Button
-        variant="outline"
         onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
           onCreateDesign(e as React.MouseEvent<HTMLElement>)
         }
-        className="cursor-pointer"
+        className="cursor-pointer dark:bg-white dark:text-black dark:hover:bg-white/90"
       >
         <IconPlus className="w-4 h-4" />
         {t("home.newDesign")}

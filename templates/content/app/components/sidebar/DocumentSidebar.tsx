@@ -59,6 +59,10 @@ import {
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
+import {
+  getDocumentSidebarSections,
+  isDirectLocalDocument,
+} from "./document-sidebar-sections";
 import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
 import { NotionButton } from "./NotionButton";
 
@@ -112,22 +116,6 @@ function collectDocumentSubtreeIds(documents: Document[], rootId: string) {
     }
   }
   return deletedIds;
-}
-
-function isDirectLocalDocument(document: Pick<Document, "id" | "source">) {
-  return (
-    document.source?.mode === "local-files" &&
-    (document.id.startsWith("local-file:") ||
-      document.id.startsWith("local-folder:"))
-  );
-}
-
-function isImportedLocalSourceDocument(
-  document: Pick<Document, "id" | "source">,
-) {
-  return (
-    document.source?.mode === "local-files" && !isDirectLocalDocument(document)
-  );
 }
 
 type SidebarSectionId =
@@ -210,24 +198,23 @@ export function DocumentSidebar({
   );
 
   const treeDocuments = filterDocumentTreeDocuments(documents);
-  const localFileMode = documents.some(isDirectLocalDocument);
-  const localSourceDocuments = localFileMode
-    ? treeDocuments.filter(isDirectLocalDocument)
-    : treeDocuments.filter(isImportedLocalSourceDocument);
-  const databaseDocuments = localFileMode
-    ? treeDocuments.filter((document) => !isDirectLocalDocument(document))
-    : treeDocuments.filter(
-        (document) => !isImportedLocalSourceDocument(document),
-      );
+  const {
+    localFileMode,
+    localSourceDocuments,
+    databaseDocuments,
+    favorites,
+    showFavorites,
+  } = getDocumentSidebarSections(documents, treeDocuments);
   const localFileTree = buildDocumentTree(localSourceDocuments);
   const databaseTree = buildDocumentTree(databaseDocuments);
   const privateTree = databaseTree.filter((node) => node.visibility !== "org");
   const organizationTree = databaseTree.filter(
     (node) => node.visibility === "org",
   );
-  const favorites = documents.filter(
-    (d) => d.isFavorite && (localFileMode || !isImportedLocalSourceDocument(d)),
-  );
+  // Match the tree rows' right-side inset so favorite titles clip inside the
+  // visible sidebar instead of widening the scroll surface.
+  const favoriteRowWidth =
+    width === undefined ? undefined : Math.max(224, width - 8);
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
@@ -701,7 +688,7 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full w-12 border-e border-border bg-muted/30 items-center py-3 gap-1">
+      <div className="flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-muted/30 py-3 transition-[width] duration-200 ease-out">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -763,7 +750,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30 transition-[width] duration-200 ease-out",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -878,21 +865,29 @@ export function DocumentSidebar({
           ) : (
             <>
               {/* Favorites */}
-              {!localFileMode && favorites.length > 0 && (
-                <div className="mb-2">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+              {showFavorites && (
+                <div className="mb-2 min-w-0">
+                  <div className="flex min-w-0 items-center gap-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     <IconStar size={10} />
-                    {t("sidebar.favorites")}
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("sidebar.favorites")}
+                    </span>
                   </div>
                   {favorites.map((doc) => (
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-start rounded-md",
+                        "flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                       )}
+                      style={{
+                        width:
+                          favoriteRowWidth === undefined
+                            ? undefined
+                            : `${favoriteRowWidth}px`,
+                      }}
                       onClick={() => {
                         navigateToDocument(doc.id);
                         onNavigate?.();
@@ -962,14 +957,14 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
-      <div className="shrink-0 border-t border-border px-3 py-2">
+      <div className="shrink-0 px-3 py-2">
         <div className="space-y-1">
           {renderLocalFilesNavButton()}
           {renderSettingsNavButton()}
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border">
+      <div className="shrink-0">
         <ExtensionSlot
           id="content.sidebar.bottom"
           context={{
@@ -985,7 +980,7 @@ export function DocumentSidebar({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
+      <div className="shrink-0 space-y-2 px-3 py-2">
         <OrgSwitcher />
         {isCodeMode ? <DevDatabaseLink /> : null}
         <div className="flex items-center gap-1">

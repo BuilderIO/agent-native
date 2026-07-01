@@ -77,10 +77,10 @@ const deDE = {
   home: {
     hero: {
       badge: "Open-Source-Framework",
-      titleLine1: "Agentenanwendungen",
-      titleAccent: "in deinem Besitz",
+      titleLine1: "Das Framework für",
+      titleAccent: "agentic Apps",
       body: "Starte mit einer Chat-first app und dem app-agent loop. Füge actions, Screens, jobs und workflows hinzu, während dein agent wächst.",
-      primaryCta: "Mit einem Template starten",
+      primaryCta: "Mit dem Bauen starten",
       secondaryCta: "Docs ansehen",
     },
     code: {
@@ -90,6 +90,106 @@ const deDE = {
       frameworkComment:
         "Ein action treibt agent, UI, HTTP, MCP, A2A und CLI an.",
       frameworkDescription: "Sage Hallo aus dem lokalen app-agent loop.",
+    },
+    actionSurface: {
+      eyebrow: "Wirklich agentisch, nicht nur KI daneben",
+      title: "Eine Aktion öffnet die ganze App-Oberfläche",
+      body: "Definiere eine Operation einmal. Agent-Native macht daraus UI-Aktion, Agent-Tool, HTTP-Endpunkt, MCP/A2A-Oberfläche, CLI-Befehl, Berechtigungsprüfung und Audit-Trail.",
+      seeActions: "Aktionen ansehen",
+      frameworkGuide: "Framework-Leitfaden lesen",
+      benefits: {
+        oneActionDefinition: {
+          title: "Eine Aktionsdefinition",
+          body: "UI, Agent, HTTP, MCP, A2A und CLI rufen dieselbe Operation auf.",
+        },
+        scopedByDefault: {
+          title: "Standardmäßig begrenzt",
+          body: "Auth, Sharing, Governance und Audit-Logs begleiten die Arbeit.",
+        },
+        headedOrHeadless: {
+          title: "Mit UI oder headless",
+          body: "Läuft als App, Agent-Workflow, Queue oder geplanter Task.",
+        },
+        contextRichInput: {
+          title: "Kontextreiche Eingabe",
+          body: "Chat, Voice, Skills, Anweisungen und UI-Zustand bleiben im Ablauf.",
+        },
+        openAgentProtocols: {
+          title: "Offene Agent-Protokolle",
+          body: "A2A, MCP, MCP apps und externe Agents sind Framework-Grundbausteine.",
+        },
+        observableByDesign: {
+          title: "Von Anfang an beobachtbar",
+          body: "Traces, Evals, Feedback und Audit-Historie machen Agent-Arbeit prüfbar.",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "Modulares Framework",
+      title: "Eingebaute Module für agentische Apps",
+      body: "Von Menschen geprüfte Bausteine für Produktionsbereiche, die Agents nicht neu erfinden sollten. Nutze sie direkt, prüfe den Source oder ersetze das Modul, wenn deine App etwas anderes braucht.",
+      pageBody:
+        "Agent-Native liefert von Menschen geprüfte Bausteine für Produktionsarbeit, die Agents nicht improvisieren sollten. Nutze sie direkt, prüfe den Source oder ersetze das Modul, wenn dein Produkt etwas anderes braucht.",
+      viewAll: "Alle Module ansehen",
+      browseApps: "Apps aus Modulen ansehen",
+      items: {
+        autoStateSyncing: {
+          title: "Automatische Zustandssynchronisierung",
+          body: "Agent-Änderungen aktualisieren die UI, und der UI-Zustand bleibt ohne weitere Brücke für den Agent sichtbar.",
+        },
+        actions: {
+          title: "Aktionen",
+          body: "Definiere Arbeit einmal und nutze sie aus UI, Agent, HTTP, MCP, A2A und CLI.",
+        },
+        sqlStateOrm: {
+          title: "SQL-Zustand und ORM",
+          body: "Dauerhafte App-Daten, Application State, Migrationen und providerneutrale Schemas.",
+        },
+        dbAdmin: {
+          title: "Datenbank-Admin",
+          body: "Agent-lesbare Schemas, Query-Oberflächen, Migrationen und Admin-Tools ohne eigenes Backoffice.",
+        },
+        authGovernance: {
+          title: "Auth und Governance",
+          body: "Login, Organisationen, Multi-Tenancy, Berechtigungen, Freigaben und Policy-Hooks.",
+        },
+        sharing: {
+          title: "Freigabe",
+          body: "Share-Links, begrenzter Zugriff, öffentliche oder private Ressourcen, Kommentare und Review-Flächen.",
+        },
+        realtimeCollaboration: {
+          title: "Echtzeit-Zusammenarbeit",
+          body: "Mehrbenutzer-Editing, Live-Präsenz, optimistische UI und servergestützte Abstimmung.",
+        },
+        agentInteroperability: {
+          title: "Agent-Interoperabilität",
+          body: "A2A, MCP, MCP apps, externe Agents, Harness Agents und Übergaben zwischen Apps.",
+        },
+        automationsQueues: {
+          title: "Automationen und Queues",
+          body: "Ereignisgesteuerte Arbeit, geplante Tasks, Hintergrundläufe und zuverlässige Mutationen.",
+        },
+        agentUiSurface: {
+          title: "Agent-UI-Oberfläche",
+          body: "Chat, Skills, Anweisungen, generative UI, Spracheingabe und agent-sichtbarer Kontext.",
+        },
+        observability: {
+          title: "Observability",
+          body: "Traces, Evals, Feedback, Experimente und Nachweis dessen, was Agents getan haben.",
+        },
+        workspaces: {
+          title: "Arbeitsbereiche",
+          body: "Apps mit UI oder headless, die einander entdecken und über A2A koordinieren.",
+        },
+        sourceOwnership: {
+          title: "Eigentum am Source",
+          body: "Docs und Source liegen dort, wo Agents sie prüfen, forken, ejecten, patchen oder ersetzen können.",
+        },
+        auditLogs: {
+          title: "Audit-Protokolle",
+          body: "Ein dauerhafter Verlauf menschlicher und agentischer Änderungen, begrenzt auf zugängliche Ressourcen.",
+        },
+      },
     },
     framework: {
       title: "Das Framework für agent-native apps",
@@ -122,9 +222,9 @@ const deDE = {
       },
     },
     templates: {
-      title: "Forke und passe eine voll ausgestattete app an",
+      title: "Teste eine Agent-Native-App",
       eyebrow: "100 % kostenlos und Open Source",
-      cta: "Alle Templates ansehen",
+      cta: "Apps ansehen",
     },
     skills: {
       title: "Mit einem skill ausprobieren",
@@ -199,7 +299,7 @@ const deDE = {
       body: "Ein Befehl erstellt eine lokale App mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
     },
     finalCta: {
-      title: "Software, die dir gehört, gebaut für die agentic era",
+      title: "Software, gebaut für die agentic era",
       body: "Starte mit einem Befehl oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
       primaryCta: "Mit einem Action starten",
       secondaryCta: "Docs lesen",
@@ -1106,16 +1206,17 @@ const deDE = {
     },
   },
   skillsPage: {
-    metaTitle: "Agent Skills - Visual Plan und Visual Recap fuer Coding Agents",
+    metaTitle:
+      "Agent Skills - Visual Plan, Visual Recap und Visual Edit fuer Coding Agents",
     metaDescription:
-      "Installiere Agent-Native appgestuetzte Skills fuer visuelle Planung und PR-Recaps in deinem Coding Agent.",
+      "Installiere Agent-Native appgestuetzte Skills fuer visuelle Planung, PR-Recaps und lokale visuelle Bearbeitung in deinem Coding Agent.",
     metaOgDescription:
       "Gib deinem Coding Agent Slash-Commands auf Basis von Agent-Native Apps, die du hosten, pruefen und anpassen kannst.",
     metaKeywords:
-      "Agent Skills, Visual Plan, Visual Recap, Coding Agent, Claude Code, Codex, PR Review, Planung, agent-native",
+      "Agent Skills, Visual Plan, Visual Recap, Visual Edit, Coding Agent, Claude Code, Codex, PR Review, Planung, agent-native",
     heroTitle: "Gib deinem Coding Agent neue Superkraefte",
     heroBody:
-      "Installiere appgestuetzte Skills mit Agent-Native Apps, die du voll anpassen kannst: visuelle Planung vor der Umsetzung und visuelle PR-Recaps nach den Aenderungen.",
+      "Installiere appgestuetzte Skills mit Agent-Native Apps, die du voll anpassen kannst: visuelle Planung vor der Umsetzung, visuelle PR-Recaps nach den Aenderungen und visuelle Bearbeitung lokaler UI-Flows.",
     sectionTitle: "Appgestuetzte Skills fuer Coding Agents",
     sectionBody:
       "Nutze gehostete teilbare App-Links, lokale Dateien oder eine selbst gehostete/angepasste App; dein Agent erhaelt Anweisungen plus die passende MCP-Oberflaeche, wenn sie gebraucht wird.",
@@ -1140,6 +1241,15 @@ const deDE = {
       feature1: "Fasst Schema-, API- und Dateiaenderungen zusammen",
       feature2: "Kann optional einen fixierten PR-Kommentar posten",
       videoAriaLabel: "Demo-Video zum Visual Recap Skill",
+    },
+    visualEdit: {
+      name: "Visuelle Bearbeitung",
+      tagline: "Lokale UI-Flows bearbeiten",
+      description:
+        "Oeffnet eine laufende localhost-App in Design als URL-gestuetzte Screens fuer visuelle Pruefung und Bearbeitung.",
+      feature1: "Mehrere Flow-Screens aus geordneten URLs anlegen",
+      feature2: "Live-Routenzustaende pruefen, duplizieren und verfeinern",
+      videoAriaLabel: "Demo-Video zum Visual Edit Skill",
     },
   },
   downloadPage: {

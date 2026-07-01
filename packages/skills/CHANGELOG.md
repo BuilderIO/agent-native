@@ -1,5 +1,206 @@
 # @agent-native/skills
 
+## 0.2.175
+
+### Patch Changes
+
+- Updated dependencies [87806ef]
+  - @agent-native/core@0.84.1
+
+## 0.2.174
+
+### Patch Changes
+
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+  - @agent-native/core@0.84.0
+
+## 0.2.173
+
+### Patch Changes
+
+- Updated dependencies [1a8d939]
+  - @agent-native/core@0.83.0
+
+## 0.2.172
+
+### Patch Changes
+
+- Updated dependencies [fe9fd99]
+  - @agent-native/core@0.82.0
+
+## 0.2.171
+
+### Patch Changes
+
+- Updated dependencies [3807702]
+  - @agent-native/core@0.81.3
+
+## 0.2.170
+
+### Patch Changes
+
+- Updated dependencies [ea1cc47]
+  - @agent-native/core@0.81.2
+
+## 0.2.169
+
+### Patch Changes
+
+- Updated dependencies [ec433c3]
+  - @agent-native/core@0.81.1
+
+## 0.2.168
+
+### Patch Changes
+
+- Updated dependencies [3164729]
+- Updated dependencies [3164729]
+- Updated dependencies [3164729]
+- Updated dependencies [3164729]
+- Updated dependencies [3164729]
+- Updated dependencies [3164729]
+- Updated dependencies [3164729]
+- Updated dependencies [3164729]
+  - @agent-native/core@0.81.0
+
+## 0.2.167
+
+### Patch Changes
+
+- Updated dependencies [abf0681]
+  - @agent-native/core@0.80.11
+
+## 0.2.166
+
+### Patch Changes
+
+- Updated dependencies [d26a679]
+- Updated dependencies [d26a679]
+  - @agent-native/core@0.80.10
+
+## 0.2.165
+
+### Patch Changes
+
+- Updated dependencies [82c138c]
+- Updated dependencies [82c138c]
+- Updated dependencies [82c138c]
+- Updated dependencies [82c138c]
+- Updated dependencies [82c138c]
+- Updated dependencies [82c138c]
+- Updated dependencies [82c138c]
+  - @agent-native/core@0.80.9
+
+## 0.2.164
+
+### Patch Changes
+
+- Updated dependencies [24deb20]
+  - @agent-native/core@0.80.8
+
+## 0.2.163
+
+### Patch Changes
+
+- Updated dependencies [72ef787]
+  - @agent-native/core@0.80.7
+
+## 0.2.162
+
+### Patch Changes
+
+- Updated dependencies [f52eeb1]
+- Updated dependencies [f52eeb1]
+  - @agent-native/core@0.80.6
+
+## 0.2.161
+
+### Patch Changes
+
+- 8a43376: Make MCP install/connect idempotent for Codex `config.toml`. The writer now
+  recognizes a server's sub-tables (`[mcp_servers.<name>.http_headers]`,
+  `[mcp_servers.<name>.env]`, …) as part of its footprint, so re-installing or
+  reconnecting a server clears stale sub-tables instead of leaving one behind as a
+  duplicate TOML key. Same-URL alias cleanup removes the whole footprint too, and
+  the AGENTS.md / CLAUDE.md managed-instruction writers collapse any pre-existing
+  duplicate blocks into a single block.
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+- Updated dependencies [8a43376]
+  - @agent-native/core@0.80.5
+
+## 0.2.160
+
+### Patch Changes
+
+- Updated dependencies [fa56720]
+  - @agent-native/core@0.80.4
+
+## 0.2.159
+
+### Patch Changes
+
+- Updated dependencies [995dd3b]
+- Updated dependencies [995dd3b]
+  - @agent-native/core@0.80.3
+
+## 0.2.158
+
+### Patch Changes
+
+- Updated dependencies [7b44f20]
+  - @agent-native/core@0.80.2
+
+## 0.2.157
+
+### Patch Changes
+
+- Updated dependencies [1d77419]
+- Updated dependencies [1d77419]
+- Updated dependencies [1d77419]
+  - @agent-native/core@0.80.1
+
+## 0.2.156
+
+### Patch Changes
+
+- aa345cc: Add the Design `/visual-edit` skill and route it through the built-in skill installers so agents can open localhost routes as URL-backed Design screens.
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+  - @agent-native/core@0.80.0
+
 ## 0.2.155
 
 ### Patch Changes

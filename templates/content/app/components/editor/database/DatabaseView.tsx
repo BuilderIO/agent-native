@@ -139,16 +139,21 @@ import {
 } from "@/components/ui/tooltip";
 import {
   useAddDatabaseItem,
+  useAddContentDatabaseSourceFieldProperty,
   useAttachContentDatabaseSource,
   useBuilderCmsModels,
+  useChangeContentDatabaseSourceRole,
   useContentDatabase,
   useContentDatabases,
   contentDatabaseQueryKey,
+  useDeleteDatabaseItems,
   useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
+  useDuplicateDatabaseItems,
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
   usePrepareBuilderSourceReview,
+  useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
   useSuggestSourceJoinKey,
@@ -166,7 +171,11 @@ import {
 import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
-import { BuilderSourceReviewDialog } from "../database-sources/BuilderSourceReviewDialog";
+import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
+import {
+  BuilderSourceReviewDialog,
+  type BuilderReviewPublicationTransitions,
+} from "../database-sources/BuilderSourceReviewDialog";
 import { DocumentBlockFields } from "../DocumentBlockFields";
 import {
   AddProperty,
@@ -205,6 +214,7 @@ export interface DatabaseViewProps {
 }
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
+const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
 
 export type SortDirection = ContentDatabaseSortDirection;
 export type DatabaseSort = ContentDatabaseSort;
@@ -239,13 +249,23 @@ const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
-function dbText(key: DatabaseMessageKey): string {
+function dbText(
+  key: DatabaseMessageKey,
+  values?: Record<string, string | number>,
+): string {
   const locale =
     typeof document === "undefined" ? "en-US" : document.documentElement.lang;
   const messages =
     messagesByLocale[locale as keyof typeof messagesByLocale] ??
     messagesByLocale["en-US"];
-  return messages.database[key] ?? messagesByLocale["en-US"].database[key];
+  const text =
+    messages.database[key] ?? messagesByLocale["en-US"].database[key];
+  if (!values) return text;
+  return Object.entries(values).reduce(
+    (current, [name, value]) =>
+      current.split(`{{${name}}}`).join(String(value)),
+    text,
+  );
 }
 
 type CreateDatabaseRowHandler = (
@@ -459,8 +479,10 @@ function DatabaseTable({
   const database = useContentDatabase(document.id, databaseItemLimit);
   const addItem = useAddDatabaseItem(document.id);
   const attachSource = useAttachContentDatabaseSource(document.id);
+  const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
+  const processBuilderBodies = useProcessBuilderBodyHydration(document.id);
   const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
   const executeBuilderExecution = useExecuteBuilderSourceExecution(document.id);
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
@@ -470,7 +492,11 @@ function DatabaseTable({
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
-  const hasMoreItems = data?.pagination?.hasMore === true;
+  const hasMoreItems =
+    data?.pagination?.hasMore === true &&
+    databaseItemLimit < CONTENT_DATABASE_MAX_ITEM_LIMIT;
+  const isLoadingMoreItems =
+    database.isFetching && data?.pagination?.limit !== databaseItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
   const source = data?.source ?? null;
   const sources = data?.sources ?? (source ? [source] : []);
@@ -933,7 +959,9 @@ function DatabaseTable({
     updateActiveView((view) => ({ ...view, hideEmptyGroups }));
   }
 
-  async function handleBuilderReviewPush() {
+  async function handleBuilderReviewPush(
+    transitions: BuilderReviewPublicationTransitions = {},
+  ) {
     setBuilderReviewResult(null);
     setBuilderReviewCheckedAt(null);
     try {
@@ -951,11 +979,14 @@ function DatabaseTable({
         let executedResponse: ContentDatabaseResponse | null = null;
         for (const row of executableRows) {
           if (!row.execution?.idempotencyKey) continue;
+          const transition = transitions[row.changeSetId];
           executedResponse = await executeBuilderExecution.mutateAsync({
             documentId: document.id,
             changeSetId: row.changeSetId,
             idempotencyKey: row.execution.idempotencyKey,
             pushModeConfirmation: nextReview.pushMode,
+            publicationTransition: transition?.publicationTransition,
+            confirmUnpublish: transition?.confirmUnpublish,
           });
         }
         const executedSource = executedResponse?.source ?? null;
@@ -1016,11 +1047,14 @@ function DatabaseTable({
     const nextViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
     );
-    hydratedViewRef.current = databaseViewStateKey(
-      data.database.id,
-      nextViewConfig,
+    const nextKey = databaseViewStateKey(data.database.id, nextViewConfig);
+    if (hydratedViewRef.current === nextKey) return;
+    hydratedViewRef.current = nextKey;
+    setViewConfig((current) =>
+      databaseViewStateKey(data.database.id, current) === nextKey
+        ? current
+        : nextViewConfig,
     );
-    setViewConfig(nextViewConfig);
   }, [data?.database.id, data?.database.viewConfig]);
 
   useEffect(() => {
@@ -1443,14 +1477,18 @@ function DatabaseTable({
             type="button"
             variant="outline"
             size="sm"
-            disabled={database.isFetching}
+            disabled={isLoadingMoreItems}
             onClick={() =>
-              setDatabaseItemLimit(
-                (current) => current + CONTENT_DATABASE_PAGE_SIZE,
+              setDatabaseItemLimit((current) =>
+                Math.min(
+                  current + CONTENT_DATABASE_PAGE_SIZE,
+                  totalItemCount,
+                  CONTENT_DATABASE_MAX_ITEM_LIMIT,
+                ),
               )
             }
           >
-            {database.isFetching
+            {isLoadingMoreItems
               ? "Loading..."
               : `Load more rows (${items.length} of ${totalItemCount})`}
           </Button>
@@ -1494,35 +1532,56 @@ function DatabaseTable({
         groupIds={toolbarGroups.map((group) => group.id)}
         onClose={() => setSettingsOpen(false)}
         onPanelChange={setSettingsPanel}
-        onAttachBuilderSource={(model) =>
-          attachSource.mutate({
+        onAttachBuilderSource={(model, relationshipMode) =>
+          attachSource.mutateAsync({
             documentId: document.id,
             sourceType: "builder-cms",
             sourceName: model.displayName,
             sourceTable: model.name,
+            relationshipMode,
+            mode:
+              relationshipMode === "items"
+                ? "add"
+                : sources.length > 0 || source
+                  ? undefined
+                  : "replace",
           })
         }
         onFederateSource={(candidate, join) =>
-          attachSource.mutate({
+          attachSource.mutateAsync({
             documentId: document.id,
             sourceType: candidate.sourceType,
             sourceName: candidate.sourceName,
             sourceTable: candidate.sourceTable,
+            relationshipMode: "details",
+            join,
+          })
+        }
+        onChangeSourceRole={(sourceId, relationshipMode, join) =>
+          changeSourceRole.mutateAsync({
+            documentId: document.id,
+            sourceId,
+            relationshipMode,
             join,
           })
         }
         onDisconnectSecondary={(sourceId) =>
           disconnectSource.mutate({ documentId: document.id, sourceId })
         }
-        onRefreshSource={() =>
+        onRefreshSource={(sourceId) =>
           refreshSource.mutate({
             documentId: document.id,
+            sourceId,
           })
         }
-        onDisconnectSource={() =>
+        onHydrateBuilderBodies={(sourceId) =>
+          processBuilderBodies.mutate({ sourceId })
+        }
+        onDisconnectSource={(sourceId) =>
           disconnectSource.mutate(
             {
               documentId: document.id,
+              sourceId,
             },
             {
               onSuccess: () => {
@@ -1581,7 +1640,9 @@ function DatabaseTable({
         }
         sourceActionPending={
           attachSource.isPending ||
+          changeSourceRole.isPending ||
           refreshSource.isPending ||
+          processBuilderBodies.isPending ||
           disconnectSource.isPending ||
           prepareBuilderReview.isPending ||
           executeBuilderExecution.isPending ||
@@ -1613,7 +1674,7 @@ function DatabaseTable({
         }
         checkedAt={builderReviewCheckedAt}
         onClose={() => setBuilderReviewOpen(false)}
-        onValidate={() => void handleBuilderReviewPush()}
+        onValidate={(transitions) => void handleBuilderReviewPush(transitions)}
       />
 
       {!database.isLoading ? (
@@ -2707,9 +2768,9 @@ function DatabaseTableView({
 }) {
   const queryClient = useQueryClient();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
-  const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
+  const duplicateItems = useDuplicateDatabaseItems(databaseDocumentId);
   const setProperty = useSetDocumentProperty(databaseDocumentId);
-  const deleteDocument = useDeleteDocument();
+  const deleteItems = useDeleteDatabaseItems(databaseDocumentId);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
   const [draggedPropertyId, setDraggedPropertyId] = useState<string | null>(
@@ -2953,14 +3014,15 @@ function DatabaseTableView({
   async function deleteSelectedRows() {
     if (selectedItems.length === 0) return;
     const selectedSnapshot = selectedItems;
-    onClearSelection();
     setConfirmDeleteSelectedOpen(false);
 
     try {
+      await deleteItems.mutateAsync({
+        documentId: databaseDocumentId,
+        itemIds: selectedSnapshot.map((item) => item.id),
+      });
+      onClearSelection();
       onDeletedPreviewItems(selectedSnapshot);
-      for (const item of selectedSnapshot) {
-        await deleteDocument.mutateAsync({ id: item.document.id });
-      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -2984,22 +3046,11 @@ function DatabaseTableView({
     const selectedSnapshot = selectedItems;
     setIsDuplicatingSelected(true);
 
-    let duplicatedPreviewItem: ContentDatabaseItem | null = null;
-    let duplicatedCount = 0;
-    let failedCount = 0;
-
     try {
-      for (const item of selectedSnapshot) {
-        try {
-          const response = await duplicateItem.mutateAsync({ itemId: item.id });
-          duplicatedCount += 1;
-          duplicatedPreviewItem =
-            databaseDuplicatedItemFromResponse(response) ??
-            duplicatedPreviewItem;
-        } catch {
-          failedCount += 1;
-        }
-      }
+      const response = await duplicateItems.mutateAsync({
+        documentId: databaseDocumentId,
+        itemIds: selectedSnapshot.map((item) => item.id),
+      });
 
       await queryClient.invalidateQueries({
         queryKey: [
@@ -3012,16 +3063,15 @@ function DatabaseTableView({
         queryKey: ["action", "list-documents"],
       });
 
+      const duplicatedPreviewItem =
+        databaseDuplicatedItemFromResponse(response);
       if (duplicatedPreviewItem) onPreview(duplicatedPreviewItem);
-      if (duplicatedCount > 0) onClearSelection();
-      if (failedCount > 0) {
-        toast.error(dbText("failedToDuplicateEverySelectedRow"), {
-          description:
-            duplicatedCount > 0
-              ? `${duplicatedCount} duplicated, ${failedCount} failed.`
-              : "No rows were duplicated.",
-        });
-      }
+      onClearSelection();
+    } catch (err) {
+      toast.error(dbText("failedToDuplicateEverySelectedRow"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
     } finally {
       setIsDuplicatingSelected(false);
     }
@@ -3080,9 +3130,11 @@ function DatabaseTableView({
             canEdit={canEdit}
             properties={bulkEditableProperties}
             duplicateDisabled={
-              isDuplicatingSelected || deleteDocument.isPending
+              isDuplicatingSelected ||
+              duplicateItems.isPending ||
+              deleteItems.isPending
             }
-            deleteDisabled={deleteDocument.isPending}
+            deleteDisabled={deleteItems.isPending}
             updateDisabled={setProperty.isPending}
             onClearSelection={onClearSelection}
             onSetPropertyValue={setSelectedPropertyValue}
@@ -3301,10 +3353,10 @@ function DatabaseTableView({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
+              disabled={deleteItems.isPending}
               onClick={() => void deleteSelectedRows()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {deleteItems.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3403,6 +3455,7 @@ type PendingSourceCandidate = {
   sourceName: string;
   sourceTable: string;
   displayName: string;
+  existingSourceId?: string;
 };
 
 type SourceNavStep =
@@ -3411,16 +3464,18 @@ type SourceNavStep =
   | { kind: "model"; model: BuilderCmsModelSummary }
   | { kind: "addSource" }
   | { kind: "secondarySource"; sourceId: string; sourceName: string }
-  | { kind: "keyConfirm"; candidate: PendingSourceCandidate };
+  | { kind: "keyConfirm"; candidate: PendingSourceCandidate }
+  | { kind: "fieldPicker"; sourceId: string; sourceName: string };
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
   const top = stack[stack.length - 1];
-  if (!top) return "Sources";
+  if (!top) return dbText("sources");
   if (top.kind === "provider") return "Builder";
   if (top.kind === "space") return top.spaceName;
-  if (top.kind === "addSource") return "Add a source";
+  if (top.kind === "addSource") return dbText("addASource");
   if (top.kind === "secondarySource") return top.sourceName;
-  if (top.kind === "keyConfirm") return "Match on a key";
+  if (top.kind === "keyConfirm") return dbText("matchExistingItemsToDetails");
+  if (top.kind === "fieldPicker") return dbText("chooseFields");
   return top.model.displayName;
 }
 
@@ -3480,8 +3535,10 @@ function DatabaseSettingsPanelSheet({
   onPanelChange,
   onAttachBuilderSource,
   onFederateSource,
+  onChangeSourceRole,
   onDisconnectSecondary,
   onRefreshSource,
+  onHydrateBuilderBodies,
   onDisconnectSource,
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
@@ -3508,14 +3565,23 @@ function DatabaseSettingsPanelSheet({
   groupIds: string[];
   onClose: () => void;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
-  onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
+  onAttachBuilderSource: (
+    model: BuilderCmsModelSummary,
+    relationshipMode?: "items" | "details",
+  ) => Promise<ContentDatabaseResponse>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => void;
+  ) => Promise<ContentDatabaseResponse>;
+  onChangeSourceRole: (
+    sourceId: string,
+    relationshipMode: "items" | "details",
+    join?: ContentDatabaseSourceJoinRequest,
+  ) => Promise<ContentDatabaseResponse>;
   onDisconnectSecondary: (sourceId: string) => void;
-  onRefreshSource: () => void;
-  onDisconnectSource: () => void;
+  onRefreshSource: (sourceId?: string) => void;
+  onHydrateBuilderBodies: (sourceId: string) => void;
+  onDisconnectSource: (sourceId?: string) => void;
   onReviewBuilderUpdate: () => void;
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
@@ -3603,16 +3669,16 @@ function DatabaseSettingsPanelSheet({
             canEdit={canEdit}
             nav={sourceNavStack}
             onNavPush={(step) => setSourceNavStack((stack) => [...stack, step])}
+            onNavReplace={setSourceNavStack}
             onAttachBuilderSource={onAttachBuilderSource}
-            onFederateSource={(candidate, join) => {
-              onFederateSource(candidate, join);
-              setSourceNavStack([]);
-            }}
+            onFederateSource={onFederateSource}
+            onChangeSourceRole={onChangeSourceRole}
             onDisconnectSecondary={(sourceId) => {
               onDisconnectSecondary(sourceId);
               setSourceNavStack([]);
             }}
             onRefreshSource={onRefreshSource}
+            onHydrateBuilderBodies={onHydrateBuilderBodies}
             onDisconnectSource={onDisconnectSource}
             onReviewBuilderUpdate={onReviewBuilderUpdate}
             onSetBuilderLiveWrites={onSetBuilderLiveWrites}
@@ -3824,6 +3890,7 @@ export function buildClientBuilderReviewPayload(
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      effect: resolveBuilderCmsWriteEffect({ source, changeSet }),
       execution: latestExecution,
     };
   });
@@ -3905,10 +3972,13 @@ function DatabaseSettingsSourcePanel({
   canEdit,
   nav,
   onNavPush,
+  onNavReplace,
   onAttachBuilderSource,
   onFederateSource,
+  onChangeSourceRole,
   onDisconnectSecondary,
   onRefreshSource,
+  onHydrateBuilderBodies,
   onDisconnectSource,
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
@@ -3921,14 +3991,24 @@ function DatabaseSettingsSourcePanel({
   canEdit: boolean;
   nav: SourceNavStep[];
   onNavPush: (step: SourceNavStep) => void;
-  onAttachBuilderSource: (model: BuilderCmsModelSummary) => void;
+  onNavReplace: (stack: SourceNavStep[]) => void;
+  onAttachBuilderSource: (
+    model: BuilderCmsModelSummary,
+    relationshipMode?: "items" | "details",
+  ) => Promise<ContentDatabaseResponse>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => void;
+  ) => Promise<ContentDatabaseResponse>;
+  onChangeSourceRole: (
+    sourceId: string,
+    relationshipMode: "items" | "details",
+    join?: ContentDatabaseSourceJoinRequest,
+  ) => Promise<ContentDatabaseResponse>;
   onDisconnectSecondary: (sourceId: string) => void;
-  onRefreshSource: () => void;
-  onDisconnectSource: () => void;
+  onRefreshSource: (sourceId?: string) => void;
+  onHydrateBuilderBodies: (sourceId: string) => void;
+  onDisconnectSource: (sourceId?: string) => void;
   onReviewBuilderUpdate: () => void;
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
@@ -4053,6 +4133,34 @@ function DatabaseSettingsSourcePanel({
         source={secondary}
         canEdit={canEdit}
         pending={sourceActionPending}
+        onAddDetails={() =>
+          secondary
+            ? onNavPush({
+                kind: "keyConfirm",
+                candidate: {
+                  sourceType: secondary.sourceType,
+                  sourceName: secondary.sourceName,
+                  sourceTable: secondary.sourceTable,
+                  displayName: secondary.sourceName,
+                  existingSourceId: secondary.id,
+                },
+              })
+            : undefined
+        }
+        onAddItems={async () => {
+          if (!secondary) return;
+          await onChangeSourceRole(secondary.id, "items");
+          onNavReplace([]);
+        }}
+        onChooseFields={() =>
+          secondary
+            ? onNavPush({
+                kind: "fieldPicker",
+                sourceId: secondary.id,
+                sourceName: secondary.sourceName,
+              })
+            : undefined
+        }
         onDisconnect={() => onDisconnectSecondary(top.sourceId)}
       />
     );
@@ -4066,7 +4174,41 @@ function DatabaseSettingsSourcePanel({
         candidate={top.candidate}
         canEdit={canEdit}
         pending={sourceActionPending}
-        onCommit={(join) => onFederateSource(top.candidate, join)}
+        onCommit={async (join) => {
+          const result = top.candidate.existingSourceId
+            ? await onChangeSourceRole(
+                top.candidate.existingSourceId,
+                "details",
+                join,
+              )
+            : await onFederateSource(top.candidate, join);
+          const detailsSource = findDetailsSource(result, top.candidate);
+          onNavReplace(
+            detailsSource
+              ? [
+                  {
+                    kind: "fieldPicker",
+                    sourceId: detailsSource.id,
+                    sourceName: detailsSource.sourceName,
+                  },
+                ]
+              : [],
+          );
+        }}
+      />
+    );
+  }
+
+  if (top.kind === "fieldPicker") {
+    const pickerSource =
+      sources.find((item) => item.id === top.sourceId) ?? null;
+    return (
+      <SourceDetailsFieldPicker
+        documentId={documentId}
+        source={pickerSource}
+        canEdit={canEdit}
+        pending={sourceActionPending}
+        onDone={() => onNavReplace([])}
       />
     );
   }
@@ -4165,21 +4307,53 @@ function DatabaseSettingsSourcePanel({
             </span>
           </div>
         </div>
-        <div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!canEdit || sourceActionPending}
-            onClick={() => onAttachBuilderSource(model)}
-          >
-            {sourceActionPending ? (
-              <Spinner className="mr-1.5 size-3.5" />
-            ) : (
-              <IconPlugConnected className="mr-1.5 size-3.5" />
-            )}
-            Attach
-          </Button>
-        </div>
+        {sources.length > 0 || source ? (
+          <SourceRelationshipChoice
+            documentId={documentId}
+            candidate={{
+              sourceType: "builder-cms",
+              sourceName: model.displayName,
+              sourceTable: model.name,
+              displayName: model.displayName,
+            }}
+            canEdit={canEdit}
+            pending={sourceActionPending}
+            onAddDetails={() =>
+              onNavPush({
+                kind: "keyConfirm",
+                candidate: {
+                  sourceType: "builder-cms",
+                  sourceName: model.displayName,
+                  sourceTable: model.name,
+                  displayName: model.displayName,
+                },
+              })
+            }
+            onAddItems={async () => {
+              await onAttachBuilderSource(model, "items");
+              onNavReplace([]);
+            }}
+          />
+        ) : (
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!canEdit || sourceActionPending}
+              onClick={async () => {
+                await onAttachBuilderSource(model);
+                onNavReplace([]);
+              }}
+            >
+              {sourceActionPending ? (
+                <Spinner className="mr-1.5 size-3.5" />
+              ) : (
+                <IconPlugConnected className="mr-1.5 size-3.5" />
+              )}
+              Attach
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -4217,7 +4391,7 @@ function DatabaseSettingsSourcePanel({
                 type="button"
                 className="inline-flex items-center gap-1 text-destructive hover:underline disabled:opacity-60"
                 disabled={!canEdit || sourceActionPending}
-                onClick={onRefreshSource}
+                onClick={() => onRefreshSource(source.id)}
               >
                 <IconRefresh className="size-3" />
                 {dbText("couldntSyncRetry")}
@@ -4272,6 +4446,15 @@ function DatabaseSettingsSourcePanel({
           </div>
         ) : null}
 
+        {isBuilderSource && source.bodyHydration ? (
+          <BuilderBodyHydrationCard
+            source={source}
+            canEdit={canEdit}
+            pending={sourceActionPending}
+            onHydrate={() => onHydrateBuilderBodies(source.id)}
+          />
+        ) : null}
+
         {isCodeMode ? (
           <>
             <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
@@ -4307,6 +4490,38 @@ function DatabaseSettingsSourcePanel({
           </>
         ) : null}
 
+        <SourceRoleCard
+          source={source}
+          canAddDetails={sources.some(
+            (item) => item.id !== source.id && !sourceAddsDetails(item),
+          )}
+          canEdit={canEdit}
+          pending={sourceActionPending}
+          onAddDetails={() =>
+            onNavPush({
+              kind: "keyConfirm",
+              candidate: {
+                sourceType: source.sourceType,
+                sourceName: source.sourceName,
+                sourceTable: source.sourceTable,
+                displayName: source.sourceName,
+                existingSourceId: source.id,
+              },
+            })
+          }
+          onAddItems={async () => {
+            await onChangeSourceRole(source.id, "items");
+            onNavReplace([]);
+          }}
+          onChooseFields={() =>
+            onNavPush({
+              kind: "fieldPicker",
+              sourceId: source.id,
+              sourceName: source.sourceName,
+            })
+          }
+        />
+
         <div className="rounded-lg border border-border bg-background p-3">
           <div className="text-xs font-medium">
             {dbText("disconnectSource")}
@@ -4320,7 +4535,7 @@ function DatabaseSettingsSourcePanel({
             variant="outline"
             className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
             disabled={!canEdit || sourceActionPending}
-            onClick={onDisconnectSource}
+            onClick={() => onDisconnectSource(source.id)}
           >
             {sourceActionPending ? (
               <Spinner className="mr-1 size-3.5" />
@@ -4381,13 +4596,7 @@ function SourcesListView({
                 )
               }
               label={connected.sourceName}
-              value={
-                connected.metadata.federation?.role === "secondary"
-                  ? "Federated"
-                  : index === 0
-                    ? "Primary"
-                    : undefined
-              }
+              value={sourceRoleLabel(connected, index)}
               onClick={
                 connected.metadata.federation?.role === "secondary"
                   ? () => onOpenSecondary(connected)
@@ -4461,7 +4670,7 @@ function CanonicalKeyConfirmView({
   candidate: PendingSourceCandidate;
   canEdit: boolean;
   pending: boolean;
-  onCommit: (join: ContentDatabaseSourceJoinRequest) => void;
+  onCommit: (join: ContentDatabaseSourceJoinRequest) => void | Promise<void>;
 }) {
   const suggestionQuery = useSuggestSourceJoinKey({
     documentId,
@@ -4519,7 +4728,7 @@ function CanonicalKeyConfirmView({
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
-        {dbText("analyzingBothSourcesForASharedKey")}
+        {dbText("checkingHowTheseRecordsMatch")}
       </div>
     );
   }
@@ -4528,7 +4737,7 @@ function CanonicalKeyConfirmView({
     return (
       <div className="min-w-0 break-words text-xs text-muted-foreground">
         {suggestionQuery.data?.message ??
-          "Couldn’t suggest a join key automatically."}
+          "Couldn't find a match field automatically."}
       </div>
     );
   }
@@ -4540,7 +4749,7 @@ function CanonicalKeyConfirmView({
           {candidate.displayName}
         </div>
         <div className="min-w-0 break-words text-xs text-muted-foreground">
-          Match rows on a shared key. Suggested key:{" "}
+          Match existing items to details. Suggested match:{" "}
           <span className="font-medium text-foreground">
             {suggestion.canonicalKey.label}
           </span>
@@ -4630,7 +4839,7 @@ function CanonicalKeyConfirmView({
         ) : (
           <IconPlugConnected className="mr-1.5 size-3.5" />
         )}
-        Confirm &amp; attach
+        Add details
       </Button>
     </div>
   );
@@ -4705,11 +4914,17 @@ function SecondarySourceLeaf({
   source,
   canEdit,
   pending,
+  onAddDetails,
+  onAddItems,
+  onChooseFields,
   onDisconnect,
 }: {
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
+  onAddDetails: () => void;
+  onAddItems: () => void | Promise<void>;
+  onChooseFields: () => void;
   onDisconnect: () => void;
 }) {
   if (!source) {
@@ -4734,12 +4949,22 @@ function SecondarySourceLeaf({
           </span>
         </div>
         <div className="min-w-0 break-words text-xs text-muted-foreground">
-          {`Federated · ${fieldCount} field${fieldCount === 1 ? "" : "s"}`}
+          {`${sourceRoleLabel(source, 0)} · ${fieldCount} field${
+            fieldCount === 1 ? "" : "s"
+          }`}
           {federation?.canonicalKey?.label
             ? ` · joined on ${federation.canonicalKey.label}`
             : ""}
         </div>
       </div>
+      <SourceRoleCard
+        source={source}
+        canEdit={canEdit}
+        pending={pending}
+        onAddDetails={onAddDetails}
+        onAddItems={onAddItems}
+        onChooseFields={onChooseFields}
+      />
       {federation ? (
         <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3 text-xs">
           <div className="font-medium">{dbText("matchFormula")}</div>
@@ -4768,6 +4993,447 @@ function SecondarySourceLeaf({
             <IconX className="mr-1 size-3.5" />
           )}
           Remove
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function sourceAddsDetails(source: ContentDatabaseSource | null | undefined) {
+  return source?.metadata.federation?.role === "secondary";
+}
+
+function sourceRoleLabel(
+  source: ContentDatabaseSource | null | undefined,
+  _index: number,
+) {
+  return sourceAddsDetails(source)
+    ? dbText("addingDetails")
+    : dbText("addingItems");
+}
+
+function detailsReasonText(suggestion: SourceJoinSuggestion | null) {
+  if (!suggestion)
+    return dbText("recommendedWhenCollectionDescribesExistingRows");
+  const percent = Math.round(suggestion.confidence * 100);
+  return dbText("recommendedBecauseSampledRowsMatchOn", {
+    field: suggestion.canonicalKey.label,
+    percent,
+  });
+}
+
+function findDetailsSource(
+  response: ContentDatabaseResponse,
+  candidate: PendingSourceCandidate,
+) {
+  return (
+    (response.sources ?? []).find((source) => {
+      if (!sourceAddsDetails(source)) return false;
+      if (candidate.existingSourceId) {
+        return source.id === candidate.existingSourceId;
+      }
+      return (
+        source.sourceType === candidate.sourceType &&
+        source.sourceTable === candidate.sourceTable
+      );
+    }) ?? null
+  );
+}
+
+function SourceRelationshipChoice({
+  documentId,
+  candidate,
+  canEdit,
+  pending,
+  onAddDetails,
+  onAddItems,
+}: {
+  documentId: string;
+  candidate: PendingSourceCandidate;
+  canEdit: boolean;
+  pending: boolean;
+  onAddDetails: () => void;
+  onAddItems: () => void | Promise<void>;
+}) {
+  const suggestionQuery = useSuggestSourceJoinKey({
+    documentId,
+    candidateSourceType: candidate.sourceType,
+    candidateSourceTable: candidate.sourceTable,
+    enabled: true,
+  });
+  const suggestion = suggestionQuery.data?.suggestion ?? null;
+  const detailsRecommended = Boolean(suggestion);
+  return (
+    <div className="grid min-w-0 gap-2">
+      <button
+        type="button"
+        disabled={!canEdit || pending}
+        className={cn(
+          "grid min-w-0 gap-1 rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
+          detailsRecommended
+            ? "border-foreground/30 bg-muted/30"
+            : "border-border bg-background hover:bg-muted/50",
+        )}
+        onClick={onAddDetails}
+      >
+        <span className="grid min-w-0 gap-1">
+          <span className="break-words text-sm font-medium leading-snug">
+            {dbText("addDetailsToExistingItems")}
+          </span>
+          {detailsRecommended ? (
+            <span className="w-fit rounded-full bg-foreground px-2 py-0.5 text-[10px] font-medium text-background">
+              {dbText("recommended")}
+            </span>
+          ) : null}
+        </span>
+        <span className="break-words text-xs text-muted-foreground">
+          {suggestionQuery.isLoading
+            ? dbText("checkingForMatchingFields")
+            : detailsReasonText(suggestion)}
+        </span>
+      </button>
+      <button
+        type="button"
+        disabled={!canEdit || pending}
+        className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
+        onClick={onAddItems}
+      >
+        <span className="truncate text-sm font-medium">
+          {dbText("addMoreItemsToThisList")}
+        </span>
+        <span className="break-words text-xs text-muted-foreground">
+          {dbText("bestWhenSameKindAdditionalRows")}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function SourceRoleCard({
+  source,
+  canAddDetails = true,
+  canEdit,
+  pending,
+  onAddDetails,
+  onAddItems,
+  onChooseFields,
+}: {
+  source: ContentDatabaseSource;
+  canAddDetails?: boolean;
+  canEdit: boolean;
+  pending: boolean;
+  onAddDetails: () => void;
+  onAddItems: () => void | Promise<void>;
+  onChooseFields: () => void;
+}) {
+  const addingDetails = sourceAddsDetails(source);
+  return (
+    <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3">
+      <div className="grid min-w-0 gap-0.5">
+        <div className="text-xs font-medium">{dbText("sourceRole")}</div>
+        <div className="break-words text-xs text-muted-foreground">
+          {addingDetails
+            ? dbText("addingDetailsMatchedOn", {
+                field:
+                  source.metadata.federation?.canonicalKey?.label ??
+                  dbText("aField"),
+              })
+            : dbText("addingItemsAsRows")}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-wrap gap-2">
+        {addingDetails ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              disabled={!canEdit || pending}
+              onClick={onChooseFields}
+            >
+              {dbText("chooseFields")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              disabled={!canEdit || pending}
+              onClick={onAddItems}
+            >
+              {dbText("addAsItems")}
+            </Button>
+          </>
+        ) : canAddDetails ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            disabled={!canEdit || pending}
+            onClick={onAddDetails}
+          >
+            {dbText("addDetailsInstead")}
+          </Button>
+        ) : (
+          <div className="break-words text-xs text-muted-foreground">
+            {dbText("addAnotherItemSourceBeforeChangingToDetails")}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BuilderBodyHydrationCard({
+  source,
+  canEdit,
+  pending,
+  onHydrate,
+}: {
+  source: ContentDatabaseSource;
+  canEdit: boolean;
+  pending: boolean;
+  onHydrate: () => void;
+}) {
+  const summary = source.bodyHydration;
+  if (!summary || summary.total === 0) return null;
+  const activeCount = summary.pending + summary.hydrating;
+  const needsWork = activeCount > 0 || summary.error > 0;
+  const hydratedLabel = dbText("builderBodiesHydrated", {
+    hydrated: summary.hydrated,
+    total: summary.total,
+  });
+  const detail = needsWork
+    ? [
+        activeCount > 0
+          ? dbText("builderBodiesQueued", { count: activeCount })
+          : null,
+        summary.error > 0
+          ? dbText("builderBodySyncFailed", { count: summary.error })
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : dbText("builderBodiesReadyLocally");
+
+  return (
+    <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-medium">{dbText("builderBodySync")}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {hydratedLabel}
+          </div>
+        </div>
+        {needsWork ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 px-2 text-xs"
+            disabled={!canEdit || pending}
+            onClick={onHydrate}
+          >
+            {pending ? (
+              <Spinner className="mr-1 size-3.5" />
+            ) : (
+              <IconRefresh className="mr-1 size-3.5" />
+            )}
+            {summary.error > 0 ? dbText("retry") : dbText("resume")}
+          </Button>
+        ) : null}
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-foreground transition-[width]"
+          style={{
+            width: `${Math.round((summary.hydrated / summary.total) * 100)}%`,
+          }}
+        />
+      </div>
+      <div className="break-words text-xs text-muted-foreground">{detail}</div>
+    </div>
+  );
+}
+
+const DETAIL_FIELD_NAME_HINTS = [
+  "name",
+  "title",
+  "bio",
+  "description",
+  "image",
+  "photo",
+  "avatar",
+  "url",
+  "handle",
+  "email",
+];
+
+function shouldPreselectDetailField(
+  field: ContentDatabaseSource["fields"][number],
+) {
+  const key = `${field.sourceFieldKey} ${field.sourceFieldLabel}`.toLowerCase();
+  if (
+    field.propertyId ||
+    field.mappingType === "system" ||
+    field.mappingType === "title"
+  ) {
+    return false;
+  }
+  if (/(\b|\.|_)(id|created|updated|published|rev)(\b|\.|_)/i.test(key)) {
+    return false;
+  }
+  return DETAIL_FIELD_NAME_HINTS.some((hint) => key.includes(hint));
+}
+
+function SourceDetailsFieldPicker({
+  documentId,
+  source,
+  canEdit,
+  pending,
+  onDone,
+}: {
+  documentId: string;
+  source: ContentDatabaseSource | null;
+  canEdit: boolean;
+  pending: boolean;
+  onDone: () => void;
+}) {
+  const addField = useAddContentDatabaseSourceFieldProperty(documentId);
+  const fields = useMemo(
+    () =>
+      (source?.fields ?? []).filter(
+        (field) =>
+          !field.propertyId &&
+          field.mappingType !== "system" &&
+          field.mappingType !== "title",
+      ),
+    [source],
+  );
+  const defaultSelectedIds = useMemo(
+    () =>
+      fields
+        .filter(shouldPreselectDetailField)
+        .slice(0, 8)
+        .map((field) => field.id),
+    [fields],
+  );
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setSelectedIds(defaultSelectedIds);
+  }, [defaultSelectedIds]);
+
+  if (!source) {
+    return (
+      <div className="min-w-0 break-words text-xs text-muted-foreground">
+        {dbText("thisSourceIsNoLongerConnected")}
+      </div>
+    );
+  }
+
+  const selected = new Set(selectedIds);
+  const toggleField = (fieldId: string) => {
+    setSelectedIds((current) =>
+      current.includes(fieldId)
+        ? current.filter((id) => id !== fieldId)
+        : [...current, fieldId],
+    );
+  };
+  const addSelected = async () => {
+    const sourceFieldIds = fields
+      .filter((field) => selected.has(field.id))
+      .map((field) => field.id);
+    if (sourceFieldIds.length === 0) {
+      onDone();
+      return;
+    }
+    try {
+      for (const sourceFieldId of sourceFieldIds) {
+        await addField.mutateAsync({ documentId, sourceFieldId });
+      }
+      toast.success(dbText("detailFieldsAdded"), {
+        description:
+          sourceFieldIds.length === 1
+            ? dbText("addedOneFieldFromSource")
+            : dbText("addedFieldsFromSource", { count: sourceFieldIds.length }),
+      });
+      onDone();
+    } catch (error) {
+      toast.error(dbText("fieldsWereNotAdded"), {
+        description:
+          error instanceof Error ? error.message : dbText("tryAgain"),
+      });
+    }
+  };
+
+  return (
+    <div className="grid min-w-0 gap-3">
+      <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3">
+        <div className="truncate text-sm font-medium" title={source.sourceName}>
+          {source.sourceName}
+        </div>
+        <div className="break-words text-xs text-muted-foreground">
+          {dbText("pickDetailsBecomeColumns")}
+        </div>
+      </div>
+      {fields.length === 0 ? (
+        <div className="break-words text-xs text-muted-foreground">
+          {dbText("allAvailableDetailFieldsAlreadyVisible")}
+        </div>
+      ) : (
+        <div className="grid min-w-0 gap-1">
+          {fields.map((field) => (
+            <button
+              key={field.id}
+              type="button"
+              className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => toggleField(field.id)}
+            >
+              <span
+                className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded border",
+                  selected.has(field.id)
+                    ? "border-[#2383e2] bg-[#2383e2] text-white"
+                    : "border-muted-foreground/40 text-transparent",
+                )}
+              >
+                <IconCheck className="size-3" />
+              </span>
+              <span className="min-w-0 flex-1 truncate">
+                {field.sourceFieldLabel}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {field.sourceFieldType}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={addField.isPending}
+          onClick={onDone}
+        >
+          Done
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canEdit || pending || addField.isPending}
+          onClick={addSelected}
+        >
+          {addField.isPending ? (
+            <Spinner className="mr-1.5 size-3.5" />
+          ) : (
+            <IconPlus className="mr-1.5 size-3.5" />
+          )}
+          Add selected
         </Button>
       </div>
     </div>
@@ -6773,7 +7439,7 @@ function DatabaseGalleryView({
           {dbText("loadingGallery")}
         </div>
       ) : (
-        <div className="grid gap-3 px-1 py-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="content-database-gallery-grid grid gap-3 px-1 py-3">
           {databaseViewHasNoMatchingPages(
             items.length,
             hasSearch,
@@ -6874,7 +7540,7 @@ function DatabaseGroupedGallerySection({
         onCollapsedChange={onCollapsedChange}
       />
       {!collapsed ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="content-database-gallery-grid grid gap-3">
           {group.items.map((item, index) => (
             <DatabaseGalleryCard
               key={`${group.id}-${item.id}`}
@@ -7355,7 +8021,7 @@ function DatabaseDateViewNoDateSection({
           {items.length}
         </span>
       </div>
-      <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="content-database-calendar-undated-grid grid gap-1">
         {items.map((item) => (
           <DatabaseCalendarCard
             key={item.id}
@@ -7767,7 +8433,7 @@ function DatabaseTimelineView({
                   <div
                     key={`${dateKey}-header`}
                     className={cn(
-                      "sticky top-0 z-10 grid gap-0.5 border-r border-b border-border bg-background/95 px-2 py-2 backdrop-blur last:border-r-0",
+                      "sticky top-0 z-10 grid gap-0.5 border-r border-b border-border bg-background px-2 py-2 last:border-r-0",
                       !inMonth && "bg-muted/70",
                     )}
                     style={{ gridColumn: index + 1, gridRow: 1 }}

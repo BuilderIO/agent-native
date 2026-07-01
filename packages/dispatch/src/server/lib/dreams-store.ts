@@ -3061,7 +3061,7 @@ export async function rejectDreamProposal(
 function cronLooksValid(schedule: string): boolean {
   const parts = schedule.trim().split(/\s+/);
   if (parts.length !== 5) return false;
-  return parts.every((part) => /^[\d*/,\-]+$/.test(part));
+  return parts.every((part) => /^[\d*/,-]+$/.test(part));
 }
 
 function dreamJobBody(settings: Omit<DreamSettings, "scope" | "scopeId">) {

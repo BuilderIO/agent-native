@@ -338,7 +338,7 @@ UI 中的路由位於 `templates/design/app/routes/` 下：`_index.tsx`（清單
 - **設計** - `create-design`（空殼）、`generate-design`（寫入產生的 HTML/JSX 內容）、`update-design`、`get-design`、`list-designs`、`duplicate-design`、`delete-design` 和 `apply-tweaks` 用於持久儲存即時調整旋鈕值（強調色、密度等）。
 - **檔案** - `create-file`、`update-file`、`list-files`、`delete-file` 用於設計專案內的檔案。
 - **設計系統** - `create-design-system`、`update-design-system`、`get-design-system`、`list-design-systems`、`delete-design-system`、`set-default-design-system` 和 `analyze-brand-assets` 用於在分析之前收集品牌資料。
-- **匯入** - `import-code`、`import-figma`、`import-github`、`import-from-url`、`import-document` (DOCX/PPTX/PDF/XLSX) 和 `import-design-project` 將設計系統從現有專案中提升出來。
+- **匯入** — `index-design-system-with-builder` for Builder-backed code/GitHub/Figma file design-system indexing, plus `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **匯出和移交** - `export-html`、`export-pdf`、`export-svg`、`export-zip` 和 `export-coding-handoff` 將設計轉變為編碼工具移交。
 - **脈絡和導覽** - `view-screen`（目前設計、開啟的檔案、檢視、待決問題或變體網格）、`get-design-snapshot`（外部代理繼續的目前狀態）和 `navigate`。
 
@@ -347,6 +347,63 @@ UI 中的路由位於 `templates/design/app/routes/` 下：`_index.tsx`（清單
 代理始終知道您開啟了什麼。目前設計、開啟的檔案、活動檢視以及任何待處理的問題或變體網格均由 `view-screen` 返回並注入到每條訊息中，因此您可以說“使此更密集”或“匯出此變體”，而無需命名設計。
 
 因為設計只是獨立的 HTML/JSX 檔案，所以代理編輯 iframe 渲染和每個匯出來自的相同來源 - 沒有單獨的“AI 模型”格式需要翻譯。連結設計系統提供代幣和代理在每一代通行證上兌現的 `custom_instructions`。在預覽中選取文字或區域，然後按 Cmd+I 將代理集中在該部分上。
+
+### 編輯器模型
+
+Design 對多畫面工作採用概覽優先。產生或進行大範圍更新後，編輯器會開啟
+畫面概覽：一個無限畫布，其中每個畫面都是可選取、移動、調整大小、拖放或
+複製的靜態框架。需要聚焦捲動或原型互動時，請使用框架的完整檢視按鈕。
+
+單畫面模式用於捲動、與原型行為互動，以及編輯一個已渲染檔案內的 DOM/程
+式碼圖層。圖層面板也反映這種分工：畫面是頂層框架，作用中畫面下嵌套
+DOM/程式碼圖層。
+
+當編碼代理需要在 Design 中開啟正在執行的本機應用，而不是產生獨立原型 HTML
+時，請安裝 `/visual-edit`：
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+目標應用的開發伺服器執行後，`/visual-edit` 會結合
+`npx @agent-native/core@latest design connect` 和 `add-localhost-screens`，把每個
+要求的 path 或 URL 放置為獨立的 URL-backed iframe 畫面。像
+`localhost:1234/onboarding/1`、`/onboarding/2`、`/onboarding/3` 這樣的編號流程
+會在 overview 模式中保持為分開的有序畫面。
+
+`/visual-edit` 入口路由可以在檢視者登入前載入，公開的 `/design/:id` 連結也
+可以在沒有 session 時以唯讀方式渲染公開 design。持久保存畫面版面、產生新畫
+面或分享仍會建立帳號綁定的 Design 資料：未登入使用者會經過
+`/_agent-native/sign-in?return=...`，然後 Design 會在開啟分享對話框前，把專
+案保存或複製到該帳號。
+
+若要取得穩定的圖層名稱，請在有意義的元素上加入
+`data-agent-native-layer-name`。Design 會優先使用它，然後才使用語意/文字
+後備，並且可以透過編輯該屬性來持久保存圖層重新命名。Inline HTML 支援本
+機程式碼圖層編輯，包括文字、class、style、attribute、來源順序和小型結構
+調整；視覺程式碼圖層編輯目前僅支援 HTML。Localhost source mode 可以註冊
+並解析本機路由 artboard，但本機檔案讀寫仍是橋接合約，直到明確權限控制
+完成加固。
+
+### Design 編輯器擴充功能
+
+編輯器在 **Tweaks** 之後包含一個 **Extensions** 檢查器標籤。它像 Design
+專屬的外掛通道：使用者可以點擊 **+ Extension** 讓代理建立擴充功能，也可
+以安裝宣告 `design.editor.inspector` slot 的擴充功能。
+
+Design 擴充功能會透過標準擴充 sandbox 內嵌渲染在 artboard 旁邊。host 會
+透過 `window.slotContext` 和 `window.onSlotContext(...)` 更新傳入目前的
+`designId`、作用中檔案、畫面清單、已選畫面 id、已選元素中繼資料、檢視模
+式、縮放、作用中工具和 tweak 值。這讓擴充功能可以顯示目前選取項目的資
+訊、提供樣式控制，或圍繞開啟的設計建立精簡工作流程。
+
+對於確定性的工作，擴充功能可以透過擴充橋接呼叫 app actions。對於 AI 驅
+動的變更，讓擴充功能呼叫 `agentNative.chat.send(...)`，並附上已選元素的
+selector/source id 和要求的變更。代理應先呼叫 `view-screen`，再用
+`apply-visual-edit` 處理元素 style、class、text 或 move 變更，或用帶有
+`canvasFrames` 的 `update-design` / `generate-design` 處理 artboard placement
+變更。關於 sandbox、持久狀態和橋接 API，請參閱
+[Extensions](/docs/extensions#what-an-extension-can-do)。
 
 ### 自訂它
 

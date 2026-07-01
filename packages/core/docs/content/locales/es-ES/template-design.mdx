@@ -338,15 +338,87 @@ Cada operación invocable por el agente es un archivo TypeScript en `templates/d
 - **Diseños**: `create-design` (cáscara vacía), `generate-design` (contenido de HTML/JSX generado por escritura), `update-design`, `get-design`, `list-designs`, `duplicate-design`, `delete-design` y `apply-tweaks` para conservar los valores de las perillas de ajuste en vivo (color de acento, densidad, etc.).
 - **Archivos**: `create-file`, `update-file`, `list-files`, `delete-file` para los archivos dentro de un proyecto de diseño.
 - **Sistemas de diseño**: `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system` y `analyze-brand-assets` para recopilar datos de marca antes del análisis.
-- **Importar**: `import-code`, `import-figma`, `import-github`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX) y `import-design-project` para sacar un sistema de diseño de un proyecto existente.
+- **Importar** — `index-design-system-with-builder` for Builder-backed code/GitHub/Figma file design-system indexing, plus `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **Exportación y transferencia**: `export-html`, `export-pdf`, `export-svg`, `export-zip` y `export-coding-handoff` para convertir un diseño en una transferencia de herramienta de codificación.
-- **Contexto y navegación**: `view-screen` (diseño actual, archivo abierto, vista, pregunta pendiente o cuadrícula de variantes), `get-design-snapshot` (estado actual desde el cual un agente externo puede continuar) y `navigate`.
+- **Contexto y navegación**: `view-screen` (diseño actual, archivo abierto, vista, pregunta pendiente o elección de variante), `get-design-snapshot` (estado actual desde el cual un agente externo puede continuar) y `navigate`.
 
 ### Trabajar con el agente
 
-El agente siempre sabe lo que tienes abierto. `view-screen` devuelve el diseño actual, el archivo abierto, la vista activa y cualquier pregunta pendiente o cuadrícula variante y los inyecta en cada mensaje, por lo que puede decir "hacer esto más denso" o "exportar esta variante" sin nombrar el diseño.
+El agente siempre sabe lo que tienes abierto. `view-screen` devuelve el diseño actual, el archivo abierto, la vista activa y cualquier pregunta pendiente o elección de variante y los inyecta en cada mensaje, por lo que puede decir "hacer esto más denso" o "exportar esta variante" sin nombrar el diseño.
 
 Debido a que un diseño son solo archivos HTML/JSX independientes, el agente edita la misma fuente que representa el iframe y de donde proviene cada exportación; no hay un formato de "maqueta de IA" independiente para traducir. Un sistema de diseño vinculado proporciona tokens y `custom_instructions` el agente honra en cada paso de generación. Seleccione texto o una región en la vista previa y presione Cmd+I para enfocar al agente exactamente en esa parte.
+
+### Modelo del editor
+
+Design prioriza la vista general para el trabajo con varias pantallas. Después
+de generar o aplicar actualizaciones amplias, el editor abre la vista general de
+pantallas: un lienzo infinito donde cada pantalla es un marco estático que se
+puede seleccionar, mover, redimensionar, soltar o duplicar. Usa el botón de vista completa del marco cuando una pantalla necesite
+desplazamiento enfocado o interacción de prototipo.
+
+El modo de una sola pantalla sirve para desplazarse, interactuar con el
+comportamiento del prototipo y editar las capas DOM/código dentro de un archivo
+renderizado. El panel de capas refleja esa división: las pantallas son marcos de
+nivel superior, con capas DOM/código anidadas para la pantalla activa.
+
+Instala `/visual-edit` cuando un agente de código deba abrir una app local en
+ejecución dentro de Design en lugar de generar HTML de prototipo independiente:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Después de que el servidor dev de la app objetivo esté corriendo, `/visual-edit`
+usa `npx @agent-native/core@latest design connect` más `add-localhost-screens`
+para colocar cada ruta o URL solicitada como su propia pantalla iframe respaldada
+por URL. Los flujos numerados como `localhost:1234/onboarding/1`,
+`/onboarding/2` y `/onboarding/3` se mantienen como pantallas separadas y
+ordenadas en modo de vista general.
+
+La ruta de entrada `/visual-edit` puede cargar antes de que el visitante inicie
+sesión, y los enlaces públicos `/design/:id` pueden renderizar diseños públicos
+de solo lectura sin sesión. Persistir el diseño de pantallas, generar pantallas
+nuevas o compartir sigue creando datos de Design vinculados a una cuenta: los
+usuarios sin sesión pasan por `/_agent-native/sign-in?return=...`; después,
+Design guarda o copia el proyecto en esa cuenta antes de abrir el diálogo de
+compartir.
+
+Para nombres de capa estables, agrega `data-agent-native-layer-name` a los
+elementos importantes. Design lo usa antes de los respaldos semánticos/de texto
+y puede persistir cambios de nombre editando ese atributo. HTML inline admite
+ediciones locales de capas de código para texto, clases, estilos, atributos,
+orden del código fuente y pequeños cambios estructurales; las ediciones visuales
+de capas de código solo admiten HTML por ahora. El modo de fuente localhost
+puede registrar y resolver artboards de rutas locales, pero las lecturas y
+escrituras de archivos locales siguen siendo un contrato de puente hasta que se
+endurezcan los controles explícitos de permisos.
+
+### Extensiones del editor de Design
+
+El editor incluye una pestaña de inspector **Extensions** después de
+**Tweaks**. Funciona como un carril de plugins específico de Design: los
+usuarios pueden hacer clic en **+ Extension** para pedirle al agente que cree
+una extensión, o instalar una extensión que declare el slot
+`design.editor.inspector`.
+
+Las extensiones de Design se renderizan en línea junto al artboard mediante el
+sandbox estándar de extensiones. El host pasa actualizaciones de
+`window.slotContext` y `window.onSlotContext(...)` con el `designId` actual, el
+archivo activo, la lista de pantallas, los ids de pantalla seleccionados, los
+metadatos del elemento seleccionado, el modo de vista, el zoom, la herramienta
+activa y los valores de tweaks. Eso permite que una extensión muestre
+información sobre la selección actual, ofrezca controles de estilo o construya
+flujos compactos alrededor del diseño abierto.
+
+Para trabajo determinista, las extensiones pueden llamar acciones de la app a
+través del puente de extensiones. Para cambios impulsados por IA, haz que la
+extensión llame `agentNative.chat.send(...)` con el selector/id de origen del
+elemento seleccionado y el cambio solicitado. El agente debe llamar primero
+`view-screen`, luego usar `apply-visual-edit` para cambios de estilo, clase,
+texto o movimiento de elementos, o `update-design` / `generate-design` con
+`canvasFrames` para cambios de colocación del artboard. Consulta
+[Extensions](/docs/extensions#what-an-extension-can-do) para el sandbox, el
+estado persistente y las APIs del puente.
 
 ### Personalizarlo
 

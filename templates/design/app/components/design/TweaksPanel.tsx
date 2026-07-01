@@ -1,6 +1,11 @@
 import { useT } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
-import { IconX, IconGripHorizontal, IconPlus } from "@tabler/icons-react";
+import {
+  IconX,
+  IconGripHorizontal,
+  IconPlus,
+  IconAdjustmentsHorizontal,
+} from "@tabler/icons-react";
 import { useState, useRef, useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +25,58 @@ interface TweaksPanelProps {
   onClose: () => void;
   onRequestTweaks?: (anchor: HTMLElement) => void;
   visible: boolean;
+}
+
+interface TweaksPanelContentProps {
+  tweaks: TweakDefinition[];
+  values: Record<string, string | number | boolean>;
+  onChange: (id: string, value: string | number | boolean) => void;
+  onRequestTweaks?: (anchor: HTMLElement) => void;
+  className?: string;
+}
+
+export function TweaksPanelContent({
+  tweaks,
+  values,
+  onChange,
+  onRequestTweaks,
+  className,
+}: TweaksPanelContentProps) {
+  const t = useT();
+
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      {tweaks.length > 0 ? (
+        tweaks.map((tweak) => (
+          <TweakControl
+            key={tweak.id}
+            tweak={tweak}
+            value={values[tweak.id] ?? tweak.defaultValue}
+            onChange={(v) => onChange(tweak.id, v)}
+          />
+        ))
+      ) : (
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <IconAdjustmentsHorizontal className="size-5 text-muted-foreground/40" />
+          <p className="!text-[11px] leading-snug text-muted-foreground/70">
+            {t("designEditor.noTweakControls")}
+          </p>
+          {onRequestTweaks && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 cursor-pointer border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2.5 !text-[11px] text-foreground shadow-none hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
+              onClick={(e) => onRequestTweaks(e.currentTarget)}
+            >
+              <IconPlus className="size-3" />
+              {t("designEditor.addTweakControls")}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function TweaksPanel({
@@ -85,18 +142,18 @@ export function TweaksPanel({
       className="fixed z-[70] w-60 rounded-xl border border-border bg-card shadow-2xl backdrop-blur-sm"
       style={{ right: position.x, bottom: position.y }}
     >
-      {/* Header — drag handle + collapse toggle */}
+      {/* Header — drag handle + collapse toggle + actions */}
       <div
-        className="flex cursor-grab select-none items-center justify-between px-3 pt-2.5 pb-1.5 active:cursor-grabbing"
+        className="flex min-h-8 cursor-grab select-none items-center justify-between px-3 active:cursor-grabbing"
         onMouseDown={handleMouseDown}
       >
         <div className="flex items-center gap-1.5">
-          <IconGripHorizontal className="h-3 w-3 text-muted-foreground/60" />
+          <IconGripHorizontal className="size-3 text-muted-foreground/40" />
           <button
             type="button"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setCollapsed((c) => !c)}
-            className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-muted-foreground"
+            className="cursor-pointer !text-[11px] font-semibold text-foreground hover:text-foreground/80"
           >
             {t("designEditor.tweaks")}
           </button>
@@ -114,10 +171,10 @@ export function TweaksPanel({
                     e.stopPropagation();
                     onRequestTweaks(e.currentTarget);
                   }}
-                  className="size-6 cursor-pointer text-muted-foreground/70 hover:text-foreground"
+                  className="size-6 cursor-pointer text-muted-foreground/60 hover:text-foreground"
                   aria-label={t("designEditor.addTweaks")}
                 >
-                  <IconPlus className="h-3.5 w-3.5" />
+                  <IconPlus className="size-3" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t("designEditor.addTweaks")}</TooltipContent>
@@ -130,46 +187,26 @@ export function TweaksPanel({
               e.stopPropagation();
               onClose();
             }}
-            className="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-muted-foreground"
+            className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground/60 hover:bg-accent hover:text-foreground"
             aria-label={t("designEditor.closeTweaks")}
           >
-            <IconX className="h-3 w-3" />
+            <IconX className="size-3" />
           </button>
         </div>
       </div>
 
       {/* Body */}
       {!collapsed && (
-        <div className="space-y-3.5 px-3 pb-3.5">
-          {tweaks.length > 0 ? (
-            tweaks.map((tweak) => (
-              <TweakControl
-                key={tweak.id}
-                tweak={tweak}
-                value={values[tweak.id] ?? tweak.defaultValue}
-                onChange={(v) => onChange(tweak.id, v)}
-              />
-            ))
-          ) : (
-            <div className="space-y-2 rounded-lg border border-dashed border-border/80 bg-muted/20 p-3">
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {t("designEditor.noTweakControls")}
-              </p>
-              {onRequestTweaks && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 w-full cursor-pointer text-xs"
-                  onClick={(e) => onRequestTweaks(e.currentTarget)}
-                >
-                  <IconPlus className="h-3.5 w-3.5" />
-                  {t("designEditor.addTweakControls")}
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
+        <>
+          <div className="mx-3 border-t border-border/60" />
+          <TweaksPanelContent
+            tweaks={tweaks}
+            values={values}
+            onChange={onChange}
+            onRequestTweaks={onRequestTweaks}
+            className="px-3 py-2"
+          />
+        </>
       )}
     </div>
   );
@@ -184,15 +221,29 @@ function TweakControl({
   value: string | number | boolean;
   onChange: (v: string | number | boolean) => void;
 }) {
-  return (
-    <div>
-      <div className="mb-1.5 text-[11px] text-muted-foreground">
-        {tweak.label}
+  // Toggle gets an inline row; other types get a label above
+  if (tweak.type === "toggle") {
+    return (
+      <div className="flex h-6 items-center justify-between gap-1.5">
+        <span className="!text-[11px] text-muted-foreground">
+          {tweak.label}
+        </span>
+        <Switch
+          checked={!!value}
+          onCheckedChange={(checked) => onChange(checked)}
+          className="scale-[0.7] origin-right"
+        />
       </div>
+    );
+  }
 
-      {(tweak.type as string) === "color-swatch" ||
-      (tweak.type as string) === "color-swatches" ? (
-        <div className="flex gap-2">
+  return (
+    <div className="space-y-1">
+      <span className="!text-[11px] text-muted-foreground">{tweak.label}</span>
+
+      {((tweak.type as string) === "color-swatch" ||
+        (tweak.type as string) === "color-swatches") && (
+        <div className="flex gap-1.5">
           {tweak.options?.map((opt) => (
             <Tooltip key={opt.value}>
               <TooltipTrigger asChild>
@@ -200,32 +251,32 @@ function TweakControl({
                   type="button"
                   onClick={() => onChange(opt.value)}
                   className={cn(
-                    "h-6 w-6 cursor-pointer rounded-full",
+                    "size-4 cursor-pointer rounded-sm transition-all",
                     value === opt.value
-                      ? "ring-2 ring-white ring-offset-2 ring-offset-[hsl(240,5%,8%)]"
-                      : "ring-1 ring-white/10 hover:ring-white/30",
+                      ? "ring-2 ring-foreground/80 ring-offset-1 ring-offset-card"
+                      : "ring-1 ring-border/60 hover:ring-border",
                   )}
-                  style={{ backgroundColor: opt.color || opt.value }}
+                  style={{ backgroundColor: opt.color ?? opt.value }}
                 />
               </TooltipTrigger>
               <TooltipContent>{opt.label}</TooltipContent>
             </Tooltip>
           ))}
         </div>
-      ) : null}
+      )}
 
       {tweak.type === "segment" && (
-        <div className="flex overflow-hidden rounded-lg border border-border">
+        <div className="flex h-6 overflow-hidden rounded border border-border">
           {tweak.options?.map((opt) => (
             <button
               type="button"
               key={opt.value}
               onClick={() => onChange(opt.value)}
               className={cn(
-                "flex-1 cursor-pointer px-2.5 py-1 text-[11px] font-medium",
+                "flex flex-1 cursor-pointer items-center justify-center px-2 !text-[11px] font-medium transition-colors",
                 value === opt.value
                   ? "bg-accent text-foreground"
-                  : "text-muted-foreground/70 hover:text-muted-foreground",
+                  : "text-muted-foreground/70 hover:bg-accent/50 hover:text-foreground",
               )}
             >
               {opt.label}
@@ -235,27 +286,35 @@ function TweakControl({
       )}
 
       {tweak.type === "slider" && (
-        <div className="flex items-center gap-2">
-          <Slider
-            min={tweak.min ?? 0}
-            max={tweak.max ?? 100}
-            step={tweak.step ?? 1}
-            value={[typeof value === "number" ? value : 50]}
-            onValueChange={([v]) => onChange(v)}
-            className="flex-1"
-          />
-          <span className="min-w-[2rem] text-right text-[11px] text-muted-foreground">
-            {typeof value === "number" ? value : 50}
-            {tweak.cssVar?.includes("radius") ? "px" : ""}
-          </span>
+        <div className="flex h-6 items-center gap-1.5">
+          {(() => {
+            const sliderMin = tweak.min ?? 0;
+            const sliderMax = tweak.max ?? 100;
+            const rawNum = typeof value === "number" ? value : Number(value);
+            const sliderValue = Number.isFinite(rawNum)
+              ? Math.min(sliderMax, Math.max(sliderMin, rawNum))
+              : sliderMin;
+            return (
+              <>
+                <Slider
+                  min={sliderMin}
+                  max={sliderMax}
+                  step={tweak.step ?? 1}
+                  value={[sliderValue]}
+                  onValueChange={([v]) => onChange(v)}
+                  className="flex-1"
+                />
+                <span className="min-w-[2ch] text-right !text-[11px] tabular-nums text-muted-foreground">
+                  {sliderValue}
+                  {tweak.unit ??
+                    (tweak.cssVar?.toLowerCase().includes("radius")
+                      ? "px"
+                      : "")}
+                </span>
+              </>
+            );
+          })()}
         </div>
-      )}
-
-      {tweak.type === "toggle" && (
-        <Switch
-          checked={!!value}
-          onCheckedChange={(checked) => onChange(checked)}
-        />
       )}
     </div>
   );

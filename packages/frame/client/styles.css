@@ -31,26 +31,31 @@
 }
 
 :root {
-  --background: 220 6% 6%;
+  --background: 0 0% 13%;
   --foreground: 0 0% 90%;
-  --card: 220 5% 6%;
+  --card: 0 0% 15%;
   --card-foreground: 0 0% 90%;
-  --popover: 220 5% 6%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 90%;
   --primary: 0 0% 75%;
-  --primary-foreground: 220 6% 6%;
-  --secondary: 220 4% 12%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 90%;
-  --muted: 220 4% 10%;
-  --muted-foreground: 220 4% 60%;
-  --accent: 220 4% 13%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
   --destructive: 0 63% 51%;
   --destructive-foreground: 0 0% 98%;
-  --border: 220 4% 14%;
-  --input: 220 4% 14%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 0 0% 60%;
   --radius: 0.5rem;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
 }
 
 body {
@@ -69,11 +74,15 @@ body {
 }
 
 .agent-frame-shell {
-  --agent-native-lower-surface: hsl(var(--background));
+  --agent-native-lower-surface: hsl(
+    var(--sidebar-background, var(--background))
+  );
   --agent-native-raised-surface: hsl(var(--background));
   --agent-native-card-surface: hsl(var(--card));
   --agent-native-raised-border: hsl(var(--border));
   --agent-native-raised-radius: 8px;
+  --agent-native-raised-outline: inset 0 0 0 1px
+    var(--agent-native-raised-border);
   --agent-native-raised-shadow-right: 1px 0 3px rgb(0 0 0 / 0.018);
   background: var(--agent-native-lower-surface);
 }
@@ -82,7 +91,7 @@ body {
   .agent-frame-shell {
     --agent-native-lower-surface: color-mix(
       in srgb,
-      hsl(var(--background)) 98%,
+      hsl(var(--sidebar-background, var(--background))) 98%,
       black
     );
     --agent-native-raised-border: color-mix(
@@ -96,7 +105,7 @@ body {
   .dark.agent-frame-shell {
     --agent-native-lower-surface: color-mix(
       in srgb,
-      hsl(var(--background)) 94%,
+      hsl(var(--sidebar-background, var(--background))) 94%,
       black
     );
     --agent-native-raised-surface: color-mix(
@@ -148,8 +157,9 @@ body {
   .agent-frame-main-surface[data-agent-frame-main-state="open"] {
     border-start-end-radius: var(--agent-native-raised-radius);
     border-end-end-radius: var(--agent-native-raised-radius);
-    border-inline-end: 1px solid var(--agent-native-raised-border);
-    box-shadow: var(--agent-native-raised-shadow-right);
+    box-shadow:
+      var(--agent-native-raised-outline),
+      var(--agent-native-raised-shadow-right);
   }
 }
 

@@ -21,6 +21,7 @@ import {
   DEFAULT_GENERATION_REFERENCE_LIMIT,
   generateWithManagedImageProvider,
   isImageGenerationSetupError,
+  resolveImageModelForRequest,
   selectReferences,
 } from "../server/lib/generation.js";
 import { compositeLogo } from "../server/lib/image-processing.js";
@@ -35,7 +36,6 @@ import {
   IMAGE_SIZES,
   STYLE_STRENGTHS,
   type ImageCategory,
-  type ImageModel,
   type ImageQualityTier,
   type StyleBrief,
 } from "../shared/api.js";
@@ -44,19 +44,10 @@ import {
   serializeAsset,
 } from "./_helpers.js";
 import { readImageModelDefault } from "./_image-model-default.js";
+import { withToolActivity } from "./_tool-activity.js";
 import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 
-function resolveModelForTier(
-  tier: ImageQualityTier | undefined,
-  category: ImageCategory | undefined,
-): ImageModel | undefined {
-  if (!tier) return undefined;
-  if (tier === "fast") return "gemini-3.1-flash-image";
-  if (tier === "best") return "gemini-3-pro-image";
-  return ["hero", "landing", "logo", "campaign"].includes(category ?? "")
-    ? "gemini-3-pro-image"
-    : "gemini-3.1-flash-image";
-}
+const IMAGE_GENERATION_TOOL_TIMEOUT_MS = 12 * 60_000;
 
 export default defineAction({
   description:
@@ -69,11 +60,38 @@ export default defineAction({
         "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
     collectionId: z.string().optional(),
-    presetId: z.string().optional(),
+    presetId: z
+      .string()
+      .optional()
+      .describe(
+        "Generation preset ID (from a @preset mention or list-generation-presets). A preset already defines aspectRatio, imageSize, model, tier, and category. When you set presetId, OMIT those args so the preset's values are used; only pass one of them when the user explicitly asks for a value that differs from the preset.",
+      ),
     sessionId: z.string().optional(),
     prompt: z.string().min(1),
-    aspectRatio: z.enum(ASPECT_RATIOS).optional(),
-    imageSize: z.enum(IMAGE_SIZES).optional(),
+    embeddedText: z
+      .string()
+      .optional()
+      .describe(
+        "Exact words to render inside the image, spelled exactly. When set, the image is allowed to contain this text; when omitted, the image avoids embedded text.",
+      ),
+    textPlacement: z
+      .string()
+      .optional()
+      .describe(
+        "Where/how the embedded text should appear, e.g. 'centered headline', 'lower-left label'.",
+      ),
+    aspectRatio: z
+      .enum(ASPECT_RATIOS)
+      .optional()
+      .describe(
+        "Image aspect ratio. When a presetId is set, omit this — the preset's aspect ratio is used. Pass a value only when there is no preset, or when the user explicitly asks for a ratio different from the preset's.",
+      ),
+    imageSize: z
+      .enum(IMAGE_SIZES)
+      .optional()
+      .describe(
+        "Output resolution tier. When a presetId is set, omit this — the preset's size is used unless the user explicitly requests a different one.",
+      ),
     model: z.enum(IMAGE_MODELS).optional(),
     tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
     intent: z.enum(GENERATION_INTENTS).default("generate"),
@@ -125,6 +143,7 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
+  timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
   run: async (input, context?: ActionRunContext) => {
     const imageModelDefault = await readImageModelDefault();
     const libraryId = input.libraryId;
@@ -248,11 +267,15 @@ export default defineAction({
     const category = (args.categories?.[0] ??
       preset?.category ??
       collection?.category) as ImageCategory | undefined;
-    const resolvedModel = (args.model ??
-      imageModelDefault ??
-      resolveModelForTier(resolvedTier, category) ??
-      preset?.model ??
-      "gemini-3.1-flash-image") as (typeof IMAGE_MODELS)[number];
+    const resolvedModel = resolveImageModelForRequest({
+      explicitModel: args.model,
+      imageModelDefault,
+      explicitTier: args.tier,
+      resolvedTier,
+      category,
+      presetModel: preset?.model as (typeof IMAGE_MODELS)[number] | undefined,
+      embeddedText: args.embeddedText,
+    }) as (typeof IMAGE_MODELS)[number];
     const resolvedCategories =
       args.categories ??
       (preset?.category ? ([preset.category] as any) : undefined);
@@ -294,6 +317,8 @@ export default defineAction({
         .filter((item) => item?.trim())
         .join("\n\n"),
       prompt: promptForRun,
+      embeddedText: args.embeddedText,
+      textPlacement: args.textPlacement,
       referenceCount: references.length,
       includeLogo: args.includeLogo,
       aspectRatio: resolvedAspectRatio,
@@ -343,6 +368,8 @@ export default defineAction({
       collectionId: resolvedCollectionId ?? null,
       presetId: preset?.id ?? null,
       sessionId: session?.id ?? null,
+      embeddedText: args.embeddedText ?? null,
+      textPlacement: args.textPlacement ?? null,
       customInstructions: library.customInstructions ?? "",
     };
     const dismissibleSlot = args.dismissible !== false && Boolean(slotId);
@@ -354,6 +381,8 @@ export default defineAction({
       dismissible: dismissibleSlot,
       sourceAssetId: args.sourceAssetId,
       subjectAssetId: args.subjectAssetId,
+      embeddedText: args.embeddedText,
+      textPlacement: args.textPlacement,
       intent: args.intent,
       styleStrength: args.styleStrength,
       tier: resolvedTier,
@@ -401,22 +430,36 @@ export default defineAction({
     });
 
     try {
-      const generated = await generateWithManagedImageProvider({
-        prompt: promptForRun,
-        compiledPrompt,
-        references,
-        model: resolvedModel,
-        aspectRatio: resolvedAspectRatio,
-        imageSize: resolvedImageSize,
-        groundingMode: args.groundingMode,
-        intent: args.intent,
-        styleStrength: args.styleStrength,
-        runId,
-        libraryId: args.libraryId,
-        collectionId: resolvedCollectionId ?? null,
-        source: args.source,
-        callerAppId: args.callerAppId,
-      });
+      const generated = await withToolActivity(
+        context,
+        {
+          label: "Generating image.",
+          ongoingLabel: "Still generating image.",
+          // Intentionally no explicit `tool`: withToolActivity falls back to
+          // context.actionName, which is the ACTUAL dispatched tool. When this
+          // action is invoked directly that is "generate-image"; when it runs as
+          // a sub-step of generate-image-batch / rerun-generation-run it is the
+          // parent tool, so the activity event matches the real tool_start card
+          // instead of spawning an orphan "generate-image" activity card.
+        },
+        () =>
+          generateWithManagedImageProvider({
+            prompt: promptForRun,
+            compiledPrompt,
+            references,
+            model: resolvedModel,
+            aspectRatio: resolvedAspectRatio,
+            imageSize: resolvedImageSize,
+            groundingMode: args.groundingMode,
+            intent: args.intent,
+            styleStrength: args.styleStrength,
+            runId,
+            libraryId: args.libraryId,
+            collectionId: resolvedCollectionId ?? null,
+            source: args.source,
+            callerAppId: args.callerAppId,
+          }),
+      );
       await deleteAppState("image-generation-setup").catch(() => {});
       let image = generated.image;
       let mimeType = generated.mimeType;
@@ -465,37 +508,48 @@ export default defineAction({
           Artifacts: [],
         };
       }
-      const asset = await createAssetFromBuffer({
-        libraryId: args.libraryId,
-        collectionId: resolvedCollectionId ?? null,
-        buffer: image,
-        mimeType,
-        role: "generated",
-        status: "candidate",
-        prompt: args.prompt,
-        model: generated.model,
-        aspectRatio: resolvedAspectRatio,
-        imageSize: resolvedImageSize,
-        generationRunId: runId,
-        metadata: {
-          provider: generated.provider,
-          compiledPrompt,
-          referenceAssetIds: references.map((ref) => ref.id),
-          sourceAssetId: args.sourceAssetId,
-          subjectAssetId: args.subjectAssetId,
-          intent: args.intent,
-          styleStrength: args.styleStrength,
-          tier: resolvedTier,
-          includeLogo: args.includeLogo,
-          presetId: preset?.id,
-          sessionId: session?.id,
-          generated: true,
-          sourceUrl: generated.sourceUrl,
-          providerGenerationId: generated.providerGenerationId,
-          creditsCharged: generated.creditsCharged,
+      const asset = await withToolActivity(
+        context,
+        {
+          label: "Saving generated image.",
+          ongoingLabel: "Still saving generated image.",
+          // See above: omit `tool` so the activity is tagged with the real
+          // dispatched tool (context.actionName) rather than a hardcoded
+          // "generate-image" that orphans under batch/rerun.
         },
-        category,
-      });
+        () =>
+          createAssetFromBuffer({
+            libraryId: args.libraryId,
+            collectionId: resolvedCollectionId ?? null,
+            buffer: image,
+            mimeType,
+            role: "generated",
+            status: "candidate",
+            prompt: args.prompt,
+            model: generated.model,
+            aspectRatio: resolvedAspectRatio,
+            imageSize: resolvedImageSize,
+            generationRunId: runId,
+            metadata: {
+              provider: generated.provider,
+              compiledPrompt,
+              referenceAssetIds: references.map((ref) => ref.id),
+              sourceAssetId: args.sourceAssetId,
+              subjectAssetId: args.subjectAssetId,
+              intent: args.intent,
+              styleStrength: args.styleStrength,
+              tier: resolvedTier,
+              includeLogo: args.includeLogo,
+              presetId: preset?.id,
+              sessionId: session?.id,
+              generated: true,
+              sourceUrl: generated.sourceUrl,
+              providerGenerationId: generated.providerGenerationId,
+              creditsCharged: generated.creditsCharged,
+            },
+            category,
+          }),
+      );
       if (session) {
         const itemCreatedAt = nowIso();
         await db.insert(schema.assetGenerationSessionItems).values({

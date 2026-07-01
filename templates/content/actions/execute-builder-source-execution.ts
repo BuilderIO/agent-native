@@ -11,9 +11,19 @@ import {
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceExecutionState,
   type ContentDatabaseSourcePushMode,
+  type DocumentPropertyValue,
   type ExecuteBuilderSourceExecutionRequest,
 } from "../shared/api.js";
-import { builderCmsQualifiedId } from "./_builder-cms-source-adapter.js";
+import {
+  type BuilderCmsEntryLiveState,
+  readBuilderCmsEntryLiveState,
+} from "./_builder-cms-read-client.js";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_SIDECARS_KEY,
+  builderCmsQualifiedId,
+} from "./_builder-cms-source-adapter.js";
 import type {
   BuilderCmsExecutionPayload,
   BuilderCmsExecutionPlan,
@@ -21,6 +31,7 @@ import type {
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
+  resolveBuilderCmsExecutionPushMode,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter.js";
 import {
@@ -28,7 +39,7 @@ import {
   executeBuilderCmsWrite,
 } from "./_builder-cms-write-client.js";
 import {
-  getContentDatabaseSourceSnapshot,
+  getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -94,6 +105,10 @@ export interface ExecuteBuilderSourceExecutionDeps {
   executeWrite: (args: {
     request: BuilderCmsExecutionPayload["request"];
   }) => ReturnType<typeof executeBuilderCmsWrite>;
+  readLiveEntry: (args: {
+    model: string;
+    entryId: string;
+  }) => Promise<BuilderCmsEntryLiveState>;
   reconcileWrite: (args: {
     database: DatabaseRecord;
     source: ContentDatabaseSource;
@@ -206,6 +221,177 @@ function proposedSourceDisplayKey(
     : fallback;
 }
 
+function builderCmsResponseRecord(
+  value: unknown,
+): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function builderCmsResponseValue(
+  value: unknown,
+  keys: string[],
+): number | string | null {
+  const record = builderCmsResponseRecord(value);
+  if (!record) return null;
+  for (const key of keys) {
+    const direct = record[key];
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
+    if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+  }
+  for (const key of ["entry", "result", "content", "data"]) {
+    const nested = builderCmsResponseValue(record[key], keys);
+    if (nested !== null) return nested;
+  }
+  return null;
+}
+
+function builderCmsAuthoritativeLastUpdated(
+  writeResult: BuilderCmsWriteResult,
+  fallback: string,
+) {
+  return String(
+    builderCmsResponseValue(writeResult.responseBody, [
+      "lastUpdated",
+      "lastUpdatedAt",
+      "updatedAt",
+      "last_source_updated_at",
+    ]) ?? fallback,
+  );
+}
+
+function parseSourceValues(
+  value: string | null | undefined,
+): Record<string, DocumentPropertyValue> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, DocumentPropertyValue>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function builderCmsReconciledSourceValuesJson(args: {
+  existingSourceValuesJson: string | null | undefined;
+  snapshotSourceValues: Record<string, DocumentPropertyValue> | undefined;
+  changeSet: ContentDatabaseSourceChangeSet;
+}) {
+  const next = {
+    ...(args.snapshotSourceValues ?? {}),
+    ...parseSourceValues(args.existingSourceValuesJson),
+  };
+  for (const field of args.changeSet.fieldChanges) {
+    next[field.sourceFieldKey] = field.proposedValue;
+  }
+  const bodyChange = args.changeSet.bodyChange;
+  if (bodyChange) {
+    if (bodyChange.proposedHash !== undefined) {
+      next[BUILDER_CMS_BODY_BLOCKS_HASH_KEY] = bodyChange.proposedHash;
+    }
+    if (bodyChange.proposedContent !== undefined) {
+      next[BUILDER_CMS_BODY_CONTENT_KEY] = bodyChange.proposedContent;
+    }
+    if (bodyChange.sidecarsJson !== undefined) {
+      next[BUILDER_CMS_BODY_SIDECARS_KEY] = bodyChange.sidecarsJson;
+    }
+  }
+  return JSON.stringify(next);
+}
+
+function sourceRowForChangeSet(
+  source: ContentDatabaseSource,
+  changeSet: ContentDatabaseSourceChangeSet,
+) {
+  return (
+    source.rows.find(
+      (row) =>
+        row.documentId === changeSet.documentId ||
+        row.databaseItemId === changeSet.databaseItemId,
+    ) ?? null
+  );
+}
+
+function requiresLivePreflight(effect: BuilderCmsExecutionPayload["effect"]) {
+  return (
+    effect === "autosave" ||
+    effect === "update_in_place" ||
+    effect === "publish" ||
+    effect === "unpublish"
+  );
+}
+
+function normalizedLiveTimestamp(value: number | string | null | undefined) {
+  return value === null || value === undefined ? null : String(value);
+}
+
+function toEpochMs(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric)) return numeric;
+
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function liveTimestampsDiffer(args: {
+  liveLastUpdated: number | string | null | undefined;
+  baselineLastUpdated: string | null | undefined;
+}) {
+  const liveEpoch = toEpochMs(args.liveLastUpdated);
+  const baselineEpoch = toEpochMs(args.baselineLastUpdated);
+  if (liveEpoch !== null && baselineEpoch !== null) {
+    return liveEpoch !== baselineEpoch;
+  }
+  return (
+    normalizedLiveTimestamp(args.liveLastUpdated) !==
+    normalizedLiveTimestamp(args.baselineLastUpdated)
+  );
+}
+
+function livePreflightBlockMessage(args: {
+  liveState: BuilderCmsEntryLiveState;
+  baselineLastUpdated: string | null;
+  baselineBlocksHash: string | null;
+  effect: BuilderCmsExecutionPayload["effect"];
+}) {
+  if (!args.liveState.exists) {
+    return "Builder entry no longer exists; refresh the source.";
+  }
+  if (
+    liveTimestampsDiffer({
+      liveLastUpdated: args.liveState.lastUpdated,
+      baselineLastUpdated: args.baselineLastUpdated,
+    })
+  ) {
+    return "Builder entry changed since this diff was approved; refresh and re-review.";
+  }
+  if (
+    args.baselineBlocksHash &&
+    args.liveState.blocksHash &&
+    args.baselineBlocksHash !== args.liveState.blocksHash
+  ) {
+    return "Builder body changed since this diff was approved; refresh and re-review.";
+  }
+  if (args.effect === "publish" && args.liveState.published !== "draft") {
+    return "Entry is already published.";
+  }
+  if (args.effect === "unpublish" && args.liveState.published !== "published") {
+    return "Entry is not currently published.";
+  }
+  return null;
+}
+
 export function builderCmsReconciledSourceRowPatch(args: {
   source: ContentDatabaseSource;
   changeSet: ContentDatabaseSourceChangeSet;
@@ -222,6 +408,10 @@ export function builderCmsReconciledSourceRowPatch(args: {
   const entryId =
     args.writeResult.entryId ?? args.plan.payload.target.entryId ?? null;
   if (!entryId) return null;
+  const sourceUpdatedAt = builderCmsAuthoritativeLastUpdated(
+    args.writeResult,
+    args.now,
+  );
 
   return {
     sourceRowId: entryId,
@@ -237,7 +427,7 @@ export function builderCmsReconciledSourceRowPatch(args: {
     syncState: "idle",
     freshness: "fresh",
     lastSyncedAt: args.now,
-    lastSourceUpdatedAt: args.now,
+    lastSourceUpdatedAt: sourceUpdatedAt,
     updatedAt: args.now,
   };
 }
@@ -281,10 +471,20 @@ async function reconcileBuilderCmsWrite(args: {
       : [];
 
   const [row] = existingRow;
+  const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
+  const sourceValuesJson = builderCmsReconciledSourceValuesJson({
+    existingSourceValuesJson: row?.sourceValuesJson,
+    snapshotSourceValues: snapshotRow?.sourceValues,
+    changeSet: args.changeSet,
+  });
+  const patchWithValues = {
+    ...patch,
+    sourceValuesJson,
+  };
   if (row) {
     await db
       .update(schema.contentDatabaseSourceRows)
-      .set(patch)
+      .set(patchWithValues)
       .where(eq(schema.contentDatabaseSourceRows.id, row.id));
   } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
     await db.insert(schema.contentDatabaseSourceRows).values({
@@ -294,7 +494,7 @@ async function reconcileBuilderCmsWrite(args: {
       databaseItemId: args.changeSet.databaseItemId,
       documentId: args.changeSet.documentId,
       createdAt: args.now,
-      ...patch,
+      ...patchWithValues,
     });
   } else {
     throw new Error(
@@ -316,21 +516,24 @@ async function reconcileBuilderCmsWrite(args: {
       syncState: "idle",
       freshness: "fresh",
       lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: args.now,
+      lastSourceUpdatedAt: patch.lastSourceUpdatedAt,
       lastError: null,
       updatedAt: args.now,
     })
     .where(eq(schema.contentDatabaseSources.id, args.source.id));
 }
 
-function realExecutionDeps(): ExecuteBuilderSourceExecutionDeps {
+export function realExecutionDeps(
+  sourceId?: string,
+): ExecuteBuilderSourceExecutionDeps {
   return {
     now: () => new Date().toISOString(),
     resolveDatabase: (args) => resolveDatabaseForSourceMutation(args),
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
     },
-    getSourceSnapshot: (database) => getContentDatabaseSourceSnapshot(database),
+    getSourceSnapshot: (database) =>
+      getContentDatabaseSourceSnapshotForWrite(database, sourceId),
     getExecution: async (args) => {
       const [execution] = await getDb()
         .select()
@@ -426,6 +629,7 @@ function realExecutionDeps(): ExecuteBuilderSourceExecutionDeps {
         .where(eq(schema.contentDatabaseSourceExecutions.id, args.executionId));
     },
     executeWrite: (args) => executeBuilderCmsWrite(args),
+    readLiveEntry: (args) => readBuilderCmsEntryLiveState(args),
     reconcileWrite: reconcileBuilderCmsWrite,
     getResponse: (databaseId) => getContentDatabaseResponse(databaseId),
   };
@@ -452,18 +656,28 @@ export async function executeBuilderSourceExecutionWithDeps(
     throw new Error("Only outbound Builder change sets can be executed.");
   }
 
+  const resolvedPushMode = resolveBuilderCmsExecutionPushMode({
+    source,
+    changeSet,
+  });
+  const effectivePushMode =
+    resolvedPushMode === "none" ? "autosave" : resolvedPushMode;
   const pushMode = executablePushMode(
-    args.pushModeConfirmation ?? changeSet.pushMode ?? source.metadata.pushMode,
+    args.pushModeConfirmation ?? effectivePushMode,
   );
   if (!pushMode) {
     throw new Error(
       "Builder execution requires Autosave, Draft, or Publish push mode.",
     );
   }
+  // The gate key is keyed on the RAW resolved push mode (matching the plan in
+  // buildBuilderCmsExecutionPlan) — NOT on pushModeConfirmation. Keying on the
+  // confirmation would let a caller's confirmation diverge the key from the
+  // prepared gate; the confirmation is still validated inside the plan below.
   const expectedKey = builderCmsExecutionIdempotencyKey({
     sourceId: source.id,
     changeSetId: changeSet.id,
-    pushMode,
+    pushMode: resolvedPushMode,
   });
   if (args.idempotencyKey && args.idempotencyKey !== expectedKey) {
     throw new Error(
@@ -495,6 +709,8 @@ export async function executeBuilderSourceExecutionWithDeps(
     source,
     changeSet,
     pushModeConfirmation: pushMode,
+    publicationTransition: args.publicationTransition,
+    confirmUnpublish: args.confirmUnpublish,
   });
   const storedPayload = parsePayload(execution.payloadJson);
   const validatedPayload = validateBuilderCmsExecutionDryRun({
@@ -590,6 +806,55 @@ export async function executeBuilderSourceExecutionWithDeps(
     return deps.getResponse(database.id);
   }
 
+  if (requiresLivePreflight(plan.payload.effect)) {
+    const entryId = plan.payload.target.entryId;
+    if (!entryId) {
+      const message = "Builder entry no longer exists; refresh the source.";
+      await deps.updateExecutionState({
+        executionId: execution.id,
+        state: "blocked",
+        summary: `${plan.summary} Execution blocked before write.`,
+        payload: validatedPayload,
+        lastError: message,
+        now,
+      });
+      throw new Error(message);
+    }
+
+    const liveState = await deps.readLiveEntry({
+      model: plan.payload.target.model,
+      entryId,
+    });
+    const targetRow = sourceRowForChangeSet(source, changeSet);
+    const message = livePreflightBlockMessage({
+      liveState,
+      baselineLastUpdated: targetRow?.lastSourceUpdatedAt ?? null,
+      baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
+      effect: plan.payload.effect,
+    });
+    if (message) {
+      await deps.updateExecutionState({
+        executionId: execution.id,
+        state: "blocked",
+        summary: `${plan.summary} Execution blocked before write.`,
+        payload: {
+          ...validatedPayload,
+          livePreflight: {
+            checkedAt: now,
+            exists: liveState.exists,
+            published: liveState.published,
+            lastUpdated: liveState.lastUpdated,
+            blocksHash: liveState.blocksHash,
+            id: liveState.id,
+          },
+        },
+        lastError: message,
+        now,
+      });
+      throw new Error(message);
+    }
+  }
+
   const claimed = await deps.claimExecution({
     executionId: execution.id,
     summary: `Running Builder ${plan.pushMode} execution.`,
@@ -661,6 +926,10 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     changeSetId: z.string().describe("Approved source change-set ID"),
     idempotencyKey: z
       .string()
@@ -670,10 +939,21 @@ export default defineAction({
       .enum(["autosave", "draft", "publish"])
       .optional()
       .describe("Explicit push mode confirmation for the live write"),
+    publicationTransition: z
+      .enum(["publish", "unpublish"])
+      .optional()
+      .describe("Explicit publication transition to validate at write time"),
+    confirmUnpublish: z
+      .boolean()
+      .optional()
+      .describe("Required explicit confirmation for unpublish transitions"),
   }),
   run: async (
     args: ExecuteBuilderSourceExecutionRequest,
   ): Promise<ContentDatabaseResponse> => {
-    return executeBuilderSourceExecutionWithDeps(args, realExecutionDeps());
+    return executeBuilderSourceExecutionWithDeps(
+      args,
+      realExecutionDeps(args.sourceId),
+    );
   },
 });

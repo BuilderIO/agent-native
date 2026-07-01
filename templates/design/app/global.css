@@ -8,64 +8,161 @@
 
 :root {
   --background: 0 0% 100%;
-  --foreground: 220 10% 10%;
+  --foreground: 0 0% 10%;
   --card: 0 0% 100%;
-  --card-foreground: 220 10% 10%;
+  --card-foreground: 0 0% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 220 10% 10%;
-  --primary: 220 10% 15%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 10% 95%;
-  --secondary-foreground: 220 10% 15%;
-  --muted: 220 10% 95%;
-  --muted-foreground: 220 5% 45%;
-  --accent: 220 10% 95%;
-  --accent-foreground: 220 10% 15%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 220 10% 90%;
-  --input: 220 10% 90%;
-  --ring: 220 10% 40%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
   --radius: 0.5rem;
-  --sidebar-background: 220 10% 97%;
-  --sidebar-foreground: 220 5% 45%;
-  --sidebar-primary: 220 10% 15%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 220 10% 95%;
-  --sidebar-accent-foreground: 220 10% 15%;
-  --sidebar-border: 220 10% 90%;
-  --sidebar-ring: 220 10% 40%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
+  --design-editor-accent-color: hsl(213 91% 67%);
+  --design-editor-accent-hover-color: hsl(213 72% 56%);
+  --design-editor-selection-color: color-mix(
+    in srgb,
+    hsl(213 91% 67%) 14%,
+    transparent
+  );
+  --design-editor-component-color: hsl(263 84% 64%);
+  --design-editor-component-hover-color: hsl(263 72% 56%);
+  --design-editor-component-selection-color: color-mix(
+    in srgb,
+    hsl(263 84% 64%) 16%,
+    transparent
+  );
+  --design-editor-component-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(263 84% 64%) 10%,
+    transparent
+  );
+  --design-editor-component-strong-color: var(--design-editor-component-color);
+  --design-editor-component-contrast-color: #ffffff;
+  --design-editor-active-row-color: color-mix(
+    in srgb,
+    hsl(0 0% 15%) 8%,
+    transparent
+  );
+  --design-editor-layer-hover-color: color-mix(
+    in srgb,
+    hsl(0 0% 15%) 6%,
+    transparent
+  );
+  --design-editor-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(213 91% 67%) 9%,
+    transparent
+  );
+  --design-editor-panel-divider-color: color-mix(
+    in srgb,
+    hsl(var(--border)) 76%,
+    transparent
+  );
+  --design-editor-accent-strong-color: var(--design-editor-accent-color);
+  --design-editor-accent-contrast-color: #ffffff;
+  --design-editor-measure-color: hsl(344 100% 63%);
+  --design-editor-panel-bg: hsl(var(--background));
+  --design-editor-panel-raised-bg: hsl(var(--secondary));
+  --design-editor-control-bg: hsl(var(--muted));
+  --design-editor-control-border: hsl(var(--border));
+  --design-editor-canvas-bg: hsl(0 0% 92%);
+  --design-editor-skeleton-canvas-bg: hsl(0 0% 92%);
+  --design-editor-skeleton-panel-ghost-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 6%,
+    transparent
+  );
 }
 
 .dark {
-  --background: 220 6% 6%;
+  --background: 0 0% 13%;
   --foreground: 0 0% 90%;
-  --card: 220 5% 6%;
+  --card: 0 0% 15%;
   --card-foreground: 0 0% 90%;
-  --popover: 220 5% 6%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 90%;
   --primary: 0 0% 75%;
-  --primary-foreground: 220 6% 6%;
-  --secondary: 220 4% 12%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 90%;
-  --muted: 220 4% 10%;
-  --muted-foreground: 220 4% 60%;
-  --accent: 220 4% 13%;
-  --accent-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 96%;
   --destructive: 0 63% 51%;
   --destructive-foreground: 0 0% 98%;
-  --border: 220 4% 14%;
-  --input: 220 4% 14%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 0 0% 60%;
   --radius: 0.5rem;
-  --sidebar-background: 220 6% 4%;
-  --sidebar-foreground: 220 4% 60%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
   --sidebar-primary: 0 0% 75%;
-  --sidebar-primary-foreground: 220 6% 6%;
-  --sidebar-accent: 220 4% 10%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
   --sidebar-accent-foreground: 0 0% 90%;
-  --sidebar-border: 220 4% 10%;
+  --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
+  --design-editor-accent-color: hsl(213 91% 67%);
+  --design-editor-accent-hover-color: hsl(213 72% 56%);
+  --design-editor-selection-color: color-mix(
+    in srgb,
+    hsl(213 91% 67%) 24%,
+    transparent
+  );
+  --design-editor-component-color: hsl(263 88% 74%);
+  --design-editor-component-hover-color: hsl(263 82% 68%);
+  --design-editor-component-selection-color: color-mix(
+    in srgb,
+    hsl(263 88% 74%) 28%,
+    transparent
+  );
+  --design-editor-component-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(263 88% 74%) 18%,
+    transparent
+  );
+  --design-editor-component-strong-color: var(--design-editor-component-color);
+  --design-editor-component-contrast-color: #ffffff;
+  --design-editor-active-row-color: hsl(0 0% 20%);
+  --design-editor-layer-hover-color: color-mix(
+    in srgb,
+    hsl(0 0% 100%) 8%,
+    transparent
+  );
+  --design-editor-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(213 91% 67%) 18%,
+    transparent
+  );
+  --design-editor-panel-divider-color: hsl(0 0% 22%);
+  --design-editor-accent-strong-color: var(--design-editor-accent-color);
+  --design-editor-accent-contrast-color: #ffffff;
+  --design-editor-measure-color: hsl(344 100% 63%);
+  --design-editor-panel-bg: hsl(0 0% 13%);
+  --design-editor-panel-raised-bg: hsl(0 0% 18%);
+  --design-editor-control-bg: hsl(0 0% 18%);
+  --design-editor-control-border: hsl(0 0% 24%);
+  --design-editor-canvas-bg: hsl(0 0% 10%);
+  --design-editor-skeleton-canvas-bg: hsl(0 0% 11%);
 }
 
 @layer base {
@@ -89,4 +186,146 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
+}
+
+.design-inspector-scroll {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+
+.design-inspector-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.design-inspector-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.design-inspector-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+.design-inspector-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+.design-editor-not-found-grid {
+  background-image:
+    linear-gradient(
+      var(--design-editor-panel-divider-color) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      var(--design-editor-panel-divider-color) 1px,
+      transparent 1px
+    );
+  background-size: 36px 36px;
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    black 0,
+    black 34%,
+    transparent 72%
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    black 0,
+    black 34%,
+    transparent 72%
+  );
+}
+
+/* Design has a dense editor surface, so its side chrome needs more contrast
+   than the shared shell defaults and a real divider in addition to shadow. */
+.agent-layout-shell,
+.agent-sidebar-shell {
+  --design-shell-chrome-bg: hsl(0 0% 93%);
+  --design-shell-divider: hsl(0 0% 79%);
+  --agent-native-lower-surface: var(--design-shell-chrome-bg);
+  --agent-native-raised-border: var(--design-shell-divider);
+  --agent-native-raised-shadow-left: -1px 0 0 var(--design-shell-divider);
+  --agent-native-raised-shadow-right: 1px 0 0 var(--design-shell-divider);
+}
+
+.agent-layout-shell .agent-sidebar-main-surface::before {
+  box-shadow: none;
+}
+
+.agent-layout-shell .design-editor-main-surface {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.dark .agent-layout-shell,
+.dark .agent-sidebar-shell,
+.dark.agent-layout-shell,
+.dark.agent-sidebar-shell {
+  --design-shell-chrome-bg: hsl(0 0% 10%);
+  --design-shell-divider: hsl(0 0% 22%);
+  --agent-native-lower-surface: var(--design-shell-chrome-bg);
+  --agent-native-raised-border: var(--design-shell-divider);
+}
+
+.agent-layout-shell .agent-layout-left-drawer,
+.agent-layout-shell
+  .agent-layout-left-drawer
+  > :where(.border-e, .border-r):first-child {
+  border-inline-end-color: var(--design-shell-divider) !important;
+  border-right-color: var(--design-shell-divider) !important;
+}
+
+.agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="right"] {
+  border-inline-end: 1px solid var(--design-shell-divider);
+}
+
+.agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="left"] {
+  border-inline-start: 1px solid var(--design-shell-divider);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-layout="desktop"],
+.agent-sidebar-panel[data-agent-sidebar-layout="mobile"],
+.agent-sidebar-panel > .agent-sidebar-panel-inner {
+  background: var(--design-shell-chrome-bg);
+}
+
+.design-editor-app-menu-content {
+  border: 1.5px solid var(--design-editor-control-border);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.12);
+  animation: none !important;
+}
+
+.design-editor-app-menu-content[data-state="open"],
+.design-editor-app-menu-content[data-state="closed"] {
+  animation: none !important;
+}
+
+.design-motion-dock-space {
+  --design-motion-dock-duration: 200ms;
+  --design-motion-dock-easing: ease-out;
+  transition: height var(--design-motion-dock-duration)
+    var(--design-motion-dock-easing);
+}
+
+.design-motion-dock {
+  transition:
+    border-color var(--design-motion-dock-duration)
+      var(--design-motion-dock-easing),
+    transform var(--design-motion-dock-duration)
+      var(--design-motion-dock-easing);
+}
+
+.design-motion-dock-space.design-motion-dock-resizing .design-motion-dock {
+  transition-duration: 0ms;
+}
+
+.design-motion-dock-space.design-motion-dock-resizing {
+  transition-duration: 0ms;
+}
+
+.dark .design-editor-app-menu-content {
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.34);
 }

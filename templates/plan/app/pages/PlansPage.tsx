@@ -5116,6 +5116,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       sendToAgentChat({
         type: "content",
         submit: true,
+        chatTarget: "local",
+        openSidebar: true,
         context,
         images: capture.images,
         message: buildApplyFeedbackMessage(openCommentCount),
@@ -5125,6 +5127,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           ? t("plansPage.reader.sentCommentsWithScreenshots")
           : t("plansPage.reader.sentComments"),
       );
+    } catch (error) {
+      console.error(
+        "[PlansPage] Failed to send plan feedback to inline agent:",
+        error,
+      );
+      toast.error(t("plansPage.comments.sendFailed"));
     } finally {
       setSendingFeedback(false);
     }
@@ -7217,7 +7225,7 @@ function PlanDocumentSkeleton() {
 
 function DesktopArtboardSkeleton() {
   return (
-    <div className="h-[20rem] overflow-hidden rounded-[12px] border border-plan-line bg-plan-wireframe p-6 shadow-[0_10px_34px_rgba(24,24,27,0.08)] sm:h-[23rem] sm:p-8">
+    <div className="h-[20rem] overflow-hidden rounded-[12px] border border-plan-line bg-muted p-6 shadow-[0_10px_34px_rgba(24,24,27,0.08)] sm:h-[23rem] sm:p-8">
       <Skeleton
         className="h-14 w-2/5 max-w-[20rem] rounded-lg"
         style={PLAN_SKELETON_FILL.heading}
@@ -7236,7 +7244,7 @@ function DesktopArtboardSkeleton() {
 
 function PhoneArtboardSkeleton() {
   return (
-    <div className="h-[22rem] overflow-hidden rounded-[26px] border border-plan-line bg-plan-wireframe p-5 shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
+    <div className="h-[22rem] overflow-hidden rounded-[26px] border border-plan-line bg-muted p-5 shadow-[0_10px_34px_rgba(24,24,27,0.08)]">
       <PlanSkeletonBox className="h-28" />
       <div className="mt-5 space-y-3">
         <PlanSkeletonBar className="h-3 w-full" />
@@ -9075,6 +9083,7 @@ function CreatePlanDialog({
               disabled={composerLocked}
               attachmentsEnabled={false}
               showModelSelector={false}
+              modelStatusChecksEnabled={false}
               placeholder={t("plansPage.create.placeholder")}
               draftScope="plans:create-plan"
               initialText={promptSeed}

@@ -1,16 +1,25 @@
 import { CodeSurface } from "@agent-native/core/blocks";
-import { useActionQuery, useT } from "@agent-native/core/client";
+import {
+  useActionQuery,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconChevronDown,
+  IconCheck,
+  IconCloud,
   IconCode,
   IconExternalLink,
   IconFilter,
+  IconLoader2,
   IconPlayerPlay,
   IconRefresh,
   IconSearch,
+  IconServer,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
 type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
@@ -98,11 +108,11 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5 md:px-6">
+    <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
       <Card>
         <CardContent className="p-3">
-          <div className="grid gap-2 lg:grid-cols-[150px_minmax(260px,1fr)_160px_auto_auto] lg:items-center">
-            <div className="flex items-center gap-2 px-1 text-sm font-medium">
+          <div className="analytics-sessions-filter-grid grid gap-2">
+            <div className="analytics-sessions-filter-label flex items-center gap-2 px-1 text-sm font-medium">
               <IconFilter className="h-4 w-4 text-muted-foreground" />
               {t("sessions.segmentFilters")}
             </div>
@@ -161,7 +171,7 @@ export default function SessionsPage() {
             </Button>
           </div>
           {filtersOpen ? (
-            <div className="mt-3 grid gap-3 border-t pt-3 lg:grid-cols-2">
+            <div className="analytics-sessions-filter-extra mt-3 grid gap-3 border-t pt-3">
               <div className="rounded-md border bg-muted/20 p-3">
                 <div className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">
                   {t("sessions.userFilters")}
@@ -219,13 +229,13 @@ export default function SessionsPage() {
                     <button
                       key={recording.id}
                       type="button"
-                      className="grid w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none md:grid-cols-[104px_minmax(170px,0.85fr)_minmax(260px,1.25fr)_minmax(130px,0.55fr)] md:items-center"
+                      className="analytics-session-row grid w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none"
                       onClick={() => navigate(href)}
                       aria-label={t("sessions.watchReplay")}
                     >
                       <span className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-md bg-primary/10 font-medium text-primary">
                         <IconPlayerPlay className="h-4 w-4 fill-current" />
-                        {formatDuration(recording.durationMs)}
+                        {formatSessionDuration(recording.durationMs)}
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-foreground">
@@ -238,7 +248,7 @@ export default function SessionsPage() {
                           })}
                         </span>
                       </span>
-                      <span className="min-w-0">
+                      <span className="analytics-session-path min-w-0">
                         <span className="block truncate text-sm font-medium text-primary">
                           {pathLabel(recording)}
                         </span>
@@ -249,13 +259,13 @@ export default function SessionsPage() {
                             shortId(recording.sessionId)}
                         </span>
                       </span>
-                      <span className="min-w-0 text-left md:text-right">
+                      <span className="analytics-session-app-meta min-w-0 text-left">
                         <span className="block truncate text-sm text-muted-foreground">
                           {recording.app ||
                             recording.template ||
                             t("sessions.unknownApp")}
                         </span>
-                        <span className="mt-1 flex flex-wrap gap-1.5 md:justify-end">
+                        <span className="analytics-session-badges mt-1 flex flex-wrap gap-1.5">
                           {recording.errorCount > 0 ? (
                             <Badge variant="destructive">
                               {t("sessions.errorCount", {
@@ -294,46 +304,137 @@ export default function SessionsPage() {
 
 function EmptySessionsState() {
   const t = useT();
+  const storageStatus = useReplayStorageStatus();
+  const showStorageHint =
+    !storageStatus.isLoading && !storageStatus.data?.configured;
   return (
-    <div className="grid min-h-[380px] gap-6 p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:p-8">
-      <div className="flex flex-col justify-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted/40">
-          <IconPlayerPlay className="h-5 w-5 text-primary" />
+    <div className="p-6 lg:p-8">
+      {showStorageHint ? <ReplayStorageHint /> : null}
+      <div className="analytics-sessions-empty-grid grid min-h-[380px] gap-6">
+        <div className="flex flex-col justify-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted/40">
+            <IconPlayerPlay className="h-5 w-5 text-primary" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold">
+              {t("sessions.noSessions")}
+            </h2>
+            <p className="max-w-xl text-sm text-muted-foreground">
+              {t("sessions.noSessionsDescription")}
+            </p>
+          </div>
         </div>
-        <div className="space-y-2">
-          <h2 className="text-lg font-semibold">{t("sessions.noSessions")}</h2>
-          <p className="max-w-xl text-sm text-muted-foreground">
-            {t("sessions.noSessionsDescription")}
+        <div className="analytics-session-snippet overflow-hidden rounded-md border bg-muted/30">
+          <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              <IconCode className="h-4 w-4 text-muted-foreground" />
+              <span className="truncate">
+                {t("sessions.installSnippetTitle")}
+              </span>
+            </div>
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+            >
+              <a
+                href={SESSION_REPLAY_DOCS_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("common.docs")}
+                <IconExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </Button>
+          </div>
+          <CodeSurface
+            code={SESSION_REPLAY_SNIPPET}
+            language="typescript"
+            maxLines={null}
+            showLanguageLabel={false}
+            className="mt-0"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReplayStorageHint() {
+  const t = useT();
+  const storageStatus = useReplayStorageStatus();
+  const builderStatus = useBuilderStatus();
+  const builderConnect = useBuilderConnectFlow({
+    popupUrl:
+      builderStatus.status?.cliAuthUrl ?? builderStatus.status?.connectUrl,
+    trackingSource: "analytics_sessions_storage_hint",
+    trackingFlow: "replay_storage",
+    onConnected: async () => {
+      await Promise.all([storageStatus.refetch(), builderStatus.refetch()]);
+    },
+  });
+
+  const builderConnected = Boolean(
+    builderConnect.configured ||
+    builderStatus.status?.configured ||
+    storageStatus.data?.builderConfigured,
+  );
+  const builderStatusLoading =
+    storageStatus.isLoading ||
+    builderStatus.loading ||
+    !builderConnect.hasFetchedStatus;
+
+  return (
+    <div className="mb-6 flex flex-col gap-4 rounded-md border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background text-primary">
+          <IconCloud className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
+            {t("sessions.storageSetupTitle")}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("sessions.storageSetupDescription")}
           </p>
         </div>
       </div>
-      <div className="analytics-session-snippet overflow-hidden rounded-md border bg-muted/30">
-        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-            <IconCode className="h-4 w-4 text-muted-foreground" />
-            <span className="truncate">
-              {t("sessions.installSnippetTitle")}
-            </span>
-          </div>
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-          >
-            <a href={SESSION_REPLAY_DOCS_URL} target="_blank" rel="noreferrer">
-              {t("common.docs")}
-              <IconExternalLink className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-        </div>
-        <CodeSurface
-          code={SESSION_REPLAY_SNIPPET}
-          language="typescript"
-          maxLines={null}
-          showLanguageLabel={false}
-          className="mt-0"
-        />
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
+        <Button
+          type="button"
+          size="sm"
+          className="shrink-0"
+          onClick={() =>
+            builderConnect.start({
+              trackingSource: "analytics_sessions_storage_hint",
+              trackingFlow: "replay_storage",
+            })
+          }
+          disabled={
+            builderConnect.connecting ||
+            builderStatusLoading ||
+            builderConnected
+          }
+        >
+          {builderConnect.connecting ? (
+            <IconLoader2 className="h-4 w-4 animate-spin" />
+          ) : builderConnected ? (
+            <IconCheck className="h-4 w-4" />
+          ) : (
+            <IconExternalLink className="h-4 w-4" />
+          )}
+          {builderConnected
+            ? t("sessions.storageConnected")
+            : t("sessions.connectBuilder")}
+        </Button>
+        <Link
+          to="/settings#replay-storage"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        >
+          <IconServer className="h-3.5 w-3.5" />
+          {t("sessions.configureS3")}
+        </Link>
       </div>
     </div>
   );
@@ -374,12 +475,19 @@ function visitorLabel(
   recording: SessionRecordingSummary,
   t: ReturnType<typeof useT>,
 ): string {
+  const email = emailLike(recording.userId) || emailLike(recording.userKey);
+  if (email) return email;
   return (
     recording.userId ||
     recording.userKey ||
     recording.anonymousId ||
     t("sessions.anonymous")
   );
+}
+
+function emailLike(value: string | null): string | null {
+  if (!value?.includes("@")) return null;
+  return value;
 }
 
 function shortId(value: string): string {
@@ -415,13 +523,11 @@ function formatDateTime(value: string): string {
   }).format(date);
 }
 
-function formatDuration(ms: number | null): string {
-  if (!ms || !Number.isFinite(ms) || ms <= 0) return "0s";
+export function formatSessionDuration(ms: number | null): string {
+  if (!ms || !Number.isFinite(ms) || ms <= 0) return "0m";
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+  if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return `${hours}h ${remainingMinutes}m`;

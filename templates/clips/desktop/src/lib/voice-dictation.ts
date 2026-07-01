@@ -1,3 +1,4 @@
+import type { VoiceContextPack } from "@agent-native/core/voice";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 
@@ -5,6 +6,7 @@ import { applyBacktrack } from "./backtrack";
 import {
   configureVocabularyClient,
   loadVocabulary,
+  loadVocabularyEntries,
   recordPasteForLearn,
 } from "./personal-vocabulary";
 import {
@@ -325,6 +327,7 @@ async function transcribe(
   providerPref: ServerVoiceProvider,
   controller: AbortController,
   instructions?: string,
+  contextPack?: VoiceContextPack,
 ): Promise<string> {
   const audioBlob = new Blob(chunks, { type: mimeType });
   const form = new FormData();
@@ -342,6 +345,7 @@ async function transcribe(
   if (trimmedInstructions) {
     form.append("instructions", trimmedInstructions);
   }
+  appendVoiceContext(form, contextPack);
   // Aggressive timeout — short clips should transcribe in well under
   // 2 seconds with Gemini Flash Lite or Whisper. If the server hasn't
   // come back in 8s it's hanging; abort and let the bar dismiss with an
@@ -380,6 +384,7 @@ async function cleanupTranscript(
   providerPref: ServerVoiceProvider,
   controller: AbortController,
   instructions?: string,
+  contextPack?: VoiceContextPack,
 ): Promise<string> {
   const form = new FormData();
   form.append("text", text);
@@ -388,6 +393,7 @@ async function cleanupTranscript(
   if (trimmedInstructions) {
     form.append("instructions", trimmedInstructions);
   }
+  appendVoiceContext(form, contextPack);
 
   const timeout = window.setTimeout(() => controller.abort(), 8_000);
   try {
@@ -410,6 +416,18 @@ async function cleanupTranscript(
     return (data.text ?? "").trim();
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+function appendVoiceContext(
+  form: FormData,
+  contextPack: VoiceContextPack | undefined,
+): void {
+  if (!contextPack) return;
+  try {
+    form.append("voiceContext", JSON.stringify(contextPack));
+  } catch {
+    /* best effort */
   }
 }
 
@@ -654,6 +672,7 @@ export function installDesktopVoiceDictation(
       const controller = new AbortController();
       target.transcribeAbort = controller;
       try {
+        const contextPack = await buildDesktopVoiceContextPack();
         text =
           (await cleanupTranscript(
             serverUrl,
@@ -661,6 +680,7 @@ export function installDesktopVoiceDictation(
             target.cleanupProvider,
             controller,
             instructions,
+            contextPack,
           )) || original;
       } catch (err) {
         if ((err as { name?: string })?.name !== "AbortError") {
@@ -722,6 +742,42 @@ export function installDesktopVoiceDictation(
     micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
     micDeviceLabel: micDeviceLabel || null,
   });
+
+  const buildDesktopVoiceContextPack = async (): Promise<
+    VoiceContextPack | undefined
+  > => {
+    const vocabulary = await loadVocabularyEntries().catch(() => []);
+    const terms = vocabulary.map((entry) => ({
+      term: entry.term,
+      replacement: entry.replacement,
+      confidence: entry.confidence,
+      source: "learned-correction",
+      scope: "user",
+    }));
+    const snippets: NonNullable<VoiceContextPack["snippets"]> = [
+      { label: "Target surface", value: "Desktop dictation paste" },
+    ];
+    if (micDeviceLabel) {
+      snippets.push({ label: "Microphone", value: micDeviceLabel });
+    }
+    if (instructions.trim()) {
+      snippets.push({
+        label: "Saved voice instructions",
+        value: instructions.trim().slice(0, 1200),
+      });
+    }
+    return {
+      surface: "clips-desktop",
+      mode: "dictation",
+      snippets,
+      terms,
+      metadata: {
+        provider,
+        locale: navigator.language || "en-US",
+        micDeviceLabel: micDeviceLabel || null,
+      },
+    };
+  };
 
   /**
    * Server-path: capture audio with MediaRecorder, POST it to the
@@ -804,6 +860,7 @@ export function installDesktopVoiceDictation(
         const controller = new AbortController();
         next.transcribeAbort = controller;
         try {
+          const contextPack = await buildDesktopVoiceContextPack();
           const text = await transcribe(
             serverUrl,
             next.chunks,
@@ -811,6 +868,7 @@ export function installDesktopVoiceDictation(
             providerPref,
             controller,
             instructions,
+            contextPack,
           );
           if (next.cancelled) {
             cleanup(next);
@@ -937,7 +995,8 @@ export function installDesktopVoiceDictation(
         // metadata to `native_speech_start` without also carrying vocabulary.
         // Best-effort — if the load failed we just stage an empty list and
         // the recognizer behaves as before.
-        const contextualStrings = await loadVocabulary().catch(() => []);
+        const vocabularyEntries = await loadVocabularyEntries().catch(() => []);
+        const contextualStrings = vocabularyEntries.map((v) => v.replacement);
         await invoke("native_speech_set_vocabulary", {
           strings: contextualStrings,
         }).catch(() => {});

@@ -1,3 +1,11 @@
+---
+name: design-systems
+description: >-
+  Manage and apply Design app brand systems. Use when creating, importing,
+  linking, inspecting, or following design-system tokens, assets, fonts, logos,
+  and custom instructions.
+---
+
 # Design Systems
 
 Design systems store brand identity tokens (colors, fonts, spacing, logos) that are applied to all designs in a project.
@@ -145,18 +153,36 @@ Returns CSS custom properties, colors, fonts, Google Fonts links, theme-color, O
 ### Source: GitHub Repository
 
 ```bash
-pnpm action import-github --repoUrl "https://github.com/acme/ui"
+pnpm action index-design-system-with-builder --githubRepoUrl "https://github.com/acme/ui"
 ```
 
-Fetches Tailwind configs, CSS files, theme files, package.json. Returns extracted colors, fonts, spacing, border-radius, and styling framework detection.
+Starts Builder design-system indexing for the repository. Builder is the source of truth for the indexed brand kit, generated docs, and usage guidance. If Builder is not connected, stop and ask the user to connect Builder.
 
 ### Source: Local Code Files
 
 ```bash
-pnpm action import-code --files '[{"filename":"globals.css","content":"..."}]'
+pnpm action index-design-system-with-builder --codeFiles '[{"filename":"globals.css","content":"..."}]'
 ```
 
-Analyzes CSS, Tailwind configs, JSON theme files, TS/JS theme files. Returns structured tokens.
+Uploads code/design files to Builder and starts design-system indexing. Do not create a local design system from uploaded code files unless the user explicitly asks for a manual local fallback.
+
+For the active design's Tokens panel, use `import-design-tokens` when the user
+wants to pull reusable CSS vars/tokens straight into the open design without
+creating a full design system:
+
+```bash
+pnpm action import-design-tokens \
+  --designId "design_123" \
+  --source files \
+  --files '[{"filename":"design.md","content":"Primary color: #2563eb"}]'
+```
+
+Supported sources are `files`, `paste`, and `current-design`. The action parses
+CSS variables, design.md-style labeled lines, Tailwind/theme JSON, colors,
+spacing, radii, and fonts, then persists them through the design's
+`tweakSelections` so the canvas updates like any other token edit. Treat manual
+`apply-design-token-edit` calls as a last-resort one-off edit after import has
+been tried or ruled out.
 
 ### Source: Documents (DOCX, PPTX, PDF)
 
@@ -178,34 +204,37 @@ Extracts CSS tokens from a project's generated HTML, or clones an existing desig
 ### Source: Figma file
 
 ```bash
-pnpm action import-figma --figmaUrl "https://figma.com/design/<key>/..." \
-  --description "<extracted tokens / styles summary>"
+pnpm action index-design-system-with-builder \
+  --projectName "Acme Figma system" \
+  --codeFiles '[{"filename":"figma-summary.md","content":"<extracted tokens / styles summary>"}]'
 ```
 
-**Prefer the connected Figma MCP** when available (tools like
-`get_variable_defs`, `get_design_context`, `get_metadata`, `get_screenshot`).
-Call those on the file/selection FIRST to pull real variables (tokens), color
-and text styles, and a screenshot — this sidesteps REST/Enterprise limits and
-returns a token map directly. Then pass that summary to `import-figma` and build
-the system with `create-design-system`. Convert Figma colors (0-1 RGBA) to hex,
-effects to CSS box-shadow, and text styles to font tokens; snap spacing to a
-4/8px scale. If no Figma MCP is connected, ask the user to paste the token
-values or describe the file.
+Builder is the required extraction/indexing path for Figma-backed design
+systems. If a connected Figma MCP is available (tools like `get_variable_defs`,
+`get_design_context`, `get_metadata`, `get_screenshot`), call those on the
+file/selection first to pull real variables, color/text styles, and screenshot
+notes, then pass that summary to `index-design-system-with-builder` as an
+uploaded text context file. Do not build a local design system from the Figma
+summary unless the user explicitly asks for a manual local fallback.
 
-**When the user uploads a raw `.fig` file**, parse it in-process with
-`import-figma-file` (no Figma account needed):
+**When the user uploads a raw `.fig` file**, send it to Builder design-system
+indexing through the setup page upload route. Do not parse `.fig` files locally
+and do not call `create-design-system` from raw `.fig` output; Builder owns the
+indexed brand kit, generated docs, and usage guidance.
 
-```bash
-pnpm action import-figma-file --fileBase64 "<base64 of the .fig>"   # or --fileDataUrl
-```
+**When the user wants a Figma Assets-style native component drawer inside
+Design**, do not use Figma or media assets. Use `list-design-native-assets` to
+choose an editable primitive/component/layout, then
+`insert-design-native-asset` to insert it into the active screen. These entries
+are Design-native HTML stamped with component/layer metadata.
 
-It decodes the binary `.fig`, returns `frames` (each Figma frame rendered to
-HTML), an extracted `designSystem` (colors with assigned roles, typography,
-spacing, radius, shadows — ready for `DesignSystemData`), and image metadata.
-It's read-only/preview: review the result, then call `create-design-system`
-with the `designSystem` and/or `create-design` + `generate-design` with the
-`frames`. The full `palette` is returned too, so re-assign a color role if a
-heuristic looks off.
+**When the user wants reusable Figma components/assets**, do not run
+design-system indexing just to insert a component. Use
+`list-figma-library-assets` with a Figma file URL/key, then
+`insert-figma-library-asset` with the returned `renderUrl`, `fileKey`,
+`nodeId`, `componentKey`, and `sourceUrl`. This inserts a rendered
+component/component set with provenance. Styles and variables still belong in
+the Builder-backed design-system path above.
 
 ### Source: Brand Analysis (combines website + notes)
 

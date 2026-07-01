@@ -43,3 +43,41 @@ registerRequiredSecret({
     }
   },
 });
+
+// Optional: enables browsing reusable Figma components/component sets in the
+// Design asset rail. The provider API injects this server-side as
+// X-Figma-Token; never pass it through action parameters or chat.
+registerRequiredSecret({
+  key: "FIGMA_ACCESS_TOKEN",
+  label: "Figma access token",
+  description:
+    "Optional. Enables browsing and inserting Figma library components from files you can access.",
+  docsUrl: "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+  validator: async (value) => {
+    if (!value) return true;
+    try {
+      const res = await fetch("https://api.figma.com/v1/me", {
+        headers: {
+          "X-Figma-Token": value,
+          "User-Agent": "AgentNative/1.0",
+        },
+      });
+      if (res.ok) return true;
+      if (res.status === 401 || res.status === 403) {
+        return {
+          ok: false,
+          error: `Figma rejected this token (${res.status}). Check that it is active and has access to the file.`,
+        };
+      }
+      return { ok: false, error: `Figma returned ${res.status}.` };
+    } catch (err: any) {
+      return {
+        ok: false,
+        error: `Could not reach Figma: ${err?.message ?? err}`,
+      };
+    }
+  },
+});

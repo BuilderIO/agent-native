@@ -18,9 +18,10 @@ import {
   STYLE_STRENGTHS,
 } from "../shared/api.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
-import { readImageModelDefault } from "./_image-model-default.js";
 import generateImage from "./generate-image.js";
 import { upsertVariantSlot } from "./variant-slots.js";
+
+const IMAGE_GENERATION_TOOL_TIMEOUT_MS = 12 * 60_000;
 
 export default defineAction({
   description:
@@ -33,14 +34,36 @@ export default defineAction({
         "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
     collectionId: z.string().optional(),
-    presetId: z.string().optional(),
+    presetId: z
+      .string()
+      .optional()
+      .describe(
+        "Generation preset ID (from a @preset mention or list-generation-presets). The preset already defines aspectRatio, imageSize, model, tier, and category. When you set presetId, OMIT each slot's aspectRatio/imageSize and the top-level model/tier so the preset's values are used; only pass one when the user explicitly asks for a value that differs from the preset.",
+      ),
     sessionId: z.string().optional(),
     slots: z
       .array(
         z.object({
           slotId: z.string(),
           prompt: z.string().min(1),
-          aspectRatio: z.enum(ASPECT_RATIOS).optional(),
+          embeddedText: z
+            .string()
+            .optional()
+            .describe(
+              "Exact words to render inside the image, spelled exactly. When set, the image is allowed to contain this text; when omitted, the image avoids embedded text.",
+            ),
+          textPlacement: z
+            .string()
+            .optional()
+            .describe(
+              "Where/how the embedded text should appear, e.g. 'centered headline', 'lower-left label'.",
+            ),
+          aspectRatio: z
+            .enum(ASPECT_RATIOS)
+            .optional()
+            .describe(
+              "Slot aspect ratio. When a presetId is set, omit this — the preset's aspect ratio is used unless the user explicitly asks for a different ratio for this slot.",
+            ),
           imageSize: z.enum(IMAGE_SIZES).optional(),
           categories: z.array(z.enum(IMAGE_CATEGORIES)).optional(),
           referenceAssetIds: z.array(z.string()).optional(),
@@ -74,8 +97,8 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
+  timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
   run: async ({ slots, ...inputBase }, context?: ActionRunContext) => {
-    const imageModelDefault = await readImageModelDefault();
     const libraryId = inputBase.libraryId;
     if (!libraryId) {
       throw new Error(
@@ -85,7 +108,6 @@ export default defineAction({
     const base = {
       ...inputBase,
       libraryId,
-      model: inputBase.model ?? imageModelDefault,
     };
     await assertAccess("asset-library", base.libraryId, "editor");
     if (base.sessionId) {
@@ -120,6 +142,8 @@ export default defineAction({
               presetId: base.presetId,
               sessionId: base.sessionId,
               prompt: slot.prompt,
+              embeddedText: slot.embeddedText,
+              textPlacement: slot.textPlacement,
               aspectRatio: slot.aspectRatio,
               imageSize: slot.imageSize,
               model: base.model,

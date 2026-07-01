@@ -1,6 +1,6 @@
 {
   "name": "agent-native-visual-plans",
-  "version": "1.0.0+codex.6d1583462b9f",
+  "version": "1.0.0+codex.37ccb18b42ee",
   "description": "Create rich interactive visual plans and recaps with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
   "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
   "homepage": "https://plan.agent-native.com",
@@ -17,7 +17,7 @@
   "interface": {
     "displayName": "Agent-Native Plan",
     "shortDescription": "Create rich interactive visual plans and recaps with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
-    "longDescription": "Agent-Native Plan packages agent instructions, app actions, an MCP connector, and inline UI surfaces as an installable skill. The plugin connects to hosted Plans by default; use the Agent-Native CLI to choose local-files or self-hosted mode.",
+    "longDescription": "Agent-Native Plan packages agent instructions, app actions, an MCP connector, and inline UI surfaces as an installable skill. The plugin connects to hosted Agent-Native Plan by default; use the Agent-Native CLI when you need a custom/self-hosted app URL.",
     "developerName": "Agent-Native",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],

@@ -17,6 +17,9 @@ import { getContentDatabaseResponse } from "./_database-utils.js";
 async function deleteSourceRecords(sourceId: string) {
   const db = getDb();
   await db
+    .delete(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+  await db
     .delete(schema.contentDatabaseSourceExecutions)
     .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
   await db

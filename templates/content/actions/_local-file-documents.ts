@@ -225,8 +225,71 @@ function folderDocumentsForFiles(files: LocalArtifactFileMeta[]) {
     .map((folderPath, index) => documentFromFolder(folderPath, index));
 }
 
+let localFileDocumentsCache: {
+  scope: string;
+  signature: string;
+  documents: Document[];
+  cachedAt: number;
+} | null = null;
+const LOCAL_FILE_DOCUMENTS_CACHE_TTL_MS = 5_000;
+
+function localFileDocumentsCacheScope() {
+  return JSON.stringify({
+    manifest: process.env.AGENT_NATIVE_MANIFEST,
+    manifestPath: process.env.AGENT_NATIVE_MANIFEST_PATH,
+    mode: process.env.AGENT_NATIVE_MODE,
+    dataMode: process.env.AGENT_NATIVE_DATA_MODE,
+  });
+}
+
+function localFileDocumentsSignature(files: LocalArtifactFileMeta[]) {
+  return JSON.stringify(
+    files.map((file) => ({
+      absolutePath: file.absolutePath,
+      contentType: file.contentType,
+      hash: file.hash,
+      path: file.path,
+      profile: file.profile,
+      rootName: file.rootName,
+      rootPath: file.rootPath,
+      sizeBytes: file.sizeBytes,
+      updatedAt: file.updatedAt,
+    })),
+  );
+}
+
+function cloneLocalDocument(document: Document): Document {
+  return {
+    ...document,
+    source: document.source ? { ...document.source } : undefined,
+  };
+}
+
+function invalidateLocalFileDocumentsCache() {
+  localFileDocumentsCache = null;
+}
+
 export async function listLocalFileDocuments(): Promise<Document[]> {
+  const scope = localFileDocumentsCacheScope();
+  if (
+    localFileDocumentsCache &&
+    localFileDocumentsCache.scope === scope &&
+    Date.now() - localFileDocumentsCache.cachedAt <
+      LOCAL_FILE_DOCUMENTS_CACHE_TTL_MS
+  ) {
+    return localFileDocumentsCache.documents.map(cloneLocalDocument);
+  }
+
   const files = await listLocalArtifactFiles(localOptions());
+  const signature = localFileDocumentsSignature(files);
+  if (
+    localFileDocumentsCache?.scope === scope &&
+    localFileDocumentsCache.signature === signature
+  ) {
+    localFileDocumentsCache.cachedAt = Date.now();
+    return localFileDocumentsCache.documents.map(cloneLocalDocument);
+  }
+
   const folderDocuments = folderDocumentsForFiles(files);
   const fileDocuments = await Promise.all(
     files.map(async (meta, index) => {
@@ -237,7 +300,14 @@ export async function listLocalFileDocuments(): Promise<Document[]> {
       return documentFromLocalFile(file ?? meta, file?.content ?? "", index);
     }),
   );
-  return [...folderDocuments, ...fileDocuments];
+  const documents = [...folderDocuments, ...fileDocuments];
+  localFileDocumentsCache = {
+    scope,
+    signature,
+    documents,
+    cachedAt: Date.now(),
+  };
+  return documents.map(cloneLocalDocument);
 }
 
 export async function getLocalFileDocument(id: string): Promise<Document> {
@@ -309,7 +379,8 @@ function upsertFrontmatter(
     return body;
   }
 
-  return `---\n${nextLines.filter(Boolean).join("\n")}\n---\n\n${body}`;
+  const frontmatterBlock = `---\n${nextLines.filter(Boolean).join("\n")}\n---\n`;
+  return body ? `${frontmatterBlock}\n${body}` : frontmatterBlock;
 }
 
 function stripDuplicateTitleHeading(content: string, title: string) {
@@ -441,6 +512,7 @@ export async function updateLocalFileDocument(
     content: nextSource,
     expectedHash: file.hash,
   });
+  invalidateLocalFileDocumentsCache();
   return getLocalFileDocument(id);
 }
 
@@ -504,6 +576,7 @@ export async function createLocalFileDocument(
         content: source,
         ifNotExists: true,
       });
+      invalidateLocalFileDocumentsCache();
       return getLocalFileDocument(localFileDocumentId(path));
     } catch (error) {
       if (isAlreadyExistsError(error)) continue;
@@ -520,6 +593,7 @@ export async function deleteLocalFileDocument(id: string) {
   }
   const path = localDocumentPathFromId(id);
   await deleteLocalArtifactFile({ ...localOptions(), path });
+  invalidateLocalFileDocumentsCache();
   return { success: true, deleted: 1 };
 }
 

@@ -1,10 +1,9 @@
 /**
  * Central model catalog for built-in agent engines.
  *
- * To bump the framework's managed default, update
- * FRAMEWORK_DEFAULT_OPENAI_MODEL. Builder gateway and OpenRouter IDs are
- * derived from that provider-native OpenAI ID so the usual default bump stays
- * in this one file.
+ * To bump the framework's managed default, update the Anthropic/OpenAI
+ * constants below. Builder gateway and OpenRouter IDs are derived here so the
+ * usual default bump stays in one file.
  */
 
 // ---------------------------------------------------------------------------
@@ -15,6 +14,7 @@
 //  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.5
 //             https://developers.openai.com/api/docs/models/gpt-5.4
 //  Google     https://ai.google.dev/gemini-api/docs/models
+//  OpenRouter https://openrouter.ai/api/v1/models
 //
 // Family defaults (used when a model id isn't listed explicitly):
 //  claude-*        → 200_000  (Haiku 4.5 and earlier models)
@@ -22,7 +22,7 @@
 //  gemini-2* / gemini-3* → 1_048_576
 //  everything else → 128_000  (safe conservative floor)
 //
-// Note: Fable 5, Sonnet 4.6, and Opus 4.6/4.7/4.8 support 1M via the API
+// Note: Fable 5, Sonnet 5, Sonnet 4.6, and Opus 4.6/4.7/4.8 support 1M via the API
 // at standard prices.
 // ---------------------------------------------------------------------------
 
@@ -31,6 +31,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-fable-5": 1_000_000,
   "claude-opus-4-8": 1_000_000,
   "claude-opus-4-7": 1_000_000,
+  "claude-sonnet-5": 1_000_000,
   "claude-sonnet-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
   "claude-haiku-4-5-20251001": 200_000,
@@ -49,10 +50,12 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "anthropic/claude-fable-5": 1_000_000,
   "anthropic/claude-opus-4.8": 1_000_000,
   "anthropic/claude-opus-4.7": 1_000_000,
+  "anthropic/claude-sonnet-5": 1_000_000,
   "anthropic/claude-sonnet-4.6": 1_000_000,
   "openai/gpt-5.5": 1_050_000,
   "openai/gpt-5.4": 1_050_000,
   "google/gemini-2.5-flash": 1_048_576,
+  "z-ai/glm-5.2": 1_048_576,
 
   // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
   "gpt-5.5": 1_050_000,
@@ -85,12 +88,13 @@ export function getContextWindowForModel(modelId: string): number {
   // Family heuristics for unlisted model IDs
   const id = modelId.toLowerCase();
 
-  // Anthropic Fable 5, Opus 4.x, and Sonnet 4.6 = 1M
+  // Anthropic Fable 5, Opus 4.x, Sonnet 5, and Sonnet 4.6 = 1M
   if (
     id === "claude-fable-5" ||
     id.includes("claude-fable-5") ||
     id.startsWith("claude-opus-4") ||
-    id === "claude-sonnet-4-6" ||
+    id.includes("claude-sonnet-5") ||
+    id.includes("claude-sonnet-4-6") ||
     id.includes("claude-sonnet-4.6")
   )
     return 1_000_000;
@@ -110,10 +114,26 @@ export function getContextWindowForModel(modelId: string): number {
   )
     return 1_048_576;
 
+  // Z.ai GLM 5.x on OpenRouter — 1M context.
+  if (id.startsWith("glm-5") || id.includes("/glm-5")) return 1_048_576;
+
   return DEFAULT_CONTEXT_WINDOW;
 }
 
-const ANTHROPIC_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
+const ENABLE_CLAUDE_SONNET_5 = false;
+
+export const CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
+  ? "claude-sonnet-5"
+  : "claude-sonnet-4-6";
+export const CLAUDE_SONNET_MODEL_LABEL = ENABLE_CLAUDE_SONNET_5
+  ? "Claude Sonnet 5"
+  : "Claude Sonnet 4.6";
+
+const OPENROUTER_CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
+  ? "anthropic/claude-sonnet-5"
+  : "anthropic/claude-sonnet-4.6";
+
+const ANTHROPIC_DEFAULT_MODEL_ID = CLAUDE_SONNET_MODEL_ID;
 
 function builderGatewayModelId(model: string): string {
   return model.replace(/\./g, "-");
@@ -138,8 +158,8 @@ export const AGENT_MODEL_CONFIG = {
     defaultModel: FRAMEWORK_DEFAULT_BUILDER_MODEL,
     supportedModels: [
       "auto",
-      "claude-opus-4-7",
-      FRAMEWORK_DEFAULT_BUILDER_MODEL,
+      "claude-opus-4-8",
+      CLAUDE_SONNET_MODEL_ID,
       "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
       "gpt-5-4",
@@ -156,7 +176,7 @@ export const AGENT_MODEL_CONFIG = {
     supportedModels: [
       "claude-fable-5",
       "claude-opus-4-8",
-      ANTHROPIC_DEFAULT_MODEL_ID,
+      CLAUDE_SONNET_MODEL_ID,
       "claude-haiku-4-5-20251001",
     ],
   },
@@ -166,7 +186,7 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: [
         "claude-fable-5",
         "claude-opus-4-8",
-        ANTHROPIC_DEFAULT_MODEL_ID,
+        CLAUDE_SONNET_MODEL_ID,
         "claude-haiku-4-5-20251001",
       ],
     },
@@ -183,11 +203,12 @@ export const AGENT_MODEL_CONFIG = {
       supportedModels: [
         "anthropic/claude-fable-5",
         "anthropic/claude-opus-4.8",
-        "anthropic/claude-sonnet-4.6",
+        OPENROUTER_CLAUDE_SONNET_MODEL_ID,
         FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
         "openai/gpt-5.4",
         // Current stable Gemini on OpenRouter (2.5 Flash is GA)
         "google/gemini-2.5-flash",
+        "z-ai/glm-5.2",
       ],
     },
     google: {

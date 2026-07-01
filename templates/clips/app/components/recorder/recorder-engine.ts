@@ -11,6 +11,7 @@ import {
   chunkUploadUrl,
   pickMimeType,
   pickMimeTypeCandidates,
+  type UploadMode,
 } from "@shared/recording-core";
 
 import {
@@ -32,7 +33,7 @@ import {
 
 // Re-exported for existing callers; the canonical impls live in
 // @shared/recording-core and are shared with the Chrome extension recorder.
-export { pickMimeType, pickMimeTypeCandidates };
+export { pickMimeType, pickMimeTypeCandidates, canUseTimeslicedRecorderChunks };
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
@@ -95,6 +96,13 @@ export interface RecorderEngineOptions {
   uploadUrl?: string;
   /** Abort URL. Default `/api/uploads/:id/abort`. */
   abortUrl?: string;
+  /**
+   * Upload strategy returned by create-recording.
+   * `"streaming"` — server has a resumable session; engine flushes aligned
+   * chunks during recording. `"buffered"` — blob assembled after stop() and
+   * uploaded in slices via the SQL chunk path.
+   */
+  uploadMode?: UploadMode;
   /** Fired whenever the state machine transitions. */
   onState?: (state: RecorderState, detail?: Record<string, unknown>) => void;
   /** Fired on each uploaded chunk (for progress UI). */
@@ -183,6 +191,11 @@ interface CompressionUploadMeta {
 }
 
 const DEFAULT_CHUNK_MS = 1000;
+// GCS resumable uploads require every non-final chunk to be a multiple of
+// 256 KiB. MediaRecorder emits arbitrary blob sizes, so on the streaming path
+// we buffer raw blobs and only PUT aligned slices. ~4 MiB per streamed chunk.
+const GCS_CHUNK_ALIGN_BYTES = 256 * 1024;
+const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
@@ -194,7 +207,7 @@ const SCREEN_CAPTURE_MAX_HEIGHT = 1080;
 // client-side (ffmpeg.wasm re-encode is disabled — see COMPRESSION_ENABLED in
 // `@/lib/compress`) and the upload provider streams large files directly, so we
 // capture at a crisp 1080p bitrate instead of a tight budget. 1.2 Mbps left
-// dense UI (fine text, Figma, code) visibly fuzzy; 8 Mbps keeps it sharp.
+// dense UI (fine text and code) visibly fuzzy; 8 Mbps keeps it sharp.
 // Dial down here if file sizes become a concern for a deployment.
 const RECORDING_VIDEO_BITRATE_BPS = 8_000_000;
 const RECORDING_AUDIO_BITRATE_BPS = 128_000;
@@ -430,7 +443,15 @@ export class RecorderEngine {
    * fetch quietly complete and the recording finalise server-side.
    */
   private uploadAbort: AbortController | null = null;
-  private streamChunksDuringRecording = false;
+  private uploadMode: UploadMode = "buffered";
+  /**
+   * Streaming-path buffer. MediaRecorder blobs accumulate here until at least
+   * STREAM_CHUNK_BYTES is available, then a 256 KiB-aligned slice is PUT to API
+   * as a non-final chunk. The unaligned remainder is held and uploaded as the
+   * final chunk on stop().
+   */
+  private pendingStreamBlobs: Blob[] = [];
+  private pendingStreamBytes = 0;
   /**
    * One-shot guards so a camera/mic disconnect warning fires at most once even
    * when a device exposes multiple tracks that each emit `ended`.
@@ -806,10 +827,12 @@ export class RecorderEngine {
     recordingId: string;
     uploadUrl: string;
     abortUrl: string;
+    uploadMode?: UploadMode;
   }): void {
     this.opts.recordingId = target.recordingId;
     this.opts.uploadUrl = target.uploadUrl;
     this.opts.abortUrl = target.abortUrl;
+    this.opts.uploadMode = target.uploadMode ?? "buffered";
   }
 
   // -------------------------------------------------------------------------
@@ -884,7 +907,9 @@ export class RecorderEngine {
     this.totalRecordedBytes = 0;
     this.lastFinalizeMeta = null;
     this.uploadAbort = new AbortController();
-    this.streamChunksDuringRecording = false;
+    this.uploadMode = this.opts.uploadMode ?? "buffered";
+    this.pendingStreamBlobs = [];
+    this.pendingStreamBytes = 0;
     this.cameraDisconnectNotified = false;
     this.micDisconnectNotified = false;
     const useTimeslicedLocalChunks = canUseTimeslicedRecorderChunks(
@@ -901,9 +926,10 @@ export class RecorderEngine {
       // whether this recording needs compression.
       this.localChunks.push(blob);
       this.totalRecordedBytes += blob.size;
-      if (this.streamChunksDuringRecording) {
-        const index = this.chunkIndex++;
-        this.queueChunk(blob, index, /* isFinal */ false);
+      if (this.uploadMode === "streaming") {
+        this.pendingStreamBlobs.push(blob);
+        this.pendingStreamBytes += blob.size;
+        this.flushAlignedStreamChunks();
       }
     });
 
@@ -1071,12 +1097,13 @@ export class RecorderEngine {
     try {
       if (
         COMPRESSION_ENABLED &&
-        this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES
+        this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES &&
+        this.opts.uploadMode !== "streaming"
       ) {
         // Compress before the first server upload so large recordings don't
         // stage their uncompressed source in SQL.
         result = await this.compressAndReupload(finalizeMeta);
-      } else if (!this.streamChunksDuringRecording) {
+      } else if (this.uploadMode !== "streaming") {
         this.transition("uploading", { progress: 0 });
         const assembled = new Blob(this.localChunks, { type: this.mimeType });
         result = await this.uploadBlobInSlices(
@@ -1086,26 +1113,28 @@ export class RecorderEngine {
           this.uploadAbort?.signal,
         );
       } else {
-        // Send a 0-byte isFinal sentinel — the actual final-chunk bytes
-        // were already uploaded by the start()-time listener as a
-        // regular (non-final) chunk. Mirroring the auto-stop path so
-        // both branches share one code shape.
+        // Streaming path: all 256 KiB-aligned chunks were queued during
+        // recording. Whatever bytes remain become the
+        // final chunk. If the recording happened to end exactly
+        // on a boundary the remainder is empty, which the server treats as a
+        // close sentinel.
         this.transition("uploading", { progress: 100 });
-        result = await this.uploadChunk(
-          new Blob([], { type: this.mimeType }),
-          this.chunkIndex++,
-          {
-            isFinal: true,
-            total: this.chunkIndex,
-            mimeType: this.mimeType,
-            durationMs,
-            width: dimensions.width,
-            height: dimensions.height,
-            hasAudio,
-            hasCamera,
-            signal: this.uploadAbort?.signal,
-          },
-        );
+        const remainder = new Blob(this.pendingStreamBlobs, {
+          type: this.mimeType,
+        });
+        this.pendingStreamBlobs = [];
+        this.pendingStreamBytes = 0;
+        result = await this.uploadChunk(remainder, this.chunkIndex++, {
+          isFinal: true,
+          total: this.chunkIndex,
+          mimeType: this.mimeType,
+          durationMs,
+          width: dimensions.width,
+          height: dimensions.height,
+          hasAudio,
+          hasCamera,
+          signal: this.uploadAbort?.signal,
+        });
       }
       this.transition("complete");
       completed = true;
@@ -1523,6 +1552,30 @@ export class RecorderEngine {
     }
   }
 
+  /**
+   * Drain the streaming buffer in 256 KiB-aligned chunks.
+   * GCS rejects non-final resumable chunks that are not a multiple of 256 KiB,
+   * so we slice on STREAM_CHUNK_BYTES boundaries and carry the remainder. The
+   * leftover is uploaded as the final chunk on stop().
+   */
+  private flushAlignedStreamChunks(): void {
+    while (this.pendingStreamBytes >= STREAM_CHUNK_BYTES) {
+      const combined = new Blob(this.pendingStreamBlobs, {
+        type: this.mimeType,
+      });
+      const head = combined.slice(0, STREAM_CHUNK_BYTES, this.mimeType);
+      const tail = combined.slice(
+        STREAM_CHUNK_BYTES,
+        combined.size,
+        this.mimeType,
+      );
+      this.pendingStreamBlobs = tail.size > 0 ? [tail] : [];
+      this.pendingStreamBytes = tail.size;
+      const index = this.chunkIndex++;
+      this.queueChunk(head, index, /* isFinal */ false);
+    }
+  }
+
   private queueChunk(blob: Blob, index: number, isFinal: boolean): void {
     this.chunkQueue = this.chunkQueue.then(async () => {
       if (this.uploadFailure) return;
@@ -1660,8 +1713,10 @@ export class RecorderEngine {
           signal: extra.signal,
         });
       } catch (err) {
+        // The final chunk is safe to retry on a network error: finalize is
+        // idempotent server-side (a recording already 'ready' returns its
+        // existing result), so a lost response won't double-finalize.
         if (
-          extra.isFinal ||
           attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS ||
           (err as { name?: string } | null)?.name === "AbortError"
         ) {
@@ -1673,7 +1728,6 @@ export class RecorderEngine {
 
       if (
         !res.ok &&
-        !extra.isFinal &&
         attempt < CHUNK_UPLOAD_MAX_ATTEMPTS &&
         isRetryableChunkUploadStatus(res.status)
       ) {

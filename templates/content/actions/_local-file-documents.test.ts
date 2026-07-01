@@ -154,6 +154,43 @@ describe("content local file documents", () => {
     });
   });
 
+  it("reuses parsed local documents across repeated searches", async () => {
+    const root = setupLocalContentRepo();
+    writeFile(root, "docs/guide.mdx", "# Guide\n\nAlpha needle.");
+    writeFile(root, "docs/other.mdx", "# Other\n\nBeta needle.");
+
+    const openSpy = vi.spyOn(fs, "openSync");
+    const localContentOpens = () =>
+      openSpy.mock.calls.filter(
+        ([filePath]) =>
+          typeof filePath === "string" && filePath.endsWith(".mdx"),
+      ).length;
+
+    await searchDocuments.run({ query: "needle", limit: 10 });
+    const opensAfterFirstSearch = localContentOpens();
+    expect(opensAfterFirstSearch).toBeGreaterThan(0);
+
+    await searchDocuments.run({ query: "alpha", limit: 10 });
+    expect(localContentOpens()).toBe(opensAfterFirstSearch);
+
+    await updateLocalFileDocument(localFileDocumentId("docs/guide.mdx"), {
+      content: "# Guide\n\nFresh needle.",
+    });
+
+    openSpy.mockClear();
+    await expect(
+      searchDocuments.run({ query: "fresh", limit: 10 }),
+    ).resolves.toMatchObject({
+      documents: [
+        expect.objectContaining({
+          id: localFileDocumentId("docs/guide.mdx"),
+          snippet: expect.stringContaining("Fresh needle"),
+        }),
+      ],
+    });
+    expect(localContentOpens()).toBeGreaterThan(0);
+  });
+
   it("does not overwrite files during concurrent same-title creates", async () => {
     const root = setupLocalContentRepo();
 
@@ -171,6 +208,16 @@ describe("content local file documents", () => {
       readFile(root, first.source?.path ?? ""),
       readFile(root, second.source?.path ?? ""),
     ]).toEqual(expect.arrayContaining([expect.stringContaining("Second")]));
+  });
+
+  it("keeps blank docs profile creates formatter-clean", async () => {
+    const root = setupLocalContentRepo({ profile: "docs/no-bookkeeping" });
+
+    const doc = await createLocalFileDocument({ title: "" });
+
+    expect(readFile(root, doc.source?.path ?? "")).toBe(
+      '---\ntitle: "Untitled"\n---\n',
+    );
   });
 
   it("fails loudly instead of pretending local file moves succeeded", async () => {

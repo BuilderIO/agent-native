@@ -47,6 +47,8 @@ export interface ShareButtonProps {
   variant?: "compact" | "label";
   /** Optional trigger style. Defaults to the Google-Docs-style "Share" label. */
   trigger?: "label" | "icon";
+  /** @deprecated Label triggers no longer render a visibility/share glyph. */
+  hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
   /** Notified when the share popover opens or closes. Hosts that render the
@@ -107,6 +109,20 @@ export interface ShareButtonProps {
     description?: ReactNode;
     onCheckedChange: (checked: boolean) => void | Promise<void>;
   };
+  /** Optional extra tabs rendered beside the default sharing/access panel. */
+  shareTabs?: {
+    shareLabel?: ReactNode;
+    defaultValue?: string;
+    tabs: Array<{
+      value: string;
+      label: ReactNode;
+      content: ReactNode;
+      disabled?: boolean;
+    }>;
+    onValueChange?: (value: string) => void;
+  };
+  /** Optional className for the popover content, useful for wider custom tabs. */
+  popoverClassName?: string;
 }
 
 type Visibility = "private" | "org" | "public";
@@ -137,13 +153,13 @@ interface SharesResponse {
   policy?: SharesPolicy;
 }
 
-// Mirror shadcn's <Button size="sm" variant="outline"> class string so the
-// trigger sits flush next to other sm outline buttons in the template.
+// Match shadcn's <Button size="sm" variant="outline"> sizing so the trigger
+// sits flush next to other controls while staying transparent at rest.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const BUTTON_OUTLINE_SM = cn(
   BUTTON_BASE,
-  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-[hsl(var(--sidebar-background,var(--background)))] text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
+  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-transparent text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
 );
 const BUTTON_PRIMARY_SM = cn(
   BUTTON_BASE,
@@ -154,7 +170,7 @@ const BUTTON_GHOST_ICON = cn(
   "h-7 w-7 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 );
 const SHARE_POPOVER_SURFACE =
-  "border-[hsl(var(--sidebar-border,var(--border)))] bg-[hsl(var(--sidebar-background,var(--popover)))]";
+  "border border-border bg-popover text-popover-foreground";
 const MEMBER_SUGGESTION_LIMIT = 25;
 const MEMBER_SEARCH_DEBOUNCE_MS = 140;
 
@@ -211,6 +227,8 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
  */
 export function ShareButton(props: ShareButtonProps) {
   const [open, setOpen] = useState(false);
+  const shareTabDefaultValue = props.shareTabs?.defaultValue ?? "share";
+  const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
     null,
   );
@@ -236,7 +254,16 @@ export function ShareButton(props: ShareButtonProps) {
   const handleOpenChange = (v: boolean) => {
     setOpen(v);
     props.onOpenChange?.(v);
-    if (v && pendingVisibility === null) sharesQuery.refetch();
+    if (v) {
+      setActiveShareTab(shareTabDefaultValue);
+      props.shareTabs?.onValueChange?.(shareTabDefaultValue);
+      if (pendingVisibility === null) sharesQuery.refetch();
+    }
+  };
+
+  const handleShareTabChange = (value: string) => {
+    setActiveShareTab(value);
+    props.shareTabs?.onValueChange?.(value);
   };
 
   useEffect(() => {
@@ -296,22 +323,8 @@ export function ShareButton(props: ShareButtonProps) {
     });
   };
 
-  // The default trigger says "Share" — the icon reflects the resource's
-  // current visibility (lock / building / globe), matching Google Docs.
-  // While the query is loading and we don't know the visibility yet,
-  // render a skeleton placeholder in the icon slot instead of guessing.
+  // The default trigger stays text-only; the icon trigger keeps the share glyph.
   const iconOnly = props.trigger === "icon";
-  const loaded = sharesQuery.data !== undefined;
-  const serverVisibility =
-    (sharesQuery.data?.visibility as Visibility | null) ?? "private";
-  const currentVisibility = pendingVisibility ?? serverVisibility;
-  const VisibilityIcon =
-    currentVisibility === "public"
-      ? IconWorld
-      : currentVisibility === "org"
-        ? IconBuilding
-        : IconLock;
-  const TriggerIcon = iconOnly ? IconShare3 : VisibilityIcon;
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -324,14 +337,7 @@ export function ShareButton(props: ShareButtonProps) {
           )}
           aria-label={iconOnly ? "Share" : undefined}
         >
-          {loaded || iconOnly ? (
-            <TriggerIcon size={16} strokeWidth={1.75} />
-          ) : (
-            <span
-              aria-hidden
-              className="inline-block h-4 w-4 rounded-sm bg-muted animate-pulse"
-            />
-          )}
+          {iconOnly ? <IconShare3 size={16} strokeWidth={1.75} /> : null}
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>
@@ -341,6 +347,7 @@ export function ShareButton(props: ShareButtonProps) {
         className={cn(
           "z-[2000] w-[min(460px,92vw)] rounded-lg p-4 shadow-lg",
           SHARE_POPOVER_SURFACE,
+          props.popoverClassName,
         )}
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
@@ -350,6 +357,8 @@ export function ShareButton(props: ShareButtonProps) {
           visibilityOverride={pendingVisibility}
           onVisibilityChange={handleVisibilityChange}
           onClose={() => handleOpenChange(false)}
+          activeTab={activeShareTab}
+          onTabChange={handleShareTabChange}
         />
       </PopoverContent>
     </Popover>
@@ -524,6 +533,8 @@ function SharePanel(
     visibilityOverride: Visibility | null;
     onVisibilityChange: (visibility: Visibility) => Promise<void>;
     onClose: () => void;
+    activeTab: string;
+    onTabChange: (value: string) => void;
   },
 ) {
   const {
@@ -615,6 +626,9 @@ function SharePanel(
     Boolean(props.shareUrlPlaceholder) ||
     Boolean(props.secondaryShareUrl);
   const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
+  const extraTabs = props.shareTabs?.tabs ?? [];
+  const hasTabs = extraTabs.length > 0;
+  const shareTabLabel = props.shareTabs?.shareLabel ?? "Share link";
 
   const serverShares = data?.shares ?? [];
   const shares: Share[] = [
@@ -792,34 +806,37 @@ function SharePanel(
     ? `Share "${resourceTitle}"`
     : `Share ${resourceType}`;
 
-  if (isLoading) {
-    return (
-      <div>
+  const sharePanel = isLoading ? (
+    <div>
+      {!hasTabs ? (
         <div
           className="mb-3 truncate text-base font-semibold"
           title={titleText}
         >
           {titleText}
         </div>
-        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-        <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
-        <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
-        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-        <div className="mt-2 flex justify-end">
-          <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
-            Done
-          </button>
-        </div>
+      ) : null}
+      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
+      <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
+      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      <div className="mt-2 flex justify-end">
+        <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
+          Done
+        </button>
       </div>
-    );
-  }
-
-  return (
+    </div>
+  ) : (
     <div>
-      <div className="mb-3 truncate text-base font-semibold" title={titleText}>
-        {titleText}
-      </div>
+      {!hasTabs ? (
+        <div
+          className="mb-3 truncate text-base font-semibold"
+          title={titleText}
+        >
+          {titleText}
+        </div>
+      ) : null}
 
       {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
 
@@ -984,6 +1001,55 @@ function SharePanel(
       </div>
     </div>
   );
+
+  if (!hasTabs) return sharePanel;
+
+  const tabs = [
+    {
+      value: "share",
+      label: shareTabLabel,
+      content: sharePanel,
+      disabled: false,
+    },
+    ...extraTabs,
+  ];
+  const activeTab = tabs.some((tab) => tab.value === props.activeTab)
+    ? props.activeTab
+    : "share";
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        role="tablist"
+        aria-label="Share options"
+        className="flex gap-1 rounded-xl bg-muted/70 p-1"
+      >
+        {tabs.map((tab) => {
+          const active = tab.value === activeTab;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              disabled={tab.disabled}
+              onClick={() => props.onTabChange(tab.value)}
+              className={cn(
+                "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+                active &&
+                  "bg-background text-foreground shadow-sm ring-2 ring-primary",
+              )}
+            >
+              <span className="block truncate">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel">
+        {tabs.find((tab) => tab.value === activeTab)?.content}
+      </div>
+    </div>
+  );
 }
 
 function AdvancedAccessPopover({
@@ -1029,7 +1095,7 @@ function AdvancedAccessPopover({
             disabled={!canManage || control.pending}
             onClick={onToggle}
             className={cn(
-              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-background px-3 py-2.5 text-start transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
+              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-card px-3 py-2.5 text-start transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
               control.checked && "border-border bg-accent/35 text-foreground",
             )}
           >
@@ -1042,7 +1108,7 @@ function AdvancedAccessPopover({
             >
               <span
                 className={cn(
-                  "ml-0.5 size-4 rounded-full bg-background shadow-sm transition-transform",
+                  "ml-0.5 size-4 rounded-full bg-popover shadow-sm transition-transform",
                   control.checked && "translate-x-4",
                 )}
               />
@@ -1210,7 +1276,7 @@ function MemberAutocomplete({
             }}
             onKeyDown={handleKeyDown}
             autoComplete="off"
-            className="h-9 w-full min-w-0 rounded-md border border-input bg-background ps-8 pe-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            className="h-9 w-full min-w-0 rounded-md border border-input bg-card ps-8 pe-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
           />
           {search.isLoading ? (
             <IconLoader2
@@ -1355,13 +1421,13 @@ function CopyLinkField({
         <input
           readOnly
           value={value}
-          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground outline-none"
+          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-muted-foreground outline-none"
           onFocus={(event) => event.currentTarget.select()}
         />
         <button
           type="button"
           onClick={handleCopy}
-          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent"
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground hover:bg-accent"
         >
           {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
           {copied ? "Copied" : "Copy"}
@@ -1439,7 +1505,7 @@ function RoleSelect(props: {
               )
             : cn(
                 BUTTON_BASE,
-                "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+                "h-9 px-3 border border-input bg-card hover:bg-accent hover:text-accent-foreground",
               )
         }
         aria-label="Role"

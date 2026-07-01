@@ -639,6 +639,20 @@ function renderConnectPage(params: {
   }
   .primary:hover:not(:disabled) { background: #e4e4e7; }
   .primary:disabled { opacity: 0.55; cursor: default; }
+  .primary.is-loading {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 0.55rem; opacity: 1;
+  }
+  .primary.is-loading::before {
+    content: ""; width: 1rem; height: 1rem; flex: 0 0 auto;
+    border-radius: 999px; border: 2px solid rgba(0,0,0,0.22);
+    border-top-color: var(--accent-fg);
+    animation: spin 0.75s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .primary.is-loading::before { animation: none; }
+  }
   .ghost {
     background: transparent; color: var(--muted);
     border: 1px solid var(--border-strong); padding: 0.35rem 0.7rem;
@@ -900,7 +914,7 @@ function renderConnectPage(params: {
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="static-token-body">
-      <div id="msg" class="msg"></div>
+      <div id="msg" class="msg" role="status" aria-live="polite"></div>
       <div id="mintForm">
         <button id="authorizeBtn" class="primary">${safeUserCode ? "Authorize device" : "Create connection token"}</button>
         ${tokenAdvancedOptionsHtml}
@@ -983,6 +997,21 @@ function renderConnectPage(params: {
   }
   function clearMsg() { msgEl.className = "msg"; msgEl.textContent = ""; }
 
+  function setButtonLoading(btn, text) {
+    if (!btn.dataset.idleText) btn.dataset.idleText = btn.textContent || "";
+    btn.textContent = text;
+    btn.classList.add("is-loading");
+    btn.setAttribute("aria-busy", "true");
+    btn.disabled = true;
+  }
+
+  function resetButtonLoading(btn) {
+    btn.disabled = false;
+    btn.classList.remove("is-loading");
+    btn.removeAttribute("aria-busy");
+    if (btn.dataset.idleText) btn.textContent = btn.dataset.idleText;
+  }
+
   function renderResult(data) {
     document.getElementById("mintForm").classList.add("hidden");
     var entry = {};
@@ -1060,13 +1089,13 @@ function renderConnectPage(params: {
 
   document.getElementById("authorizeBtn").onclick = async function () {
     var btn = this;
-    btn.disabled = true;
+    setButtonLoading(btn, USER_CODE ? "Authorizing device..." : "Creating token...");
     clearMsg();
     try {
       if (USER_CODE) {
         var a = await postJson("/device/authorize", { user_code: USER_CODE });
         if (!a.ok) {
-          btn.disabled = false;
+          resetButtonLoading(btn);
           showMsg((a.data && a.data.error) || "Could not authorize this device code.");
           return;
         }
@@ -1128,7 +1157,7 @@ function renderConnectPage(params: {
         var ttlDays = ttlEl ? parseInt(ttlEl.value, 10) || undefined : undefined;
         var m = await postJson("/token", { label: label, ttlDays: ttlDays });
         if (!m.ok) {
-          btn.disabled = false;
+          resetButtonLoading(btn);
           showMsg((m.data && m.data.error) || "Could not create token.");
           return;
         }
@@ -1136,7 +1165,7 @@ function renderConnectPage(params: {
       }
       loadTokens();
     } catch (e) {
-      btn.disabled = false;
+      resetButtonLoading(btn);
       showMsg("Network error. Please try again.");
     }
   };

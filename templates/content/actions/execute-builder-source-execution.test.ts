@@ -6,6 +6,7 @@ import {
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
 } from "../shared/api";
+import type { BuilderCmsEntryLiveState } from "./_builder-cms-read-client";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
@@ -19,6 +20,8 @@ import {
 } from "./execute-builder-source-execution";
 
 const NOW = "2026-06-15T12:00:00.000Z";
+const BUILDER_LAST_UPDATED_MS = 1782328870774;
+const STALE_BUILDER_LAST_UPDATED_MS = 1700000000000;
 const RESPONSE: ContentDatabaseResponse = {
   database: {
     id: "database-1",
@@ -72,7 +75,7 @@ function row(
     syncState: "idle",
     freshness: "fresh",
     lastSyncedAt: "2026-06-08T00:00:00.000Z",
-    lastSourceUpdatedAt: "2026-06-08T00:00:00.000Z",
+    lastSourceUpdatedAt: String(BUILDER_LAST_UPDATED_MS),
     ...overrides,
   };
 }
@@ -165,11 +168,15 @@ function executionFor(args: {
   payloadJson?: string;
   state?: BuilderSourceExecutionRecord["state"];
   updatedAt?: string;
+  publicationTransition?: "publish" | "unpublish";
+  confirmUnpublish?: boolean;
 }): BuilderSourceExecutionRecord {
   const plan = buildBuilderCmsExecutionPlan({
     source: args.source,
     changeSet: args.changeSet,
     pushModeConfirmation: args.changeSet.pushMode ?? undefined,
+    publicationTransition: args.publicationTransition,
+    confirmUnpublish: args.confirmUnpublish,
   });
   return {
     id: "execution-1",
@@ -185,6 +192,7 @@ function depsFor(args: {
   execution: BuilderSourceExecutionRecord | null;
   writeResult?: BuilderCmsWriteResult;
   claimExecution?: boolean;
+  readLiveEntry?: BuilderCmsEntryLiveState;
 }): ExecuteBuilderSourceExecutionDeps {
   return {
     now: vi.fn(() => NOW),
@@ -204,6 +212,17 @@ function depsFor(args: {
             status: 200,
             entryId: "builder-entry-1",
             responseBody: { id: "builder-entry-1" },
+          },
+    ),
+    readLiveEntry: vi.fn(async () =>
+      args.readLiveEntry
+        ? args.readLiveEntry
+        : {
+            exists: true,
+            published: "draft",
+            lastUpdated: BUILDER_LAST_UPDATED_MS,
+            blocksHash: null,
+            id: "builder-entry-1",
           },
     ),
     reconcileWrite: vi.fn(async () => {}),
@@ -245,7 +264,7 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
-  it("blocks synthetic fixture rows before any live write", async () => {
+  it("creates a new Builder entry for an unmatched (synthetic-fixture) row", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({
       liveWritesEnabled: true,
@@ -263,36 +282,40 @@ describe("execute Builder source execution", () => {
       source: builderSource,
       changeSet: approvedChangeSet,
     });
-    const deps = depsFor({ source: builderSource, execution });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      writeResult: {
+        ok: true,
+        status: 200,
+        entryId: "new-builder-entry",
+        responseBody: { id: "new-builder-entry" },
+      },
+    });
 
-    await expect(
-      executeBuilderSourceExecutionWithDeps(
-        {
-          databaseId: "database-1",
-          changeSetId: approvedChangeSet.id,
-          pushModeConfirmation: "autosave",
-        },
-        deps,
-      ),
-    ).rejects.toThrow(
-      "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
+    await executeBuilderSourceExecutionWithDeps(
+      {
+        databaseId: "database-1",
+        changeSetId: approvedChangeSet.id,
+        pushModeConfirmation: "autosave",
+      },
+      deps,
     );
 
-    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+    // create_draft skips the live preflight (no entry to read yet) and POSTs a
+    // new draft entry.
+    expect(deps.readLiveEntry).not.toHaveBeenCalled();
+    expect(deps.executeWrite).toHaveBeenCalledWith(
       expect.objectContaining({
-        executionId: execution.id,
-        state: "blocked",
-        lastError:
-          "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
-        payload: expect.objectContaining({
-          target: expect.objectContaining({
-            entryId: null,
-            sourceQualifiedId: null,
-          }),
+        request: expect.objectContaining({
+          method: "POST",
+          body: expect.objectContaining({ published: "draft" }),
         }),
       }),
     );
-    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({ executionId: execution.id }),
+    );
   });
 
   it("blocks non-test Builder models before any write", async () => {
@@ -443,6 +466,341 @@ describe("execute Builder source execution", () => {
     const successCallOrder = vi.mocked(deps.markExecutionSucceeded).mock
       .invocationCallOrder[0];
     expect(reconcileCallOrder).toBeLessThan(successCallOrder);
+  });
+
+  it("preflights update-in-place writes when string baseline matches numeric live timestamp", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({ source: builderSource, execution });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).resolves.toBe(RESPONSE);
+
+    expect(deps.readLiveEntry).toHaveBeenCalledWith({
+      model: BUILDER_CMS_SAFE_WRITE_MODEL,
+      entryId: "builder-entry-1",
+    });
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+    const readCallOrder = vi.mocked(deps.readLiveEntry).mock
+      .invocationCallOrder[0];
+    const claimCallOrder = vi.mocked(deps.claimExecution).mock
+      .invocationCallOrder[0];
+    expect(readCallOrder).toBeLessThan(claimCallOrder);
+  });
+
+  it("blocks stale live entries before claiming or writing", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [
+        row({
+          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+        }),
+      ],
+      changeSets: [approvedChangeSet],
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "draft",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).rejects.toThrow(
+      "Builder entry changed since this diff was approved; refresh and re-review.",
+    );
+
+    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionId: execution.id,
+        state: "blocked",
+        lastError:
+          "Builder entry changed since this diff was approved; refresh and re-review.",
+      }),
+    );
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("blocks missing live entries before claiming or writing", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: false,
+        published: null,
+        lastUpdated: null,
+        blocksHash: null,
+        id: null,
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).rejects.toThrow("Builder entry no longer exists; refresh the source.");
+
+    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionId: execution.id,
+        state: "blocked",
+        lastError: "Builder entry no longer exists; refresh the source.",
+      }),
+    );
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("publishes draft entries after live transition preflight", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: {
+        allowPublicationTransitions: true,
+      },
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      publicationTransition: "publish",
+    });
+    const deps = depsFor({ source: builderSource, execution });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+          publicationTransition: "publish",
+        },
+        deps,
+      ),
+    ).resolves.toBe(RESPONSE);
+
+    expect(deps.readLiveEntry).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).toHaveBeenCalledWith({
+      request: expect.objectContaining({
+        body: expect.objectContaining({ published: "published" }),
+      }),
+    });
+  });
+
+  it("blocks publish transitions when the entry is already published", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: {
+        allowPublicationTransitions: true,
+      },
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      publicationTransition: "publish",
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+          publicationTransition: "publish",
+        },
+        deps,
+      ),
+    ).rejects.toThrow("Entry is already published.");
+
+    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionId: execution.id,
+        state: "blocked",
+        lastError: "Entry is already published.",
+      }),
+    );
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("unpublishes published entries when explicitly confirmed", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: {
+        allowPublicationTransitions: true,
+      },
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      publicationTransition: "unpublish",
+      confirmUnpublish: true,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+          publicationTransition: "unpublish",
+          confirmUnpublish: true,
+        },
+        deps,
+      ),
+    ).resolves.toBe(RESPONSE);
+
+    expect(deps.readLiveEntry).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).toHaveBeenCalledWith({
+      request: expect.objectContaining({
+        body: expect.objectContaining({ published: "draft" }),
+      }),
+    });
+  });
+
+  it("preflights existing-entry autosave writes before patching Builder", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({ source: builderSource, execution });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).resolves.toBe(RESPONSE);
+
+    expect(deps.readLiveEntry).toHaveBeenCalledWith({
+      model: BUILDER_CMS_SAFE_WRITE_MODEL,
+      entryId: "builder-entry-1",
+    });
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks existing-entry autosaves when the live Builder body changed", async () => {
+    const approvedChangeSet = changeSet({
+      bodyChange: {
+        summary: "Builder body changed.",
+        currentExcerpt: "Old body",
+        proposedExcerpt: "New body",
+        currentHash: "local-baseline-hash",
+        proposedHash: "local-next-hash",
+        proposedContent: "New body",
+        proposedBlocksJson: "[]",
+        sidecarsJson: "{}",
+        warnings: [],
+      },
+    });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "draft",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: "new-live-builder-hash",
+        id: "builder-entry-1",
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).rejects.toThrow(
+      "Builder body changed since this diff was approved; refresh and re-review.",
+    );
+
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: "blocked",
+        lastError:
+          "Builder body changed since this diff was approved; refresh and re-review.",
+      }),
+    );
   });
 
   it("records and throws write failures without applying the change set", async () => {
@@ -758,5 +1116,44 @@ describe("execute Builder source execution", () => {
       method: "PATCH",
       path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-created-1`,
     });
+  });
+
+  it("stores Builder's authoritative updated timestamp after a successful write", () => {
+    const draftCreate = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [],
+      changeSets: [draftCreate],
+      metadata: {
+        pushMode: "draft",
+        allowDraftWrites: true,
+        allowedWriteModes: ["draft", "autosave"],
+      },
+    });
+    const createPlan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: draftCreate,
+      pushModeConfirmation: "draft",
+    });
+
+    const patch = builderCmsReconciledSourceRowPatch({
+      source: builderSource,
+      changeSet: draftCreate,
+      plan: createPlan,
+      writeResult: {
+        ok: true,
+        status: 200,
+        entryId: "builder-created-1",
+        responseBody: {
+          data: {
+            id: "builder-created-1",
+            lastUpdated: BUILDER_LAST_UPDATED_MS,
+          },
+        },
+      },
+      now: NOW,
+    });
+
+    expect(patch?.lastSyncedAt).toBe(NOW);
+    expect(patch?.lastSourceUpdatedAt).toBe(String(BUILDER_LAST_UPDATED_MS));
   });
 });

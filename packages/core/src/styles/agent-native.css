@@ -59,6 +59,8 @@
   --agent-native-card-surface: hsl(var(--card));
   --agent-native-raised-border: hsl(var(--border));
   --agent-native-raised-radius: 8px;
+  --agent-native-raised-outline: inset 0 0 0 1px
+    var(--agent-native-raised-border);
   --agent-native-raised-shadow-left: -1px 0 3px rgb(0 0 0 / 0.018);
   --agent-native-raised-shadow-right: 1px 0 3px rgb(0 0 0 / 0.018);
   background: var(--agent-native-lower-surface);
@@ -111,6 +113,21 @@
   background: var(--agent-native-lower-surface) !important;
 }
 
+.agent-layout-left-drawer[data-collapsed] {
+  overflow: clip;
+  width: var(--agent-layout-left-drawer-width, auto);
+  will-change: width;
+  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-layout-left-drawer[data-collapsed="true"] {
+  width: var(--agent-layout-left-drawer-collapsed-width, 3.5rem);
+}
+
+.agent-layout-left-drawer[data-collapsed="false"] {
+  width: var(--agent-layout-left-drawer-expanded-width, 14rem);
+}
+
 .agent-layout-left-drawer .bg-sidebar {
   background: var(--agent-native-lower-surface) !important;
 }
@@ -138,11 +155,16 @@
 .agent-sidebar-main-surface {
   position: relative;
   z-index: 1;
+  container: agent-native-main / inline-size;
   background: var(--agent-native-raised-surface);
   transition:
     border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
     border-color 260ms cubic-bezier(0.32, 0.72, 0, 1),
     box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-native-app-main {
+  container: agent-native-main / inline-size;
 }
 
 .agent-layout-shell
@@ -196,22 +218,18 @@
   .agent-layout-shell > .agent-sidebar-shell > .agent-sidebar-main-surface {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
-    border-inline-start: 1px solid var(--agent-native-raised-border);
-    border-inline-end: 1px solid var(--agent-native-raised-border);
     box-shadow: var(--agent-native-raised-shadow-left);
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="right"] {
     border-start-end-radius: var(--agent-native-raised-radius);
     border-end-end-radius: var(--agent-native-raised-radius);
-    border-inline-end: 1px solid var(--agent-native-raised-border);
     box-shadow: var(--agent-native-raised-shadow-right);
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="left"] {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
-    border-inline-start: 1px solid var(--agent-native-raised-border);
     box-shadow: var(--agent-native-raised-shadow-left);
   }
 }
@@ -291,6 +309,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-layout-left-drawer[data-collapsed],
   .agent-sidebar-panel[data-agent-sidebar-animation],
   .agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
     > .agent-sidebar-panel-inner,
@@ -507,6 +526,133 @@
   }
 }
 
+/* Guided questions size themselves from the rendered container, not viewport
+   breakpoints, so they stay readable in narrow chat sidebars. */
+.guided-question-flow {
+  container-type: inline-size;
+  container-name: guided-question-flow;
+}
+
+.guided-question-flow-options {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container guided-question-flow (min-width: 42rem) {
+  .guided-question-flow-inner {
+    padding: 2rem;
+  }
+
+  .guided-question-flow-header {
+    margin-bottom: 1.5rem;
+  }
+
+  .guided-question-flow-title {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+
+  .guided-question-flow-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guided-question-flow-footer {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+  }
+}
+
+@container guided-question-flow (max-width: 24rem) {
+  .guided-question-flow-description {
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+
+  .guided-question-flow-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guided-question-flow-footer > :last-child {
+    justify-content: flex-end;
+  }
+}
+
+/* Connect AI card: use the card width, not the viewport, so narrow embedded
+   sidebars stack the copy and actions before the secondary button clips. */
+.agent-builder-setup-card {
+  min-inline-size: min(18rem, 100%);
+}
+
+.agent-builder-setup-card--sidebar {
+  container-type: inline-size;
+  container-name: agent-builder-setup;
+}
+
+.agent-builder-setup-card--sidebar .agent-builder-setup-card__actions {
+  gap: 0.25rem;
+}
+
+.agent-builder-setup-card--sidebar .agent-builder-setup-card__builder-button {
+  justify-content: center;
+  min-height: 2rem;
+}
+
+.agent-builder-setup-card--sidebar .agent-builder-setup-card__key-button {
+  align-self: center;
+  justify-content: center;
+  width: auto;
+  min-height: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  padding-inline: 0.25rem;
+}
+
+.agent-builder-setup-card--sidebar .agent-builder-setup-card__key-button:hover {
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+@container agent-builder-setup (max-width: 560px) {
+  .agent-builder-setup-card__content {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agent-builder-setup-card__actions {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .agent-builder-setup-card__builder-cta {
+    align-items: stretch;
+    flex: 0 1 auto;
+  }
+
+  .agent-builder-setup-card__builder-button {
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .agent-builder-setup-card__key-button {
+    flex: 0 0 auto;
+    min-width: 0;
+    width: auto;
+  }
+}
+
+@container agent-builder-setup (max-width: 360px) {
+  .agent-builder-setup-card__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .agent-composer-area--hero {
   padding-inline: 0;
   padding-block: 0.5rem;
@@ -545,6 +691,28 @@
   overflow: visible;
 }
 
+[data-agent-empty-state="compact-setup"] > .agent-chat-scroll {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+[data-agent-empty-state="compact-setup"] .agent-empty-state {
+  height: auto;
+  min-height: 5rem;
+  gap: 0.5rem;
+  padding-block: 0.875rem;
+}
+
+[data-agent-empty-state="compact-setup"] .agent-empty-state > div:first-child {
+  width: 2rem;
+  height: 2rem;
+}
+
+[data-agent-empty-state="compact-setup"] .agent-empty-state svg {
+  width: 1rem;
+  height: 1rem;
+}
+
 .agent-thinking-indicator {
   display: inline-flex;
   align-items: center;
@@ -560,6 +728,37 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  @supports ((background-clip: text) or (-webkit-background-clip: text)) {
+    .agent-thinking-indicator__text {
+      color: transparent;
+      background: linear-gradient(
+        90deg,
+        hsl(var(--muted-foreground) / 0.7) 0%,
+        hsl(var(--muted-foreground) / 0.7) 36%,
+        hsl(var(--foreground) / 0.95) 50%,
+        hsl(var(--muted-foreground) / 0.78) 64%,
+        hsl(var(--muted-foreground) / 0.7) 100%
+      );
+      background-size: 14rem 100%;
+      background-position: 0 0;
+      background-repeat: repeat;
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: agent-thinking-shine 2.6s linear infinite;
+    }
+  }
+
+  @keyframes agent-thinking-shine {
+    0% {
+      background-position: 0 0;
+    }
+
+    100% {
+      background-position: 14rem 0;
+    }
+  }
+
   @supports (view-transition-name: agent-native-chat) {
     .agent-native-chat-view-transition {
       contain: layout;

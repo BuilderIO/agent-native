@@ -29,6 +29,7 @@ import {
   continuationReasonForResumableError,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
+import type { ResolveRunSoftTimeoutOptions } from "./run-manager.js";
 import { getCurrentTurnEventsForThread } from "./run-store.js";
 import {
   classifyToolCallJournal,
@@ -120,8 +121,9 @@ export const RUN_BUDGET_EXHAUSTED_MESSAGE =
 export async function runAgentLoopDirectWithSoftTimeout(
   opts: Parameters<typeof runAgentLoop>[0],
   softTimeoutMs?: number,
+  timeoutOptions?: ResolveRunSoftTimeoutOptions,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
-  const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs);
+  const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs, timeoutOptions);
   if (timeoutMs <= 0) return runAgentLoop(opts);
 
   const upstreamSignal = opts.signal;

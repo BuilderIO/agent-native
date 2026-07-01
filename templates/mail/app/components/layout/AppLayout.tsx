@@ -21,6 +21,15 @@ import {
   IconRefresh,
   IconPin,
   IconPinnedFilled,
+  IconArchive,
+  IconClock,
+  IconFileText,
+  IconInbox,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconMailForward,
+  IconStar,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
@@ -86,6 +95,7 @@ type SnoozeTarget = {
   accountEmail?: string;
 };
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
+const SIDEBAR_COLLAPSE_KEY = "mail-sidebar-collapsed";
 
 function AccountAvatar({
   email,
@@ -351,11 +361,23 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("mail-sidebar-pinned") === "true";
   });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
+  });
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
   }, [sidebarPinned]);
+  useEffect(() => {
+    if (sidebarCollapsed) {
+      localStorage.setItem(SIDEBAR_COLLAPSE_KEY, "true");
+    } else {
+      localStorage.removeItem(SIDEBAR_COLLAPSE_KEY);
+    }
+  }, [sidebarCollapsed]);
   const showSidebar = sidebarOpen || (sidebarPinned && !isMobile);
+  const showCollapsedSidebar = sidebarPinned && sidebarCollapsed && !isMobile;
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
@@ -971,6 +993,58 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     labelThreadCounts.unread["__inboxTotal"] ??
     labelThreadCounts.unread["inbox"] ??
     0;
+  const railNavItems = [
+    {
+      id: "inbox",
+      label: t("mail.views.inbox"),
+      href: "/inbox",
+      icon: IconInbox,
+      count: inboxSidebarUnreadCount,
+    },
+    {
+      id: "unread",
+      label: t("mail.views.unread"),
+      href: "/unread",
+      icon: IconMailForward,
+    },
+    {
+      id: "starred",
+      label: t("mail.views.starred"),
+      href: "/starred",
+      icon: IconStar,
+    },
+    {
+      id: "snoozed",
+      label: t("mail.views.snoozed"),
+      href: "/snoozed",
+      icon: IconClock,
+    },
+    {
+      id: "sent",
+      label: t("mail.views.sent"),
+      href: "/sent",
+      icon: IconMailForward,
+    },
+    {
+      id: "draft-queue",
+      label: t("mail.views.draftQueue"),
+      href: "/draft-queue",
+      icon: IconFileText,
+      count: queuedDrafts.count,
+    },
+    {
+      id: "archive",
+      label: t("mail.views.archive"),
+      href: "/archive",
+      icon: IconArchive,
+    },
+    {
+      id: "trash",
+      label: t("mail.views.trash"),
+      href: "/trash",
+      icon: IconTrash,
+    },
+  ];
 
   const accountFilterValue = useMemo(
     () => ({ activeAccounts, allAccounts: accounts }),
@@ -1243,7 +1317,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             <TooltipContent>{t("mail.toolbar.composeShortcut")}</TooltipContent>
           </Tooltip>
 
-          {/* Account avatars — overlapping stack like Figma */}
+          {/* Account avatars — overlapping stack */}
           {googleStatus.isLoading && (
             <div className="flex items-center ms-1">
               <Skeleton className="h-7 w-7 rounded-full ring-2 ring-card" />
@@ -1348,274 +1422,359 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             )}
             <div
               className={cn(
-                "flex w-64 flex-col overflow-hidden bg-background/85 backdrop-blur-2xl border-e border-border/30 shadow-2xl",
+                "flex flex-col overflow-hidden bg-background/85 backdrop-blur-2xl border-e border-border/30 shadow-2xl transition-[width] duration-200 ease-out",
+                showCollapsedSidebar ? "w-12" : "w-64",
                 sidebarPinned && !isMobile
                   ? "absolute start-0 top-12 bottom-0 z-10"
                   : "fixed start-0 top-0 bottom-0 z-40",
               )}
             >
-              <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/20 px-4">
-                <span className="text-[13px] font-medium text-foreground">
-                  {t("mail.appName")}
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSidebarPinned((value) => !value);
-                        setSidebarOpen(true);
-                      }}
-                      className={cn(
-                        "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                        sidebarPinned && "text-foreground bg-accent/50",
-                      )}
-                      aria-label={
-                        sidebarPinned
-                          ? t("mail.toolbar.unpinSidebar")
-                          : t("mail.toolbar.pinSidebar")
-                      }
-                    >
-                      {sidebarPinned ? (
-                        <IconPinnedFilled className="h-4 w-4" />
-                      ) : (
-                        <IconPin className="h-4 w-4" />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {sidebarPinned
-                      ? t("mail.toolbar.unpinSidebar")
-                      : t("mail.toolbar.pinSidebar")}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {/* Accounts */}
-                {hasAccounts && (
-                  <div className="px-4 pt-5 pb-4 border-b border-border/20">
-                    <div className="space-y-2">
-                      {accounts.map((account) => {
-                        const isActive =
-                          activeAccounts.size === 0 ||
-                          activeAccounts.has(account.email);
-                        return (
-                          <button
-                            key={account.email}
-                            onClick={() => {
-                              setActiveAccounts((prev) => {
-                                const next = new Set(prev);
-                                if (next.size === 0) {
-                                  for (const a of accounts) {
-                                    if (a.email !== account.email)
-                                      next.add(a.email);
-                                  }
-                                } else if (next.has(account.email)) {
-                                  next.delete(account.email);
-                                  if (next.size === 0) return new Set();
-                                } else {
-                                  next.add(account.email);
-                                  if (next.size === accounts.length)
-                                    return new Set();
-                                }
-                                return next;
-                              });
-                            }}
-                            className={cn(
-                              "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-all",
-                              isActive ? "opacity-100" : "opacity-30",
-                            )}
-                          >
-                            <AccountAvatar
-                              email={account.email}
-                              photoUrl={account.photoUrl}
-                              imageClassName="h-8 w-8 rounded-full object-cover shrink-0"
-                              fallbackClassName="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0"
-                            />
-                            <span className="text-[13px] text-foreground truncate">
-                              {account.email}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+              <div
+                className={cn(
+                  "flex h-12 shrink-0 items-center border-b border-border/20",
+                  showCollapsedSidebar
+                    ? "justify-center px-1"
+                    : "justify-between px-4",
                 )}
-
-                <div className="p-4">
-                  <div className="space-y-0.5">
-                    {[
-                      {
-                        id: "inbox",
-                        label: t("mail.views.inbox"),
-                        href: "/inbox",
-                      },
-                      {
-                        id: "unread",
-                        label: t("mail.views.unread"),
-                        href: "/unread",
-                      },
-                      {
-                        id: "starred",
-                        label: t("mail.views.starred"),
-                        href: "/starred",
-                      },
-                      {
-                        id: "snoozed",
-                        label: t("mail.views.snoozed"),
-                        href: "/snoozed",
-                      },
-                      {
-                        id: "sent",
-                        label: t("mail.views.sent"),
-                        href: "/sent",
-                      },
-                      {
-                        id: "draft-queue",
-                        label: t("mail.views.draftQueue"),
-                        href: "/draft-queue",
-                      },
-                      {
-                        id: "scheduled",
-                        label: t("mail.views.scheduled"),
-                        href: "/scheduled",
-                      },
-                      {
-                        id: "drafts",
-                        label: t("mail.views.drafts"),
-                        href: "/drafts",
-                      },
-                      {
-                        id: "archive",
-                        label: t("mail.views.archive"),
-                        href: "/archive",
-                      },
-                      {
-                        id: "trash",
-                        label: t("mail.views.trash"),
-                        href: "/trash",
-                      },
-                    ].map((item) => (
-                      <Link
-                        key={item.id}
-                        to={item.href}
-                        onClick={closeSidebar}
-                        className={cn(
-                          "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                          view === item.id
-                            ? "bg-accent/60 text-foreground font-medium"
-                            : "text-foreground/70 hover:bg-accent/30",
-                        )}
-                      >
-                        <span>{item.label}</span>
-                        {item.id === "draft-queue" &&
-                          queuedDrafts.count > 0 && (
-                            <span className="text-[12px] text-amber-300 tabular-nums">
-                              {queuedDrafts.count}
-                            </span>
-                          )}
-                        {item.id === "inbox" && inboxSidebarUnreadCount > 0 && (
-                          <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                            {inboxSidebarUnreadCount}
-                          </span>
-                        )}
-                      </Link>
-                    ))}
-                  </div>
-
-                  {/* Pinned labels */}
-                  {pinnedLabels.filter(
-                    (l) => !collapsibleViews.some((v) => v.id === l),
-                  ).length > 0 && (
-                    <>
-                      <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
-                        {t("mail.views.labels")}
-                      </h2>
-                      <div className="space-y-0.5">
-                        {visibleTabs
-                          .filter((t) => t.id !== "inbox" && t.type === "label")
-                          .map((tab) => {
-                            const count = getUnreadCount(tab.id);
-                            const depth = labelDepth(
-                              tab.fullLabel ?? tab.label,
-                            );
-                            return (
-                              <Link
-                                key={tab.id}
-                                to={tab.href}
-                                onClick={closeSidebar}
-                                className={cn(
-                                  "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                                  tab.isActive
-                                    ? "bg-accent/60 text-foreground font-medium"
-                                    : "text-foreground/70 hover:bg-accent/30",
-                                )}
-                              >
-                                <span
-                                  className="flex min-w-0 items-center gap-2"
-                                  style={{ paddingLeft: depth * 12 }}
-                                >
-                                  {tab.color && (
-                                    <span
-                                      className="h-2 w-2 rounded-full shrink-0"
-                                      style={{ backgroundColor: tab.color }}
-                                    />
-                                  )}
-                                  <span
-                                    className="truncate"
-                                    title={tab.fullLabel}
-                                  >
-                                    {shortLabelName(tab.fullLabel ?? tab.label)}
-                                  </span>
-                                </span>
-                                {count > 0 && (
-                                  <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                    {count}
-                                  </span>
-                                )}
-                              </Link>
-                            );
-                          })}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="shrink-0 border-t border-border/20">
-                <div className="px-2 py-1">
-                  <ExtensionsSidebarSection />
-                </div>
-
-                <div className="border-t border-border/20 px-3 py-2">
-                  <OrgSwitcher />
-                </div>
-
-                <div className="flex items-center gap-1 border-t border-border/20 px-2 py-2">
-                  <DevDatabaseLink />
-                  <FeedbackButton className="min-w-0 flex-1" />
+              >
+                {showCollapsedSidebar ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Link
-                        to="/settings"
-                        onClick={closeSidebar}
-                        aria-label={t("mail.toolbar.settings")}
-                        className={cn(
-                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                          location.pathname === "/settings" &&
-                            "bg-accent/60 text-foreground",
-                        )}
+                      <button
+                        type="button"
+                        onClick={() => setSidebarCollapsed(false)}
+                        className="flex h-10 w-10 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        aria-label={t("sidebar.expandSidebar")}
                       >
-                        <IconSettings className="h-4 w-4" />
-                      </Link>
+                        <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+                      </button>
                     </TooltipTrigger>
-                    <TooltipContent>
-                      {t("mail.toolbar.settings")}
+                    <TooltipContent side="right">
+                      {t("sidebar.expandSidebar")}
                     </TooltipContent>
                   </Tooltip>
-                  <ThemeToggle className="h-8 w-8 shrink-0" />
-                </div>
+                ) : (
+                  <>
+                    <span className="text-[13px] font-medium text-foreground">
+                      {t("mail.appName")}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {sidebarPinned && !isMobile ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => setSidebarCollapsed(true)}
+                              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                              aria-label={t("sidebar.collapseSidebar")}
+                            >
+                              <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t("sidebar.collapseSidebar")}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSidebarPinned((value) => !value);
+                              setSidebarOpen(true);
+                            }}
+                            className={cn(
+                              "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                              sidebarPinned && "text-foreground bg-accent/50",
+                            )}
+                            aria-label={
+                              sidebarPinned
+                                ? t("mail.toolbar.unpinSidebar")
+                                : t("mail.toolbar.pinSidebar")
+                            }
+                          >
+                            {sidebarPinned ? (
+                              <IconPinnedFilled className="h-4 w-4" />
+                            ) : (
+                              <IconPin className="h-4 w-4" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {sidebarPinned
+                            ? t("mail.toolbar.unpinSidebar")
+                            : t("mail.toolbar.pinSidebar")}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </>
+                )}
               </div>
+              {showCollapsedSidebar ? (
+                <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
+                  {railNavItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = view === item.id;
+                    return (
+                      <Tooltip key={item.id}>
+                        <TooltipTrigger asChild>
+                          <Link
+                            to={item.href}
+                            aria-label={item.label}
+                            className={cn(
+                              "relative flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                              isActive && "bg-accent/60 text-foreground",
+                            )}
+                          >
+                            <Icon className="h-4 w-4" />
+                            {item.count && item.count > 0 ? (
+                              <span className="absolute end-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                            ) : null}
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          {item.label}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </nav>
+              ) : (
+                <>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    {/* Accounts */}
+                    {hasAccounts && (
+                      <div className="px-4 pt-5 pb-4 border-b border-border/20">
+                        <div className="space-y-2">
+                          {accounts.map((account) => {
+                            const isActive =
+                              activeAccounts.size === 0 ||
+                              activeAccounts.has(account.email);
+                            return (
+                              <button
+                                key={account.email}
+                                onClick={() => {
+                                  setActiveAccounts((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.size === 0) {
+                                      for (const a of accounts) {
+                                        if (a.email !== account.email)
+                                          next.add(a.email);
+                                      }
+                                    } else if (next.has(account.email)) {
+                                      next.delete(account.email);
+                                      if (next.size === 0) return new Set();
+                                    } else {
+                                      next.add(account.email);
+                                      if (next.size === accounts.length)
+                                        return new Set();
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                className={cn(
+                                  "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-all",
+                                  isActive ? "opacity-100" : "opacity-30",
+                                )}
+                              >
+                                <AccountAvatar
+                                  email={account.email}
+                                  photoUrl={account.photoUrl}
+                                  imageClassName="h-8 w-8 rounded-full object-cover shrink-0"
+                                  fallbackClassName="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0"
+                                />
+                                <span className="text-[13px] text-foreground truncate">
+                                  {account.email}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="p-4">
+                      <div className="space-y-0.5">
+                        {[
+                          {
+                            id: "inbox",
+                            label: t("mail.views.inbox"),
+                            href: "/inbox",
+                          },
+                          {
+                            id: "unread",
+                            label: t("mail.views.unread"),
+                            href: "/unread",
+                          },
+                          {
+                            id: "starred",
+                            label: t("mail.views.starred"),
+                            href: "/starred",
+                          },
+                          {
+                            id: "snoozed",
+                            label: t("mail.views.snoozed"),
+                            href: "/snoozed",
+                          },
+                          {
+                            id: "sent",
+                            label: t("mail.views.sent"),
+                            href: "/sent",
+                          },
+                          {
+                            id: "draft-queue",
+                            label: t("mail.views.draftQueue"),
+                            href: "/draft-queue",
+                          },
+                          {
+                            id: "scheduled",
+                            label: t("mail.views.scheduled"),
+                            href: "/scheduled",
+                          },
+                          {
+                            id: "drafts",
+                            label: t("mail.views.drafts"),
+                            href: "/drafts",
+                          },
+                          {
+                            id: "archive",
+                            label: t("mail.views.archive"),
+                            href: "/archive",
+                          },
+                          {
+                            id: "trash",
+                            label: t("mail.views.trash"),
+                            href: "/trash",
+                          },
+                        ].map((item) => (
+                          <Link
+                            key={item.id}
+                            to={item.href}
+                            onClick={closeSidebar}
+                            className={cn(
+                              "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                              view === item.id
+                                ? "bg-accent/60 text-foreground font-medium"
+                                : "text-foreground/70 hover:bg-accent/30",
+                            )}
+                          >
+                            <span>{item.label}</span>
+                            {item.id === "draft-queue" &&
+                              queuedDrafts.count > 0 && (
+                                <span className="text-[12px] text-amber-300 tabular-nums">
+                                  {queuedDrafts.count}
+                                </span>
+                              )}
+                            {item.id === "inbox" &&
+                              inboxSidebarUnreadCount > 0 && (
+                                <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                  {inboxSidebarUnreadCount}
+                                </span>
+                              )}
+                          </Link>
+                        ))}
+                      </div>
+
+                      {/* Pinned labels */}
+                      {pinnedLabels.filter(
+                        (l) => !collapsibleViews.some((v) => v.id === l),
+                      ).length > 0 && (
+                        <>
+                          <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
+                            {t("mail.views.labels")}
+                          </h2>
+                          <div className="space-y-0.5">
+                            {visibleTabs
+                              .filter(
+                                (t) => t.id !== "inbox" && t.type === "label",
+                              )
+                              .map((tab) => {
+                                const count = getUnreadCount(tab.id);
+                                const depth = labelDepth(
+                                  tab.fullLabel ?? tab.label,
+                                );
+                                return (
+                                  <Link
+                                    key={tab.id}
+                                    to={tab.href}
+                                    onClick={closeSidebar}
+                                    className={cn(
+                                      "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                                      tab.isActive
+                                        ? "bg-accent/60 text-foreground font-medium"
+                                        : "text-foreground/70 hover:bg-accent/30",
+                                    )}
+                                  >
+                                    <span
+                                      className="flex min-w-0 items-center gap-2"
+                                      style={{ paddingLeft: depth * 12 }}
+                                    >
+                                      {tab.color && (
+                                        <span
+                                          className="h-2 w-2 rounded-full shrink-0"
+                                          style={{ backgroundColor: tab.color }}
+                                        />
+                                      )}
+                                      <span
+                                        className="truncate"
+                                        title={tab.fullLabel}
+                                      >
+                                        {shortLabelName(
+                                          tab.fullLabel ?? tab.label,
+                                        )}
+                                      </span>
+                                    </span>
+                                    {count > 0 && (
+                                      <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                        {count}
+                                      </span>
+                                    )}
+                                  </Link>
+                                );
+                              })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0">
+                    <div className="px-2 py-1">
+                      <ExtensionsSidebarSection />
+                    </div>
+
+                    <div className="px-3 py-2">
+                      <OrgSwitcher />
+                    </div>
+
+                    <div className="flex items-center gap-1 px-2 py-2">
+                      <DevDatabaseLink />
+                      <FeedbackButton className="min-w-0 flex-1" />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link
+                            to="/settings"
+                            onClick={closeSidebar}
+                            aria-label={t("mail.toolbar.settings")}
+                            className={cn(
+                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                              location.pathname === "/settings" &&
+                                "bg-accent/60 text-foreground",
+                            )}
+                          >
+                            <IconSettings className="h-4 w-4" />
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("mail.toolbar.settings")}
+                        </TooltipContent>
+                      </Tooltip>
+                      <ThemeToggle className="h-8 w-8 shrink-0" />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}
@@ -1623,7 +1782,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            sidebarPinned && !isMobile && "ps-64",
+            sidebarPinned &&
+              !isMobile &&
+              (showCollapsedSidebar ? "ps-12" : "ps-64"),
           )}
         >
           <InvitationBanner />
@@ -1637,7 +1798,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           view !== "draft-queue" ? (
             <GoogleConnectBanner variant="hero" />
           ) : (
-            <main className="flex flex-1 overflow-hidden">{children}</main>
+            <main className="agent-native-app-main flex flex-1 overflow-hidden">
+              {children}
+            </main>
           )}
         </div>
       </div>
@@ -1917,16 +2080,16 @@ function StandardLayout({ children }: AppLayoutProps) {
               </div>
             </div>
 
-            <div className="shrink-0 border-t border-border/20">
+            <div className="shrink-0">
               <div className="px-2 py-1">
                 <ExtensionsSidebarSection />
               </div>
 
-              <div className="border-t border-border/20 px-3 py-2">
+              <div className="px-3 py-2">
                 <OrgSwitcher />
               </div>
 
-              <div className="flex items-center gap-1 border-t border-border/20 px-2 py-2">
+              <div className="flex items-center gap-1 px-2 py-2">
                 <DevDatabaseLink />
                 <FeedbackButton className="min-w-0 flex-1" />
                 <div className="flex shrink-0 items-center gap-0.5">
@@ -1959,7 +2122,9 @@ function StandardLayout({ children }: AppLayoutProps) {
 
       <InvitationBanner />
 
-      <main className="flex flex-1 overflow-hidden">{children}</main>
+      <main className="agent-native-app-main flex flex-1 overflow-hidden">
+        {children}
+      </main>
     </div>
   );
 }

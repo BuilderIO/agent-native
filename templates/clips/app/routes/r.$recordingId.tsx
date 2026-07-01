@@ -6,6 +6,7 @@ import {
   agentNativePath,
   getBrowserTabId,
   readClientAppState,
+  writeClientAppState,
   useChangeVersions,
   useT,
 } from "@agent-native/core/client";
@@ -29,10 +30,10 @@ import {
   IconFileText,
   IconSparkles,
   IconExternalLink,
-  IconLayoutSidebarRightExpand,
+  IconMessageDots,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -44,6 +45,10 @@ import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import {
+  TimestampedCommentButton,
+  TimestampedCommentBar,
+} from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
   VideoPlayer,
@@ -80,6 +85,9 @@ import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
+
+const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
+const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
 
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
@@ -210,7 +218,25 @@ export default function RecordingPage() {
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [commentAtMs, setCommentAtMs] = useState(0);
   const isCompactLayout = useIsCompactRecordingLayout();
+  // Resolve the playback position for reactions/comments. Native <video> exposes
+  // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
+  // live time bridge, so we fall back to the last position the player reported
+  // via onTimeUpdate (seek/initial start).
+  const resolvePlaybackMs = useCallback(() => {
+    const liveCt = playerRef.current?.video?.currentTime;
+    if (
+      typeof liveCt === "number" &&
+      Number.isFinite(liveCt) &&
+      liveCt >= 0 &&
+      liveCt < 1e7
+    ) {
+      return Math.floor(liveCt * 1000);
+    }
+    return currentMs;
+  }, [currentMs]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -218,6 +244,13 @@ export default function RecordingPage() {
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const browserTabId = useMemo(() => getBrowserTabId(), []);
+  const recordingScope = useMemo(
+    () =>
+      recordingId ? { type: "recording" as const, id: recordingId } : null,
+    [recordingId],
+  );
+  const lastPlayerStateWriteRef = useRef(0);
 
   useEffect(() => {
     if (
@@ -228,8 +261,9 @@ export default function RecordingPage() {
       panelParam === "settings"
     ) {
       setPanel(panelParam);
+      if (isCompactLayout) setSidePanelOpen(true);
     }
-  }, [panelParam]);
+  }, [isCompactLayout, panelParam]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -293,6 +327,24 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  useEffect(() => {
+    if (!recording?.id) return;
+    const now = Date.now();
+    if (now - lastPlayerStateWriteRef.current < 1000) return;
+    lastPlayerStateWriteRef.current = now;
+    void writeClientAppState(
+      `player-state:${browserTabId}`,
+      {
+        view: "recording",
+        recordingId: recording.id,
+        currentMs: Math.max(0, Math.round(currentMs)),
+        durationMs: recording.durationMs,
+        panel,
+        updatedAt: new Date(now).toISOString(),
+      },
+      { requestSource: browserTabId },
+    ).catch(() => {});
+  }, [browserTabId, currentMs, panel, recording?.durationMs, recording?.id]);
   const appStateVersion = useChangeVersions(["app-state", "action"]);
   const generatedWorkflowQ = useQuery<GeneratedWorkflowState | null>({
     queryKey: [
@@ -513,10 +565,8 @@ export default function RecordingPage() {
       .finally(() => playerDataQ.refetch());
   }, [recording?.id, recording?.status, transcriptStatus, role, playerDataQ]);
 
-  // After 30 seconds of non-ready status (without an explicit failure), flip
-  // a local flag so we can stop pretending this is normal and show an error.
-  // Even a 10-minute recording's finalize completes in a few seconds with
-  // the SQL fallback, so anything past 30s means something is wrong.
+  // Long browser-extension clips can still be uploading chunks or assembling
+  // for more than 30s. Keep polling before surfacing a stuck-state fallback.
   useEffect(() => {
     if (!recording) {
       setProcessingTimeout(false);
@@ -530,7 +580,11 @@ export default function RecordingPage() {
       setProcessingTimeout(false);
       return;
     }
-    const handle = setTimeout(() => setProcessingTimeout(true), 30_000);
+    const timeoutMs =
+      recording.status === "processing"
+        ? PROCESSING_STUCK_TIMEOUT_MS
+        : UPLOAD_STUCK_TIMEOUT_MS;
+    const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
     return () => clearTimeout(handle);
   }, [recording?.status, recording?.videoUrl, recordingId]);
 
@@ -755,7 +809,8 @@ export default function RecordingPage() {
         className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
       >
         <AgentPanel
-          browserTabId={getBrowserTabId()}
+          browserTabId={browserTabId}
+          scope={recordingScope}
           emptyStateText={t("recordingPage.askAboutClip")}
           dynamicSuggestions={false}
           chatNotice={
@@ -1025,20 +1080,19 @@ export default function RecordingPage() {
           ) : null}
 
           {!editing ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="xl:hidden"
-                  onClick={() => setSidePanelOpen(true)}
-                  aria-label={t("recordingPage.details")}
-                >
-                  <IconLayoutSidebarRightExpand className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t("recordingPage.details")}</TooltipContent>
-            </Tooltip>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 xl:hidden"
+              onClick={() => {
+                setPanel("agent");
+                setSidePanelOpen(true);
+              }}
+              aria-label={t("recordingPage.askAboutClip")}
+            >
+              <IconMessageDots className="h-4 w-4" />
+              <span>{t("recordingPage.agent")}</span>
+            </Button>
           ) : null}
 
           <ShareRecordingPopover
@@ -1082,7 +1136,7 @@ export default function RecordingPage() {
             <EditorLayout recordingId={recording.id} className="flex-1" />
           ) : (
             <>
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 relative">
                 <VideoPlayer
                   ref={playerRef}
                   recordingId={recording.id}
@@ -1107,6 +1161,18 @@ export default function RecordingPage() {
                   onTimeUpdate={(ms) => setCurrentMs(ms)}
                   className="h-full"
                 />
+                {commentOpen ? (
+                  <TimestampedCommentBar
+                    recordingId={recording.id}
+                    atMs={commentAtMs}
+                    onClose={() => setCommentOpen(false)}
+                    onAdded={() => {
+                      setPanel("comments");
+                      if (isCompactLayout) setSidePanelOpen(true);
+                      void playerDataQ.refetch();
+                    }}
+                  />
+                ) : null}
               </div>
 
               {/* Title + reactions row */}
@@ -1129,15 +1195,12 @@ export default function RecordingPage() {
                       </span>
                     </NavLink>
                   ) : null}
-                  <EditableRecordingTitle
-                    recordingId={recording.id}
-                    title={recording.title}
-                    canEdit={canEdit}
-                    displayTitle={visibleTitle}
-                    showPendingSkeleton={showTitleSkeleton}
-                    className="text-base font-semibold"
-                    inputClassName="h-8 text-base font-semibold"
-                    skeletonClassName="h-5 w-72 max-w-full"
+                  <TimestampedCommentButton
+                    enableComments={recording.enableComments}
+                    onOpen={() => {
+                      setCommentAtMs(resolvePlaybackMs());
+                      setCommentOpen(true);
+                    }}
                   />
                   {recording.description ? (
                     <p className="text-sm text-muted-foreground line-clamp-2">
@@ -1150,14 +1213,7 @@ export default function RecordingPage() {
                     disabled={!recording.enableReactions}
                     onReact={(emoji) => {
                       tracking.reportReaction(emoji);
-                      const liveCt = playerRef.current?.video?.currentTime;
-                      const liveMs =
-                        typeof liveCt === "number" &&
-                        Number.isFinite(liveCt) &&
-                        liveCt >= 0 &&
-                        liveCt < 1e7
-                          ? Math.floor(liveCt * 1000)
-                          : currentMs;
+                      const liveMs = resolvePlaybackMs();
                       fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",

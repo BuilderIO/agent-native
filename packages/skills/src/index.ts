@@ -392,6 +392,7 @@ const HIDDEN_STANDALONE_BUILT_INS = [
   "assets",
   "content",
   "design-exploration",
+  "visual-edit",
   "context-xray",
 ];
 
@@ -1524,15 +1525,34 @@ function resolveInstructionFiles(
   return existing.length > 0 ? existing : [path.join(baseDir, "AGENTS.md")];
 }
 
+function stripManagedInstructionBlocks(text: string): string {
+  const pattern = new RegExp(
+    `${escapeRegExp(MANAGED_INSTRUCTIONS_START)}[\\s\\S]*?${escapeRegExp(MANAGED_INSTRUCTIONS_END)}`,
+    "g",
+  );
+  return text.replace(pattern, "");
+}
+
 function upsertManagedBlock(file: string, block: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf-8") : "";
-  const pattern = new RegExp(
-    `${escapeRegExp(MANAGED_INSTRUCTIONS_START)}[\\s\\S]*?${escapeRegExp(MANAGED_INSTRUCTIONS_END)}`,
-  );
-  const next = pattern.test(existing)
-    ? existing.replace(pattern, block)
-    : `${existing.trimEnd()}${existing.trim() ? "\n\n" : ""}${block}\n`;
+  const firstAt = existing.indexOf(MANAGED_INSTRUCTIONS_START);
+  let next: string;
+  if (firstAt >= 0) {
+    // Collapse EVERY managed block into a single fresh one re-inserted where the
+    // first one began, so repeated installs or pre-existing duplicates never
+    // leave the same instructions written more than once.
+    const before = existing.slice(0, firstAt).trimEnd();
+    const after = stripManagedInstructionBlocks(
+      existing.slice(firstAt),
+    ).trimStart();
+    next =
+      (before ? `${before}\n\n` : "") +
+      `${block.trimEnd()}\n` +
+      (after ? `\n${after}` : "");
+  } else {
+    next = `${existing.trimEnd()}${existing.trim() ? "\n\n" : ""}${block.trimEnd()}\n`;
+  }
   fs.writeFileSync(file, next, "utf-8");
 }
 

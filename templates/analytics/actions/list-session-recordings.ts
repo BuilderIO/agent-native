@@ -27,7 +27,12 @@ export default defineAction({
     template: z.string().optional().describe("Optional template filter"),
     sessionId: z.string().optional().describe("Optional analytics session id"),
     userId: z.string().optional().describe("Optional signed-in user email"),
-    anonymousId: z.string().optional().describe("Optional anonymous user id"),
+    anonymousId: z
+      .string()
+      .optional()
+      .describe(
+        "Optional secondary anonymous id filter for otherwise email-backed recordings",
+      ),
     path: z.string().optional().describe("Optional exact path filter"),
     from: z
       .string()

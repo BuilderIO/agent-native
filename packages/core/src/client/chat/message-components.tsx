@@ -760,6 +760,46 @@ export function UserMessage() {
 
 // ─── AssistantMessage ─────────────────────────────────────────────────────────
 
+function assistantMessageHasRenderableContent(message: {
+  content?: unknown;
+}): boolean {
+  const content = message.content;
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const type = (part as { type?: unknown }).type;
+    if (type === "text") {
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" && text.trim().length > 0;
+    }
+    return true;
+  });
+}
+
+function assistantMessageStatusIsTerminal(message: {
+  status?: { type?: unknown };
+}): boolean {
+  const statusType = message.status?.type;
+  return statusType === "complete" || statusType === "incomplete";
+}
+
+export function shouldShowAssistantMessageFooter({
+  isLast,
+  chatRunning,
+  hasRenderableContent,
+  statusIsTerminal,
+}: {
+  isLast: boolean;
+  chatRunning: boolean;
+  hasRenderableContent: boolean;
+  statusIsTerminal: boolean;
+}): boolean {
+  if (!hasRenderableContent) return false;
+  if (!isLast) return true;
+  return !chatRunning && statusIsTerminal;
+}
+
 export function AssistantMessage() {
   const [restoreState, setRestoreState] = useState<
     "idle" | "confirming" | "restoring"
@@ -772,7 +812,13 @@ export function AssistantMessage() {
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
-  const isComplete = !isLast || !chatRunning;
+  const hasRenderableContent = assistantMessageHasRenderableContent(msg);
+  const isComplete = shouldShowAssistantMessageFooter({
+    isLast,
+    chatRunning,
+    hasRenderableContent,
+    statusIsTerminal: assistantMessageStatusIsTerminal(msg),
+  });
   const cpCtx = React.useContext(CheckpointContext);
 
   const handleRestore = useCallback(async () => {
@@ -841,6 +887,8 @@ export function AssistantMessage() {
         (p.structuredMeta.toolKind === "edit" ||
           p.structuredMeta.toolKind === "write"),
     );
+
+  if (!hasRenderableContent) return null;
 
   return (
     <div
@@ -950,7 +998,7 @@ export function RunningActivityStatus({ label }: { label: string }) {
 }
 
 export function ThinkingIndicator({
-  label = "thinking",
+  label = "Thinking",
 }: { label?: string } = {}) {
   return (
     <div

@@ -1,8 +1,7 @@
-import {
-  sendToAgentChat,
-  type AgentChatMessage,
-} from "@agent-native/core/client";
+import type { AgentChatMessage } from "@agent-native/core/client";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 // This is only a lost-signal recovery guard. Large design prompts can
 // legitimately take several minutes, so avoid treating normal latency as
@@ -18,6 +17,7 @@ interface UseAgentGeneratingOptions {
   /** When chat starts on a tab we did not open, adopt it if this returns true. */
   shouldAdoptRunningTab?: () => boolean;
   onAdoptRunningTab?: (tabId: string) => void;
+  onRunning?: (tabId: string | null) => void;
 }
 
 /**
@@ -87,6 +87,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           if (eventTabId && callbacksRef.current.shouldAdoptRunningTab?.()) {
             activeTabIdRef.current = eventTabId;
             callbacksRef.current.onAdoptRunningTab?.(eventTabId);
+            callbacksRef.current.onRunning?.(eventTabId);
             setGenerating(true);
             startGenerationTimeout(eventTabId);
             return;
@@ -112,6 +113,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           return;
         }
         clearStopDebounce();
+        callbacksRef.current.onRunning?.(activeTabIdRef.current);
         setGenerating(true);
         startGenerationTimeout(activeTabIdRef.current);
       }
@@ -133,11 +135,12 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       context: string,
       options?: Omit<AgentChatMessage, "message" | "context">,
     ) => {
-      const tabId = sendToAgentChat({
+      const tabId = sendToDesignAgentChat({
         ...options,
         message,
         context,
         submit: options?.submit ?? true,
+        newTab: options?.newTab ?? true,
       });
       track(tabId);
       return tabId;

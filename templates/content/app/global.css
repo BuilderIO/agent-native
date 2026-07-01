@@ -58,42 +58,42 @@
 
 /* ===== Dark Mode ===== */
 .dark {
-  --background: 220 6% 6%;
+  --background: 0 0% 13%;
   --foreground: 0 0% 90%;
 
-  --card: 220 5% 6%;
+  --card: 0 0% 15%;
   --card-foreground: 0 0% 90%;
 
-  --popover: 220 5% 6%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 90%;
 
   --primary: 0 0% 90%;
-  --primary-foreground: 220 6% 6%;
+  --primary-foreground: 0 0% 10%;
 
-  --secondary: 220 4% 12%;
+  --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 90%;
 
-  --muted: 220 4% 10%;
-  --muted-foreground: 220 4% 60%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
 
-  --accent: 220 4% 13%;
+  --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
 
   --destructive: 0 62% 50%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 220 4% 14%;
-  --input: 220 4% 14%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 0 0% 50%;
 
   /* Sidebar dark */
-  --sidebar-background: 220 6% 4%;
-  --sidebar-foreground: 220 4% 60%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
   --sidebar-primary: 0 0% 75%;
-  --sidebar-primary-foreground: 220 6% 6%;
-  --sidebar-accent: 220 4% 10%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
   --sidebar-accent-foreground: 0 0% 90%;
-  --sidebar-border: 220 4% 10%;
+  --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
   --sidebar-muted: 0 0% 50%;
 }
@@ -139,6 +139,20 @@
 
 .notion-logo-icon-mark {
   fill: var(--notion-logo-mark);
+}
+
+@container agent-native-main (min-width: 560px) {
+  .content-database-calendar-undated-grid,
+  .content-database-gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container agent-native-main (min-width: 900px) {
+  .content-database-calendar-undated-grid,
+  .content-database-gallery-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 /* ===== Scrollbar ===== */
@@ -303,6 +317,15 @@
 .block-field-content .visual-editor-wrapper,
 .block-field-content .visual-editor-wrapper .notion-editor {
   min-height: 6rem;
+}
+
+.content-reference-preview .visual-editor-wrapper,
+.content-reference-preview .visual-editor-wrapper .notion-editor {
+  min-height: 0;
+}
+
+.content-reference-preview .notion-editor {
+  font-size: 0.875rem;
 }
 
 .notion-editor > *:first-child {
@@ -1514,10 +1537,10 @@ audio.media-block__content {
   flex-direction: column;
   gap: 0.18rem;
   max-width: 22rem;
-  border: 0;
+  border: 1px solid hsl(var(--border));
   border-radius: 8px;
-  background: hsl(0 0% 15%);
-  color: white;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
   padding: 0.6rem 0.75rem;
   box-shadow: 0 10px 24px hsl(0 0% 0% / 0.22);
 }
@@ -2195,12 +2218,13 @@ audio.media-block__content {
 .bubble-toolbar {
   display: flex;
   align-items: center;
-  background: hsl(0 0% 15%);
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
   border-radius: 8px;
   padding: 4px;
   box-shadow:
     0 4px 20px rgb(0 0 0 / 0.25),
-    0 0 0 1px rgb(255 255 255 / 0.06);
+    0 0 0 1px hsl(var(--border));
 }
 
 /* ===== Inline comment highlights ===== */
@@ -2275,25 +2299,32 @@ audio.media-block__content {
 
 /* ===== Collaboration cursors ===== */
 .notion-editor .collaboration-cursor__selection {
-  background-color: hsl(210 100% 52% / 0.14) !important;
+  background-color: currentColor !important;
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  opacity: 0.16;
 }
 
-.collaboration-cursor__caret {
+.notion-editor .collaboration-cursor__caret {
   border-left: 2px solid;
   border-color: currentColor;
+  display: inline;
   margin-left: -1px;
   margin-right: -1px;
   position: relative;
   word-break: normal;
   pointer-events: none;
+  line-height: 1;
 }
-.collaboration-cursor__label {
+.notion-editor .collaboration-cursor__label {
   position: absolute;
   top: -1.4em;
   left: -1px;
+  display: inline-block;
+  max-width: min(180px, 50vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 11px;
   font-weight: 600;
   line-height: 1;

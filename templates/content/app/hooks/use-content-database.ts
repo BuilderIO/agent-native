@@ -1,8 +1,10 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
+  AddContentDatabaseSourceFieldPropertyRequest,
   AddDatabaseItemRequest,
   AttachContentDatabaseSourceRequest,
   BuilderCmsModelsResponse,
+  ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
   CreateInlineDatabaseRequest,
   CreateInlineDatabaseResponse,
@@ -11,13 +13,18 @@ import type {
   ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
+  DatabaseItemsBatchRequest,
   DisconnectContentDatabaseSourceRequest,
+  ExecuteBuilderSourceBatchRequest,
+  ExecuteBuilderSourceBatchResponse,
   DuplicateDatabaseItemRequest,
   ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
   PrepareBuilderSourceExecutionRequest,
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
+  ProcessBuilderBodyHydrationRequest,
+  ProcessBuilderBodyHydrationResponse,
   RefreshContentDatabaseSourceRequest,
   ReviewContentDatabaseSourceChangeSetRequest,
   SetContentDatabaseSourceWriteModeRequest,
@@ -252,6 +259,40 @@ export function useDuplicateDatabaseItem(documentId: string) {
   });
 }
 
+export function useDuplicateDatabaseItems(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
+    "duplicate-database-items",
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: contentDatabaseQueryKey(documentId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      },
+    },
+  );
+}
+
+export function useDeleteDatabaseItems(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
+    "delete-database-items",
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: contentDatabaseQueryKey(documentId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      },
+    },
+  );
+}
+
 export function useMoveDatabaseItem(documentId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<ContentDatabaseResponse, MoveDatabaseItemRequest>(
@@ -295,6 +336,47 @@ export function useAttachContentDatabaseSource(documentId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
+      });
+    },
+  });
+}
+
+export function useChangeContentDatabaseSourceRole(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    ChangeContentDatabaseSourceRoleRequest
+  >("change-content-database-source-role", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseSourceFieldPropertyResponse,
+    AddContentDatabaseSourceFieldPropertyRequest
+  >("add-content-database-source-field-property", {
+    onSuccess: (data) => {
+      queryClient.setQueryData<ContentDatabaseResponse>(
+        contentDatabaseQueryKey(documentId),
+        (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
+      );
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-document-properties", { documentId }],
       });
     },
   });
@@ -359,6 +441,28 @@ export function useRefreshContentDatabaseSource(documentId: string) {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
+    },
+  });
+}
+
+export function useProcessBuilderBodyHydration(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ProcessBuilderBodyHydrationResponse,
+    ProcessBuilderBodyHydrationRequest
+  >("process-builder-body-hydration", {
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+      if (variables?.documentId) {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: variables.documentId }],
+        });
+      }
     },
   });
 }
@@ -454,6 +558,23 @@ export function useExecuteBuilderSourceExecution(documentId: string) {
     ContentDatabaseResponse,
     ExecuteBuilderSourceExecutionRequest
   >("execute-builder-source-execution", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useExecuteBuilderSourceBatch(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ExecuteBuilderSourceBatchResponse,
+    ExecuteBuilderSourceBatchRequest
+  >("execute-builder-source-batch", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),

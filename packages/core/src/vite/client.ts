@@ -461,6 +461,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/notifications",
   "@agent-native/core/client/progress",
   "@agent-native/core/client/transcription/use-live-transcription",
+  "@agent-native/core/voice",
 ];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -769,6 +770,7 @@ function getCoreSourceAliases(
       coreSrc,
       "client/transcription/use-live-transcription.ts",
     ),
+    "@agent-native/core/voice": path.join(coreSrc, "voice/index.ts"),
     "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
     "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),
     "@agent-native/core/shared": path.join(coreSrc, "shared/index.ts"),
@@ -1085,7 +1087,21 @@ function baseRedirectGuard(): Plugin {
         if (serveMountedEmbedRuntimeModule(server, req, res, base)) {
           return;
         }
-        req.url = stripMountedDevApiPath(req.url, base);
+        // Nitro's pre-middleware only intercepts document/iframe/frame/empty
+        // fetch-dest requests. For video/audio/image etc. it calls next() and
+        // the post-internal Nitro middleware handles them instead. If we strip
+        // the base path here for those requests, Vite's base middleware sees the
+        // stripped path (e.g. /api/video/:id without /clips/) and responds with
+        // a "did you mean /clips/api/video/:id" error before Nitro can handle it.
+        // Only strip when the request type matches Nitro's pre-middleware gate.
+        const secFetchDest = req.headers["sec-fetch-dest"] as
+          | string
+          | undefined;
+        const isNitroPreHandled =
+          !secFetchDest || /^(document|iframe|frame|empty)$/.test(secFetchDest);
+        if (isNitroPreHandled) {
+          req.url = stripMountedDevApiPath(req.url, base);
+        }
         if (
           req.method === "HEAD" &&
           req.url &&

@@ -75,10 +75,10 @@ const messages = {
   home: {
     hero: {
       badge: "開放原始碼框架",
-      titleLine1: "Agentic 應用",
-      titleAccent: "由你掌控",
+      titleLine1: "面向",
+      titleAccent: "agentic apps 的框架",
       body: "從 Chat-first app 和 app-agent loop 開始。隨著你的 agent 成長，新增 actions、介面、jobs 和 workflows。",
-      primaryCta: "從範本開始",
+      primaryCta: "開始建置",
       secondaryCta: "檢視檔案",
     },
     code: {
@@ -86,6 +86,106 @@ const messages = {
       skillInstallComment: "把 Agent-Native 規劃加入你已經使用的 coding agent",
       frameworkComment: "一個 action 驅動 agent、UI、HTTP、MCP、A2A 和 CLI。",
       frameworkDescription: "從本機 app-agent loop 打招呼。",
+    },
+    actionSurface: {
+      eyebrow: "真正為代理而生，不是外掛式 AI",
+      title: "一個 action 打開整個應用能力面",
+      body: "只定義一次操作。Agent-Native 會把它變成 UI action、agent 工具、HTTP 端點、MCP/A2A 能力面、CLI 指令、權限檢查和稽核紀錄。",
+      seeActions: "查看 actions",
+      frameworkGuide: "閱讀框架指南",
+      benefits: {
+        oneActionDefinition: {
+          title: "一個 action 定義",
+          body: "UI、agent、HTTP、MCP、A2A 和 CLI 都呼叫同一個操作。",
+        },
+        scopedByDefault: {
+          title: "預設具備範圍控管",
+          body: "Auth、分享、治理與稽核日誌會隨著工作一起生效。",
+        },
+        headedOrHeadless: {
+          title: "可有介面，也可 headless",
+          body: "能作為 app、agent workflow、佇列或排程工作執行。",
+        },
+        contextRichInput: {
+          title: "富含脈絡的輸入",
+          body: "聊天、語音、skills、指令與 UI 狀態都會留在循環中。",
+        },
+        openAgentProtocols: {
+          title: "開放的 agent 協定",
+          body: "A2A、MCP、MCP apps 和外部 agents 都是框架級原語。",
+        },
+        observableByDesign: {
+          title: "設計上即可觀測",
+          body: "Trace、eval、回饋與稽核歷史讓 agent 工作可被檢查。",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "模組化框架",
+      title: "面向 agentic 應用的內建模組",
+      body: "這些生產級部分經過人工驗證，agent 不應該從零臨時發明。你可以直接使用、檢查原始碼，或在應用需要不同能力時替換模組。",
+      pageBody:
+        "Agent-Native 提供經過人工驗證的生產級元件，避免 agent 從零 improvisation。你可以直接使用、檢查原始碼，或在產品需要不同能力時替換模組。",
+      viewAll: "查看所有模組",
+      browseApps: "瀏覽由模組打造的應用",
+      items: {
+        autoStateSyncing: {
+          title: "自動狀態同步",
+          body: "Agent 的變更會更新 UI，而 UI 狀態也會持續對 agent 可見，不需要另一座橋。",
+        },
+        actions: {
+          title: "操作 actions",
+          body: "一次定義工作，然後從 UI、agent、HTTP、MCP、A2A 和 CLI 使用。",
+        },
+        sqlStateOrm: {
+          title: "SQL 狀態與 ORM",
+          body: "持久應用資料、application state、遷移，以及不綁供應商的 schema。",
+        },
+        dbAdmin: {
+          title: "資料庫管理",
+          body: "Agent 可讀的 schema、查詢介面、遷移與管理工具，不必自建後台。",
+        },
+        authGovernance: {
+          title: "驗證與治理",
+          body: "登入、組織、多租戶、權限、核准與策略 hook。",
+        },
+        sharing: {
+          title: "分享能力",
+          body: "分享連結、限定存取、公開或私有資源、留言與審閱介面。",
+        },
+        realtimeCollaboration: {
+          title: "即時協作",
+          body: "多人編輯、線上狀態、樂觀 UI，以及伺服器支援的協調。",
+        },
+        agentInteroperability: {
+          title: "Agent 互操作",
+          body: "A2A、MCP、MCP apps、外部 agents、harness agents 與跨應用交接。",
+        },
+        automationsQueues: {
+          title: "自動化與佇列",
+          body: "事件觸發工作、排程任務、背景執行與可靠 mutations。",
+        },
+        agentUiSurface: {
+          title: "Agent UI 能力面",
+          body: "聊天、skills、指令、生成式 UI、語音輸入與 agent 可見脈絡。",
+        },
+        observability: {
+          title: "可觀測性",
+          body: "Trace、eval、回饋、實驗，以及證明 agents 做了什麼的證據。",
+        },
+        workspaces: {
+          title: "工作區",
+          body: "有介面或 headless 的應用能互相探索，並透過 A2A 協調。",
+        },
+        sourceOwnership: {
+          title: "原始碼所有權",
+          body: "文件和原始碼位在 agents 可以檢查、fork、eject、patch 或替換的位置。",
+        },
+        auditLogs: {
+          title: "稽核日誌",
+          body: "持久記錄人和 agent 的變更，並依使用者可存取的資源限定範圍。",
+        },
+      },
     },
     framework: {
       title: "面向 agent-native apps 的框架",
@@ -116,9 +216,9 @@ const messages = {
       },
     },
     templates: {
-      title: "Fork 並定制一個功能完整的 app",
+      title: "試用一個 Agent-Native app",
       eyebrow: "100% 免費且開放原始碼",
-      cta: "檢視所有範本",
+      cta: "檢視 apps",
     },
     skills: {
       title: "用一個 skill 試試",
@@ -192,7 +292,7 @@ const messages = {
       body: "一條指令會建立一個本機 app，背後有 actions、durable threads 和 SQLite 支撐。還沒有瀏覽器 UI 需求時，可以改用 `--headless`。",
     },
     finalCta: {
-      title: "你擁有的軟體，為 agentic 時代而建",
+      title: "為 agentic 時代而建的軟體",
       body: "從一條指令或 durable action 開始，讓它跑過 app-agent loop，然後在不重寫操作的情況下成長為 UI、jobs 和協作。開放原始碼。可 fork。屬於你。",
       primaryCta: "從 Action 開始",
       secondaryCta: "閱讀檔案",
@@ -1094,16 +1194,17 @@ const messages = {
     },
   },
   skillsPage: {
-    metaTitle: "代理技能 - 面向編碼代理的 Visual Plan 和 Visual Recap",
+    metaTitle:
+      "代理技能 - 面向編碼代理的 Visual Plan、Visual Recap 和 Visual Edit",
     metaDescription:
-      "安裝由 Agent-Native 應用支援的技能，讓你的編碼代理能進行視覺化規劃和 PR 回顧。",
+      "安裝由 Agent-Native 應用支援的技能，讓你的編碼代理能進行視覺化規劃、PR 回顧和本機視覺化編輯。",
     metaOgDescription:
       "為你的編碼代理新增由 Agent-Native 應用驅動的斜杠指令，可託管、檢查並自訂。",
     metaKeywords:
-      "代理技能, visual plan, visual recap, 編碼代理, Claude Code, Codex, PR 審查, 規劃, agent-native",
+      "代理技能, visual plan, visual recap, visual edit, 編碼代理, Claude Code, Codex, PR 審查, 規劃, agent-native",
     heroTitle: "給你的編碼代理新的超能力",
     heroBody:
-      "安裝由 Agent-Native 應用支援、可完全自訂的應用技能：實現前做視覺化規劃，變更落地後做視覺化 PR 回顧。",
+      "安裝由 Agent-Native 應用支援、可完全自訂的應用技能：實現前做視覺化規劃，變更落地後做視覺化 PR 回顧，並視覺化編輯本機 UI 流程。",
     sectionTitle: "面向編碼代理的應用支援技能",
     sectionBody:
       "使用託管的可分享應用連結、本機檔案，或自託管/自訂應用；代理會獲得指令，並在需要時獲得匹配的 MCP 表面。",
@@ -1128,6 +1229,15 @@ const messages = {
       feature1: "總結 schema、API 和檔案變更",
       feature2: "可選取發布一條固定的 PR 評論",
       videoAriaLabel: "Visual Recap 技能示範影片",
+    },
+    visualEdit: {
+      name: "視覺化編輯",
+      tagline: "編輯本機 UI 流程",
+      description:
+        "把正在執行的 localhost 應用作為 URL 支援的畫面開到 Design 中，用於視覺化審閱和編輯。",
+      feature1: "從有序 URL 佈局多畫面流程",
+      feature2: "檢查、複製並調整即時路由狀態",
+      videoAriaLabel: "Visual Edit 技能示範影片",
     },
   },
   downloadPage: {

@@ -434,7 +434,7 @@ export function expandRelativeUrls(text: string, agentUrl: string): string {
   // Path must start at boundary (start, whitespace, or punctuation that isn't
   // ':' — to avoid mangling `https://example.com/foo` or markdown link bodies).
   return text.replace(
-    /(^|[\s(\[<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
+    /(^|[\s([<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
     (_match, lead, path) => `${lead}${base}${path}`,
   );
 }

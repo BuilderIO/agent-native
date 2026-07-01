@@ -100,7 +100,7 @@ export function createOrgPlugin(): NitroPluginDef {
           return listMembersHandler(event);
         }
         // Tail is /:email/role
-        if (/^\/[^\/]+\/role\/?$/.test(tail)) {
+        if (/^\/[^/]+\/role\/?$/.test(tail)) {
           if (method !== "PUT") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
@@ -129,7 +129,7 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         // Tail is /:id/accept
-        if (/^\/[^\/]+\/accept\/?$/.test(tail)) {
+        if (/^\/[^/]+\/accept\/?$/.test(tail)) {
           if (method !== "POST") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };

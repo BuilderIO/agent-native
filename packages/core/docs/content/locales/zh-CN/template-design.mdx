@@ -338,7 +338,7 @@ UI 中的路由位于 `templates/design/app/routes/` 下：`_index.tsx`（列表
 - **设计** - `create-design`（空壳）、`generate-design`（写入生成的 HTML/JSX 内容）、`update-design`、`get-design`、`list-designs`、`duplicate-design`、`delete-design` 和 `apply-tweaks` 用于持久保存实时调整旋钮值（强调色、密度等）。
 - **文件** - `create-file`、`update-file`、`list-files`、`delete-file` 用于设计项目内的文件。
 - **设计系统** - `create-design-system`、`update-design-system`、`get-design-system`、`list-design-systems`、`delete-design-system`、`set-default-design-system` 和 `analyze-brand-assets` 用于在分析之前收集品牌数据。
-- **导入** - `import-code`、`import-figma`、`import-github`、`import-from-url`、`import-document` (DOCX/PPTX/PDF/XLSX) 和 `import-design-project` 将设计系统从现有项目中提升出来。
+- **导入** — `index-design-system-with-builder` for Builder-backed code/GitHub/Figma file design-system indexing, plus `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **导出和移交** - `export-html`、`export-pdf`、`export-svg`、`export-zip` 和 `export-coding-handoff` 将设计转变为编码工具移交。
 - **上下文和导航** - `view-screen`（当前设计、打开的文件、视图、待决问题或变体网格）、`get-design-snapshot`（外部代理继续的当前状态）和 `navigate`。
 
@@ -347,6 +347,61 @@ UI 中的路由位于 `templates/design/app/routes/` 下：`_index.tsx`（列表
 代理始终知道您打开了什么。当前设计、打开的文件、活动视图以及任何待处理的问题或变体网格均由 `view-screen` 返回并注入到每条消息中，因此您可以说“使此更密集”或“导出此变体”，而无需命名设计。
 
 因为设计只是独立的 HTML/JSX 文件，所以代理编辑 iframe 渲染和每个导出来自的相同源 - 没有单独的“AI 模型”格式需要翻译。链接设计系统提供代币和代理在每一代通行证上兑现的 `custom_instructions`。在预览中选择文本或区域，然后按 Cmd+I 将代理集中在该部分上。
+
+### 编辑器模型
+
+Design 对多屏工作采用概览优先。生成或进行大范围更新后，编辑器会打开屏幕
+概览：一个无限画布，其中每个屏幕都是可选择、移动、调整大小、拖放或复制的
+静态框架。需要聚焦滚动或原型交互时，请使用框架的完整视图按钮。
+
+单屏模式用于滚动、与原型行为交互，以及编辑一个已渲染文件内的 DOM/代码
+层。图层面板也反映这种分工：屏幕是顶层框架，活动屏幕下嵌套 DOM/代码层。
+
+当编码代理需要在 Design 中打开正在运行的本地应用，而不是生成独立原型 HTML
+时，请安装 `/visual-edit`：
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+目标应用的开发服务器运行后，`/visual-edit` 会结合
+`npx @agent-native/core@latest design connect` 和 `add-localhost-screens`，把每个
+请求的 path 或 URL 放置为独立的 URL-backed iframe 屏幕。像
+`localhost:1234/onboarding/1`、`/onboarding/2`、`/onboarding/3` 这样的编号流程
+会在 overview 模式中保持为分开的有序屏幕。
+
+`/visual-edit` 入口路由可以在查看者登录前加载，公开的 `/design/:id` 链接也
+可以在没有会话时以只读方式渲染公开 design。持久保存屏幕布局、生成新屏幕或
+共享仍会创建账号绑定的 Design 数据：未登录用户会经过
+`/_agent-native/sign-in?return=...`，然后 Design 会在打开共享对话框前，把项
+目保存或复制到该账号。
+
+为了获得稳定的图层名称，请在有意义的元素上添加
+`data-agent-native-layer-name`。Design 会优先使用它，然后才使用语义/文本回
+退，并且可以通过编辑该属性来持久保存图层重命名。Inline HTML 支持本地代
+码层编辑，包括文本、class、style、attribute、源顺序和小型结构调整；可视
+代码层编辑目前仅支持 HTML。Localhost source mode 可以注册并解析本地路由
+artboard，但本地文件读写仍是桥接合同，直到显式权限控制完成加固。
+
+### Design 编辑器扩展
+
+编辑器在 **Tweaks** 之后包含一个 **Extensions** 检查器标签。它像 Design
+专属的插件通道：用户可以点击 **+ Extension** 让代理创建扩展，也可以安装声
+明 `design.editor.inspector` slot 的扩展。
+
+Design 扩展通过标准扩展 sandbox 内嵌渲染在 artboard 旁边。宿主会通过
+`window.slotContext` 和 `window.onSlotContext(...)` 更新传入当前
+`designId`、活动文件、屏幕列表、已选屏幕 id、已选元素元数据、视图模式、
+缩放、活动工具和 tweak 值。这样扩展就可以显示当前选择的信息、提供样式控
+件，或围绕打开的设计构建紧凑工作流。
+
+对于确定性的工作，扩展可以通过扩展桥调用 app actions。对于 AI 驱动的变
+更，让扩展调用 `agentNative.chat.send(...)`，并附带已选元素的 selector/source
+id 和请求的更改。代理应先调用 `view-screen`，然后用 `apply-visual-edit`
+处理元素 style、class、text 或 move 更改，或用带 `canvasFrames` 的
+`update-design` / `generate-design` 处理 artboard placement 更改。有关
+sandbox、持久状态和桥接 API，请参阅
+[Extensions](/docs/extensions#what-an-extension-can-do)。
 
 ### 自定义它
 

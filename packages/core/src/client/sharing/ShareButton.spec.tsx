@@ -228,6 +228,36 @@ describe("ShareButton", () => {
     expect(trigger?.textContent).not.toContain("Share");
   });
 
+  it("renders the label trigger as text only for organization visibility", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            shareUrl="https://content.agent-native.com/page/doc-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const trigger = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Share",
+    );
+
+    expect(trigger).toBeTruthy();
+    expect(trigger?.querySelector("svg")).toBeFalsy();
+    expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
+  });
+
   it("renders the icon-only trigger without a loading placeholder", async () => {
     sharesData.current = undefined as any;
 
@@ -302,6 +332,51 @@ describe("ShareButton", () => {
     expect(text.indexOf("Public response link")).toBeLessThan(
       text.indexOf("People with editing access"),
     );
+  });
+
+  it("renders optional share tabs and switches to custom tab content", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="design"
+            resourceId="design-1"
+            shareUrl="https://design.agent-native.com/design/design-1"
+            shareTabs={{
+              tabs: [
+                {
+                  value: "export",
+                  label: "Export",
+                  content: <div>Export body</div>,
+                },
+                {
+                  value: "send",
+                  label: "Send to...",
+                  content: <div>Send body</div>,
+                },
+              ],
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Share link");
+    expect(container.textContent).toContain("Export");
+    expect(container.textContent).toContain("Send to...");
+    expect(container.textContent).not.toContain("Export body");
+
+    const exportTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Export",
+    );
+    if (!exportTab) throw new Error("Export tab not found");
+
+    act(() => {
+      exportTab.click();
+    });
+
+    expect(container.textContent).toContain("Export body");
+    expect(container.textContent).not.toContain("Send body");
   });
 
   it("buries organization search visibility under Advanced", async () => {

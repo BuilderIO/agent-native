@@ -387,6 +387,14 @@ export {
   resolveSecret,
 } from "./credential-provider.js";
 export {
+  builderDesignSystemUrl,
+  getBuilderDesignSystemsBaseUrl,
+  startBuilderDesignSystemIndex,
+  type BuilderDesignSystemIndexFile,
+  type BuilderDesignSystemIndexOptions,
+  type BuilderDesignSystemIndexResult,
+} from "./builder-design-systems.js";
+export {
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
   resolveBuilderBranchProjectId,

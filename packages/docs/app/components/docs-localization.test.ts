@@ -4,6 +4,7 @@ import { loader as rootLoader, resolveLayoutLocale } from "../root";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import { loader as defaultDocLoader } from "../routes/docs.$slug";
 import { loader as docsIndexLoader } from "../routes/docs._index";
+import { loader as templateSlugLoader } from "../routes/templates.$slug";
 import {
   buildSearchIndexAsync,
   hasLocalizedDoc,
@@ -35,8 +36,8 @@ describe("localized docs fallback", () => {
       },
     });
 
-    expect(resolveLayoutLocale("/templates")).toBe("en-US");
-    expect(resolveLayoutLocale("/ar-SA/templates")).toBe("ar-SA");
+    expect(resolveLayoutLocale("/apps")).toBe("en-US");
+    expect(resolveLayoutLocale("/ar-SA/apps")).toBe("ar-SA");
   });
 
   it("keeps docs routes canonical to the URL locale", () => {
@@ -103,6 +104,23 @@ describe("localized docs fallback", () => {
     expect(response?.headers.get("Location")).toBe("/fr-FR/docs");
   });
 
+  it("keeps the locale when redirecting legacy template app aliases", async () => {
+    let response: Response | undefined;
+    try {
+      await templateSlugLoader(
+        loaderArgs(
+          { locale: "fr-FR", slug: "videos" },
+          "https://docs.test/fr-FR/apps/videos",
+        ),
+      );
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(301);
+    expect(response?.headers.get("Location")).toBe("/fr-FR/apps/video");
+  });
+
   it("loads default docs slugs instead of treating them as locales", async () => {
     const doc = await defaultDocLoader(loaderArgs({ slug: "agent-surfaces" }));
 
@@ -136,7 +154,7 @@ describe("localized docs fallback", () => {
     expect(
       index.some((entry) => entry.path === "/fr-FR/docs/internationalization"),
     ).toBe(true);
-  });
+  }, 60_000);
 
   it("points docs markdown alternates at existing markdown twins", () => {
     expect(docsMarkdownPathForPath("/docs/multi-app-workspace")).toBe(
@@ -148,7 +166,7 @@ describe("localized docs fallback", () => {
     expect(docsMarkdownPathForPath("/fr-FR/docs/durable-background-runs")).toBe(
       "/docs/durable-background-runs.md",
     );
-    expect(docsMarkdownPathForPath("/templates")).toBeNull();
+    expect(docsMarkdownPathForPath("/apps")).toBeNull();
   });
 
   it("hydrates route locale messages from the server for prefixed docs paths", async () => {

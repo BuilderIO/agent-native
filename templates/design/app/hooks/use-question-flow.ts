@@ -1,10 +1,11 @@
 import {
   formatGuidedAnswersForAgent,
-  sendToAgentChat,
   useGuidedQuestionFlow,
   type GuidedQuestionAnswers,
 } from "@agent-native/core/client";
 import { useCallback } from "react";
+
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 interface UseQuestionFlowOptions {
   continuationTabId?: string | null;
@@ -40,7 +41,7 @@ export function useQuestionFlow(
         formattedAnswers,
         "",
         designId
-          ? "Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 complete HTML directions and wait for their pick; otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing."
+          ? "Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 complete HTML directions, wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen; otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing."
           : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
       ]
         .filter(Boolean)
@@ -53,7 +54,7 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     (message: string, context?: string) => {
-      const tabId = sendToAgentChat({
+      const tabId = sendToDesignAgentChat({
         message,
         context,
         submit: true,
@@ -78,7 +79,7 @@ export function useQuestionFlow(
         formattedAnswers,
         "",
         designId
-          ? "Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 complete HTML directions and wait for their pick; otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing."
+          ? "Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 complete HTML directions, wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen; otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing."
           : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
       ]
         .filter(Boolean)

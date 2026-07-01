@@ -1,4 +1,7 @@
-import { getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { z } from "zod";
 
 import * as googleCalendar from "../server/lib/google-calendar.js";
@@ -71,7 +74,10 @@ export async function resolveOwnedAccountEmail(
   requestedAccountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  const status = await googleCalendar.getAuthStatus(ownerEmail);
+  const status = await googleCalendar.getAuthStatus(
+    ownerEmail,
+    getRequestOrgId(),
+  );
   if (!requestedAccountEmail) {
     if (status.accounts.length === 1) {
       return status.accounts[0].email;

@@ -340,7 +340,7 @@ UI のルートは `templates/design/app/routes/` の下にあります: `_index
 - **デザイン** — `create-design` (空のシェル)、`generate-design` (生成された HTML/JSX コンテンツを書き込む)、`update-design`、`get-design`、`list-designs`、`duplicate-design`、`delete-design`、および `apply-tweaks` (ライブ永続化用)ノブの値を調整します (アクセントカラー、濃度など)。
 - **ファイル** — 設計プロジェクト内のファイルの `create-file`、`update-file`、`list-files`、`delete-file`。
 - **デザイン システム** — 分析に先立ってブランド データを収集するための `create-design-system`、`update-design-system`、`get-design-system`、`list-design-systems`、`delete-design-system`、`set-default-design-system`、および `analyze-brand-assets`。
-- **インポート** — `import-code`、`import-figma`、`import-github`、`import-from-url`、`import-document` (DOCX/PPTX/PDF/XLSX)、および `import-design-project` を使用して、既存のプロジェクトからデザイン システムを取り出します。
+- **インポート** — `index-design-system-with-builder` for Builder-backed code/GitHub/Figma file design-system indexing, plus `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **エクスポートとハンドオフ** — デザインをコーディング ツールのハンドオフに変換するための `export-html`、`export-pdf`、`export-svg`、`export-zip`、および `export-coding-handoff`。
 - **コンテキストとナビゲーション** — `view-screen` (現在のデザイン、開いているファイル、ビュー、保留中の質問またはバリアント グリッド)、`get-design-snapshot` (外部エージェントが続行する現在の状態)、および `navigate`。
 
@@ -349,6 +349,74 @@ UI のルートは `templates/design/app/routes/` の下にあります: `_index
 エージェントは、あなたが何を開いているかを常に知っています。現在のデザイン、開いているファイル、アクティブなビュー、および保留中の質問またはバリアント グリッドが `view-screen` によって返され、すべてのメッセージに挿入されるため、デザインに名前を付けずに「これをより高密度にする」または「このバリアントをエクスポートする」と言うことができます。
 
 デザインは単なるスタンドアロンの HTML/JSX ファイルであるため、エージェントは iframe がレンダリングし、すべてのエクスポート元と同じソースを編集します。変換する個別の「AI モックアップ」形式はありません。リンクされた設計システムはトークンと `custom_instructions` を提供し、エージェントは世代パスごとにそれを尊重します。プレビューでテキストまたは領域を選択し、Cmd+I を押して、エージェントをその部分に正確に集中させます。
+
+### エディターモデル
+
+Design は複数画面の作業では概要を最初に使います。生成後または大きな更
+新後、エディターは画面概要を開きます。これは無限キャンバスで、各画面は
+選択、移動、リサイズ、ドロップ、複製できる静的フレームです。集中スクロールやプロトタイプ操作が必要な画面では、フレームのフルビューボタンを使用します。
+
+単一画面モードは、スクロール、プロトタイプ動作とのインタラクション、1
+つのレンダリング済みファイル内の DOM/コードレイヤー編集に使います。レ
+イヤーパネルもこの分離を反映します。画面は最上位フレームで、アクティブ
+画面の下に DOM/コードレイヤーがネストされます。
+
+コーディングエージェントがスタンドアロンのプロトタイプ HTML を生成する
+代わりに、実行中のローカルアプリを Design で開く必要がある場合は
+`/visual-edit` をインストールします。
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+対象アプリの dev server が起動したら、`/visual-edit` は
+`npx @agent-native/core@latest design connect` と `add-localhost-screens` を
+使い、要求された各 path または URL を URL ベースの iframe 画面として配置
+します。`localhost:1234/onboarding/1`、`/onboarding/2`、`/onboarding/3`
+のような番号付きフローは、overview mode で個別の順序付き画面として保持
+されます。
+
+`/visual-edit` の入口ルートは閲覧者がサインインする前でも読み込めます。
+公開 `/design/:id` リンクも、セッションなしで読み取り専用の公開 Design を
+表示できます。画面レイアウトの保存、新しい画面の生成、共有は引き続きア
+カウントに紐づく Design データを作成します。サインアウト中のユーザーは
+`/_agent-native/sign-in?return=...` を経由し、その後 Design が共有ダイアロ
+グを開く前にプロジェクトをそのアカウントへ保存またはコピーします。
+
+安定したレイヤー名には、意味のある要素に
+`data-agent-native-layer-name` を追加します。Design はセマンティック/テ
+キストのフォールバックより先にこれを使い、この属性を編集してレイヤー名
+変更を永続化できます。Inline HTML は、テキスト、class、style、attribute、
+ソース順、小さな構造変更のローカルコードレイヤー編集をサポートします。
+ビジュアルコードレイヤー編集は現在 HTML のみです。Localhost source mode
+はローカル route artboard を登録・解決できますが、ローカルファイルの読
+み書きは明示的な権限制御が強化されるまで bridge contract のままです。
+
+### Design エディター拡張機能
+
+エディターには **Tweaks** の後に **Extensions** インスペクタータブがあり
+ます。これは Design 専用のプラグインレーンのように機能します。ユーザー
+は **+ Extension** をクリックしてエージェントに拡張機能を作成させるか、
+`design.editor.inspector` スロットを宣言する拡張機能をインストールできま
+す。
+
+Design 拡張機能は、標準の拡張機能サンドボックスを通じてアートボードの
+横にインライン表示されます。ホストは `window.slotContext` と
+`window.onSlotContext(...)` の更新として、現在の `designId`、アクティブ
+なファイル、画面一覧、選択中の画面 ID、選択中の要素メタデータ、表示モー
+ド、ズーム、アクティブツール、tweak 値を渡します。これにより、拡張機能
+は現在の選択に関する情報を表示したり、スタイル操作を提供したり、開いて
+いるデザインの周辺に小さなワークフローを構築したりできます。
+
+決定的な処理では、拡張機能は拡張機能ブリッジ経由で app actions を呼び
+出せます。AI 主導の変更では、選択中の要素 selector/source id と要求され
+た変更を含めて `agentNative.chat.send(...)` を呼び出すようにします。エー
+ジェントはまず `view-screen` を呼び出し、要素の style、class、text、move
+変更には `apply-visual-edit` を、アートボード配置の変更には `canvasFrames`
+付きの `update-design` / `generate-design` を使うべきです。サンドボックス、
+永続状態、ブリッジ API については
+[Extensions](/docs/extensions#what-an-extension-can-do) を参照してくださ
+い。
 
 ### カスタマイズ
 

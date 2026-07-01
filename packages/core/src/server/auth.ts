@@ -1855,6 +1855,9 @@ function createAuthGuardFn(): (
     // the gate below 401s anonymous /_agent-native/* requests before any DB
     // query, so the database would never get warmed.
     if (p === "/_agent-native/health") return;
+    if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
+      return;
+    }
     if (isPublicPath(normalizedUrl, publicPaths)) return;
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {

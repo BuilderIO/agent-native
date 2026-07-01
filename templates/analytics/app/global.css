@@ -7,30 +7,30 @@
 @source "./**/*.{ts,tsx}";
 
 :root {
-  /* Base - Linear/Vercel Dark Mode Style */
-  --background: 240 10% 3.9%; /* #09090b */
-  --foreground: 0 0% 98%; /* #fafafa */
+  /* Base */
+  --background: 0 0% 13%;
+  --foreground: 0 0% 98%;
 
-  --card: 240 10% 3.9%; /* Same as bg for seamless look, or slightly lighter */
+  --card: 0 0% 15%;
   --card-foreground: 0 0% 98%;
 
-  --popover: 240 10% 3.9%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 98%;
 
   /* Primary - White/Off-white for high contrast */
   --primary: 0 0% 98%;
-  --primary-foreground: 240 5.9% 10%;
+  --primary-foreground: 0 0% 10%;
 
   /* Secondary - Muted grays */
-  --secondary: 240 3.7% 15.9%; /* #27272a */
+  --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 98%;
 
   /* Muted - Subtle text */
-  --muted: 240 3.7% 15.9%;
-  --muted-foreground: 240 5% 64.9%; /* #a1a1aa */
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 64.9%;
 
   /* Accent - Subtle interactive elements */
-  --accent: 240 3.7% 15.9%;
+  --accent: 0 0% 18%;
   --accent-foreground: 0 0% 98%;
 
   /* Destructive - bright enough for text on dark surfaces */
@@ -38,9 +38,9 @@
   --destructive-foreground: 0 0% 98%;
 
   /* Borders - Subtle and thin */
-  --border: 240 3.7% 15.9%; /* #27272a */
-  --input: 240 3.7% 15.9%;
-  --ring: 240 4.9% 83.9%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 83.9%;
 
   /* Charts */
   --chart-1: 220 70% 50%;
@@ -60,40 +60,40 @@
   --radius: 0.5rem;
 
   /* Table header - solid card color for sticky headers */
-  --table-header: 240 10% 3.9%; /* Same as card, no opacity */
+  --table-header: 0 0% 15%;
 
-  /* Sidebar - keeping consistent with dark theme */
-  --sidebar-background: 240 10% 3.9%;
-  --sidebar-foreground: 240 4.8% 95.9%;
+  /* Sidebar */
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 95.9%;
   --sidebar-primary: 224.3 76.3% 48%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 240 3.7% 15.9%;
-  --sidebar-accent-foreground: 240 4.8% 95.9%;
-  --sidebar-border: 240 3.7% 15.9%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 95.9%;
+  --sidebar-border: 0 0% 20%;
   --sidebar-ring: 217.2 91.2% 59.8%;
 }
 
 .light {
   --background: 0 0% 100%;
-  --foreground: 240 10% 3.9%;
+  --foreground: 0 0% 3.9%;
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 3.9%;
+  --card-foreground: 0 0% 3.9%;
   --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 3.9%;
-  --primary: 240 5.9% 10%;
+  --popover-foreground: 0 0% 3.9%;
+  --primary: 0 0% 10%;
   --primary-foreground: 0 0% 98%;
-  --secondary: 240 4.8% 95.9%;
-  --secondary-foreground: 240 5.9% 10%;
-  --muted: 240 4.8% 95.9%;
-  --muted-foreground: 240 3.8% 46.1%;
-  --accent: 240 4.8% 95.9%;
-  --accent-foreground: 240 5.9% 10%;
+  --secondary: 0 0% 95.9%;
+  --secondary-foreground: 0 0% 10%;
+  --muted: 0 0% 95.9%;
+  --muted-foreground: 0 0% 46.1%;
+  --accent: 0 0% 95.9%;
+  --accent-foreground: 0 0% 10%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
-  --border: 240 5.9% 90%;
+  --border: 0 0% 90%;
   --table-header: 0 0% 100%; /* Same as card for light mode */
-  --input: 240 5.9% 90%;
-  --ring: 240 5.9% 10%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 10%;
   --chart-1: 220 70% 50%;
   --chart-2: 160 60% 45%;
   --chart-3: 30 80% 55%;
@@ -109,12 +109,12 @@
   --brand-teal: #0d9488;
 
   --sidebar-background: 0 0% 98%;
-  --sidebar-foreground: 240 5.3% 26.1%;
-  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-foreground: 0 0% 26.1%;
+  --sidebar-primary: 0 0% 10%;
   --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 240 4.8% 95.9%;
-  --sidebar-accent-foreground: 240 5.9% 10%;
-  --sidebar-border: 240 5.9% 90%;
+  --sidebar-accent: 0 0% 95.9%;
+  --sidebar-accent-foreground: 0 0% 10%;
+  --sidebar-border: 0 0% 90%;
   --sidebar-ring: 217.2 91.2% 59.8%;
 }
 
@@ -146,17 +146,16 @@
   display: none;
 }
 
-.dark .analytics-ask-page {
-  background: hsl(var(--secondary) / 0.38);
-}
-
 .dark .analytics-ask-page .analytics-chat-panel {
   background: transparent;
 }
 
 .dark .agent-sidebar-panel[data-agent-sidebar-layout="desktop"],
 .dark .agent-sidebar-panel[data-agent-sidebar-layout="mobile"] {
-  background: #000 !important;
+  background: var(
+    --agent-native-lower-surface,
+    hsl(var(--sidebar-background))
+  ) !important;
 }
 
 .analytics-chat-panel
@@ -190,6 +189,10 @@
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
+}
+
+.analytics-chat-panel .agent-composer-area--hero {
+  padding-inline: 1rem;
 }
 
 .analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
@@ -234,7 +237,7 @@
 }
 
 .light .analytics-session-snippet .plan-code-surface-scroll {
-  background: hsl(240 6% 96%);
+  background: hsl(0 0% 96%);
 }
 
 .an-replay-scrub {
@@ -392,6 +395,101 @@
   }
 }
 
+.analytics-sessions-page {
+  container: analytics-sessions / inline-size;
+}
+
+.analytics-session-path {
+  overflow-wrap: anywhere;
+}
+
+@container agent-native-main (min-width: 720px) {
+  .analytics-sessions-page {
+    padding-inline: 1.5rem;
+  }
+}
+
+@container analytics-sessions (min-width: 640px) {
+  .analytics-session-row {
+    grid-template-columns: 104px minmax(0, 0.9fr) minmax(0, 1.15fr);
+    align-items: center;
+  }
+
+  .analytics-session-path {
+    grid-column: 3;
+  }
+
+  .analytics-session-app-meta {
+    grid-column: 2 / 4;
+    padding-inline-start: calc(104px + 0.75rem);
+  }
+}
+
+@container analytics-sessions (min-width: 760px) {
+  .analytics-session-row {
+    grid-template-columns:
+      104px minmax(150px, 0.85fr) minmax(200px, 1.25fr)
+      minmax(120px, 0.55fr);
+  }
+
+  .analytics-session-app-meta {
+    grid-column: auto;
+    padding-inline-start: 0;
+    text-align: end;
+  }
+
+  .analytics-session-badges {
+    justify-content: flex-end;
+  }
+
+  .analytics-sessions-filter-extra {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container analytics-sessions (min-width: 920px) {
+  .analytics-sessions-filter-grid {
+    grid-template-columns: 150px minmax(260px, 1fr) 160px auto auto;
+    align-items: center;
+  }
+
+  .analytics-sessions-filter-label {
+    min-width: 0;
+  }
+}
+
+@container analytics-sessions (min-width: 960px) {
+  .analytics-sessions-empty-grid {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+}
+
+.analytics-session-detail-page {
+  container: analytics-session-detail / inline-size;
+}
+
+.analytics-session-detail-timeline {
+  display: none;
+}
+
+@container analytics-session-detail (min-width: 760px) {
+  .analytics-session-detail-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+@container analytics-session-detail (min-width: 1040px) {
+  .analytics-session-detail-workbench {
+    grid-template-columns: minmax(0, 1fr) 330px;
+  }
+
+  .analytics-session-detail-timeline {
+    display: flex;
+  }
+}
+
 /* The dashboard grid responds to the available content width — which shrinks
    when the agent sidebar is open — not the viewport. Rows are rendered
    explicitly so deleting a card only expands the remaining cards in that row. */
@@ -482,6 +580,20 @@
 .explorer-dashboard-grid[data-dashboard-dragging="true"]
   .explorer-dashboard-chart-content {
   pointer-events: none;
+}
+
+@container agent-native-main (min-width: 820px) {
+  .analytics-explorer-config-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .explorer-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .explorer-dashboard-card-wide {
+    grid-column: span 2 / span 2;
+  }
 }
 
 @container dashboard-grid (min-width: 768px) {

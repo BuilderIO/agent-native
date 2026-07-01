@@ -741,7 +741,7 @@ export default function ExplorerDashboardPage() {
             strategy={rectSortingStrategy}
           >
             <div
-              className="explorer-dashboard-grid grid grid-cols-1 md:grid-cols-2 gap-4"
+              className="explorer-dashboard-grid grid grid-cols-1 gap-4"
               data-dashboard-dragging={activeDragChartId ? "true" : undefined}
             >
               {dashboard.charts.map((chart) => (

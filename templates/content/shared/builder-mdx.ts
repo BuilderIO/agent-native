@@ -11,6 +11,11 @@ import {
   parseRegistryBlockData,
   serializeRegistryBlockToMdx,
 } from "./nfm-registry";
+import type {
+  SourceComponentData,
+  SourceComponentPreview,
+  SourceComponentPreviewTable,
+} from "./source-component-block";
 
 export const BUILDER_DOCS_CONTENT_ROOT = "content/builder";
 export const BUILDER_DOCS_RAW_ROOT = `${BUILDER_DOCS_CONTENT_ROOT}/.raw`;
@@ -20,6 +25,7 @@ export const BUILDER_DOCS_MODELS = [
   "docs-content",
   "blog-article",
   "agent-native-blog-article-test",
+  "symbol",
 ] as const;
 
 export type BuilderDocsModel = (typeof BUILDER_DOCS_MODELS)[number] | string;
@@ -68,6 +74,11 @@ export interface BuilderBlocksFromMdxResult {
   blocks: unknown[];
   blocksHash: string;
   sourceHash: string;
+  warnings: string[];
+}
+
+export interface BuilderReadableBodyMergeResult {
+  blocks: unknown[] | null;
   warnings: string[];
 }
 
@@ -175,6 +186,7 @@ export function builderRawRootForEntry(model: string, entryId: string) {
 function modelDirectory(model: string) {
   if (model === "docs-content") return "docs";
   if (model === "blog-article") return "blog";
+  if (model === "symbol") return "symbols";
   return safePathPart(model);
 }
 
@@ -191,6 +203,23 @@ export function builderMdxPathForEntry(entry: BuilderContentEntry) {
   const slug = slugify(handle?.replace(/^\/+|\/+$/g, "") || title, entry.id);
   return `${BUILDER_DOCS_CONTENT_ROOT}/${modelDirectory(
     entry.model,
+  )}/${slug}${BUILDER_DOCS_MDX_EXTENSION}`;
+}
+
+function builderSymbolMdxPathForEntry(entry: BuilderContentEntry) {
+  const data = entry.data ?? {};
+  const title = builderEntryTitle(entry);
+  const handle = stringFromRecord(data, [
+    "handle",
+    "slug",
+    "urlPath",
+    "url",
+    "path",
+  ]);
+  const slug = slugify(handle?.replace(/^\/+|\/+$/g, "") || title, entry.id);
+  return `${BUILDER_DOCS_CONTENT_ROOT}/symbols/${safePathPart(
+    entry.model,
+    "symbol",
   )}/${slug}${BUILDER_DOCS_MDX_EXTENSION}`;
 }
 
@@ -357,13 +386,521 @@ function childBlocks(block: unknown): unknown[] {
   return Array.isArray(block.children) ? block.children : [];
 }
 
+function isReadableUnsupportedBuilderPlaceholder(value: string) {
+  const trimmed = value.trim();
+  return (
+    /^>\s*Builder .+ component preserved from source\.$/.test(trimmed) ||
+    /^<SourceComponent\b/.test(trimmed)
+  );
+}
+
+function countReadableSourceComponentMarkers(markdown: string) {
+  return markdownUnits(markdown).filter(isReadableUnsupportedBuilderPlaceholder)
+    .length;
+}
+
+function sourceComponentMarkerIdForBlock(block: unknown) {
+  return `source-component-builder-${safePathPart(
+    builderBlockStableId(block, stableHash(block).slice(0, 12)),
+  )}`;
+}
+
+function builderImageMarkdown(options: Record<string, unknown>) {
+  const imageUrl =
+    typeof options.image === "string" ? options.image.trim() : "";
+  if (!imageUrl) return "";
+  const altText =
+    typeof options.altText === "string"
+      ? options.altText.trim()
+      : typeof options.alt === "string"
+        ? options.alt.trim()
+        : "";
+  return `![${escapeMarkdownImageAlt(altText)}](${escapeMarkdownImageUrl(
+    imageUrl,
+  )})`;
+}
+
+function escapeMarkdownImageAlt(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+}
+
+function unescapeMarkdownImageAlt(value: string) {
+  return value.replace(/\\]/g, "]").replace(/\\\\/g, "\\");
+}
+
+function escapeMarkdownImageUrl(value: string) {
+  return value.replace(/\\/g, "%5C").replace(/\)/g, "%29");
+}
+
+function unescapeMarkdownImageUrl(value: string) {
+  return value.replace(/%29/gi, ")").replace(/%5C/gi, "\\");
+}
+
+function parseMarkdownImage(markdown: string) {
+  const trimmed = markdown.trim();
+  const match = trimmed.match(
+    /^!\[((?:\\.|[^\]\\])*)\]\((\S+?)(?:\s+"[^"]*")?\)$/,
+  );
+  if (!match) return null;
+  return {
+    alt: unescapeMarkdownImageAlt(match[1]),
+    src: unescapeMarkdownImageUrl(match[2]),
+  };
+}
+
+async function readableLayoutFingerprint(markdown: string) {
+  const units = markdownUnits(markdown);
+  const fingerprint: string[] = [];
+  for (const unit of units) {
+    if (/^>\s*Builder .+ component preserved from source\.$/.test(unit)) {
+      fingerprint.push("source:legacy");
+      continue;
+    }
+    if (/^<SourceComponent\b/.test(unit.trim())) {
+      const parsed = await parseRegistryBlockData(unit);
+      const id = parsed?.base.id || "missing-id";
+      fingerprint.push(`source:${id}`);
+      continue;
+    }
+    fingerprint.push("prose");
+  }
+  return fingerprint;
+}
+
+async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
+  const fingerprint: string[] = [];
+  for (const block of blocks) {
+    if (!isRecord(block)) continue;
+    const name = componentName(block);
+    const options = componentOptions(block);
+    if (name === "Text") {
+      for (const unit of markdownUnits(
+        htmlToMarkdown(String(options.text ?? "")),
+      )) {
+        if (unit) fingerprint.push("prose");
+      }
+      continue;
+    }
+    if (name === "Code Block" || name === "Blog Code Block") {
+      if (readableCodeBlockMarkdown(options).trim()) fingerprint.push("prose");
+      continue;
+    }
+    if (name === "Image") {
+      if (builderImageMarkdown(options)) fingerprint.push("prose");
+      continue;
+    }
+    if (name === "Tabbed Content") {
+      const tabs = Array.isArray(options.tabs) ? options.tabs : [];
+      for (const tab of tabs) {
+        const content =
+          isRecord(tab) && Array.isArray(tab.content) ? tab.content : [];
+        if (content.some(builderBlockHasReadableOutput)) {
+          fingerprint.push("prose");
+          fingerprint.push(
+            ...(await expectedReadableLayoutFingerprint(content)),
+          );
+        }
+      }
+      continue;
+    }
+    const children = childBlocks(block);
+    if (children.length && children.some(builderBlockHasReadableOutput)) {
+      fingerprint.push(...(await expectedReadableLayoutFingerprint(children)));
+      continue;
+    }
+    fingerprint.push(`source:${sourceComponentMarkerIdForBlock(block)}`);
+  }
+  return fingerprint;
+}
+
+async function validateReadableSourceComponentMarkers(
+  markdown: string,
+  sidecars: Record<string, string>,
+) {
+  const warnings: string[] = [];
+  const markers = markdownUnits(markdown).filter((unit) =>
+    /^<SourceComponent\b/.test(unit.trim()),
+  );
+  for (const marker of markers) {
+    try {
+      const parsed = await parseRegistryBlockData(marker);
+      if (parsed?.type !== "source-component") {
+        warnings.push("Readable Builder body has an invalid source marker.");
+        continue;
+      }
+      rawBlockForData(parsed.data as SourceComponentData, sidecars);
+    } catch (error) {
+      warnings.push(
+        error instanceof Error
+          ? error.message
+          : "Readable Builder body has a source marker that could not be validated.",
+      );
+    }
+  }
+  return warnings;
+}
+
+function symbolContentEntry(
+  symbol: Record<string, unknown>,
+): BuilderContentEntry | null {
+  const content = isRecord(symbol.content) ? symbol.content : null;
+  if (!content) return null;
+  const rawModel = stringFromRecord(symbol, ["model"]);
+  const rawEntry = stringFromRecord(symbol, ["entry"]);
+  const id = stringFromRecord(content, ["id", "entry", "uid"]) ?? rawEntry;
+  if (!id) return null;
+
+  const model =
+    stringFromRecord(content, ["model", "modelName", "queryModel"]) ??
+    rawModel ??
+    "symbol";
+  const data = isRecord(content.data)
+    ? (JSON.parse(JSON.stringify(content.data)) as Record<string, unknown>)
+    : {};
+  if (!Array.isArray(data.blocks) && Array.isArray(content.blocks)) {
+    data.blocks = content.blocks;
+  }
+  if (!data.blocks) return null;
+
+  return {
+    ...content,
+    id,
+    model,
+    name:
+      stringFromRecord(content, ["name"]) ??
+      stringFromRecord(data, ["title", "pageTitle", "name"]) ??
+      id,
+    published:
+      typeof content.published === "string" ? content.published : undefined,
+    lastUpdated:
+      typeof content.lastUpdated === "string" ||
+      typeof content.lastUpdated === "number"
+        ? content.lastUpdated
+        : typeof content.updatedDate === "string" ||
+            typeof content.updatedDate === "number"
+          ? content.updatedDate
+          : undefined,
+    data,
+  };
+}
+
 function blockSummary(block: unknown) {
   const name = componentName(block);
   const options = componentOptions(block);
   if (name === "Text" && typeof options.text === "string") {
     return stripHtml(options.text).slice(0, 160);
   }
+  if (typeof options.url === "string" && options.url.trim()) {
+    return options.url.trim().slice(0, 160);
+  }
+  if (typeof options.title === "string" && options.title.trim()) {
+    return options.title.trim().slice(0, 160);
+  }
   return name ?? "Builder block";
+}
+
+function countArrayColumns(rows: unknown[]) {
+  return rows.reduce<number>((max, row) => {
+    if (Array.isArray(row)) return Math.max(max, row.length);
+    if (!isRecord(row)) return max;
+    for (const key of ["cells", "columns", "values"]) {
+      const value = row[key];
+      if (Array.isArray(value)) return Math.max(max, value.length);
+    }
+    return Math.max(max, Object.keys(row).length);
+  }, 0);
+}
+
+function tableShapeFromOptions(options: Record<string, unknown>) {
+  if (Array.isArray(options.bodyRows)) {
+    const columns = options.bodyRows.reduce<number>(
+      (max, row) => {
+        if (!isRecord(row) || !Array.isArray(row.columns)) return max;
+        return Math.max(max, row.columns.length);
+      },
+      Array.isArray(options.headColumns) ? options.headColumns.length : 0,
+    );
+    return {
+      rows: options.bodyRows.length,
+      columns,
+    };
+  }
+  const candidates = [
+    options.rows,
+    options.data,
+    isRecord(options.table) ? options.table.rows : undefined,
+    isRecord(options.tableData) ? options.tableData.rows : undefined,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return {
+        rows: candidate.length,
+        columns: countArrayColumns(candidate),
+      };
+    }
+  }
+  const columns = Array.isArray(options.columns) ? options.columns.length : 0;
+  if (columns) return { rows: 0, columns };
+  return null;
+}
+
+function normalizePreviewScalar(value: unknown) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return stableJson(value);
+}
+
+function textFromBuilderBlocks(blocks: unknown[]): string {
+  return blocks
+    .map((block) => {
+      const name = componentName(block);
+      const options = componentOptions(block);
+      if (name === "Text") {
+        return stripHtml(String(options.text ?? "")).trim();
+      }
+      return textFromBuilderBlocks(childBlocks(block));
+    })
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function materialTablePreviewFromOptions(
+  options: Record<string, unknown>,
+): SourceComponentPreviewTable | undefined {
+  const bodyRows = Array.isArray(options.bodyRows) ? options.bodyRows : [];
+  if (!bodyRows.length) return undefined;
+  const headColumns = Array.isArray(options.headColumns)
+    ? options.headColumns
+    : [];
+  const columnCount = bodyRows.reduce<number>((max, row) => {
+    if (!isRecord(row) || !Array.isArray(row.columns)) return max;
+    return Math.max(max, row.columns.length);
+  }, headColumns.length);
+  const columns = Array.from({ length: columnCount }, (_, index) => {
+    const head = headColumns[index];
+    const label =
+      isRecord(head) && typeof head.label === "string" && head.label.trim()
+        ? head.label.trim()
+        : `Column ${index + 1}`;
+    return { id: `column-${index + 1}`, label };
+  });
+  const rows = bodyRows.slice(0, 6).map((row) => {
+    const rowColumns =
+      isRecord(row) && Array.isArray(row.columns) ? row.columns : [];
+    return Object.fromEntries(
+      columns.map((column, index) => {
+        const cell = rowColumns[index];
+        const content =
+          isRecord(cell) && Array.isArray(cell.content) ? cell.content : [];
+        return [column.id, textFromBuilderBlocks(content)];
+      }),
+    );
+  });
+  return {
+    columns,
+    rows,
+    truncated: bodyRows.length > 6,
+  };
+}
+
+function tablePreviewFromRows(rows: unknown[]): SourceComponentPreviewTable {
+  const records = rows.slice(0, 6).map((row) => {
+    if (Array.isArray(row)) {
+      return Object.fromEntries(
+        row.map((cell, index) => [
+          `column-${index + 1}`,
+          normalizePreviewScalar(cell),
+        ]),
+      );
+    }
+    if (!isRecord(row)) return { value: normalizePreviewScalar(row) };
+    if (Array.isArray(row.cells)) {
+      return Object.fromEntries(
+        row.cells.map((cell, index) => [
+          `column-${index + 1}`,
+          normalizePreviewScalar(cell),
+        ]),
+      );
+    }
+    return Object.fromEntries(
+      Object.entries(row)
+        .slice(0, 12)
+        .map(([key, value]) => [key, normalizePreviewScalar(value)]),
+    );
+  });
+  const columnIds = Array.from(
+    new Set(records.flatMap((record) => Object.keys(record))),
+  ).slice(0, 12);
+  return {
+    columns: columnIds.map((id, index) => ({
+      id,
+      label: id.startsWith("column-") ? `Column ${index + 1}` : id,
+    })),
+    rows: records.map((record) =>
+      Object.fromEntries(columnIds.map((id) => [id, record[id] ?? ""])),
+    ),
+    truncated: rows.length > 6 || columnIds.length > 12,
+  };
+}
+
+function tablePreviewFromOptions(
+  options: Record<string, unknown>,
+): SourceComponentPreviewTable | undefined {
+  const materialTable = materialTablePreviewFromOptions(options);
+  if (materialTable) return materialTable;
+  const candidates = [
+    options.rows,
+    options.data,
+    isRecord(options.table) ? options.table.rows : undefined,
+    isRecord(options.tableData) ? options.tableData.rows : undefined,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return tablePreviewFromRows(candidate);
+  }
+  const columns = Array.isArray(options.columns)
+    ? options.columns.slice(0, 12).map((column, index) => {
+        if (typeof column === "string" && column.trim()) {
+          return { id: column, label: column };
+        }
+        if (isRecord(column)) {
+          const id =
+            stringFromRecord(column, ["id", "key", "name", "field"]) ??
+            `column-${index + 1}`;
+          const label =
+            stringFromRecord(column, ["label", "title", "name"]) ?? id;
+          return { id, label };
+        }
+        return { id: `column-${index + 1}`, label: `Column ${index + 1}` };
+      })
+    : [];
+  return columns.length ? { columns, rows: [], truncated: false } : undefined;
+}
+
+function pluralize(count: number, singular: string) {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+function builderSourceComponentPreview(
+  block: unknown,
+): Pick<
+  SourceComponentData,
+  "previewKind" | "previewUrl" | "previewItems" | "preview" | "summary"
+> {
+  const name = componentName(block);
+  const options = componentOptions(block);
+  const url = typeof options.url === "string" ? options.url.trim() : "";
+  if (name === "Embed") {
+    const summary = url ? `Embedded URL: ${url}` : "Embedded Builder content.";
+    return {
+      previewKind: "embed",
+      previewUrl: url || undefined,
+      previewItems: url ? [url] : undefined,
+      preview: {
+        status: url ? "available" : "unavailable",
+        kind: "embed",
+        label: "Builder Embed",
+        summary,
+        url: url || undefined,
+      },
+      summary,
+    };
+  }
+  if (name === "Image") {
+    const imageUrl =
+      typeof options.image === "string" ? options.image.trim() : "";
+    const altText =
+      typeof options.altText === "string" ? options.altText.trim() : "";
+    const summary = altText || "Builder image.";
+    return {
+      previewKind: "component",
+      previewUrl: imageUrl || undefined,
+      previewItems: altText ? [altText] : undefined,
+      preview: {
+        status: imageUrl ? "available" : "unavailable",
+        kind: "component",
+        label: "Builder Image",
+        summary,
+        url: imageUrl || undefined,
+        fields: altText ? [{ label: "Alt", value: altText }] : undefined,
+      },
+      summary,
+    };
+  }
+  if (name === "Table" || name?.toLowerCase().includes("table")) {
+    const shape = tableShapeFromOptions(options);
+    const items = shape
+      ? [pluralize(shape.rows, "row"), pluralize(shape.columns, "column")]
+      : undefined;
+    const summary = shape
+      ? `Builder table with ${items?.join(", ")}.`
+      : "Builder table component preserved from source.";
+    return {
+      previewKind: "table",
+      previewItems: items,
+      preview: {
+        status: shape ? "available" : "unavailable",
+        kind: "table",
+        label: "Builder Table",
+        summary,
+        fields: items?.map((item) => {
+          const [value, ...label] = item.split(" ");
+          return { label: label.join(" "), value };
+        }),
+        table: tablePreviewFromOptions(options),
+      },
+      summary,
+    };
+  }
+  if (name === "Symbol") {
+    const symbol = isRecord(options.symbol) ? options.symbol : {};
+    const entry = typeof symbol.entry === "string" ? symbol.entry : "";
+    const model = typeof symbol.model === "string" ? symbol.model : "";
+    const fields = [
+      model ? { label: "Model", value: model } : null,
+      entry ? { label: "Entry", value: entry } : null,
+    ].filter((field): field is { label: string; value: string } =>
+      Boolean(field),
+    );
+    const summary =
+      model || entry
+        ? `Builder symbol ${[model, entry].filter(Boolean).join(" / ")}.`
+        : "Builder symbol reference.";
+    return {
+      previewKind: "symbol",
+      previewItems: [model, entry].filter(Boolean),
+      preview: {
+        status: fields.length ? "available" : "unavailable",
+        kind: "symbol",
+        label: "Builder Symbol",
+        summary,
+        fields: fields.length ? fields : undefined,
+      },
+      summary,
+    };
+  }
+  const summary = blockSummary(block);
+  return {
+    previewKind: "component",
+    preview: {
+      status: name ? "available" : "unavailable",
+      kind: "component",
+      label: name ? `Builder ${name}` : "Builder component",
+      summary,
+    },
+    summary,
+  };
+}
+
+function builderBlockStableId(block: unknown, fallback: string) {
+  if (isRecord(block)) {
+    const id = stringFromRecord(block, ["id"]);
+    if (id) return id;
+  }
+  return fallback;
 }
 
 function rawRefData(args: {
@@ -382,6 +919,7 @@ interface BlocksToMdxContext {
   rawRoot: string;
   files: Record<string, string>;
   warnings: string[];
+  emitReferencedEntry: (entry: BuilderContentEntry) => Promise<string>;
 }
 
 async function builderBlocksToMdxBody(
@@ -396,6 +934,29 @@ async function builderBlocksToMdxBody(
     mdxBlocks.push(await builderBlockToMdx(block, rawRef, ctx));
   }
   return mdxBlocks.filter(Boolean).join("\n\n").trim();
+}
+
+async function builderBlocksToReadableMdxBody(
+  blocks: unknown[],
+  ctx: BlocksToMdxContext,
+) {
+  const mdxBlocks: string[] = [];
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    const rawRef = rawSidecarPath({ rawRoot: ctx.rawRoot, block, index });
+    ctx.files[rawRef] = stableJson(block);
+    mdxBlocks.push(await builderBlockToReadableMdx(block, rawRef, ctx));
+  }
+  return mdxBlocks.filter(Boolean).join("\n\n").trim();
+}
+
+export async function builderBlocksToReadableMarkdown(blocks: unknown[]) {
+  return builderBlocksToReadableMdxBody(blocks, {
+    rawRoot: `${BUILDER_DOCS_RAW_ROOT}/readable`,
+    files: {},
+    warnings: [],
+    emitReferencedEntry: async (entry) => builderMdxPathForEntry(entry),
+  });
 }
 
 async function builderBlockToMdx(
@@ -493,16 +1054,31 @@ async function builderBlockToMdx(
 
   if (name === "Symbol") {
     const symbol = isRecord(options.symbol) ? options.symbol : {};
+    const contentEntry = symbolContentEntry(symbol);
+    const source = contentEntry
+      ? await ctx.emitReferencedEntry(contentEntry)
+      : undefined;
     const data: BuilderSymbolData = {
       ...raw,
       entry: typeof symbol.entry === "string" ? symbol.entry : undefined,
       model: typeof symbol.model === "string" ? symbol.model : undefined,
+      source,
+      dynamic:
+        boolFromRecord(symbol, "dynamic") ??
+        boolFromRecord(symbol, "isDynamic") ??
+        boolFromRecord(options, "dynamicSymbol"),
       data: isRecord(symbol.data) ? symbol.data : undefined,
     };
     return serializeRegistryBlockToMdx("builder-symbol", {
       id,
       data,
     });
+  }
+
+  const children = childBlocks(block);
+  if (children.length) {
+    const childBody = await builderBlocksToMdxBody(children, ctx);
+    if (childBody) return childBody;
   }
 
   const data: BuilderRawBlockData = {
@@ -513,7 +1089,6 @@ async function builderBlockToMdx(
     id,
     data,
   });
-  const children = childBlocks(block);
   if (children.length) {
     ctx.warnings.push(
       `${name ?? "Unmodeled block"} has child blocks that are preserved only in the raw sidecar.`,
@@ -522,15 +1097,446 @@ async function builderBlockToMdx(
   return serialized;
 }
 
+async function builderBlockToReadableMdx(
+  block: unknown,
+  rawRef: string,
+  ctx: BlocksToMdxContext,
+) {
+  const name = componentName(block);
+  const options = componentOptions(block);
+
+  if (name === "Text") {
+    return htmlToMarkdown(String(options.text ?? "")).trim();
+  }
+
+  if (name === "Code Block" || name === "Blog Code Block") {
+    const language =
+      typeof options.language === "string" ? options.language.trim() : "";
+    const code = String(options.code ?? "").trimEnd();
+    return code ? `\`\`\`${language}\n${code}\n\`\`\`` : "";
+  }
+
+  if (name === "Image") {
+    return builderImageMarkdown(options);
+  }
+
+  if (name === "Tabbed Content") {
+    const tabs = Array.isArray(options.tabs) ? options.tabs : [];
+    const convertedTabs = await Promise.all(
+      tabs.map(async (tab, tabIndex) => {
+        const tabRecord = isRecord(tab) ? tab : {};
+        const content = Array.isArray(tabRecord.content)
+          ? tabRecord.content
+          : [];
+        const label =
+          typeof tabRecord.label === "string" && tabRecord.label.trim()
+            ? tabRecord.label.trim()
+            : `Tab ${tabIndex + 1}`;
+        const body = await builderBlocksToReadableMdxBody(content, ctx);
+        return body ? `### ${label}\n\n${body}` : "";
+      }),
+    );
+    return convertedTabs.filter(Boolean).join("\n\n").trim();
+  }
+
+  const children = childBlocks(block);
+  if (children.length) {
+    const childBody = await builderBlocksToReadableMdxBody(children, ctx);
+    if (childBody) return childBody;
+  }
+
+  if (name) {
+    ctx.warnings.push(
+      `${name} is preserved in the Builder raw sidecar and shown as a read-only source component.`,
+    );
+  }
+  const data: SourceComponentData = {
+    provider: "builder",
+    componentName: name || "Builder component",
+    rawRef,
+    rawHash: stableHash(block),
+    sourceLabel: "Builder body",
+    previewStatus: name ? "available" : "unavailable",
+    title: name ? `Builder ${name}` : "Builder component",
+    ...builderSourceComponentPreview(block),
+  };
+  const id = sourceComponentMarkerIdForBlock(block);
+  return serializeRegistryBlockToMdx("source-component", { id, data });
+}
+
+function markdownUnits(markdown: string) {
+  const units: string[] = [];
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  let current: string[] = [];
+  let fence: string | null = null;
+  const flush = () => {
+    const value = current.join("\n").trim();
+    if (value) units.push(value);
+    current = [];
+  };
+
+  for (const line of lines) {
+    const fenceMatch = line.match(/^(```|~~~)/);
+    if (fenceMatch) {
+      current.push(line);
+      fence = fence ? null : fenceMatch[1];
+      if (!fence) flush();
+      continue;
+    }
+    if (fence) {
+      current.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    current.push(line);
+  }
+  flush();
+  return units;
+}
+
+function fencedCodeFromMarkdown(markdown: string) {
+  const trimmed = markdown.trim();
+  const match = trimmed.match(/^```[^\n]*\n([\s\S]*?)\n```$/);
+  if (match) return match[1];
+  return trimmed;
+}
+
+interface ReadableEditableSegment {
+  kind: "text" | "code" | "image" | "tab-label";
+  block: Record<string, unknown>;
+  baseline: string;
+}
+
+function readableCodeBlockMarkdown(options: Record<string, unknown>) {
+  const language =
+    typeof options.language === "string" ? options.language.trim() : "";
+  const code = String(options.code ?? "").trimEnd();
+  return code ? `\`\`\`${language}\n${code}\n\`\`\`` : "";
+}
+
+function collectReadableEditableSegments(
+  blocks: unknown[],
+  segments: ReadableEditableSegment[] = [],
+) {
+  for (const block of blocks) {
+    if (!isRecord(block)) continue;
+    const name = componentName(block);
+    const options = componentOptions(block);
+    if (name === "Text") {
+      const baseline = htmlToMarkdown(String(options.text ?? "")).trim();
+      if (baseline) segments.push({ kind: "text", block, baseline });
+      continue;
+    }
+    if (name === "Code Block" || name === "Blog Code Block") {
+      const baseline = readableCodeBlockMarkdown(options);
+      if (baseline) segments.push({ kind: "code", block, baseline });
+      continue;
+    }
+    if (name === "Image") {
+      const baseline = builderImageMarkdown(options);
+      if (baseline) segments.push({ kind: "image", block, baseline });
+      continue;
+    }
+    if (name === "Tabbed Content") {
+      const tabs = Array.isArray(options.tabs) ? options.tabs : [];
+      for (let index = 0; index < tabs.length; index += 1) {
+        const tab = tabs[index];
+        const tabRecord = isRecord(tab) ? tab : {};
+        const content = Array.isArray(tabRecord.content)
+          ? tabRecord.content
+          : [];
+        if (!content.some(builderBlockHasReadableOutput)) continue;
+        const label =
+          typeof tabRecord.label === "string" && tabRecord.label.trim()
+            ? tabRecord.label.trim()
+            : `Tab ${index + 1}`;
+        segments.push({
+          kind: "tab-label",
+          block: tabRecord,
+          baseline: `### ${label}`,
+        });
+        collectReadableEditableSegments(content, segments);
+      }
+      continue;
+    }
+    collectReadableEditableSegments(childBlocks(block), segments);
+  }
+  return segments;
+}
+
+function builderBlockHasReadableOutput(block: unknown): boolean {
+  if (!isRecord(block)) return false;
+  const name = componentName(block);
+  const options = componentOptions(block);
+  if (name === "Text") {
+    return htmlToMarkdown(String(options.text ?? "")).trim().length > 0;
+  }
+  if (name === "Code Block" || name === "Blog Code Block") {
+    return readableCodeBlockMarkdown(options).trim().length > 0;
+  }
+  if (name === "Image") {
+    return builderImageMarkdown(options).trim().length > 0;
+  }
+  if (name === "Tabbed Content") {
+    const tabs = Array.isArray(options.tabs) ? options.tabs : [];
+    return tabs.some((tab) => {
+      const content =
+        isRecord(tab) && Array.isArray(tab.content) ? tab.content : [];
+      return content.some(builderBlockHasReadableOutput);
+    });
+  }
+  const children = childBlocks(block);
+  return children.length ? children.some(builderBlockHasReadableOutput) : true;
+}
+
+function countExpectedReadableSourceComponentMarkers(
+  blocks: unknown[],
+): number {
+  let count = 0;
+  for (const block of blocks) {
+    if (!isRecord(block)) continue;
+    const name = componentName(block);
+    if (
+      name === "Text" ||
+      name === "Code Block" ||
+      name === "Blog Code Block" ||
+      name === "Image"
+    ) {
+      continue;
+    }
+    const options = componentOptions(block);
+    if (name === "Tabbed Content") {
+      const tabs = Array.isArray(options.tabs) ? options.tabs : [];
+      for (const tab of tabs) {
+        const content =
+          isRecord(tab) && Array.isArray(tab.content) ? tab.content : [];
+        count += countExpectedReadableSourceComponentMarkers(content);
+      }
+      continue;
+    }
+    const children = childBlocks(block);
+    if (children.length && children.some(builderBlockHasReadableOutput)) {
+      count += countExpectedReadableSourceComponentMarkers(children);
+      continue;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+export async function builderReadableBodyToBuilderBlocks(args: {
+  localContent: string;
+  losslessContent: string;
+  sidecars: Record<string, string>;
+}): Promise<BuilderReadableBodyMergeResult> {
+  const baselineBlocks = await builderMdxBodyToBuilderBlocks(
+    args.losslessContent,
+    args.sidecars,
+  );
+  const segments = collectReadableEditableSegments(baselineBlocks);
+  const expectedSourceMarkerCount =
+    countExpectedReadableSourceComponentMarkers(baselineBlocks);
+  const currentSourceMarkerCount = countReadableSourceComponentMarkers(
+    args.localContent,
+  );
+  if (expectedSourceMarkerCount !== currentSourceMarkerCount) {
+    return {
+      blocks: null,
+      warnings: [
+        `Readable Builder body changed preserved source component markers from ${expectedSourceMarkerCount} to ${currentSourceMarkerCount}; refresh or review in Builder before pushing.`,
+      ],
+    };
+  }
+  const sourceMarkerWarnings = await validateReadableSourceComponentMarkers(
+    args.localContent,
+    args.sidecars,
+  );
+  if (sourceMarkerWarnings.length) {
+    return {
+      blocks: null,
+      warnings: sourceMarkerWarnings,
+    };
+  }
+  const [expectedLayout, currentLayout] = await Promise.all([
+    expectedReadableLayoutFingerprint(baselineBlocks),
+    readableLayoutFingerprint(args.localContent),
+  ]);
+  if (expectedLayout.join("\n") !== currentLayout.join("\n")) {
+    return {
+      blocks: null,
+      warnings: [
+        "Readable Builder body changed structure or moved or restructured preserved source component markers; refresh or review in Builder before pushing.",
+      ],
+    };
+  }
+  if (!segments.length) {
+    return { blocks: baselineBlocks, warnings: [] };
+  }
+
+  const baselineUnitCounts = segments.map(
+    (segment) => markdownUnits(segment.baseline).length,
+  );
+  const currentUnits = markdownUnits(args.localContent).filter(
+    (unit) => !isReadableUnsupportedBuilderPlaceholder(unit),
+  );
+  const expectedUnitCount = baselineUnitCounts.reduce(
+    (sum, count) => sum + count,
+    0,
+  );
+  if (currentUnits.length !== expectedUnitCount) {
+    return {
+      blocks: null,
+      warnings: [
+        `Readable Builder body changed structure from ${expectedUnitCount} markdown blocks to ${currentUnits.length}; review in Builder before pushing.`,
+      ],
+    };
+  }
+
+  let offset = 0;
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const count = baselineUnitCounts[index];
+    const nextMarkdown = currentUnits
+      .slice(offset, offset + count)
+      .join("\n\n");
+    offset += count;
+    if (segment.kind === "tab-label") {
+      const match = nextMarkdown.trim().match(/^#{3}\s+(.+)$/);
+      if (!match?.[1]?.trim()) {
+        return {
+          blocks: null,
+          warnings: [
+            "Readable Builder tab heading changed into unsupported markdown; keep it as a level-3 heading before pushing.",
+          ],
+        };
+      }
+      segment.block.label = match[1].trim();
+    } else if (segment.kind === "text") {
+      const options = ensureComponentOptions(segment.block, "Text");
+      options.text = markdownToBuilderTextHtml(nextMarkdown);
+    } else if (segment.kind === "image") {
+      const options = ensureComponentOptions(segment.block, "Image");
+      const image = parseMarkdownImage(nextMarkdown);
+      if (!image?.src) {
+        return {
+          blocks: null,
+          warnings: [
+            "Readable Builder image changed into unsupported markdown; keep it as a standard image block before pushing.",
+          ],
+        };
+      }
+      options.image = image.src;
+      options.altText = image.alt;
+    } else {
+      const options = ensureComponentOptions(
+        segment.block,
+        componentName(segment.block) ?? "Code Block",
+      );
+      options.code = fencedCodeFromMarkdown(nextMarkdown);
+    }
+  }
+
+  return { blocks: baselineBlocks, warnings: [] };
+}
+
 export async function builderEntryToMdxBundle(
   entry: BuilderContentEntry,
 ): Promise<BuilderMdxBundle> {
+  const files: Record<string, string> = {};
+  const warnings: string[] = [];
+  const emitted = new Set<string>();
+  const mdx = await emitBuilderEntryToMdxFile({
+    entry,
+    files,
+    warnings,
+    emitted,
+    symbolPath: false,
+  });
+  return { mdx, files, blocks: builderEntryBlocks(entry) };
+}
+
+export async function builderEntryToReadableMdxBundle(
+  entry: BuilderContentEntry,
+): Promise<BuilderMdxBundle> {
+  const files: Record<string, string> = {};
+  const warnings: string[] = [];
+  const emitted = new Set<string>();
+  const mdx = await emitBuilderEntryToMdxFile({
+    entry,
+    files,
+    warnings,
+    emitted,
+    symbolPath: false,
+    readableBody: true,
+  });
+  return { mdx, files, blocks: builderEntryBlocks(entry) };
+}
+
+async function emitBuilderEntryToMdxFile({
+  entry,
+  files,
+  warnings,
+  emitted,
+  symbolPath,
+  readableBody = false,
+}: {
+  entry: BuilderContentEntry;
+  files: Record<string, string>;
+  warnings: string[];
+  emitted: Set<string>;
+  symbolPath: boolean;
+  readableBody?: boolean;
+}): Promise<BuilderMdxFile> {
+  const path = symbolPath
+    ? builderSymbolMdxPathForEntry(entry)
+    : builderMdxPathForEntry(entry);
+  const key = `${entry.model}:${entry.id}:${path}`;
+  if (emitted.has(key)) {
+    return {
+      path,
+      documentId: builderDocumentId(entry.model, entry.id),
+      title: builderEntryTitle(entry),
+      metadata: {
+        model: entry.model,
+        entryId: entry.id,
+        lastUpdated: normalizeRemoteUpdatedAt(entry),
+        published: entry.published,
+        sourceHash: builderSourceHash(entry),
+        blocksHash: builderBlocksHash(builderEntryBlocks(entry)),
+        rawRoot: builderRawRootForEntry(entry.model, entry.id),
+        path,
+      },
+      frontmatter: {},
+      body: "",
+      source: files[path] ?? "",
+    };
+  }
+  emitted.add(key);
+
   const blocks = builderEntryBlocks(entry);
   const rawRoot = builderRawRootForEntry(entry.model, entry.id);
-  const files: Record<string, string> = {};
-  const ctx: BlocksToMdxContext = { rawRoot, files, warnings: [] };
-  const body = await builderBlocksToMdxBody(blocks, ctx);
-  const path = builderMdxPathForEntry(entry);
+  const ctx: BlocksToMdxContext = {
+    rawRoot,
+    files,
+    warnings,
+    emitReferencedEntry: async (referencedEntry) => {
+      const nested = await emitBuilderEntryToMdxFile({
+        entry: referencedEntry,
+        files,
+        warnings,
+        emitted,
+        symbolPath: true,
+        readableBody,
+      });
+      return nested.path;
+    },
+  };
+  const body = readableBody
+    ? await builderBlocksToReadableMdxBody(blocks, ctx)
+    : await builderBlocksToMdxBody(blocks, ctx);
   const blocksHash = builderBlocksHash(blocks);
   const sourceHash = builderSourceHash(entry);
   const frontmatter = frontmatterForEntry({
@@ -552,7 +1558,7 @@ export async function builderEntryToMdxBundle(
     source,
   };
   files[path] = source;
-  return { mdx, files, blocks };
+  return mdx;
 }
 
 function parseFrontmatterValue(value: string): unknown {
@@ -692,6 +1698,30 @@ function freshTextBlock(markdown: string): unknown {
   };
 }
 
+function freshImageBlock(markdown: string): unknown | null {
+  const image = parseMarkdownImage(markdown);
+  if (!image?.src) return null;
+  return {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    id: `builder-mdx-image-${stableHash(markdown).slice(0, 16)}`,
+    component: {
+      name: "Image",
+      options: {
+        image: image.src,
+        altText: image.alt,
+      },
+    },
+    responsiveStyles: {
+      large: {
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+      },
+    },
+  };
+}
+
 function rawBlockForData(
   data: BuilderRawRefData,
   sidecars: Record<string, string>,
@@ -811,7 +1841,7 @@ async function applyTabbedContentData(
       return {
         ...rawTab,
         label: tab.label,
-        content: await builderBodyToBlocks(tab.body, sidecars),
+        content: await builderMdxBodyToBuilderBlocks(tab.body, sidecars),
       };
     }),
   );
@@ -873,12 +1903,14 @@ async function blockFromMdxComponent(
       return applySymbolData(parsed.data as BuilderSymbolData, sidecars);
     case "builder-raw-block":
       return rawBlockForData(parsed.data as BuilderRawBlockData, sidecars);
+    case "source-component":
+      return rawBlockForData(parsed.data as SourceComponentData, sidecars);
     default:
       return null;
   }
 }
 
-async function builderBodyToBlocks(
+export async function builderMdxBodyToBuilderBlocks(
   body: string,
   sidecars: Record<string, string>,
 ) {
@@ -905,6 +1937,11 @@ async function builderBodyToBlocks(
         "Unsupported Builder MDX syntax: import/export statements cannot be pushed to Builder.",
       );
     }
+    const imageBlock = freshImageBlock(raw);
+    if (imageBlock) {
+      blocks.push(imageBlock);
+      continue;
+    }
     blocks.push(freshTextBlock(raw));
   }
   return blocks;
@@ -916,7 +1953,7 @@ export async function builderMdxToBuilderBlocks(args: {
   sidecars: Record<string, string>;
 }): Promise<BuilderBlocksFromMdxResult> {
   const mdx = parseBuilderMdxFile(args.path, args.source);
-  const blocks = await builderBodyToBlocks(mdx.body, args.sidecars);
+  const blocks = await builderMdxBodyToBuilderBlocks(mdx.body, args.sidecars);
   const blocksHash = builderBlocksHash(blocks);
   const sourceHash = stableHash({
     model: mdx.metadata.model,

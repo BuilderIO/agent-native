@@ -85,6 +85,8 @@ import {
   getInitialAgentSidebarOpen,
   setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -969,6 +971,22 @@ function AgentPanelInner({
     (activeMode: PanelMode) => (
       <TooltipProvider delayDuration={200}>
         <div className="flex shrink-0 items-center gap-1">
+          {onCollapse && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onCollapse}
+                  aria-label={t("agentPanel.collapseSidebar")}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <IconX size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("agentPanel.collapseSidebar")}</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -1035,7 +1053,7 @@ function AgentPanelInner({
         </div>
       </TooltipProvider>
     ),
-    [codeAccessEnabled, codeUnavailableDescription, showCliMode, t],
+    [codeAccessEnabled, codeUnavailableDescription, onCollapse, showCliMode, t],
   );
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -1318,7 +1336,7 @@ function AgentPanelInner({
             data-agent-page-new-chat=""
             aria-label={t("agentPanel.newChat")}
             onClick={() => {
-              void addTab();
+              addTab();
             }}
             className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -3027,6 +3045,20 @@ export function focusAgentChat() {
  * Dispatches a custom event that AgentSidebar listens for.
  */
 export function AgentToggleButton({ className }: { className?: string }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (detail && typeof detail.open === "boolean") setOpen(detail.open);
+    };
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
+    return () =>
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
+  }, []);
+  // Hide the open-agent button while the agent pane is open; the pane has its
+  // own close button.
+  if (open) return null;
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>

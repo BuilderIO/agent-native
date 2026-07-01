@@ -163,7 +163,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Page content */}
           <div className="agent-layout-main-surface flex min-w-0 flex-1 flex-col overflow-hidden">
             <Header onOpenSidebar={() => setSidebarOpen(true)} />
-            <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+            <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto">
+              {children}
+            </main>
           </div>
           <SyncIndicator sidebarCollapsed={desktopSidebarCollapsed} />
         </div>
@@ -279,11 +281,11 @@ function SidebarContent({
 
       {!collapsed && (
         <>
-          <div className="border-t border-border px-2 py-2">
+          <div className="px-2 py-2">
             <ExtensionsSidebarSection />
           </div>
 
-          <div className="space-y-2 border-t border-border px-3 py-2">
+          <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
             <FeedbackButton />
             <OrgSwitcher />
@@ -333,7 +335,7 @@ function SyncIndicator({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-white/[0.06] bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
+        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-border bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
         sidebarCollapsed
           ? "md:start-[calc(3.5rem+1rem)]"
           : "md:start-[calc(14rem+1rem)]",

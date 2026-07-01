@@ -97,6 +97,9 @@ const SECTION_LABEL_CLASS =
 const APP_SUBMENU_CONTENT_CLASS =
   "z-50 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
 
+const SWITCHER_BUTTON_CLASS =
+  "flex w-full items-center gap-2 rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
+
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#team";
 
 const APP_ICON_MAP: Record<string, typeof IconApps> = {
@@ -274,6 +277,25 @@ function AppsSubmenu({
   );
 }
 
+function ReservedOrgSwitcherSpace({ className }: { className?: string }) {
+  return <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />;
+}
+
+function OrgSwitcherLoadingPlaceholder({ className }: { className?: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      aria-label="Loading organization"
+      className={`${SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
+    >
+      <IconBuilding className="h-3.5 w-3.5 shrink-0 opacity-60" />
+      <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
+      <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
+    </button>
+  );
+}
+
 /**
  * Compact org switcher button. Shows the active org (or "Personal" when the
  * user has none); opens a popover with the user's other orgs, pending
@@ -326,7 +348,7 @@ export function OrgSwitcher({
 
   if (!org) {
     return reserveSpace && isLoading ? (
-      <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
+      <OrgSwitcherLoadingPlaceholder className={className} />
     ) : null;
   }
 
@@ -338,7 +360,7 @@ export function OrgSwitcher({
     orgCount > 0 || pendingInvitations.length > 0 || domainMatches.length > 0;
   if (!hasAny && !org.email) {
     return reserveSpace ? (
-      <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
+      <ReservedOrgSwitcherSpace className={className} />
     ) : null;
   }
   if (
@@ -348,7 +370,7 @@ export function OrgSwitcher({
     domainMatches.length === 0
   ) {
     return reserveSpace ? (
-      <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
+      <ReservedOrgSwitcherSpace className={className} />
     ) : null;
   }
 
@@ -368,7 +390,7 @@ export function OrgSwitcher({
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
-          className={`flex w-full items-center gap-2 rounded-md border border-border/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer ${className ?? ""}`}
+          className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
         >
           <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate flex-1 text-start">{buttonLabel}</span>

@@ -19,8 +19,9 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
 - Follow linked design-system tokens and custom instructions.
-- For raw Figma `.fig` uploads, call `import-file --format fig`, then create a
-  design system from the returned `designSystem` and `customInstructions`.
+- For raw Figma `.fig` uploads, call `import-file --format fig` to start
+  Builder design-system indexing. Do not create a local design system from raw
+  `.fig` output.
 - Treat import/export actions as shortcuts, not capability limits. When the
   exact Google Drive endpoint, file metadata field, export format, pagination
   mode, or API version matters, use `provider-api-catalog`,
@@ -52,6 +53,15 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 - `navigation` exposes the current deck, slide, selection, and editor view.
 - `navigate` moves the UI to decks, slides, imports, and exports.
 - Use app actions for full deck/slide data instead of relying on ambient context.
+
+## Export Behavior
+
+- Browser PowerPoint export uses the rendered slide DOM to generate native,
+  editable PPTX text/shapes/images. Do not replace it with full-slide images
+  unless the user explicitly asks for non-editable visual snapshots.
+- Google Slides export is a PPTX import workflow: generate the same editable
+  PPTX and have the user import it into Google Slides. Creating a native Google
+  Slides file directly requires a separate Google Slides API batchUpdate path.
 
 ## Skills
 

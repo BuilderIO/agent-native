@@ -80,7 +80,11 @@ import {
   type VoiceShortcutPreference,
   type VoiceTextDelivery,
 } from "./lib/voice-dictation";
-import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
+import {
+  useFeatureConfig,
+  type LocalRecordingMode,
+  type ScreenMemoryStatus,
+} from "./shared/config";
 
 interface RecordingSummary {
   id: string;
@@ -115,6 +119,16 @@ interface LocalRecordingNotice {
   files: LocalExportedFile[];
 }
 
+interface ScreenMemoryExportResult {
+  folderPath: string;
+  files: Array<{
+    path: string;
+    fileName: string;
+    bytes: number;
+    mimeType: string;
+  }>;
+}
+
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
@@ -124,6 +138,14 @@ const STORAGE_SETUP_HELP_TEXT =
   "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
 const STORAGE_SETUP_FAILURE_RE =
   /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+const DEFAULT_SCREEN_MEMORY_CONFIG = {
+  enabled: false,
+  paused: false,
+  retentionHours: 24,
+  maxBytes: 20 * 1024 * 1024 * 1024,
+  segmentSeconds: 5 * 60,
+  sampleIntervalSeconds: 10,
+};
 
 function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
@@ -3040,6 +3062,14 @@ function labelForByokProvider(provider: ByokVoiceProvider): string {
   }[provider];
 }
 
+function formatStorageBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) return `${gb.toFixed(gb >= 10 ? 0 : 1)} GB`;
+  const mb = bytes / (1024 * 1024);
+  return `${Math.max(1, Math.round(mb))} MB`;
+}
+
 function Setup({
   initial,
   serverUrl,
@@ -3095,6 +3125,8 @@ function Setup({
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
   const showInScreenCapture = featureConfig?.showInScreenCapture === true;
   const localRecordingMode = featureConfig?.localRecordingMode ?? "off";
+  const screenMemory =
+    featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG;
   const regionGuides = featureConfig?.regionGuides ?? {
     enabled: false,
     rects: [],
@@ -3118,6 +3150,19 @@ function Setup({
   const [whisperStatus, setWhisperStatus] = useState<WhisperModelStatus | null>(
     null,
   );
+  const [screenMemoryStatus, setScreenMemoryStatus] =
+    useState<ScreenMemoryStatus | null>(null);
+  const [screenMemoryMessage, setScreenMemoryMessage] = useState<{
+    kind: "ok" | "error";
+    text: string;
+  } | null>(null);
+  const [screenMemoryBusy, setScreenMemoryBusy] = useState(false);
+  const screenMemorySegments = screenMemoryStatus?.recentSegments ?? [];
+  const screenMemoryTotalBytes = screenMemorySegments.reduce(
+    (sum, segment) => sum + segment.bytes,
+    0,
+  );
+  const screenMemoryRecording = screenMemoryStatus?.state === "recording";
 
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
@@ -3190,6 +3235,86 @@ function Setup({
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
+  }
+
+  function setScreenMemoryConfig(
+    patch: Partial<typeof DEFAULT_SCREEN_MEMORY_CONFIG>,
+  ) {
+    if (!featureConfig) return;
+    setScreenMemoryMessage(null);
+    invoke("set_feature_config", {
+      config: {
+        ...featureConfig,
+        screenMemory: {
+          ...DEFAULT_SCREEN_MEMORY_CONFIG,
+          ...screenMemory,
+          ...patch,
+        },
+      },
+    }).catch((err) => {
+      console.error("[settings] set_feature_config failed", err);
+      setScreenMemoryMessage({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not update Screen Memory.",
+      });
+    });
+  }
+
+  function refreshScreenMemoryStatus() {
+    invoke<ScreenMemoryStatus>("screen_memory_status")
+      .then(setScreenMemoryStatus)
+      .catch(() => {});
+  }
+
+  async function exportScreenMemoryRecent() {
+    setScreenMemoryBusy(true);
+    setScreenMemoryMessage(null);
+    try {
+      const result = await invoke<ScreenMemoryExportResult>(
+        "screen_memory_export_recent",
+        { minutes: 5 },
+      );
+      setScreenMemoryMessage({
+        kind: "ok",
+        text: `Saved ${result.files.length} segment${result.files.length === 1 ? "" : "s"} to ${result.folderPath}.`,
+      });
+    } catch (err) {
+      setScreenMemoryMessage({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not export Screen Memory.",
+      });
+    } finally {
+      setScreenMemoryBusy(false);
+      refreshScreenMemoryStatus();
+    }
+  }
+
+  async function clearScreenMemory() {
+    setScreenMemoryBusy(true);
+    setScreenMemoryMessage(null);
+    try {
+      const status = await invoke<ScreenMemoryStatus>(
+        "screen_memory_delete_all",
+      );
+      setScreenMemoryStatus(status);
+      setScreenMemoryMessage({ kind: "ok", text: "Screen Memory cleared." });
+    } catch (err) {
+      setScreenMemoryMessage({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not clear Screen Memory.",
+      });
+    } finally {
+      setScreenMemoryBusy(false);
+    }
+  }
+
+  function openScreenMemoryFolder() {
+    invoke("screen_memory_open_folder").catch((err) => {
+      setScreenMemoryMessage({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not open Screen Memory folder.",
+      });
+    });
   }
 
   function openRegionGuideEditor() {
@@ -3294,6 +3419,43 @@ function Setup({
 
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      invoke<ScreenMemoryStatus>("screen_memory_status")
+        .then((status) => {
+          if (!cancelled) setScreenMemoryStatus(status);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const unlistens: Array<() => void> = [];
+    const track = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        unlistens.push(u);
+      }).catch(() => {});
+    };
+    track(listen("clips:screen-memory-changed", refresh));
+    return () => {
+      cancelled = true;
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          /* ignore */
+        }
+      });
+    };
   }, []);
 
   // Load model status on mount and keep it current via events.
@@ -3624,6 +3786,133 @@ function Setup({
       </div>
 
       <div className="setup-section-heading">Recording</div>
+
+      <div className="setup-section">
+        <div className="setup-toggle-row">
+          <SettingLabel
+            label="Screen Memory"
+            hint="Keep a rolling local screen buffer and recent app/window context for local agents. Stored only on this Mac."
+          />
+          <Switch
+            on={screenMemory.enabled}
+            onChange={(enabled) =>
+              setScreenMemoryConfig({ enabled, paused: false })
+            }
+            label="Enable Screen Memory"
+          />
+        </div>
+        {screenMemory.enabled ? (
+          <>
+            <div className="setup-toggle-row">
+              <SettingLabel
+                label="Pause capture"
+                hint="Stop recording new Screen Memory segments without clearing the local history."
+              />
+              <Switch
+                on={screenMemory.paused}
+                onChange={(paused) => setScreenMemoryConfig({ paused })}
+                label="Pause Screen Memory"
+              />
+            </div>
+            <div className="setup-grid">
+              <label className="setup-mini-field">
+                <span>Retention</span>
+                <select
+                  className="setup-select"
+                  value={screenMemory.retentionHours}
+                  onChange={(event) =>
+                    setScreenMemoryConfig({
+                      retentionHours: Number(event.target.value),
+                    })
+                  }
+                >
+                  <option value={8}>8 hours</option>
+                  <option value={24}>24 hours</option>
+                  <option value={72}>72 hours</option>
+                </select>
+              </label>
+              <label className="setup-mini-field">
+                <span>Disk cap</span>
+                <select
+                  className="setup-select"
+                  value={screenMemory.maxBytes}
+                  onChange={(event) =>
+                    setScreenMemoryConfig({
+                      maxBytes: Number(event.target.value),
+                    })
+                  }
+                >
+                  <option value={5 * 1024 * 1024 * 1024}>5 GB</option>
+                  <option value={20 * 1024 * 1024 * 1024}>20 GB</option>
+                  <option value={50 * 1024 * 1024 * 1024}>50 GB</option>
+                </select>
+              </label>
+            </div>
+            <div className="whisper-status">
+              {screenMemoryRecording ? (
+                <IconCircleCheck size={13} className="whisper-status-icon" />
+              ) : (
+                <IconAlertTriangle size={13} className="whisper-status-icon" />
+              )}
+              <span>
+                {screenMemoryRecording
+                  ? `Recording locally - ${screenMemorySegments.length} segment${screenMemorySegments.length === 1 ? "" : "s"}, ${formatStorageBytes(screenMemoryTotalBytes)}.`
+                  : screenMemory.paused
+                    ? "Paused. Existing local history is still available."
+                    : screenMemoryStatus?.lastError
+                      ? screenMemoryStatus.lastError
+                      : "Starting when screen recording permission is available."}
+              </span>
+            </div>
+            {screenMemorySegments[0] ? (
+              <p className="setup-hint">
+                Latest segment:{" "}
+                {new Date(screenMemorySegments[0].endedAt).toLocaleTimeString()}
+                .
+              </p>
+            ) : null}
+            <div className="setup-button-row">
+              <button
+                type="button"
+                className="secondary"
+                onClick={exportScreenMemoryRecent}
+                disabled={screenMemoryBusy || screenMemorySegments.length === 0}
+              >
+                <IconDownload size={15} stroke={1.9} />
+                Export 5 min
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={openScreenMemoryFolder}
+              >
+                <IconFolderOpen size={15} stroke={1.9} />
+                Open folder
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={clearScreenMemory}
+                disabled={screenMemoryBusy || screenMemorySegments.length === 0}
+              >
+                <IconTrash size={15} stroke={1.9} />
+                Clear
+              </button>
+            </div>
+            {screenMemoryMessage ? (
+              <p
+                className={
+                  screenMemoryMessage.kind === "ok"
+                    ? "setup-success"
+                    : "setup-warning"
+                }
+              >
+                {screenMemoryMessage.text}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
 
       <details className="setup-advanced">
         <summary className="setup-advanced-summary">Advanced recording</summary>

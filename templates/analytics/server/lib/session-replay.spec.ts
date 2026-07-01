@@ -30,6 +30,11 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
 });
 
 import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
+
+import {
   assertReplayKeyBudget,
   getSessionReplaySummary,
   listSessionRecordings,
@@ -181,7 +186,7 @@ describe("session replay ingest parsing", () => {
     expect(parsed.chunks).toHaveLength(1);
   });
 
-  it("returns metadata-only recordings from direct summary reads", async () => {
+  it("rejects metadata-only recordings from direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -205,16 +210,13 @@ describe("session replay ingest parsing", () => {
         userEmail: "owner@example.com",
         orgId: "org_123",
       }),
-    ).resolves.toMatchObject({
-      id: "sr_empty",
-      userId: "dev@example.com",
-      chunkCount: 0,
-      eventCount: 0,
-      role: "viewer",
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Session recording not found",
     });
   });
 
-  it("returns anonymous recordings from direct summary reads", async () => {
+  it("rejects anonymous recordings from direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -250,29 +252,72 @@ describe("session replay ingest parsing", () => {
         userEmail: "owner@example.com",
         orgId: "org_123",
       }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Session recording not found",
+    });
+  });
+
+  it("returns playable email-keyed recordings from direct summary reads", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "sr_email_key",
+        clientRecordingId: "recording_1",
+        sessionId: "session_1",
+        userId: "user_123",
+        anonymousId: "anon_1",
+        userKey: "dev@example.com",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:04.000Z",
+        durationMs: 4000,
+        chunkCount: 1,
+        eventCount: 2,
+        totalBytes: 128,
+        pageCount: 1,
+        errorCount: 0,
+        rageClickCount: 0,
+        privacyMode: "unknown",
+        metadata: "{}",
+        ownerEmail: "owner@example.com",
+        orgId: "org_123",
+        visibility: "private",
+        status: "completed",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:04.000Z",
+        lastIngestedAt: "2026-01-01T00:00:04.000Z",
+      },
+    });
+
+    await expect(
+      getSessionReplaySummary("sr_email_key", {
+        userEmail: "owner@example.com",
+        orgId: "org_123",
+      }),
     ).resolves.toMatchObject({
-      id: "sr_anonymous",
-      userId: null,
-      anonymousId: "anon_1",
+      id: "sr_email_key",
+      userId: "user_123",
+      userKey: "dev@example.com",
+      eventCount: 2,
       role: "viewer",
     });
   });
 
-  it("includes metadata-only anonymous identities in session recording lists", async () => {
+  it("requires signed-in email identity and replay events in session recording lists", async () => {
     const listDb = createSessionReplayListDbMock([
       {
-        id: "sr_anonymous",
+        id: "sr_email_key",
         clientRecordingId: "recording_1",
         sessionId: "session_1",
-        userId: null,
+        userId: "user_123",
         anonymousId: "anon_1",
-        userKey: "anon_1",
+        userKey: "dev@example.com",
         startedAt: "2026-01-01T00:00:00.000Z",
-        endedAt: null,
-        durationMs: null,
-        chunkCount: 0,
-        eventCount: 0,
-        totalBytes: 0,
+        endedAt: "2026-01-01T00:00:04.000Z",
+        durationMs: 4000,
+        chunkCount: 1,
+        eventCount: 2,
+        totalBytes: 128,
         pageCount: 1,
         errorCount: 0,
         rageClickCount: 0,
@@ -296,15 +341,19 @@ describe("session replay ingest parsing", () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      id: "sr_anonymous",
-      userId: null,
-      anonymousId: "anon_1",
-      chunkCount: 0,
-      eventCount: 0,
+      id: "sr_email_key",
+      userId: "user_123",
+      userKey: "dev@example.com",
+      chunkCount: 1,
+      eventCount: 2,
     });
     const listCondition = conditionText(listDb.whereCondition);
     expect(listCondition).toContain("@");
-    expect(listCondition).toContain("anonymous_id");
+    expect(listCondition).toContain("user_id");
+    expect(listCondition).toContain("user_key");
+    expect(listCondition).toContain("chunk_count");
+    expect(listCondition).toContain("event_count");
+    expect(listCondition).not.toContain("nullif(trim(coalesce");
   });
 
   it("derives replay timing from rrweb event timestamps", () => {
@@ -572,5 +621,139 @@ describe("session replay ingest parsing", () => {
     ).rejects.toThrow("chunk insert failed");
 
     expect(deletePrivateBlobMock).toHaveBeenCalledWith(handle);
+  });
+
+  // --- Regression coverage for the prod "empty Sessions list" root causes. ---
+  // These exercise behavior the previous suite never did: the anonymous
+  // cross-origin ingest path resolving storage in the key owner's org scope,
+  // and recordings being written org-visible so teammates (not just the key
+  // owner) can see them.
+
+  function replayIngestKeyDbResults(orgId: string | null) {
+    return [
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId,
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+      [], // no existing recording -> triggers insert
+      [
+        {
+          id: "sr_new",
+          publicKeyId: "key_1",
+          clientRecordingId: "recording_1",
+          sessionId: "session_1",
+          userId: "dev@example.com",
+          anonymousId: "anon_1",
+          userKey: "dev@example.com",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          ownerEmail: "owner@example.com",
+          orgId,
+          chunkCount: 0,
+          eventCount: 0,
+          metadata: "{}",
+          status: "active",
+        },
+      ],
+      [], // existing chunks
+    ];
+  }
+
+  function replayIngestPayload() {
+    return parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      sequence: 0,
+      events: [{ type: 4, timestamp: 1 }],
+    });
+  }
+
+  it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
+    // The ingest endpoint is anonymous + cross-origin (no session). Without the
+    // runWithRequestContext wrap, resolveBuilderPrivateKey()/S3 scoped-secret
+    // lookups would see no user/org and every upload would 503 -> empty
+    // recordings. Assert the upload runs in the key owner's scope.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    let seenEmail: string | undefined;
+    let seenOrgId: string | undefined;
+    putPrivateBlobMock.mockImplementation(async () => {
+      seenEmail = getRequestUserEmail();
+      seenOrgId = getRequestOrgId();
+      return null; // force the 503 path after capturing the resolution scope
+    });
+    const { db } = createReplayDbMock(replayIngestKeyDbResults("org_123"));
+    getDbMock.mockReturnValue(db);
+    try {
+      await recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    expect(seenEmail).toBe("owner@example.com");
+    expect(seenOrgId).toBe("org_123");
+  });
+
+  it("writes org-visible recordings for org-scoped keys", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(
+      replayIngestKeyDbResults("org_123"),
+    );
+    getDbMock.mockReturnValue(db);
+    try {
+      await recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { visibility?: unknown })?.visibility ===
+        "string",
+    );
+    expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
+      "org",
+    );
+  });
+
+  it("writes owner-private recordings when the key has no org", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
+    getDbMock.mockReturnValue(db);
+    try {
+      await recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { visibility?: unknown })?.visibility ===
+        "string",
+    );
+    expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
+      "private",
+    );
   });
 });

@@ -338,15 +338,80 @@ Every agent-callable operation is a TypeScript file in `templates/design/actions
 - **Designs** — `create-design` (empty shell), `generate-design` (write generated HTML/JSX content), `update-design`, `get-design`, `list-designs`, `duplicate-design`, `delete-design`, and `apply-tweaks` for persisting live tweak-knob values (accent color, density, etc.).
 - **Files** — `create-file`, `update-file`, `list-files`, `delete-file` for the files inside a design project.
 - **Design systems** — `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system`, and `analyze-brand-assets` for gathering brand data ahead of analysis.
-- **Import** — `import-code`, `import-figma`, `import-github`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` to lift a design system out of an existing project.
+- **Import** — `index-design-system-with-builder` for Builder-backed code/GitHub/Figma file design-system indexing, plus `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **Export & handoff** — `export-html`, `export-pdf`, `export-svg`, `export-zip`, and `export-coding-handoff` to turn a design into a coding-tool handoff.
-- **Context & navigation** — `view-screen` (current design, open file, view, pending question or variant grid), `get-design-snapshot` (current state for an external agent to continue from), and `navigate`.
+- **Context & navigation** — `view-screen` (current design, open file, view, pending question or variant choice), `get-design-snapshot` (current state for an external agent to continue from), and `navigate`.
 
 ### Working with the agent
 
-The agent always knows what you have open. The current design, the open file, the active view, and any pending question or variant grid are returned by `view-screen` and injected into every message, so you can say "make this denser" or "export this variant" without naming the design.
+The agent always knows what you have open. The current design, the open file, the active view, and any pending question or variant choice are returned by `view-screen` and injected into every message, so you can say "make this denser" or "export this variant" without naming the design.
 
 Because a design is just standalone HTML/JSX files, the agent edits the same source the iframe renders and every export comes from — there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` the agent honors on every generation pass. Select text or a region in the preview and hit Cmd+I to focus the agent on exactly that part.
+
+### Editor model
+
+Design is overview-first for multi-screen work. After generation or broad
+updates, the editor opens the screen overview: an infinite canvas where each
+screen is a static frame you can select, move, resize, drop, or duplicate.
+Use a frame's full-view button when one screen needs focused scrolling or
+prototype interaction.
+
+Single-screen mode is for scrolling, interacting with prototype behavior, and
+editing the DOM/code layers inside one rendered file. The layers panel reflects
+that split: screens are top-level frames, with nested DOM/code layers for the
+active screen.
+
+Install `/visual-edit` when a coding agent should open a running local app in
+Design instead of generating standalone prototype HTML:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+After the target app dev server is running, `/visual-edit` uses
+`npx @agent-native/core@latest design connect` plus `add-localhost-screens` to
+place each requested path or URL as its own URL-backed iframe screen. Numbered
+flows such as `localhost:1234/onboarding/1`, `/onboarding/2`, and
+`/onboarding/3` stay as separate ordered screens in overview mode.
+
+The `/visual-edit` entry route can load before the viewer signs in, and public
+`/design/:id` links can render read-only public designs without a session.
+Persisting the screen layout, generating new screens, or sharing still creates
+account-backed Design data: signed-out users go through
+`/_agent-native/sign-in?return=...`, then Design saves or copies the project
+into that account before opening the share dialog.
+
+For stable layer names, add `data-agent-native-layer-name` to meaningful
+elements. Design uses it before semantic/text fallbacks and can persist layer
+renames by editing that attribute. Inline HTML supports local code-layer edits
+for text, classes, styles, attributes, source order, and small structural
+changes; visual code-layer edits are HTML-only today. Localhost source mode can
+register and resolve local route artboards, but local file reads/writes remain a
+bridge contract until explicit permission controls are hardened.
+
+### Design editor extensions
+
+The editor includes an **Extensions** inspector tab after **Tweaks**. It works
+like a Design-specific plugin lane: users can click **+ Extension** to ask the
+agent to build an extension, or install an extension that declares the
+`design.editor.inspector` slot.
+
+Design extensions render inline beside the artboard through the standard
+extension sandbox. The host passes `window.slotContext` and
+`window.onSlotContext(...)` updates with the current `designId`, active file,
+screen list, selected screen ids, selected element metadata, view mode, zoom,
+active tool, and tweak values. That lets an extension show information about
+the current selection, offer style controls, or build compact workflows around
+the open design.
+
+For deterministic work, extensions can call app actions through the extension
+bridge. For AI-driven changes, have the extension call
+`agentNative.chat.send(...)` with the selected element selector/source id and
+requested change. The agent should call `view-screen` first, then use
+`apply-visual-edit` for element style, class, text, or move changes, or
+`update-design` / `generate-design` with `canvasFrames` for artboard placement
+changes. See [Extensions](/docs/extensions#what-an-extension-can-do) for the
+sandbox, persistent state, and bridge APIs.
 
 ### Customizing it
 

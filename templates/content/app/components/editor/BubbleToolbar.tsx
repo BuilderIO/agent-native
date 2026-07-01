@@ -47,6 +47,7 @@ const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
   "image",
   "video",
   "audio",
+  "contentReference",
   "localMdxComponent",
 ]);
 
@@ -300,11 +301,11 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                 setLinkUrl("");
               }
             }}
-            className="bg-transparent border-none outline-none text-white text-sm w-40 sm:w-48 px-1 py-1 placeholder:text-gray-400"
+            className="bg-transparent border-none outline-none text-popover-foreground text-sm w-40 sm:w-48 px-1 py-1 placeholder:text-muted-foreground"
           />
           <button
             onClick={handleSetLink}
-            className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1.5 font-medium"
+            className="text-xs text-primary hover:text-primary/80 px-2 py-1.5 font-medium"
           >
             {t("editor.apply")}
           </button>
@@ -317,7 +318,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           {items.map((item, i) => {
             if ("type" in item && item.type === "divider") {
               return (
-                <div key={`d-${i}`} className="w-px h-5 bg-gray-600 mx-0.5" />
+                <div key={`d-${i}`} className="w-px h-5 bg-border mx-0.5" />
               );
             }
             const {
@@ -339,8 +340,8 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                     className={cn(
                       "p-2 rounded",
                       isActive()
-                        ? "bg-gray-600 text-white"
-                        : "text-gray-300 hover:bg-gray-700 hover:text-white",
+                        ? "bg-accent text-accent-foreground"
+                        : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
                     )}
                   >
                     <Icon size={16} strokeWidth={2.5} />
