@@ -2381,6 +2381,89 @@ describe("createAgentChatAdapter", () => {
     expect(secondBody.message).not.toContain("compact working v1");
   });
 
+  it("does not treat completed tool activity as unfinished action preparation", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([
+              {
+                type: "activity",
+                label: "Preparing generate-design action",
+                tool: "generate-design",
+              },
+              {
+                type: "tool_start",
+                tool: "generate-design",
+                input: { designId: "design_1" },
+              },
+              {
+                type: "tool_done",
+                tool: "generate-design",
+                result: '{"designId":"design_1"}',
+                completedSideEffect: true,
+              },
+              { type: "auto_continue", reason: "run_timeout" },
+            ])
+          : sseResponse([
+              { type: "text", text: "saved the design" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-design-completed-tool-timeout",
+      threadId: "thread-design-completed-tool-timeout",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Generate a todo app design" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    expect(postCount).toBe(2);
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    const secondBody = JSON.parse(chatPosts[1][1].body);
+    expect(secondBody.message).not.toContain(
+      "preparing the `generate-design` action input",
+    );
+    expect(secondBody.message).not.toContain("before the action could finish");
+  });
+
   it("nudges Design variant generation to save compact screens before refining", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
@@ -3583,6 +3666,90 @@ describe("createAgentChatAdapter", () => {
     expect(last?.content?.at(-1)?.text).toBe("done");
   });
 
+  it("bails when the same in-flight tool repeatedly stops producing progress", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let chatPostCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        chatPostCount += 1;
+        return sseResponse(
+          [
+            {
+              type: "tool_start",
+              tool: "generate-design",
+              input: { designId: "design_1" },
+            },
+            { type: "auto_continue", reason: "no_progress" },
+          ],
+          `run-no-progress-${chatPostCount}`,
+        );
+      }
+      if (url.includes("/abort") && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-inflight-no-progress",
+      threadId: "thread-inflight-no-progress",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "generate design" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(chatPostCount).toBe(4);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+          message: expect.stringContaining("same tool"),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    const toolCards = last.content.filter(
+      (part: any) =>
+        part.type === "tool-call" && part.toolName === "generate-design",
+    );
+    expect(toolCards.length).toBeGreaterThan(0);
+    expect(toolCards.every((part: any) => part.result !== undefined)).toBe(
+      true,
+    );
+  });
+
   it("preserves large create-extension input verbatim in continuation history", async () => {
     // Large-input tools carry the artifact itself as their input. Lossy
     // truncation to an `{ __agentNativeTruncated }` placeholder would strand
@@ -3925,6 +4092,239 @@ describe("createAgentChatAdapter", () => {
     );
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+  });
+
+  it("finishes with a saved note when final text times out after a completed side-effect tool", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return postCount === 1
+        ? sseResponse([
+            { type: "text", text: "Building it now!" },
+            {
+              type: "tool_start",
+              tool: "generate-design",
+              input: { designId: "design_1" },
+            },
+            {
+              type: "tool_done",
+              tool: "generate-design",
+              result: '{"designId":"design_1","urlPath":"/design/design_1"}',
+              completedSideEffect: true,
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ])
+        : sseResponse([{ type: "auto_continue", reason: "run_timeout" }]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-completed-side-effect",
+      threadId: "thread-completed-side-effect",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "create a dark todo app" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+    expect(last.metadata.custom.runWarning).toMatchObject({
+      errorCode: "final_response_timeout_after_tool",
+      recoverable: true,
+    });
+    expect(last.content.at(-1).text).toContain("The design was saved");
+  });
+
+  it("reconnects to a newer background continuation after run_timeout before self-posting", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return sseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-first",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-next",
+          threadId: "thread-bg-next",
+          status: "running",
+          dispatchMode: "background-function",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-bg-next/events")) {
+        return sseResponse(
+          [{ type: "text", text: " and done" }, { type: "done" }],
+          "run-bg-next",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-next",
+      threadId: "thread-bg-next",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a long background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const results = await promise;
+
+    expect(postCount).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/runs/run-bg-next/events"),
+      expect.any(Object),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("Working and done");
+  });
+
+  it("does not adopt a foreground active run after run_timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse(
+              [
+                { type: "text", text: "Working" },
+                { type: "auto_continue", reason: "run_timeout" },
+              ],
+              "run-first",
+            )
+          : sseResponse(
+              [{ type: "text", text: " continued" }, { type: "done" }],
+              "run-self-continuation",
+            );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-foreground-other",
+          threadId: "thread-bg-foreground",
+          status: "running",
+          dispatchMode: "foreground",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-foreground-other/events")) {
+        return jsonResponse({ error: "should not reconnect foreground" }, 500);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-foreground",
+      threadId: "thread-bg-foreground",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a long foreground task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("/runs/run-foreground-other/events"),
+      expect.any(Object),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("Working continued");
   });
 
   it("gives up quickly when the model repeats the same narration without finishing", async () => {

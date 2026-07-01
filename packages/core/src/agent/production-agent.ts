@@ -3801,7 +3801,11 @@ export async function runAgentLoop(opts: {
         input: toolCall.input as Record<string, unknown>,
         result,
         ...(isError ? { isError: true } : {}),
-        ...(isError ? { completedSideEffect: false } : {}),
+        ...(isError
+          ? { completedSideEffect: false }
+          : actionEntry.readOnly !== true
+            ? { completedSideEffect: true }
+            : {}),
         ...(mcpApp ? { mcpApp } : {}),
         ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
       });
