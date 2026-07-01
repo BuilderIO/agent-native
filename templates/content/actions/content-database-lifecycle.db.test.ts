@@ -314,11 +314,12 @@ describe("inline database lifecycle reconcile", () => {
 
 describe("content database soft-delete actions and reads", () => {
   it("delete-content-database and restore-content-database round-trip deleted_at", async () => {
-    const { databaseId } = await createDatabase({});
+    const { databaseId, databaseDocumentId } = await createDatabase({});
 
     const deleted = await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteContentDatabaseAction.run({ databaseId }),
     );
+    expect(deleted.documentId).toBe(databaseDocumentId);
     expect(deleted.deletedAt).toEqual(expect.any(String));
     expect((await databaseRow(databaseId))?.deletedAt).toEqual(
       deleted.deletedAt,
@@ -327,6 +328,7 @@ describe("content database soft-delete actions and reads", () => {
     const restored = await runWithRequestContext({ userEmail: OWNER }, () =>
       restoreContentDatabaseAction.run({ databaseId }),
     );
+    expect(restored.documentId).toBe(databaseDocumentId);
     expect(restored.deletedAt).toBeNull();
     expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
   });

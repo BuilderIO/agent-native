@@ -33,15 +33,39 @@ import type {
   UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
-import type { QueryClient } from "@tanstack/react-query";
+import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
 }
 
+function isContentDatabaseQueryForDocument(
+  queryKey: readonly unknown[],
+  documentId: string,
+) {
+  if (
+    queryKey[0] !== "action" ||
+    queryKey[1] !== "get-content-database" ||
+    !queryKey[2] ||
+    typeof queryKey[2] !== "object"
+  ) {
+    return false;
+  }
+  const params = queryKey[2] as { documentId?: unknown };
+  return params.documentId === documentId;
+}
+
+function contentDatabaseQueryFilter(documentId: string) {
+  return {
+    queryKey: ["action", "get-content-database"],
+    predicate: (query: Query) =>
+      isContentDatabaseQueryForDocument(query.queryKey, documentId),
+  };
+}
+
 export function writeContentDatabaseResponseToCache(
-  queryClient: Pick<QueryClient, "setQueryData">,
+  queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
   documentId: string,
   data: ContentDatabaseResponse,
 ) {
@@ -49,6 +73,35 @@ export function writeContentDatabaseResponseToCache(
     contentDatabaseQueryKey(documentId),
     data,
   );
+  queryClient.setQueriesData<ContentDatabaseResponse>(
+    contentDatabaseQueryFilter(documentId),
+    data,
+  );
+}
+
+export function clearDeletedContentDatabaseFromCache(
+  queryClient: Pick<QueryClient, "removeQueries" | "invalidateQueries">,
+  documentId: string,
+) {
+  queryClient.removeQueries(contentDatabaseQueryFilter(documentId));
+  queryClient.removeQueries({
+    queryKey: ["action", "get-document", { id: documentId }],
+  });
+  queryClient.invalidateQueries({
+    queryKey: ["action", "get-content-database"],
+  });
+  queryClient.invalidateQueries({
+    queryKey: ["action", "get-document"],
+  });
+  queryClient.invalidateQueries({
+    queryKey: ["action", "list-documents"],
+  });
+  queryClient.invalidateQueries({
+    queryKey: ["action", "list-trashed-content-databases"],
+  });
+  queryClient.invalidateQueries({
+    queryKey: ["action", "list-content-databases"],
+  });
 }
 
 export function applySourceFieldPropertyToDatabaseResponse(
@@ -183,22 +236,16 @@ export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
 export function useDeleteContentDatabase() {
   const queryClient = useQueryClient();
   return useActionMutation<
-    { success: boolean; databaseId: string; deletedAt: string },
+    {
+      success: boolean;
+      databaseId: string;
+      documentId: string;
+      deletedAt: string;
+    },
     { databaseId: string }
   >("delete-content-database", {
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document"],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
+    onSuccess: (data) => {
+      clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
     },
   });
 }
@@ -206,7 +253,12 @@ export function useDeleteContentDatabase() {
 export function useRestoreContentDatabase() {
   const queryClient = useQueryClient();
   return useActionMutation<
-    { success: boolean; databaseId: string; deletedAt: null },
+    {
+      success: boolean;
+      databaseId: string;
+      documentId: string;
+      deletedAt: null;
+    },
     { databaseId: string }
   >("restore-content-database", {
     onSuccess: () => {
@@ -221,6 +273,9 @@ export function useRestoreContentDatabase() {
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-databases"],
       });
     },
   });

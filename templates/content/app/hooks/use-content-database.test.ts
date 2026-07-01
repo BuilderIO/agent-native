@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applySourceFieldPropertyToDatabaseResponse,
+  clearDeletedContentDatabaseFromCache,
   contentDatabaseQueryKey,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
@@ -218,6 +219,62 @@ describe("applySourceFieldPropertyToDatabaseResponse", () => {
   });
 });
 
+describe("clearDeletedContentDatabaseFromCache", () => {
+  it("removes stale deleted database page data and invalidates source pickers", () => {
+    const queryClient = new QueryClient();
+    const database = databaseResponse();
+    queryClient.setQueryData(
+      contentDatabaseQueryKey("database-page"),
+      database,
+    );
+    queryClient.setQueryData(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      database,
+    );
+    queryClient.setQueryData(
+      ["action", "get-document", { id: "database-page" }],
+      database.items[0]?.document,
+    );
+    queryClient.setQueryData(["action", "list-content-databases"], {
+      databases: [
+        {
+          databaseId: "database",
+          documentId: "database-page",
+          title: "Content",
+        },
+      ],
+    });
+
+    clearDeletedContentDatabaseFromCache(queryClient, "database-page");
+
+    expect(
+      queryClient.getQueryData(contentDatabaseQueryKey("database-page")),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData([
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ]),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData([
+        "action",
+        "get-document",
+        { id: "database-page" },
+      ]),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryState(["action", "list-content-databases"])
+        ?.isInvalidated,
+    ).toBe(true);
+  });
+});
+
 describe("writeContentDatabaseResponseToCache", () => {
   it("stores the attach-source response immediately for the active database", () => {
     const attached = databaseResponse();
@@ -230,5 +287,31 @@ describe("writeContentDatabaseResponseToCache", () => {
     );
     expect(cached).toBe(attached);
     expect(cached?.source?.sourceTable).toBe("blog-article");
+  });
+
+  it("updates active paginated database reads after a Builder source attach", () => {
+    const beforeAttach = {
+      ...databaseResponse(),
+      items: [],
+      source: null,
+    };
+    const attached = databaseResponse();
+    const queryClient = new QueryClient();
+    const visibleQueryKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ] as const;
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      visibleQueryKey,
+      beforeAttach,
+    );
+
+    writeContentDatabaseResponseToCache(queryClient, "database-page", attached);
+
+    const visibleCache =
+      queryClient.getQueryData<ContentDatabaseResponse>(visibleQueryKey);
+    expect(visibleCache?.source?.sourceTable).toBe("blog-article");
+    expect(visibleCache?.items).toHaveLength(500);
   });
 });

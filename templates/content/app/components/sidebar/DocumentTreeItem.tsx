@@ -145,12 +145,12 @@ export function DocumentTreeItem({
         {...(isLocalFileNode ? {} : listeners)}
         aria-label={node.title || "Untitled"}
         className={cn(
-          "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pe-2 text-sm cursor-pointer select-none",
+          "group relative flex min-w-56 items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm cursor-pointer select-none",
           canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isActive
-            ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            ? "border-primary bg-accent text-accent-foreground font-medium shadow-sm"
+            : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
         style={{
           paddingInlineStart: `${indent}px`,
