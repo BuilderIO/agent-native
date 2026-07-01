@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.7
+
+### Patch Changes
+
+- ab1e410: Stop repeated agent-chat action-preparation loops with a clear terminal warning, and let Design agents present compact variant directions without streaming large HTML payloads.
+
 ## 0.84.6
 
 ### Patch Changes
