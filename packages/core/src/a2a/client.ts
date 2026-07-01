@@ -572,7 +572,12 @@ export async function callAgent(
 
   for (let i = 0; i < apiKeyAttempts.length; i++) {
     try {
-      const client = new A2AClient(url, apiKeyAttempts[i]);
+      const fallbackApiKeys = apiKeyAttempts
+        .slice(i + 1)
+        .filter((token): token is string => token !== undefined);
+      const client = new A2AClient(url, apiKeyAttempts[i], {
+        fallbackApiKeys,
+      });
       let task: Task;
       if (useAsync) {
         task = await client.sendAndWait(message, {

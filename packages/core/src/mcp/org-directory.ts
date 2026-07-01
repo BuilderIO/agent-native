@@ -281,6 +281,7 @@ async function resolveOrgDirectoryCallerAuth(): Promise<{
 
 async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
   apiKey?: string;
+  apiKeyFallbacks?: string[];
   userEmail?: string;
   orgId?: string;
   orgDomain?: string;
@@ -300,12 +301,42 @@ async function resolveOrgDirectoryServiceAuth(orgId: string): Promise<{
       import("./connect-store.js"),
     ]);
     const userEmail = serviceIdentityEmail("mcp-client", trimmedOrgId);
-    const apiKey = await signA2AToken(userEmail, orgDomain, orgSecret, {
-      expiresIn: "5m",
-      preferGlobalSecret: !orgSecret,
-      extraClaims: { org_id: trimmedOrgId },
-    });
-    return { apiKey, userEmail, orgId: trimmedOrgId, orgDomain };
+    const apiKeyAttempts: string[] = [];
+    const addApiKeyAttempt = (token: string | undefined) => {
+      if (!token || apiKeyAttempts.includes(token)) return;
+      apiKeyAttempts.push(token);
+    };
+    if (process.env.A2A_SECRET?.trim()) {
+      try {
+        addApiKeyAttempt(
+          await signA2AToken(userEmail, orgDomain, orgSecret, {
+            expiresIn: "5m",
+            preferGlobalSecret: true,
+            extraClaims: { org_id: trimmedOrgId },
+          }),
+        );
+      } catch {}
+    }
+    if (orgSecret) {
+      try {
+        addApiKeyAttempt(
+          await signA2AToken(userEmail, orgDomain, orgSecret, {
+            expiresIn: "5m",
+            preferGlobalSecret: false,
+            extraClaims: { org_id: trimmedOrgId },
+          }),
+        );
+      } catch {}
+    }
+    return {
+      apiKey: apiKeyAttempts[0],
+      ...(apiKeyAttempts.length > 1
+        ? { apiKeyFallbacks: apiKeyAttempts.slice(1) }
+        : {}),
+      userEmail,
+      orgId: trimmedOrgId,
+      orgDomain,
+    };
   } catch {
     return { orgId: trimmedOrgId, orgDomain };
   }

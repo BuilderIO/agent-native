@@ -89,7 +89,7 @@ jobs:
             const headers = { Authorization: `Bearer ${token}` };
             const CANCELABLE_STATES = new Set(['new', 'enqueued']);
 
-            async function cancelQueuedProductionDeploys(name, id) {
+            async function cancelQueuedProductionDeploys(name, id, options = {}) {
               const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
               let r;
               try {
@@ -109,8 +109,19 @@ jobs:
               const queued = deploys.filter(d =>
                 d.context === 'production' && CANCELABLE_STATES.has(d.state)
               );
+              const keepDeploy = options.keepNewest && queued.length
+                ? queued
+                    .slice()
+                    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
+                : null;
+              const cancelable = keepDeploy
+                ? queued.filter(d => d.id !== keepDeploy.id)
+                : queued;
+              if (keepDeploy) {
+                core.info(`[${name}] keeping newest queued production deploy ${keepDeploy.id}; canceling older queued deploys only.`);
+              }
               let ok = 0;
-              for (const d of queued) {
+              for (const d of cancelable) {
                 try {
                   const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
                   if (c.ok) ok++;
@@ -118,8 +129,8 @@ jobs:
                   core.warning(`[${name}] cancel ${d.id} failed: ${err?.message || err}`);
                 }
               }
-              if (queued.length) {
-                core.info(`[${name}] freed ${ok}/${queued.length} queued production deploys`);
+              if (cancelable.length) {
+                core.info(`[${name}] freed ${ok}/${cancelable.length} queued production deploys`);
               }
               return ok;
             }
@@ -134,8 +145,6 @@ jobs:
             }
 
             if (rebuild) {
-              const freedTarget = await cancelQueuedProductionDeploys(target, targetId);
-              core.info(`[${target}] cleared ${freedTarget} queued deploys before rebuild.`);
               const r = await fetch(`https://api.netlify.com/api/v1/sites/${targetId}/builds`, { method: 'POST', headers });
               if (r.ok) {
                 core.info(`[${target}] triggered a fresh production build.`);
@@ -143,8 +152,11 @@ jobs:
                 core.setFailed(`[${target}] build trigger failed: ${r.status} ${await r.text()}`);
                 return;
               }
+              const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
+              core.info(`[${target}] cleared ${freedTarget} older queued deploys after rebuild trigger.`);
             } else {
-              core.info(`[${target}] rebuild not requested; freed queue slots so its existing deploy runs sooner.`);
+              const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
+              core.info(`[${target}] rebuild not requested; cleared ${freedTarget} older queued deploys so the newest existing deploy runs sooner.`);
             }
 
             core.info(`Promotion complete for ${target} (clear_others=${clearOthers}, rebuild=${rebuild}).`);

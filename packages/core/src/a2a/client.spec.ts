@@ -336,6 +336,78 @@ describe("A2AClient", () => {
     });
   });
 
+  it("retries async task polling with fallback delegated bearer tokens", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    const calls: Array<{ method: string; token: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        const token = String(
+          new Headers(init.headers).get("authorization") ?? "",
+        ).replace(/^Bearer\s+/i, "");
+        const body = JSON.parse(String(init.body));
+        calls.push({ method: body.method, token });
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-auth-fallback");
+        }
+
+        const verifiedByOrgSecret = await jose
+          .jwtVerify(token, new TextEncoder().encode("org-a2a-secret"))
+          .then(() => true)
+          .catch(() => false);
+        if (!verifiedByOrgSecret) {
+          return new Response("Invalid or expired A2A token", { status: 401 });
+        }
+        return completedResponse(body, "polled with fallback org secret");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        userEmail: "alice+qa@agent-native.test",
+        orgDomain: "builder.io",
+        orgSecret: "org-a2a-secret",
+        timeoutMs: 25,
+        pollIntervalMs: 1,
+      }),
+    ).resolves.toBe("polled with fallback org secret");
+
+    expect(calls.map((call) => call.method)).toEqual([
+      "message/send",
+      "tasks/get",
+      "tasks/get",
+    ]);
+    await expect(
+      jose.jwtVerify(
+        calls[0]!.token,
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).resolves.toMatchObject({
+      payload: { sub: "alice+qa@agent-native.test" },
+    });
+    await expect(
+      jose.jwtVerify(
+        calls[1]!.token,
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).resolves.toMatchObject({
+      payload: { sub: "alice+qa@agent-native.test" },
+    });
+    await expect(
+      jose.jwtVerify(
+        calls[2]!.token,
+        new TextEncoder().encode("org-a2a-secret"),
+      ),
+    ).resolves.toMatchObject({
+      payload: {
+        sub: "alice+qa@agent-native.test",
+        org_domain: "builder.io",
+      },
+    });
+  });
+
   it("retries direct client requests with configured fallback bearer tokens", async () => {
     const bearerTokens: string[] = [];
     vi.stubGlobal(

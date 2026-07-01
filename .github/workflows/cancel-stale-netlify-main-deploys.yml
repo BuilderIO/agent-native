@@ -32,7 +32,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          sparse-checkout: scripts/netlify-sites.json
+          sparse-checkout: |
+            scripts/netlify-sites.json
+            package.json
+            packages/*/package.json
+            templates/*/package.json
           sparse-checkout-cone-mode: false
 
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
@@ -42,9 +46,18 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            const path = require('path');
             const SITES = Object.entries(
               JSON.parse(fs.readFileSync('scripts/netlify-sites.json', 'utf8'))
             );
+            const repoRoot = process.cwd();
+            const globalPaths = [
+              '.nvmrc',
+              'package.json',
+              'pnpm-lock.yaml',
+              'pnpm-workspace.yaml',
+              'scripts/netlify-ignore-build.mjs',
+            ];
 
             const token = process.env.NETLIFY_TOKEN;
             if (!token) {
@@ -59,6 +72,124 @@ jobs:
             // (building/uploading/preparing/processing) is left to finish so we
             // never kill a deploy that's "partway through".
             const CANCELABLE_STATES = new Set(['new', 'enqueued']);
+
+            async function commitSubject(ref) {
+              try {
+                const response = await github.rest.repos.getCommit({
+                  ...context.repo,
+                  ref,
+                });
+                return response.data.commit.message.split('\n')[0] ?? '';
+              } catch (err) {
+                core.info(`Could not read commit subject for ${ref.slice(0, 7)}: ${err?.message || err}`);
+                return '';
+              }
+            }
+
+            const currentCommitSubject = await commitSubject(currentSha);
+            const currentCommitBuildsSites = !/^chore:\s*version packages\b/i.test(currentCommitSubject);
+            if (!currentCommitBuildsSites) {
+              core.info(`Current commit ${currentSha.slice(0, 7)} is a version-packages release that Netlify sites intentionally skip; keeping older queued deploys.`);
+            }
+
+            function readJson(filePath) {
+              return JSON.parse(fs.readFileSync(path.join(repoRoot, filePath), 'utf8'));
+            }
+
+            function packageDirsUnder(parentDir) {
+              const absParent = path.join(repoRoot, parentDir);
+              if (!fs.existsSync(absParent)) return [];
+              return fs.readdirSync(absParent, { withFileTypes: true })
+                .filter(entry => entry.isDirectory())
+                .map(entry => `${parentDir}/${entry.name}`)
+                .filter(dir => fs.existsSync(path.join(repoRoot, dir, 'package.json')));
+            }
+
+            function workspacePackages() {
+              const packages = new Map();
+              for (const dir of [
+                ...packageDirsUnder('packages'),
+                ...packageDirsUnder('templates'),
+              ]) {
+                const pkg = readJson(`${dir}/package.json`);
+                if (pkg.name) packages.set(pkg.name, { dir, pkg });
+              }
+              return packages;
+            }
+
+            function dependencyNames(pkg) {
+              return [
+                pkg.dependencies,
+                pkg.devDependencies,
+                pkg.peerDependencies,
+                pkg.optionalDependencies,
+              ].flatMap(deps => deps ? Object.keys(deps) : []);
+            }
+
+            function targetPackage(packages, targetName) {
+              if (packages.has(targetName)) return packages.get(targetName);
+              const templateDir = `templates/${targetName}`;
+              return [...packages.values()].find(({ dir }) => dir === templateDir) ?? null;
+            }
+
+            function watchedPathsForTarget(packages, target) {
+              const watched = new Set(globalPaths);
+              const queue = [target];
+              const seen = new Set();
+              while (queue.length) {
+                const current = queue.shift();
+                if (!current || seen.has(current.pkg.name)) continue;
+                seen.add(current.pkg.name);
+                watched.add(current.dir);
+                for (const dependencyName of dependencyNames(current.pkg)) {
+                  const dependency = packages.get(dependencyName);
+                  if (dependency && !seen.has(dependency.pkg.name)) queue.push(dependency);
+                }
+              }
+              return [...watched].sort();
+            }
+
+            function pathMatches(filePath, watchedPath) {
+              return filePath === watchedPath || filePath.startsWith(`${watchedPath}/`);
+            }
+
+            const packages = workspacePackages();
+            const watchedPathsBySite = new Map();
+            for (const [name] of SITES) {
+              const target = targetPackage(packages, name);
+              if (!target) {
+                core.warning(`[${name}] no matching package; keeping queued deploys.`);
+                continue;
+              }
+              watchedPathsBySite.set(name, watchedPathsForTarget(packages, target));
+            }
+
+            async function supersedingChangeAffectsSite(name, commitRef) {
+              if (!currentCommitBuildsSites) return false;
+              const watchedPaths = watchedPathsBySite.get(name);
+              if (!watchedPaths) return false;
+              try {
+                const comparison = await github.rest.repos.compareCommitsWithBasehead({
+                  ...context.repo,
+                  basehead: `${commitRef}...${currentSha}`,
+                });
+                if (comparison.data.status !== 'ahead') {
+                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; compare status=${comparison.data.status}`);
+                  return false;
+                }
+                const matchedFile = (comparison.data.files ?? [])
+                  .map(file => file.filename)
+                  .find(file => watchedPaths.some(watchedPath => pathMatches(file, watchedPath)));
+                if (!matchedFile) {
+                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; newer main commit does not change this site.`);
+                  return false;
+                }
+                return true;
+              } catch (err) {
+                core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; could not prove replacement changes this site: ${err?.message || err}`);
+                return false;
+              }
+            }
 
             const results = await Promise.all(SITES.map(async ([name, id]) => {
               const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
@@ -76,33 +207,19 @@ jobs:
                 return { name, error: `list json failed: ${err?.message || err}` };
               }
 
-              const isStrictlyOlderCommit = async (commitRef) => {
-                if (!commitRef || commitRef === currentSha) return false;
-                try {
-                  const comparison = await github.rest.repos.compareCommitsWithBasehead({
-                    ...context.repo,
-                    basehead: `${commitRef}...${currentSha}`,
-                  });
-                  if (comparison.data.status === 'ahead') return true;
-                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; compare status=${comparison.data.status}`);
-                  return false;
-                } catch (err) {
-                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; could not prove it is older: ${err?.message || err}`);
-                  return false;
-                }
-              };
-
               // Superseded == queued production deploy for a commit GitHub
-              // proves is an ancestor of the one we just pushed. Filtering by
-              // ancestry (not merely "different SHA" or queue position) avoids
-              // a slower cleanup run canceling a newer main deploy that landed
-              // after this workflow started.
+              // proves is an ancestor of the one we just pushed AND whose site
+              // is also touched by the newer commit range. The second condition
+              // keeps us from canceling the only deploy that would ship a site
+              // changed by an earlier main commit.
               const stale = [];
               for (const d of deploys) {
                 if (
                   d.context === 'production' &&
                   CANCELABLE_STATES.has(d.state) &&
-                  await isStrictlyOlderCommit(d.commit_ref)
+                  d.commit_ref &&
+                  d.commit_ref !== currentSha &&
+                  await supersedingChangeAffectsSite(name, d.commit_ref)
                 ) {
                   stale.push(d);
                 }

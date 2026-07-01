@@ -138,6 +138,7 @@ const SKIP_STEP_MS = 5000;
 const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
 const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
+const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
 
 const RRWEB_EVENT_TYPE = {
   FullSnapshot: 2,
@@ -979,7 +980,7 @@ function useSessionReplayPlayback(recordingId: string) {
   });
 }
 
-async function fetchSessionReplayPlayback(
+export async function fetchSessionReplayPlayback(
   recordingId: string,
 ): Promise<SessionReplayPlaybackResponse> {
   const manifest = await fetchReplayManifest(recordingId);
@@ -1036,27 +1037,42 @@ async function fetchReplayChunks(
 async function fetchReplayChunk(
   chunk: SessionReplayManifestResponse["chunks"][number],
 ): Promise<ReplayChunkEvents> {
-  try {
-    const response = await fetchReplayApi(chunk.bytesPath);
-    if (!response.ok) throw await replayFetchError(response);
-    const payload = await response.json();
-    return {
-      seq: chunk.seq,
-      checksum: chunk.checksum,
-      byteLength: chunk.byteLength,
-      eventCount: chunk.eventCount,
-      events: replayPayloadEvents(payload),
-    };
-  } catch {
-    return {
-      seq: chunk.seq,
-      checksum: chunk.checksum,
-      byteLength: chunk.byteLength,
-      eventCount: chunk.eventCount,
-      events: [],
-      unavailable: true,
-    };
+  const response = await fetchReplayApi(chunk.bytesPath);
+  if (!response.ok) {
+    const error = await replayFetchError(response);
+    if (isUnavailableReplayChunk(response, error)) {
+      return replayUnavailableChunk(chunk);
+    }
+    throw error;
   }
+  const payload = await response.json();
+  return {
+    seq: chunk.seq,
+    checksum: chunk.checksum,
+    byteLength: chunk.byteLength,
+    eventCount: chunk.eventCount,
+    events: replayPayloadEvents(payload),
+  };
+}
+
+function isUnavailableReplayChunk(response: Response, error: Error): boolean {
+  return (
+    response.status === 404 &&
+    error.message === REPLAY_CHUNK_UNAVAILABLE_MESSAGE
+  );
+}
+
+function replayUnavailableChunk(
+  chunk: SessionReplayManifestResponse["chunks"][number],
+): ReplayChunkEvents {
+  return {
+    seq: chunk.seq,
+    checksum: chunk.checksum,
+    byteLength: chunk.byteLength,
+    eventCount: chunk.eventCount,
+    events: [],
+    unavailable: true,
+  };
 }
 
 async function fetchReplayApi(path: string): Promise<Response> {

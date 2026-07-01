@@ -40,16 +40,6 @@ if (retiredTargets.has(targetName)) {
 }
 
 const commitRef = process.env.COMMIT_REF;
-if (commitExists(commitRef) && isSupersededProductionMainCommit(commitRef)) {
-  console.log(
-    `[netlify-ignore] Skipping ${targetName}: production commit ${commitRef.slice(
-      0,
-      8,
-    )} has been superseded by origin/main.`,
-  );
-  process.exit(0);
-}
-
 if (commitExists(commitRef) && isVersionPackagesRelease(commitRef)) {
   console.log(
     `[netlify-ignore] Skipping ${targetName}: version-packages release commit ${commitRef.slice(
@@ -219,17 +209,31 @@ function remoteMainRef() {
   }
 }
 
-function isSupersededProductionMainCommit(ref) {
+function supersedingProductionMainCommit(ref) {
   if (!isProductionBuild()) {
-    return false;
+    return null;
   }
 
   const latestMain = remoteMainRef();
   if (!latestMain || latestMain === ref) {
-    return false;
+    return null;
   }
 
-  return isAncestor(ref, latestMain);
+  return isAncestor(ref, latestMain) ? latestMain : null;
+}
+
+function changedFilesBetween(baseRef, headRef) {
+  try {
+    return git(["diff", "--name-only", baseRef, headRef])
+      .split("\n")
+      .map((file) => normalizePath(file.trim()))
+      .filter(Boolean);
+  } catch (error) {
+    console.log(
+      `[netlify-ignore] Build required: git diff failed (${error.message}).`,
+    );
+    return null;
+  }
 }
 
 function changedFiles() {
@@ -268,17 +272,7 @@ function changedFiles() {
     baseRef = parent;
   }
 
-  try {
-    return git(["diff", "--name-only", baseRef, commitRef])
-      .split("\n")
-      .map((file) => normalizePath(file.trim()))
-      .filter(Boolean);
-  } catch (error) {
-    console.log(
-      `[netlify-ignore] Build required: git diff failed (${error.message}).`,
-    );
-    return null;
-  }
+  return changedFilesBetween(baseRef, commitRef);
 }
 
 function pathMatches(filePath, watchedPath) {
@@ -304,7 +298,40 @@ const matchedFile = files.find((file) =>
   watchedPaths.some((watchedPath) => pathMatches(file, watchedPath)),
 );
 
+const supersedingMain = commitExists(commitRef)
+  ? supersedingProductionMainCommit(commitRef)
+  : null;
+
 if (matchedFile) {
+  if (supersedingMain) {
+    const newerFiles = changedFilesBetween(commitRef, supersedingMain);
+    if (!newerFiles) {
+      process.exit(1);
+    }
+
+    const newerMatchedFile = newerFiles.find((file) =>
+      watchedPaths.some((watchedPath) => pathMatches(file, watchedPath)),
+    );
+
+    if (newerMatchedFile) {
+      console.log(
+        `[netlify-ignore] Skipping ${target.pkg.name}: production commit ${commitRef.slice(
+          0,
+          8,
+        )} was superseded by ${supersedingMain.slice(
+          0,
+          8,
+        )}, which also changes ${newerMatchedFile}.`,
+      );
+      process.exit(0);
+    }
+
+    console.log(
+      `[netlify-ignore] Build still required for ${target.pkg.name}: ${matchedFile} changed, and newer origin/main commits do not change this target.`,
+    );
+    process.exit(1);
+  }
+
   console.log(
     `[netlify-ignore] Build required for ${target.pkg.name}: ${matchedFile} changed.`,
   );
