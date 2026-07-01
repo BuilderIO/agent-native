@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.9
+
+### Patch Changes
+
+- 8cfc0ee: Show a visible warning when an agent stops after its final completed tool action, even if it sent text before that tool finished.
+
 ## 0.84.8
 
 ### Patch Changes
