@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.18
+
+### Patch Changes
+
+- fb0021b: Send compressed session replay uploads as binary payloads so Netlify preserves gzip bytes.
+
 ## 0.84.17
 
 ### Patch Changes
