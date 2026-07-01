@@ -5,9 +5,72 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function parseDesignData(value: unknown): Record<string, unknown> {
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function pruneKeyedRecord(
+  value: unknown,
+  fileId: string,
+): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  const next = { ...value };
+  delete next[fileId];
+  return next;
+}
+
+function variantScreenMatchesFile(screen: unknown, fileId: string): boolean {
+  if (typeof screen === "string") return screen === fileId;
+  return isRecord(screen) && screen.id === fileId;
+}
+
+function pruneDesignVariantSets(
+  value: unknown,
+  fileId: string,
+): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  const next: Record<string, unknown> = {};
+  for (const [key, rawSet] of Object.entries(value)) {
+    if (!isRecord(rawSet) || !Array.isArray(rawSet.screens)) {
+      next[key] = rawSet;
+      continue;
+    }
+    const screens = rawSet.screens.filter(
+      (screen) => !variantScreenMatchesFile(screen, fileId),
+    );
+    if (screens.length <= 1) continue;
+    next[key] = { ...rawSet, screens };
+  }
+  return next;
+}
+
+function pruneDeletedFileMetadata(
+  data: Record<string, unknown>,
+  fileId: string,
+): Record<string, unknown> {
+  return {
+    ...data,
+    canvasFrames: pruneKeyedRecord(data.canvasFrames, fileId) ?? {},
+    screenMetadata: pruneKeyedRecord(data.screenMetadata, fileId) ?? {},
+    localhostScreens: pruneKeyedRecord(data.localhostScreens, fileId) ?? {},
+    designVariantSets:
+      pruneDesignVariantSets(data.designVariantSets, fileId) ?? {},
+  };
+}
+
 export default defineAction({
   description:
-    "Delete a file from a design project. Validates ownership via the parent design's access.",
+    "Delete a file from a design project. Idempotent: if the file is already gone, returns deleted=false so cleanup retries can continue. Validates ownership via the parent design's access when the file exists.",
   schema: z.object({
     id: z.string().describe("File ID to delete"),
   }),
@@ -33,21 +96,34 @@ export default defineAction({
       )
       .limit(1);
 
-    if (!file) {
-      throw new Error(`File not found: ${id}`);
-    }
+    if (!file) return { id, deleted: false, alreadyMissing: true };
 
     await assertAccess("design", file.designId, "editor");
 
     const now = new Date().toISOString();
 
-    await db.delete(schema.designFiles).where(eq(schema.designFiles.id, id));
+    await db.transaction(async (tx) => {
+      const [currentDesign] = await tx
+        .select({ data: schema.designs.data })
+        .from(schema.designs)
+        .where(eq(schema.designs.id, file.designId))
+        .limit(1);
+      const nextData = pruneDeletedFileMetadata(
+        parseDesignData(currentDesign?.data),
+        id,
+      );
 
-    // Update the parent design's updatedAt timestamp
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+      await tx.delete(schema.designFiles).where(eq(schema.designFiles.id, id));
+
+      // Update the parent design's board metadata and updatedAt timestamp.
+      await tx
+        .update(schema.designs)
+        .set({
+          data: JSON.stringify({ ...nextData, updatedAt: now }),
+          updatedAt: now,
+        })
+        .where(eq(schema.designs.id, file.designId));
+    });
 
     return { id, deleted: true };
   },

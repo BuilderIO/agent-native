@@ -6,7 +6,11 @@
  * but no React state lives here — callers subscribe via `onState`, `onChunk`,
  * and `onError`.
  */
-import { appBasePath, captureClientException } from "@agent-native/core/client";
+import {
+  appBasePath,
+  captureClientException,
+  trackEvent,
+} from "@agent-native/core/client";
 import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chunkUploadUrl,
@@ -352,6 +356,19 @@ function canUseTimeslicedRecorderChunks(mimeType: string): boolean {
 
 function isRetryableChunkUploadStatus(status: number): boolean {
   return RETRYABLE_CHUNK_UPLOAD_STATUSES.has(status);
+}
+
+function trackClipUploadBlockingFailure(props: Record<string, unknown>): void {
+  try {
+    trackEvent("clips_upload_blocking_failure", {
+      app: "clips",
+      template: "clips",
+      surface: "web_recorder",
+      ...props,
+    });
+  } catch {
+    // Analytics should never change recording behavior.
+  }
 }
 
 function retryDelayMs(attempt: number): number {
@@ -1775,6 +1792,15 @@ export class RecorderEngine {
     }
 
     if (!res) {
+      trackClipUploadBlockingFailure({
+        stage: "chunk_upload",
+        failureKind: "no_response",
+        recordingId: this.opts.recordingId,
+        chunkIndex: index,
+        isFinal: extra.isFinal === true,
+        chunkBytes: blob.size,
+        uploadMode: this.opts.uploadMode,
+      });
       throw new Error(`Chunk ${index} upload failed: no response`);
     }
 
@@ -1791,6 +1817,20 @@ export class RecorderEngine {
         const recovered = await this.recoverReadyAfterFinalUploadError();
         if (recovered) return recovered;
       }
+      trackClipUploadBlockingFailure({
+        stage: "chunk_upload",
+        failureKind: "http_error",
+        recordingId: this.opts.recordingId,
+        chunkIndex: index,
+        isFinal: extra.isFinal === true,
+        httpStatus: res.status,
+        statusText: res.statusText,
+        chunkBytes: blob.size,
+        uploadMode: this.opts.uploadMode,
+        finalUploadRecoveryAttempted:
+          extra.isFinal === true &&
+          this.isFinalUploadRecoveryCandidate(res.status, err),
+      });
       // Capture rich context to Sentry BEFORE throwing — when this hits
       // production we want enough breadcrumbs in the event to debug a
       // "Builder.io upload failed (500)" without re-running the upload.

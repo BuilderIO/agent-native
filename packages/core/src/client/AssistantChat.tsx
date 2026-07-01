@@ -233,6 +233,7 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
 const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
+const AUTO_RESUME_STATUS_TIMEOUT_MS = 30_000;
 // How long a single activity (model call, tool prep, long tool) must stay
 // in-flight before its label is surfaced in the running indicator. Below this
 // the indicator stays a steady "Thinking" so normal fast turns don't flicker
@@ -1410,6 +1411,7 @@ const AssistantChatInner = forwardRef<
   // True during the 250ms continuation window and startup of the next chunk
   // (adapter's auto-continue delay before POSTing the next chunk).
   const [isAutoResuming, setIsAutoResuming] = useState(false);
+  const autoResumeTimerRef = useRef<number | null>(null);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
   const [runningActivityLabel, setRunningActivityLabel] = useState<
     string | null
@@ -2491,20 +2493,41 @@ const AssistantChatInner = forwardRef<
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { tabId?: string };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+      }
       setIsAutoResuming(true);
+      autoResumeTimerRef.current = window.setTimeout(() => {
+        autoResumeTimerRef.current = null;
+        setIsAutoResuming(false);
+      }, AUTO_RESUME_STATUS_TIMEOUT_MS);
     };
     window.addEventListener("agent-chat:auto-continue", handler);
-    return () =>
+    return () => {
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+        autoResumeTimerRef.current = null;
+      }
       window.removeEventListener("agent-chat:auto-continue", handler);
+    };
   }, [tabId]);
 
-  // Clear auto-resume state when the run stops.
+  // Clear auto-resume once the next chunk has visibly started or the user stops.
+  // Do not clear solely because `isRunning` is false: auto-resume intentionally
+  // covers that between-chunk gap so the chat never looks idle while work is
+  // still scheduled.
   useEffect(() => {
-    if (!isRunning) {
+    if (isRunning || forceStopped) {
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+        autoResumeTimerRef.current = null;
+      }
       setIsAutoResuming(false);
+    }
+    if (!isRunning && !isAutoResuming) {
       resetRunningActivity();
     }
-  }, [isRunning, resetRunningActivity]);
+  }, [forceStopped, isAutoResuming, isRunning, resetRunningActivity]);
 
   // Auto-dequeue: when the agent is idle, send the next queued message. This
   // intentionally does not depend on observing the running -> idle transition:

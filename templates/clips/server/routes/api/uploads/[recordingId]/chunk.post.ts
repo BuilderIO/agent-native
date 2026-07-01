@@ -19,6 +19,7 @@ import {
 } from "@agent-native/core/application-state";
 import { getActiveFileUploadProvider } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
@@ -93,6 +94,26 @@ function stateNumber(
 ): number | undefined {
   const raw = value?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function trackUploadBlockingFailure(
+  ownerEmail: string,
+  properties: Record<string, unknown>,
+): void {
+  try {
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "server_upload",
+        ...properties,
+      },
+      { userId: ownerEmail },
+    );
+  } catch {
+    // Best-effort analytics must never change upload behavior.
+  }
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -189,6 +210,7 @@ export default defineEventHandler(async (event: H3Event) => {
         isFinal,
         mimeType,
         query,
+        ownerEmail,
       );
     }
 
@@ -507,6 +529,13 @@ export default defineEventHandler(async (event: H3Event) => {
             hasCamera: committed.hasCamera,
           };
         }
+        trackUploadBlockingFailure(ownerEmail, {
+          stage: "finalize_recording",
+          failureKind: "finalize_error",
+          recordingId,
+          uploadMode: "buffered",
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
         await db
           .update(schema.recordings)
           .set({
@@ -566,6 +595,7 @@ async function handleResumableChunk(
   isFinal: boolean,
   mimeType: string,
   query: Record<string, unknown>,
+  ownerEmail: string,
 ) {
   const uploadProvider = getActiveFileUploadProvider();
   console.log(
@@ -681,6 +711,13 @@ async function handleResumableChunk(
     return { ok: true, finalized: true, ...result };
   } catch (err) {
     console.error(`[resumable-chunk-${recordingId}] finalize failed:`, err);
+    trackUploadBlockingFailure(ownerEmail, {
+      stage: "finalize_recording",
+      failureKind: "finalize_error",
+      recordingId,
+      uploadMode: "resumable",
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
     setResponseStatus(event, 500);
     return {
       ok: false,

@@ -1591,7 +1591,8 @@ export async function readSessionReplayChunkBytes(
   recording: SessionRecordingSummary;
   seq: number;
   checksum: string;
-  data: Buffer;
+  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
+  json: string;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
   const db = getDb() as any;
@@ -1608,6 +1609,12 @@ export async function readSessionReplayChunkBytes(
     .limit(1);
   if (!row) throw replayError("Session replay chunk not found", 404);
 
+  // Return decompressed JSON and let normal Accept-Encoding negotiation handle
+  // wire compression. We intentionally do NOT hand back a pre-gzipped body with
+  // a manual `Content-Encoding: gzip` header: serverless hosts (Netlify) mangle
+  // binary function bodies and re-negotiate compression, which corrupted replay
+  // chunk downloads in production and left the player blank. Storing gzip at
+  // rest is unchanged — we just gunzip before serving.
   if (row.storageKind === "blob" && row.storageRef) {
     const ref = decodeReplayBlobRef(row.storageRef);
     if (!ref)
@@ -1617,7 +1624,7 @@ export async function readSessionReplayChunkBytes(
       recording,
       seq: row.seq,
       checksum: row.checksum,
-      data: Buffer.from(blob.data),
+      json: gunzipSync(Buffer.from(blob.data)).toString("utf8"),
     };
   }
   if (!row.inlineData)
@@ -1626,7 +1633,7 @@ export async function readSessionReplayChunkBytes(
     recording,
     seq: row.seq,
     checksum: row.checksum,
-    data: gzipSync(Buffer.from(row.inlineData, "utf8")),
+    json: row.inlineData,
   };
 }
 
