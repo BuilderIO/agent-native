@@ -388,37 +388,46 @@ function SourceCodeDialog({
         <TooltipContent>View / edit source</TooltipContent>
       </Tooltip>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col gap-3">
-          <DialogHeader className="shrink-0">
-            <DialogTitle className="truncate text-sm">
+        <DialogContent className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col gap-0 overflow-hidden p-0">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+            <DialogTitle className="truncate text-sm font-medium">
               {extension.name} — source
             </DialogTitle>
-          </DialogHeader>
+            <span className="text-xs text-muted-foreground">
+              Alpine.js / HTML
+            </span>
+          </div>
           <textarea
-            className="flex-1 resize-none rounded-md border border-input bg-muted px-3 py-2 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="flex-1 resize-none bg-muted/40 px-5 py-4 font-mono text-xs leading-relaxed text-foreground focus:outline-none"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             spellCheck={false}
           />
-          {error ? (
-            <p className="shrink-0 text-xs text-destructive">{error}</p>
-          ) : null}
-          <div className="flex shrink-0 justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="inline-flex h-8 items-center rounded-md border border-input px-3 text-xs hover:bg-accent cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
+          <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-3">
+            {error ? (
+              <p className="text-xs text-destructive">{error}</p>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {code.length.toLocaleString()} chars
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="inline-flex h-8 cursor-pointer items-center rounded-md border border-input px-3 text-xs hover:bg-accent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="inline-flex h-8 cursor-pointer items-center rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
