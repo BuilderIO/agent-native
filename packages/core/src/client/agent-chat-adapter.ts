@@ -704,7 +704,7 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
 }
 
 const COMPLETED_TOOL_TIMEOUT_NAME_RE =
-  /^(add|apply|archive|capture|connect|create|delete|deploy|duplicate|edit|generate|grant|import|index|insert|migrate|move|open|present|publish|remove|rename|reorder|revoke|save|send|set|show|sync|trash|update|write)(-|$)/;
+  /^(add|apply|archive|capture|connect|create|delete|deploy|duplicate|edit|generate|grant|import|insert|migrate|move|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
 
 function isCompletedToolTimeoutCandidate(
   part: Extract<ContentPart, { type: "tool-call" }>,
