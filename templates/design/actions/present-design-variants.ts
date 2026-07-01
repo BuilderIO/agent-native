@@ -48,11 +48,26 @@ const variantSchema = z.object({
     .string()
     .min(1)
     .describe("Short user-facing screen name, e.g. 'One-Line Focus'"),
+  description: z
+    .string()
+    .optional()
+    .describe(
+      "Short visual direction summary. Use this instead of a huge HTML payload when exploring variants quickly.",
+    ),
+  accentColor: z
+    .string()
+    .optional()
+    .describe("Optional CSS color used as this variant's primary accent."),
+  features: z
+    .array(z.string())
+    .max(8)
+    .optional()
+    .describe("Optional short feature/polish bullets to show in the variant."),
   content: z
     .string()
-    .min(1)
+    .optional()
     .describe(
-      "Complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. Inline the CSS needed for the preview; avoid relying on external CSS/script CDNs because app sandboxes may block them.",
+      "Optional complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. For faster exploration, omit this and provide label/description/features; Design will generate a compact representative screen.",
     ),
   width: z
     .number()
@@ -144,7 +159,7 @@ function inferVariantSize(variant: z.infer<typeof variantSchema>) {
     return { width: explicitWidth, height: explicitHeight };
   }
 
-  const content = variant.content;
+  const content = variant.content ?? "";
   const cssWidth =
     firstCssPixelValue(content, "width") ??
     firstCssPixelValue(content, "max-width") ??
@@ -190,6 +205,146 @@ function inferVariantSize(variant: z.infer<typeof variantSchema>) {
   };
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function colorForVariant(
+  variant: z.infer<typeof variantSchema>,
+  index: number,
+) {
+  const provided = variant.accentColor?.trim();
+  if (provided) return provided;
+  return ["#8b5cf6", "#06b6d4", "#10b981", "#f43f5e", "#f59e0b"][index % 5]!;
+}
+
+function fallbackVariantContent(
+  variant: z.infer<typeof variantSchema>,
+  index: number,
+  prompt?: string,
+) {
+  const label = escapeHtml(variant.label.trim() || optionName(index));
+  const description = escapeHtml(
+    variant.description?.trim() ||
+      "A compact dark-mode task workspace direction with projects, priorities, due dates, and fast keyboard-first flow.",
+  );
+  const sourcePrompt = escapeHtml(
+    prompt?.trim() ||
+      "Dark-mode todo app with projects, priorities, due dates, subtasks, board/list/calendar views, drag-to-reorder, inline editing, keyboard shortcuts, and polished completion interactions.",
+  );
+  const accent = escapeHtml(colorForVariant(variant, index));
+  const features =
+    variant.features && variant.features.length > 0
+      ? variant.features.slice(0, 6)
+      : [
+          "Project lanes",
+          "Priority chips",
+          "Due today",
+          "Subtasks",
+          "Drag ordering",
+          "Shortcut hints",
+        ];
+  const safeFeatures = features.map((feature) => escapeHtml(feature));
+  const density =
+    index % 3 === 0 ? "spacious" : index % 3 === 1 ? "glass" : "dense";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${label}</title>
+<style>
+:root { color-scheme: dark; --accent: ${accent}; --bg: #080a0f; --panel: rgba(18, 22, 33, 0.82); --line: rgba(255,255,255,.11); --muted: #94a3b8; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 900px; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
+  radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 30%),
+  linear-gradient(140deg, #05070b 0%, #111827 48%, #05070b 100%); }
+.shell { width: 1280px; height: 900px; padding: 34px; display: grid; grid-template-columns: 258px 1fr 304px; gap: 22px; }
+.panel { border: 1px solid var(--line); background: var(--panel); border-radius: ${density === "dense" ? "14" : "22"}px; box-shadow: 0 24px 80px rgba(0,0,0,.35); backdrop-filter: blur(${density === "glass" ? "26" : "10"}px); }
+.sidebar { padding: 22px; display: flex; flex-direction: column; gap: 18px; }
+.brand { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.mark { width: 40px; height: 40px; border-radius: 14px; background: var(--accent); box-shadow: 0 0 32px color-mix(in srgb, var(--accent) 58%, transparent); display:grid; place-items:center; font-weight:800; color:#05070b; }
+h1 { margin: 0; font-size: 32px; line-height: 1.05; letter-spacing: 0; }
+h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
+p { margin: 0; color: var(--muted); line-height: 1.5; }
+.nav, .tasks, .right { display: grid; gap: 12px; }
+.nav div, .task, .metric, .calendar { border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.045); padding: 13px 14px; }
+.nav div:first-child { color: #fff; background: color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,.06)); border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); }
+.main { padding: 24px; display:flex; flex-direction:column; gap:18px; }
+.top { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+.badge { border:1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); color:#fff; background: color-mix(in srgb, var(--accent) 20%, transparent); padding:8px 11px; border-radius:999px; font-size:12px; }
+.board { display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; flex:1; min-height:0; }
+.column { border:1px solid var(--line); border-radius:18px; background:rgba(255,255,255,.035); padding:14px; display:flex; flex-direction:column; gap:12px; }
+.column header { display:flex; justify-content:space-between; align-items:center; color:#cbd5e1; font-size:13px; }
+.task { display:grid; gap:10px; padding:14px; }
+.task strong { font-size:14px; line-height:1.25; }
+.meta { display:flex; flex-wrap:wrap; gap:7px; }
+.chip { font-size:11px; color:#dbeafe; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.055); border-radius:999px; padding:5px 8px; }
+.priority { color:#fff; background: color-mix(in srgb, var(--accent) 22%, rgba(255,255,255,.06)); border-color: color-mix(in srgb, var(--accent) 46%, var(--line)); }
+.right { padding:22px; align-content:start; }
+.metric { display:grid; gap:8px; }
+.metric b { font-size:28px; }
+.calendar { display:grid; grid-template-columns: repeat(7, 1fr); gap:7px; }
+.calendar span { display:grid; place-items:center; height:32px; border-radius:10px; color:#cbd5e1; background:rgba(255,255,255,.04); font-size:12px; }
+.calendar .hot { color:#05070b; background:var(--accent); font-weight:800; }
+.features { display:flex; flex-wrap:wrap; gap:8px; }
+.shortcut { margin-top:auto; border-top:1px solid var(--line); padding-top:14px; display:flex; justify-content:space-between; gap:10px; color:#cbd5e1; font-size:12px; }
+</style>
+</head>
+<body>
+<main class="shell">
+  <aside class="panel sidebar">
+    <div class="brand"><div class="mark">${escapeHtml(String.fromCharCode(65 + index))}</div><span class="badge">${label}</span></div>
+    <div>
+      <h2>Direction</h2>
+      <p>${description}</p>
+    </div>
+    <div class="nav">
+      <div>Today focus</div><div>Projects</div><div>Board</div><div>Calendar</div><div>Completed</div>
+    </div>
+    <div class="features">${safeFeatures.map((feature) => `<span class="chip">${feature}</span>`).join("")}</div>
+    <div class="shortcut"><span>⌘K command</span><span>G then B</span></div>
+  </aside>
+  <section class="panel main">
+    <div class="top">
+      <div><h1>${label}</h1><p>${sourcePrompt}</p></div>
+      <span class="badge">3 views · live priorities</span>
+    </div>
+    <div class="board">
+      <section class="column"><header><span>Now</span><b>4</b></header>
+        <article class="task"><strong>Finalize launch checklist</strong><div class="meta"><span class="chip priority">P1</span><span class="chip">Due 2 PM</span><span class="chip">3 subtasks</span></div></article>
+        <article class="task"><strong>Review dashboard empty state</strong><div class="meta"><span class="chip">Design</span><span class="chip">Shortcut E</span></div></article>
+      </section>
+      <section class="column"><header><span>Next</span><b>6</b></header>
+        <article class="task"><strong>Drag reorder onboarding tasks</strong><div class="meta"><span class="chip priority">P2</span><span class="chip">Project Ops</span></div></article>
+        <article class="task"><strong>Inline edit due-date labels</strong><div class="meta"><span class="chip">QA</span><span class="chip">Tomorrow</span></div></article>
+      </section>
+      <section class="column"><header><span>Done</span><b>12</b></header>
+        <article class="task"><strong>Keyboard shortcut map</strong><div class="meta"><span class="chip">Completed</span><span class="chip">Confetti ready</span></div></article>
+      </section>
+    </div>
+  </section>
+  <aside class="panel right">
+    <h2>Progress</h2>
+    <div class="metric"><p>Today</p><b>68%</b><p>9 of 13 tasks completed</p></div>
+    <h2>Due dates</h2>
+    <div class="calendar">${Array.from({ length: 14 }, (_, day) => `<span class="${day === 4 || day === 9 ? "hot" : ""}">${day + 1}</span>`).join("")}</div>
+    <h2>Focus queue</h2>
+    <div class="tasks">
+      <div class="task"><strong>Prototype board/list toggle</strong><div class="meta"><span class="chip priority">P1</span><span class="chip">45m</span></div></div>
+      <div class="task"><strong>Polish complete interaction</strong><div class="meta"><span class="chip">Motion</span><span class="chip">⌘ Enter</span></div></div>
+    </div>
+  </aside>
+</main>
+</body>
+</html>`;
+}
+
 function placeVariantScreens(screens: VariantScreen[]) {
   const placements: CanvasFramePlacement[] = [];
   const columns = Math.min(MAX_COLUMNS, Math.max(1, screens.length));
@@ -228,7 +383,9 @@ export default defineAction({
     "exploration before follow-up refinement. After the user's choice, keep " +
     "the chosen screen, delete the other generated variant screens, and " +
     "continue from the kept screen. For complex apps, make each variant a " +
-    "compact but complete representative screen; expand the chosen direction " +
+    "compact representative screen; pass concise labels/descriptions/features " +
+    "and omit content when full HTML would be too large. Design will render " +
+    "compact screens from the direction data. Expand the chosen direction " +
     "after the user picks.",
   schema: z.object({
     designId: z.string().describe("Design project ID to show variants for"),
@@ -241,7 +398,7 @@ export default defineAction({
       .min(2)
       .max(5)
       .describe(
-        "2-5 concise, visually distinct generated design options to place as overview screens (3 is the sweet spot). Inline CSS so all options render in the app preview.",
+        "2-5 concise, visually distinct generated design options to place as overview screens (3 is the sweet spot). Prefer short label/description/features for each direction; include inline HTML content only when it is compact enough to finish.",
       ),
   }),
   mcpApp: {
@@ -280,18 +437,21 @@ export default defineAction({
       const preferredFilename = `variant-${slug}.html`;
       const filename = uniqueFilename(preferredFilename, usedFilenames);
       const fileId = nanoid();
-      const { width, height } = inferVariantSize(variant);
+      const content =
+        variant.content?.trim() ||
+        fallbackVariantContent(variant, index, prompt);
+      const { width, height } = inferVariantSize({ ...variant, content });
 
       await db.insert(schema.designFiles).values({
         id: fileId,
         designId,
         filename,
         fileType: "html",
-        content: variant.content,
+        content,
         createdAt: now,
         updatedAt: now,
       });
-      await seedFromText(fileId, variant.content);
+      await seedFromText(fileId, content);
 
       screens.push({
         id: fileId,

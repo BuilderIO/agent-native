@@ -133,9 +133,11 @@ patterns live in `.agents/skills/`.
   write-back remains a localhost/fusion follow-up capability.
 - For multi-variant work, use `present-design-variants` so every candidate is
   saved as a normal overview-board screen and the user gets one inline chat
-  button per screen name. Keep each variant compact: one representative screen
-  or directional snapshot, not a full app per variant. After the user picks,
-  delete the unchosen variant screens before continuing from the kept screen.
+  button per screen name. Keep each variant compact: prefer concise labels,
+  descriptions, accent colors, and feature bullets, and omit full HTML when it
+  would make the tool input too large. The action can render representative
+  screens from direction data. After the user picks, delete the unchosen
+  variant screens before continuing from the kept screen.
 - Use framework sharing actions for design and design-system visibility/grants.
 - `/visual-edit` is a public entry route and public `/design/:id` links may
   render read-only public designs without a session. Do not open anonymous write
@@ -218,10 +220,10 @@ patterns live in `.agents/skills/`.
   register that manifest with `connect-localhost`, call `add-localhost-screens`,
   and open the editor in overview mode.
 - For human-in-the-loop UI exploration, create a design shell, call
-  `present-design-variants` with 2-5 compact, complete HTML directions (three
-  by default), wait for the user to pick one in chat, delete the other
-  generated variant screens with `delete-file`, then use `get-design-snapshot`
-  and `generate-design` or `edit-design` for follow-up refinements.
+  `present-design-variants` with 2-5 concise directions (three by default),
+  wait for the user to pick one in chat, delete the other generated variant
+  screens with `delete-file`, then use `get-design-snapshot` and
+  `generate-design` or `edit-design` for follow-up refinements.
 - If inline chat choice buttons are unavailable, the user can tell you the
   preferred screen name. Do not show a separate variant picker or ask them to
   paste a copyable handoff summary.

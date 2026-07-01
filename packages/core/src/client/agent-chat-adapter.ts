@@ -93,6 +93,12 @@ const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3;
 // round re-sending any large pasted payload) before bailing. Catching the
 // repeat ends it in a few rounds with a clear, actionable message instead.
 const MAX_REPEATED_TRANSIENT_CONTINUATIONS = 3;
+// How many consecutive continuations that only reach the SAME "preparing
+// action" activity card we tolerate before giving up. This catches runs that
+// keep timing out while assembling a large tool payload: they are not empty,
+// and the narration may vary enough to bypass the text-repeat guard, but the
+// real tool never starts.
+const MAX_REPEATED_ACTION_PREPARATION_CONTINUATIONS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
@@ -782,6 +788,22 @@ function lastActivityTool(
   return undefined;
 }
 
+function lastUnresolvedToolActivity(
+  content: ContentPart[],
+): string | undefined {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.activity === true &&
+      part.result === undefined
+    ) {
+      return part.toolName;
+    }
+  }
+  return undefined;
+}
+
 function snapshotContent(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
     part.type === "text" ? { ...part } : { ...part, args: { ...part.args } },
@@ -889,7 +911,7 @@ function incrementalActionGuidance(tool: string): string | undefined {
     case "update-design":
       return "persist a minimal first version (fewer files) with `generate-design`, then refine individual files with `edit-design` search/replace instead of resending everything";
     case "present-design-variants":
-      return "save compact but complete variant screens with `present-design-variants` first, keeping each HTML direction focused enough to finish, then refine the chosen direction with `generate-design` or `edit-design`";
+      return "call `present-design-variants` with concise labels, descriptions, accent colors, and feature bullets; omit large `content` HTML when needed so the action can render compact representative screens, then refine the chosen direction with `generate-design` or `edit-design`";
     case "create-visual-plan":
     case "create-ui-plan":
     case "create-plan-design":
@@ -1390,6 +1412,9 @@ export function createAgentChatAdapter(
       let repeatedInFlightToolCount = 0;
       let recoveryGaveUpOnInFlightTool = false;
       const MAX_REPEATED_INFLIGHT_TOOL_STALLS = 3;
+      let lastPreparingToolName: string | undefined;
+      let repeatedActionPreparationCount = 0;
+      let recoveryGaveUpOnActionPreparation = false;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
@@ -1420,6 +1445,10 @@ export function createAgentChatAdapter(
           lastInFlightToolName
             ? `last_inflight_tool: ${lastInFlightToolName}`
             : "",
+          `repeated_action_preparation_stalls: ${repeatedActionPreparationCount}`,
+          lastPreparingToolName
+            ? `last_preparing_tool: ${lastPreparingToolName}`
+            : "",
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
           attemptedRunIds.length > 0
             ? `attempted_runs: ${attemptedRunIds.join(", ")}`
@@ -1435,6 +1464,12 @@ export function createAgentChatAdapter(
         }
         if (recoveryGaveUpOnRepetition) {
           return "The agent got stuck repeating the same response without finishing, so I stopped the automatic retries. This often happens when it tries to re-type a large pasted file into one action — starting a new chat, or asking for a smaller first step, usually gets it unstuck.";
+        }
+        if (recoveryGaveUpOnActionPreparation) {
+          const tool = lastPreparingToolName
+            ? ` the ${humanizeActionName(lastPreparingToolName)} action`
+            : " the same action";
+          return `The agent got stuck preparing${tool} input and never started the tool, so I stopped the automatic retries. Try a smaller first step or a more compact version of the request.`;
         }
         if (
           content.length === 0 &&
@@ -1512,6 +1547,8 @@ export function createAgentChatAdapter(
             repeatedTransientContinuationAttempts,
             repeatedInFlightToolCount,
             lastInFlightToolName,
+            repeatedActionPreparationCount,
+            lastPreparingToolName,
             totalTransientContinuationAttempts,
             ...extra,
           },
@@ -1529,6 +1566,8 @@ export function createAgentChatAdapter(
               repeatedTransientContinuationAttempts,
               repeatedInFlightToolCount,
               lastInFlightToolName,
+              repeatedActionPreparationCount,
+              lastPreparingToolName,
               totalTransientContinuationAttempts,
             },
           },
@@ -1832,8 +1871,13 @@ export function createAgentChatAdapter(
           // for the stalled/empty caps.
           const madeProgress = madeContentProgress || hasInFlightTool;
           const madeDurableToolProgress = visibleContent.some(
-            (part) => part.type === "tool-call" && part.result !== undefined,
+            (part) =>
+              part.type === "tool-call" &&
+              part.activity !== true &&
+              part.result !== undefined,
           );
+          const currentPreparingToolName =
+            lastUnresolvedToolActivity(visibleContent);
           // In-flight tool stall guard. When the same write tool is stuck
           // in-flight because the connection keeps dropping (stream_ended),
           // hasInFlightTool=true keeps madeProgress=true and completely
@@ -1875,6 +1919,22 @@ export function createAgentChatAdapter(
             }
           } else if (!currentInFlightToolName) {
             repeatedInFlightToolCount = 0;
+          }
+
+          const isRepeatedActionPreparationCandidate =
+            signal.reason !== "loop_limit" &&
+            currentPreparingToolName !== undefined &&
+            !hasInFlightTool &&
+            !madeDurableToolProgress;
+          if (isRepeatedActionPreparationCandidate) {
+            if (currentPreparingToolName === lastPreparingToolName) {
+              repeatedActionPreparationCount += 1;
+            } else {
+              repeatedActionPreparationCount = 0;
+              lastPreparingToolName = currentPreparingToolName;
+            }
+          } else if (!currentPreparingToolName) {
+            repeatedActionPreparationCount = 0;
           }
 
           // Degenerate repetition guard. When the model gets stuck re-streaming
@@ -1923,6 +1983,13 @@ export function createAgentChatAdapter(
               repeatedInFlightToolCount >= MAX_REPEATED_INFLIGHT_TOOL_STALLS
             ) {
               recoveryGaveUpOnInFlightTool = true;
+              return { ok: false, resetVisibleContent: false };
+            }
+            if (
+              repeatedActionPreparationCount >
+              MAX_REPEATED_ACTION_PREPARATION_CONTINUATIONS
+            ) {
+              recoveryGaveUpOnActionPreparation = true;
               return { ok: false, resetVisibleContent: false };
             }
             // Bail fast on a non-advancing repetition loop, well before the

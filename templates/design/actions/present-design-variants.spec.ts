@@ -321,6 +321,48 @@ describe("present-design-variants", () => {
     expect(action.schema.safeParse(withVariants(6)).success).toBe(false);
   });
 
+  it("can render compact variants from direction summaries without inline HTML", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Dark todo app with board, list, calendar, and keyboard flow",
+      variants: [
+        {
+          id: "glass",
+          label: "Glass Command Center",
+          description: "Frosted panels, cyan accents, and airy kanban density.",
+          accentColor: "#06b6d4",
+          features: ["Board view", "Priority chips", "Keyboard hints"],
+        },
+        {
+          id: "terminal",
+          label: "Terminal Focus",
+          description:
+            "Dense monospace workflow with high-contrast focus cues.",
+          accentColor: "#22c55e",
+        },
+      ],
+    });
+
+    expect(mocks.insertChain.values).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        filename: "variant-glass-command-center.html",
+        content: expect.stringContaining("Glass Command Center"),
+      }),
+    );
+    expect(mocks.insertChain.values).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        filename: "variant-terminal-focus.html",
+        content: expect.stringContaining("Terminal Focus"),
+      }),
+    );
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining("Keyboard hints"),
+    );
+  });
+
   it("deep-links external hosts into overview mode", () => {
     expect(
       action.link?.({

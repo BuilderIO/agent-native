@@ -2534,9 +2534,99 @@ describe("createAgentChatAdapter", () => {
       "preparing the `present-design-variants` action input",
     );
     expect(secondBody.message).toContain(
-      "compact but complete variant screens",
+      "concise labels, descriptions, accent colors",
+    );
+    expect(secondBody.message).toContain(
+      "render compact representative screens",
     );
     expect(secondBody.message).toContain("edit-design");
+  });
+
+  it("stops when the same action input preparation repeats without starting the tool", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const messages = [
+      "I will generate all 3 directions now.",
+      "Generating all variants as compact screens.",
+      "Let me build the 3 variants now.",
+      "Presenting 3 distinct directions now.",
+      "Still preparing the variant set.",
+    ];
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        const text = messages[postCount] ?? "Continuing";
+        postCount += 1;
+        return sseResponse([
+          { type: "text", text },
+          {
+            type: "activity",
+            label: "Preparing present-design-variants action",
+            tool: "present-design-variants",
+          },
+          { type: "auto_continue", reason: "run_timeout" },
+        ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-repeated-prep",
+      threadId: "thread-repeated-prep",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Generate three todo variants" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(5);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+          message: expect.stringContaining(
+            "got stuck preparing the present design variants action input",
+          ),
+          details: expect.stringContaining(
+            "repeated_action_preparation_stalls: 4",
+          ),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.content.at(-1).text).toContain(
+      "got stuck preparing the present design variants action input",
+    );
   });
 
   it("surfaces a startup timeout when the POST never becomes an SSE stream", async () => {
