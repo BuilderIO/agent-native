@@ -333,6 +333,7 @@ function SourceCodeDialog({
   extension: Extension;
   onSaved?: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState(extension.content ?? "");
   const [saving, setSaving] = useState(false);
@@ -366,6 +367,10 @@ function SourceCodeDialog({
         throw new Error(body?.error ?? `Save failed (${res.status})`);
       }
       setOpen(false);
+      queryClient.invalidateQueries({
+        queryKey: ["extension", extension.id],
+      });
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
       onSaved?.();
     } catch (err: any) {
       setError(err?.message ?? "Save failed");
