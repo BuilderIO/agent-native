@@ -518,19 +518,42 @@ async function loadCandidateEvents(
     );
   }
   if (rule.eventName) clauses.push(eq(table.eventName, rule.eventName));
-  return await db
-    .select()
-    .from(table)
-    .where(and(...clauses))
-    .orderBy(desc(table.timestamp))
-    .limit(maxCandidateEventsPerRule());
+  const rows: AnalyticsAlertEventRow[] = [];
+  const batchSize = analyticsAlertEventBatchSize();
+  let cursor: { timestamp: string; id: string } | null = null;
+
+  while (true) {
+    const pageClauses = [...clauses];
+    if (cursor) {
+      pageClauses.push(
+        sql`(${table.timestamp} < ${cursor.timestamp} or (${table.timestamp} = ${cursor.timestamp} and ${table.id} < ${cursor.id}))`,
+      );
+    }
+    const page = await db
+      .select()
+      .from(table)
+      .where(and(...pageClauses))
+      .orderBy(desc(table.timestamp), desc(table.id))
+      .limit(batchSize);
+
+    if (!page.length) break;
+    rows.push(...page);
+    if (page.length < batchSize) break;
+
+    const last = page[page.length - 1];
+    cursor = { timestamp: last.timestamp, id: last.id };
+  }
+
+  return rows;
 }
 
-function maxCandidateEventsPerRule(): number {
-  const raw = process.env.ANALYTICS_ALERT_MAX_EVENTS_PER_RULE;
+function analyticsAlertEventBatchSize(): number {
+  const raw =
+    process.env.ANALYTICS_ALERT_EVENT_BATCH_SIZE ??
+    process.env.ANALYTICS_ALERT_MAX_EVENTS_PER_RULE;
   if (!raw) return 5000;
   const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5000;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 10000) : 5000;
 }
 
 function isCoolingDown(rule: AnalyticsAlertRule, now: Date): boolean {

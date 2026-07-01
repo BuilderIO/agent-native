@@ -95,4 +95,19 @@ describe("analytics alert evaluation", () => {
     expect(source).toContain(".set(patch)");
     expect(source).not.toContain(".set({ ...patch, updatedAt: nowIso() })");
   });
+
+  it("pages through the full alert window before evaluating filters", () => {
+    const source = readFileSync(
+      new URL("./analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("analyticsAlertEventBatchSize()");
+    expect(source).toContain("while (true)");
+    expect(source).toContain(".orderBy(desc(table.timestamp), desc(table.id))");
+    expect(source).toContain("rows.push(...page)");
+    expect(source).toContain("if (page.length < batchSize) break");
+    expect(source).not.toContain(".limit(maxCandidateEventsPerRule())");
+    expect(source).not.toContain("function maxCandidateEventsPerRule");
+  });
 });
