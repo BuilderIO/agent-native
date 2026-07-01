@@ -11,9 +11,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 
 function rowsAffected(result: unknown): number | undefined {
-  const candidate = result as
-    | { rowsAffected?: unknown; rowCount?: unknown; changes?: unknown }
-    | null;
+  const candidate = result as {
+    rowsAffected?: unknown;
+    rowCount?: unknown;
+    changes?: unknown;
+  } | null;
   const value =
     candidate?.rowsAffected ?? candidate?.rowCount ?? candidate?.changes;
   return typeof value === "number" ? value : undefined;

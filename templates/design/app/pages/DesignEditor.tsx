@@ -8558,7 +8558,7 @@ export default function DesignEditor() {
       // inserted HTML over separate renders, so post directly to the target
       // iframe with a few short retries instead of relying on a single global
       // bridge callback.
-      const textNodeId = pendingTextEditNodeIdRef.current ?? nodeId;
+      const textNodeId = pendingTextEditNodeIdRef.current;
       pendingTextEditNodeIdRef.current = null;
       if (textNodeId) {
         scheduleBeginTextEditForScreen(screenId, textNodeId);
