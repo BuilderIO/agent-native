@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.84.2
+
+### Patch Changes
+
+- 3ff4f55: Extend Builder gateway timeouts for local and background agent-chat runs, and surface recoverable gateway timeout failures instead of silently retrying activity-only tool preparation loops.
+- 3ff4f55: Allow scoped chat surfaces to hide the composer scope badge while keeping thread context attached.
+
 ## 0.84.1
 
 ### Patch Changes
