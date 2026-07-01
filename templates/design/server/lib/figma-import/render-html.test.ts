@@ -76,4 +76,22 @@ describe("renderFigmaHtml", () => {
     expect(result.files).toHaveLength(24);
     expect(result.warnings.join("\n")).toContain("Only the first 24");
   });
+
+  it("imports a root-level frame as one screen", () => {
+    const result = renderFigmaHtml({
+      filename: "root.fig",
+      document: {
+        type: "FRAME",
+        name: "Root Frame",
+        children: [
+          { type: "FRAME", name: "Nested Frame" },
+          { type: "TEXT", characters: "Inside root" },
+        ],
+      },
+    });
+
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]!.source?.frameName).toBe("Root Frame");
+    expect(result.files[0]!.content).toContain("Inside root");
+  });
 });

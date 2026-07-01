@@ -78,6 +78,12 @@ function nodeType(node: Record<string, unknown>): string {
   return "";
 }
 
+function isTopLevelFrameNode(node: Record<string, unknown>): boolean {
+  return ["FRAME", "COMPONENT", "INSTANCE", "CANVAS", "SECTION"].includes(
+    nodeType(node),
+  );
+}
+
 function slug(value: string): string {
   const normalized = value
     .toLowerCase()
@@ -284,11 +290,9 @@ function topLevelFrames(
     const selected = findNode(root, selectionNodeId);
     if (selected) return [selected];
   }
+  if (isTopLevelFrameNode(root)) return [root];
   const frames = candidates.filter((node) => {
-    const type = nodeType(node);
-    return ["FRAME", "COMPONENT", "INSTANCE", "CANVAS", "SECTION"].includes(
-      type,
-    );
+    return isTopLevelFrameNode(node);
   });
   return frames.length > 0 ? frames : candidates.filter(isRecord).slice(0, 12);
 }

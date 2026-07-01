@@ -363,6 +363,15 @@ function appendToRequiredCspDirective(
   directives.push({ name, tokens: appendCspTokens([], additions) });
 }
 
+function ensureCspDirective(
+  directives: CspDirective[],
+  name: string,
+  tokens: readonly string[],
+): void {
+  if (findCspDirective(directives, name)) return;
+  directives.push({ name, tokens: [...tokens] });
+}
+
 function augmentExistingCspForFrameworkScripts(
   policy: string,
   options: {
@@ -408,6 +417,8 @@ function augmentExistingCspForFrameworkScripts(
       GA_CSP_IMG_HOSTS,
     );
   }
+  ensureCspDirective(directives, "object-src", ["'none'"]);
+  ensureCspDirective(directives, "base-uri", ["'self'"]);
 
   return serializeCsp(directives);
 }

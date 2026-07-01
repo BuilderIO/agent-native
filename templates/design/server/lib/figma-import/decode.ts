@@ -171,7 +171,7 @@ function decompressChunk(buf: Buffer, remainingBytes: number): Buffer {
     }
     // Fall through.
   }
-  return checkDecompressedSize(Buffer.from(buf), maxOutputLength);
+  throw new Error("Figma chunk could not be decompressed.");
 }
 
 export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {

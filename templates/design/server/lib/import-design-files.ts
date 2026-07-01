@@ -219,6 +219,7 @@ export async function saveImportedDesignFiles(
       ? { ...prevData.screenMetadata }
       : {};
     const placements: CanvasFramePlacement[] = [];
+    let nextFrameX = 0;
 
     for (let index = 0; index < input.files.length; index += 1) {
       const file = input.files[index]!;
@@ -249,12 +250,13 @@ export async function saveImportedDesignFiles(
       placements.push({
         fileId,
         filename,
-        x: file.preferredFrame?.x ?? index * (DEFAULT_FRAME_WIDTH + FRAME_GAP),
+        x: file.preferredFrame?.x ?? nextFrameX,
         y: file.preferredFrame?.y ?? 0,
         width,
         height,
         z: index,
       });
+      nextFrameX += width + FRAME_GAP;
       const source = {
         sourceType: input.sourceType,
         previewState: "static",

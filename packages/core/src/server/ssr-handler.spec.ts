@@ -1000,7 +1000,7 @@ describe("createH3SSRHandler", () => {
       }
     });
 
-    it("respects a route-provided Content-Security-Policy and does not overwrite it", async () => {
+    it("preserves a route-provided CSP while adding required hardening directives", async () => {
       const previousNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = "production";
       try {
@@ -1016,10 +1016,10 @@ describe("createH3SSRHandler", () => {
 
         const response = await handler(createEvent("/embed/public"));
 
-        // The route's explicit CSP must be preserved.
-        expect(response.headers.get("content-security-policy")).toBe(
-          "frame-ancestors *",
-        );
+        const csp = response.headers.get("content-security-policy") ?? "";
+        expect(csp).toContain("frame-ancestors *");
+        expect(csp).toContain("object-src 'none'");
+        expect(csp).toContain("base-uri 'self'");
       } finally {
         if (previousNodeEnv === undefined) {
           delete process.env.NODE_ENV;
