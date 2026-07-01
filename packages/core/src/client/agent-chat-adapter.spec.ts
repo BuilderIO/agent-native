@@ -4366,6 +4366,82 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("The design was saved");
   });
 
+  it("finishes with a completed-tool note when final text times out after a successful tool without side-effect metadata", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return postCount === 1
+        ? sseResponse([
+            { type: "text", text: "Building it now!" },
+            {
+              type: "tool_start",
+              tool: "generate-design",
+              input: { designId: "design_1" },
+            },
+            {
+              type: "tool_done",
+              tool: "generate-design",
+              result: '{"designId":"design_1","urlPath":"/design/design_1"}',
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ])
+        : sseResponse([{ type: "auto_continue", reason: "run_timeout" }]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-completed-tool-no-metadata",
+      threadId: "thread-completed-tool-no-metadata",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "create a dark todo app" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+    expect(last.metadata.custom.runWarning).toMatchObject({
+      errorCode: "final_response_timeout_after_tool",
+      recoverable: true,
+    });
+    expect(last.content.at(-1).text).toContain("The design was saved");
+  });
+
   it("reconnects to a newer background continuation after run_timeout before self-posting", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });

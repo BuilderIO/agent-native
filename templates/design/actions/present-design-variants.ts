@@ -40,7 +40,16 @@ const FALLBACK_INSTRUCTIONS =
   "The generated directions have been saved as normal screens on the Design " +
   "overview board. The chat shows one button per screen. Ask the user to pick " +
   "a screen by name if the inline buttons are not available; after they pick, " +
-  "delete the other variant screens and continue from the kept screen.";
+  "delete the other variant screens, call get-design-snapshot for the kept " +
+  "screen, and continue from that one file in a bounded pass.";
+
+const VARIANT_PICK_SUBMIT_MESSAGE =
+  "Use this design direction. Delete the other variant screens, call " +
+  "get-design-snapshot for the kept file, then continue from that current " +
+  "HTML in a bounded single-file pass. Prefer edit-design for refinements; " +
+  "if generate-design is needed, update only the kept file compactly. Do not " +
+  "generate a full multi-screen rewrite or resend a huge payload. Stop after " +
+  "the first successful save.";
 
 const variantSchema = z.object({
   id: z.string().min(1).describe("Stable variant id, e.g. 'minimal-focus'"),
@@ -410,7 +419,10 @@ export default defineAction({
     "Provide 2-5 variants (3 is the sweet spot). Use this for design " +
     "exploration before follow-up refinement. After the user's choice, keep " +
     "the chosen screen, delete the other generated variant screens, and " +
-    "continue from the kept screen. For complex apps, make each variant a " +
+    "call get-design-snapshot for the kept screen before continuing from that " +
+    "single file in a bounded pass. Prefer edit-design for refinements; if " +
+    "generate-design is needed, update only the kept file compactly and stop " +
+    "after the first successful save. For complex apps, make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
     "and omit content when full HTML would be too large. Design will render " +
     "compact screens from the direction data. Expand the chosen direction " +
@@ -563,9 +575,9 @@ export default defineAction({
     await writeAppStateForCurrentTab("guided-questions", {
       title: prompt ?? "Pick a direction",
       description:
-        "All options are on the board. Choose the one to keep and I will continue from it.",
+        "All options are on the board. Choose one to keep; I will delete the others, read the kept screen, and continue from that single file in a bounded pass.",
       submitLabel: "Use selected direction",
-      submitMessage: "Use this design direction.",
+      submitMessage: VARIANT_PICK_SUBMIT_MESSAGE,
       skipLabel: "Show another set",
       skipMessage: "None of these directions are right.",
       questions: [
@@ -590,7 +602,8 @@ export default defineAction({
               label: screen.label || optionName(index),
               value:
                 `Keep "${screen.label}" (${screen.filename}, file id ${screen.id}) ` +
-                `from variant set ${variantSetId}. Delete the other variant screens: ${otherScreens}.`,
+                `from variant set ${variantSetId}. Delete the other variant screens: ${otherScreens}. ` +
+                `Then call get-design-snapshot for ${screen.filename} and continue from that current HTML in a bounded single-file pass. Prefer edit-design for refinements; if generate-design is needed, update only this kept file compactly. Do not generate a full multi-screen rewrite or resend a huge payload. Stop after the first successful save.`,
             };
           }),
         },
@@ -608,7 +621,7 @@ export default defineAction({
       embed: true,
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       nextRequiredAction:
-        "Wait for the user to pick a screen in chat. Then delete the unchosen variant screens with delete-file and continue from the chosen screen.",
+        "Wait for the user to pick a screen in chat. Then delete the unchosen variant screens with delete-file, call get-design-snapshot for the chosen screen, and continue from that single file in a bounded pass. Prefer edit-design; if generate-design is needed, update only the kept file compactly and stop after the first successful save.",
     };
   },
   link: ({ result }) => {

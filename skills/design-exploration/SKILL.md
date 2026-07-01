@@ -46,8 +46,10 @@ iteration, or a human-in-the-loop choice among design directions.
    and realistic controls over decorative mockups.
 5. After `present-design-variants`, wait for the user's pick before
    generating the next version. Keep the chosen screen, delete the other
-   variant screens, then refine that direction with `generate-design` or
-   `edit-design`.
+   variant screens, call `get-design-snapshot` for the kept screen, then
+   continue from that single file in a bounded pass. Prefer `edit-design`; if
+   `generate-design` is needed, update only the kept file compactly and stop
+   after the first successful save.
 
 ## Design Quality Bar
 

@@ -1325,7 +1325,7 @@ function designVariantGenerationDirectives(
     ...designSystemGenerationDirectives(designSystemId),
     "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
     "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens.",
-    "Wait for the user's chat pick, delete the unchosen variant screens, then continue from the kept screen.",
+    "Wait for the user's chat pick, delete the unchosen variant screens, call `get-design-snapshot` for the kept screen, then continue from that single file in a bounded pass. Prefer `edit-design`; if `generate-design` is needed, update only the kept file compactly and stop after the first successful save.",
   ];
 }
 
@@ -1336,7 +1336,7 @@ function designGenerationDirectives(
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
-    "If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen. Otherwise generate one polished first direction.",
+    "If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete the unchosen variant screens, call `get-design-snapshot` for the kept screen, then continue from that single file in a bounded pass. Prefer `edit-design`; if `generate-design` is needed, update only the kept file compactly and stop after the first successful save. Otherwise generate one polished first direction.",
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, stop and summarize what was created.",
   ];
