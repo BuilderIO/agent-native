@@ -913,42 +913,32 @@ export function PlanModeCallout({
   onSwitchToAct: () => void;
 }) {
   return (
-    <div className="shrink-0 px-3 pt-2">
-      <div className="rounded-lg border border-blue-500/25 bg-blue-500/[0.06] px-3 py-2.5 shadow-sm">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300">
-            <IconClipboardList size={15} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground">
-              {canImplementPlan ? "Plan ready" : "Plan mode is on"}
-            </p>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              {canImplementPlan
-                ? "Switch to Act and run the proposed plan."
-                : "The next turn will stay read-only until you switch to Act."}
-            </p>
-          </div>
-          {canImplementPlan ? (
-            <button
-              type="button"
-              onClick={onImplementPlan}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
-            >
-              <IconPlayerPlay size={13} />
-              Implement Plan
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onSwitchToAct}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-            >
-              Act
-              <IconArrowRight size={13} />
-            </button>
-          )}
-        </div>
+    <div className="shrink-0 px-3 pt-1">
+      <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
+        <IconClipboardList size={13} className="shrink-0" />
+        <span className="min-w-0 truncate">
+          {canImplementPlan ? "Plan ready" : "Plan mode"}
+        </span>
+        {canImplementPlan ? (
+          <button
+            type="button"
+            onClick={onImplementPlan}
+            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground px-2.5 text-[11px] font-medium text-background hover:opacity-90"
+          >
+            <IconPlayerPlay size={12} />
+            Implement
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSwitchToAct}
+            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
+            aria-label="Switch to Act mode"
+          >
+            Act
+            <IconArrowRight size={12} />
+          </button>
+        )}
       </div>
     </div>
   );

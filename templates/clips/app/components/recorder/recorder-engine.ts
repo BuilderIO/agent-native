@@ -1145,6 +1145,9 @@ export class RecorderEngine {
       // mid-state — the UI spinner is wired to engine state and would
       // hang forever otherwise.
       const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name !== "AbortError") {
+        await this.markUploadFailed(e);
+      }
       this.transition("error", { message: e.message });
       throw e;
     } finally {
@@ -1183,6 +1186,9 @@ export class RecorderEngine {
       return this.toFinalizeResult(result, meta);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name !== "AbortError") {
+        await this.markUploadFailed(e);
+      }
       this.transition("error", { message: e.message });
       throw e;
     } finally {

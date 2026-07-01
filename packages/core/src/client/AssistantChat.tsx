@@ -2265,6 +2265,8 @@ const AssistantChatInner = forwardRef<
 
   useEffect(() => {
     if (!authError) return;
+    const shouldCaptureStuckAuthCard =
+      authSessionAvailable || authError.sessionExpired;
     // Auto-recovery (`checkAuthSession`) runs immediately + at 250ms. If the
     // card is still showing 3 seconds later, recovery failed and the user
     // is about to hit "Refresh chat" — that's the "Reload UI required"
@@ -2273,6 +2275,7 @@ const AssistantChatInner = forwardRef<
       void (async () => {
         const hasSession = await checkAuthSession();
         if (hasSession) return;
+        if (!shouldCaptureStuckAuthCard) return;
         captureError(new Error("agent-chat:auth_error_card_stuck"), {
           tags: {
             context: "agent-native-chat",

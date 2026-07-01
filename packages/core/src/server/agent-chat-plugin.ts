@@ -7694,6 +7694,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextTitle,
                   nextPreview,
                   newMessageCount,
+                  { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for both "detach" (scope: null) and "retag" flows.

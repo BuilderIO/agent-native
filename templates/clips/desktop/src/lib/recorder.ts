@@ -1278,6 +1278,18 @@ async function trashRecording(
   }
 }
 
+async function cleanupCancelledRemoteRecording(
+  serverUrl: string,
+  recordingId: string,
+): Promise<void> {
+  await abortRecordingUpload(
+    serverUrl,
+    recordingId,
+    "Recording cancelled by user",
+  );
+  await trashRecording(serverUrl, recordingId);
+}
+
 class CountdownCancelledError extends Error {
   constructor() {
     super("Recording cancelled during countdown");
@@ -2029,7 +2041,12 @@ async function startNativeFullscreenRecording(
         }
         stateUnlistens.forEach((u) => u());
         stateUnlistens = [];
-        await transcriptionCapture?.cancel().catch(() => {});
+        void transcriptionCapture?.cancel().catch((err) => {
+          console.warn(
+            "[clips-recorder] native transcription cancel failed:",
+            err,
+          );
+        });
         await localCameraExport?.cancel().catch(() => {});
         await invoke("native_fullscreen_recording_cancel").catch((err) =>
           console.warn(
@@ -2049,12 +2066,14 @@ async function startNativeFullscreenRecording(
         streamCleanups.forEach((cleanup) => cleanup());
         await invoke("hide_overlays").catch(() => {});
         if (!localOnly && id) {
-          await abortRecordingUpload(
-            params.serverUrl,
-            id,
-            "Recording cancelled by user",
+          void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+            (err) => {
+              console.warn(
+                "[clips-recorder] cancelled recording cleanup failed:",
+                err,
+              );
+            },
           );
-          await trashRecording(params.serverUrl, id);
         }
       })();
       return cancelPromise;
@@ -3244,7 +3263,9 @@ async function startRecordingInner(
       if (tickHandle) clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
       stateUnlistens = [];
-      transcriptionCapture?.cancel().catch(() => {});
+      void transcriptionCapture?.cancel().catch((err) => {
+        console.warn("[clips-recorder] transcription cancel failed:", err);
+      });
       // Remove MediaRecorder's data handler so any final `ondataavailable`
       // from the stop() below doesn't push a new Blob into `inflight`
       // after we've decided to discard everything.
@@ -3282,18 +3303,15 @@ async function startRecordingInner(
       inflight.clear();
       await invoke("hide_recording_chrome").catch(() => {});
       // Tell the server to abort the partial recording (drops chunks from
-      // application_state, flips the recording row to 'failed'). Fire and
-      // forget with a short-circuit on failure — we don't want to keep the
-      // user waiting on a network call to a dev server that may be down.
-      try {
-        await abortRecordingUpload(
-          params.serverUrl,
-          id,
-          "Recording cancelled by user",
+      // application_state, flips the recording row to 'failed'), then trash
+      // it. This is best-effort background cleanup: redo/cancel must release
+      // the desktop chrome immediately even if the server is slow or offline.
+      if (id) {
+        void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+          (err) => {
+            console.warn("[clips-recorder] abort failed (non-fatal):", err);
+          },
         );
-        await trashRecording(params.serverUrl, id);
-      } catch (err) {
-        console.warn("[clips-recorder] abort failed (non-fatal):", err);
       }
       await deleteBrowserRecordingBackup(id).catch((err) => {
         console.warn("[clips-recorder] local backup cleanup failed:", err);

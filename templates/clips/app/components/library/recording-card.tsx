@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
+import { isStaleRecordingUpload } from "@/lib/recording-status";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
 
@@ -100,6 +101,12 @@ export function RecordingCard({
   const waitingForStorage = isStorageSetupFailureReason(
     recording.failureReason,
   );
+  const staleUpload = isStaleRecordingUpload(recording);
+  const displayFailed = recording.status === "failed" || staleUpload;
+  const failureReason = staleUpload
+    ? (recording.failureReason ??
+      t("recordingPage.processingStuck", { status: recording.status }))
+    : (recording.failureReason ?? t("clipsFinalRaw.removeFailedClip"));
   const nativeUploadPaused =
     recording.status === "failed" &&
     /native recording|native fullscreen|screencapture|avconvert/i.test(
@@ -221,11 +228,15 @@ export function RecordingCard({
         {/* Status pill for non-ready recordings */}
         {recording.status !== "ready" && (
           <div className="absolute top-2 end-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
-            {waitingForStorage ? "storage" : recording.status}
+            {waitingForStorage
+              ? "storage"
+              : staleUpload
+                ? "failed"
+                : recording.status}
           </div>
         )}
 
-        {(recording.status === "failed" || waitingForStorage) && (
+        {(displayFailed || waitingForStorage) && (
           <div
             className={cn(
               "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-start shadow-sm backdrop-blur",
@@ -252,8 +263,7 @@ export function RecordingCard({
                     ? t("clipsFinalRaw.connectStorageToFinish")
                     : nativeUploadPaused
                       ? t("clipsFinalRaw.retryFromClipsMenu")
-                      : (recording.failureReason ??
-                        t("clipsFinalRaw.removeFailedClip"))}
+                      : failureReason}
                 </div>
               </div>
               {!waitingForStorage && (
