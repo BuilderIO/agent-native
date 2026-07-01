@@ -389,7 +389,12 @@ export function SqlChartCard({
             </DialogHeader>
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <ChartFillHeight>
-                <SqlChart panel={panel} resolvedSql={resolvedSql} loadData />
+                <SqlChart
+                  key={extRefreshKey}
+                  panel={panel}
+                  resolvedSql={resolvedSql}
+                  loadData
+                />
               </ChartFillHeight>
             </div>
           </DialogContent>
