@@ -5,6 +5,7 @@ import {
   isElectron,
   getAppUrl,
   resolveGoogleSignInCredentials,
+  resolveGoogleProviderCredentials,
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
@@ -74,8 +75,8 @@ async function resolveCalendarOAuthCredentials(event: H3Event) {
       clientSecret: await resolveSecret("GOOGLE_CLIENT_SECRET"),
     }),
   );
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
+  if (clientId && clientSecret) return { clientId, clientSecret };
+  return resolveGoogleProviderCredentials();
 }
 
 function isCalendarConnectRequest(

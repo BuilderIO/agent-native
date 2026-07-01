@@ -135,6 +135,7 @@ const BRAND_ICON_LINK_CLASS =
 const BRAND_PILL_LINK_CLASS =
   "border-[#00B5FF]/35 bg-[#00B5FF]/10 font-semibold text-[#00B5FF] hover:border-[#00B5FF]/55 hover:bg-[#00B5FF]/15 hover:text-[#33C4FF]";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BOOKING_SLOT_STEP_MINUTES = 30;
 
 type DraftLink = {
   id?: string;
@@ -1993,7 +1994,14 @@ function BookingPreview({
     const startMin = startH * 60 + startM;
     const endMin = endH * 60 + endM;
     const slots: string[] = [];
-    for (let m = startMin; m + dur <= endMin; m += dur) {
+    const firstStart =
+      Math.ceil(startMin / BOOKING_SLOT_STEP_MINUTES) *
+      BOOKING_SLOT_STEP_MINUTES;
+    for (
+      let m = firstStart;
+      m + dur <= endMin;
+      m += BOOKING_SLOT_STEP_MINUTES
+    ) {
       const h = Math.floor(m / 60);
       const mm = m % 60;
       const ampm = h >= 12 ? "PM" : "AM";
