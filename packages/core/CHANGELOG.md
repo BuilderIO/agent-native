@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.17
+
+### Patch Changes
+
+- a4f5303: Keep background chat continuation markers and database pool detection aligned with the actual background function dispatch path.
+
 ## 0.84.16
 
 ### Patch Changes
