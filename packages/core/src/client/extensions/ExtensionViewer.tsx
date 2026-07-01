@@ -2,6 +2,7 @@ import {
   IconArrowLeft,
   IconArrowBackUp,
   IconChevronRight,
+  IconCode,
   IconDotsVertical,
   IconHistory,
   IconLoader2,
@@ -20,6 +21,13 @@ import { getThemeVars } from "../../extensions/theme.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.js";
 import {
   Popover,
   PopoverContent,
@@ -322,6 +330,101 @@ function applyCanonicalLink(path: string): () => void {
       link.dataset.agentNativeExtensionCanonical = previousMarker;
     }
   };
+}
+
+function SourceCodeDialog({
+  extension,
+  onSaved,
+}: {
+  extension: Extension;
+  onSaved?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState(extension.content ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Re-sync when the extension content changes externally
+  useEffect(() => {
+    if (!open) setCode(extension.content ?? "");
+  }, [extension.content, open]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        agentNativePath(`/_agent-native/extensions/${extension.id}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: code }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? `Save failed (${res.status})`);
+      }
+      setOpen(false);
+      onSaved?.();
+    } catch (err: any) {
+      setError(err?.message ?? "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+          >
+            <IconCode className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>View / edit source</TooltipContent>
+      </Tooltip>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col gap-3">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="truncate text-sm">
+              {extension.name} — source
+            </DialogTitle>
+          </DialogHeader>
+          <textarea
+            className="flex-1 resize-none rounded-md border border-input bg-muted px-3 py-2 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            spellCheck={false}
+          />
+          {error ? (
+            <p className="shrink-0 text-xs text-destructive">{error}</p>
+          ) : null}
+          <DialogFooter className="shrink-0">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="inline-flex h-8 items-center rounded-md border border-input px-3 text-xs hover:bg-accent cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function EditToolPopover({
@@ -1157,6 +1260,12 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   onRestored={() => setRefreshKey((k) => k + 1)}
                   onOpenChange={onPopoverOpenChange}
                 />
+                {extension.canEdit && (
+                  <SourceCodeDialog
+                    extension={extension}
+                    onSaved={() => setRefreshKey((k) => k + 1)}
+                  />
+                )}
                 <EditToolPopover
                   extension={extension}
                   onOpenChange={onPopoverOpenChange}
