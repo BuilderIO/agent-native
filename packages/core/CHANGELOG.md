@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.84.22
+
+### Patch Changes
+
+- 72d6a3e: Add built-in Slack webhook and email notification channels, keep chat status visible through auto-continuation handoffs, and make guided-question option values authoritative in follow-up context.
+- 72d6a3e: Send both Builder upload compression-skip query params for compatibility with the production upload API rollout.
+- 72d6a3e: Make the document Report-Only script-src CSP account for the framework-injected Google Analytics / Tag Manager loader and inline gtag config script, so GA no longer triggers a CSP violation on every page load (it was Report-Only, so GA was never actually blocked) and the policy stays safe to graduate to enforcement.
+
 ## 0.84.21
 
 ### Patch Changes
