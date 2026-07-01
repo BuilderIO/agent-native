@@ -18,6 +18,8 @@ export type ContentPart =
       argsText: string;
       args: Record<string, string>;
       result?: string;
+      isError?: boolean;
+      completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
       activity?: boolean;
@@ -45,6 +47,8 @@ export interface SSEEvent {
   label?: string;
   input?: Record<string, string>;
   result?: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   /** Stable key the client echoes back in `approvedToolCalls` to approve a
@@ -525,6 +529,10 @@ export function processEvent(
       const part = content[doneIdx];
       if (part.type === "tool-call") {
         part.result = ev.result ?? "";
+        if (ev.isError !== undefined) part.isError = ev.isError;
+        if (ev.completedSideEffect !== undefined) {
+          part.completedSideEffect = ev.completedSideEffect;
+        }
         if (ev.mcpApp) part.mcpApp = ev.mcpApp;
         if (ev.chatUI) part.chatUI = ev.chatUI;
       }
@@ -851,6 +859,13 @@ export async function* readSSEStream(
             label: runningToolLabel(tool),
             tool,
           });
+        } else if (ev.type === "tool_done") {
+          const tool = ev.tool ?? "unknown";
+          for (let i = activityTrail.length - 1; i >= 0; i--) {
+            if (activityTrail[i]?.tool === tool) {
+              activityTrail.splice(i, 1);
+            }
+          }
         }
 
         const { action, result, autoContinue } = processEvent(

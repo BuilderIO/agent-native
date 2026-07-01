@@ -9,6 +9,15 @@ import { ShareButton } from "./ShareButton.js";
 const shareMutate = vi.hoisted(() => vi.fn());
 const otherMutate = vi.hoisted(() => vi.fn());
 const refetchShares = vi.hoisted(() => vi.fn(async () => undefined));
+const popoverInteractOutsideHandlers = vi.hoisted(
+  () =>
+    [] as Array<
+      (event: {
+        detail: { originalEvent: { target: EventTarget | null } };
+        preventDefault: () => void;
+      }) => void
+    >,
+);
 const sharesData = vi.hoisted(() => ({
   current: {
     ownerEmail: "owner@example.com",
@@ -39,9 +48,29 @@ vi.mock("../components/ui/popover.js", () => ({
   PopoverAnchor: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
-  PopoverContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
+  PopoverContent: ({
+    children,
+    onInteractOutside,
+    onOpenAutoFocus: _onOpenAutoFocus,
+    align: _align,
+    sideOffset: _sideOffset,
+    ...props
+  }: {
+    children: React.ReactNode;
+    onInteractOutside?: (event: {
+      detail: { originalEvent: { target: EventTarget | null } };
+      preventDefault: () => void;
+    }) => void;
+    onOpenAutoFocus?: unknown;
+    align?: unknown;
+    sideOffset?: unknown;
+    [key: string]: unknown;
+  }) => {
+    if (onInteractOutside) {
+      popoverInteractOutsideHandlers.push(onInteractOutside);
+    }
+    return <div {...props}>{children}</div>;
+  },
 }));
 
 function setInputValue(input: HTMLInputElement, value: string) {
@@ -74,6 +103,7 @@ describe("ShareButton", () => {
     shareMutate.mockReset();
     otherMutate.mockReset();
     refetchShares.mockClear();
+    popoverInteractOutsideHandlers.length = 0;
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: null,
@@ -332,6 +362,74 @@ describe("ShareButton", () => {
     expect(text.indexOf("Public response link")).toBeLessThan(
       text.indexOf("People with editing access"),
     );
+  });
+
+  it("can hide copyable share links and the done button", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="design"
+            resourceId="design-1"
+            shareUrl="https://design.agent-native.com/design/design-1"
+            shareUrlLabel="Design editor link"
+            showShareLinks={false}
+            showDoneButton={false}
+            shareFooterContent={<button type="button">Copy share link</button>}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("People with access");
+    expect(text).toContain("General access");
+    expect(text).toContain("Copy share link");
+    expect(text).not.toContain("Design editor link");
+    expect(text).not.toContain("Done");
+  });
+
+  it("keeps the share popover open for nested portaled share menus", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="design"
+            resourceId="design-1"
+            shareUrl="https://design.agent-native.com/design/design-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const handler =
+      popoverInteractOutsideHandlers[popoverInteractOutsideHandlers.length - 1];
+    if (!handler) throw new Error("share popover outside handler not found");
+
+    const nestedOverlay = document.createElement("div");
+    nestedOverlay.setAttribute("data-agent-native-share-overlay", "");
+    const nestedItem = document.createElement("button");
+    nestedOverlay.appendChild(nestedItem);
+    document.body.appendChild(nestedOverlay);
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+
+    const preventNestedDismiss = vi.fn();
+    handler({
+      detail: { originalEvent: { target: nestedItem } },
+      preventDefault: preventNestedDismiss,
+    });
+    expect(preventNestedDismiss).toHaveBeenCalledOnce();
+
+    const preventOutsideDismiss = vi.fn();
+    handler({
+      detail: { originalEvent: { target: outside } },
+      preventDefault: preventOutsideDismiss,
+    });
+    expect(preventOutsideDismiss).not.toHaveBeenCalled();
+
+    nestedOverlay.remove();
+    outside.remove();
   });
 
   it("renders optional share tabs and switches to custom tab content", async () => {

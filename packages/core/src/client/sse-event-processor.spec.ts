@@ -959,7 +959,7 @@ describe("SSE event processor error classification", () => {
     );
 
     const giveUpMessage =
-      "I ran out of time before finishing this step (hosted runs have a ~40s budget). " +
+      "I ran out of time before finishing this step. " +
       "I stopped rather than leave things half-done — nothing was partially saved by me here. " +
       "Please retry, ideally as a single bulk action.";
 

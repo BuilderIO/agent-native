@@ -81,8 +81,7 @@ describe("assembleA2AFinalResponse", () => {
           { type: "clear" },
           {
             type: "error",
-            error:
-              "I ran out of time before finishing this step (hosted runs have a ~40s budget).",
+            error: "I ran out of time before finishing this step.",
             errorCode: "run_budget_exhausted",
             recoverable: true,
           },
