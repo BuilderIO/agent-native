@@ -3189,22 +3189,29 @@ function TypographyDetailsPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={"Typography details" /* i18n-ignore design action */}
-          aria-pressed={open}
-          className={cn(
-            "h-6 min-w-6 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
-            open &&
-              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
-          )}
-        >
-          <IconLayoutSettings className="size-3.5" />
-        </Button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={"Typography details" /* i18n-ignore design action */}
+              aria-pressed={open}
+              className={cn(
+                "h-6 min-w-6 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
+                open &&
+                  "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+              )}
+            >
+              <IconLayoutSettings className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Typography details" /* i18n-ignore design action */}
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent
         side="left"
         align="end"

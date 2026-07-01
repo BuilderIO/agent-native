@@ -59,6 +59,20 @@ interface BuilderIndexResult {
   instructions?: string;
 }
 
+async function readJsonResponse(res: Response): Promise<any> {
+  const text = await res.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: res.ok
+        ? "The server returned an invalid response."
+        : text.slice(0, 240),
+    };
+  }
+}
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -127,7 +141,7 @@ export default function DesignSystemSetup() {
             body,
           },
         );
-        const json = await res.json();
+        const json = await readJsonResponse(res);
         if (!res.ok || json?.error) {
           throw new Error(json?.error || `Upload failed (${res.status})`);
         }

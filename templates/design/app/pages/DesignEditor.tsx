@@ -71,12 +71,9 @@ import { normalizeDesignSourceType } from "@shared/source-mode";
 import {
   IconArrowLeft,
   IconArrowUpRight,
-  IconArrowsMaximize,
   IconPencil,
   IconMessage,
   IconBrush,
-  IconZoomIn,
-  IconZoomOut,
   IconDeviceDesktop,
   IconDeviceTablet,
   IconDeviceMobile,
@@ -118,6 +115,7 @@ import {
   IconCircleCheck,
   IconTerminal2,
   IconLink,
+  IconLock,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -306,6 +304,8 @@ const BOARD_SURFACE_SIZE = 131_072;
 const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
 const NO_LOCALHOST_WRITE_CONTENT_MESSAGE =
   "No content to write. Open the screen first." /* i18n-ignore */;
+const TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE =
+  "You need edit access to add tweak controls." /* i18n-ignore */;
 const FOCUSED_SCREEN_ZOOM = 100;
 export const DEFAULT_OVERVIEW_ZOOM = 60;
 const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
@@ -855,6 +855,16 @@ function removeEditorChromeOverlays(root: ParentNode): void {
   root
     .querySelectorAll(EDITOR_CHROME_OVERLAY_SELECTOR)
     .forEach((element) => element.remove());
+}
+
+function sanitizeSerializedXmlForSvg(value: string): string {
+  // SVG opened as XML only knows the five predefined entities. HTML serializers
+  // can leave named entities or bare ampersands in foreignObject content; escape
+  // those so the downloaded SVG parses cleanly in browsers and editors.
+  return value.replace(
+    /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g,
+    "&amp;",
+  );
 }
 
 /**
@@ -3741,10 +3751,17 @@ function DesignCollaboratorsMenu({
           return (
             <DropdownMenuItem
               key={user.email}
-              onSelect={() => {
-                if (!collaborator.isCurrent) onAvatarClick?.(user);
+              onSelect={(event) => {
+                if (collaborator.isCurrent) {
+                  event.preventDefault();
+                  return;
+                }
+                onAvatarClick?.(user);
               }}
-              className="gap-2"
+              className={cn(
+                "gap-2",
+                collaborator.isCurrent && "cursor-default",
+              )}
             >
               <DesignCollaboratorAvatar collaborator={collaborator} />
               <span className="min-w-0 flex-1">
@@ -3755,14 +3772,42 @@ function DesignCollaboratorsMenu({
                   {user.email}
                 </span>
               </span>
-              {isFollowing ? (
+              {collaborator.isCurrent ? (
+                <span className="text-xs text-muted-foreground">
+                  {"You" /* i18n-ignore collaborator row */}
+                </span>
+              ) : isFollowing ? (
                 <IconCheck className="size-3.5 text-[var(--design-editor-accent-color)]" />
-              ) : null}
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {"Follow" /* i18n-ignore collaborator row */}
+                </span>
+              )}
             </DropdownMenuItem>
           );
         })}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function ReadOnlyEditorPanel({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center">
+      <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <IconLock className="size-5" />
+      </div>
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
+        {description}
+      </p>
+    </div>
   );
 }
 
@@ -5821,12 +5866,17 @@ export default function DesignEditor() {
     const next = titleDraft.trim();
     if (!next || next === design?.title) return;
 
+    const designQueryKey = ["action", "get-design", { id }];
+    const previousDesign = queryClient.getQueryData(designQueryKey);
+    const previousListDesignsQueries = queryClient.getQueriesData({
+      queryKey: ["action", "list-designs"],
+    });
     queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
       if (!old || typeof old !== "object") return old;
       return { ...old, title: next };
     });
-    queryClient.setQueryData(
-      ["action", "list-designs", undefined],
+    queryClient.setQueriesData(
+      { queryKey: ["action", "list-designs"] },
       (old: any) => {
         if (!old) return old;
         return {
@@ -5840,7 +5890,12 @@ export default function DesignEditor() {
 
     updateDesignMutation.mutate({ id, title: next } as any, {
       onError: () => {
+        queryClient.setQueryData(designQueryKey, previousDesign);
+        for (const [queryKey, data] of previousListDesignsQueries) {
+          queryClient.setQueryData(queryKey, data);
+        }
         queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
+        queryClient.invalidateQueries({ queryKey: ["action", "list-designs"] });
       },
     });
   }, [
@@ -8976,8 +9031,11 @@ export default function DesignEditor() {
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
     ) => {
-      if (!canEditDesign || !design || generating || pendingGenerationActive)
+      if (!canEditDesign) {
+        toast.error(TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE);
         return;
+      }
+      if (!design) return;
       const trimmed = prompt.trim();
       if (!trimmed) return;
       const fileContext = formatUploadedFileContext(files);
@@ -9010,6 +9068,7 @@ export default function DesignEditor() {
         context,
         submit: true,
         openSidebar: true,
+        newTab: true,
         model: options.model,
         engine: options.engine,
         effort: options.effort,
@@ -9021,10 +9080,8 @@ export default function DesignEditor() {
       activeFile,
       canEditDesign,
       design,
-      generating,
       handleTweakPromptOpenChange,
       id,
-      pendingGenerationActive,
       tweakSelections,
       tweaks,
     ],
@@ -9214,6 +9271,45 @@ export default function DesignEditor() {
     });
   }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
 
+  const handleAssetInserted = useCallback(
+    (selection: {
+      fileId?: string;
+      nodeId?: string;
+      selector?: string;
+      title?: string;
+    }) => {
+      if (selection.fileId) {
+        setActiveFileId(selection.fileId);
+        if (viewModeRef.current === "overview") {
+          setOverviewSelectedScreenIds([selection.fileId]);
+        }
+      }
+      if (selection.nodeId) {
+        setSelectedLayerIdsState([selection.nodeId]);
+      }
+      if (selection.selector || selection.nodeId) {
+        setSelectedElement({
+          tagName: "section",
+          sourceId: selection.nodeId,
+          selector:
+            selection.selector ??
+            `[data-agent-native-node-id="${selection.nodeId}"]`,
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+          textContent: selection.title,
+          isFlexChild: false,
+          isFlexContainer: false,
+        });
+      }
+      setHoveredElement(null);
+      setHoveredElementScreenId(null);
+      setActiveTool("move");
+      setMode("edit");
+    },
+    [],
+  );
+
   const designExtensionContext = useMemo<DesignExtensionSlotContext>(
     () => ({
       designId: id ?? "",
@@ -9250,6 +9346,7 @@ export default function DesignEditor() {
           updatedAt,
         });
       },
+      onAssetInserted: handleAssetInserted,
     }),
     [
       activeContent,
@@ -9262,6 +9359,7 @@ export default function DesignEditor() {
       clearShaderFillPreview,
       design?.title,
       files,
+      handleAssetInserted,
       id,
       mode,
       overviewSelectedScreenIds,
@@ -13326,22 +13424,44 @@ export default function DesignEditor() {
         );
         // When an element is selected, crop the export to just that frame.
         const cropRect = resolveExportCropRect(doc, selectedElement);
-        const canvas = await html2canvas(doc.documentElement, {
-          width,
-          height,
-          windowWidth: width,
-          windowHeight: height,
-          scale: exportScale,
-          useCORS: true,
-          foreignObjectRendering: true,
-          backgroundColor: null,
-          onclone: (clonedDocument) => {
-            // Sanitize colors first: it aligns source/clone elements by index,
-            // so remove the editor-chrome overlays only afterwards.
-            sanitizeHtml2CanvasClone(doc, clonedDocument);
-            removeEditorChromeOverlays(clonedDocument);
-          },
-        });
+        let canvas: HTMLCanvasElement;
+        try {
+          canvas = await html2canvas(doc.documentElement, {
+            width,
+            height,
+            windowWidth: width,
+            windowHeight: height,
+            scale: exportScale,
+            useCORS: true,
+            foreignObjectRendering: true,
+            backgroundColor: null,
+            onclone: (clonedDocument) => {
+              // Sanitize colors first: it aligns source/clone elements by index,
+              // so remove the editor-chrome overlays only afterwards.
+              sanitizeHtml2CanvasClone(doc, clonedDocument);
+              removeEditorChromeOverlays(clonedDocument);
+            },
+          });
+        } catch (primaryError) {
+          console.warn(
+            "PNG export failed with foreignObjectRendering; retrying canvas renderer:",
+            primaryError,
+          );
+          canvas = await html2canvas(doc.documentElement, {
+            width,
+            height,
+            windowWidth: width,
+            windowHeight: height,
+            scale: exportScale,
+            useCORS: true,
+            foreignObjectRendering: false,
+            backgroundColor: null,
+            onclone: (clonedDocument) => {
+              sanitizeHtml2CanvasClone(doc, clonedDocument);
+              removeEditorChromeOverlays(clonedDocument);
+            },
+          });
+        }
         // Render the whole page first, then crop, so ancestor backgrounds show
         // through the selected frame exactly as they do on screen.
         const outputCanvas = cropRect
@@ -13465,7 +13585,9 @@ export default function DesignEditor() {
           body.style.minHeight = `${height}px`;
         }
 
-        const serializedHtml = new XMLSerializer().serializeToString(clone);
+        const serializedHtml = sanitizeSerializedXmlForSvg(
+          new XMLSerializer().serializeToString(clone),
+        );
         const safeTitle =
           design?.title
             ?.replace(/&/g, "&amp;")
@@ -13661,7 +13783,7 @@ ${serializedHtml}
           type="button"
           onClick={selectedShareExportOption.onDownload}
           disabled={selectedShareExportOption.disabled}
-          className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
+          className="h-8 gap-1.5 rounded-md bg-[var(--design-editor-accent-color)] px-3 text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] disabled:bg-muted disabled:text-muted-foreground"
         >
           <IconDownload className="size-3.5" />
           {"Download" /* i18n-ignore share export action */}
@@ -15495,6 +15617,20 @@ ${serializedHtml}
   );
 
   const zoomLabel = `${Math.round(zoom)}%`;
+  const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
+  const [zoomInputValue, setZoomInputValue] = useState(zoomLabel);
+  useEffect(() => {
+    if (!zoomMenuOpen) setZoomInputValue(zoomLabel);
+  }, [zoomLabel, zoomMenuOpen]);
+  const commitZoomInput = useCallback(() => {
+    const next = Number(zoomInputValue.replace("%", "").trim());
+    if (!Number.isFinite(next)) {
+      setZoomInputValue(zoomLabel);
+      return;
+    }
+    setZoom(Math.max(10, Math.min(500, next)));
+    setZoomMenuOpen(false);
+  }, [setZoom, zoomInputValue, zoomLabel]);
 
   const handleTokensApplied = useCallback(
     (resolvedCssVars: Record<string, string>) => {
@@ -15834,8 +15970,8 @@ ${serializedHtml}
       </span>
     );
 
-  const zoomControl = (
-    <DropdownMenu>
+  const renderZoomControl = () => (
+    <DropdownMenu open={zoomMenuOpen} onOpenChange={setZoomMenuOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -15851,29 +15987,66 @@ ${serializedHtml}
         </TooltipTrigger>
         <TooltipContent>{t("designEditor.zoom")}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuItem onClick={handleZoomOut}>
-          <IconZoomOut className="mr-2 h-4 w-4" />
-          {t("designEditor.zoomOut")}
+      <DropdownMenuContent
+        align="end"
+        className="w-72 overflow-hidden rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 shadow-2xl"
+      >
+        <div className="p-3">
+          <Input
+            autoFocus
+            value={zoomInputValue}
+            onChange={(event) => setZoomInputValue(event.target.value)}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitZoomInput();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                setZoomInputValue(zoomLabel);
+                setZoomMenuOpen(false);
+              }
+            }}
+            className="h-10 rounded-md border-[var(--design-editor-accent-color)] bg-[var(--design-editor-control-bg)] px-3 text-base font-medium tabular-nums text-foreground shadow-none focus-visible:ring-2 focus-visible:ring-[var(--design-editor-accent-color)]"
+            aria-label={"Zoom percentage" /* i18n-ignore zoom field */}
+          />
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={handleZoomIn}
+          className="h-12 px-12 text-[15px]"
+        >
+          <span className="flex-1">{"Zoom in" /* i18n-ignore */}</span>
+          <DropdownMenuShortcut>⌘+</DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleZoomIn}>
-          <IconZoomIn className="mr-2 h-4 w-4" />
-          {t("designEditor.zoomIn")}
+        <DropdownMenuItem
+          onClick={handleZoomOut}
+          className="h-12 px-12 text-[15px]"
+        >
+          <span className="flex-1">{"Zoom out" /* i18n-ignore */}</span>
+          <DropdownMenuShortcut>⌘−</DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleZoomToFit}>
-          <IconArrowsMaximize className="mr-2 h-4 w-4" />
-          {"Fit to screen" /* i18n-ignore zoom option */}
+        <DropdownMenuItem
+          onClick={handleZoomToFit}
+          className="h-12 px-12 text-[15px]"
+        >
+          <span className="flex-1">{"Zoom to fit" /* i18n-ignore */}</span>
           <DropdownMenuShortcut>⇧1</DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {ZOOM_PRESETS.map((preset) => (
+        {[50, 100, 200].map((preset) => (
           <DropdownMenuItem
             key={preset}
             onClick={() => setZoom(preset)}
-            className="justify-between"
+            className="h-12 px-12 text-[15px]"
           >
-            <span>{preset}%</span>
-            {Math.round(zoom) === preset && <IconCheck className="h-4 w-4" />}
+            <span className="flex-1">
+              {"Zoom to " /* i18n-ignore */}
+              {preset}%
+            </span>
+            {preset === 100 ? (
+              <DropdownMenuShortcut>⌘0</DropdownMenuShortcut>
+            ) : null}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
@@ -16390,52 +16563,7 @@ ${serializedHtml}
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                {/* Zoom — collapsed into a single menu. */}
-                <DropdownMenu>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 gap-1 px-2 text-xs tabular-nums text-muted-foreground cursor-pointer"
-                        >
-                          {zoomLabel}
-                          <IconChevronDown className="w-3 h-3 opacity-60" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("designEditor.zoom")}</TooltipContent>
-                  </Tooltip>
-                  <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuItem onClick={handleZoomOut}>
-                      <IconZoomOut className="mr-2 h-4 w-4" />
-                      {t("designEditor.zoomOut")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleZoomIn}>
-                      <IconZoomIn className="mr-2 h-4 w-4" />
-                      {t("designEditor.zoomIn")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleZoomToFit}>
-                      <IconArrowsMaximize className="mr-2 h-4 w-4" />
-                      {"Fit to screen" /* i18n-ignore zoom option */}
-                      <DropdownMenuShortcut>⇧1</DropdownMenuShortcut>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {ZOOM_PRESETS.map((preset) => (
-                      <DropdownMenuItem
-                        key={preset}
-                        onClick={() => setZoom(preset)}
-                        className="justify-between"
-                      >
-                        <span>{preset}%</span>
-                        {Math.round(zoom) === preset && (
-                          <IconCheck className="h-4 w-4" />
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {renderZoomControl()}
 
                 <div className="mx-1 h-5 w-px bg-border" />
               </>
@@ -16565,7 +16693,16 @@ ${serializedHtml}
                     showScopeBadge={false}
                     browserTabId={browserTabId}
                   />
-                ) : null}
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={
+                      "Agent chat requires editor access" /* i18n-ignore */
+                    }
+                    description={
+                      "Ask an owner for edit access before using the agent to change this design." /* i18n-ignore */
+                    }
+                  />
+                )}
               </div>
               <div
                 className={cn(
@@ -16578,7 +16715,16 @@ ${serializedHtml}
                     {t("designEditor.leftRail.assets")}
                   </h3>
                 </div>
-                <AssetLibraryPanel context={designExtensionContext} />
+                {canEditDesign ? (
+                  <AssetLibraryPanel context={designExtensionContext} />
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={"Assets require editor access" /* i18n-ignore */}
+                    description={
+                      "Ask an owner for edit access before inserting assets into this design." /* i18n-ignore */
+                    }
+                  />
+                )}
               </div>
               <div
                 className={cn(
@@ -16586,11 +16732,20 @@ ${serializedHtml}
                   activeLeftPanel === "tools" ? "flex" : "hidden",
                 )}
               >
-                <DesignExtensionsPanel
-                  context={designExtensionContext}
-                  hideAssetLibrary
-                  title={t("designEditor.leftRail.tools")}
-                />
+                {canEditDesign ? (
+                  <DesignExtensionsPanel
+                    context={designExtensionContext}
+                    hideAssetLibrary
+                    title={t("designEditor.leftRail.tools")}
+                  />
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={"Tools require editor access" /* i18n-ignore */}
+                    description={
+                      "Ask an owner for edit access before running tools or creating extensions for this design." /* i18n-ignore */
+                    }
+                  />
+                )}
               </div>
               <div
                 className={cn(
@@ -16598,7 +16753,7 @@ ${serializedHtml}
                   activeLeftPanel === "tokens" ? "flex" : "hidden",
                 )}
               >
-                {id ? (
+                {id && canEditDesign ? (
                   <>
                     <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
                       <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
@@ -16612,7 +16767,14 @@ ${serializedHtml}
                       />
                     </div>
                   </>
-                ) : null}
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={"Tokens require editor access" /* i18n-ignore */}
+                    description={
+                      "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
+                    }
+                  />
+                )}
               </div>
             </div>
             <div
@@ -17475,7 +17637,7 @@ ${serializedHtml}
                   selectedElements={selectedInspectorElements}
                   pageStyles={pageStyles}
                   zoom={zoom}
-                  headerTrailing={zoomControl}
+                  headerTrailing={renderZoomControl()}
                   width={rightSidebarWidth}
                   activeTab={activeInspectorTab}
                   onActiveTabChange={setActiveInspectorTab}
@@ -17735,7 +17897,7 @@ ${serializedHtml}
         title={t("designEditor.tweaksPromptTitle")}
         placeholder={t("designEditor.tweaksPlaceholder")}
         onSubmit={handleTweakPromptSubmit}
-        loading={generating || pendingGenerationActive}
+        loading={false}
         anchorRef={tweakPromptAnchorRef}
       />
 

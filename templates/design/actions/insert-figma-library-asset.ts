@@ -66,6 +66,14 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function createInsertedNodeId(prefix: string): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+      : Math.random().toString(36).slice(2, 14);
+  return `inserted-${prefix}-${random}`;
+}
+
 function insertBeforeClosingTag(
   html: string,
   closingTag: "main" | "body",
@@ -83,6 +91,7 @@ function optionalDataAttribute(name: string, value: string | undefined) {
 function appendFigmaAssetMarkup(
   html: string,
   args: z.infer<typeof schemaInput>,
+  nodeId: string,
 ): string {
   const label = args.name?.trim() || "Figma library asset";
   const description = args.description?.trim();
@@ -90,7 +99,7 @@ function appendFigmaAssetMarkup(
     ? `<a href="${escapeHtml(args.sourceUrl)}" target="_blank" rel="noreferrer" class="text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-800">Open in Figma</a>`
     : "";
   const snippet = `
-    <section class="mx-auto my-8 max-w-5xl px-4" data-agent-native-asset-source="figma" data-agent-native-figma-asset data-figma-file-key="${escapeHtml(args.fileKey)}"${optionalDataAttribute("data-figma-node-id", args.nodeId)}${optionalDataAttribute("data-figma-component-key", args.componentKey)} data-figma-asset-kind="${escapeHtml(args.kind)}">
+    <section class="mx-auto my-8 max-w-5xl px-4" data-agent-native-asset-source="figma" data-agent-native-figma-asset data-agent-native-node-id="${escapeHtml(nodeId)}" data-agent-native-layer-name="${escapeHtml(label)}" data-figma-file-key="${escapeHtml(args.fileKey)}"${optionalDataAttribute("data-figma-node-id", args.nodeId)}${optionalDataAttribute("data-figma-component-key", args.componentKey)} data-figma-asset-kind="${escapeHtml(args.kind)}">
       <figure class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <img src="${escapeHtml(args.renderUrl)}" alt="${escapeHtml(label)}" class="w-full rounded-t-2xl object-contain" />
         <figcaption class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm text-slate-600">
@@ -201,7 +210,8 @@ export default defineAction({
       // Collab read is best-effort; fall back to stored content.
     }
 
-    const content = appendFigmaAssetMarkup(base, args);
+    const insertedNodeId = createInsertedNodeId("figma");
+    const content = appendFigmaAssetMarkup(base, args, insertedNodeId);
     const now = new Date().toISOString();
     await db
       .update(schema.designFiles)
@@ -223,6 +233,8 @@ export default defineAction({
       fileId: file.id,
       filename: file.filename,
       inserted: true,
+      insertedNodeId,
+      insertedSelector: `[data-agent-native-node-id="${insertedNodeId}"]`,
       source: "figma",
       fileKey: args.fileKey,
       nodeId: args.nodeId ?? null,

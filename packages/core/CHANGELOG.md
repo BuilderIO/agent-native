@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.84.27
+
+### Patch Changes
+
+- 6fb954b: Require admin access for shareable resource visibility changes.
+
+## 0.84.26
+
+### Patch Changes
+
+- f041345: Track action-preparation progress by streamed tool-input id so parallel same-name tool calls do not hide real progress.
+
+## 0.84.25
+
+### Patch Changes
+
+- a11293f: Keep tail-resume reconnect content display-only, recover zero-byte action-prep stalls, and polish Design screen tool labels.
+
 ## 0.84.24
 
 ### Patch Changes
