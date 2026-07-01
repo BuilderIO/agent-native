@@ -3,7 +3,6 @@ import { resolve } from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import type { OutputBundle, OutputChunk } from "rollup";
 import type { Plugin } from "vite";
 
 const workspaceRendererPackages = [
@@ -18,10 +17,26 @@ const workspaceRendererPackages = [
 const PRELOAD_CHUNK_REQUIRE_RE =
   /const\s+([A-Za-z_$][\w$]*)\s*=\s*require\(["']\.\/chunks\/([^"']+)["']\);?\n?/g;
 
+type PreloadOutputChunk = {
+  type: "chunk";
+  fileName: string;
+  code: string;
+  isEntry: boolean;
+};
+
+type PreloadOutputAsset = {
+  type: "asset";
+};
+
+type PreloadOutputBundle = Record<
+  string,
+  PreloadOutputAsset | PreloadOutputChunk
+>;
+
 function asOutputChunk(
-  bundle: OutputBundle,
+  bundle: PreloadOutputBundle,
   fileName: string,
-): OutputChunk | null {
+): PreloadOutputChunk | null {
   const output = bundle[fileName];
   return output?.type === "chunk" ? output : null;
 }
@@ -35,7 +50,7 @@ function indentInlineModule(code: string): string {
 
 function inlineChunkRequires(
   code: string,
-  bundle: OutputBundle,
+  bundle: PreloadOutputBundle,
   stack: string[] = [],
 ): string {
   return code.replace(
@@ -67,15 +82,16 @@ function inlinePreloadChunksPlugin(): Plugin {
   return {
     name: "agent-native:inline-preload-chunks",
     generateBundle(_options, bundle) {
-      const sharedChunks = Object.entries(bundle).flatMap(
+      const preloadBundle = bundle as PreloadOutputBundle;
+      const sharedChunks = Object.entries(preloadBundle).flatMap(
         ([fileName, output]) =>
           output.type === "chunk" && !output.isEntry ? [fileName] : [],
       );
       if (sharedChunks.length === 0) return;
 
-      for (const output of Object.values(bundle)) {
+      for (const output of Object.values(preloadBundle)) {
         if (output.type !== "chunk" || !output.isEntry) continue;
-        output.code = inlineChunkRequires(output.code, bundle);
+        output.code = inlineChunkRequires(output.code, preloadBundle);
         if (PRELOAD_CHUNK_REQUIRE_RE.test(output.code)) {
           throw new Error(
             `Preload entry ${output.fileName} still requires a generated chunk`,
@@ -173,7 +189,6 @@ export default defineConfig({
           "electron-updater",
         ],
       }),
-      inlinePreloadChunksPlugin(),
     ],
     resolve: {
       alias: {
@@ -191,6 +206,7 @@ export default defineConfig({
           "@agent-native/shared-app-config",
         ],
       }),
+      inlinePreloadChunksPlugin(),
     ],
     resolve: {
       alias: {
