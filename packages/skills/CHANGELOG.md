@@ -1,5 +1,14 @@
 # @agent-native/skills
 
+## 0.2.197
+
+### Patch Changes
+
+- Updated dependencies [fde28eb]
+- Updated dependencies [fde28eb]
+- Updated dependencies [fde28eb]
+  - @agent-native/core@0.84.23
+
 ## 0.2.196
 
 ### Patch Changes
