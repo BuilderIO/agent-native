@@ -21,11 +21,7 @@ import { getThemeVars } from "../../extensions/theme.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "../components/ui/dialog.js";
+import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
 import {
   Popover,
   PopoverContent,
