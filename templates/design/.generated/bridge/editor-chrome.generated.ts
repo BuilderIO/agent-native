@@ -27,7 +27,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -1809,12 +1809,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function refreshOverlays() {
+      var textEditingEl = activeTextEditEl || document.querySelector(
+        "[data-agent-native-text-editing]"
+      );
       if (hoveredEl && hoveredEl !== selectedEl) {
         positionOverlay(highlightOverlay, hoveredEl);
       } else {
         highlightOverlay.style.display = "none";
       }
-      if (selectedEl) {
+      if (textEditingEl) {
+        if (activeTextEditEl === textEditingEl) {
+          updateTextEditingChrome(textEditingEl, "", "");
+        }
+        if (!hasTextCharacters(textEditingEl)) {
+          hideSelectionOverlay();
+        }
+      } else if (selectedEl) {
         positionOverlay(selectionOverlay, selectedEl);
       } else {
         hideParentAutoLayoutOverlay();
@@ -2118,9 +2128,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     function updateTextEditingChrome(target, originalMinWidth, originalMinHeight) {
-      target.style.outline = "";
-      target.style.outlineOffset = "";
+      target.style.outline = "none";
+      target.style.outlineStyle = "none";
+      target.style.outlineWidth = "0px";
+      target.style.outlineColor = "transparent";
+      target.style.outlineOffset = "0px";
       if (hasTextCharacters(target)) {
+        document.documentElement.removeAttribute(
+          "data-agent-native-empty-text-editing"
+        );
         target.style.minWidth = originalMinWidth;
         target.style.minHeight = originalMinHeight;
         positionOverlay(selectionOverlay, target);
@@ -2129,6 +2145,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       target.style.minWidth = originalMinWidth || "1px";
       target.style.minHeight = originalMinHeight || "1em";
+      document.documentElement.setAttribute(
+        "data-agent-native-empty-text-editing",
+        "true"
+      );
       hideSelectionOverlay();
       setSelectionOverlayResizeChromeVisible(false);
     }
@@ -3882,24 +3902,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       var target = findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) || findTextEditTarget(eventTarget) || eventTarget;
       if (!target || target.nodeType !== 1) return;
       selectedEl = selectionTargetForHit(target) || target;
+      var programmaticTextEdit = !!e && e.agentNativeProgrammaticTextEdit === true;
       var originalText = target.textContent || "";
       var originalHtml = target.innerHTML || "";
       var originalMinWidth = target.style.minWidth;
       var originalMinHeight = target.style.minHeight;
       var originalBorderColor = target.style.borderColor;
+      var originalOutline = target.style.outline;
+      var originalOutlineOffset = target.style.outlineOffset;
       var committed = false;
       activeTextEditEl = target;
       target.setAttribute("contenteditable", "true");
       target.setAttribute("data-agent-native-text-editing", "true");
       target.style.cursor = "text";
       target.style.borderColor = "transparent";
+      target.style.outline = "none";
+      target.style.outlineStyle = "none";
+      target.style.outlineWidth = "0px";
+      target.style.outlineColor = "transparent";
+      target.style.outlineOffset = "0px";
       setTextEditingPointerPassthrough(true);
       updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-      postElementSelect(target, e);
-      window.parent.postMessage(
-        { type: "element-dblclick-text", payload: getElementInfo(target) },
-        "*"
-      );
+      if (!programmaticTextEdit) {
+        postElementSelect(target, e);
+        window.parent.postMessage(
+          { type: "element-dblclick-text", payload: getElementInfo(target) },
+          "*"
+        );
+      }
       postTextEditingState(target, true);
       function finish(commit) {
         if (committed) return;
@@ -3913,9 +3943,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.removeEventListener("selectionchange", onSelectionChange);
         target.removeAttribute("contenteditable");
         target.removeAttribute("data-agent-native-text-editing");
+        document.documentElement.removeAttribute(
+          "data-agent-native-empty-text-editing"
+        );
         target.style.cursor = "";
-        target.style.outline = "";
-        target.style.outlineOffset = "";
+        target.style.outline = originalOutline;
+        target.style.outlineOffset = originalOutlineOffset;
         target.style.minWidth = originalMinWidth;
         target.style.minHeight = originalMinHeight;
         target.style.borderColor = originalBorderColor;
@@ -3936,6 +3969,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       function onBlur() {
+        if (programmaticTextEdit && !(target.textContent || "").trim()) {
+          window.setTimeout(function() {
+            if (committed || (target.textContent || "").trim()) return;
+            target.focus();
+            updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
+            postTextEditingState(target, true);
+          }, 0);
+          return;
+        }
         finish(true);
       }
       function onKeyDown(ev) {
@@ -4127,6 +4169,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             clientX: bteCenterX,
             clientY: bteCenterY,
             target: textTarget,
+            agentNativeProgrammaticTextEdit: true,
             preventDefault: function() {
             },
             stopPropagation: function() {

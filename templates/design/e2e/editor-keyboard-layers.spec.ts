@@ -499,43 +499,22 @@ async function pressPrimaryShortcut(
   key: string,
   options: { shift?: boolean } = {},
 ): Promise<void> {
-  await page.evaluate(
-    ({ key, primary, shift }) => {
-      const isLetter = /^[a-z]$/i.test(key);
-      const eventKey = isLetter
-        ? shift
-          ? key.toUpperCase()
-          : key.toLowerCase()
-        : key;
-      const eventInit: KeyboardEventInit = {
-        key: eventKey,
-        code: isLetter ? `Key${key.toUpperCase()}` : key,
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        metaKey: primary === "Meta",
-        ctrlKey: primary === "Control",
-        shiftKey: shift,
-      };
-      window.dispatchEvent(new KeyboardEvent("keydown", eventInit));
-      window.dispatchEvent(new KeyboardEvent("keyup", eventInit));
-    },
-    { key, primary: PRIMARY, shift: options.shift ?? false },
-  );
+  await page.evaluate(() => {
+    document.body.setAttribute("tabindex", "-1");
+    document.body.focus();
+  });
+  const parts = [PRIMARY];
+  if (options.shift) parts.push("Shift");
+  parts.push(key.length === 1 ? key.toUpperCase() : key);
+  await page.keyboard.press(parts.join("+"));
 }
 
 async function pressEditorKey(page: Page, key: string): Promise<void> {
-  await page.evaluate((key) => {
-    const eventInit: KeyboardEventInit = {
-      key,
-      code: key,
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    };
-    window.dispatchEvent(new KeyboardEvent("keydown", eventInit));
-    window.dispatchEvent(new KeyboardEvent("keyup", eventInit));
-  }, key);
+  await page.evaluate(() => {
+    document.body.setAttribute("tabindex", "-1");
+    document.body.focus();
+  });
+  await page.keyboard.press(key);
 }
 
 function count(value: string, needle: string): number {

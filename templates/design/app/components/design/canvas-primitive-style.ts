@@ -248,6 +248,8 @@ export function canvasPrimitiveReactStyle(
   // For text kind, clear fill-as-background since text uses `color`
   if (kind === "text") {
     style.background = "transparent";
+    style.outline = "none";
+    style.outlineOffset = 0;
   }
 
   return style;
