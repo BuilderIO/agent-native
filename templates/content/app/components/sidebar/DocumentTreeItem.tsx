@@ -149,7 +149,7 @@ export function DocumentTreeItem({
           canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isActive
-            ? "border-primary bg-accent text-accent-foreground font-medium shadow-sm"
+            ? "border-primary bg-accent text-accent-foreground font-medium"
             : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
         style={{
@@ -205,13 +205,18 @@ export function DocumentTreeItem({
           )}
         </span>
 
-        <span className="min-w-0 flex-1 truncate">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            (hasMenuActions || canCreateChild) && "pr-12",
+          )}
+        >
           {node.title || "Untitled"}
         </span>
 
         <div
           className={cn(
-            "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md pl-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+            "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
             "bg-accent text-foreground",
             isActive && "text-accent-foreground",
           )}

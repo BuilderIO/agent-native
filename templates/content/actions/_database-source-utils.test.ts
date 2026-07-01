@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { ContentDatabaseItem, DocumentProperty } from "../shared/api";
 import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_BODY_CONTENT_KEY,
+} from "./_builder-cms-source-adapter";
+import {
   buildBuilderLocalOutboundChangeSets,
+  builderBodyChangeForLocalContent,
   builderBodyNeedsSourceComponentWrite,
   builderBodyHydrationVersion,
   builderCmsEntryAlreadyRepresented,
@@ -322,6 +327,20 @@ describe("database source helpers", () => {
       },
       riskReasons: ["body diff"],
     });
+  });
+
+  it("does not report hydrated Builder bodies as edits when the local content still matches the baseline", async () => {
+    const change = await builderBodyChangeForLocalContent({
+      row: {
+        sourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable Builder body\n",
+        }),
+      },
+      localContent: "Readable Builder body",
+    });
+
+    expect(change).toBeNull();
   });
 
   it("detects a changed mapped property field on an existing row (not just title)", () => {

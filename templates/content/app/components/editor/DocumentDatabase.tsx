@@ -597,6 +597,7 @@ function DatabaseTable({
   );
   const hydratedViewRef = useRef("");
   const saveViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoContinueBuilderSourceRef = useRef<string | null>(null);
   const previewStateRef = useRef<{
     documentId: string | null;
     visibleItems: ContentDatabaseItem[];
@@ -715,6 +716,37 @@ function DatabaseTable({
       pruneDatabaseRowSelection(current, visibleItems),
     );
   }, [visibleItems]);
+
+  useEffect(() => {
+    if (
+      !canEdit ||
+      !source ||
+      source.sourceType !== "builder-cms" ||
+      sourceAddsDetails(source) ||
+      refreshSource.isPending
+    ) {
+      return;
+    }
+    const sourceStatus = builderSourceRowFetchStatus(source);
+    if (
+      sourceStatus !== "fetching" ||
+      source.metadata.lastReadHasMore !== true
+    ) {
+      return;
+    }
+    const offset =
+      typeof source.metadata.lastReadNextOffset === "number"
+        ? source.metadata.lastReadNextOffset
+        : null;
+    if (offset === null) return;
+    const continuationKey = `${source.id}:${offset}`;
+    if (autoContinueBuilderSourceRef.current === continuationKey) return;
+    autoContinueBuilderSourceRef.current = continuationKey;
+    refreshSource.mutate({
+      documentId: document.id,
+      sourceId: source.id,
+    });
+  }, [canEdit, document.id, refreshSource, refreshSource.isPending, source]);
 
   useEffect(() => {
     if (!databaseId) return;
@@ -1371,6 +1403,20 @@ function DatabaseTable({
         }}
       />
 
+      <BuilderSourceContinuationBar
+        source={source}
+        canEdit={canEdit}
+        pending={refreshSource.isPending}
+        onContinue={() =>
+          source
+            ? refreshSource.mutate({
+                documentId: document.id,
+                sourceId: source.id,
+              })
+            : undefined
+        }
+      />
+
       {activeView.type === "board" ? (
         <DatabaseBoardView
           activeView={activeView}
@@ -1601,8 +1647,6 @@ function DatabaseTable({
         onPreviewItem={(item) => setPreviewDocumentId(item.document.id)}
         onTitleFocused={() => setPreviewTitleFocusDocumentId(null)}
         onOpenPage={(item) => {
-          setPreviewDocumentId(null);
-          setPreviewTitleFocusDocumentId(null);
           openItemPage(item);
         }}
       />
@@ -2193,7 +2237,7 @@ function DatabaseItemPreviewSheet({
         side="right"
         showOverlay={false}
         onInteractOutside={(event) => event.preventDefault()}
-        className="flex w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[min(64vw,560px)] sm:max-w-none"
+        className="flex w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[min(72vw,720px)] sm:!max-w-none lg:w-[50vw] lg:!max-w-[860px]"
       >
         {item ? (
           <DatabaseItemPreview
@@ -2296,6 +2340,7 @@ function DatabaseItemPreview({
   const [localIcon, setLocalIcon] = useState(item.document.icon);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openingFullPage, setOpeningFullPage] = useState(false);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
 
   // The peek's primary title+body save runs through a flush-on-release controller
@@ -2591,10 +2636,18 @@ function DatabaseItemPreview({
               variant="ghost"
               size="sm"
               className="h-8 shrink-0 gap-1.5 px-2 text-xs"
-              onClick={onOpenPage}
+              disabled={openingFullPage}
+              onClick={() => {
+                setOpeningFullPage(true);
+                onOpenPage();
+              }}
             >
-              <IconExternalLink className="size-3.5" />
-              <DatabaseText k="openPage" />
+              {openingFullPage ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <IconExternalLink className="size-3.5" />
+              )}
+              {openingFullPage ? "Opening..." : <DatabaseText k="openPage" />}
             </Button>
             {canEdit || canManage ? (
               <DropdownMenu
@@ -5328,6 +5381,19 @@ function sourceAddsDetails(source: ContentDatabaseSource | null | undefined) {
   return source?.metadata.federation?.role === "secondary";
 }
 
+function builderSourceRowFetchStatus(
+  source: Pick<ContentDatabaseSource, "metadata">,
+): "fetching" | "error" | null {
+  if (source.metadata.sourceFetchState === "error") return "error";
+  if (
+    source.metadata.sourceFetchState === "fetching" ||
+    source.metadata.lastReadPartial
+  ) {
+    return "fetching";
+  }
+  return null;
+}
+
 function sourceRoleLabel(
   db: DatabaseT,
   source: ContentDatabaseSource | null | undefined,
@@ -5432,6 +5498,92 @@ function SourceRelationshipChoice({
           <DatabaseText k="bestWhenSameKindAdditionalRows" />
         </span>
       </button>
+    </div>
+  );
+}
+
+function BuilderSourceContinuationBar({
+  source,
+  canEdit,
+  pending,
+  onContinue,
+}: {
+  source: ContentDatabaseSource | null;
+  canEdit: boolean;
+  pending: boolean;
+  onContinue: () => void;
+}) {
+  if (
+    !source ||
+    source.sourceType !== "builder-cms" ||
+    sourceAddsDetails(source)
+  ) {
+    return null;
+  }
+  const status = builderSourceRowFetchStatus(source);
+  if (!status) return null;
+  const fetchedCount =
+    typeof source.metadata.lastReadFetchedEntryCount === "number"
+      ? source.metadata.lastReadFetchedEntryCount
+      : typeof source.metadata.lastReadEntryCount === "number"
+        ? source.metadata.lastReadEntryCount
+        : null;
+  const hasMore = source.metadata.lastReadHasMore === true;
+  const label =
+    status === "error"
+      ? "Builder row loading hit a snag."
+      : hasMore
+        ? "Builder is still loading rows in the background."
+        : "Builder rows are finishing up.";
+  const detail =
+    fetchedCount === null
+      ? "The table stays usable while Content continues the source refresh."
+      : `${fetchedCount} row${fetchedCount === 1 ? "" : "s"} fetched so far. The table stays usable while Content continues the source refresh.`;
+
+  return (
+    <div
+      className={cn(
+        "mx-6 mb-3 grid gap-2 rounded-lg border p-3 text-xs",
+        status === "error"
+          ? "border-destructive/30 bg-destructive/5 text-destructive"
+          : "border-border bg-muted/35 text-foreground",
+      )}
+    >
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium">{label}</div>
+          <div
+            className={cn(
+              "mt-0.5 break-words",
+              status === "error"
+                ? "text-destructive/80"
+                : "text-muted-foreground",
+            )}
+          >
+            {detail}
+          </div>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 shrink-0 px-2 text-xs"
+          disabled={pending || !canEdit}
+          onClick={onContinue}
+        >
+          {pending ? (
+            <Spinner className="mr-1 size-3.5" />
+          ) : (
+            <IconRefresh className="mr-1 size-3.5" />
+          )}
+          {status === "error" ? <DatabaseText k="retry" /> : "Continue"}
+        </Button>
+      </div>
+      {status === "fetching" ? (
+        <div className="h-1.5 overflow-hidden rounded-full bg-background">
+          <div className="h-full w-2/3 rounded-full bg-foreground/70 transition-[width]" />
+        </div>
+      ) : null}
     </div>
   );
 }

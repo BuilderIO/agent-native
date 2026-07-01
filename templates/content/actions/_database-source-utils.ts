@@ -485,6 +485,10 @@ function bodyExcerpt(value: string | null | undefined) {
   return excerpt || null;
 }
 
+function normalizeBuilderBodyBaselineContent(value: string | null | undefined) {
+  return (value ?? "").replace(/\r\n/g, "\n").trim();
+}
+
 const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
 const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 8;
@@ -1206,7 +1210,7 @@ export async function withBuilderBodiesSourceValues(
   );
 }
 
-async function builderBodyChangeForLocalContent(args: {
+export async function builderBodyChangeForLocalContent(args: {
   row: Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">;
   localContent: string | null | undefined;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
@@ -1230,6 +1234,22 @@ async function builderBodyChangeForLocalContent(args: {
     stringSourceValue(sourceValues, BUILDER_CMS_BODY_SIDECARS_KEY) ?? "{}";
   const localContent = args.localContent ?? "";
   if (!currentHash && !currentContent && !localContent.trim()) return null;
+  const normalizedLocalContent =
+    normalizeBuilderBodyBaselineContent(localContent);
+  if (
+    normalizedLocalContent &&
+    normalizedLocalContent ===
+      normalizeBuilderBodyBaselineContent(currentContent)
+  ) {
+    return null;
+  }
+  if (
+    normalizedLocalContent &&
+    normalizedLocalContent ===
+      normalizeBuilderBodyBaselineContent(losslessContent)
+  ) {
+    return null;
+  }
 
   let sidecars: Record<string, string> = {};
   try {
