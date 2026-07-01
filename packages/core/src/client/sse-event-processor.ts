@@ -49,6 +49,7 @@ export interface SSEEvent {
   /** Server-assigned call identifier emitted on tool_start / tool_done events. */
   id?: string;
   label?: string;
+  progressBytes?: number;
   input?: Record<string, string>;
   result?: string;
   isError?: boolean;
@@ -144,8 +145,57 @@ export class AgentAutoContinueSignal extends Error {
 }
 
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
+export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
 
 type ActivityTrailEntry = AgentActivityTrailEntry;
+
+type PreparingActionState = {
+  tool?: string;
+  startedAt?: number;
+  /**
+   * Timestamp of the last real streaming progress for the in-preparation tool
+   * input. The server emits a throttled `activity` heartbeat per
+   * `tool-input-delta`, so while the model is actively streaming a (possibly
+   * very large) tool argument this keeps advancing. The stall guard measures
+   * silence from HERE — not from `startedAt` — so a legitimately large, still-
+   * streaming input is never aborted; only genuine silence (keepalive-only, no
+   * further deltas) can trip it.
+   */
+  lastProgressAt?: number;
+};
+
+function formatProgressBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function activityProgressBytes(ev: SSEEvent): number | undefined {
+  return typeof ev.progressBytes === "number" &&
+    Number.isFinite(ev.progressBytes) &&
+    ev.progressBytes >= 0
+    ? Math.floor(ev.progressBytes)
+    : undefined;
+}
+
+function isPreparingActionActivity(ev: SSEEvent): boolean {
+  if (ev.type !== "activity") return false;
+  const label = (ev.label ?? "").trim().toLowerCase();
+  return label.startsWith("preparing ") && label.includes(" action");
+}
+
+function baseActivityLabel(ev: SSEEvent, tool?: string): string {
+  return humanizeToolLabelText(ev.label ?? "Working", tool);
+}
+
+function visibleActivityLabel(ev: SSEEvent, tool?: string): string {
+  const label = baseActivityLabel(ev, tool);
+  const progressBytes = activityProgressBytes(ev);
+  if (progressBytes === undefined || !isPreparingActionActivity(ev)) {
+    return label;
+  }
+  return `${label} (${formatProgressBytes(progressBytes)} streamed)`;
+}
 
 function findPendingToolCallIndex(
   content: ContentPart[],
@@ -197,6 +247,53 @@ function appendActivityTrail(
   if (trail.length > 8) {
     trail.splice(0, trail.length - 8);
   }
+}
+
+function updatePreparingActionState(
+  state: PreparingActionState,
+  ev: SSEEvent,
+  now: number,
+) {
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
+    const tool = ev.tool?.trim() || undefined;
+    if (!tool) return;
+    if (state.tool !== tool || state.startedAt === undefined) {
+      state.tool = tool;
+      state.startedAt = now;
+    }
+    // Every tool-input activity is a throttled proof the model is still
+    // streaming this action's argument. Treat it as progress so large inputs
+    // that take many seconds/minutes to stream are NOT flagged as stalled.
+    state.lastProgressAt = now;
+    return;
+  }
+
+  if (
+    ev.type === "clear" ||
+    ev.type === "text" ||
+    ev.type === "tool_start" ||
+    ev.type === "tool_done" ||
+    ev.type === "done" ||
+    ev.type === "error" ||
+    ev.type === "missing_api_key"
+  ) {
+    state.tool = undefined;
+    state.startedAt = undefined;
+    state.lastProgressAt = undefined;
+  }
+}
+
+function hasStalledPreparingAction(state: PreparingActionState, now: number) {
+  // Fire only when a tool input has gone SILENT — no further streaming deltas
+  // for the whole window — never merely because a large input has been
+  // streaming for a long time. `lastProgressAt` advances on every delta
+  // heartbeat, so an actively-streaming large output keeps resetting this and
+  // survives; a genuinely stuck prep (keepalive-only, no deltas) trips it.
+  return (
+    state.tool !== undefined &&
+    state.lastProgressAt !== undefined &&
+    now - state.lastProgressAt >= SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+  );
 }
 
 async function readChunkWithProgressTimeout(
@@ -491,7 +588,7 @@ export function processEvent(
 
   if (ev.type === "activity") {
     const tool = ev.tool?.trim() || undefined;
-    const label = humanizeToolLabelText(ev.label ?? "Working", tool);
+    const label = visibleActivityLabel(ev, tool);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:activity", {
@@ -941,6 +1038,7 @@ export async function* readSSEStream(
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
   const activityTrail: ActivityTrailEntry[] = [];
+  const preparingActionState: PreparingActionState = {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
   };
@@ -1000,7 +1098,9 @@ export async function* readSSEStream(
           continue;
         }
         sawDataEvent = true;
-        lastMeaningfulEventAt = Date.now();
+        const now = Date.now();
+        lastMeaningfulEventAt = now;
+        updatePreparingActionState(preparingActionState, ev, now);
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
@@ -1012,7 +1112,7 @@ export async function* readSSEStream(
         } else if (ev.type === "activity") {
           const tool = ev.tool?.trim() || undefined;
           appendActivityTrail(activityTrail, {
-            label: humanizeToolLabelText(ev.label ?? "Working", tool),
+            label: baseActivityLabel(ev, tool),
             ...(tool ? { tool } : {}),
           });
         } else if (ev.type === "tool_start") {
@@ -1039,6 +1139,12 @@ export async function* readSSEStream(
         );
 
         if (result) yield withStreamMetadata(result);
+        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
+          throw new AgentAutoContinueSignal({
+            reason: "no_progress",
+            activityTrail: [...activityTrail],
+          });
+        }
         if (action === "auto_continue") {
           throw new AgentAutoContinueSignal(
             autoContinue
@@ -1099,6 +1205,8 @@ export async function readSSEStreamRaw(
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  const activityTrail: ActivityTrailEntry[] = [];
+  const preparingActionState: PreparingActionState = {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
   };
@@ -1134,10 +1242,35 @@ export async function readSSEStreamRaw(
           continue;
         }
         sawDataEvent = true;
-        lastMeaningfulEventAt = Date.now();
+        const now = Date.now();
+        lastMeaningfulEventAt = now;
+        updatePreparingActionState(preparingActionState, ev, now);
 
         if (ev.seq !== undefined && onSeq) {
           onSeq(ev.seq);
+        }
+
+        if (ev.type === "clear") {
+          activityTrail.length = 0;
+        } else if (ev.type === "activity") {
+          const tool = ev.tool?.trim() || undefined;
+          appendActivityTrail(activityTrail, {
+            label: baseActivityLabel(ev, tool),
+            ...(tool ? { tool } : {}),
+          });
+        } else if (ev.type === "tool_start") {
+          const tool = ev.tool ?? "unknown";
+          appendActivityTrail(activityTrail, {
+            label: runningToolLabel(tool),
+            tool,
+          });
+        } else if (ev.type === "tool_done") {
+          const tool = ev.tool ?? "unknown";
+          for (let i = activityTrail.length - 1; i >= 0; i--) {
+            if (activityTrail[i]?.tool === tool) {
+              activityTrail.splice(i, 1);
+            }
+          }
         }
 
         const { action, autoContinue } = processEvent(
@@ -1159,8 +1292,17 @@ export async function readSSEStreamRaw(
         if (action === "auto_continue") {
           onUpdate([...content]);
           throw new AgentAutoContinueSignal(
-            autoContinue ?? { reason: "stream_ended" },
+            autoContinue
+              ? { ...autoContinue, activityTrail: [...activityTrail] }
+              : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
+        }
+        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
+          onUpdate([...content]);
+          throw new AgentAutoContinueSignal({
+            reason: "no_progress",
+            activityTrail: [...activityTrail],
+          });
         }
         if (
           action === "done" ||

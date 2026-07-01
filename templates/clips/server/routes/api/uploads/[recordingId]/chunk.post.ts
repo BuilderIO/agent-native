@@ -42,10 +42,12 @@ import {
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import {
+  deleteResumableSession,
   getResumableSession,
   setResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -173,7 +175,19 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     // Resumable streaming path — forward chunks directly to the provider.
-    const resumableSession = await getResumableSession(recordingId);
+    let resumableSession = await getResumableSession(recordingId);
+    if (resumableSession && isStreamingUploadDisabled()) {
+      console.warn(
+        `[chunk] ignoring stale resumable session because streaming uploads are disabled: ${recordingId}`,
+      );
+      await deleteResumableSession(recordingId).catch((err) =>
+        console.warn("[chunk] failed to delete stale resumable session:", {
+          recordingId,
+          err: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      resumableSession = null;
+    }
     if (resumableSession) {
       return handleResumableChunk(
         event,

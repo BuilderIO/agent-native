@@ -59,7 +59,10 @@ export default defineEventHandler(async (event: H3Event) => {
       recording: {
         id: recording.id,
         status: recording.status,
-        videoUrl: resolvePlayerVideoUrl(recording, { appPath }),
+        videoUrl: resolvePlayerVideoUrl(recording, {
+          appPath,
+          proxyRemoteMedia: true,
+        }),
         durationMs: recording.durationMs,
         width: recording.width,
         height: recording.height,

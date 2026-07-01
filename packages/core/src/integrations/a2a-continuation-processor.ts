@@ -1,5 +1,9 @@
 import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
-import { A2AClient, signA2AToken } from "../a2a/client.js";
+import {
+  A2AClient,
+  shouldPreferGlobalA2ASecret,
+  signA2AToken,
+} from "../a2a/client.js";
 import type { Task } from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
@@ -478,7 +482,7 @@ async function signFreshContinuationToken(
   try {
     return await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
       expiresIn: "30m",
-      preferGlobalSecret: !orgSecret,
+      preferGlobalSecret: shouldPreferGlobalA2ASecret(orgSecret),
     });
   } catch {
     return undefined;

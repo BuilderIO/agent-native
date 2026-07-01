@@ -39,6 +39,7 @@ import {
   deleteResumableSession,
   getResumableSession,
 } from "../server/lib/resumable-session.js";
+import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -341,7 +342,17 @@ export default defineAction({
       // Resumable path: create-recording initialized a session and chunk.post.ts
       // forwarded all chunks to the provider. Complete the session to get the CDN URL.
       const resumableSession = await getResumableSession(id);
-      if (resumableSession) {
+      if (resumableSession && isStreamingUploadDisabled()) {
+        console.warn(
+          `[finalize] ignoring stale resumable session because streaming uploads are disabled: ${id}`,
+        );
+        await deleteResumableSession(id).catch((err) =>
+          console.warn("[finalize] failed to delete stale resumable session:", {
+            id,
+            err: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      } else if (resumableSession) {
         debugLog("[finalize] resumable session found, completing upload", {
           id,
           providerId: resumableSession.providerId,

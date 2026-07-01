@@ -1,11 +1,30 @@
-name: Cancel stale Netlify previews
+name: Cancel superseded Netlify main deploys
+
+# When many PRs merge to main in quick succession (or the auto-merged
+# "Version Packages" release PR lands), Netlify enqueues a separate production
+# deploy per site per commit. Older queued deploys are wasted work — only the
+# latest main commit needs to ship. This coalesces the production queue: on each
+# push to main it cancels every still-queued production deploy for an OLDER
+# commit, per site, and leaves the just-pushed deploy (and anything already
+# building/uploading/processing) alone. That matches "skip older main deploys,
+# only do the latest, unless it's already partway through a build."
+#
+# Preview (deploy-preview) deploys are handled separately by
+# cancel-stale-netlify-previews.yml.
 
 on:
-  pull_request:
-    types: [synchronize, closed]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
+
+# Serialize cancellers so a burst of merges doesn't fan out into many parallel
+# API sweeps; never skip a run (each new commit must get a chance to supersede
+# the prior queue).
+concurrency:
+  group: cancel-stale-netlify-main-deploys
+  cancel-in-progress: false
 
 jobs:
   cancel:
@@ -19,10 +38,7 @@ jobs:
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          BRANCH: ${{ github.head_ref }}
-          LATEST_SHA: ${{ github.event.pull_request.head.sha }}
-          MERGED: ${{ github.event.pull_request.merged }}
-          ACTION: ${{ github.event.action }}
+          CURRENT_SHA: ${{ github.sha }}
         with:
           script: |
             const fs = require('fs');
@@ -32,21 +48,20 @@ jobs:
 
             const token = process.env.NETLIFY_TOKEN;
             if (!token) {
-              core.info('NETLIFY_AUTH_TOKEN secret not set; skipping stale preview cleanup.');
+              core.info('NETLIFY_AUTH_TOKEN secret not set; skipping stale main-deploy cleanup.');
               return;
             }
 
-            const branch = process.env.BRANCH;
-            const latestSha = process.env.LATEST_SHA;
-            const closed = process.env.ACTION === 'closed';
+            const currentSha = process.env.CURRENT_SHA;
             const headers = { Authorization: `Bearer ${token}` };
 
-            // On close (merged or not), cancel every non-terminal preview for this branch.
-            // On synchronize, cancel only deploys whose commit_ref differs from the latest SHA.
-            const STALE_STATES = new Set(['new', 'enqueued', 'building', 'uploading', 'uploaded', 'preparing', 'prepared', 'processing']);
+            // Early queue states are safe to cancel; anything already in flight
+            // (building/uploading/preparing/processing) is left to finish so we
+            // never kill a deploy that's "partway through".
+            const CANCELABLE_STATES = new Set(['new', 'enqueued']);
 
             const results = await Promise.all(SITES.map(async ([name, id]) => {
-              const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?branch=${encodeURIComponent(branch)}&per_page=100`;
+              const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
               let r;
               try {
                 r = await fetch(url, { headers });
@@ -60,11 +75,18 @@ jobs:
               } catch (err) {
                 return { name, error: `list json failed: ${err?.message || err}` };
               }
+
+              // Superseded == queued production deploy for a commit other than
+              // the one we just pushed. Filtering by SHA (not queue position) is
+              // race-safe: even if our own deploy isn't listed yet, we only ever
+              // cancel strictly older queued production builds.
               const stale = deploys.filter(d =>
-                d.context === 'deploy-preview' &&
-                STALE_STATES.has(d.state) &&
-                (closed || d.commit_ref !== latestSha)
+                d.context === 'production' &&
+                CANCELABLE_STATES.has(d.state) &&
+                d.commit_ref &&
+                d.commit_ref !== currentSha
               );
+
               const cancelled = await Promise.all(stale.map(async d => {
                 try {
                   const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
@@ -86,4 +108,4 @@ jobs:
                 core.info(`  ${c.ok ? 'OK' : 'FAIL'} ${c.id} ${c.sha} (${c.state})`);
               }
             }
-            core.info(`Total cancelled: ${total} (action=${process.env.ACTION}, branch=${branch})`);
+            core.info(`Total superseded main deploys cancelled: ${total} (current=${currentSha.slice(0, 7)})`);

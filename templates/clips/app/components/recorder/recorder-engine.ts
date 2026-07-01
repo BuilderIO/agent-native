@@ -7,6 +7,7 @@
  * and `onError`.
  */
 import { appBasePath, captureClientException } from "@agent-native/core/client";
+import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chunkUploadUrl,
   pickMimeType,
@@ -1718,6 +1719,13 @@ export class RecorderEngine {
           attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS ||
           (err as { name?: string } | null)?.name === "AbortError"
         ) {
+          if (
+            extra.isFinal &&
+            (err as { name?: string } | null)?.name !== "AbortError"
+          ) {
+            const recovered = await this.recoverReadyAfterFinalUploadError();
+            if (recovered) return recovered;
+          }
           throw err;
         }
         await waitForRetry(retryDelayMs(attempt), extra.signal);
@@ -1746,6 +1754,13 @@ export class RecorderEngine {
       const err = new Error(
         `Chunk ${index} upload failed (${res.status}): ${text || res.statusText}`,
       );
+      if (
+        extra.isFinal &&
+        this.isFinalUploadRecoveryCandidate(res.status, err)
+      ) {
+        const recovered = await this.recoverReadyAfterFinalUploadError();
+        if (recovered) return recovered;
+      }
       // Capture rich context to Sentry BEFORE throwing — when this hits
       // production we want enough breadcrumbs in the event to debug a
       // "Builder.io upload failed (500)" without re-running the upload.
@@ -1797,6 +1812,25 @@ export class RecorderEngine {
     } catch {
       return undefined;
     }
+  }
+
+  private isFinalUploadRecoveryCandidate(
+    status: number,
+    error: Error,
+  ): boolean {
+    if (status === 413) return false;
+    return !/too large|exceeds.*limit|chunk too large/i.test(error.message);
+  }
+
+  private async recoverReadyAfterFinalUploadError(): Promise<Record<
+    string,
+    unknown
+  > | null> {
+    return waitForReadyRecordingAfterFinalizeError({
+      uploadUrl: this.opts.uploadUrl,
+      recordingId: this.opts.recordingId,
+      preferAuthenticated: true,
+    });
   }
 
   private readDimensions(): { width: number; height: number } {

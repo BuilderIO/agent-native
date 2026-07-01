@@ -27,6 +27,15 @@ function makeBody(bytes: Uint8Array, mimeType: string): BodyInit {
     : (bytes as unknown as BodyInit);
 }
 
+function shouldUseSignedUrlUpload(
+  bytes: Uint8Array,
+  mimeType: string,
+): boolean {
+  return (
+    bytes.byteLength > LARGE_FILE_THRESHOLD_BYTES || /^video\//i.test(mimeType)
+  );
+}
+
 function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
@@ -226,7 +235,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
       data instanceof Uint8Array ? data : new Uint8Array(data as any);
     const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
-    if (bytes.byteLength > LARGE_FILE_THRESHOLD_BYTES) {
+    if (shouldUseSignedUrlUpload(bytes, bareMimeType)) {
       return uploadLargeFileViaSignedUrl(
         { data, filename, mimeType },
         privateKey,

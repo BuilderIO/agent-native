@@ -33,9 +33,25 @@ const STORAGE_SETUP_REQUIRED_MESSAGE =
   "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
 const STORAGE_SETUP_FAILURE_RE =
   /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
+  408, 425, 429, 500, 502, 503, 504,
+]);
 
 function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
+
+function isRetryableChunkUploadStatus(status: number): boolean {
+  return RETRYABLE_CHUNK_UPLOAD_STATUSES.has(status);
+}
+
+function retryDelayMs(attempt: number): number {
+  return attempt === 1 ? 500 : 1500;
+}
+
+function waitForRetry(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isFinalUploadRecoveryCandidate(error: Error): boolean {
@@ -449,12 +465,38 @@ async function uploadChunk(
   if (recording.authToken) {
     headers.Authorization = `Bearer ${recording.authToken}`;
   }
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    credentials: "include",
-    body,
-  });
+  let res: Response | null = null;
+  for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt++) {
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body,
+      });
+    } catch (err) {
+      if (attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS) throw err;
+      await waitForRetry(retryDelayMs(attempt));
+      continue;
+    }
+
+    if (
+      !res.ok &&
+      attempt < CHUNK_UPLOAD_MAX_ATTEMPTS &&
+      isRetryableChunkUploadStatus(res.status)
+    ) {
+      await res.text().catch(() => "");
+      await waitForRetry(retryDelayMs(attempt));
+      continue;
+    }
+
+    break;
+  }
+
+  if (!res) {
+    throw new Error("Upload failed: no response");
+  }
+
   const text = await res.text().catch(() => "");
   let data: UploadResult = {};
   if (text) {

@@ -2,7 +2,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import { signA2AToken } from "./client.js";
+import { shouldPreferGlobalA2ASecret, signA2AToken } from "./client.js";
 
 const DEFAULT_A2A_CALLER_TOKEN_TTL = "30m";
 
@@ -43,7 +43,7 @@ export async function resolveA2ACallerAuth(options?: {
     try {
       apiKey = await signA2AToken(userEmail, orgDomain, orgSecret, {
         expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
-        preferGlobalSecret: !orgSecret,
+        preferGlobalSecret: shouldPreferGlobalA2ASecret(orgSecret),
       });
     } catch {}
   }

@@ -235,7 +235,7 @@ describe("A2AClient", () => {
     ).rejects.toThrow();
   });
 
-  it("auto-signs delegated calls with the org secret when one is available", async () => {
+  it("auto-signs delegated calls with the shared secret before an org secret", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
     let bearerToken = "";
     vi.stubGlobal(
@@ -247,7 +247,7 @@ describe("A2AClient", () => {
           new Headers(init.headers).get("authorization") ?? "",
         ).replace(/^Bearer\s+/i, "");
         const body = JSON.parse(String(init.body));
-        return completedResponse(body, "signed with org secret");
+        return completedResponse(body, "signed with shared secret");
       }),
     );
 
@@ -258,10 +258,13 @@ describe("A2AClient", () => {
         orgDomain: "builder.io",
         orgSecret: "org-a2a-secret",
       }),
-    ).resolves.toBe("signed with org secret");
+    ).resolves.toBe("signed with shared secret");
 
     await expect(
-      jose.jwtVerify(bearerToken, new TextEncoder().encode("org-a2a-secret")),
+      jose.jwtVerify(
+        bearerToken,
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
     ).resolves.toMatchObject({
       payload: {
         sub: "alice+qa@agent-native.test",
@@ -269,11 +272,68 @@ describe("A2AClient", () => {
       },
     });
     await expect(
+      jose.jwtVerify(bearerToken, new TextEncoder().encode("org-a2a-secret")),
+    ).rejects.toThrow();
+  });
+
+  it("retries delegated calls with the org secret if the shared token is rejected", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    const bearerTokens: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        bearerTokens.push(
+          String(new Headers(init.headers).get("authorization") ?? "").replace(
+            /^Bearer\s+/i,
+            "",
+          ),
+        );
+        const body = JSON.parse(String(init.body));
+        if (bearerTokens.length === 1) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              error: { code: -32001, message: "Invalid or expired A2A token" },
+            }),
+            { status: 401 },
+          );
+        }
+        return completedResponse(body, "signed with fallback org secret");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        userEmail: "alice+qa@agent-native.test",
+        orgDomain: "builder.io",
+        orgSecret: "org-a2a-secret",
+      }),
+    ).resolves.toBe("signed with fallback org secret");
+
+    expect(bearerTokens).toHaveLength(2);
+    await expect(
       jose.jwtVerify(
-        bearerToken,
+        bearerTokens[0],
         new TextEncoder().encode("global-a2a-secret"),
       ),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({
+      payload: { sub: "alice+qa@agent-native.test" },
+    });
+    await expect(
+      jose.jwtVerify(
+        bearerTokens[1],
+        new TextEncoder().encode("org-a2a-secret"),
+      ),
+    ).resolves.toMatchObject({
+      payload: {
+        sub: "alice+qa@agent-native.test",
+        org_domain: "builder.io",
+      },
+    });
   });
 
   it("blocks private/internal A2A targets before fetch", async () => {

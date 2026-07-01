@@ -31,6 +31,8 @@ vi.mock("./a2a-continuations-store.js", () => ({
 
 vi.mock("../a2a/client.js", () => ({
   A2AClient: A2AClientMock,
+  shouldPreferGlobalA2ASecret: (orgSecret?: string) =>
+    !!process.env.A2A_SECRET?.trim() || !orgSecret,
   signA2AToken: signA2ATokenMock,
 }));
 
@@ -458,7 +460,7 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 
-  it("prefers the org A2A secret for continuation polling when one is available", async () => {
+  it("prefers the shared A2A secret for continuation polling when available", async () => {
     process.env.A2A_SECRET = "workspace-global-a2a-secret";
     vi.doMock("../org/context.js", () => ({
       getOrgDomain: vi.fn(async () => "builder.io"),
@@ -479,7 +481,7 @@ describe("A2A continuation processor", () => {
       "alice+qa@agent-native.test",
       "builder.io",
       "builder-org-a2a-secret",
-      { expiresIn: "30m", preferGlobalSecret: false },
+      { expiresIn: "30m", preferGlobalSecret: true },
     );
     expect(A2AClientMock).toHaveBeenCalledWith(
       "https://slides.agent-native.test",

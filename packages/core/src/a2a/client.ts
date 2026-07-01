@@ -86,6 +86,10 @@ export async function signA2AToken(
   return jwt.sign(new TextEncoder().encode(secret));
 }
 
+export function shouldPreferGlobalA2ASecret(orgSecret?: string): boolean {
+  return !!process.env.A2A_SECRET?.trim() || !orgSecret;
+}
+
 export class A2AClient {
   private baseUrl: string;
   private apiKey?: string;
@@ -489,27 +493,6 @@ export async function callAgent(
     pollIntervalMs?: number;
   },
 ): Promise<string> {
-  let apiKey = opts?.apiKey;
-
-  // Auto-sign with JWT when an A2A secret (org or global) is available and we have a user email
-  if (
-    !apiKey &&
-    opts?.userEmail &&
-    (opts?.orgSecret || process.env.A2A_SECRET)
-  ) {
-    try {
-      apiKey = await signA2AToken(
-        opts.userEmail,
-        opts.orgDomain,
-        opts.orgSecret,
-        { preferGlobalSecret: !opts.orgSecret },
-      );
-    } catch {
-      // Fall back to unsigned call
-    }
-  }
-
-  const client = new A2AClient(url, apiKey);
   const metadata: Record<string, unknown> = {};
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
@@ -525,39 +508,105 @@ export async function callAgent(
     parts: [{ type: "text", text }],
   };
 
-  let task: Task;
-  if (useAsync) {
+  const apiKeyAttempts = await buildA2AApiKeyAttempts(opts);
+  let lastAuthError: unknown;
+
+  for (let i = 0; i < apiKeyAttempts.length; i++) {
     try {
-      task = await client.sendAndWait(message, {
-        contextId: opts?.contextId,
-        metadata,
-        timeoutMs: opts?.timeoutMs,
-        pollIntervalMs: opts?.pollIntervalMs,
-      });
+      const client = new A2AClient(url, apiKeyAttempts[i]);
+      let task: Task;
+      if (useAsync) {
+        task = await client.sendAndWait(message, {
+          contextId: opts?.contextId,
+          metadata,
+          timeoutMs: opts?.timeoutMs,
+          pollIntervalMs: opts?.pollIntervalMs,
+        });
+      } else {
+        task = await client.send(message, {
+          contextId: opts?.contextId,
+          metadata,
+        });
+      }
+
+      // Extract text from the response
+      const responseMessage = task.status.message;
+      if (responseMessage) {
+        const textParts = responseMessage.parts
+          .filter(
+            (p): p is { type: "text"; text: string } => p.type === "text",
+          )
+          .map((p) => p.text);
+        return textParts.join("\n");
+      }
+
+      return "";
     } catch (err) {
       if (err instanceof A2ATaskTimeoutError) {
         const recoverableText = extractRecoverableArtifactText(err.lastTask);
         if (recoverableText) return recoverableText;
       }
+      if (i < apiKeyAttempts.length - 1 && isA2AAuthRejection(err)) {
+        lastAuthError = err;
+        continue;
+      }
       throw err;
     }
-  } else {
-    task = await client.send(message, {
-      contextId: opts?.contextId,
-      metadata,
-    });
   }
 
-  // Extract text from the response
-  const responseMessage = task.status.message;
-  if (responseMessage) {
-    const textParts = responseMessage.parts
-      .filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text);
-    return textParts.join("\n");
-  }
-
+  if (lastAuthError) throw lastAuthError;
   return "";
+}
+
+async function buildA2AApiKeyAttempts(opts?: {
+  apiKey?: string;
+  userEmail?: string;
+  orgDomain?: string;
+  orgSecret?: string;
+}): Promise<Array<string | undefined>> {
+  const attempts: Array<string | undefined> = [];
+  const add = (token: string | undefined) => {
+    if (token === undefined || attempts.includes(token)) return;
+    attempts.push(token);
+  };
+
+  add(opts?.apiKey);
+
+  if (opts?.userEmail && (opts.orgSecret || process.env.A2A_SECRET)) {
+    if (process.env.A2A_SECRET?.trim()) {
+      try {
+        add(
+          await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
+            preferGlobalSecret: true,
+          }),
+        );
+      } catch {
+        // Keep any explicit token attempt, then fall back below.
+      }
+    }
+
+    if (opts.orgSecret) {
+      try {
+        add(
+          await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
+            preferGlobalSecret: false,
+          }),
+        );
+      } catch {
+        // Fall through to the attempts we already have.
+      }
+    }
+  }
+
+  if (attempts.length === 0) attempts.push(undefined);
+  return attempts;
+}
+
+function isA2AAuthRejection(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /A2A request failed \(401\)|A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
+    message,
+  );
 }
 
 function extractRecoverableArtifactText(task: Task): string {

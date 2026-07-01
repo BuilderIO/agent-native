@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
+import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chunkUploadUrl,
   pickMimeType,
@@ -1562,12 +1563,32 @@ export default function RecordRoute() {
             hasAudio: isFinal ? true : undefined,
             hasCamera: isFinal ? false : undefined,
           });
-          const chunkRes = await fetch(chunkUrl, {
-            method: "POST",
-            headers: { "Content-Type": uploadMimeType },
-            body: await slice.arrayBuffer(),
-            signal: abort.signal,
-          });
+          let chunkRes: Response;
+          try {
+            chunkRes = await fetch(chunkUrl, {
+              method: "POST",
+              headers: { "Content-Type": uploadMimeType },
+              body: await slice.arrayBuffer(),
+              signal: abort.signal,
+            });
+          } catch (err) {
+            if (
+              isFinal &&
+              createdId &&
+              (err as { name?: string } | null)?.name !== "AbortError"
+            ) {
+              const recovered = await waitForReadyRecordingAfterFinalizeError({
+                uploadUrl: uploadBase,
+                recordingId: createdId,
+                preferAuthenticated: true,
+              });
+              if (recovered) {
+                finalChunkResult = recovered;
+                break;
+              }
+            }
+            throw err;
+          }
           if (!chunkRes.ok) {
             const text = await chunkRes.text().catch(() => "");
             const error = new Error(
@@ -1578,6 +1599,22 @@ export default function RecordRoute() {
               }),
             );
             (error as Error & { status?: number }).status = chunkRes.status;
+            if (
+              isFinal &&
+              createdId &&
+              chunkRes.status !== 413 &&
+              !isUploadSizeError(error.message)
+            ) {
+              const recovered = await waitForReadyRecordingAfterFinalizeError({
+                uploadUrl: uploadBase,
+                recordingId: createdId,
+                preferAuthenticated: true,
+              });
+              if (recovered) {
+                finalChunkResult = recovered;
+                break;
+              }
+            }
             throw error;
           }
           if (isFinal) {
@@ -2377,7 +2414,6 @@ export default function RecordRoute() {
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
-          onConfetti={fireConfetti}
           onCancel={() => void doCancel()}
         />
       )}

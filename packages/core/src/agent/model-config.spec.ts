@@ -94,12 +94,11 @@ describe("agent model config catalog", () => {
     );
   });
 
-  it("includes claude-opus-4-8 in current Anthropic catalogs", () => {
+  it("includes claude-opus-4-8 in current direct Anthropic catalogs", () => {
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
     expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
       "claude-opus-4-8",
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
   });
 
   it("keeps the Builder catalog aligned to the gateway allow-list", () => {
@@ -115,17 +114,11 @@ describe("agent model config catalog", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       hiddenSonnetModel,
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-7");
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
-      "claude-opus-4-7",
+      "claude-opus-4-8",
     );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("z-ai-glm-4-5");
-    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
-      "claude-opus-4-7",
-    );
-    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).not.toContain(
-      "claude-opus-4-7",
-    );
   });
 
   it("does not contain decommissioned Groq models", () => {

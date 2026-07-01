@@ -39,6 +39,17 @@ if (retiredTargets.has(targetName)) {
   process.exit(0);
 }
 
+const commitRef = process.env.COMMIT_REF;
+if (commitExists(commitRef) && isVersionPackagesRelease(commitRef)) {
+  console.log(
+    `[netlify-ignore] Skipping ${targetName}: version-packages release commit ${commitRef.slice(
+      0,
+      8,
+    )} changes no deployed output.`,
+  );
+  process.exit(0);
+}
+
 function normalizePath(filePath) {
   return filePath.split(path.sep).join("/").replace(/^\.\//, "");
 }
@@ -160,6 +171,26 @@ function firstParent(ref) {
   } catch {
     return null;
   }
+}
+
+function commitSubject(ref) {
+  try {
+    return git(["log", "-1", "--format=%s", ref]);
+  } catch {
+    return "";
+  }
+}
+
+// The changeset "Version Packages" PR is squash-merged to main with the PR
+// title `chore: version packages (#NNNN)` (see auto-publish.yml and
+// auto-merge-version-packages.yml). Those commits only bump package versions,
+// regenerate pnpm-lock.yaml, rewrite CHANGELOGs, and delete .changeset/*.md —
+// none of which changes any deployed site's built output. But pnpm-lock.yaml
+// and package.json are in `globalPaths`, so today every release commit enqueues
+// a production deploy for the entire fleet and backs up the Netlify queue. Skip
+// production builds for these commits across every site.
+function isVersionPackagesRelease(ref) {
+  return /^chore:\s*version packages\b/i.test(commitSubject(ref));
 }
 
 function changedFiles() {

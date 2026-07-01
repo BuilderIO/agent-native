@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  replayPayloadEvents,
   replayViewportDimensions,
   sanitizeReplayEvents,
 } from "./SessionDetailPage";
@@ -182,5 +183,16 @@ describe("session replay sanitization", () => {
         { type: 4, timestamp: 1000, data: { width: 0, height: 720 } },
       ]),
     ).toBeNull();
+  });
+
+  it("normalizes scoped chunk route payloads into replay event arrays", () => {
+    const events = [{ type: 4, timestamp: 1000 }];
+
+    expect(replayPayloadEvents(events)).toEqual(events);
+    expect(replayPayloadEvents({ events })).toEqual(events);
+    expect(replayPayloadEvents(null)).toEqual([]);
+    expect(replayPayloadEvents({ type: 5, timestamp: 2000 })).toEqual([
+      { type: 5, timestamp: 2000 },
+    ]);
   });
 });

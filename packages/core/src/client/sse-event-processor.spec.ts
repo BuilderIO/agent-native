@@ -4,6 +4,7 @@ import {
   AgentAutoContinueSignal,
   readSSEStream,
   readSSEStreamRaw,
+  SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
   SSE_NO_PROGRESS_TIMEOUT_MS,
 } from "./sse-event-processor.js";
 
@@ -61,6 +62,108 @@ function keepaliveThenDoneStream(
     },
     cancel() {
       if (timer) clearTimeout(timer);
+    },
+  });
+}
+
+function preparingActionKeepaliveStream(
+  tool = "edit-design",
+): ReadableStream<Uint8Array> {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: `Preparing ${tool} action`,
+            tool,
+          })}\n\n`,
+        ),
+      );
+      timer = setInterval(() => {
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
+            ),
+          );
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, 10_000);
+    },
+    cancel() {
+      if (timer) clearInterval(timer);
+    },
+  });
+}
+
+function preparingActionProgressStream(
+  tool = "edit-design",
+  intervalMs = 30_000,
+  progressEventCount = 4,
+): ReadableStream<Uint8Array> {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let count = 0;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: `Preparing ${tool} action`,
+            tool,
+          })}\n\n`,
+        ),
+      );
+      timer = setInterval(() => {
+        count += 1;
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "activity",
+                label: `Preparing ${tool} action`,
+                tool,
+                progressBytes: count * 32_768,
+              })}\n\n`,
+            ),
+          );
+          if (count >= progressEventCount) {
+            if (timer) clearInterval(timer);
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify({
+                  type: "tool_start",
+                  tool,
+                  input: {},
+                })}\n\n`,
+              ),
+            );
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify({
+                  type: "tool_done",
+                  tool,
+                  result: "ok",
+                })}\n\n`,
+              ),
+            );
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify({ type: "done" })}\n\n`,
+              ),
+            );
+            controller.close();
+          }
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, intervalMs);
+    },
+    cancel() {
+      if (timer) clearInterval(timer);
     },
   });
 }
@@ -159,6 +262,58 @@ describe("SSE event processor no-progress recovery", () => {
     await expect(donePromise).resolves.toBeDefined();
   });
 
+  it("does not let keepalives hide a stalled action preparation", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          preparingActionKeepaliveStream(),
+          [],
+          { value: 0 },
+          undefined,
+        )) {
+          // no-op
+        }
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit design action",
+        tool: "edit-design",
+      },
+    ]);
+  });
+
+  it("does not stall while a large tool input is still streaming progress", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        preparingActionProgressStream(),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
   it("turns raw comment-only live streams into an auto-continuation signal", async () => {
     vi.useFakeTimers();
     const onUpdate = vi.fn();
@@ -223,6 +378,69 @@ describe("SSE event processor no-progress recovery", () => {
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
     expect(onUpdate).toHaveBeenCalledWith([{ type: "text", text: "partial" }]);
+  });
+
+  it("turns raw keepalive-only action preparation into a recovery signal", async () => {
+    vi.useFakeTimers();
+    const onUpdate = vi.fn();
+
+    const errPromise = readSSEStreamRaw(
+      preparingActionKeepaliveStream(),
+      [],
+      { value: 0 },
+      undefined,
+      onUpdate,
+    ).then(
+      () => undefined,
+      (err) => err,
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit design action",
+        tool: "edit-design",
+      },
+    ]);
+    expect(onUpdate).toHaveBeenCalledWith([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "edit-design",
+        activity: true,
+      }),
+    ]);
+  });
+
+  it("does not stall raw streams while a large tool input is still streaming progress", async () => {
+    vi.useFakeTimers();
+    const onUpdate = vi.fn();
+
+    const donePromise = readSSEStreamRaw(
+      preparingActionProgressStream(),
+      [],
+      { value: 0 },
+      undefined,
+      onUpdate,
+    );
+
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+
+    await expect(donePromise).resolves.toBeUndefined();
+    expect(onUpdate).toHaveBeenCalledWith([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "edit-design",
+        activity: true,
+      }),
+    ]);
   });
 
   it("carries activity trail on auto-continuation signals", async () => {
@@ -662,6 +880,72 @@ describe("SSE event processor error classification", () => {
           label: "Preparing create document action",
           tool: "create-document",
           tabId: "tab-activity",
+        },
+      }),
+    );
+  });
+
+  it("includes streamed tool-input size in visible preparation activity", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing create-document action",
+            tool: "create-document",
+            progressBytes: 1536,
+          },
+          { type: "tool_start", tool: "create-document", input: {} },
+          { type: "tool_done", tool: "create-document", result: "ok" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-activity-progress",
+      ),
+    );
+
+    expect(results[0]).toEqual({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "create-document",
+          activity: true,
+        }),
+      ],
+      metadata: {
+        custom: {
+          activityTrail: [
+            {
+              label: "Preparing create document action",
+              tool: "create-document",
+            },
+          ],
+        },
+      },
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity",
+        detail: {
+          label: "Preparing create document action (1.5 KB streamed)",
+          tool: "create-document",
+          tabId: "tab-activity-progress",
         },
       }),
     );
