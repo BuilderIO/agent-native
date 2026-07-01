@@ -2956,7 +2956,7 @@ const AssistantChatInner = forwardRef<
         addToQueue(text, images);
       },
       isRunning() {
-        return thread.isRunning;
+        return isRunning;
       },
       focusComposer() {
         tiptapRef.current?.focus();
@@ -2976,9 +2976,9 @@ const AssistantChatInner = forwardRef<
     [
       addToQueue,
       exportCleanThreadRepo,
+      isRunning,
       messages.length,
       stageComposerContextItem,
-      thread.isRunning,
     ],
   );
 
