@@ -752,6 +752,58 @@ describe("SSE event processor error classification", () => {
     ]);
   });
 
+  it("adds a visible warning when a run completes after tools but sends no final text", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "show-design-questions",
+            input: { designId: "design-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "show-design-questions",
+            result: '{"designId":"design-1","count":5}',
+            completedSideEffect: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-only",
+        undefined,
+        "run-tool-only",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          runId: "run-tool-only",
+          runWarning: {
+            errorCode: "final_response_missing_after_tool",
+            recoverable: true,
+          },
+        },
+      },
+    });
+    expect(last.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "show-design-questions",
+        result: '{"designId":"design-1","count":5}',
+        completedSideEffect: true,
+      }),
+      {
+        type: "text",
+        text: "The agent completed the show design questions action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
+      },
+    ]);
+  });
+
   it("errors when a terminal stream leaves a started tool unresolved", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

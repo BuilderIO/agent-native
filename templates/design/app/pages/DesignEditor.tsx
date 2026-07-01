@@ -1302,6 +1302,33 @@ function designIntakeQuestionDirectives(
   ];
 }
 
+function promptRequestsVariantExploration(prompt: string): boolean {
+  const normalized = prompt.toLowerCase();
+  const asksForVariants =
+    /\b(variant|variants|variation|variations|direction|directions|option|options|concept|concepts|exploration|explorations)\b/.test(
+      normalized,
+    );
+  if (!asksForVariants) return false;
+  return (
+    /\b(2|3|4|5|two|three|four|five|multiple|several|distinct|different|choose|compare|side[-\s]?by[-\s]?side)\b/.test(
+      normalized,
+    ) || /\bto choose from\b/.test(normalized)
+  );
+}
+
+function designVariantGenerationDirectives(
+  designId: string,
+  designSystemId?: string | null,
+): string[] {
+  return [
+    `Use the \`present-design-variants --designId="${designId}"\` action first. The design already exists - DO NOT call create-design.`,
+    ...designSystemGenerationDirectives(designSystemId),
+    "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
+    "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens.",
+    "Wait for the user's chat pick, delete the unchosen variant screens, then continue from the kept screen.",
+  ];
+}
+
 function designGenerationDirectives(
   designId: string,
   designSystemId?: string | null,
@@ -5955,7 +5982,9 @@ export default function DesignEditor() {
       return;
     }
 
-    const shouldSkipQuestions = pending.skipQuestions === true;
+    const shouldExploreVariants = promptRequestsVariantExploration(prompt);
+    const shouldSkipQuestions =
+      pending.skipQuestions === true || shouldExploreVariants;
     const context = [
       sourceContext,
       `Design id: "${id}"`,
@@ -5966,9 +5995,11 @@ export default function DesignEditor() {
         : "",
       fileContext,
       "",
-      ...(shouldSkipQuestions
-        ? designGenerationDirectives(id, pendingDesignSystemId)
-        : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
+      ...(shouldExploreVariants
+        ? designVariantGenerationDirectives(id, pendingDesignSystemId)
+        : shouldSkipQuestions
+          ? designGenerationDirectives(id, pendingDesignSystemId)
+          : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
     ].join("\n");
 
     clearGenerationCompleteTimer();
@@ -17082,13 +17113,20 @@ ${serializedHtml}
           persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
           const images = imageAttachmentsFromUploadedFiles(files);
+          const shouldExploreVariants =
+            promptRequestsVariantExploration(prompt);
+          const shouldSkipQuestions = shouldExploreVariants;
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
             designSystemId ? `Design system id: "${designSystemId}"` : "",
             fileContext,
             "",
-            ...designIntakeQuestionDirectives(id, designSystemId),
+            ...(shouldExploreVariants
+              ? designVariantGenerationDirectives(id, designSystemId)
+              : shouldSkipQuestions
+                ? designGenerationDirectives(id, designSystemId)
+                : designIntakeQuestionDirectives(id, designSystemId)),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
@@ -17104,7 +17142,9 @@ ${serializedHtml}
           });
           setHasPendingGeneration(true);
           const runTabId = agentSubmit(
-            `Prepare design questions for "${design.title}": ${prompt}`,
+            shouldSkipQuestions
+              ? `Generate design for "${design.title}": ${prompt}`
+              : `Prepare design questions for "${design.title}": ${prompt}`,
             context,
             { ...options, newTab: true, images },
           );
