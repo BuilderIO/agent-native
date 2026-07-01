@@ -147,6 +147,7 @@ describe("document sidebar layout", () => {
     const messages = readSidebarSource("../../i18n-data.ts");
 
     expect(sidebar).toContain("useTrashedContentDatabases");
+    expect(sidebar).toContain("useDeleteContentDatabase");
     expect(sidebar).toContain("useRestoreContentDatabase");
     expect(sidebar).toContain("const trashItems =");
     expect(sidebar).toContain("const handleRestoreDatabase = useCallback");
@@ -161,6 +162,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("handlePermanentDeleteDatabase");
     expect(sidebar).toContain("database.documentId");
     expect(sidebar).toContain("database.canPermanentlyDelete");
+    expect(sidebar).toContain("deletedDocument?.database");
+    expect(sidebar).toContain("deleteContentDatabase.mutateAsync");
+    expect(sidebar).toContain("databaseId: deletedDocument.database.id");
     expect(sidebar).toContain('t("sidebar.restoreDatabase")');
     expect(sidebar).toContain('t("sidebar.deletePermanently")');
     expect(sidebar).toContain("{renderTrashSection()}");
