@@ -24,6 +24,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
@@ -31,6 +34,8 @@ import type { RecordingSummary } from "@/hooks/use-library";
 import { isStaleRecordingUpload } from "@/lib/recording-status";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
+
+import type { BulkMoveTarget } from "./bulk-action-toolbar";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -59,7 +64,9 @@ interface RecordingCardProps {
   selectionMode?: boolean;
   onToggleSelect?: (id: string) => void;
   onShare?: (rec: RecordingSummary) => void;
-  onMove?: (rec: RecordingSummary) => void;
+  onMove?: (rec: RecordingSummary, folderId: string | null) => void;
+  moveTargets?: BulkMoveTarget[];
+  isMovePending?: boolean;
   onRename?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
@@ -73,6 +80,8 @@ export function RecordingCard({
   onToggleSelect,
   onShare,
   onMove,
+  moveTargets = [],
+  isMovePending = false,
   onRename,
   onArchive,
   onTrash,
@@ -112,6 +121,7 @@ export function RecordingCard({
     /native recording|native fullscreen|screencapture|avconvert/i.test(
       recording.failureReason ?? "",
     );
+  const canMove = Boolean(onMove && moveTargets.length > 0);
 
   const displayThumbnail = useMemo(() => {
     if (hovered && recording.animatedThumbnailUrl)
@@ -332,10 +342,37 @@ export function RecordingCard({
                 <IconShare className="h-4 w-4 me-2" />{" "}
                 {t("recordingPage.share")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onMove?.(recording)}>
-                <IconFolder className="h-4 w-4 me-2" />{" "}
-                {t("clipsFinalRaw.moveToFolder")}
-              </DropdownMenuItem>
+              {canMove ? (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <IconFolder className="h-4 w-4 me-2" />{" "}
+                    {t("clipsFinalRaw.moveToFolder")}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-64">
+                    {moveTargets.map((target, index) => (
+                      <DropdownMenuItem
+                        key={target.id ?? `root-${index}`}
+                        disabled={target.disabled || isMovePending}
+                        onSelect={() => onMove?.(recording, target.id)}
+                      >
+                        <span
+                          className="truncate"
+                          style={{
+                            paddingInlineStart: (target.depth ?? 0) * 12,
+                          }}
+                        >
+                          {target.name}
+                        </span>
+                        {target.disabled && (
+                          <span className="ms-auto text-xs text-muted-foreground">
+                            {t("clipsFinalRaw.current")}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ) : null}
               {onRename ? (
                 <>
                   <DropdownMenuSeparator />

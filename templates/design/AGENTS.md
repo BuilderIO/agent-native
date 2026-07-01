@@ -222,12 +222,13 @@ patterns live in `.agents/skills/`.
   and open the editor in overview mode.
 - For human-in-the-loop UI exploration, create a design shell, call
   `present-design-variants` with 2-5 concise directions (three by default),
-  wait for the user to pick one in chat, delete the other generated variant
-  screens with `delete-file`, call `get-design-snapshot` with the selected
-  screen's `fileId`, then call `edit-design` on that same `fileId` for
-  follow-up refinement. Use `mode: "replace-file"` when expanding the
-  representative placeholder into the full chosen direction. Do not call
-  `generate-design` after a variant pick.
+  wait for the user to pick one in chat, delete each other generated variant
+  screen with `delete-file` at most once, call `get-design-snapshot` exactly
+  once with the selected screen's `fileId`, then call `edit-design` exactly once
+  on that same `fileId` for follow-up refinement. Use `mode: "replace-file"`
+  when expanding the representative placeholder into the full chosen direction.
+  Do not repeat delete/snapshot cycles, and do not call `generate-design` after
+  a variant pick.
 - If inline chat choice buttons are unavailable, the user can tell you the
   preferred screen name. Do not show a separate variant picker or ask them to
   paste a copyable handoff summary.

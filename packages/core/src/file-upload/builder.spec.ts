@@ -104,7 +104,7 @@ describe("builderFileUploadProvider", () => {
     expect(init.headers["Content-Type"]).toBe("image/png");
   });
 
-  it("passes skipCompressionWait through the legacy upload path when requested", async () => {
+  it("passes compression skip params through the legacy upload path when requested", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ url: "https://cdn/x" }));
 
     await builderFileUploadProvider.upload({
@@ -117,6 +117,9 @@ describe("builderFileUploadProvider", () => {
     expect(
       new URL(url.toString()).searchParams.get("skipCompressionWait"),
     ).toBe("true");
+    expect(new URL(url.toString()).searchParams.get("skipCompression")).toBe(
+      "true",
+    );
   });
 
   it("routes video uploads through the signed URL path even when small", async () => {
@@ -169,9 +172,14 @@ describe("builderFileUploadProvider", () => {
         "skipCompressionWait",
       ),
     ).toBe(false);
+    expect(
+      new URL(fetchMock.mock.calls[2][0].toString()).searchParams.has(
+        "skipCompression",
+      ),
+    ).toBe(false);
   });
 
-  it("passes skipCompressionWait through signed URL completion when requested", async () => {
+  it("passes compression skip params through signed URL completion when requested", async () => {
     fetchMock
       .mockResolvedValueOnce(
         jsonResponse({
@@ -198,6 +206,7 @@ describe("builderFileUploadProvider", () => {
     const completeUrl = new URL(fetchMock.mock.calls[2][0].toString());
     expect(completeUrl.pathname).toBe("/api/v1/upload/complete");
     expect(completeUrl.searchParams.get("skipCompressionWait")).toBe("true");
+    expect(completeUrl.searchParams.get("skipCompression")).toBe("true");
   });
 
   it("defaults Content-Type to application/octet-stream when no mime given", async () => {
@@ -280,7 +289,7 @@ describe("builderFileUploadProvider", () => {
     ).rejects.toThrow(/returned no URL/);
   });
 
-  it("passes skipCompressionWait through resumable completion options", async () => {
+  it("passes compression skip params through resumable completion options", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
     );
@@ -298,5 +307,6 @@ describe("builderFileUploadProvider", () => {
     const completeUrl = new URL(fetchMock.mock.calls[0][0].toString());
     expect(completeUrl.pathname).toBe("/api/v1/upload/complete");
     expect(completeUrl.searchParams.get("skipCompressionWait")).toBe("true");
+    expect(completeUrl.searchParams.get("skipCompression")).toBe("true");
   });
 });

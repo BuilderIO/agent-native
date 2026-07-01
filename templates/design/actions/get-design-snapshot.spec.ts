@@ -84,6 +84,18 @@ describe("get-design-snapshot", () => {
         source: "collab",
       },
     ]);
+    expect(result.editTarget).toEqual({
+      designId: "design_123",
+      fileId: "file-b",
+      filename: "variant-b.html",
+    });
+    expect(result.nextRequiredAction).toContain(
+      "Call edit-design exactly once",
+    );
+    expect(result.nextRequiredAction).toContain("fileId file-b");
+    expect(result.nextRequiredAction).toContain(
+      "Do not call delete-file or get-design-snapshot again",
+    );
   });
 
   it("can filter by filename when the file id is unavailable", async () => {

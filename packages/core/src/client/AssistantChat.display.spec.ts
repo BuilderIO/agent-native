@@ -117,6 +117,19 @@ describe("resolveAssistantChatRunningState", () => {
     ).toEqual({ isRunning: false, showRunningInUI: true });
   });
 
+  it("keeps auto-resume visible through the between-chunk idle gap", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("AUTO_RESUME_STATUS_TIMEOUT_MS");
+    expect(source).toContain("autoResumeTimerRef");
+    expect(source).toContain("!isRunning && !isAutoResuming");
+    expect(source).not.toContain(
+      "if (!isRunning) {\n      setIsAutoResuming(false);",
+    );
+  });
+
   it("clears both running states after an explicit stop", () => {
     expect(
       resolveAssistantChatRunningState({

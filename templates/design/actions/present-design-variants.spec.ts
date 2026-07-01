@@ -203,7 +203,7 @@ describe("present-design-variants", () => {
       "guided-questions",
       expect.objectContaining({
         title: "Pick a calmer mobile direction",
-        submitMessage: expect.stringContaining("get-design-snapshot"),
+        submitMessage: expect.stringContaining("selected screen"),
         questions: [
           expect.objectContaining({
             id: "variant",
@@ -225,19 +225,34 @@ describe("present-design-variants", () => {
         options: Array<{ label: string; value: string }>;
       }>;
     };
-    expect(guidedQuestions.submitMessage).toContain("bounded single-file pass");
-    expect(guidedQuestions.submitMessage).toContain("fileId");
-    expect(guidedQuestions.submitMessage).toContain("edit-design");
-    expect(guidedQuestions.submitMessage).toContain('mode "replace-file"');
+    expect(guidedQuestions.submitMessage).toContain("selected screen");
+    expect(guidedQuestions.submitMessage).toContain("same screen");
     expect(guidedQuestions.submitMessage).toContain(
-      "Do not call generate-design after a variant pick",
+      "clean up each other variant screen at most once",
+    );
+    expect(guidedQuestions.submitMessage).toContain(
+      "exact file ids and tool instructions in the selected answer",
+    );
+    expect(guidedQuestions.submitMessage).toContain(
+      "Do not repeat cleanup/read cycles",
+    );
+    expect(guidedQuestions.submitMessage).not.toContain("delete-file");
+    expect(guidedQuestions.submitMessage).toContain(
+      "stop after the first successful screen update",
     );
     const firstOption = guidedQuestions.questions[0]?.options[0];
     expect(firstOption?.value).toContain("get-design-snapshot");
+    expect(firstOption?.value).toContain(
+      "Delete each other variant screen at most once",
+    );
+    expect(firstOption?.value).toContain("get-design-snapshot exactly once");
     expect(firstOption?.value).toContain("fileId file-a");
     expect(firstOption?.value).toContain("edit-design with fileId file-a");
     expect(firstOption?.value).toContain('mode "replace-file"');
     expect(firstOption?.value).toContain("bounded single-file pass");
+    expect(firstOption?.value).toContain(
+      "do not repeat delete/snapshot cycles",
+    );
     expect(firstOption?.value).toContain(
       "Do not call generate-design after this variant pick",
     );
@@ -278,9 +293,18 @@ describe("present-design-variants", () => {
       ]),
     });
     expect(result.nextRequiredAction).toContain("get-design-snapshot");
+    expect(result.nextRequiredAction).toContain(
+      "delete each unchosen variant screen with delete-file at most once",
+    );
+    expect(result.nextRequiredAction).toContain(
+      "call get-design-snapshot exactly once",
+    );
     expect(result.nextRequiredAction).toContain("fileId");
     expect(result.nextRequiredAction).toContain("edit-design");
     expect(result.nextRequiredAction).toContain('mode "replace-file"');
+    expect(result.nextRequiredAction).toContain(
+      "Do not repeat delete/snapshot cycles",
+    );
     expect(result.nextRequiredAction).toContain(
       "Do not call generate-design after a variant pick",
     );

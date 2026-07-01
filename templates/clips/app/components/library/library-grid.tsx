@@ -1,6 +1,5 @@
 import {
   getBrowserTabId,
-  sendToAgentChat,
   setClientAppState,
   useSession,
   useT,
@@ -225,6 +224,21 @@ export function LibraryGrid({
     }
   };
 
+  const moveSingle = async (
+    rec: RecordingSummary,
+    targetFolderId: string | null,
+  ) => {
+    try {
+      await moveRecording.mutateAsync({
+        id: rec.id,
+        folderId: targetFolderId,
+      });
+      toast.success(t("libraryGrid.clipsMoved", { count: 1 }));
+    } catch (err: any) {
+      toast.error(err?.message ?? t("libraryGrid.moveFailed"));
+    }
+  };
+
   const openRenameDialog = (rec: RecordingSummary) => {
     setRenamingRec(rec);
     setRenameValue(isDefaultTitle(rec.title) ? "" : (rec.title ?? ""));
@@ -385,12 +399,9 @@ export function LibraryGrid({
                       ? openRenameDialog
                       : undefined
                   }
-                  onMove={(rec) => {
-                    sendToAgentChat({
-                      message: `Move the clip "${rec.title}" (id: ${rec.id}) to a folder. Ask me which folder to move it to, or list available folders.`,
-                      background: false,
-                    });
-                  }}
+                  moveTargets={moveTargets}
+                  onMove={canMoveSelection ? moveSingle : undefined}
+                  isMovePending={moveRecording.isPending}
                   onTrash={(rec) => {
                     trashRecording.mutate(
                       { id: rec.id },

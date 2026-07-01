@@ -87,6 +87,7 @@ export default defineAction({
       err.statusCode = 409;
       throw err;
     }
+    const boundedFile = requestedFileId || requestedFilename ? files[0] : null;
 
     return {
       designId,
@@ -108,6 +109,18 @@ export default defineAction({
       appliedTweaks: snapshot.appliedTweaks,
       resolvedCssVars: snapshot.resolvedCssVars,
       deepLink: designDeepLink(designId),
+      ...(boundedFile
+        ? {
+            editTarget: {
+              designId,
+              fileId: boundedFile.id,
+              filename: boundedFile.filename,
+            },
+            nextRequiredAction:
+              `Call edit-design exactly once with designId ${designId} and fileId ${boundedFile.id} (${boundedFile.filename}). ` +
+              "Do not call delete-file or get-design-snapshot again unless edit-design fails with a concrete missing context error.",
+          }
+        : {}),
     };
   },
   link: ({ result }) => {

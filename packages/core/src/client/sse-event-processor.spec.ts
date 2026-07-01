@@ -289,7 +289,7 @@ describe("SSE event processor no-progress recovery", () => {
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
     expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
       {
-        label: "Preparing edit design action",
+        label: "Preparing edit screen action",
         tool: "edit-design",
       },
     ]);
@@ -404,7 +404,7 @@ describe("SSE event processor no-progress recovery", () => {
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
     expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
       {
-        label: "Preparing edit design action",
+        label: "Preparing edit screen action",
         tool: "edit-design",
       },
     ]);

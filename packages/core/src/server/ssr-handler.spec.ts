@@ -770,6 +770,73 @@ describe("createH3SSRHandler", () => {
       }
     });
 
+    it("allows the framework-injected GA loader + gtag hash in the Report-Only script-src when GA is configured", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      const previousGa = process.env.GA_MEASUREMENT_ID;
+      process.env.NODE_ENV = "production";
+      process.env.GA_MEASUREMENT_ID = "G-CSPTEST123";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/"));
+
+        const ro = response.headers.get("content-security-policy-report-only");
+        expect(ro).not.toBeNull();
+        // The GA / Tag Manager loader hosts and the inline gtag config hash the
+        // framework injects itself must be allow-listed so the policy does not
+        // report a violation on every page load.
+        expect(ro).toContain("https://www.googletagmanager.com");
+        expect(ro).toContain("https://www.google-analytics.com");
+        expect(ro).toMatch(/'sha256-[A-Za-z0-9+/]+=*'/);
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+        if (previousGa === undefined) {
+          delete process.env.GA_MEASUREMENT_ID;
+        } else {
+          process.env.GA_MEASUREMENT_ID = previousGa;
+        }
+      }
+    });
+
+    it("omits GA hosts from the Report-Only script-src when GA is not configured", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      const previousGa = process.env.GA_MEASUREMENT_ID;
+      process.env.NODE_ENV = "production";
+      delete process.env.GA_MEASUREMENT_ID;
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/"));
+
+        const ro = response.headers.get("content-security-policy-report-only");
+        expect(ro).not.toBeNull();
+        expect(ro).not.toContain("googletagmanager.com");
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+        if (previousGa !== undefined) {
+          process.env.GA_MEASUREMENT_ID = previousGa;
+        }
+      }
+    });
+
     it("does not set CSP on HTML responses in development", async () => {
       const previousNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = "development";

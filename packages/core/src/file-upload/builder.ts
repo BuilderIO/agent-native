@@ -44,6 +44,11 @@ function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   );
 }
 
+function setSkipCompressionQueryParams(url: URL): void {
+  url.searchParams.set("skipCompressionWait", "true");
+  url.searchParams.set("skipCompression", "true");
+}
+
 async function assertOk(res: Response, label: string): Promise<void> {
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -154,7 +159,7 @@ async function completeBuilderUpload(
   const host = builderUploadHost();
   const url = new URL("/api/v1/upload/complete", host);
   if (options?.skipCompressionWait) {
-    url.searchParams.set("skipCompressionWait", "true");
+    setSkipCompressionQueryParams(url);
   }
   const res = await fetchWithTimeout(url.toString(), {
     method: "POST",
@@ -255,7 +260,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const url = new URL("/api/v1/upload", builderUploadHost());
     if (filename) url.searchParams.set("name", filename);
     if (input.skipCompressionWait) {
-      url.searchParams.set("skipCompressionWait", "true");
+      setSkipCompressionQueryParams(url);
     }
 
     const response = await uploadSmallFile(url, {

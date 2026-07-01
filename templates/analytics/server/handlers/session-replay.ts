@@ -355,12 +355,15 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
         });
+        // Serve decompressed JSON and let the platform negotiate wire
+        // compression. Manually returning a pre-gzipped body with a
+        // `Content-Encoding: gzip` header corrupted replay downloads on
+        // serverless hosts and left playback blank in production.
         setResponseHeader(event, "Content-Type", "application/json");
-        setResponseHeader(event, "Content-Encoding", "gzip");
         setResponseHeader(event, "Cache-Control", "no-store");
         setResponseHeader(event, "X-Session-Replay-Seq", String(result.seq));
         setResponseHeader(event, "X-Session-Replay-Checksum", result.checksum);
-        return result.data;
+        return result.json;
       } catch (error: any) {
         setResponseStatus(event, statusFromError(error));
         return { error: messageFromError(error) };
