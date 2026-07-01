@@ -197,6 +197,23 @@ describe("waitForThreadRunToClear", () => {
     ]);
     expect(reconnectActivityFallbackContent("")).toEqual([]);
   });
+
+  it("rehydrates reconnect activity from active-run state", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("getActiveRunActivityTool(threadId, runId)");
+    expect(helperSource).toContain(
+      "setRunningActivityTool(storedActivityTool)",
+    );
+    expect(helperSource).toContain("activityTool: storedActivityTool");
+  });
 });
 
 describe("reconnectProgressTimedOut", () => {

@@ -37,9 +37,11 @@ import React, {
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
+  getActiveRunActivityTool,
   getActiveRun,
   resolveReconnectAfterSeq,
   setActiveRun,
+  updateActiveRunActivity,
   updateActiveRunSeq,
 } from "./active-run-state.js";
 import {
@@ -1430,6 +1432,7 @@ const AssistantChatInner = forwardRef<
     activityLabelSurfacedRef.current = false;
     setRunningActivityLabel(null);
     setRunningActivityTool(null);
+    updateActiveRunActivity(null);
   }, []);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
@@ -1733,11 +1736,14 @@ const AssistantChatInner = forwardRef<
 
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
+      const storedActivityTool = getActiveRunActivityTool(threadId, runId);
+      setRunningActivityTool(storedActivityTool);
       setReconnectAfterSeq(afterSeq);
       setActiveRun({
         threadId,
         runId,
         lastSeq: afterSeq > 0 ? afterSeq - 1 : -1,
+        ...(storedActivityTool ? { activityTool: storedActivityTool } : {}),
       });
       setIsReconnecting(true);
       setReconnectFrozen(false);
@@ -2443,6 +2449,7 @@ const AssistantChatInner = forwardRef<
       const tool = typeof detail?.tool === "string" ? detail.tool.trim() : "";
       setIsAutoResuming(false);
       setRunningActivityTool(tool || null);
+      updateActiveRunActivity(tool || null);
       latestActivityLabelRef.current = label;
       // Already past the delay → keep the visible label current.
       if (activityLabelSurfacedRef.current) {

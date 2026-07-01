@@ -27,14 +27,15 @@ export const RUN_STALE_MS = 15_000;
  * inserts the `running` row, then `fireInternalDispatch` returns 202 and the
  * background function may take >15s to cold-start and emit its first heartbeat.
  * With the normal 15s window the reaper would falsely kill that freshly-
- * inserted-but-not-yet-heartbeaten row. Once claimed, background workers can
- * legitimately run against Netlify's 15-minute background execution budget, so
- * the stale watchdog must not become a shorter de-facto run timeout.
+ * inserted-but-not-yet-heartbeaten row. 90s tolerates a slow background
+ * cold-start while still reaping a genuinely dead background worker promptly.
+ * Claimed background workers heartbeat during long work; the stale watchdog is a
+ * liveness timeout, not the Netlify background-function execution budget.
  *
  * Only applied to rows explicitly marked background-dispatched; ordinary
  * foreground runs keep the tight 15s window unchanged.
  */
-export const BACKGROUND_RUN_STALE_MS = 16 * 60_000;
+export const BACKGROUND_RUN_STALE_MS = 90_000;
 
 export const STALE_RUN_ERROR_EVENT = {
   type: "error",
@@ -86,10 +87,11 @@ export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
  * Grace period before a never-claimed background run (dispatch_mode still
  * 'background', no worker claim) is treated as a dead handoff and reaped.
  *
- * This is intentionally MUCH tighter than `BACKGROUND_RUN_STALE_MS`. The wide
- * durable-worker window exists ONLY to protect a CLAIMED worker whose heartbeat
- * lags during long background work. A run that is still `dispatch_mode = 'background'`
- * has, by definition, NO worker — nothing to protect — so once a Netlify
+ * This is intentionally tighter than `BACKGROUND_RUN_STALE_MS`. That wider
+ * window protects cold-starting or temporarily delayed background dispatches,
+ * while claimed workers stay alive by heartbeat/progress updates. A run that is
+ * still `dispatch_mode = 'background'` has, by definition, NO worker — nothing
+ * to protect — so once a Netlify
  * background function has had a reasonable cold-start window to claim it and
  * hasn't, the handoff is dead and should surface promptly instead of leaving
  * the user staring at a spinner for the durable-worker window. 25s comfortably exceeds a normal

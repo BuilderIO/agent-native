@@ -33,7 +33,7 @@ let rows: RunRow[] = [];
 // Mirror the two constants used by `backgroundAwareStaleCutoffSql`. The SQL
 // inlines them as literals, so we evaluate the CASE in JS to decide reaping.
 const RUN_STALE_MS = 15_000;
-const BACKGROUND_RUN_STALE_MS = 16 * 60_000;
+const BACKGROUND_RUN_STALE_MS = 90_000;
 
 function rowStaleWindow(row: RunRow): number {
   return row.dispatch_mode && row.dispatch_mode.startsWith("background")
@@ -251,9 +251,9 @@ describe("run-store durable background", () => {
     vi.clearAllMocks();
   });
 
-  it("exports the tight foreground + durable background stale windows", () => {
+  it("exports the tight foreground + wide background stale windows", () => {
     expect(STORE_RUN_STALE_MS).toBe(15_000);
-    expect(STORE_BACKGROUND_RUN_STALE_MS).toBe(16 * 60_000);
+    expect(STORE_BACKGROUND_RUN_STALE_MS).toBe(90_000);
     expect(STORE_BACKGROUND_RUN_STALE_MS).toBeGreaterThan(STORE_RUN_STALE_MS);
   });
 
@@ -296,8 +296,8 @@ describe("run-store durable background", () => {
     const now = Date.now();
     await insertRun("r-live-bg", "t1", "turn", { dispatchMode: "background" });
     const row = rows.find((r) => r.id === "r-live-bg")!;
-    // Heartbeat 30s ago: past the 15s foreground window, but well within the
-    // durable background window — must NOT be reaped.
+    // Heartbeat 30s ago: past the 15s foreground window, but within the 90s
+    // background window — must NOT be reaped.
     row.heartbeat_at = now - 30_000;
 
     const reaped = await reapIfStale("r-live-bg");
@@ -305,11 +305,11 @@ describe("run-store durable background", () => {
     expect(await getRunStatus("r-live-bg")).toBe("running");
   });
 
-  it("stale reaper reaps a background run only after the durable background window", async () => {
+  it("stale reaper reaps a background run only after the wide 90s window", async () => {
     const now = Date.now();
     await insertRun("r-dead-bg", "t1", "turn", { dispatchMode: "background" });
     const row = rows.find((r) => r.id === "r-dead-bg")!;
-    row.heartbeat_at = now - (16 * 60_000 + 1_000);
+    row.heartbeat_at = now - 120_000; // > 90s — genuinely dead worker.
 
     const reaped = await reapIfStale("r-dead-bg");
     expect(reaped).toBe(true);
