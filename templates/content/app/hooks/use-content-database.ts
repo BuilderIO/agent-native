@@ -33,10 +33,22 @@ import type {
   UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
+import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
+}
+
+export function writeContentDatabaseResponseToCache(
+  queryClient: Pick<QueryClient, "setQueryData">,
+  documentId: string,
+  data: ContentDatabaseResponse,
+) {
+  queryClient.setQueryData<ContentDatabaseResponse>(
+    contentDatabaseQueryKey(documentId),
+    data,
+  );
 }
 
 export function applySourceFieldPropertyToDatabaseResponse(
@@ -333,9 +345,13 @@ export function useAttachContentDatabaseSource(documentId: string) {
     ContentDatabaseResponse,
     AttachContentDatabaseSourceRequest
   >("attach-content-database-source", {
-    onSuccess: () => {
+    onSuccess: (data) => {
+      writeContentDatabaseResponseToCache(queryClient, documentId, data);
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
   });

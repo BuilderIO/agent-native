@@ -2,9 +2,14 @@ import type {
   ContentDatabaseResponse,
   ContentDatabaseSourceFieldPropertyResponse,
 } from "@shared/api";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
-import { applySourceFieldPropertyToDatabaseResponse } from "./use-content-database";
+import {
+  applySourceFieldPropertyToDatabaseResponse,
+  contentDatabaseQueryKey,
+  writeContentDatabaseResponseToCache,
+} from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
 
@@ -210,5 +215,20 @@ describe("applySourceFieldPropertyToDatabaseResponse", () => {
     expect(applySourceFieldPropertyToDatabaseResponse(current, patch)).toBe(
       current,
     );
+  });
+});
+
+describe("writeContentDatabaseResponseToCache", () => {
+  it("stores the attach-source response immediately for the active database", () => {
+    const attached = databaseResponse();
+    const queryClient = new QueryClient();
+
+    writeContentDatabaseResponseToCache(queryClient, "database-page", attached);
+
+    const cached = queryClient.getQueryData<ContentDatabaseResponse>(
+      contentDatabaseQueryKey("database-page"),
+    );
+    expect(cached).toBe(attached);
+    expect(cached?.source?.sourceTable).toBe("blog-article");
   });
 });
