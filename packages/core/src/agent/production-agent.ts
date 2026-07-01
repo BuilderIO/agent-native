@@ -2843,22 +2843,24 @@ export async function runAgentLoop(opts: {
             // reasons, then collapse it when content arrives.
             send({ type: "thinking", text: event.text });
           } else if (event.type === "tool-input-start") {
-            if (event.id && event.name) {
-              toolInputNames.set(event.id, event.name);
-              toolInputBytes.set(event.id, 0);
+            const key = event.id ?? event.name;
+            if (key && event.name) {
+              toolInputNames.set(key, event.name);
+              toolInputBytes.set(key, 0);
             }
             sendToolInputActivity(event.name, undefined, true);
           } else if (event.type === "tool-input-delta") {
+            const key = event.id ?? event.name;
             const toolName =
               event.name ??
               (event.id ? toolInputNames.get(event.id) : undefined);
             let progressBytes: number | undefined;
-            if (event.id) {
-              const previous = toolInputBytes.get(event.id) ?? 0;
+            if (key) {
+              const previous = toolInputBytes.get(key) ?? 0;
               progressBytes =
                 previous +
                 new TextEncoder().encode(event.text ?? "").byteLength;
-              toolInputBytes.set(event.id, progressBytes);
+              toolInputBytes.set(key, progressBytes);
             }
             sendToolInputActivity(toolName, progressBytes);
           } else if (event.type === "gateway-heartbeat") {

@@ -143,6 +143,40 @@ function preparingActionKeepaliveStream(
   });
 }
 
+function preparingActionZeroByteActivityStream(
+  tool = "edit-design",
+  intervalMs = 30_000,
+): ReadableStream<Uint8Array> {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      const sendActivity = () => {
+        controller.enqueue(
+          new TextEncoder().encode(
+            `data: ${JSON.stringify({
+              type: "activity",
+              label: `Preparing ${tool} action`,
+              tool,
+              progressBytes: 0,
+            })}\n\n`,
+          ),
+        );
+      };
+      sendActivity();
+      timer = setInterval(() => {
+        try {
+          sendActivity();
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, intervalMs);
+    },
+    cancel() {
+      if (timer) clearInterval(timer);
+    },
+  });
+}
+
 function preparingActionProgressStream(
   tool = "edit-design",
   intervalMs = 30_000,
@@ -369,6 +403,37 @@ describe("SSE event processor no-progress recovery", () => {
     await vi.advanceTimersByTimeAsync(
       SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
     );
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit screen action",
+        tool: "edit-design",
+      },
+    ]);
+  });
+
+  it("does not let repeated zero-byte preparation activity hide a stalled action", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          preparingActionZeroByteActivityStream(),
+          [],
+          { value: 0 },
+          undefined,
+        )) {
+          // no-op
+        }
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 1);
     const err = await errPromise;
 
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);

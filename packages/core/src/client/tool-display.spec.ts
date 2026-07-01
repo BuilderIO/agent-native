@@ -16,7 +16,7 @@ describe("tool display labels", () => {
   });
 
   it("uses user-facing labels for Design screen tools", () => {
-    expect(humanizeToolName("delete-file")).toBe("delete screen");
+    expect(humanizeToolName("delete-file")).toBe("remove screen");
     expect(humanizeToolName("get-design-snapshot")).toBe("get screen snapshot");
     expect(humanizeToolName("edit-design")).toBe("edit screen");
   });

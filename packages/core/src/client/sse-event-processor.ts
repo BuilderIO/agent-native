@@ -153,6 +153,7 @@ type ActivityTrailEntry = AgentActivityTrailEntry;
 type PreparingActionState = {
   tool?: string;
   startedAt?: number;
+  lastProgressBytes?: number;
   /**
    * Timestamp of the last real streaming progress for the in-preparation tool
    * input. The server emits a throttled `activity` heartbeat per
@@ -185,8 +186,15 @@ function isPreparingActionActivity(ev: SSEEvent): boolean {
   return label.startsWith("preparing ") && label.includes(" action");
 }
 
-function isProgressEvent(ev: SSEEvent): boolean {
-  return ev.type !== "stream_keepalive";
+function isMeaningfulProgressEvent(
+  ev: SSEEvent,
+  actionPreparationProgress?: boolean,
+): boolean {
+  if (ev.type === "stream_keepalive") return false;
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
+    return actionPreparationProgress === true;
+  }
+  return true;
 }
 
 function baseActivityLabel(ev: SSEEvent, tool?: string): string {
@@ -258,19 +266,28 @@ function updatePreparingActionState(
   state: PreparingActionState,
   ev: SSEEvent,
   now: number,
-) {
+): boolean | undefined {
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     const tool = ev.tool?.trim() || undefined;
-    if (!tool) return;
+    if (!tool) return false;
     if (state.tool !== tool || state.startedAt === undefined) {
       state.tool = tool;
       state.startedAt = now;
+      state.lastProgressAt = undefined;
+      state.lastProgressBytes = undefined;
     }
-    // Every tool-input activity is a throttled proof the model is still
-    // streaming this action's argument. Treat it as progress so large inputs
-    // that take many seconds/minutes to stream are NOT flagged as stalled.
-    state.lastProgressAt = now;
-    return;
+    const progressBytes = activityProgressBytes(ev);
+    const previousBytes = state.lastProgressBytes ?? 0;
+    if (progressBytes !== undefined) {
+      state.lastProgressBytes = Math.max(previousBytes, progressBytes);
+    }
+    if (progressBytes !== undefined && progressBytes > previousBytes) {
+      // A byte increase is proof the model is still streaming this action's
+      // argument. Repeated zero-byte prep activity is only a heartbeat.
+      state.lastProgressAt = now;
+      return true;
+    }
+    return false;
   }
 
   if (
@@ -285,7 +302,9 @@ function updatePreparingActionState(
     state.tool = undefined;
     state.startedAt = undefined;
     state.lastProgressAt = undefined;
+    state.lastProgressBytes = undefined;
   }
+  return undefined;
 }
 
 function hasStalledPreparingAction(state: PreparingActionState, now: number) {
@@ -296,8 +315,9 @@ function hasStalledPreparingAction(state: PreparingActionState, now: number) {
   // survives; a genuinely stuck prep (keepalive-only, no deltas) trips it.
   return (
     state.tool !== undefined &&
-    state.lastProgressAt !== undefined &&
-    now - state.lastProgressAt >= SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+    state.startedAt !== undefined &&
+    now - (state.lastProgressAt ?? state.startedAt) >=
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS
   );
 }
 
@@ -1193,11 +1213,15 @@ export async function* readSSEStream(
           continue;
         }
         const now = Date.now();
-        if (isProgressEvent(ev)) {
+        const actionPreparationProgress = updatePreparingActionState(
+          preparingActionState,
+          ev,
+          now,
+        );
+        if (isMeaningfulProgressEvent(ev, actionPreparationProgress)) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
-        updatePreparingActionState(preparingActionState, ev, now);
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
@@ -1355,11 +1379,15 @@ export async function readSSEStreamRaw(
           continue;
         }
         const now = Date.now();
-        if (isProgressEvent(ev)) {
+        const actionPreparationProgress = updatePreparingActionState(
+          preparingActionState,
+          ev,
+          now,
+        );
+        if (isMeaningfulProgressEvent(ev, actionPreparationProgress)) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
-        updatePreparingActionState(preparingActionState, ev, now);
 
         if (ev.seq !== undefined && onSeq) {
           onSeq(ev.seq);

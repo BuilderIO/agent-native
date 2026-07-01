@@ -16,6 +16,7 @@ import {
   bumpRunProgress,
   reapIfStale,
   reapUnclaimedBackgroundRun,
+  reconcileTerminalRunFromEvents,
   ensureTerminalRunEvent,
   setRunError,
   setRunTerminalReason,
@@ -124,6 +125,12 @@ export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 10 * 60 * 1000;
 
 const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
+
+function isPreparingActionActivityEvent(event: AgentChatEvent): boolean {
+  if (event.type !== "activity") return false;
+  const label = event.label.trim().toLowerCase();
+  return label.startsWith("preparing ") && label.includes(" action");
+}
 
 function getRunErrorMessage(err: unknown): string {
   if (
@@ -423,12 +430,48 @@ export function startRun(
   // chunk. The stuck-detector threshold is on the order of tens of seconds,
   // so 1s resolution is plenty.
   let lastProgressBumpAt = 0;
+  const preparingActivityBytes = new Map<string, number>();
   let eventPersistenceErrorCaptured = false;
   const bumpProgressIfDue = () => {
     const now = Date.now();
     if (now - lastProgressBumpAt < 1000) return;
     lastProgressBumpAt = now;
     bumpRunProgress(runId).catch(() => {});
+  };
+  const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
+    if (event.type === "stream_keepalive") return false;
+    if (event.type === "activity" && isPreparingActionActivityEvent(event)) {
+      const toolKey = event.tool?.trim() || event.label.trim();
+      const progressBytes =
+        typeof event.progressBytes === "number" &&
+        Number.isFinite(event.progressBytes) &&
+        event.progressBytes >= 0
+          ? Math.floor(event.progressBytes)
+          : undefined;
+      if (progressBytes === undefined) return false;
+      const previousBytes = preparingActivityBytes.get(toolKey) ?? 0;
+      if (progressBytes <= previousBytes) {
+        preparingActivityBytes.set(
+          toolKey,
+          Math.max(previousBytes, progressBytes),
+        );
+        return false;
+      }
+      preparingActivityBytes.set(toolKey, progressBytes);
+      return true;
+    }
+    if (event.type === "tool_start" || event.type === "tool_done") {
+      const tool = event.tool?.trim();
+      if (tool) preparingActivityBytes.delete(tool);
+    }
+    if (
+      event.type === "clear" ||
+      event.type === "done" ||
+      event.type === "error"
+    ) {
+      preparingActivityBytes.clear();
+    }
+    return true;
   };
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers).
@@ -539,8 +582,12 @@ export function startRun(
     // Bump the durable progress timestamp. Distinct from the heartbeat:
     // heartbeat = "process is up", progress = "real work is happening." The
     // gap between them is what the client-side stuck-detector reads to tell
-    // a hung run from a healthy one.
-    bumpProgressIfDue();
+    // a hung run from a healthy one. Keepalive and zero-byte action prep are
+    // liveness only; streamed input bytes, text, and tool lifecycle events are
+    // real progress.
+    if (shouldBumpProgressForEvent(runEvent.event)) {
+      bumpProgressIfDue();
+    }
 
     // Persist event to SQL. Events are chained through persistenceChain so
     // inserts commit in seq order — an out-of-order commit would advance the
@@ -733,12 +780,16 @@ export function startRun(
       try {
         await insertRunPromise;
         if (!terminalPersistenceError) {
-          const statusUpdated = await updateRunStatusIfRunning(
-            runId,
-            finalStatus,
-          );
+          let statusUpdated = false;
+          try {
+            statusUpdated = await updateRunStatusIfRunning(runId, finalStatus);
+          } catch {
+            statusUpdated = false;
+          }
           if (statusUpdated) {
             await setRunTerminalReason(runId, terminalReason);
+          } else {
+            await reconcileTerminalRunFromEvents(runId).catch(() => false);
           }
         }
       } catch {
