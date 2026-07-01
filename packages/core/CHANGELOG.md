@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.84.3
+
+### Patch Changes
+
+- af049a8: Improve agent-chat timeout recovery so completed tool actions end with a clear saved-result note instead of a generic connection failure, and bound repeated no-progress tool stalls.
+- af049a8: Allow share panels to hide copyable link fields, omit the bottom Done action, and render compact host-provided footer actions.
+- af049a8: Stack nested share popover menus above their parent panel so users can change visibility.
+
 ## 0.84.2
 
 ### Patch Changes
