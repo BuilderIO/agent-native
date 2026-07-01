@@ -248,7 +248,7 @@ const MENU_SEPARATOR_CLASS =
   "mx-0 my-[3px] h-px bg-[var(--design-editor-control-border)] opacity-80";
 // Shortcut: right-aligned, muted, use system UI for symbol rendering
 const MENU_SHORTCUT_CLASS =
-  "ms-auto ps-4 font-normal text-[11px] tracking-normal text-muted-foreground/70 tabular-nums";
+  "ms-auto ps-4 font-normal !text-[11px] tracking-normal text-muted-foreground/70 tabular-nums";
 
 export const CanvasContextMenu = forwardRef<
   CanvasContextMenuHandle,

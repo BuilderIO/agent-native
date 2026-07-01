@@ -2,6 +2,16 @@ const messages = {
   root: {
     commandContent: "內容",
     commandSearchDocuments: "搜尋檔案",
+    commandSearchHeading: "搜尋",
+    commandSearchPlaceholder: "搜尋文件和資料庫...",
+    commandSearchLoading: "搜尋中...",
+    commandSearchError: "搜尋目前無法使用。",
+    commandSearchPartialError: "部分結果無法載入。",
+    commandSearchEmpty: "沒有相符的文件或資料庫。",
+    commandDocumentsHeading: "文件",
+    commandDatabasesHeading: "資料庫",
+    commandLocalFilesHeading: "本機檔案",
+    commandDatabaseResultDescription: "開啟資料庫頁面",
     commandAppearance: "外觀",
     toggleTheme: "切換主題",
     metaTitle:

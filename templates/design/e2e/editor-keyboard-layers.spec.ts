@@ -182,6 +182,7 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(allNodeIdsAreUnique(html)).toBe(true);
       },
     );
+    await expectPreviewLayerCount(page, "Source Peer", 2);
 
     await pressEditorKey(page, "Delete");
     await expectFileContent(
@@ -195,6 +196,7 @@ test.describe("editor keyboard layer clipboard", () => {
         );
       },
     );
+    await expectPreviewLayerCount(page, "Source Peer", 1);
 
     await pressPrimaryShortcut(page, "z");
     await expectFileContent(
@@ -208,6 +210,7 @@ test.describe("editor keyboard layer clipboard", () => {
         );
       },
     );
+    await expectPreviewLayerCount(page, "Source Peer", 2);
 
     await pressPrimaryShortcut(page, "z", { shift: true });
     await expectFileContent(
@@ -221,6 +224,7 @@ test.describe("editor keyboard layer clipboard", () => {
         );
       },
     );
+    await expectPreviewLayerCount(page, "Source Peer", 1);
 
     await selectLayerRow(page, "Copy Card");
     await pressPrimaryShortcut(page, "x");
@@ -438,6 +442,22 @@ async function selectedRowCount(page: Page): Promise<number> {
   return layerTree(page)
     .locator('[role="treeitem"][aria-selected="true"]')
     .count();
+}
+
+async function expectPreviewLayerCount(
+  page: Page,
+  name: string,
+  expected: number,
+): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        designFrame(page)
+          .locator(`[data-agent-native-layer-name="${cssString(name)}"]`)
+          .count(),
+      { timeout: 10_000 },
+    )
+    .toBe(expected);
 }
 
 async function openLayerSearch(page: Page, query: string): Promise<void> {

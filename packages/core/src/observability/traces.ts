@@ -1,5 +1,5 @@
 import type { AgentLoopUsage } from "../agent/production-agent.js";
-import type { AgentChatEvent } from "../agent/types.js";
+import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
@@ -115,7 +115,7 @@ export async function instrumentAgentLoop(opts: {
       spanId: string;
       startMs: number;
       toolName: string;
-      input: Record<string, string>;
+      input: AgentToolInput;
       otelSpan: AgentSpan | null;
       endResult?: { status: "success" | "error"; errorMessage: string | null };
     }
@@ -148,7 +148,7 @@ export async function instrumentAgentLoop(opts: {
           spanId: string;
           startMs: number;
           toolName: string;
-          input: Record<string, string>;
+          input: AgentToolInput;
           otelSpan: AgentSpan | null;
           // Set by the done handler if it fires before the span promise
           // resolves, so the resolved span is ended with the correct status.

@@ -201,17 +201,64 @@ test("text fills hide and restore without losing the original color", async ({
   );
   expect(initialColor).not.toBe("");
 
-  await hideFillButton.click({ force: true });
+  await expect(hideFillButton).toBeVisible();
+  await expect(
+    fillSection.locator('button[aria-label="Remove layer"]').first(),
+  ).toBeVisible();
+
+  await hideFillButton.click();
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "color"))
     .toBe("transparent");
-  await expect(showFillButton).toHaveCount(1);
+  await expect(showFillButton).toBeVisible();
 
-  await showFillButton.click({ force: true });
+  await showFillButton.click();
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "color"))
     .toBe(initialColor);
   await expect(heading).toBeVisible();
+});
+
+test("style layer row actions stay visible and toggle visibility state", async ({
+  page,
+}) => {
+  await selectByText(page, "Alpha Button");
+
+  const strokeSection = inspectorSection(page, /^Stroke$/i);
+  await strokeSection.getByRole("button", { name: "Add layer" }).click();
+  const hideStrokeButton = strokeSection
+    .locator('button[aria-label="Hide layer"]')
+    .first();
+  const removeStrokeButton = strokeSection
+    .locator('button[aria-label="Remove layer"]')
+    .first();
+  await expect(hideStrokeButton).toBeVisible();
+  await expect(removeStrokeButton).toBeVisible();
+
+  await hideStrokeButton.click();
+  await expect(
+    strokeSection.locator('button[aria-label="Show layer"]').first(),
+  ).toBeVisible();
+
+  const effectsSection = inspectorSection(page, /^Effects$/i);
+  await effectsSection.getByRole("button", { name: "Add layer" }).click();
+  await page.getByRole("menuitem", { name: "Drop shadow" }).click();
+  const hideEffectButton = effectsSection
+    .locator('button[aria-label="Hide layer"]')
+    .first();
+  const removeEffectButton = effectsSection
+    .locator('button[aria-label="Remove layer"]')
+    .first();
+  await expect(hideEffectButton).toBeVisible();
+  await expect(removeEffectButton).toBeVisible();
+
+  await hideEffectButton.click();
+  await expect(
+    effectsSection.locator('button[aria-label="Show layer"]').first(),
+  ).toBeVisible();
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "box-shadow"))
+    .toContain("rgba(0, 0, 0, 0)");
 });
 
 test("typography edits update size and spacing inputs", async ({ page }) => {
@@ -262,6 +309,8 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   const label = page.locator(`label[for="${cssAttrValue(id!)}"]`);
   await label.hover();
   await expect(page.getByRole("tooltip")).toHaveText("X-position");
+  await expect(label).toHaveCSS("border-top-right-radius", "0px");
+  await expect(label).toHaveCSS("border-bottom-right-radius", "0px");
 
   await dragScrubInputLabel(page, "X-position", 16);
 
@@ -271,6 +320,85 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   await expect
     .poll(() => selectedElementStyle(page, "Alpha Button", "left"))
     .toMatch(/px$/);
+
+  const rotationInput = page.locator('input[aria-label="Rotation" i]');
+  await expect(rotationInput).toBeVisible();
+  const rotationId = await rotationInput.first().getAttribute("id");
+  expect(rotationId).toBeTruthy();
+  const rotationLabel = page.locator(
+    `label[for="${cssAttrValue(rotationId!)}"]`,
+  );
+  await expect(rotationLabel.locator("svg")).toBeVisible();
+  await expect(rotationLabel).toHaveCSS("border-top-right-radius", "0px");
+  await expect(rotationLabel).toHaveCSS("border-bottom-right-radius", "0px");
+
+  const constraintsTrigger = page.getByRole("button", {
+    name: "Constraints",
+  });
+  const horizontalConstraints = page.getByRole("combobox", {
+    name: "Horizontal",
+  });
+  const verticalConstraints = page.getByRole("combobox", { name: "Vertical" });
+  await expect(constraintsTrigger).toBeVisible();
+  await expect(constraintsTrigger).toHaveAttribute("aria-pressed", "false");
+  await expect(horizontalConstraints).toBeHidden();
+
+  await constraintsTrigger.click();
+  await expect(constraintsTrigger).toHaveAttribute("aria-pressed", "true");
+  await expect(horizontalConstraints).toBeVisible();
+  await expect(verticalConstraints).toBeVisible();
+
+  await constraintsTrigger.click();
+  await expect(constraintsTrigger).toHaveAttribute("aria-pressed", "false");
+  await expect(horizontalConstraints).toBeHidden();
+});
+
+test("appearance controls use droplet blend menu and inline independent corners", async ({
+  page,
+}) => {
+  await selectByText(page, "Alpha Button");
+  const appearanceSection = inspectorSection(page, /^Appearance$/i);
+  await expect(appearanceSection).toBeVisible();
+  await expect(
+    appearanceSection.getByRole("combobox", { name: /Normal|Blend/i }),
+  ).toHaveCount(0);
+
+  await appearanceSection.getByRole("button", { name: "Blend mode" }).click();
+  await expect(
+    page.getByRole("menuitem", { name: /Pass through/i }),
+  ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Normal", exact: true }).click();
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "isolation"))
+    .toBe("isolate");
+
+  await appearanceSection.getByRole("button", { name: "Blend mode" }).click();
+  await page.getByRole("menuitem", { name: /Pass through/i }).click();
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "isolation"))
+    .toBe("auto");
+
+  const radiusInput = appearanceSection.locator(
+    'input[aria-label="Corner radius" i]',
+  );
+  await setScrubInput(appearanceSection, "Corner radius", "12");
+  await expect(radiusInput).toHaveValue("12");
+  await expect
+    .poll(() => selectedElementStyle(page, "Alpha Button", "border-radius"))
+    .toContain("12px");
+
+  await appearanceSection
+    .getByRole("button", { name: "Independent corners" })
+    .click();
+  await expect(
+    appearanceSection.locator('input[aria-label="Top left" i]'),
+  ).toBeVisible();
+  await setScrubInput(appearanceSection, "Top left", "4");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "Alpha Button", "border-top-left-radius"),
+    )
+    .toBe("4px");
 });
 
 test("export rows add, remove, and reset when selection changes", async ({

@@ -478,19 +478,21 @@ export default function Index() {
           <div className="flex items-center justify-end mb-4">
             <div className="h-3 w-16 rounded bg-muted animate-pulse" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div
-                key={i}
-                className="rounded-xl border border-border bg-card overflow-hidden"
-              >
-                <div className="aspect-video bg-muted/50 animate-pulse" />
-                <div className="p-4 space-y-2">
-                  <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
-                  <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
+          <div className="deck-grid-container">
+            <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="overflow-hidden rounded-xl border border-border bg-card"
+                >
+                  <div className="aspect-video animate-pulse bg-muted/50" />
+                  <div className="space-y-2 p-4">
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </>
       ) : decks.length === 0 ? (
@@ -532,47 +534,49 @@ export default function Index() {
               })}
             </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {/* New deck card */}
-            <button
-              onClick={openNewDeck}
-              className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
-            >
-              <div className="aspect-video flex items-center justify-center bg-muted/30">
-                <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                  <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+          <div className="deck-grid-container">
+            <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {/* New deck card */}
+              <button
+                onClick={openNewDeck}
+                className="group relative cursor-pointer overflow-hidden rounded-xl border border-dashed border-border bg-card text-start hover:border-foreground/15"
+              >
+                <div className="flex aspect-video items-center justify-center bg-muted/30">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/50 group-hover:bg-accent">
+                    <IconPlus className="h-6 w-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                  </div>
                 </div>
-              </div>
-              <div className="p-4">
-                <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                  {t("home.newDeck")}
-                </h3>
-                <div className="text-xs text-muted-foreground/70 mt-1">
-                  {t("home.createDeckOrVisual")}
+                <div className="p-4">
+                  <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground/70">
+                    {t("home.newDeck")}
+                  </h3>
+                  <div className="mt-1 text-xs text-muted-foreground/70">
+                    {t("home.createDeckOrVisual")}
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
 
-            {[...visibleDecks].reverse().map((deck) => (
-              <DeckCard
-                key={deck.id}
-                deck={deck}
-                onDelete={(id) => setDeckToDelete(id)}
-                onRename={handleRename}
-                onDuplicate={handleDuplicate}
-                isDuplicating={duplicating === deck.id}
-                designSystemTitle={
-                  deck.designSystemId
-                    ? designSystemTitleById.get(deck.designSystemId)
-                    : null
-                }
-              />
-            ))}
-            {visibleDecks.length === 0 && (
-              <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
-                {t("home.noMineDecks")}
-              </div>
-            )}
+              {[...visibleDecks].reverse().map((deck) => (
+                <DeckCard
+                  key={deck.id}
+                  deck={deck}
+                  onDelete={(id) => setDeckToDelete(id)}
+                  onRename={handleRename}
+                  onDuplicate={handleDuplicate}
+                  isDuplicating={duplicating === deck.id}
+                  designSystemTitle={
+                    deck.designSystemId
+                      ? designSystemTitleById.get(deck.designSystemId)
+                      : null
+                  }
+                />
+              ))}
+              {visibleDecks.length === 0 && (
+                <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+                  {t("home.noMineDecks")}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

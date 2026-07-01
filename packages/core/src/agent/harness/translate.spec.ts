@@ -44,12 +44,14 @@ describe("agentHarnessEventToAgentChatEvents", () => {
       agentHarnessEventToAgentChatEvents({
         type: "tool-done",
         name: "read_file",
+        input: { path: "app.tsx", options: { lines: 20 } },
         result: { ok: true },
       }),
     ).toEqual([
       {
         type: "tool_done",
         tool: "read_file",
+        input: { path: "app.tsx", options: '{\n  "lines": 20\n}' },
         result: '{\n  "ok": true\n}',
       },
     ]);

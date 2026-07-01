@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   alpineDataValueLiteral,
   canRebuildAlpineDataLosslessly,
+  elementHtmlPreview,
   isBooleanPropValue,
   openingTagOf,
   parseAlpineDataObject,
@@ -64,6 +65,37 @@ describe("truncateOpeningTag", () => {
   it("leaves short values untouched", () => {
     const tag = `<a href="#" class="btn">`;
     expect(truncateOpeningTag(tag)).toBe(tag);
+  });
+});
+
+describe("elementHtmlPreview", () => {
+  it("collapses a selected element to an opening tag, literal ellipsis, and close tag", () => {
+    expect(
+      elementHtmlPreview({
+        html: `<article class="card" data-kind="story"><h1>Hello</h1></article>`,
+        tagName: "article",
+      }),
+    ).toBe(`<article class="card" data-kind="story">\n  ...\n</article>`);
+  });
+
+  it("uses tag metadata when outer HTML is unavailable", () => {
+    expect(
+      elementHtmlPreview({
+        html: null,
+        tagName: "div",
+        id: "hero",
+        classes: ["rounded", "featured"],
+      }),
+    ).toBe(`<div id="hero" class="rounded featured">\n  ...\n</div>`);
+  });
+
+  it("keeps void image tags as a single highlighted line", () => {
+    expect(
+      elementHtmlPreview({
+        html: `<img src="/hero.png" alt="Hero">`,
+        tagName: "img",
+      }),
+    ).toBe(`<img src="/hero.png" alt="Hero">`);
   });
 });
 

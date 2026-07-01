@@ -17,6 +17,7 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import {
+  attachGatewaySocketErrorSink,
   normalizeOrigin,
   rewriteRedirectLocation,
   escapeHtml,
@@ -1048,9 +1049,18 @@ export async function runWorkspaceDev(
             if (rewritten) responseHeaders.location = rewritten;
           }
           res.writeHead(statusCode, responseHeaders);
+          proxyRes.once("error", () => {
+            if (!res.destroyed) res.destroy();
+          });
           proxyRes.pipe(res);
         },
       );
+      proxyReq.once("socket", (socket) => {
+        attachGatewaySocketErrorSink(socket);
+      });
+      res.once("error", () => {
+        proxyReq.destroy();
+      });
       responseTimer = setTimeout(() => {
         if (settled) return;
         settled = true;
@@ -1123,6 +1133,13 @@ export async function runWorkspaceDev(
     head: Buffer,
   ): void {
     startApp(app);
+    let target: net.Socket | undefined;
+    attachGatewaySocketErrorSink(socket, () => {
+      target?.destroy();
+    });
+    socket.once("close", () => {
+      target?.destroy();
+    });
     void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
@@ -1130,8 +1147,9 @@ export async function runWorkspaceDev(
           socket.destroy();
           return;
         }
+        if (socket.destroyed) return;
         app.ready = true;
-        const target = net.connect(app.port, "127.0.0.1", () => {
+        const upstream = net.connect(app.port, "127.0.0.1", () => {
           const headers = Object.entries(
             proxyHeaders(req, `127.0.0.1:${app.port}`),
           )
@@ -1141,14 +1159,20 @@ export async function runWorkspaceDev(
                 : [`${key}: ${value ?? ""}`],
             )
             .join("\r\n");
-          target.write(
+          upstream.write(
             `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`,
           );
-          if (head.length) target.write(head);
-          socket.pipe(target).pipe(socket);
+          if (head.length) upstream.write(head);
+          socket.pipe(upstream).pipe(socket);
         });
+        target = upstream;
 
-        target.on("error", () => socket.destroy());
+        attachGatewaySocketErrorSink(upstream, () => {
+          if (!socket.destroyed) socket.destroy();
+        });
+        upstream.once("close", () => {
+          if (!socket.destroyed) socket.destroy();
+        });
       },
     );
   }

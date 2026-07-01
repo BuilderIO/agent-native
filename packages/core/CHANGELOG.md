@@ -1,5 +1,78 @@
 # @agent-native/core
 
+## 0.84.6
+
+### Patch Changes
+
+- 126ccac: Claim durable background agent-chat runs before expensive worker setup so hosted apps stay on the 15-minute background-function path instead of falling back to 40-second inline chunks.
+
+## 0.84.5
+
+### Patch Changes
+
+- 1a8400a: Surface an explicit chat error when an agent stops before a displayed tool action starts or returns a result, and keep Design variant generation prompts compact enough to finish.
+
+## 0.84.4
+
+### Patch Changes
+
+- 61715b4: Pin Nitro's `nf3` tracer dependency to a Node 22-compatible release so downstream package updates continue to build hosted apps.
+
+## 0.84.3
+
+### Patch Changes
+
+- af049a8: Improve agent-chat timeout recovery so completed tool actions end with a clear saved-result note instead of a generic connection failure, and bound repeated no-progress tool stalls.
+- af049a8: Allow share panels to hide copyable link fields, omit the bottom Done action, and render compact host-provided footer actions.
+- af049a8: Stack nested share popover menus above their parent panel so users can change visibility.
+
+## 0.84.2
+
+### Patch Changes
+
+- 3ff4f55: Extend Builder gateway timeouts for local and background agent-chat runs, and surface recoverable gateway timeout failures instead of silently retrying activity-only tool preparation loops.
+- 3ff4f55: Allow scoped chat surfaces to hide the composer scope badge while keeping thread context attached.
+
+## 0.84.1
+
+### Patch Changes
+
+- 87806ef: Report intentionally gated eval cases as skipped, keep skipped suites from setting up agent runners, and avoid action/engine setup for eval cases that fully short-circuit with custom run handlers.
+
+## 0.84.0
+
+### Minor Changes
+
+- 31983c1: Add Claude Sonnet 5 to the managed Builder gateway and Anthropic model catalogs.
+
+### Patch Changes
+
+- 31983c1: Keep Builder.io Connect polling after the auth window closes so slow status confirmation does not show a false warning.
+- 31983c1: Keep OAuth state and environment status checks aligned with scoped workspace credentials.
+- 31983c1: Use Claude Opus 4.8 instead of 4.7 in the managed Builder gateway model catalog.
+- 31983c1: Keep the Connect AI setup card aligned with the composer and stop stretching the Builder.io button in compact rows.
+- 31983c1: Simplify guided question layout and keep chat-sidebar choices readable with container queries.
+- 31983c1: Fix spacing in the Extensions sidebar sort menu.
+- 31983c1: Allow generated deploy workers to accept browser action-client headers during CORS preflight.
+- 31983c1: Keep lazy workspace gateway socket resets from crashing local dev servers.
+- 31983c1: Add GLM 5.2 to the curated OpenRouter model catalog and setup copy.
+- 31983c1: Disable recurring job and automation trigger background loading during local development.
+- 31983c1: Expose a guarded localhost Design bridge snapshot endpoint so URL-backed visual-edit screens can become editable in Design without replacing their saved URL source.
+- 31983c1: Use neutral button colors on the missing design screen.
+- 31983c1: Render PR visual recap screenshots without wrapping the thumbnail image in a link.
+- 31983c1: Prevent failed or blocked tool calls from being replayed as completed durable side effects.
+- 31983c1: Allow apps to opt specific deep-link open targets into anonymous redirects.
+- 31983c1: Temporarily hide Claude Sonnet 5 behind a code flag so Claude Sonnet 4.6 remains the visible Sonnet option and default until the Builder gateway deploy supports Sonnet 5.
+- 31983c1: Use theme tokens for shared setup, onboarding, editor, and integration chrome.
+- 31983c1: Tighten the sidebar Connect AI setup card so secondary API-key setup stays compact.
+- 31983c1: Fix the exported visual-edit skill instructions so editable localhost sessions keep the Design bridge running.
+
+## 0.83.0
+
+### Minor Changes
+
+- 1a8d939: Add dynamic command menu results and an opt-in contenteditable Cmd+K shortcut path for editor-backed apps.
+
 ## 0.82.0
 
 ### Minor Changes

@@ -233,6 +233,23 @@ export interface ResolvedAccess {
   resource: any;
 }
 
+async function publicAccessRoleForResource(
+  reg: ShareableResourceRegistration,
+  resource: any,
+  ctx: AccessContext,
+): Promise<ShareRole> {
+  const roleResolver = reg.publicAccessRole;
+  if (!roleResolver) return "viewer";
+  return typeof roleResolver === "function"
+    ? await roleResolver(resource, ctx)
+    : roleResolver;
+}
+
+function higherShareRole(a: ShareRole, b: ShareRole | null): ShareRole {
+  if (!b) return a;
+  return ROLE_RANK[b] > ROLE_RANK[a] ? b : a;
+}
+
 /**
  * Return the effective role the current user has on a specific resource, or
  * null if they have no access. Loads the resource and relevant share rows.
@@ -263,9 +280,12 @@ export async function resolveAccess(
     return { role: "owner", resource };
   }
   if (resource.visibility === "public" && reg.allowPublic !== false) {
-    // No share row needed; default viewer unless upgraded below.
+    // No share row needed; default viewer unless the resource registration
+    // deliberately grants a stronger public-by-link role or explicit shares
+    // upgrade the current principal.
+    const publicRole = await publicAccessRoleForResource(reg, resource, ctx);
     const role = await highestShareRole(reg, resourceId, ctx, resource);
-    return { role: role ?? "viewer", resource };
+    return { role: higherShareRole(publicRole, role), resource };
   }
   // `visibility === "public"` on an `allowPublic: false` resource is treated
   // as private: only owner + explicit shares grant access. Falls through to

@@ -20,7 +20,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -31,6 +31,7 @@ import {
   assertSafeMotionCssProperty,
   assertSafeMotionCssToken,
   compile,
+  injectManagedMotionCss,
 } from "../shared/motion-compiler.js";
 import type { MotionTrack } from "../shared/motion-timeline.js";
 
@@ -69,47 +70,31 @@ const trackSchema = z.object({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const MOTION_STYLE_OPEN = "<style data-agent-native-motion>";
-const MOTION_STYLE_CLOSE = "</style>";
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
 
-/**
- * Bounded, case-insensitive matcher for any HTML `</style>` end tag
- * (`</style >`, `</STYLE>`, …). Used to locate the close of the managed block
- * without a naive `indexOf("</style>")` that would miss case/whitespace
- * variants — and to detect any `</style` sequence smuggled into compiled CSS.
- */
-const STYLE_CLOSE_RE = /<\s*\/\s*style\b[^>]*>/i;
+export function resolveMotionTimelineInsertOwnership(args: {
+  requestUserEmail?: string | null;
+  requestOrgId?: string | null;
+  designOwnerEmail?: unknown;
+  designOrgId?: unknown;
+}): { ownerEmail: string; orgId: string | null } {
+  const ownerEmail =
+    nonEmptyString(args.requestUserEmail) ??
+    nonEmptyString(args.designOwnerEmail);
 
-/**
- * Inject or replace the managed `<style data-agent-native-motion>` block in
- * the HTML content.  Inserts before `</head>` when not already present.
- */
-function injectMotionStyle(html: string, css: string): string {
-  const open = MOTION_STYLE_OPEN;
-  const close = MOTION_STYLE_CLOSE;
-  const openIdx = html.indexOf(open);
+  if (!ownerEmail) throw new Error("no authenticated user");
 
-  if (openIdx !== -1) {
-    // Find the matching closing tag after the open tag using a bounded regex
-    // (tolerates `</style >`, `</STYLE>`, etc.) instead of a literal indexOf.
-    const after = html.slice(openIdx + open.length);
-    const closeMatch = STYLE_CLOSE_RE.exec(after);
-    if (closeMatch) {
-      const closeIdx = openIdx + open.length + closeMatch.index;
-      // Replace the existing block.
-      return (
-        html.slice(0, openIdx) + open + "\n" + css + "\n" + html.slice(closeIdx)
-      );
-    }
-  }
+  return {
+    ownerEmail,
+    orgId:
+      nonEmptyString(args.requestOrgId) ?? nonEmptyString(args.designOrgId),
+  };
+}
 
-  // Not found — insert before </head> or, if there is no <head>, at the top.
-  const headClose = html.lastIndexOf("</head>");
-  const block = `${open}\n${css}\n${close}`;
-  if (headClose !== -1) {
-    return html.slice(0, headClose) + block + "\n" + html.slice(headClose);
-  }
-  return block + "\n" + html;
+export function canPatchManagedMotionCss(content: string): boolean {
+  return /<\s*(?:!doctype|[a-z][a-z0-9:-]*(?:\s|>|\/>))/i.test(content);
 }
 
 async function persistFileContent(
@@ -117,7 +102,7 @@ async function persistFileContent(
   designId: string,
   content: string,
   now: string,
-): Promise<void> {
+): Promise<string> {
   const db = getDb();
   await db
     .update(schema.designFiles)
@@ -134,6 +119,8 @@ async function persistFileContent(
     .update(schema.designs)
     .set({ updatedAt: now })
     .where(eq(schema.designs.id, designId));
+
+  return now;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -219,16 +206,13 @@ export default defineAction({
     includeContent,
     currentContent: currentContentInput,
   }) => {
-    await assertAccess("design", designId, "editor");
+    const access = await assertAccess("design", designId, "editor");
 
     const db = getDb();
     const now = new Date().toISOString();
 
     // ── 1. Resolve the target design file ──────────────────────────────────
-    const conditions = [
-      accessFilter(schema.designs, schema.designShares),
-      eq(schema.designFiles.designId, designId),
-    ];
+    const conditions = [eq(schema.designFiles.designId, designId)];
     if (fileIdInput) {
       conditions.push(eq(schema.designFiles.id, fileIdInput));
     } else {
@@ -296,7 +280,10 @@ export default defineAction({
     });
 
     // ── 3. Inject the managed CSS block into the HTML ───────────────────────
-    const patchedContent = injectMotionStyle(currentContent, css);
+    const contentPatched = canPatchManagedMotionCss(currentContent);
+    const patchedContent = contentPatched
+      ? injectManagedMotionCss(currentContent, css)
+      : currentContent;
     const bytesBefore = currentContent.length;
     const bytesAfter = patchedContent.length;
 
@@ -343,11 +330,18 @@ export default defineAction({
       if (existingForSource) {
         existingTimelineId = existingForSource.id;
       } else {
-        // Insert new row — derive ownership from the request context (same
-        // pattern as create-design-state and other create actions).
-        insertOwnerEmail = getRequestUserEmail() ?? null;
-        if (!insertOwnerEmail) throw new Error("no authenticated user");
-        insertOrgId = getRequestOrgId() ?? null;
+        // Insert new row — derive ownership from the request context, falling
+        // back to the already-authorized design owner for local/public editor
+        // sessions that do not carry an authenticated request user.
+        const insertOwnership = resolveMotionTimelineInsertOwnership({
+          requestUserEmail: getRequestUserEmail(),
+          requestOrgId: getRequestOrgId(),
+          designOwnerEmail: (access.resource as { ownerEmail?: unknown })
+            .ownerEmail,
+          designOrgId: (access.resource as { orgId?: unknown }).orgId,
+        });
+        insertOwnerEmail = insertOwnership.ownerEmail;
+        insertOrgId = insertOwnership.orgId;
       }
     }
 
@@ -392,7 +386,9 @@ export default defineAction({
     // Written after the row so a SQL failure here leaves the timeline row
     // accurate (correct tracks + hash) and the stale HTML can be recompiled on
     // the next apply-motion-edit call via compiledHash drift detection.
-    await persistFileContent(fileId, designId, patchedContent, now);
+    const updatedAt = contentPatched
+      ? await persistFileContent(fileId, designId, patchedContent, now)
+      : now;
 
     return {
       timelineId: resolvedTimelineId,
@@ -401,10 +397,12 @@ export default defineAction({
       sourceRef: resolvedSourceRef,
       trackCount: typedTracks.length,
       compiledHash: hash,
+      updatedAt,
       bytesBefore,
       bytesAfter,
       bytesDelta: bytesAfter - bytesBefore,
       persisted: true,
+      contentPatched,
       patchedContent: includeContent ? patchedContent : undefined,
     };
   },

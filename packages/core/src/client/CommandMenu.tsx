@@ -261,6 +261,8 @@ export interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
+  /** Render app-specific dynamic results from the current search value. */
+  renderResults?: (search: string) => ReactNode;
   /** Placeholder text for the search input */
   placeholder?: string;
   /** Text shown when no results match (before showing agent fallback) */
@@ -291,6 +293,7 @@ export function CommandMenu({
   open,
   onOpenChange,
   children,
+  renderResults,
   placeholder = "Type a command or ask AI...",
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
@@ -325,8 +328,15 @@ export function CommandMenu({
     setTimeout(() => setChangelogOpen(true), 50);
   }, [onOpenChange, markChangelogSeen]);
 
-  // Focus input when opening
+  // Focus input when opening; clear search while closed so reopen never renders
+  // dynamic results for the previous query.
   useEffect(() => {
+    if (!open) {
+      setSearch("");
+      setSelectedIndex(0);
+      return;
+    }
+
     if (open) {
       setSearch("");
       setSelectedIndex(0);
@@ -497,6 +507,8 @@ export function CommandMenu({
       React.isValidElement(child) &&
       (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
+  const dynamicResults = open ? renderResults?.(search) : null;
+  const hasDynamicResults = Boolean(dynamicResults);
 
   return (
     <>
@@ -528,6 +540,7 @@ export function CommandMenu({
 
               {/* Command list */}
               <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
+                {dynamicResults}
                 {hasResults && filteredChildren}
 
                 {/* What's new — built-in changelog entry */}
@@ -567,7 +580,9 @@ export function CommandMenu({
                 {/* Ask AI — always visible at the bottom */}
                 {showAgentFallback && (
                   <>
-                    {(hasResults || showChangelogRow) && <CommandSeparator />}
+                    {(hasResults || showChangelogRow || hasDynamicResults) && (
+                      <CommandSeparator />
+                    )}
                     <div className="p-1">
                       <div
                         className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none"
@@ -658,16 +673,21 @@ CommandMenu.Separator = CommandSeparator;
 /**
  * Hook to handle Cmd+K (or Ctrl+K) to open the command menu
  */
-export function useCommandMenuShortcut(onOpen: () => void) {
+export function useCommandMenuShortcut(
+  onOpen: () => void,
+  options: { allowContentEditable?: boolean } = {},
+) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        // Don't trigger if user is typing in an input/textarea
-        const target = e.target as HTMLElement;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        // Don't trigger if user is typing in a native form control.
+        const target = e.target instanceof HTMLElement ? e.target : null;
+        const isContentEditable = target?.isContentEditable;
         if (
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable
+          target?.tagName === "INPUT" ||
+          target?.tagName === "TEXTAREA" ||
+          target?.tagName === "SELECT" ||
+          (!options.allowContentEditable && isContentEditable)
         ) {
           return;
         }
@@ -675,9 +695,11 @@ export function useCommandMenuShortcut(onOpen: () => void) {
         onOpen();
       }
     };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onOpen]);
+    const useCapture = Boolean(options.allowContentEditable);
+    document.addEventListener("keydown", handleKeyDown, useCapture);
+    return () =>
+      document.removeEventListener("keydown", handleKeyDown, useCapture);
+  }, [onOpen, options.allowContentEditable]);
 }
 
 export type {

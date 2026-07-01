@@ -52,7 +52,7 @@ const variantSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "Complete self-contained HTML document for this variant. Inline the CSS needed for the preview; avoid relying on external CSS/script CDNs because app sandboxes may block them.",
+      "Complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. Inline the CSS needed for the preview; avoid relying on external CSS/script CDNs because app sandboxes may block them.",
     ),
   width: z
     .number()
@@ -227,7 +227,9 @@ export default defineAction({
     "Provide 2-5 variants (3 is the sweet spot). Use this for design " +
     "exploration before follow-up refinement. After the user's choice, keep " +
     "the chosen screen, delete the other generated variant screens, and " +
-    "continue from the kept screen.",
+    "continue from the kept screen. For complex apps, make each variant a " +
+    "compact but complete representative screen; expand the chosen direction " +
+    "after the user picks.",
   schema: z.object({
     designId: z.string().describe("Design project ID to show variants for"),
     prompt: z

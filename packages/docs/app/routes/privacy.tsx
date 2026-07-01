@@ -22,7 +22,7 @@ export const meta = () =>
     {
       name: "description",
       content:
-        "Privacy policy for Agent-Native hosted applications, templates, and browser extensions.",
+        "Privacy policy for Agent-Native hosted applications, apps, and browser extensions.",
     },
     {
       property: "og:title",

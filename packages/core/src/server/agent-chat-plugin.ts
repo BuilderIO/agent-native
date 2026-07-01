@@ -62,7 +62,15 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
-import { readBackgroundRunClaim } from "../agent/run-store.js";
+import {
+  CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+  ensureTerminalRunEvent,
+  readBackgroundRunClaim,
+  recordRunDiagnostic,
+  RUN_DIAG_STAGE,
+  setRunError,
+  updateRunStatusIfRunning,
+} from "../agent/run-store.js";
 import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
@@ -3787,6 +3795,125 @@ export function shouldBlockInProductCodeEditingSurface(input: {
     hostname === "::1" ||
     hostname === "[::1]"
   );
+}
+
+type RecurringJobsRuntimeEnvKey =
+  | "AGENT_NATIVE_DISABLE_RECURRING_JOBS"
+  | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
+  | "APP_URL"
+  | "BETTER_AUTH_URL"
+  | "DEPLOY_URL"
+  | "NODE_ENV"
+  | "URL"
+  | "VITE_APP_URL"
+  | "VITE_WORKSPACE_GATEWAY_URL"
+  | "WORKSPACE_GATEWAY_URL";
+
+type RecurringJobsRuntimeEnv = Partial<
+  Record<RecurringJobsRuntimeEnvKey, string | undefined>
+>;
+
+function isTruthyEnv(value: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
+}
+
+function isLoopbackAppUrl(value: string | undefined): boolean {
+  const raw = value?.trim();
+  if (!raw) return false;
+
+  const candidates = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+    ? [raw]
+    : [raw, `http://${raw}`];
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate);
+      const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+      if (
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "0.0.0.0" ||
+        host === "::1" ||
+        host === "tauri.localhost" ||
+        host.endsWith(".localhost")
+      ) {
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+export function shouldDisableRecurringJobsRuntime(
+  env: RecurringJobsRuntimeEnv = process.env,
+): boolean {
+  if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
+
+  const isLocalRuntime =
+    env.NODE_ENV === "development" ||
+    env.NODE_ENV === "test" ||
+    [
+      env.APP_URL,
+      env.BETTER_AUTH_URL,
+      env.DEPLOY_URL,
+      env.URL,
+      env.VITE_APP_URL,
+      env.VITE_WORKSPACE_GATEWAY_URL,
+      env.WORKSPACE_GATEWAY_URL,
+    ].some(isLoopbackAppUrl);
+
+  if (
+    isLocalRuntime &&
+    isTruthyEnv(env.AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS)
+  ) {
+    return false;
+  }
+
+  return isLocalRuntime;
+}
+
+type AgentChatProcessRunFailureDeps = {
+  readBackgroundRunClaim?: typeof readBackgroundRunClaim;
+  recordRunDiagnostic?: typeof recordRunDiagnostic;
+  setRunError?: typeof setRunError;
+  updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
+  ensureTerminalRunEvent?: typeof ensureTerminalRunEvent;
+};
+
+export async function finalizeClaimedAgentChatProcessRunFailure(
+  runId: string,
+  err: unknown,
+  deps: AgentChatProcessRunFailureDeps = {},
+): Promise<boolean> {
+  const readClaim = deps.readBackgroundRunClaim ?? readBackgroundRunClaim;
+  const record = deps.recordRunDiagnostic ?? recordRunDiagnostic;
+  const setError = deps.setRunError ?? setRunError;
+  const updateStatus =
+    deps.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
+  const ensureTerminal = deps.ensureTerminalRunEvent ?? ensureTerminalRunEvent;
+  const message = err instanceof Error ? err.message : String(err);
+
+  await record(runId, RUN_DIAG_STAGE.routeThrew, message).catch(() => {});
+
+  const claim = await readClaim(runId).catch(() => null);
+  if (
+    claim?.status !== "running" ||
+    claim.dispatchMode !== "background-processing"
+  ) {
+    return false;
+  }
+
+  await setError(
+    runId,
+    CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
+    `${CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.details} setupError=${message}`,
+  ).catch(() => {});
+  await updateStatus(runId, "errored").catch(() => {});
+  await ensureTerminal(
+    runId,
+    CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+  ).catch(() => {});
+  return true;
 }
 
 export function createAgentChatPlugin(
@@ -7955,17 +8082,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            // DIAGNOSTIC: the worker invocation threw at the route boundary —
-            // record the message so the failure cause is readable client-side.
-            if (diag) {
-              await diag
-                .record(
-                  prepared.runId,
-                  diag.stages.routeThrew,
-                  err instanceof Error ? err.message : String(err),
-                )
-                .catch(() => {});
-            }
+            await finalizeClaimedAgentChatProcessRunFailure(
+              prepared.runId,
+              err,
+            );
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           }
@@ -7994,56 +8114,69 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
+      const disableRecurringJobsRuntime = shouldDisableRecurringJobsRuntime();
+
       // ─── Recurring Jobs Scheduler ──────────────────────────────────────
       // Poll every 60 seconds for due recurring jobs and execute them.
       // Uses setInterval so it works in all deployment environments without
       // requiring Nitro experimental tasks configuration.
-      try {
-        const { processRecurringJobs } = await import("../jobs/scheduler.js");
+      if (disableRecurringJobsRuntime) {
+        if (process.env.DEBUG) {
+          console.log(
+            "[recurring-jobs] Scheduler disabled for local development",
+          );
+        }
+      } else {
+        try {
+          const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
-        const schedulerDeps = {
-          getActions: () => ({
-            ...templateScripts,
-            ...resourceScripts,
-            ...docsScripts,
-            ...(lazyContext ? frameworkContextTool : {}),
-            ...chatScripts,
-            ...jobTools,
-            ...automationTools,
-            ...notificationTools,
-            ...progressTools,
-            ...fetchTool,
-            ...webSearchTool,
-            ...toolActions,
-          }),
-          getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(
-              owner,
-              lazyContext,
-              options?.appId,
-            );
-            const schemaBlock = lazyContext
-              ? ""
-              : await buildSchemaBlock(owner, databaseToolsMode);
-            return basePrompt + resources + schemaBlock;
-          },
-          apiKey: options?.apiKey,
-          model: options?.model,
-          appId: options?.appId,
-        };
+          const schedulerDeps = {
+            getActions: () => ({
+              ...templateScripts,
+              ...resourceScripts,
+              ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...chatScripts,
+              ...jobTools,
+              ...automationTools,
+              ...notificationTools,
+              ...progressTools,
+              ...fetchTool,
+              ...webSearchTool,
+              ...toolActions,
+            }),
+            getSystemPrompt: async (owner: string) => {
+              const resources = await loadResourcesForPrompt(
+                owner,
+                lazyContext,
+                options?.appId,
+              );
+              const schemaBlock = lazyContext
+                ? ""
+                : await buildSchemaBlock(owner, databaseToolsMode);
+              return basePrompt + resources + schemaBlock;
+            },
+            apiKey: options?.apiKey,
+            model: options?.model,
+            appId: options?.appId,
+          };
 
-        // Start after a 10-second delay to let the server fully initialize
-        setTimeout(() => {
-          setInterval(() => {
-            processRecurringJobs(schedulerDeps).catch((err) => {
-              console.error("[recurring-jobs] Scheduler error:", err?.message);
-            });
-          }, 60_000);
-          if (process.env.DEBUG)
-            console.log("[recurring-jobs] Scheduler started (60s interval)");
-        }, 10_000);
-      } catch (err) {
-        // Jobs module not available — skip silently
+          // Start after a 10-second delay to let the server fully initialize
+          setTimeout(() => {
+            setInterval(() => {
+              processRecurringJobs(schedulerDeps).catch((err) => {
+                console.error(
+                  "[recurring-jobs] Scheduler error:",
+                  err?.message,
+                );
+              });
+            }, 60_000);
+            if (process.env.DEBUG)
+              console.log("[recurring-jobs] Scheduler started (60s interval)");
+          }, 10_000);
+        } catch (err) {
+          // Jobs module not available — skip silently
+        }
       }
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
@@ -8097,43 +8230,51 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       })();
 
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
-      try {
-        const { initTriggerDispatcher } =
-          await import("../triggers/dispatcher.js");
-        await initTriggerDispatcher({
-          getActions: () => ({
-            ...templateScripts,
-            ...resourceScripts,
-            ...docsScripts,
-            ...(lazyContext ? frameworkContextTool : {}),
-            ...chatScripts,
-            ...jobTools,
-            ...automationTools,
-            ...notificationTools,
-            ...progressTools,
-            ...fetchTool,
-            ...webSearchTool,
-            ...toolActions,
-          }),
-          getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(
-              owner,
-              lazyContext,
-              options?.appId,
-            );
-            const schemaBlock = lazyContext
-              ? ""
-              : await buildSchemaBlock(owner, databaseToolsMode);
-            return basePrompt + resources + schemaBlock;
-          },
-          apiKey: options?.apiKey,
-          model: options?.model,
-          appId: options?.appId,
-        });
-        if (process.env.DEBUG)
-          console.log("[triggers] Trigger dispatcher initialized");
-      } catch (err) {
-        // Triggers module not available — skip silently
+      if (disableRecurringJobsRuntime) {
+        if (process.env.DEBUG) {
+          console.log(
+            "[triggers] Trigger dispatcher disabled for local development",
+          );
+        }
+      } else {
+        try {
+          const { initTriggerDispatcher } =
+            await import("../triggers/dispatcher.js");
+          await initTriggerDispatcher({
+            getActions: () => ({
+              ...templateScripts,
+              ...resourceScripts,
+              ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...chatScripts,
+              ...jobTools,
+              ...automationTools,
+              ...notificationTools,
+              ...progressTools,
+              ...fetchTool,
+              ...webSearchTool,
+              ...toolActions,
+            }),
+            getSystemPrompt: async (owner: string) => {
+              const resources = await loadResourcesForPrompt(
+                owner,
+                lazyContext,
+                options?.appId,
+              );
+              const schemaBlock = lazyContext
+                ? ""
+                : await buildSchemaBlock(owner, databaseToolsMode);
+              return basePrompt + resources + schemaBlock;
+            },
+            apiKey: options?.apiKey,
+            model: options?.model,
+            appId: options?.appId,
+          });
+          if (process.env.DEBUG)
+            console.log("[triggers] Trigger dispatcher initialized");
+        } catch (err) {
+          // Triggers module not available — skip silently
+        }
       }
     })().catch((err) => {
       // If the init fails, the routes never get registered and requests

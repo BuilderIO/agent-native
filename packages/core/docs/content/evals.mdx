@@ -90,13 +90,14 @@ export default defineEval({
 
 An eval passes only when **every** scorer meets the threshold. Key `defineEval` fields:
 
-| Field       | Type                  | Notes                                                         |
-| ----------- | --------------------- | ------------------------------------------------------------- |
-| `name`      | string                | Required. Shown in the report.                                |
-| `input`     | `{ prompt, history }` | Required `prompt`; optional prior `{ role, text }` turns.     |
-| `scorers`   | `Scorer[]`            | Required, at least one.                                       |
-| `threshold` | number `0..1`         | Per-scorer pass bar. Default `0.5`; overridable from the CLI. |
-| `run`       | function              | Optional override for custom setup (seed data, multi-turn).   |
+| Field        | Type                  | Notes                                                                                                           |
+| ------------ | --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `name`       | string                | Required. Shown in the report.                                                                                  |
+| `input`      | `{ prompt, history }` | Required `prompt`; optional prior `{ role, text }` turns.                                                       |
+| `scorers`    | `Scorer[]`            | Required, at least one, unless `skipReason` is set.                                                             |
+| `threshold`  | number `0..1`         | Per-scorer pass bar. Default `0.5`; overridable from the CLI.                                                   |
+| `run`        | function              | Optional override for custom setup (seed data, multi-turn).                                                     |
+| `skipReason` | string                | Optional reason to skip this eval without running the agent; useful for manual/nightly gates that need secrets. |
 
 The agent run handed to scorers is small and transport-agnostic:
 
@@ -225,11 +226,32 @@ The command discovers `**/*.eval.ts` and `evals/*.ts` under the current app, run
 
 Exit codes:
 
-| Code | Meaning                                                         |
-| ---- | --------------------------------------------------------------- |
-| `0`  | All evals passed — _or_ no eval files were found (CI-friendly). |
-| `1`  | At least one eval scored below threshold, or the suite errored. |
-| `2`  | Bad arguments (e.g. `--threshold` outside `[0, 1]`).            |
+| Code | Meaning                                                                          |
+| ---- | -------------------------------------------------------------------------------- |
+| `0`  | All evals passed, evals were skipped, or no eval files were found (CI-friendly). |
+| `1`  | At least one eval scored below threshold, or the suite errored.                  |
+| `2`  | Bad arguments (e.g. `--threshold` outside `[0, 1]`).                             |
+
+### Skipping gated evals {#skipping}
+
+Use `skipReason` when an eval suite is intentionally gated behind manual,
+nightly, or secret-backed execution:
+
+```ts
+export default defineEval({
+  name: "provider-backed source sync",
+  input: { prompt: "Refresh the source and summarize the changes." },
+  skipReason: process.env.SOURCE_SYNC_EVALS
+    ? undefined
+    : "Skipped because SOURCE_SYNC_EVALS is unset",
+  scorers: process.env.SOURCE_SYNC_EVALS ? [contains("updated")] : [],
+});
+```
+
+Skipped evals do not run the agent or scorers, do not fail the suite, and are
+reported distinctly with `status: "skipped"` and `skipReason` in JSON output.
+Use this for expensive or credential-dependent evals; keep cheap deterministic
+coverage in normal PR CI.
 
 ### As a CI deploy gate {#ci}
 

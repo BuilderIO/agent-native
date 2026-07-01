@@ -20,6 +20,10 @@ import {
   assertSafeMotionCssProperty,
   assertSafeMotionCssToken,
 } from "../shared/motion-compiler.js";
+import {
+  canPatchManagedMotionCss,
+  resolveMotionTimelineInsertOwnership,
+} from "./apply-motion-edit.js";
 
 describe("assertSafeCssProperty (Issue 1 — CSS injection via track.property)", () => {
   it("FAILS before fix: injection payload containing colon is accepted — MUST throw after fix", () => {
@@ -106,6 +110,57 @@ describe("assertSafeMotionCssToken (Issue 3 — CSS injection via values/easing)
   });
 });
 
+describe("resolveMotionTimelineInsertOwnership", () => {
+  it("uses the request user when an authenticated editor creates a timeline", () => {
+    expect(
+      resolveMotionTimelineInsertOwnership({
+        requestUserEmail: "editor@example.com",
+        requestOrgId: "org-editor",
+        designOwnerEmail: "owner@example.com",
+        designOrgId: "org-owner",
+      }),
+    ).toEqual({ ownerEmail: "editor@example.com", orgId: "org-editor" });
+  });
+
+  it("falls back to the authorized design owner for local/public editor sessions", () => {
+    expect(
+      resolveMotionTimelineInsertOwnership({
+        requestUserEmail: undefined,
+        requestOrgId: undefined,
+        designOwnerEmail: "local@localhost",
+        designOrgId: null,
+      }),
+    ).toEqual({ ownerEmail: "local@localhost", orgId: null });
+  });
+
+  it("still rejects inserts when neither the request nor design has an owner", () => {
+    expect(() =>
+      resolveMotionTimelineInsertOwnership({
+        requestUserEmail: "",
+        designOwnerEmail: "",
+      }),
+    ).toThrow("no authenticated user");
+  });
+});
+
+describe("canPatchManagedMotionCss", () => {
+  it("allows inline HTML documents to receive the managed motion style block", () => {
+    expect(
+      canPatchManagedMotionCss(
+        "<!DOCTYPE html><html><head></head><body /></html>",
+      ),
+    ).toBe(true);
+    expect(
+      canPatchManagedMotionCss('<section data-agent-native-node-id="a" />'),
+    ).toBe(true);
+  });
+
+  it("does not treat URL-backed localhost screen content as patchable HTML", () => {
+    expect(canPatchManagedMotionCss("http://localhost:3000/")).toBe(false);
+    expect(canPatchManagedMotionCss("https://localhost:5173/docs")).toBe(false);
+  });
+});
+
 // ─── Issue 2: Write ordering contract ────────────────────────────────────────
 //
 // We verify the source ordering by reading the compiled action source and
@@ -146,5 +201,37 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
 
     // The old incorrect comment ("Content is written before the row") must be gone.
     expect(src).not.toMatch(/Content is written before the row/);
+  });
+
+  it("does not re-apply list access filtering after assertAccess authorizes the design", () => {
+    const actionPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "apply-motion-edit.ts",
+    );
+    const src = readFileSync(actionPath, "utf8");
+
+    expect(src).toContain('assertAccess("design", designId, "editor")');
+    expect(src).not.toContain(
+      "accessFilter(schema.designs, schema.designShares)",
+    );
+  });
+
+  it("has an additive migration for legacy motion_timeline ownership columns", () => {
+    const migrationPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../server/plugins/db.ts",
+    );
+    const src = readFileSync(migrationPath, "utf8");
+
+    expect(src).toContain("version: 17");
+    expect(src).toContain(
+      "ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS owner_email",
+    );
+    expect(src).toContain(
+      "ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS org_id",
+    );
+    expect(src).toContain(
+      "ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS visibility",
+    );
   });
 });

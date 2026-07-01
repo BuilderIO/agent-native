@@ -596,7 +596,6 @@ function ExtensionSortMenu({
           <DropdownMenuRadioItem value="alphabetical">
             {copy.alphabetical}
           </DropdownMenuRadioItem>
-          <DropdownMenuSeparator />
           <DropdownMenuRadioItem value="manual">
             {copy.manualOrder}
           </DropdownMenuRadioItem>

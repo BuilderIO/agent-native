@@ -1085,7 +1085,7 @@ export function DesignColorPicker({
           disabled={disabled}
           aria-label={copy.hex}
           spellCheck={false}
-          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] tabular-nums uppercase"
+          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] tabular-nums uppercase md:!text-[11px]"
           onChange={(e) => {
             hexDraftRef.current = e.target.value;
             setHexDraft(e.target.value);
@@ -1206,7 +1206,7 @@ export function DesignColorPicker({
             disabled={disabled}
             aria-label={copy.trigger}
             className={cn(
-              "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none",
+              "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none",
               "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
               disabled && "pointer-events-none opacity-50",
             )}
@@ -1216,10 +1216,10 @@ export function DesignColorPicker({
               className="size-4 shrink-0 rounded-[3px] border border-border/60"
               style={triggerSwatchStyle(value, color)}
             />
-            <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase text-[11px]">
+            <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase !text-[11px]">
               {triggerLabel(effectivePaintType, color)}
             </span>
-            <span className="tabular-nums text-muted-foreground text-[11px]">
+            <span className="tabular-nums text-muted-foreground !text-[11px]">
               {effectiveOpacity}%
             </span>
           </button>
@@ -1362,7 +1362,7 @@ export function DesignColorPicker({
                       placeholder={"Video URL (mp4, webm)" /* i18n-ignore */}
                       aria-label={"Video URL" /* i18n-ignore */}
                       spellCheck={false}
-                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px]"
+                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
@@ -1565,7 +1565,7 @@ export function DesignColorPicker({
                               setOpacity(next);
                             }
                           }}
-                          className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 text-[11px] tabular-nums shadow-none focus-visible:ring-0"
+                          className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 !text-[11px] tabular-nums shadow-none focus-visible:ring-0"
                           compact
                         />
                         <span className="flex w-4 shrink-0 items-center justify-center border-l border-border/60 text-[10px] text-muted-foreground">
@@ -1579,7 +1579,7 @@ export function DesignColorPicker({
                 {showBlendMode && onBlendModeChange && (
                   <div className="border-t border-border/70 px-3 py-2.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                      <span className="min-w-0 flex-1 !text-[11px] text-muted-foreground">
                         {copy.blendMode}
                       </span>
                       <Select
@@ -1589,7 +1589,7 @@ export function DesignColorPicker({
                       >
                         <SelectTrigger
                           aria-label={copy.blendMode}
-                          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -1598,7 +1598,7 @@ export function DesignColorPicker({
                             <SelectItem
                               key={option.value}
                               value={option.value}
-                              className="text-[11px]"
+                              className="!text-[11px]"
                             >
                               {option.label}
                             </SelectItem>
@@ -1616,7 +1616,7 @@ export function DesignColorPicker({
                     section is never empty. */}
                 <div className="border-t border-border/70 px-3 py-2.5">
                   {/* Source label — matches the design editor layout */}
-                  <div className="mb-2 flex h-6 w-full items-center justify-between px-0.5 text-[11px] text-muted-foreground">
+                  <div className="mb-2 flex h-6 w-full items-center justify-between px-0.5 !text-[11px] text-muted-foreground">
                     {"Document colors" /* i18n-ignore design picker source */}
                   </div>
 
@@ -1718,7 +1718,7 @@ function ColorModelPill({
         onClick={() => setMenuOpen((o) => !o)}
         className={cn(
           "flex h-6 w-[4.5rem] items-center gap-0.5 rounded px-1.5",
-          "text-[11px] font-semibold text-foreground",
+          "!text-[11px] font-semibold text-foreground",
           "bg-transparent border-0 shadow-none",
           "hover:bg-[var(--design-editor-control-bg)]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -1751,7 +1751,7 @@ function ColorModelPill({
                 setMenuOpen(false);
               }}
               className={cn(
-                "flex w-full items-center px-2 py-1 text-[11px]",
+                "flex w-full items-center px-2 py-1 !text-[11px]",
                 "hover:bg-accent hover:text-accent-foreground",
                 "focus-visible:outline-none focus-visible:bg-accent",
                 m.value === value
@@ -2018,7 +2018,7 @@ function ScrubbyNumberInput({
       max={max}
       disabled={disabled}
       className={cn(
-        "h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center text-[11px] tabular-nums",
+        "h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center !text-[11px] tabular-nums",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         compact && "border-0 shadow-none focus-visible:ring-0",
         className,

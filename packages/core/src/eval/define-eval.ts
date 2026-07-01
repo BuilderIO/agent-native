@@ -35,7 +35,10 @@ export function defineEval(spec: Eval): Eval {
   if (!spec.input || typeof spec.input.prompt !== "string") {
     throw new Error(`defineEval("${spec.name}"): \`input.prompt\` is required`);
   }
-  if (!Array.isArray(spec.scorers) || spec.scorers.length === 0) {
+  if (
+    (!Array.isArray(spec.scorers) || spec.scorers.length === 0) &&
+    !spec.skipReason
+  ) {
     throw new Error(
       `defineEval("${spec.name}"): at least one scorer is required`,
     );

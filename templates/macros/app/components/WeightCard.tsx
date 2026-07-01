@@ -40,7 +40,7 @@ export function WeightCard({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   return (
-    <div className="group relative flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] hover:bg-white/[0.04]">
+    <div className="group relative flex items-center gap-3 rounded-xl border border-border bg-card p-3 hover:bg-accent/40 sm:gap-4 sm:p-4">
       <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-blue-500/10 border border-blue-500/20">
         <IconScale className="h-4 w-4 text-blue-400" />
       </div>
@@ -71,7 +71,7 @@ export function WeightCard({
               aria-label={t("weight.editWeightLabel", {
                 weight: weight.weight,
               })}
-              className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
+              className="h-9 w-9 text-muted-foreground/50 hover:bg-accent hover:text-foreground md:h-7 md:w-7"
               onClick={() => onEdit(weight)}
             >
               <IconPencil className="h-4 w-4 md:h-3.5 md:w-3.5" />

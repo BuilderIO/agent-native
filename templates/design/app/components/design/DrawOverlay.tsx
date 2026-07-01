@@ -386,7 +386,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+          className="h-6 gap-1 px-2 !text-[11px] text-muted-foreground hover:text-foreground"
           onClick={queueDrawing}
           disabled={strokes.length === 0}
         >
@@ -397,7 +397,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
         {/* Send button */}
         <Button
           size="sm"
-          className="h-6 gap-1 px-3 text-[11px]"
+          className="h-6 gap-1 px-3 !text-[11px]"
           onClick={sendAll}
           disabled={totalQueued === 0 && strokes.length === 0}
         >

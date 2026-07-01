@@ -314,7 +314,7 @@ export default function SkillsPage() {
           </Link>
           <Link
             data-an-prefetch="render"
-            to={localizedPath("/templates")}
+            to={localizedPath("/apps")}
             className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
           >
             {t("skillsPage.browseTemplates")}

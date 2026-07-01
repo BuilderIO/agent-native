@@ -171,6 +171,7 @@ class AcpHarnessSession implements AgentHarnessSession {
   private queue: AsyncEventQueue<AgentHarnessEvent> | null = null;
   private readonly pendingPermissions = new Map<string, PendingPermission>();
   private readonly toolTitles = new Map<string, string>();
+  private readonly toolInputs = new Map<string, Record<string, unknown>>();
   private approvalCounter = 0;
   private stderrTail = "";
   private childExited = false;
@@ -358,12 +359,20 @@ class AcpHarnessSession implements AgentHarnessSession {
     if (update?.sessionUpdate === "tool_call" && update.title) {
       this.toolTitles.set(update.toolCallId, update.title);
     }
+    if (
+      (update?.sessionUpdate === "tool_call" ||
+        update?.sessionUpdate === "tool_call_update") &&
+      update.rawInput
+    ) {
+      this.toolInputs.set(update.toolCallId, update.rawInput);
+    }
     // Updates that arrive without an active turn are history replay from
     // loadSession; the transcript already contains them, so drop them.
     if (!this.queue) return;
-    for (const event of acpUpdateToHarnessEvents(update, (id) =>
-      this.toolTitles.get(id),
-    )) {
+    for (const event of acpUpdateToHarnessEvents(update, {
+      titleFor: (id) => this.toolTitles.get(id),
+      inputFor: (id) => this.toolInputs.get(id),
+    })) {
       this.queue.push(event);
     }
   }
@@ -488,8 +497,17 @@ function messageToText(content: string | unknown[]): string {
  */
 export function acpUpdateToHarnessEvents(
   update: AcpSessionUpdate,
-  titleFor?: (toolCallId: string) => string | undefined,
+  resolvers?:
+    | ((toolCallId: string) => string | undefined)
+    | {
+        titleFor?: (toolCallId: string) => string | undefined;
+        inputFor?: (toolCallId: string) => Record<string, unknown> | undefined;
+      },
 ): AgentHarnessEvent[] {
+  const titleFor =
+    typeof resolvers === "function" ? resolvers : resolvers?.titleFor;
+  const inputFor =
+    typeof resolvers === "function" ? undefined : resolvers?.inputFor;
   switch (update.sessionUpdate) {
     case "agent_message_chunk": {
       const text = acpContentBlockToText(update.content);
@@ -517,6 +535,9 @@ export function acpUpdateToHarnessEvents(
           type: "tool-done",
           id: update.toolCallId,
           name: update.title || titleFor?.(update.toolCallId) || "tool",
+          ...((update.rawInput ?? inputFor?.(update.toolCallId))
+            ? { input: update.rawInput ?? inputFor?.(update.toolCallId) }
+            : {}),
           result: update.rawOutput ?? acpToolContentText(update.content),
         });
       }
@@ -531,6 +552,9 @@ export function acpUpdateToHarnessEvents(
           type: "tool-done",
           id: update.toolCallId,
           name: update.title || titleFor?.(update.toolCallId) || "tool",
+          ...((update.rawInput ?? inputFor?.(update.toolCallId))
+            ? { input: update.rawInput ?? inputFor?.(update.toolCallId) }
+            : {}),
           result: update.rawOutput ?? acpToolContentText(content),
         });
       }

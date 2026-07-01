@@ -39,6 +39,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   BOARD_FILENAME,
+  backfillBoardPrimitiveMarkers,
   boardObjectEntryToHtmlFragment,
   emptyBoardHtml,
 } from "../shared/board-file.js";
@@ -91,10 +92,57 @@ export default defineAction({
       typeof parsed["boardFileId"] === "string" &&
       parsed["boardFileId"].length > 0
     ) {
+      // ── Marker backfill path ───────────────────────────────────────────────
+      // The board file exists (boardFileId set), but it may have been created
+      // before the data-an-primitive marker was introduced.  Run the additive
+      // backfill so the layers-panel renders the correct icon (ellipse / text /
+      // frame / rectangle) instead of the generic code glyph.
+      const existingBoardFileId = parsed["boardFileId"] as string;
+
+      const [boardFileRow] = await db
+        .select({ content: schema.designFiles.content })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.id, existingBoardFileId))
+        .limit(1);
+
+      if (boardFileRow) {
+        const originalContent = boardFileRow.content ?? "";
+        // Only run backfill when the board file has node-id elements but is
+        // missing at least one data-an-primitive marker.
+        const needsBackfill =
+          originalContent.includes("data-agent-native-node-id=") &&
+          !originalContent.includes("data-an-primitive=");
+
+        if (needsBackfill) {
+          const backfilledContent =
+            backfillBoardPrimitiveMarkers(originalContent);
+          const now = new Date().toISOString();
+          await db
+            .update(schema.designFiles)
+            .set({ content: backfilledContent, updatedAt: now })
+            .where(eq(schema.designFiles.id, existingBoardFileId));
+
+          // Best-effort collab re-seed.
+          try {
+            await seedFromText(existingBoardFileId, backfilledContent);
+          } catch {
+            // Non-fatal.
+          }
+
+          return {
+            designId,
+            migrated: false,
+            boardFileId: existingBoardFileId,
+            reason:
+              "boardFileId already set — backfilled missing data-an-primitive markers.",
+          };
+        }
+      }
+
       return {
         designId,
         migrated: false,
-        boardFileId: parsed["boardFileId"] as string,
+        boardFileId: existingBoardFileId,
         reason: "boardFileId already set — migration already complete.",
       };
     }

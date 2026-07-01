@@ -103,6 +103,44 @@ describe("createOpenRouteHandler", () => {
     expect(appStatePut).not.toHaveBeenCalled();
   });
 
+  it("unauthenticated may redirect to an app-allowed public open target without app-state writes", async () => {
+    getSession.mockResolvedValue(null);
+    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    const handler = createOpenRouteHandler({
+      allowUnauthenticatedOpen: ({ target }) =>
+        target.split(/[?#]/, 1)[0]?.startsWith("/design/") ?? false,
+    });
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=design&view=editor&to=%2Fdesign%2Fdesign_123%3FeditorView%3Doverview&designId=design_123&editorView=overview",
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/design/design_123?editorView=overview&agentSidebar=closed",
+    );
+    expect(appStatePut).not.toHaveBeenCalled();
+  });
+
+  it("unauthenticated still gets login HTML when the app does not allow the resolved open target", async () => {
+    getSession.mockResolvedValue(null);
+    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    const handler = createOpenRouteHandler({
+      allowUnauthenticatedOpen: ({ target }) =>
+        target.split(/[?#]/, 1)[0]?.startsWith("/design/") ?? false,
+    });
+
+    const res: Response = await handler(
+      fakeEvent("/_agent-native/open?app=design&view=editor"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<html>login</html>");
+    expect(appStatePut).not.toHaveBeenCalled();
+  });
+
   it("rejects non-GET methods with 405", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();

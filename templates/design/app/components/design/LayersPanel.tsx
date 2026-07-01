@@ -52,7 +52,13 @@ export type LayersPanelNodeType =
   | "instance"
   | "section"
   | "shape"
+  | "ellipse"
   | "rectangle"
+  | "vector"
+  | "line"
+  | "arrow"
+  | "polygon"
+  | "star"
   | "text"
   | "image"
   | "code"
@@ -64,6 +70,7 @@ export interface LayersPanelNode {
   id: string;
   name: string;
   type?: LayersPanelNodeType;
+  tagName?: string;
   layout?: {
     display?: string;
     flexDirection?: string;
@@ -137,7 +144,6 @@ export interface LayersPanelLabels {
   hide: string;
   show: string;
   rename: string;
-  selected: (count: number) => string;
 }
 
 export interface LayersPanelProps {
@@ -235,7 +241,6 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
     hide: t("layersPanel.hide"),
     show: t("layersPanel.show"),
     rename: t("layersPanel.rename"),
-    selected: (count) => t("layersPanel.selected", { count }),
   };
 }
 
@@ -714,7 +719,6 @@ export function LayersPanel({
   );
 
   const hasAnyRows = roots.length > 0;
-  const selectedCount = selectedIds.length;
   const screenRows = screens ?? files ?? [];
   const openSearch = useCallback(() => {
     setSearchOpen(true);
@@ -809,10 +813,7 @@ export function LayersPanel({
                   onClick={() => onScreenSelect?.(screen.id)}
                   title={screen.filename ?? screen.name}
                 >
-                  <LayerGlyph
-                    node={{ ...screen, type: "file" }}
-                    selected={false}
-                  />
+                  <LayerGlyph node={{ ...screen, type: "file" }} />
                   <span className="min-w-0 flex-1 truncate">{screen.name}</span>
                   {screen.badge ? (
                     <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
@@ -831,11 +832,6 @@ export function LayersPanel({
           <h2 className="truncate text-[12px] font-semibold text-foreground">
             {labels.title}
           </h2>
-          {selectedCount > 1 ? (
-            <p className="truncate text-[10px] text-muted-foreground">
-              {labels.selected(selectedCount)}
-            </p>
-          ) : null}
         </div>
         <div className="flex items-center gap-0.5 text-muted-foreground">
           <button
@@ -921,7 +917,7 @@ export function LayersPanel({
             ))}
           </div>
         ) : (
-          <div className="px-3 py-8 text-center text-[11px] text-muted-foreground">
+          <div className="px-3 py-8 text-center !text-[11px] text-muted-foreground">
             {hasAnyRows ? labels.noMatches : labels.empty}
           </div>
         )}
@@ -995,6 +991,7 @@ function LayerRow({
   visibleRows: FlatLayerRow[];
 }) {
   const { node, depth, hasChildren, canAcceptChildren } = row;
+  const isComponentLayer = layerNodeIsComponent(node);
   const selectable = node.selectable !== false;
   const lockable = node.lockable !== false && Boolean(onToggleLocked);
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
@@ -1278,10 +1275,14 @@ function LayerRow({
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
-                "bg-[var(--design-editor-selection-color)] text-foreground",
+                (isComponentLayer
+                  ? "bg-[var(--design-editor-component-selection-color)] text-foreground"
+                  : "bg-[var(--design-editor-selection-color)] text-foreground"),
               !isSelected &&
                 isInSelectedSubtree &&
-                "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95",
+                (isComponentLayer
+                  ? "bg-[var(--design-editor-component-selected-subtree-color)] text-foreground/95"
+                  : "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95"),
               !isSelected &&
                 isActiveScreen &&
                 "bg-[var(--design-editor-active-row-color)] text-foreground hover:bg-[var(--design-editor-active-row-color)]",
@@ -1331,16 +1332,12 @@ function LayerRow({
               <span
                 className={cn(
                   "shrink-0 text-muted-foreground",
-                  (isSelected || isInSelectedSubtree) && "text-foreground",
+                  isComponentLayer
+                    ? "text-[var(--design-editor-component-color)]"
+                    : (isSelected || isInSelectedSubtree) && "text-foreground",
                 )}
               >
-                {node.icon ?? (
-                  <LayerGlyph
-                    node={node}
-                    selected={isSelected}
-                    inSelectedSubtree={isInSelectedSubtree}
-                  />
-                )}
+                {node.icon ?? <LayerGlyph node={node} />}
               </span>
               {isRenaming ? (
                 <input
@@ -1386,6 +1383,8 @@ function LayerRow({
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate font-medium leading-none",
+                    isComponentLayer &&
+                      "text-[var(--design-editor-component-color)]",
                     node.hidden && "line-through",
                   )}
                   title={node.name}
@@ -1548,18 +1547,14 @@ function IconTooltipButton({
 
 function LayerGlyph({
   node,
-  selected,
-  inSelectedSubtree,
 }: {
-  node: Pick<LayersPanelNode, "type" | "layout">;
-  selected?: boolean;
-  inSelectedSubtree?: boolean;
+  node: Pick<LayersPanelNode, "type" | "layout" | "tagName" | "detail">;
 }) {
   const common = "size-4";
-  const componentColor =
-    selected || inSelectedSubtree
-      ? "text-foreground"
-      : "text-[var(--design-editor-accent-color)]";
+  const componentColor = "text-[var(--design-editor-component-color)]";
+  if (layerNodeUsesImageGlyph(node)) {
+    return <ImageLayerGlyph className={common} />;
+  }
   switch (node.type) {
     case "file":
     case "screen":
@@ -1572,10 +1567,22 @@ function LayerGlyph({
     case "component":
     case "instance":
       return <ComponentLayerGlyph className={cn(common, componentColor)} />;
+    case "ellipse":
+      return <EllipseLayerGlyph className={common} />;
     case "board-element":
     case "shape":
     case "rectangle":
       return <RectangleLayerGlyph className={common} />;
+    case "vector":
+      return <VectorLayerGlyph className={common} />;
+    case "line":
+      return <LineLayerGlyph className={common} />;
+    case "arrow":
+      return <ArrowLayerGlyph className={common} />;
+    case "polygon":
+      return <PolygonLayerGlyph className={common} />;
+    case "star":
+      return <StarLayerGlyph className={common} />;
     case "text":
       return <TextLayerGlyph className={common} />;
     case "image":
@@ -1590,6 +1597,26 @@ function LayerGlyph({
     default:
       return <FrameLayerGlyph className={common} />;
   }
+}
+
+function layerNodeTagName(
+  node: Pick<LayersPanelNode, "tagName" | "detail">,
+): string | null {
+  const explicit = node.tagName?.trim().toLowerCase();
+  if (explicit) return explicit;
+  const detailTag = /^<\s*([a-zA-Z][\w:-]*)/.exec(node.detail?.trim() ?? "");
+  return detailTag?.[1]?.toLowerCase() ?? null;
+}
+
+function layerNodeUsesImageGlyph(
+  node: Pick<LayersPanelNode, "type" | "tagName" | "detail">,
+): boolean {
+  const tag = layerNodeTagName(node);
+  return node.type === "image" || tag === "img" || tag === "picture";
+}
+
+function layerNodeIsComponent(node: Pick<LayersPanelNode, "type">): boolean {
+  return node.type === "component" || node.type === "instance";
 }
 
 function LayerOptionsGlyph({ className }: { className?: string }) {
@@ -1802,6 +1829,21 @@ function ComponentLayerGlyph({ className }: { className?: string }) {
   );
 }
 
+function EllipseLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      className={className}
+      aria-hidden="true"
+    >
+      <ellipse cx="8" cy="8" rx="4.8" ry="4" />
+    </svg>
+  );
+}
+
 function RectangleLayerGlyph({ className }: { className?: string }) {
   return (
     <svg
@@ -1813,6 +1855,94 @@ function RectangleLayerGlyph({ className }: { className?: string }) {
       aria-hidden="true"
     >
       <rect x="3.2" y="4" width="9.6" height="8" rx="1" />
+    </svg>
+  );
+}
+
+function VectorLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 11.5C5.5 6.5 9 5 12 4.5" />
+      <rect x="2.6" y="10.1" width="2.8" height="2.8" rx=".5" />
+      <rect x="10.6" y="3.1" width="2.8" height="2.8" rx=".5" />
+    </svg>
+  );
+}
+
+function LineLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4.6 11.4 11.4 4.6" />
+      <circle cx="3.6" cy="12.4" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12.4" cy="3.6" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function ArrowLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3.6 12.4 11.6 4.4" />
+      <path d="M7.4 4.2h4.4v4.4" />
+    </svg>
+  );
+}
+
+function PolygonLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 2.8 13.2 12.2H2.8L8 2.8Z" />
+    </svg>
+  );
+}
+
+function StarLayerGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 2.6 9.65 6.1l3.85.5-2.8 2.7.68 3.8L8 11.9l-3.38 1.9.68-3.8-2.8-2.7 3.85-.5L8 2.6Z" />
     </svg>
   );
 }

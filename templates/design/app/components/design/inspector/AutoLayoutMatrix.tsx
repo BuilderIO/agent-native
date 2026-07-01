@@ -72,6 +72,10 @@ export interface AutoLayoutMatrixValue {
     horizontal?: number;
     vertical?: number;
   };
+  mixedSize?: {
+    horizontal?: boolean;
+    vertical?: boolean;
+  };
   childSizing: {
     horizontal: AutoLayoutSizing;
     vertical: AutoLayoutSizing;
@@ -184,6 +188,7 @@ export interface AutoLayoutMatrixProps {
   availableChildSizing?: Partial<
     Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>
   >;
+  showChildLayoutControls?: boolean;
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled?: boolean;
   className?: string;
@@ -254,6 +259,7 @@ export function AutoLayoutMatrix({
   onDisplayChange,
   onChildSizeChange,
   availableChildSizing,
+  showChildLayoutControls = true,
   labels,
   disabled = false,
   className,
@@ -297,69 +303,71 @@ export function AutoLayoutMatrix({
     <TooltipProvider delayDuration={250}>
       <div className={cn("space-y-3", className)}>
         {/* ── Flow ── */}
-        <div className="space-y-1.5">
-          <ControlLabel>
-            {"Flow" /* i18n-ignore design inspector label */}
-          </ControlLabel>
-          <div className="flex items-center gap-1.5">
-            {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
-            <div className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
-              <FlowButton
-                label={"Normal flow" /* i18n-ignore design inspector label */}
-                active={activeFlow === "normal"}
-                disabled={disabled}
-                onClick={() => selectFlow("normal")}
-              >
-                <IconFlowNormal />
-              </FlowButton>
-              <FlowButton
-                label={copy.vertical}
-                active={activeFlow === "vertical"}
-                disabled={disabled}
-                onClick={() => selectFlow("vertical")}
-              >
-                <IconFlowVertical className="size-3.5" />
-              </FlowButton>
-              <FlowButton
-                label={copy.horizontal}
-                active={activeFlow === "horizontal"}
-                disabled={disabled}
-                onClick={() => selectFlow("horizontal")}
-              >
-                <IconFlowHorizontal className="size-3.5" />
-              </FlowButton>
-              <FlowButton
-                label={"Grid" /* i18n-ignore design inspector label */}
-                active={activeFlow === "grid"}
-                disabled={disabled}
-                onClick={() => selectFlow("grid")}
-              >
-                <IconFlowGrid className="size-3.5" />
-              </FlowButton>
-            </div>
-            {/* Reset / reverse-flow button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
+        {showChildLayoutControls ? (
+          <div className="space-y-1.5">
+            <ControlLabel>
+              {"Flow" /* i18n-ignore design inspector label */}
+            </ControlLabel>
+            <div className="flex items-center gap-1.5">
+              {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
+              <div className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
+                <FlowButton
+                  label={"Normal flow" /* i18n-ignore design inspector label */}
+                  active={activeFlow === "normal"}
                   disabled={disabled}
-                  aria-label={
-                    "Reset auto layout flow" /* i18n-ignore inspector tooltip */
-                  }
-                  onClick={() => selectFlow("horizontal")}
-                  className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  onClick={() => selectFlow("normal")}
                 >
-                  <IconArrowBackUp className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Reset auto layout flow" /* i18n-ignore inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
+                  <IconFlowNormal />
+                </FlowButton>
+                <FlowButton
+                  label={copy.vertical}
+                  active={activeFlow === "vertical"}
+                  disabled={disabled}
+                  onClick={() => selectFlow("vertical")}
+                >
+                  <IconFlowVertical className="size-3.5" />
+                </FlowButton>
+                <FlowButton
+                  label={copy.horizontal}
+                  active={activeFlow === "horizontal"}
+                  disabled={disabled}
+                  onClick={() => selectFlow("horizontal")}
+                >
+                  <IconFlowHorizontal className="size-3.5" />
+                </FlowButton>
+                <FlowButton
+                  label={"Grid" /* i18n-ignore design inspector label */}
+                  active={activeFlow === "grid"}
+                  disabled={disabled}
+                  onClick={() => selectFlow("grid")}
+                >
+                  <IconFlowGrid className="size-3.5" />
+                </FlowButton>
+              </div>
+              {/* Reset / reverse-flow button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={disabled}
+                    aria-label={
+                      "Reset auto layout flow" /* i18n-ignore inspector tooltip */
+                    }
+                    onClick={() => selectFlow("horizontal")}
+                    className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  >
+                    <IconArrowBackUp className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Reset auto layout flow" /* i18n-ignore inspector tooltip */}
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {/* ── Resizing ── */}
         <div className="space-y-1.5">
@@ -372,6 +380,7 @@ export function AutoLayoutMatrix({
               sizingAxis="horizontal"
               value={value.childSizing.horizontal}
               resolvedSize={value.resolvedSize?.horizontal}
+              mixed={Boolean(value.mixedSize?.horizontal)}
               minMax={value.childMinMax?.horizontal}
               options={resolveSizingOptions(
                 availableChildSizing?.horizontal,
@@ -393,6 +402,7 @@ export function AutoLayoutMatrix({
               sizingAxis="vertical"
               value={value.childSizing.vertical}
               resolvedSize={value.resolvedSize?.vertical}
+              mixed={Boolean(value.mixedSize?.vertical)}
               minMax={value.childMinMax?.vertical}
               options={resolveSizingOptions(
                 availableChildSizing?.vertical,
@@ -436,7 +446,7 @@ export function AutoLayoutMatrix({
           </div>
         </div>
 
-        {!isBlock ? (
+        {showChildLayoutControls && !isBlock ? (
           <div className="grid grid-cols-[78px_1fr] items-start gap-3">
             <div className="space-y-1.5">
               <ControlLabel>
@@ -468,111 +478,115 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {/* ── Padding ── */}
-        <div className="space-y-1.5">
-          <ControlLabel>{copy.padding}</ControlLabel>
-          {value.paddingLinked ? (
-            /* Default linked state: 2 compact fields + link toggle */
-            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
-              <PaddingField
-                icon={IconPaddingHorizontal}
-                ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
-                value={horizontalPaddingValue}
-                onChange={(next) =>
-                  onPaddingChange({
-                    top: value.padding.top,
-                    bottom: value.padding.bottom,
-                    left: next,
-                    right: next,
-                  })
-                }
-                disabled={disabled}
-              />
-              <PaddingField
-                icon={IconPaddingVertical}
-                ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
-                value={verticalPaddingValue}
-                onChange={(next) =>
-                  onPaddingChange({
-                    top: next,
-                    bottom: next,
-                    left: value.padding.left,
-                    right: value.padding.right,
-                  })
-                }
-                disabled={disabled}
-              />
-              <PaddingLinkButton
-                linked
-                disabled={disabled}
-                linkLabel={copy.linkPadding}
-                unlinkLabel={copy.unlinkPadding}
-                onToggle={() => onPaddingLinkedChange(false)}
-              />
-            </div>
-          ) : (
-            /* Unlinked state: expand to 4 separate T / R / B / L fields */
-            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
-              <div className="col-span-2 grid grid-cols-2 gap-1.5">
+        {showChildLayoutControls ? (
+          <div className="space-y-1.5">
+            <ControlLabel>{copy.padding}</ControlLabel>
+            {value.paddingLinked ? (
+              /* Default linked state: 2 compact fields + link toggle */
+              <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
                 <PaddingField
-                  icon={IconPaddingTopMini}
-                  ariaLabel={copy.paddingTop}
-                  value={value.padding.top}
+                  icon={IconPaddingHorizontal}
+                  ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
+                  value={horizontalPaddingValue}
                   onChange={(next) =>
-                    onPaddingChange({ ...value.padding, top: next })
+                    onPaddingChange({
+                      top: value.padding.top,
+                      bottom: value.padding.bottom,
+                      left: next,
+                      right: next,
+                    })
                   }
                   disabled={disabled}
                 />
                 <PaddingField
-                  icon={IconPaddingRightMini}
-                  ariaLabel={copy.paddingRight}
-                  value={value.padding.right}
+                  icon={IconPaddingVertical}
+                  ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
+                  value={verticalPaddingValue}
                   onChange={(next) =>
-                    onPaddingChange({ ...value.padding, right: next })
+                    onPaddingChange({
+                      top: next,
+                      bottom: next,
+                      left: value.padding.left,
+                      right: value.padding.right,
+                    })
                   }
                   disabled={disabled}
                 />
-                <PaddingField
-                  icon={IconPaddingBottomMini}
-                  ariaLabel={copy.paddingBottom}
-                  value={value.padding.bottom}
-                  onChange={(next) =>
-                    onPaddingChange({ ...value.padding, bottom: next })
-                  }
+                <PaddingLinkButton
+                  linked
                   disabled={disabled}
-                />
-                <PaddingField
-                  icon={IconPaddingLeftMini}
-                  ariaLabel={copy.paddingLeft}
-                  value={value.padding.left}
-                  onChange={(next) =>
-                    onPaddingChange({ ...value.padding, left: next })
-                  }
-                  disabled={disabled}
+                  linkLabel={copy.linkPadding}
+                  unlinkLabel={copy.unlinkPadding}
+                  onToggle={() => onPaddingLinkedChange(false)}
                 />
               </div>
-              <PaddingLinkButton
-                linked={false}
-                disabled={disabled}
-                linkLabel={copy.linkPadding}
-                unlinkLabel={copy.unlinkPadding}
-                onToggle={() => onPaddingLinkedChange(true)}
-              />
-            </div>
-          )}
-        </div>
+            ) : (
+              /* Unlinked state: expand to 4 separate T / R / B / L fields */
+              <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
+                <div className="col-span-2 grid grid-cols-2 gap-1.5">
+                  <PaddingField
+                    icon={IconPaddingTopMini}
+                    ariaLabel={copy.paddingTop}
+                    value={value.padding.top}
+                    onChange={(next) =>
+                      onPaddingChange({ ...value.padding, top: next })
+                    }
+                    disabled={disabled}
+                  />
+                  <PaddingField
+                    icon={IconPaddingRightMini}
+                    ariaLabel={copy.paddingRight}
+                    value={value.padding.right}
+                    onChange={(next) =>
+                      onPaddingChange({ ...value.padding, right: next })
+                    }
+                    disabled={disabled}
+                  />
+                  <PaddingField
+                    icon={IconPaddingBottomMini}
+                    ariaLabel={copy.paddingBottom}
+                    value={value.padding.bottom}
+                    onChange={(next) =>
+                      onPaddingChange({ ...value.padding, bottom: next })
+                    }
+                    disabled={disabled}
+                  />
+                  <PaddingField
+                    icon={IconPaddingLeftMini}
+                    ariaLabel={copy.paddingLeft}
+                    value={value.padding.left}
+                    onChange={(next) =>
+                      onPaddingChange({ ...value.padding, left: next })
+                    }
+                    disabled={disabled}
+                  />
+                </div>
+                <PaddingLinkButton
+                  linked={false}
+                  disabled={disabled}
+                  linkLabel={copy.linkPadding}
+                  unlinkLabel={copy.unlinkPadding}
+                  onToggle={() => onPaddingLinkedChange(true)}
+                />
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {/* ── Clip content ── */}
-        <label className="flex h-6 cursor-pointer items-center gap-2 text-[11px] text-foreground">
-          <Checkbox
-            checked={Boolean(value.clipContent)}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              onClipContentChange?.(checked === true)
-            }
-            className="size-3.5 rounded-[3px]"
-          />
-          <span>{copy.clipContent}</span>
-        </label>
+        {showChildLayoutControls ? (
+          <label className="flex h-6 cursor-pointer items-center gap-2 !text-[11px] text-foreground">
+            <Checkbox
+              checked={Boolean(value.clipContent)}
+              disabled={disabled}
+              onCheckedChange={(checked) =>
+                onClipContentChange?.(checked === true)
+              }
+              className="size-3.5 rounded-[3px]"
+            />
+            <span>{copy.clipContent}</span>
+          </label>
+        ) : null}
       </div>
     </TooltipProvider>
   );
@@ -804,7 +818,7 @@ function AlignmentBars({
 /** Small uppercase muted section label, 11px. */
 function ControlLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="block text-[11px] font-medium text-muted-foreground">
+    <span className="block !text-[11px] font-medium text-muted-foreground">
       {children}
     </span>
   );
@@ -898,8 +912,8 @@ function GapField({
           precision={1}
           disabled={disabled}
           className="min-w-0 flex-1 gap-0"
-          labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md text-muted-foreground [&>span]:hidden"
-          inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+          labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+          inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
         />
         {onDistribute != null ? (
           <DropdownMenu>
@@ -1013,8 +1027,8 @@ function PaddingField({
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md text-muted-foreground [&>span]:hidden"
-        inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+        labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+        inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
     </div>
   );
@@ -1071,6 +1085,7 @@ export interface SizingFieldProps {
   sizingAxis: AutoLayoutSizingAxis;
   value: AutoLayoutSizing;
   resolvedSize?: number;
+  mixed?: boolean;
   /** Currently-set min/max constraints (px). */
   minMax?: SizingFieldMinMax;
   options?: AutoLayoutSizing[];
@@ -1109,6 +1124,7 @@ export function SizingField({
   sizingAxis,
   value,
   resolvedSize,
+  mixed = false,
   minMax,
   options = SIZING_OPTIONS,
   labels: labelOverrides,
@@ -1225,7 +1241,7 @@ export function SizingField({
           <div
             className={cn(
               "flex h-7 w-full items-center overflow-hidden rounded-md",
-              "bg-[var(--design-editor-control-bg)] text-[11px]",
+              "bg-[var(--design-editor-control-bg)] !text-[11px]",
               disabled && "pointer-events-none opacity-40",
             )}
           >
@@ -1235,16 +1251,17 @@ export function SizingField({
               ariaLabel={`${axis} size in pixels`}
               tooltipLabel={`${axis} size`}
               icon={null}
-              value={Math.round(resolvedSize ?? 0)}
+              value={mixed ? 0 : Math.round(resolvedSize ?? 0)}
               onChange={(next) => onSizeChange!(Math.max(0, Math.round(next)))}
+              mixed={mixed}
               unit="px"
               min={0}
               step={1}
               precision={0}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
-              labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md px-0 text-muted-foreground"
-              inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+              labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
+              inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
             />
             {/* Caret opens the mode picker */}
             <Tooltip>
@@ -1282,11 +1299,11 @@ export function SizingField({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  aria-label={`${axis} ${Math.round(resolvedSize ?? 0)} ${labels[value]}`}
+                  aria-label={`${axis} ${mixed ? "Mixed" : Math.round(resolvedSize ?? 0)} ${labels[value]}`}
                   disabled={disabled}
                   className={cn(
                     "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
-                    "bg-[var(--design-editor-control-bg)] text-[11px]",
+                    "bg-[var(--design-editor-control-bg)] !text-[11px]",
                     "hover:bg-[var(--design-editor-panel-raised-bg)]",
                     "disabled:pointer-events-none disabled:opacity-40",
                     "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
@@ -1295,8 +1312,13 @@ export function SizingField({
                   {/* Axis letter */}
                   <span className="shrink-0 text-muted-foreground">{axis}</span>
                   {/* Resolved size */}
-                  <span className="min-w-0 flex-1 truncate text-left tabular-nums text-foreground">
-                    {Math.round(resolvedSize ?? 0)}
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-left tabular-nums",
+                      mixed ? "text-muted-foreground" : "text-foreground",
+                    )}
+                  >
+                    {mixed ? "Mixed" : Math.round(resolvedSize ?? 0)}
                   </span>
                   {/* Mode word (Hug/Fill only) */}
                   {showWord ? (
@@ -1412,7 +1434,7 @@ function ConstraintSubRow({
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
         labelClassName="hidden"
-        inputClassName="h-5 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+        inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>
         <TooltipTrigger asChild>

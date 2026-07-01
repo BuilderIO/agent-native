@@ -1,5 +1,4 @@
 import {
-  sendToAgentChat,
   openAgentSidebar,
   useActionQuery,
   appApiPath,
@@ -31,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 interface GitHubLink {
   id: string;
@@ -448,7 +448,11 @@ export default function DesignSystemSetup() {
     );
 
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true, newTab: true });
+    sendToDesignAgentChat({
+      message: parts.join("\n"),
+      submit: true,
+      newTab: true,
+    });
     navigate("/design-systems");
   }, [
     hasAnySources,
@@ -1079,19 +1083,19 @@ function BuilderIndexPreview({
         <dt className="text-muted-foreground">
           {"Project" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.projectId}
         </dd>
         <dt className="text-muted-foreground">
           {"Job" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.jobId}
         </dd>
         <dt className="text-muted-foreground">
           {"Design system" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.designSystemId}
         </dd>
       </dl>

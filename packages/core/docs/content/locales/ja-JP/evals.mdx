@@ -231,6 +231,13 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 | `1`    | 少なくとも 1 つの評価スコアがしきい値を下回ったか、スイートでエラーが発生しました。             |
 | `2`    | 不正な引数 (例: `[0, 1]` の外の `--threshold`)。                                                |
 
+### gated eval をスキップする {#skipping}
+
+手動、夜間、または secret が必要な eval スイートには `skipReason` を使い
+ます。スキップされた eval はエージェントや scorer を実行せず、スイート
+を失敗させず、JSON 出力では `status: "skipped"` と `skipReason` とし
+て表示されます。安価で決定的なカバレッジは通常の PR CI に残します。
+
 ### CI デプロイゲートとして {#ci}
 
 デプロイ前に実行されるパイプラインに追加します。

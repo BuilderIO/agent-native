@@ -533,7 +533,7 @@ export function DocumentToolbar({
     async (pageId: string) => {
       setLinkingPageId(pageId);
       try {
-        await linkDocument.mutateAsync({ pageIdOrUrl: pageId });
+        await linkDocument.mutateAsync({ documentId, pageIdOrUrl: pageId });
         toast.success(t("editor.toolbar.linkedToNotionPage"));
         setSearchQuery("");
       } catch (error) {
@@ -546,34 +546,34 @@ export function DocumentToolbar({
         setLinkingPageId(null);
       }
     },
-    [linkDocument, t],
+    [documentId, linkDocument, t],
   );
 
   const handlePull = useCallback(async () => {
     try {
-      await pullDocument.mutateAsync();
+      await pullDocument.mutateAsync({ documentId });
       toast.success(t("editor.toolbar.pulledFromNotion"));
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("editor.toolbar.pullFailed"),
       );
     }
-  }, [pullDocument, t]);
+  }, [documentId, pullDocument, t]);
 
   const handlePush = useCallback(async () => {
     try {
-      await pushDocument.mutateAsync();
+      await pushDocument.mutateAsync({ documentId });
       toast.success(t("editor.toolbar.pushedToNotion"));
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("editor.toolbar.pushFailed"),
       );
     }
-  }, [pushDocument, t]);
+  }, [documentId, pushDocument, t]);
 
   const handleUnlink = useCallback(async () => {
     try {
-      await unlinkDocument.mutateAsync();
+      await unlinkDocument.mutateAsync({ documentId });
       toast.success(t("editor.toolbar.unlinkedFromNotion"));
     } catch (error) {
       toast.error(
@@ -582,13 +582,13 @@ export function DocumentToolbar({
           : t("editor.toolbar.unlinkFailed"),
       );
     }
-  }, [unlinkDocument, t]);
+  }, [documentId, unlinkDocument, t]);
 
   const handleCreateAndLink = useCallback(
     (parentPageIdOrUrl?: string) => {
       if (parentPageIdOrUrl) setCreatingParentPageId(parentPageIdOrUrl);
       createAndLink.mutate(
-        parentPageIdOrUrl ? { parentPageIdOrUrl } : undefined,
+        { documentId, ...(parentPageIdOrUrl ? { parentPageIdOrUrl } : {}) },
         {
           onSuccess: () => {
             toast.success(t("editor.toolbar.createdAndLinkedToNotionPage"));
@@ -605,7 +605,7 @@ export function DocumentToolbar({
         },
       );
     },
-    [createAndLink, t],
+    [createAndLink, documentId, t],
   );
 
   const handleSetup = () => {

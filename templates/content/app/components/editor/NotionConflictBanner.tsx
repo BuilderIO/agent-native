@@ -34,7 +34,7 @@ export function NotionConflictBanner({
   const handleResolve = async (dir: "pull" | "push") => {
     setDirection(dir);
     try {
-      await resolveConflict.mutateAsync({ direction: dir });
+      await resolveConflict.mutateAsync({ documentId, direction: dir });
       toast.success(
         dir === "pull"
           ? t("editor.notionConflictResolvedPulled")

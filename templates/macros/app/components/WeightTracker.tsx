@@ -73,7 +73,7 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
         {isLoading && !hasOptimisticRows ? (
           <Skeleton className="h-16 w-full rounded-xl" />
         ) : !todayWeight ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-white/[0.02] border border-dashed border-white/[0.06]">
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30 py-12 text-center">
             <div className="p-3 rounded-full bg-blue-500/10 mb-3">
               <IconScale className="h-5 w-5 text-blue-500/50" />
             </div>

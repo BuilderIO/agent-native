@@ -146,8 +146,10 @@ import {
   useContentDatabase,
   useContentDatabases,
   contentDatabaseQueryKey,
+  useDeleteDatabaseItems,
   useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
+  useDuplicateDatabaseItems,
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
   usePrepareBuilderSourceReview,
@@ -2766,9 +2768,9 @@ function DatabaseTableView({
 }) {
   const queryClient = useQueryClient();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
-  const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
+  const duplicateItems = useDuplicateDatabaseItems(databaseDocumentId);
   const setProperty = useSetDocumentProperty(databaseDocumentId);
-  const deleteDocument = useDeleteDocument();
+  const deleteItems = useDeleteDatabaseItems(databaseDocumentId);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
   const [draggedPropertyId, setDraggedPropertyId] = useState<string | null>(
@@ -3012,14 +3014,15 @@ function DatabaseTableView({
   async function deleteSelectedRows() {
     if (selectedItems.length === 0) return;
     const selectedSnapshot = selectedItems;
-    onClearSelection();
     setConfirmDeleteSelectedOpen(false);
 
     try {
+      await deleteItems.mutateAsync({
+        documentId: databaseDocumentId,
+        itemIds: selectedSnapshot.map((item) => item.id),
+      });
+      onClearSelection();
       onDeletedPreviewItems(selectedSnapshot);
-      for (const item of selectedSnapshot) {
-        await deleteDocument.mutateAsync({ id: item.document.id });
-      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -3043,22 +3046,11 @@ function DatabaseTableView({
     const selectedSnapshot = selectedItems;
     setIsDuplicatingSelected(true);
 
-    let duplicatedPreviewItem: ContentDatabaseItem | null = null;
-    let duplicatedCount = 0;
-    let failedCount = 0;
-
     try {
-      for (const item of selectedSnapshot) {
-        try {
-          const response = await duplicateItem.mutateAsync({ itemId: item.id });
-          duplicatedCount += 1;
-          duplicatedPreviewItem =
-            databaseDuplicatedItemFromResponse(response) ??
-            duplicatedPreviewItem;
-        } catch {
-          failedCount += 1;
-        }
-      }
+      const response = await duplicateItems.mutateAsync({
+        documentId: databaseDocumentId,
+        itemIds: selectedSnapshot.map((item) => item.id),
+      });
 
       await queryClient.invalidateQueries({
         queryKey: [
@@ -3071,16 +3063,15 @@ function DatabaseTableView({
         queryKey: ["action", "list-documents"],
       });
 
+      const duplicatedPreviewItem =
+        databaseDuplicatedItemFromResponse(response);
       if (duplicatedPreviewItem) onPreview(duplicatedPreviewItem);
-      if (duplicatedCount > 0) onClearSelection();
-      if (failedCount > 0) {
-        toast.error(dbText("failedToDuplicateEverySelectedRow"), {
-          description:
-            duplicatedCount > 0
-              ? `${duplicatedCount} duplicated, ${failedCount} failed.`
-              : "No rows were duplicated.",
-        });
-      }
+      onClearSelection();
+    } catch (err) {
+      toast.error(dbText("failedToDuplicateEverySelectedRow"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
     } finally {
       setIsDuplicatingSelected(false);
     }
@@ -3139,9 +3130,11 @@ function DatabaseTableView({
             canEdit={canEdit}
             properties={bulkEditableProperties}
             duplicateDisabled={
-              isDuplicatingSelected || deleteDocument.isPending
+              isDuplicatingSelected ||
+              duplicateItems.isPending ||
+              deleteItems.isPending
             }
-            deleteDisabled={deleteDocument.isPending}
+            deleteDisabled={deleteItems.isPending}
             updateDisabled={setProperty.isPending}
             onClearSelection={onClearSelection}
             onSetPropertyValue={setSelectedPropertyValue}
@@ -3360,10 +3353,10 @@ function DatabaseTableView({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
+              disabled={deleteItems.isPending}
               onClick={() => void deleteSelectedRows()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {deleteItems.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

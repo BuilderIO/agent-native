@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { pathFromUrl, routeUrl, slugForPath } from "./add-localhost-screens.js";
+import {
+  pathFromUrl,
+  routeUrl,
+  slugForPath,
+  viewportFilename,
+} from "./add-localhost-screens.js";
 
 describe("add-localhost-screens URL handling", () => {
   it("places path-only flow screens relative to the connected dev server", () => {
@@ -21,6 +26,10 @@ describe("add-localhost-screens URL handling", () => {
     expect(url).toBe("http://localhost:1234/onboarding/3");
     expect(pathFromUrl(baseUrl, url)).toBe("/onboarding/3");
     expect(slugForPath("localhost:1234/onboarding/3")).toBe("onboarding-3");
+  });
+
+  it("uses viewport-specific filenames for duplicate responsive screens", () => {
+    expect(viewportFilename("/", 390, 844)).toBe("localhost-home-390x844.html");
   });
 
   it("does not expand host:port shorthand for non-loopback hosts", () => {

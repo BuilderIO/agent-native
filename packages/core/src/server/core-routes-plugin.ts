@@ -715,6 +715,9 @@ export interface CoreRoutesPluginOptions {
   /** Per-template override mapping deep-link params → client SPA path.
    *  See `createOpenRouteHandler`. */
   resolveOpenPath?: import("./open-route.js").OpenRouteOptions["resolveOpenPath"];
+  /** Per-template allowlist for open-route targets that may redirect without
+   *  a browser session. See `createOpenRouteHandler`. */
+  allowUnauthenticatedOpen?: import("./open-route.js").OpenRouteOptions["allowUnauthenticatedOpen"];
   /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
   /**
@@ -3196,7 +3199,10 @@ export function createCoreRoutesPlugin(
         // guard bypasses this exact path so it can serve its own login form.
         getH3App(nitroApp).use(
           `${P}/open`,
-          createOpenRouteHandler({ resolveOpenPath: options.resolveOpenPath }),
+          createOpenRouteHandler({
+            resolveOpenPath: options.resolveOpenPath,
+            allowUnauthenticatedOpen: options.allowUnauthenticatedOpen,
+          }),
         );
       }
 

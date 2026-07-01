@@ -43,9 +43,18 @@ describe("aiSdkHarnessPartToEvents", () => {
         type: "tool-result",
         toolCallId: "t1",
         toolName: "bash",
+        input: { command: "npm test" },
         output: "ok",
       }),
-    ).toEqual([{ type: "tool-done", id: "t1", name: "bash", result: "ok" }]);
+    ).toEqual([
+      {
+        type: "tool-done",
+        id: "t1",
+        name: "bash",
+        input: { command: "npm test" },
+        result: "ok",
+      },
+    ]);
   });
 
   it("maps approval, file, compaction, finish, and error parts", () => {

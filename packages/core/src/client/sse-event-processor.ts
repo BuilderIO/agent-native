@@ -7,7 +7,11 @@ import {
 } from "../agent/engine/credential-errors.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
-import { humanizeToolLabelText, runningToolLabel } from "./tool-display.js";
+import {
+  humanizeToolLabelText,
+  humanizeToolName,
+  runningToolLabel,
+} from "./tool-display.js";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -18,6 +22,8 @@ export type ContentPart =
       argsText: string;
       args: Record<string, string>;
       result?: string;
+      isError?: boolean;
+      completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
       activity?: boolean;
@@ -45,6 +51,8 @@ export interface SSEEvent {
   label?: string;
   input?: Record<string, string>;
   result?: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   /** Stable key the client echoes back in `approvedToolCalls` to approve a
@@ -80,21 +88,34 @@ export type AgentAutoContinueReason =
 
 export type AgentActivityTrailEntry = { label: string; tool?: string };
 
+export interface AgentAutoContinueErrorInfo {
+  message: string;
+  details?: string;
+  errorCode?: string;
+  recoverable?: boolean;
+  upgradeUrl?: string;
+}
+
 const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
+const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 export function settleInterruptedToolCalls(
   content: ContentPart[],
   result = INTERRUPTED_TOOL_RESULT,
+  options?: { includeActivity?: boolean; activityResult?: string },
 ): boolean {
   let changed = false;
   for (const part of content) {
     if (
       part.type === "tool-call" &&
       part.result === undefined &&
-      part.activity !== true
+      (part.activity !== true || options?.includeActivity === true)
     ) {
-      part.result = result;
+      part.result =
+        part.activity === true
+          ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
+          : result;
       changed = true;
     }
   }
@@ -105,17 +126,20 @@ export class AgentAutoContinueSignal extends Error {
   readonly reason: AgentAutoContinueReason;
   readonly maxIterations?: number;
   readonly activityTrail: AgentActivityTrailEntry[];
+  readonly errorInfo?: AgentAutoContinueErrorInfo;
 
   constructor(options: {
     reason: AgentAutoContinueReason;
     maxIterations?: number;
     activityTrail?: AgentActivityTrailEntry[];
+    errorInfo?: AgentAutoContinueErrorInfo;
   }) {
     super(`Agent run needs automatic continuation: ${options.reason}`);
     this.name = "AgentAutoContinueSignal";
     this.reason = options.reason;
     this.maxIterations = options.maxIterations;
     this.activityTrail = options.activityTrail ?? [];
+    this.errorInfo = options.errorInfo;
   }
 }
 
@@ -321,6 +345,42 @@ function dispatchActivityClear(tabId: string | undefined) {
   );
 }
 
+function pendingToolNames(content: ContentPart[]): {
+  activity: string[];
+  running: string[];
+} {
+  const activity = new Set<string>();
+  const running = new Set<string>();
+  for (const part of content) {
+    if (part.type === "tool-call" && part.result === undefined) {
+      if (part.activity === true) {
+        activity.add(part.toolName);
+      } else {
+        running.add(part.toolName);
+      }
+    }
+  }
+  return { activity: [...activity], running: [...running] };
+}
+
+function formatToolNames(tools: string[]): string {
+  const names = tools.map(humanizeToolName);
+  if (names.length === 0) return "the promised action";
+  if (names.length === 1) return `the ${names[0]} action`;
+  return `these actions: ${names.join(", ")}`;
+}
+
+function interruptedToolMessage(pending: {
+  activity: string[];
+  running: string[];
+}): string {
+  if (pending.running.length > 0) {
+    return `The agent stopped before ${formatToolNames(pending.running)} returned a result. The requested changes may not have been made.`;
+  }
+  const actionLabel = formatToolNames(pending.activity);
+  return `The agent stopped before starting ${actionLabel}. No tool result was returned, so the requested changes were not made.`;
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -342,6 +402,7 @@ export function processEvent(
   autoContinue?: {
     reason: AgentAutoContinueReason;
     maxIterations?: number;
+    errorInfo?: AgentAutoContinueErrorInfo;
   };
 } {
   if (ev.type === "clear") {
@@ -508,6 +569,10 @@ export function processEvent(
       const part = content[doneIdx];
       if (part.type === "tool-call") {
         part.result = ev.result ?? "";
+        if (ev.isError !== undefined) part.isError = ev.isError;
+        if (ev.completedSideEffect !== undefined) {
+          part.completedSideEffect = ev.completedSideEffect;
+        }
         if (ev.mcpApp) part.mcpApp = ev.mcpApp;
         if (ev.chatUI) part.chatUI = ev.chatUI;
       }
@@ -598,7 +663,7 @@ export function processEvent(
         }),
       );
     }
-    settleInterruptedToolCalls(content);
+    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
       text: formatChatErrorText(errMsg, undefined, errorCode),
@@ -665,6 +730,7 @@ export function processEvent(
       (ev.errorCode === "run_timeout" && ev.recoverable) ||
       isAutoRecoverableError(ev, errMsg)
     ) {
+      const normalized = normalizeChatError(errMsg, ev.errorCode);
       return {
         action: "auto_continue",
         autoContinue: {
@@ -676,6 +742,15 @@ export function processEvent(
                   errMsg.toLowerCase().includes("timeout")
                 ? "run_timeout"
                 : "stream_ended",
+          errorInfo: {
+            message: normalized.message,
+            ...(ev.details || normalized.details
+              ? { details: ev.details ?? normalized.details }
+              : {}),
+            ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
+            recoverable: ev.recoverable ?? true,
+            ...(ev.upgradeUrl ? { upgradeUrl: ev.upgradeUrl } : {}),
+          },
         },
       };
     }
@@ -700,7 +775,7 @@ export function processEvent(
         }),
       );
     }
-    settleInterruptedToolCalls(content);
+    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
       text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),
@@ -716,6 +791,40 @@ export function processEvent(
   }
 
   if (ev.type === "done") {
+    const interruptedTools = pendingToolNames(content);
+    const allInterruptedTools = [
+      ...interruptedTools.running,
+      ...interruptedTools.activity,
+    ];
+    if (allInterruptedTools.length > 0) {
+      settleInterruptedToolCalls(content, undefined, { includeActivity: true });
+      const message = interruptedToolMessage(interruptedTools);
+      const runError = {
+        message,
+        details: `interrupted_actions: ${allInterruptedTools.join(", ")}`,
+        errorCode: "action_not_started",
+        recoverable: true,
+      };
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:run-error", {
+            detail: { ...runError, tabId },
+          }),
+        );
+      }
+      content.push({
+        type: "text",
+        text: formatChatErrorText(message, undefined, runError.errorCode),
+      });
+      return {
+        action: "error",
+        result: {
+          content: [...content],
+          status: { type: "incomplete" as const, reason: "error" as const },
+          metadata: { custom: { runError } },
+        } as ChatModelRunResult,
+      };
+    }
     return {
       action: "done",
       result: { content: [...content] } as ChatModelRunResult,
@@ -824,6 +933,13 @@ export async function* readSSEStream(
             label: runningToolLabel(tool),
             tool,
           });
+        } else if (ev.type === "tool_done") {
+          const tool = ev.tool ?? "unknown";
+          for (let i = activityTrail.length - 1; i >= 0; i--) {
+            if (activityTrail[i]?.tool === tool) {
+              activityTrail.splice(i, 1);
+            }
+          }
         }
 
         const { action, result, autoContinue } = processEvent(

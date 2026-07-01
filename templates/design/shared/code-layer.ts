@@ -299,6 +299,12 @@ export type CodeLayerTreeNodeType =
   | "group"
   | "component"
   | "shape"
+  | "ellipse"
+  | "vector"
+  | "line"
+  | "arrow"
+  | "polygon"
+  | "star"
   | "text"
   | "image"
   | "element";
@@ -1668,6 +1674,22 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
     if (primitiveKind === "text") return "text";
     if (primitiveKind === "frame") return "frame";
     if (primitiveKind === "image") return "image";
+    if (
+      primitiveKind === "ellipse" ||
+      primitiveKind === "circle" ||
+      primitiveKind === "oval"
+    ) {
+      return "ellipse";
+    }
+    // SVG-based vector primitives each get their own type so the layers panel
+    // renders a true pen/line/arrow/polygon/star icon instead of falling
+    // through to the rectangle ("shape") glyph.
+    if (primitiveKind === "path") return "vector";
+    if (primitiveKind === "line") return "line";
+    if (primitiveKind === "arrow") return "arrow";
+    if (primitiveKind === "polygon") return "polygon";
+    if (primitiveKind === "star") return "star";
+    // rectangle/rect and anything else still classify as a generic shape.
     return "shape";
   }
   if (TEXT_LAYER_TAGS.has(node.tag)) return "text";
@@ -1716,11 +1738,12 @@ function compactCodeLayerTreeNodes(
       nextAncestors,
     );
     const compactedNode: CodeLayerTreeNode = { ...node, children };
-    const promotedNodes =
-      isCollapsibleDocumentShellNode(compactedNode, nodesById) &&
-      children.length > 0
-        ? children
-        : [compactedNode];
+    const promotedNodes = isCollapsibleDocumentShellNode(
+      compactedNode,
+      nodesById,
+    )
+      ? children
+      : [compactedNode];
 
     for (const promotedNode of promotedNodes) {
       if (siblingIds.has(promotedNode.id)) continue;
@@ -1794,6 +1817,25 @@ function capabilitiesFor(element: ParsedElement): EditCapability[] {
   return capabilities;
 }
 
+// Internal nodes of an <svg> (the <path>/<polygon>/<circle>/... geometry) are
+// rendering primitives, never selectable design layers. Projecting them adds a
+// meaningless expandable child to every pen vector / line / arrow / polygon /
+// star (and to any inline SVG icon). Treat the <svg> as a leaf: skip everything
+// that has an <svg> ancestor.
+function hasSvgAncestor(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): boolean {
+  let parentIndex = element.parentIndex;
+  while (parentIndex !== undefined) {
+    const parent = elements[parentIndex];
+    if (!parent) break;
+    if (parent.tag === "svg") return true;
+    parentIndex = parent.parentIndex;
+  }
+  return false;
+}
+
 function buildProjection(
   html: string,
   source: CodeLayerSource,
@@ -1808,6 +1850,7 @@ function buildProjection(
 
   for (const element of elements) {
     if (NON_VISUAL_TAGS.has(element.tag)) continue;
+    if (hasSvgAncestor(element, elements)) continue;
     const nodeId = nodeIdFor(element, elements, source);
     nodeIdByElementIndex.set(element.index, nodeId);
   }
@@ -2038,9 +2081,10 @@ export function buildCodeLayerTree(
   const treeById = new Map<string, CodeLayerTreeNode>();
 
   for (const node of projection.nodes) {
+    const componentName = node.componentInstance?.name;
     treeById.set(node.id, {
       id: node.id,
-      name: node.layerName,
+      name: componentName ?? node.layerName,
       type: treeTypeForNode(node),
       tag: node.tag,
       selector: node.selector,

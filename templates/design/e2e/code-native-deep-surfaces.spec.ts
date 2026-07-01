@@ -12,7 +12,6 @@ test.describe.configure({ mode: "serial" });
 
 let designId: string;
 let fileId: string;
-let stateId: string;
 let baseURLForActions: string;
 
 interface DesignFileRecord {
@@ -52,21 +51,6 @@ const SECONDARY_HTML = `<!doctype html>
       <img alt="Decorative mark" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" />
       <label>Email <input type="email" /></label>
       <button class="focus-visible:ring-2 focus-visible:ring-offset-2">Focusable clean control</button>
-    </main>
-  </body>
-</html>`;
-
-const STATE_PREVIEW_HTML = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>E2E Captured State</title>
-  </head>
-  <body style="margin:0;font-family:system-ui,sans-serif;background:#111827;color:#f9fafb">
-    <main data-agent-native-node-id="e2e-state-root" style="padding:40px;display:grid;gap:16px">
-      <h1 data-agent-native-node-id="e2e-state-heading">State-only banner</h1>
-      <p data-agent-native-node-id="e2e-state-copy">The full document was replaced, not just the previously selected node.</p>
-      <footer data-agent-native-node-id="e2e-state-footer">State footer swapped</footer>
     </main>
   </body>
 </html>`;
@@ -140,19 +124,6 @@ async function waitForAction(
   return response.json();
 }
 
-async function openStatesPanel(page: Page): Promise<void> {
-  const statesToggle = page.getByRole("button", {
-    name: "States",
-    exact: true,
-  });
-  await statesToggle.scrollIntoViewIfNeeded();
-  const expanded = await statesToggle.getAttribute("aria-expanded");
-  if (expanded !== "true") {
-    await statesToggle.click();
-  }
-  await expect(page.getByRole("button", { name: "Default" })).toBeVisible();
-}
-
 async function selectedElementBackgroundImage(page: Page): Promise<string> {
   return designFrame(page)
     .locator('[data-agent-native-node-id="e2e-alpha-button"]')
@@ -221,14 +192,6 @@ test.beforeAll(async ({ request }, workerInfo) => {
   });
   await postAction(request, "index-components", { designId });
   await seedComponentVariantMetadata(designId);
-
-  const state = await postAction(request, "create-design-state", {
-    designId,
-    name: "Captured full document",
-    kind: "state",
-    captureData: { domHtml: STATE_PREVIEW_HTML },
-  });
-  stateId = state.id;
 });
 
 test.afterAll(async ({ request }) => {
@@ -239,36 +202,6 @@ test.afterAll(async ({ request }) => {
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
-});
-
-test("states panel applies a captured full document and restores Default", async ({
-  page,
-  request,
-}) => {
-  await selectByText(page, "Alpha Button");
-  await openStatesPanel(page);
-
-  await page
-    .locator('section[aria-label="Design states"] div[role="button"]')
-    .filter({ hasText: "Captured full document" })
-    .first()
-    .click();
-  await expect(designFrame(page).getByText("State-only banner")).toBeVisible();
-  await expect(
-    designFrame(page).getByText("State footer swapped"),
-  ).toBeVisible();
-  await expect(designFrame(page).getByText("Token swatch sample")).toHaveCount(
-    0,
-  );
-
-  await page.getByRole("button", { name: "Default" }).click();
-  await expect(designFrame(page).getByText("Alpha Button")).toBeVisible();
-  await expect(designFrame(page).getByText("State-only banner")).toHaveCount(0);
-
-  const listed = await getAction(request, "list-design-states", {
-    designId,
-  });
-  expect(listed.states.map((row: { id: string }) => row.id)).toContain(stateId);
 });
 
 test("Inspect Code shows the opening tag and copyable selected HTML", async ({

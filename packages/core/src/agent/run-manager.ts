@@ -46,8 +46,8 @@ const CLEANUP_DELAY_MS = 5 * 60 * 1000;
  *
  * This MUST fire before the two upstream hard walls that otherwise kill a run
  * mid-turn with no chance to hand off:
- *   1. The Builder model gateway hard-caps a single model call at 45s
- *      (builder-engine.ts MAX_BUILDER_GATEWAY_TIMEOUT_MS) — not raisable.
+ *   1. The Builder model gateway keeps a 45s cap only for hosted foreground
+ *      runs; local and proven background-function runs use longer caps.
  *   2. Serverless functions are hard-killed around 60-65s (the heartbeat then
  *      reaps the row as a stale_run).
  * Production data showed every cutoff landing in the 44-70s window with ZERO
@@ -61,11 +61,12 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
 
 /**
  * Hard ceiling for the hosted soft timeout. On a hosted runtime the
- * auto_continue soft timeout can never usefully exceed this — the gateway
- * (45s) / function (~60s) walls kill the run first, so a larger configured or
- * env value just guarantees the cutoff is a hard error instead of a graceful
- * hand-off. Any resolved value above this is clamped down when hosted. Local
- * dev (non-hosted) is left alone so long-running local turns aren't chunked.
+ * foreground auto_continue soft timeout can never usefully exceed this — the
+ * synchronous function (~60s) wall kills the run first, so a larger configured
+ * or env value just guarantees the cutoff is a hard error instead of a graceful
+ * hand-off. Any resolved value above this is clamped down for hosted foreground
+ * runs. Local dev (non-hosted) is left alone so long-running local turns aren't
+ * chunked.
  *
  * IMPORTANT: this clamp is for the INTERACTIVE / foreground path and must NOT
  * be raised. The foreground POST still rides a synchronous serverless function

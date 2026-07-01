@@ -1,3 +1,20 @@
+import type { EventEmitter } from "node:events";
+
+type ErrorEventEmitter = Pick<EventEmitter, "on"> & object;
+
+const gatewaySocketsWithErrorSink = new WeakSet<object>();
+
+export function attachGatewaySocketErrorSink(
+  socket: ErrorEventEmitter | null | undefined,
+  onError?: (error: unknown) => void,
+): void {
+  if (!socket || gatewaySocketsWithErrorSink.has(socket)) return;
+  gatewaySocketsWithErrorSink.add(socket);
+  socket.on("error", (error) => {
+    onError?.(error);
+  });
+}
+
 /**
  * When an app returns a redirect to a root-relative path that doesn't already
  * include the app prefix, prepend it. This handles the common case where a

@@ -579,6 +579,62 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.messages[1].parentId).toBe("user-1");
   });
 
+  it("drops empty assistant placeholders when the real server answer arrives", () => {
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "test" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "placeholder",
+            role: "assistant",
+            content: [],
+          },
+          parentId: "user-1",
+        },
+      ],
+      headId: "placeholder",
+    };
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "test" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      headId: "server-run-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    expect(merged.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "server-run-1",
+    ]);
+    expect(merged.messages[1].parentId).toBe("user-1");
+    expect(merged.headId).toBe("server-run-1");
+  });
+
   it("preserves non-runtime top-level thread metadata across stale client saves", () => {
     const existing = {
       engineMeta: { engineName: "builder", model: "claude-sonnet-4" },

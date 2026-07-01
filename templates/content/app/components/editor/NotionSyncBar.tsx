@@ -19,6 +19,7 @@ import {
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
   useNotionConnection,
+  openNotionOAuthUrl,
   usePullDocumentFromNotion,
   usePushDocumentToNotion,
   useResolveDocumentSyncConflict,
@@ -63,12 +64,20 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
     resolveConflict.isPending ||
     disconnectNotion.isPending;
 
-  const handleConnect = () => {
-    if (!connection?.authUrl) {
+  const handleConnect = async () => {
+    if (connection?.error === "missing_credentials") {
       toast.error(t("editor.toolbar.setUpNotionFirst"));
       return;
     }
-    window.location.href = connection.authUrl;
+    try {
+      window.location.href = await openNotionOAuthUrl();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.setUpNotionFirst"),
+      );
+    }
   };
 
   const handleLink = async () => {
@@ -77,7 +86,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
       return;
     }
     try {
-      await linkDocument.mutateAsync({ pageIdOrUrl });
+      await linkDocument.mutateAsync({ documentId, pageIdOrUrl });
       setPageIdOrUrl("");
       toast.success(t("editor.toolbar.linkedToNotion"));
     } catch (error) {
@@ -91,7 +100,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
   const handlePull = async () => {
     try {
-      await pullDocument.mutateAsync();
+      await pullDocument.mutateAsync({ documentId });
       toast.success(t("editor.toolbar.pulledFromNotion"));
     } catch (error) {
       toast.error(
@@ -102,7 +111,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
   const handlePush = async () => {
     try {
-      await pushDocument.mutateAsync();
+      await pushDocument.mutateAsync({ documentId });
       toast.success(t("editor.toolbar.pushedToNotion"));
     } catch (error) {
       toast.error(
@@ -113,7 +122,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
   const handleResolve = async (direction: "pull" | "push") => {
     try {
-      await resolveConflict.mutateAsync({ direction });
+      await resolveConflict.mutateAsync({ documentId, direction });
       toast.success(
         direction === "pull"
           ? t("editor.toolbar.conflictResolvedFromNotion")
@@ -130,7 +139,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
   const handleUnlink = async () => {
     try {
-      await unlinkDocument.mutateAsync();
+      await unlinkDocument.mutateAsync({ documentId });
       toast.success(t("editor.toolbar.unlinkedFromNotion"));
     } catch (error) {
       toast.error(
@@ -143,7 +152,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
   const handleDisconnect = async () => {
     try {
-      await disconnectNotion.mutateAsync();
+      await disconnectNotion.mutateAsync({});
       toast.success(t("editor.toolbar.disconnectedNotionWorkspace"));
     } catch (error) {
       toast.error(

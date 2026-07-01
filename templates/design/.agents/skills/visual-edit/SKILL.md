@@ -65,8 +65,13 @@ For one-shot agent setup, ask for JSON and keep the long-running bridge open in
 a second terminal if the user needs live updates:
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --json
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+curl http://127.0.0.1:7331/manifest.json
 ```
+
+Do not use `--json` for an editable session. `--json`, `--once`, and
+`--dry-run` print the manifest and exit, so Design will fall back to a
+non-editable live iframe as soon as it tries to refresh the snapshot.
 
 ## Action Flow
 

@@ -1,4 +1,4 @@
-import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconBolt,
@@ -17,6 +17,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
 export interface CanvasPin {
@@ -512,11 +513,11 @@ export function CanvasCommentPins({
       : buildPinLines(targetPins[0]!).join("\n");
 
     try {
-      // Use `sendToAgentChat` (not the shared `agentChat.submit`) so the
+      // Use the client chat bridge (not the shared `agentChat.submit`) so the
       // request routes correctly when design is embedded in Builder/Frame
       // and so the agent sidebar is reliably opened via the `agent-panel:open`
       // custom event even if the user has it collapsed.
-      sendToAgentChat({
+      sendToDesignAgentChat({
         message,
         submit: true,
         openSidebar: true,
@@ -635,7 +636,7 @@ export function CanvasCommentPins({
           className="fixed top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full border border-border bg-popover px-3 py-1.5 shadow-lg pointer-events-none"
         >
           <IconMessage className="w-3.5 h-3.5 text-[#609FF8]" />
-          <span className="text-[11px] text-foreground">
+          <span className="!text-[11px] text-foreground">
             {t("visualEditor.clickToDropCommentPin")}
           </span>
           <span className="text-[10px] text-muted-foreground ml-1">

@@ -16,7 +16,6 @@ import {
   appBasePath,
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
-  sendToAgentChat,
   getBrowserTabId,
   readClientAppState,
   setClientAppState,
@@ -58,6 +57,10 @@ import {
   hasCapability,
 } from "@shared/design-source-capabilities";
 import { shouldUseLiveFileContent } from "@shared/html-content";
+import {
+  compile as compileMotionTimeline,
+  injectManagedMotionCss,
+} from "@shared/motion-compiler";
 import type { MotionTrack } from "@shared/motion-timeline";
 import {
   resolveTweaksToCssVars,
@@ -90,7 +93,7 @@ import {
   IconPhoto,
   IconRefresh,
   IconChevronDown,
-  IconChevronRight,
+  IconChevronUp,
   IconCheck,
   IconPointer,
   IconTypography,
@@ -114,6 +117,7 @@ import {
   IconExternalLink,
   IconCircleCheck,
   IconTerminal2,
+  IconLink,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -128,7 +132,14 @@ import {
   type SetStateAction,
 } from "react";
 import { flushSync } from "react-dom";
-import { useParams, useNavigate, Link, useLocation } from "react-router";
+import {
+  useParams,
+  useNavigate,
+  Link,
+  useLocation,
+  useBlocker,
+  useBeforeUnload,
+} from "react-router";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
@@ -165,7 +176,6 @@ import {
   LocalhostWriteConsentDialog,
   type LocalhostWriteConsentPayload,
 } from "@/components/design/LocalhostWriteConsentDialog";
-import { LocalSourceEditBanner } from "@/components/design/LocalSourceEditBanner";
 import {
   MotionDock,
   type MotionDockTrack,
@@ -173,22 +183,38 @@ import {
 import {
   MultiScreenCanvas,
   OVERVIEW_FRAME_WIDTH,
+  type CanvasLayerMarqueeSelection,
   type CanvasPrimitiveInsert,
   type FrameGeometry,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
-import type { ElementInfo, DeviceFrameType } from "@/components/design/types";
+import type {
+  ElementInfo,
+  ElementSelectionIntent,
+  DeviceFrameType,
+  PortableStyleSnapshot,
+  PortableStyleSnapshotNode,
+} from "@/components/design/types";
 import {
   DEVICE_FRAME_VIEWPORTS,
   ZOOM_PRESETS,
 } from "@/components/design/types";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -219,7 +245,6 @@ import {
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -232,7 +257,14 @@ import {
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
-import { useDesignHotkeys } from "@/hooks/useDesignHotkeys";
+import {
+  isDesignHotkeyEditableTarget,
+  useDesignHotkeys,
+} from "@/hooks/useDesignHotkeys";
+import {
+  DESIGN_CHAT_STORAGE_KEY,
+  sendToDesignAgentChat,
+} from "@/lib/agent-chat";
 import {
   clearPendingGeneration,
   hasFreshPendingGeneration,
@@ -265,12 +297,16 @@ const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
 const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const MOTION_DOCK_TRANSITION_MS = 200;
+const MOTION_DOCK_EXIT_SETTLE_MS = 80;
+const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS * 2 + 600;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
+const BOARD_SURFACE_SIZE = 131_072;
 /** Extensions that the localhost bridge allows to be written back to source. */
 const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
 const NO_LOCALHOST_WRITE_CONTENT_MESSAGE =
   "No content to write. Open the screen first." /* i18n-ignore */;
 const FOCUSED_SCREEN_ZOOM = 100;
+export const DEFAULT_OVERVIEW_ZOOM = 60;
 const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
   /\b(?:color|color-mix|oklch|oklab|lab|lch)\(/i;
@@ -293,6 +329,14 @@ const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
   "list-style-image",
 ] as const;
 
+function blurActiveDesignEditableTarget() {
+  if (typeof document === "undefined") return;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && isDesignHotkeyEditableTarget(active)) {
+    active.blur();
+  }
+}
+
 function getContentSignature(content: string): string {
   let hash = 2166136261;
   for (let index = 0; index < content.length; index += 1) {
@@ -302,9 +346,31 @@ function getContentSignature(content: string): string {
   return `${content.length}:${hash.toString(36)}`;
 }
 
+function dedupeStringIds(ids: string[]): string[] {
+  return Array.from(new Set(ids.filter(Boolean)));
+}
+
+function sameStringIds(a: string[], b: string[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   const tagName = info?.tagName?.toUpperCase();
   return tagName === "BODY" || tagName === "HTML";
+}
+
+export function shouldIgnoreOverviewLayerCreationEcho(args: {
+  pendingLayerId: string | null | undefined;
+  pendingScreenId: string | null | undefined;
+  screenId: string;
+  info?: ElementInfo | null;
+  event: "select" | "clear";
+}) {
+  if (!args.pendingLayerId) return false;
+  if (args.pendingScreenId && args.pendingScreenId !== args.screenId) {
+    return false;
+  }
+  return args.event === "clear" || isScreenRootElementInfo(args.info);
 }
 
 export function getSelectedScreenIdsForEditorState(args: {
@@ -369,14 +435,26 @@ export function getSidebarCodeLayerSelectionState(args: {
   currentViewMode: "single" | "overview";
   ownerFileId?: string | null;
   overviewSelectedScreenIds: string[];
+  screenFileIds?: string[];
 }) {
-  const { currentViewMode, ownerFileId, overviewSelectedScreenIds } = args;
+  const {
+    currentViewMode,
+    ownerFileId,
+    overviewSelectedScreenIds,
+    screenFileIds,
+  } = args;
+  const ownerScreenId =
+    ownerFileId && (!screenFileIds || screenFileIds.includes(ownerFileId))
+      ? ownerFileId
+      : null;
   return {
     viewMode: currentViewMode,
     overviewSelectedScreenIds:
-      currentViewMode === "overview" && ownerFileId
-        ? [ownerFileId]
-        : overviewSelectedScreenIds,
+      currentViewMode === "overview" && ownerScreenId
+        ? [ownerScreenId]
+        : currentViewMode === "overview" && ownerFileId
+          ? []
+          : overviewSelectedScreenIds,
   };
 }
 
@@ -411,6 +489,10 @@ export function getOverviewCanvasZoom(
   return displayZoom / scale;
 }
 
+export function getDefaultOverviewCanvasZoom(overviewZoomScale: number) {
+  return getOverviewCanvasZoom(DEFAULT_OVERVIEW_ZOOM, overviewZoomScale);
+}
+
 export function getDesignEditorShareUrl(
   id: string,
   origin: string,
@@ -421,6 +503,41 @@ export function getDesignEditorShareUrl(
     ? `${normalizedBasePath}/design/${encodeURIComponent(id)}`
     : `/design/${encodeURIComponent(id)}`;
   return new URL(pathname, origin).toString();
+}
+
+function formatDesignEditorUrlZoom(zoom: number): string {
+  const rounded = Math.round(zoom * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+export function getDesignEditorStateUrlSearch(args: {
+  currentSearch: string;
+  viewMode: "single" | "overview";
+  screenId?: string | null;
+  selectionId?: string | null;
+  zoom?: number | null;
+}) {
+  const params = new URLSearchParams(args.currentSearch);
+  params.set("view", args.viewMode);
+  if (args.screenId) {
+    params.set("screen", args.screenId);
+  } else {
+    params.delete("screen");
+  }
+  params.delete("fileId");
+  params.delete("filename");
+  if (args.selectionId) {
+    params.set("selection", args.selectionId);
+  } else {
+    params.delete("selection");
+  }
+  if (typeof args.zoom === "number" && Number.isFinite(args.zoom)) {
+    params.set("zoom", formatDesignEditorUrlZoom(args.zoom));
+  } else {
+    params.delete("zoom");
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 export function getLocalhostRouteSourceFile(args: {
@@ -473,12 +590,23 @@ export function getFreshActiveFileContent(args: {
 export function getFreshScreenContent(args: {
   screenId: string;
   activeFileId?: string | null;
+  freshActiveContentFileId?: string | null;
   freshActiveContent: string;
   fileContentById: ReadonlyMap<string, string>;
 }) {
-  return args.screenId === args.activeFileId
+  const freshActiveContentFileId =
+    args.freshActiveContentFileId ?? args.activeFileId;
+  return args.screenId === args.activeFileId &&
+    args.screenId === freshActiveContentFileId
     ? args.freshActiveContent
     : (args.fileContentById.get(args.screenId) ?? "");
+}
+
+export function shouldReplacePreviewAfterVisualStyleCommit(args: {
+  runtimeApplied?: boolean;
+  runtimeStyleApplied: boolean;
+}) {
+  return !args.runtimeApplied && !args.runtimeStyleApplied;
 }
 
 export function getLayerMoveIterationOrder<T>(
@@ -495,25 +623,37 @@ export function removeUndoRedoOrderKind<T extends string>(
   return order.filter((entry) => entry !== kind);
 }
 
-type UndoRedoOrderKind = "content" | "file-content" | "geometry";
+export type UndoRedoOrderKind = "content" | "file-content" | "geometry";
 
-function isContentUndoRedoOrderKind(
-  kind: UndoRedoOrderKind | undefined,
-): kind is "content" | "file-content" {
-  return kind === "content" || kind === "file-content";
+export function getUndoRedoPriorityOrder(
+  preferred: UndoRedoOrderKind | undefined,
+): UndoRedoOrderKind[] {
+  if (preferred === "geometry") return ["geometry", "content", "file-content"];
+  if (preferred === "file-content")
+    return ["file-content", "content", "geometry"];
+  return ["content", "file-content", "geometry"];
 }
 
 function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
   return typeof update === "function" ? update(current) : update;
 }
 
-export function shouldLockInspectorForInitialGeneration(args: {
+export function shouldLimitEditorChromeUntilContentReady(args: {
   fileCount: number;
+  hasActiveCanvasContent: boolean;
   generating: boolean;
   pendingGenerationActive: boolean;
 }) {
-  const { fileCount, generating, pendingGenerationActive } = args;
-  return fileCount === 0 && (generating || pendingGenerationActive);
+  const {
+    fileCount,
+    generating,
+    hasActiveCanvasContent,
+    pendingGenerationActive,
+  } = args;
+  return (
+    (fileCount === 0 || !hasActiveCanvasContent) &&
+    (generating || pendingGenerationActive)
+  );
 }
 
 export function shouldEscapeToOverview(args: {
@@ -755,6 +895,122 @@ interface DesignFile {
   updatedAt: string;
 }
 
+interface LiveScreenSnapshot {
+  url: string;
+  html: string;
+  status?: number;
+  contentType?: string;
+}
+
+export interface PendingVisualStyleEdit {
+  screenId: string;
+  filename: string;
+  screenName: string;
+  selector: string;
+  sourceId?: string | null;
+  tagName?: string | null;
+  classes: string[];
+  styles: Record<string, string>;
+  updatedAt: number;
+}
+
+function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
+  return [
+    edit.screenId,
+    edit.sourceId?.trim() || edit.selector.trim() || "unknown",
+  ].join("::");
+}
+
+export function mergePendingVisualStyleEdit(
+  edits: readonly PendingVisualStyleEdit[],
+  nextEdit: PendingVisualStyleEdit,
+): PendingVisualStyleEdit[] {
+  const nextKey = pendingVisualStyleEditKey(nextEdit);
+  let merged = false;
+  const next = edits.map((edit) => {
+    if (pendingVisualStyleEditKey(edit) !== nextKey) return edit;
+    merged = true;
+    return {
+      ...edit,
+      ...nextEdit,
+      classes: nextEdit.classes.length > 0 ? nextEdit.classes : edit.classes,
+      styles: { ...edit.styles, ...nextEdit.styles },
+    };
+  });
+  return merged ? next : [...edits, nextEdit];
+}
+
+export function getPendingVisualStylePropertyCount(
+  edits: readonly PendingVisualStyleEdit[],
+): number {
+  return edits.reduce(
+    (count, edit) => count + Object.keys(edit.styles).length,
+    0,
+  );
+}
+
+export function shouldBlockPendingVisualStyleNavigation(args: {
+  hasPendingVisualStyleEdits: boolean;
+  currentPathname: string;
+  nextPathname: string;
+}): boolean {
+  return (
+    args.hasPendingVisualStyleEdits &&
+    args.currentPathname !== args.nextPathname
+  );
+}
+
+export function formatPendingVisualStylePrompt(args: {
+  designId?: string | null;
+  designTitle?: string | null;
+  activeFileId?: string | null;
+  activeFilename?: string | null;
+  edits: readonly PendingVisualStyleEdit[];
+}): string {
+  const title = args.designTitle?.trim();
+  const editPayload = args.edits.map((edit) => ({
+    screenId: edit.screenId,
+    filename: edit.filename,
+    screenName: edit.screenName,
+    selector: edit.selector,
+    sourceId: edit.sourceId ?? null,
+    tagName: edit.tagName ?? null,
+    classes: edit.classes,
+    styles: edit.styles,
+  }));
+
+  return [
+    `Apply these pending visual style edits${title ? ` to "${title}"` : ""}.`,
+    args.designId ? `Design id: "${args.designId}".` : "",
+    args.activeFileId
+      ? `Active screen: "${args.activeFilename ?? args.activeFileId}" (${args.activeFileId}).`
+      : "",
+    "",
+    "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    "",
+    "Pending style edits:",
+    JSON.stringify(editPayload, null, 2),
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
+export function shouldShowPendingVisualStyleApply(args: {
+  edits: readonly PendingVisualStyleEdit[];
+  screenSourceTypes: ReadonlyMap<string, unknown>;
+  fallbackSourceType?: unknown;
+}): boolean {
+  return (
+    args.edits.length > 0 &&
+    args.edits.every(
+      (edit) =>
+        normalizeDesignSourceType(
+          args.screenSourceTypes.get(edit.screenId) ?? args.fallbackSourceType,
+        ) === "localhost",
+    )
+  );
+}
+
 interface DesignData {
   id: string;
   title: string;
@@ -782,6 +1038,7 @@ interface CanvasLayerClipboardEntry {
   html: string;
   rootNodeId?: string;
   sourceFileId: string;
+  portableStyleSnapshot?: PortableStyleSnapshot;
 }
 
 interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
@@ -882,6 +1139,32 @@ interface GeometryHistoryEntry {
   after: CanvasFrameGeometryById;
 }
 
+function geometryHistoryEntryTouchesFrameIds(
+  entry: GeometryHistoryEntry,
+  frameIds: Set<string>,
+) {
+  for (const frameId of frameIds) {
+    if (entry.before[frameId] || entry.after[frameId]) return true;
+  }
+  return false;
+}
+
+function removeRecentUndoRedoOrderKinds<T extends string>(
+  order: T[],
+  kind: T,
+  count: number,
+): T[] {
+  if (count <= 0) return order;
+  const next = [...order];
+  let remaining = count;
+  for (let index = next.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    if (next[index] !== kind) continue;
+    next.splice(index, 1);
+    remaining -= 1;
+  }
+  return next;
+}
+
 export interface ContentHistoryChange {
   fileId: string;
   before: string;
@@ -909,6 +1192,17 @@ export function getAvailableContentHistoryChanges(
   return getContentHistoryChanges(entry).filter(
     (change) => change.fileId === activeFileId || fileIds.has(change.fileId),
   );
+}
+
+function findLastContentHistoryChangeIndex(
+  stack: ContentHistoryChange[],
+  fileId?: string | null,
+) {
+  if (!fileId) return -1;
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    if (stack[index]?.fileId === fileId) return index;
+  }
+  return -1;
 }
 
 type PatchProofStatus =
@@ -1015,7 +1309,7 @@ function designGenerationDirectives(
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
-    "If the user asked to explore variations, call `present-design-variants` with 2-5 complete HTML directions, wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen. Otherwise generate one polished first direction.",
+    "If the user asked to explore variations, call `present-design-variants` with 2-5 compact, complete HTML directions: one representative screen per direction, not a full app per variant. Wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen. Otherwise generate one polished first direction.",
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, stop and summarize what was created.",
   ];
@@ -1055,6 +1349,7 @@ function designEditorCommandFromSearchParams(
     searchParams.get("screen") ??
     searchParams.get("fileId") ??
     searchParams.get("filename");
+  const selection = searchParams.get("selection");
   const rawZoom = searchParams.get("zoom");
   const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
   const tool = normalizeDesignTool(searchParams.get("tool"));
@@ -1066,6 +1361,7 @@ function designEditorCommandFromSearchParams(
     inspector !== "extensions" &&
     !leftPanel &&
     !screen &&
+    !selection &&
     !tool
   ) {
     return null;
@@ -1086,6 +1382,7 @@ function designEditorCommandFromSearchParams(
   }
   if (leftPanel) command.leftPanel = leftPanel;
   if (screen) command.screen = screen;
+  if (selection) command.selection = selection;
   if (Number.isFinite(zoom)) {
     command.zoom = zoom;
   } else if (editorView === "single") {
@@ -1276,6 +1573,109 @@ function removeAbsolutePositioningFromNodeInHtml(
   }
 }
 
+function setAbsolutePositioningForNodeInHtml(
+  content: string,
+  nodeAttrId: string,
+  point: { x: number; y: number },
+  pointerOffset?: { x: number; y: number },
+): string {
+  if (typeof window === "undefined") return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const element = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    ) as HTMLElement | null;
+    if (!element) return content;
+    element.style.position = "absolute";
+    element.style.left = `${Math.round(point.x - (pointerOffset?.x ?? 0))}px`;
+    element.style.top = `${Math.round(point.y - (pointerOffset?.y ?? 0))}px`;
+    element.style.removeProperty("right");
+    element.style.removeProperty("bottom");
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
+function getAbsolutePositioningForNodeInHtml(
+  content: string,
+  nodeAttrId: string,
+): { x: number; y: number } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const element = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    ) as HTMLElement | null;
+    if (!element) return null;
+    return {
+      x: Number.parseFloat(element.style.left || "0") || 0,
+      y: Number.parseFloat(element.style.top || "0") || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function elementAtPortableStylePath(
+  root: Element,
+  node: PortableStyleSnapshotNode,
+): Element | null {
+  let current: Element | null = root;
+  for (const index of node.path) {
+    if (!current || !Number.isInteger(index) || index < 0) return null;
+    current = current.children.item(index);
+  }
+  return current;
+}
+
+function applyPortableStyles(
+  element: Element | null,
+  styles: Record<string, string>,
+) {
+  if (!element) return;
+  const host = styleHost(element);
+  if (!host) return;
+  Object.entries(styles).forEach(([property, value]) => {
+    if (!value) return;
+    if (property.startsWith("--") || property.includes("-")) {
+      host.style.setProperty(property, value);
+      return;
+    }
+    (host.style as any)[property] = value;
+  });
+}
+
+function applyPortableStyleSnapshotToHtml(
+  content: string,
+  nodeAttrId: string,
+  snapshot?: PortableStyleSnapshot,
+): string {
+  if (typeof window === "undefined" || !snapshot?.nodes?.length) {
+    return content;
+  }
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const root = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    );
+    if (!root) return content;
+    root.setAttribute("data-agent-native-preserve-styles", "true");
+    snapshot.nodes.forEach((node) => {
+      const target = elementAtPortableStylePath(root, node);
+      if (target) applyPortableStyles(target, node.styles);
+    });
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
+function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
+  const position = String(node?.style.position ?? "").toLowerCase();
+  return position === "absolute" || position === "fixed";
+}
+
 function escapeHtmlText(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -1457,14 +1857,19 @@ function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
 function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
+  options?: { preserveNegativePosition?: boolean },
 ): string | null {
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
     const geometry = primitive.geometry;
-    const left = Math.max(0, Math.round(geometry.x));
-    const top = Math.max(0, Math.round(geometry.y));
+    const left = options?.preserveNegativePosition
+      ? Math.round(geometry.x)
+      : Math.max(0, Math.round(geometry.x));
+    const top = options?.preserveNegativePosition
+      ? Math.round(geometry.y)
+      : Math.max(0, Math.round(geometry.y));
     const width = Math.max(1, Math.round(geometry.width));
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
@@ -1538,6 +1943,9 @@ function appendCanvasPrimitiveToHtml(
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
+      // Kind marker so the layers panel shows a true vector/line/arrow icon for
+      // this SVG primitive instead of falling through to the rectangle glyph.
+      // Read by treeTypeForNode in shared/code-layer.ts.
       svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute(
         "viewBox",
@@ -1583,6 +1991,10 @@ function appendCanvasPrimitiveToHtml(
       polygon.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
+      // Kind marker so the layers panel shows a true polygon/star icon for this
+      // SVG primitive instead of falling through to the rectangle glyph.
+      // Read by treeTypeForNode in shared/code-layer.ts.
+      svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.setAttribute(
         "style",
@@ -1637,7 +2049,7 @@ function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
       element.style.overflow = "hidden";
     } else if (primitive.kind === "text") {
-      element.textContent = primitive.text ?? "Text";
+      element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
       if (!primitive.autoSize) {
         element.style.alignItems = "center";
@@ -1759,6 +2171,7 @@ function setRootLayerPosition(
 function prepareClonedHtmlLayer(
   doc: Document,
   layerHtml: string,
+  styleSnapshot?: PortableStyleSnapshot,
 ): { element: Element; rootNodeId: string } | null {
   const layerDoc = new DOMParser().parseFromString(
     `<template>${layerHtml}</template>`,
@@ -1769,6 +2182,13 @@ function prepareClonedHtmlLayer(
     layerDoc.body.firstElementChild;
   if (!source) return null;
   const clone = doc.importNode(source, true) as Element;
+  if (styleSnapshot) {
+    clone.setAttribute("data-agent-native-preserve-styles", "true");
+    styleSnapshot.nodes.forEach((node) => {
+      const target = elementAtPortableStylePath(clone, node);
+      if (target) applyPortableStyles(target, node.styles);
+    });
+  }
   const rootNodeId = uniqueLayerId("copy");
   clone.setAttribute("data-agent-native-node-id", rootNodeId);
   Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
@@ -1791,6 +2211,7 @@ function insertClonedHtmlLayers(
     placement?: "before" | "after" | "inside";
     stripRootPosition?: boolean;
     positions?: Array<{ x: number; y: number } | null | undefined>;
+    styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
   } = {},
 ): { content: string; rootNodeIds: string[] } | null {
   if (typeof window === "undefined" || layerHtmls.length === 0) return null;
@@ -1800,7 +2221,11 @@ function insertClonedHtmlLayers(
     const fragment = doc.createDocumentFragment();
     const rootNodeIds: string[] = [];
     layerHtmls.forEach((layerHtml, index) => {
-      const prepared = prepareClonedHtmlLayer(doc, layerHtml);
+      const prepared = prepareClonedHtmlLayer(
+        doc,
+        layerHtml,
+        options.styleSnapshots?.[index] ?? undefined,
+      );
       if (!prepared) return;
       const position = options.positions?.[index];
       if (position) {
@@ -2061,10 +2486,36 @@ function layerTypeForCodeLayer(
 ): LayersPanelNode["type"] {
   if (node.type === "group") return "group";
   if (node.type === "component") return "component";
+  if (node.type === "ellipse") return "ellipse";
   if (node.type === "shape") return "shape";
+  if (node.type === "vector") return "vector";
+  if (node.type === "line") return "line";
+  if (node.type === "arrow") return "arrow";
+  if (node.type === "polygon") return "polygon";
+  if (node.type === "star") return "star";
   if (node.type === "text") return "text";
   if (node.type === "image") return "image";
   return "element";
+}
+
+function codeLayerNodeLooksLikeComponent(
+  node: CodeLayerNode | null | undefined,
+): boolean {
+  if (!node) return false;
+  if (isComponentInstance(node)) return true;
+  const tag = node.tag.toLowerCase();
+  if (
+    tag === "button" ||
+    tag === "input" ||
+    tag === "select" ||
+    tag === "textarea"
+  ) {
+    return true;
+  }
+  if (/component|card|button|control/i.test(node.layerName)) return true;
+  return node.classes.some((item) =>
+    /component|card|button|control/i.test(item),
+  );
 }
 
 function preferredCodeLayerSelector(node: CodeLayerNode): string {
@@ -2236,6 +2687,7 @@ function codeLayerTreeToPanelNodes(
       id: node.id,
       name: resolvedLayerName(node),
       type: layerTypeForCodeLayer(node),
+      tagName: node.tag,
       layout: node.layout,
       detail: node.detail,
       badge: node.badge,
@@ -2253,6 +2705,14 @@ function codeLayerTreeToPanelNodes(
 interface EffectiveCodeLayerState {
   lockedIds: Set<string>;
   hiddenIds: Set<string>;
+}
+
+interface SelectedLayerTarget {
+  layerId: string;
+  fileId: string;
+  node: CodeLayerNode;
+  tree: CodeLayerTreeNode[];
+  elementInfo: ElementInfo;
 }
 
 function collectEffectiveCodeLayerState(
@@ -2316,6 +2776,7 @@ function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     ),
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
+    childElementCount: node.children.length,
     isFlexChild: node.layout.parentDisplay?.includes("flex") ? true : false,
     isFlexContainer: node.layout.isFlexContainer,
     parentDisplay: node.layout.parentDisplay,
@@ -2444,6 +2905,7 @@ function canonicalElementInfoForCodeLayerNode(
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
     confidence: node.confidence,
+    childElementCount: node.children.length,
     editCapabilities: info.editCapabilities?.some((capability) =>
       capability.kind.startsWith("deterministic"),
     )
@@ -2510,6 +2972,7 @@ export function refreshElementInfoFromContent(
         sourceInfo.classes,
       ),
       textContent: sourceInfo.textContent,
+      childElementCount: sourceInfo.childElementCount,
       isFlexChild: sourceInfo.isFlexChild,
       isFlexContainer: sourceInfo.isFlexContainer,
       parentDisplay: sourceInfo.parentDisplay,
@@ -2530,6 +2993,7 @@ export function refreshElementInfoFromContent(
         classes,
       ),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
+      childElementCount: element.children.length,
     };
   } catch {
     return null;
@@ -2687,6 +3151,13 @@ function AgentNativeMenuMark({ className }: { className?: string }) {
 
 type DesignLeftPanel = "file" | "agent" | "assets" | "tools" | "tokens";
 
+const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
+  "file",
+  "assets",
+  "tools",
+  "tokens",
+]);
+
 function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
   if (value === "extensions") return "tools";
   return value === "file" ||
@@ -2700,11 +3171,19 @@ function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
 
 function DesignWorkspaceRail({
   activePanel,
+  disabledPanels,
+  motionOpen,
+  motionDisabled,
   projectMenu,
+  onMotionToggle,
   onPanelChange,
 }: {
   activePanel: DesignLeftPanel;
+  disabledPanels?: ReadonlySet<DesignLeftPanel>;
+  motionOpen?: boolean;
+  motionDisabled?: boolean;
   projectMenu: ReactNode;
+  onMotionToggle?: () => void;
   onPanelChange: (panel: DesignLeftPanel) => void;
 }) {
   const t = useT();
@@ -2752,16 +3231,27 @@ function DesignWorkspaceRail({
       <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
         {items.map((item) => {
           const active = item.panel === activePanel;
+          const disabled = disabledPanels?.has(item.panel) ?? false;
           return (
             <Tooltip key={item.panel}>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   aria-label={item.label}
+                  aria-disabled={disabled || undefined}
                   aria-current={active ? "page" : undefined}
-                  onClick={() => onPanelChange(item.panel)}
+                  tabIndex={disabled ? -1 : undefined}
+                  onClick={(event) => {
+                    if (disabled) {
+                      event.preventDefault();
+                      return;
+                    }
+                    onPanelChange(item.panel);
+                  }}
                   className={cn(
-                    "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1.5 rounded-none text-[10px] font-medium leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    disabled &&
+                      "cursor-default opacity-35 hover:text-muted-foreground",
                     active && "text-foreground",
                   )}
                 >
@@ -2771,6 +3261,8 @@ function DesignWorkspaceRail({
                       active
                         ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
                         : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                      disabled &&
+                        "group-hover:bg-transparent group-hover:text-muted-foreground",
                     )}
                   >
                     {item.icon}
@@ -2785,6 +3277,57 @@ function DesignWorkspaceRail({
           );
         })}
       </div>
+      {onMotionToggle ? (
+        <div className="mt-4 flex w-full flex-col items-center border-t border-border/70 pt-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={"Motion" /* i18n-ignore */}
+                aria-disabled={motionDisabled || undefined}
+                aria-pressed={motionOpen || undefined}
+                tabIndex={motionDisabled ? -1 : undefined}
+                onClick={(event) => {
+                  if (motionDisabled) {
+                    event.preventDefault();
+                    return;
+                  }
+                  onMotionToggle();
+                }}
+                className={cn(
+                  "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none !text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  motionDisabled &&
+                    "cursor-default opacity-35 hover:text-muted-foreground",
+                  motionOpen && "text-foreground",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-lg transition-colors",
+                    motionOpen
+                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                      : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                    motionDisabled &&
+                      "group-hover:bg-transparent group-hover:text-muted-foreground",
+                  )}
+                >
+                  {motionOpen ? (
+                    <IconChevronDown className="size-[15px]" />
+                  ) : (
+                    <IconChevronUp className="size-[15px]" />
+                  )}
+                </span>
+                <span className="max-w-full truncate leading-none">
+                  {"Motion" /* i18n-ignore */}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {"Motion" /* i18n-ignore */}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
     </nav>
   );
 }
@@ -3598,6 +4141,25 @@ export default function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const initialEditorUrlRef = useRef<{
+    designId: string | undefined;
+    searchParams: URLSearchParams;
+  } | null>(null);
+  if (
+    !initialEditorUrlRef.current ||
+    initialEditorUrlRef.current.designId !== id
+  ) {
+    initialEditorUrlRef.current = {
+      designId: id,
+      searchParams: new URLSearchParams(location.search),
+    };
+  }
+  const initialSearchParams = initialEditorUrlRef.current.searchParams;
+  const initialRouteScreenTarget =
+    initialSearchParams.get("screen") ??
+    initialSearchParams.get("fileId") ??
+    initialSearchParams.get("filename");
+  const initialRouteSelectionId = initialSearchParams.get("selection") || null;
   const searchParams = useMemo(
     () => new URLSearchParams(location.search),
     [location.search],
@@ -3632,7 +4194,9 @@ export default function DesignEditor() {
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [screenZoom, setScreenZoom] = useState(FOCUSED_SCREEN_ZOOM);
-  const [overviewCanvasZoom, setOverviewCanvasZoom] = useState(100);
+  const [explicitOverviewCanvasZoom, setExplicitOverviewCanvasZoom] = useState<
+    number | null
+  >(null);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   const viewModeRef = useRef<"single" | "overview">("overview");
@@ -3643,6 +4207,9 @@ export default function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
+  const [pendingVisualStyleEdits, setPendingVisualStyleEdits] = useState<
+    PendingVisualStyleEdit[]
+  >([]);
   const [textEditingState, setTextEditingState] = useState<{
     active: boolean;
     selector?: string;
@@ -3660,6 +4227,8 @@ export default function DesignEditor() {
     useState<InspectorTab>("design");
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel>("file");
+  const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
+  const initialUrlSelectionHydratedForIdRef = useRef<string | null>(null);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(256);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
@@ -3667,6 +4236,11 @@ export default function DesignEditor() {
   const [selectedLayerIdsState, setSelectedLayerIdsState] = useState<string[]>(
     [],
   );
+  const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
+  const effectiveCodeLayerStateRef = useRef<EffectiveCodeLayerState>({
+    lockedIds: new Set(),
+    hiddenIds: new Set(),
+  });
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
@@ -3817,10 +4391,22 @@ export default function DesignEditor() {
       motionDockUnmountTimerRef.current = window.setTimeout(() => {
         setMotionDockMounted(false);
         motionDockUnmountTimerRef.current = null;
-      }, MOTION_DOCK_TRANSITION_MS);
+      }, MOTION_DOCK_EXIT_FALLBACK_MS);
     },
     [clearMotionDockUnmountTimer],
   );
+  const handleMotionDockExitComplete = useCallback(() => {
+    if (motionDockOpen) return;
+    clearMotionDockUnmountTimer();
+    if (typeof window === "undefined") {
+      setMotionDockMounted(false);
+      return;
+    }
+    motionDockUnmountTimerRef.current = window.setTimeout(() => {
+      setMotionDockMounted(false);
+      motionDockUnmountTimerRef.current = null;
+    }, MOTION_DOCK_EXIT_SETTLE_MS);
+  }, [clearMotionDockUnmountTimer, motionDockOpen]);
   useEffect(
     () => () => clearMotionDockUnmountTimer(),
     [clearMotionDockUnmountTimer],
@@ -3973,22 +4559,50 @@ export default function DesignEditor() {
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
   const contentUndoStackRef = useRef<ContentHistoryEntry[]>([]);
   const contentRedoStackRef = useRef<ContentHistoryEntry[]>([]);
+  const localContentUndoStackRef = useRef<ContentHistoryChange[]>([]);
+  const localContentRedoStackRef = useRef<ContentHistoryChange[]>([]);
+  const activeFileIdForUndoRef = useRef<string | null>(null);
   const suppressContentHistoryRef = useRef(false);
   const geometryUndoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const historyOrderRef = useRef<UndoRedoOrderKind[]>([]);
   const redoOrderRef = useRef<UndoRedoOrderKind[]>([]);
+  const clearRedoStacks = useCallback(() => {
+    contentRedoStackRef.current = [];
+    localContentRedoStackRef.current = [];
+    geometryRedoStackRef.current = [];
+    redoOrderRef.current = [];
+    undoManagerRef.current?.clear(false, true);
+  }, []);
   const syncUndoRedoState = useCallback(() => {
     const undoManager = undoManagerRef.current;
+    const canUseOverviewHistory = viewModeRef.current === "overview";
+    const activeHistoryFileId = activeFileIdForUndoRef.current;
+    const hasLocalUndo =
+      !canUseOverviewHistory &&
+      findLastContentHistoryChangeIndex(
+        localContentUndoStackRef.current,
+        activeHistoryFileId,
+      ) !== -1;
+    const hasLocalRedo =
+      !canUseOverviewHistory &&
+      findLastContentHistoryChangeIndex(
+        localContentRedoStackRef.current,
+        activeHistoryFileId,
+      ) !== -1;
     setCanUndo(
       Boolean(undoManager?.canUndo()) ||
-        contentUndoStackRef.current.length > 0 ||
-        geometryUndoStackRef.current.length > 0,
+        hasLocalUndo ||
+        (canUseOverviewHistory &&
+          (contentUndoStackRef.current.length > 0 ||
+            geometryUndoStackRef.current.length > 0)),
     );
     setCanRedo(
       Boolean(undoManager?.canRedo()) ||
-        contentRedoStackRef.current.length > 0 ||
-        geometryRedoStackRef.current.length > 0,
+        hasLocalRedo ||
+        (canUseOverviewHistory &&
+          (contentRedoStackRef.current.length > 0 ||
+            geometryRedoStackRef.current.length > 0)),
     );
   }, []);
   const recordContentHistoryEntry = useCallback(
@@ -3997,23 +4611,59 @@ export default function DesignEditor() {
         (change) => change.before !== change.after,
       );
       if (changes.length === 0) return;
+      const activeHistoryFileId = activeFileIdForUndoRef.current;
+      if (
+        activeHistoryFileId &&
+        changes.some((change) => change.fileId === activeHistoryFileId)
+      ) {
+        undoManagerRef.current?.clear(true, false);
+        localContentUndoStackRef.current =
+          localContentUndoStackRef.current.filter(
+            (change) => change.fileId !== activeHistoryFileId,
+          );
+        localContentRedoStackRef.current =
+          localContentRedoStackRef.current.filter(
+            (change) => change.fileId !== activeHistoryFileId,
+          );
+        historyOrderRef.current = removeUndoRedoOrderKind(
+          historyOrderRef.current,
+          "content",
+        );
+        redoOrderRef.current = removeUndoRedoOrderKind(
+          redoOrderRef.current,
+          "content",
+        );
+      }
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         changes.length === 1 ? changes[0] : { changes },
       ];
-      contentRedoStackRef.current = [];
+      clearRedoStacks();
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "file-content",
       ];
-      redoOrderRef.current = [];
       syncUndoRedoState();
     },
-    [syncUndoRedoState],
+    [clearRedoStacks, syncUndoRedoState],
+  );
+  const recordLocalContentHistoryEntry = useCallback(
+    (change: ContentHistoryChange) => {
+      if (change.before === change.after) return;
+      localContentUndoStackRef.current = [
+        ...localContentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        change,
+      ];
+      clearRedoStacks();
+      syncUndoRedoState();
+    },
+    [clearRedoStacks, syncUndoRedoState],
   );
   const clearLocalUndoRedoStacks = useCallback(() => {
     contentUndoStackRef.current = [];
     contentRedoStackRef.current = [];
+    localContentUndoStackRef.current = [];
+    localContentRedoStackRef.current = [];
     geometryUndoStackRef.current = [];
     geometryRedoStackRef.current = [];
     historyOrderRef.current = [];
@@ -4023,9 +4673,6 @@ export default function DesignEditor() {
   const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
   const frameGeometrySaveTimerRef = useRef<number | null>(null);
   const [tweakSaveActive, setTweakSaveActive] = useState(false);
-  // Dismissible localhost-source banner (reset per session).
-  const [localSourceBannerDismissed, setLocalSourceBannerDismissed] =
-    useState(false);
   // Localhost write-consent dialog state. When the agent wants to write a local
   // file and no valid grant exists for the active connection, we show the dialog
   // with a pending payload; the user clicks "Allow writes" to mint a grant.
@@ -4218,7 +4865,9 @@ export default function DesignEditor() {
     onComplete: handleGenerationComplete,
     onStale: markGenerationStale,
     shouldAdoptRunningTab: () =>
-      Boolean(id) && !generationOutputReadyRef.current,
+      Boolean(id) &&
+      !generationOutputReadyRef.current &&
+      hasFreshPendingGeneration(id),
     onAdoptRunningTab: (tabId) => {
       generationRunConfirmedRef.current = true;
       setGenerationChatTabId(tabId);
@@ -4271,8 +4920,9 @@ export default function DesignEditor() {
     pendingQuestions && pendingQuestions.length > 0,
   );
 
-  const { session } = useSession();
+  const { session, isLoading: sessionLoading } = useSession();
   const isSignedIn = Boolean(session?.email);
+  const sessionResolved = !sessionLoading;
 
   useEffect(() => {
     return () => clearGenerationCompleteTimer();
@@ -4310,11 +4960,10 @@ export default function DesignEditor() {
         : undefined,
     [session?.email, session?.name],
   );
+  const signInToSaveHref = buildSignInHrefForDesignIntent("save");
+  const signInToShareHref = buildSignInHrefForDesignIntent("share");
   const handleSignInToSave = useCallback(() => {
     window.location.href = buildSignInHrefForDesignIntent("save");
-  }, []);
-  const handleSignInToShare = useCallback(() => {
-    window.location.href = buildSignInHrefForDesignIntent("share");
   }, []);
 
   // Data fetching
@@ -4362,6 +5011,7 @@ export default function DesignEditor() {
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
   const canEditDesignRef = useRef(canEditDesign);
   const pendingLocalFileContentsRef = useRef<
     Map<
@@ -4520,8 +5170,8 @@ export default function DesignEditor() {
     null,
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
-  const [downloadZipInstead, setDownloadZipInstead] = useState(false);
-  const [codingHandoffDetail, setCodingHandoffDetail] = useState("");
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const shareLinkCopiedResetRef = useRef<number | null>(null);
   const [, setPatchProof] = useState<PatchProofState | null>(null);
   const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
     {},
@@ -4716,6 +5366,13 @@ export default function DesignEditor() {
     if (!id || typeof window === "undefined") return undefined;
     return getDesignEditorShareUrl(id, window.location.origin, appBasePath());
   }, [id]);
+  useEffect(() => {
+    return () => {
+      if (shareLinkCopiedResetRef.current !== null) {
+        window.clearTimeout(shareLinkCopiedResetRef.current);
+      }
+    };
+  }, []);
   const {
     designSystems,
     defaultSystem,
@@ -4909,6 +5566,24 @@ export default function DesignEditor() {
       return pending ? { ...file, content: pending.content } : file;
     });
   }, [pendingLocalFileContentsSnapshot, serverFiles]);
+  const [liveScreenSnapshotsById, setLiveScreenSnapshotsById] = useState<
+    Record<string, LiveScreenSnapshot>
+  >({});
+  useEffect(() => {
+    const liveFileIds = new Set(serverFiles.map((file) => file.id));
+    setLiveScreenSnapshotsById((current) => {
+      let changed = false;
+      const next: Record<string, LiveScreenSnapshot> = {};
+      Object.entries(current).forEach(([fileId, snapshot]) => {
+        if (!liveFileIds.has(fileId)) {
+          changed = true;
+          return;
+        }
+        next[fileId] = snapshot;
+      });
+      return changed ? next : current;
+    });
+  }, [serverFiles]);
   const designDataJson = useMemo(
     () => parseDesignDataJson(design?.data),
     [design?.data],
@@ -5024,6 +5699,7 @@ export default function DesignEditor() {
           height: numberValue("height"),
           url: stringValue("url"),
           previewUrl: stringValue("previewUrl"),
+          bridgeUrl: stringValue("bridgeUrl"),
           // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
           // renders one iframe per width to the right of the primary frame.
           breakpointWidths: bpWidths,
@@ -5046,28 +5722,19 @@ export default function DesignEditor() {
     return typeof boardFile?.content === "string" ? boardFile.content : "";
   }, [boardFileId, files]);
 
-  // Logical canvas-space bounding box of the board iframe.  The board covers the
-  // full canvas surface, so we compute the union of all screen frame geometries.
-  // x:0/y:0 since screen geometries use canvas-space coords that start at origin.
+  // Logical canvas-space bounding box of the board iframe. The board is an
+  // invisible editing layer behind screen frames, not a finite artboard, so keep
+  // it at the canvas-safe maximum instead of clipping it to the screen union.
   const boardFrameGeometry = useMemo((): FrameGeometry | undefined => {
     if (!boardFileId) return undefined;
-    const entries = Object.values(canvasFrameGeometryById);
-    if (entries.length === 0) return { x: 0, y: 0, width: 1920, height: 1080 };
-    let maxRight = 0;
-    let maxBottom = 0;
-    for (const geo of entries) {
-      const right = (geo.x ?? 0) + (geo.width ?? 0);
-      const bottom = (geo.y ?? 0) + (geo.height ?? 0);
-      if (right > maxRight) maxRight = right;
-      if (bottom > maxBottom) maxBottom = bottom;
-    }
+    const origin = -BOARD_SURFACE_SIZE / 2;
     return {
-      x: 0,
-      y: 0,
-      width: Math.min(Math.max(maxRight, 1920), 16384),
-      height: Math.min(Math.max(maxBottom, 1080), 16384),
+      x: origin,
+      y: origin,
+      width: BOARD_SURFACE_SIZE,
+      height: BOARD_SURFACE_SIZE,
     };
-  }, [boardFileId, canvasFrameGeometryById]);
+  }, [boardFileId]);
 
   const queueFrameGeometrySave = useCallback(
     (geometryById: CanvasFrameGeometryById) => {
@@ -5160,14 +5827,11 @@ export default function DesignEditor() {
           after: afterSnapshot,
         },
       ];
-      geometryRedoStackRef.current = [];
-      contentRedoStackRef.current = [];
-      undoManagerRef.current?.clear(false, true);
+      clearRedoStacks();
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "geometry",
       ];
-      redoOrderRef.current = [];
       const resizedFrameIds = viewportChangedFrameIds(
         beforeSnapshot,
         afterSnapshot,
@@ -5180,7 +5844,7 @@ export default function DesignEditor() {
       );
       syncUndoRedoState();
     },
-    [syncUndoRedoState, writeFrameGeometrySnapshot],
+    [clearRedoStacks, syncUndoRedoState, writeFrameGeometrySnapshot],
   );
 
   // §6.6 — "Make this a real app" handler.
@@ -5356,6 +6020,7 @@ export default function DesignEditor() {
   }, [files, activeFileId]);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+  activeFileIdForUndoRef.current = activeFile?.id ?? null;
   const motionTimelineQueryParams =
     id && activeFile?.id
       ? { designId: id, sourceRef: activeFile.id }
@@ -5384,12 +6049,6 @@ export default function DesignEditor() {
     setReviewAuditLoading(false);
   }, [activeFile?.id, reviewFileId]);
 
-  const initialGenerationReadOnly = shouldLockInspectorForInitialGeneration({
-    fileCount: files.length,
-    generating,
-    pendingGenerationActive,
-  });
-
   const selectedScreenIds = useMemo(
     () =>
       getSelectedScreenIdsForEditorState({
@@ -5408,6 +6067,10 @@ export default function DesignEditor() {
         : undefined,
     [activeOverviewScreenId, overviewScreens],
   );
+  const activeScreenBridgeUrl = activeOverviewScreen?.bridgeUrl;
+  const activeScreenExternalSnapshotHtml = activeFile?.id
+    ? liveScreenSnapshotsById[activeFile.id]?.html
+    : undefined;
   const activeOverviewSourceWidth =
     deviceFrame === "none"
       ? activeOverviewScreen?.width
@@ -5425,6 +6088,9 @@ export default function DesignEditor() {
     overviewZoomScaleRef.current = overviewZoomScale;
   }, [overviewZoomScale]);
 
+  const overviewCanvasZoom =
+    explicitOverviewCanvasZoom ??
+    getDefaultOverviewCanvasZoom(overviewZoomScale);
   const overviewZoom = getOverviewDisplayZoom(
     overviewCanvasZoom,
     overviewZoomScale,
@@ -5433,10 +6099,12 @@ export default function DesignEditor() {
   const setZoomForView = useCallback(
     (targetView: "single" | "overview", update: SetStateAction<number>) => {
       if (targetView === "overview") {
-        setOverviewCanvasZoom((currentCanvasZoom) => {
+        setExplicitOverviewCanvasZoom((currentCanvasZoom) => {
           const scale = overviewZoomScaleRef.current;
+          const resolvedCanvasZoom =
+            currentCanvasZoom ?? getDefaultOverviewCanvasZoom(scale);
           const currentDisplayZoom = getOverviewDisplayZoom(
-            currentCanvasZoom,
+            resolvedCanvasZoom,
             scale,
           );
           const nextDisplayZoom = resolveZoomUpdate(update, currentDisplayZoom);
@@ -5463,6 +6131,7 @@ export default function DesignEditor() {
   const applyDesignEditorCommand = useCallback(
     (command: DesignEditorCommand | Record<string, unknown>) => {
       if (!id || command.designId !== id) return true;
+      const commandRecord = command as Record<string, unknown>;
       const editorView =
         command.editorView === "overview" || command.editorView === "single"
           ? command.editorView
@@ -5479,6 +6148,14 @@ export default function DesignEditor() {
               : typeof command.screen === "string"
                 ? command.screen
                 : null;
+      const selectionId =
+        typeof command.selection === "string"
+          ? command.selection
+          : typeof commandRecord.nodeId === "string"
+            ? commandRecord.nodeId
+            : typeof commandRecord.layerId === "string"
+              ? commandRecord.layerId
+              : null;
       const targetFile = findDesignFileByScreenTarget(files, target);
       // A navigate command can name a screen the agent just created that the
       // get-design query hasn't refetched yet. Treat any unresolved named target
@@ -5526,6 +6203,9 @@ export default function DesignEditor() {
       if (targetFile) {
         setActiveFileId(targetFile.id);
       }
+      if (selectionId) {
+        setSelectedLayerIdsState([selectionId]);
+      }
 
       const commandZoom =
         typeof command.zoom === "number" && Number.isFinite(command.zoom)
@@ -5537,12 +6217,12 @@ export default function DesignEditor() {
 
       if (editorView === "overview") {
         viewModeRef.current = "overview";
-        setSelectedElement(null);
+        if (!selectionId) setSelectedElement(null);
         applyCommandTool("move");
         setViewMode("overview");
       } else if (editorView === "single") {
         viewModeRef.current = "single";
-        setSelectedElement(null);
+        if (!selectionId) setSelectedElement(null);
         applyCommandTool("move");
         if (commandZoom === null) {
           setScreenZoom(FOCUSED_SCREEN_ZOOM);
@@ -5559,10 +6239,20 @@ export default function DesignEditor() {
 
   useEffect(() => {
     if (!id) return;
-    const command = designEditorCommandFromSearchParams(id, searchParams);
-    if (!command) return;
-    applyDesignEditorCommand(command);
-  }, [applyDesignEditorCommand, id, searchParams]);
+    if (initialSearchCommandAppliedForIdRef.current === id) return;
+    const command = designEditorCommandFromSearchParams(
+      id,
+      initialSearchParams,
+    );
+    if (!command) {
+      initialSearchCommandAppliedForIdRef.current = id;
+      return;
+    }
+    const applied = applyDesignEditorCommand(command);
+    if (applied) {
+      initialSearchCommandAppliedForIdRef.current = id;
+    }
+  }, [applyDesignEditorCommand, id, initialSearchParams]);
 
   useEffect(() => {
     if (!id) return;
@@ -5862,6 +6552,7 @@ export default function DesignEditor() {
   const [collabContentFileId, setCollabContentFileId] = useState<string | null>(
     null,
   );
+  const previousDesignIdForHistoryRef = useRef<string | null>(null);
   const prevActiveFileIdRef = useRef<string | null>(null);
   // `updatedAt` of the DB content this preview currently reflects. A poll that
   // returns an older-or-equal value is a stale snapshot and is ignored; a newer
@@ -5907,7 +6598,16 @@ export default function DesignEditor() {
     };
   }, [awareness, ydoc]);
 
-  // Reset per-file reconcile state when switching files
+  useEffect(() => {
+    if (previousDesignIdForHistoryRef.current === id) return;
+    previousDesignIdForHistoryRef.current = id ?? null;
+    clearLocalUndoRedoStacks();
+    syncUndoRedoState();
+  }, [clearLocalUndoRedoStacks, id, syncUndoRedoState]);
+
+  // Reset per-file reconcile state when switching files.
+  // Keep undo/redo content + geometry stacks intact: overview mode needs one
+  // chronological history across all screens, board edits, and frame geometry.
   useEffect(() => {
     if (viewMode === "overview") {
       prevActiveFileIdRef.current = activeFileId;
@@ -5916,9 +6616,7 @@ export default function DesignEditor() {
       lastAppliedFileUpdatedAtRef.current = null;
       lastLocalContentRef.current = null;
       latestActiveContentRef.current = null;
-      clearLocalUndoRedoStacks();
       clearStaleAgentCollabRecovery();
-      syncUndoRedoState();
       return;
     }
     if (activeFileId !== prevActiveFileIdRef.current) {
@@ -5928,17 +6626,9 @@ export default function DesignEditor() {
       lastAppliedFileUpdatedAtRef.current = null;
       lastLocalContentRef.current = null;
       latestActiveContentRef.current = null;
-      clearLocalUndoRedoStacks();
       clearStaleAgentCollabRecovery();
-      syncUndoRedoState();
     }
-  }, [
-    activeFileId,
-    clearLocalUndoRedoStacks,
-    clearStaleAgentCollabRecovery,
-    syncUndoRedoState,
-    viewMode,
-  ]);
+  }, [activeFileId, clearStaleAgentCollabRecovery, viewMode]);
 
   useEffect(() => {
     return clearStaleAgentCollabRecovery;
@@ -6102,12 +6792,19 @@ export default function DesignEditor() {
     });
 
     const syncState = () => syncUndoRedoState();
-    const handleStackItemAdded = () => {
+    const handleStackItemAdded = (event: {
+      origin?: unknown;
+      type?: "undo" | "redo";
+    }) => {
+      if (event.origin !== LOCAL_EDIT_ORIGIN || event.type !== "undo") {
+        syncUndoRedoState();
+        return;
+      }
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "content",
       ];
-      redoOrderRef.current = [];
+      clearRedoStacks();
       syncUndoRedoState();
     };
     um.on("stack-item-added", handleStackItemAdded);
@@ -6135,7 +6832,7 @@ export default function DesignEditor() {
       );
       syncUndoRedoState();
     };
-  }, [ydoc, isSynced, syncUndoRedoState]);
+  }, [clearRedoStacks, ydoc, isSynced, syncUndoRedoState]);
 
   // Reconcile authoritative external DB content (agent edit / peer-via-SQL) into
   // the live preview. This is the robustness fallback the Yjs observe path can't
@@ -6288,6 +6985,7 @@ export default function DesignEditor() {
   // Canvas container ref for cursor overlay coordinate mapping.
   const canvasContextMenuRef = useRef<CanvasContextMenuHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const activeEditorDragRef = useRef(false);
 
   // Live handle to the active DesignCanvas preview iframe. DesignCanvas owns the
   // <iframe> internally (tagged data-design-preview-iframe) and does not forward
@@ -6304,6 +7002,25 @@ export default function DesignEditor() {
     }),
     [],
   );
+
+  const handleEditorDragStateChange = useCallback((active: boolean) => {
+    activeEditorDragRef.current = active;
+  }, []);
+
+  const cancelActiveEditorDrag = useCallback(() => {
+    if (!activeEditorDragRef.current) return false;
+    activeEditorDragRef.current = false;
+    if (typeof document === "undefined") return true;
+    document
+      .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+      .forEach((iframe) => {
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:cancel-active-drag" },
+          "*",
+        );
+      });
+    return true;
+  }, []);
 
   const handleRunDesignAudit = useCallback(async () => {
     if (!id || !activeFile?.id) return;
@@ -6485,9 +7202,20 @@ export default function DesignEditor() {
       : (activeFile?.content ?? ""));
   const activeContent =
     typeof activeContentSource === "string" ? activeContentSource : "";
+  const initialGenerationChromeLimited =
+    shouldLimitEditorChromeUntilContentReady({
+      fileCount: files.length,
+      generating,
+      hasActiveCanvasContent: Boolean(activeFile && activeContent.trim()),
+      pendingGenerationActive,
+    });
   useLayoutEffect(() => {
     latestActiveContentRef.current = activeContent;
   }, [activeContent]);
+  useEffect(() => {
+    if (!initialGenerationChromeLimited || activeLeftPanel === "agent") return;
+    setActiveLeftPanel("agent");
+  }, [activeLeftPanel, initialGenerationChromeLimited]);
   const fileContentById = useMemo(() => {
     const map = new Map<string, string>();
     for (const file of files) {
@@ -6500,22 +7228,150 @@ export default function DesignEditor() {
       getFreshScreenContent({
         screenId,
         activeFileId: activeFile?.id,
-        freshActiveContent: getFreshActiveFileContent({
-          activeContent,
-          latestContent: latestActiveContentRef.current,
-          lastLocalContent: lastLocalContentRef.current,
-        }),
+        freshActiveContentFileId: activeFile?.id,
+        freshActiveContent: activeContent,
         fileContentById,
       }),
     [activeContent, activeFile?.id, fileContentById],
   );
+  const getProjectionContentForScreen = useCallback(
+    (screenId: string) =>
+      liveScreenSnapshotsById[screenId]?.html ?? getScreenContent(screenId),
+    [getScreenContent, liveScreenSnapshotsById],
+  );
+  const handleScreenExternalContentSnapshot = useCallback(
+    (screenId: string, snapshot: LiveScreenSnapshot) => {
+      setLiveScreenSnapshotsById((current) => {
+        const existing = current[screenId];
+        if (
+          existing?.url === snapshot.url &&
+          existing.html === snapshot.html &&
+          existing.status === snapshot.status &&
+          existing.contentType === snapshot.contentType
+        ) {
+          return current;
+        }
+        return { ...current, [screenId]: snapshot };
+      });
+    },
+    [],
+  );
+  const updateLiveScreenSnapshotContent = useCallback(
+    (screenId: string, html: string) => {
+      const existing = liveScreenSnapshotsById[screenId];
+      if (!existing) return false;
+      if (existing.html === html) return true;
+      setLiveScreenSnapshotsById((current) => ({
+        ...current,
+        [screenId]: { ...existing, html },
+      }));
+      return true;
+    },
+    [liveScreenSnapshotsById],
+  );
+  const recordPendingVisualStyleEdit = useCallback(
+    (
+      screenId: string,
+      selector: string,
+      styles: Record<string, string>,
+      elementInfo?: ElementInfo,
+    ) => {
+      if (!canEditDesign) return;
+      const entries = Object.entries(styles).filter(
+        ([, value]) => value !== undefined,
+      );
+      if (entries.length === 0) return;
+      const stylePatch = Object.fromEntries(entries);
+      const screen = files.find((file) => file.id === screenId);
+      const fallbackName = screen?.filename ?? screenId;
+      const sourceId =
+        elementInfo?.sourceId ??
+        (screenId === activeFile?.id ? selectedElement?.sourceId : null);
+      const proofId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const [firstProperty, firstValue] = entries[0];
+
+      setPendingVisualStyleEdits((current) =>
+        mergePendingVisualStyleEdit(current, {
+          screenId,
+          filename: fallbackName,
+          screenName: prettyScreenName(fallbackName),
+          selector,
+          sourceId,
+          tagName: elementInfo?.tagName ?? null,
+          classes: elementInfo?.classes ?? [],
+          styles: stylePatch,
+          updatedAt: Date.now(),
+        }),
+      );
+      setPatchProof({
+        id: proofId,
+        fileId: screenId,
+        filename: fallbackName,
+        selector,
+        sourceId: sourceId ?? undefined,
+        property:
+          entries.length === 1
+            ? firstProperty
+            : entries.map(([property]) => property).join(", "),
+        previousValue:
+          elementInfo?.computedStyles?.[firstProperty] ??
+          (screenId === activeFile?.id
+            ? selectedElement?.computedStyles?.[firstProperty]
+            : undefined),
+        nextValue:
+          entries.length === 1
+            ? firstValue
+            : entries
+                .map(([property, value]) => `${property}: ${value}`)
+                .join("; "),
+        previousContent: getProjectionContentForScreen(screenId),
+        capability: "deterministic-style-edit",
+        confidence: 0.92,
+        status: "runtime",
+        createdAt: Date.now(),
+      });
+
+      if (screenId !== activeFile?.id) return;
+      setSelectedElement((prev) => {
+        const base = elementInfo ?? prev;
+        if (!base) return prev;
+        return {
+          ...base,
+          sourceId: sourceId ?? base.sourceId,
+          selector: selector || base.selector,
+          computedStyles: {
+            ...base.computedStyles,
+            ...stylePatch,
+          },
+        };
+      });
+      if (sourceId) {
+        setSelectedLayerIdsState([sourceId]);
+      }
+    },
+    [
+      activeFile?.id,
+      canEditDesign,
+      files,
+      getProjectionContentForScreen,
+      selectedElement?.computedStyles,
+      selectedElement?.sourceId,
+    ],
+  );
+  const activeProjectionContent =
+    activeFile?.id !== undefined
+      ? getProjectionContentForScreen(activeFile.id)
+      : activeContent;
   const pageStyles = useMemo(
     () => getBodyInlineStyles(activeContent),
     [activeContent],
   );
   const activeCodeLayerProjection = useMemo(
-    () => buildCodeLayerProjection(activeContent),
-    [activeContent],
+    () => buildCodeLayerProjection(activeProjectionContent),
+    [activeProjectionContent],
   );
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
@@ -6621,9 +7477,13 @@ export default function DesignEditor() {
   const designSourceType = useMemo(
     () =>
       normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
+      normalizeDesignSourceType(designDataJson.sourceMode as unknown) ??
       "inline",
-    [designDataJson.sourceType],
+    [designDataJson.sourceMode, designDataJson.sourceType],
   );
+  const activeCanvasSourceType =
+    normalizeDesignSourceType(activeOverviewScreen?.sourceType) ??
+    designSourceType;
   const sourceCapabilities = useMemo(() => {
     const caps = resolveSourceCapabilities(designSourceType);
     return DESIGN_CAPABILITY_NAMES.filter((name) => hasCapability(caps, name));
@@ -6666,6 +7526,11 @@ export default function DesignEditor() {
       ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
       : undefined;
   }, [selectedCodeLayerNode]);
+  const selectedElementAlreadyComponent = useMemo(() => {
+    if (!selectedElement) return false;
+    if (selectedElement.componentName?.trim()) return true;
+    return codeLayerNodeLooksLikeComponent(selectedCodeLayerNode);
+  }, [selectedCodeLayerNode, selectedElement]);
 
   useEffect(() => {
     setShaderFillPreview(null);
@@ -6686,11 +7551,8 @@ export default function DesignEditor() {
   // Outer HTML of the selection — backs the inline/Alpine "Inspect code" view.
   const selectedElementOuterHtml = useMemo(() => {
     if (!selectedElement?.selector) return null;
-    return (
-      selectedElement.htmlContent ??
-      getElementOuterHtml(activeContent, selectedElement.selector)
-    );
-  }, [activeContent, selectedElement?.selector, selectedElement?.htmlContent]);
+    return getElementOuterHtml(activeContent, selectedElement.selector);
+  }, [activeContent, selectedElement?.selector]);
 
   // §6.3 — the motion-dock target: the selected element's literal
   // `data-agent-native-node-id` (the value the motion compiler + preview bridge
@@ -6757,7 +7619,13 @@ export default function DesignEditor() {
     // resolveNodeToFile bridge op, which is wired through open-component-source
     // when an external file path is available; until that round-trip is hooked
     // up here the popover shows the projected HTML for all source types.
-    return { html: selectedElementOuterHtml, sourceLocation: null };
+    return {
+      html: selectedElementOuterHtml,
+      tagName: selectedElement.tagName,
+      id: selectedElement.id,
+      classes: selectedElement.classes,
+      sourceLocation: null,
+    };
   }, [selectedElement, selectedElementOuterHtml]);
 
   const handleCreateComponent = useCallback(
@@ -6783,7 +7651,7 @@ export default function DesignEditor() {
       // Follow-up: ask the Design agent to extract props and replace repeated
       // instances with this component. The deterministic annotate above is the
       // core; this is an enhancement that runs in the agent chat.
-      sendToAgentChat({
+      sendToDesignAgentChat({
         message: `Extract props for the "${name}" component and replace repeated instances on this design with it.`,
         context: [
           `Design id: "${id}".`,
@@ -6838,18 +7706,22 @@ export default function DesignEditor() {
     (screenId: string) => {
       if (screenId === activeFile?.id) return activeCodeLayerProjection;
       if (!fileContentById.has(screenId)) return null;
-      return buildCodeLayerProjection(getScreenContent(screenId));
+      return buildCodeLayerProjection(getProjectionContentForScreen(screenId));
     },
     [
       activeCodeLayerProjection,
       activeFile?.id,
       fileContentById,
-      getScreenContent,
+      getProjectionContentForScreen,
     ],
   );
 
   const replacePreviewContent = useCallback(
-    (nextContent: string, selector?: string | null) => {
+    (
+      nextContent: string,
+      selector?: string | null,
+      options: { forceFullDocument?: boolean } = {},
+    ) => {
       const replaceContent = (window as any).__designCanvasReplaceContent;
       if (typeof replaceContent !== "function") return false;
       return Boolean(
@@ -6857,7 +7729,9 @@ export default function DesignEditor() {
           nextContent,
           selector ?? selectedCanvasSelector,
           selectedCanvasSelectorCandidates,
-          selectedElement?.sourceId ?? selectedElement?.id,
+          {
+            forceFullDocument: options.forceFullDocument === true,
+          },
         ),
       );
     },
@@ -6884,9 +7758,11 @@ export default function DesignEditor() {
       options: {
         refreshPreview?: boolean;
         skipPreview?: boolean;
+        forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
+        historyBeforeContent?: string;
         updatedAt?: string;
       } = {},
     ) => {
@@ -6894,12 +7770,18 @@ export default function DesignEditor() {
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
       const previousContent =
-        collabContentFileIdRef.current === activeFile.id &&
-        typeof collabContentRef.current === "string"
-          ? collabContentRef.current
-          : (activeFile.content ?? "");
+        typeof options.historyBeforeContent === "string"
+          ? options.historyBeforeContent
+          : collabContentFileIdRef.current === activeFile.id &&
+              typeof collabContentRef.current === "string"
+            ? collabContentRef.current
+            : (activeFile.content ?? "");
       const yjsHistoryAvailable = Boolean(
-        shouldRecordHistory && ydoc && isSynced && undoManagerRef.current,
+        shouldRecordHistory &&
+        viewModeRef.current !== "overview" &&
+        ydoc &&
+        isSynced &&
+        undoManagerRef.current,
       );
       if (
         !suppressContentHistoryRef.current &&
@@ -6907,11 +7789,16 @@ export default function DesignEditor() {
         !yjsHistoryAvailable &&
         previousContent !== nextContent
       ) {
-        recordContentHistoryEntry({
+        const change = {
           fileId: activeFile.id,
           before: previousContent,
           after: nextContent,
-        });
+        };
+        if (viewModeRef.current === "overview") {
+          recordContentHistoryEntry(change);
+        } else {
+          recordLocalContentHistoryEntry(change);
+        }
       }
       if (options.updatedAt) {
         clearPendingLocalFileContent(activeFile.id);
@@ -6960,8 +7847,18 @@ export default function DesignEditor() {
         ? true
         : forceRefresh
           ? false
-          : replacePreviewContent(nextContent);
-      if (forceRefresh || !replacedPreview) {
+          : replacePreviewContent(
+              nextContent,
+              null,
+              options.forcePreviewFullDocument
+                ? { forceFullDocument: true }
+                : undefined,
+            );
+      if (
+        forceRefresh ||
+        options.forcePreviewFullDocument ||
+        !replacedPreview
+      ) {
         setContentRenderRevision((revision) => revision + 1);
       }
       if (ydoc && isSynced) {
@@ -6972,7 +7869,7 @@ export default function DesignEditor() {
               ytext.delete(0, ytext.length);
               ytext.insert(0, nextContent);
             },
-            shouldRecordHistory ? LOCAL_EDIT_ORIGIN : TAB_ID,
+            yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
           );
         }
       }
@@ -6996,6 +7893,7 @@ export default function DesignEditor() {
       queueFileContentSave,
       replacePreviewContent,
       recordContentHistoryEntry,
+      recordLocalContentHistoryEntry,
       syncUndoRedoState,
       ydoc,
     ],
@@ -7008,6 +7906,7 @@ export default function DesignEditor() {
       options: {
         refreshPreview?: boolean;
         skipPreview?: boolean;
+        forcePreviewFullDocument?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         updatedAt?: string;
@@ -7107,27 +8006,48 @@ export default function DesignEditor() {
     motionAutosaveTimerRef.current = window.setTimeout(() => {
       motionAutosaveTimerRef.current = null;
       if (motionAutosaveRevisionRef.current !== revisionAtSchedule) return;
+      const tracksForSave = motionTracks.map(
+        ({ label: _label, ...track }) => track,
+      );
+      const currentContent = getFreshActiveFileContent({
+        activeContent,
+        latestContent: latestActiveContentRef.current,
+        lastLocalContent: lastLocalContentRef.current,
+      });
+      const localMotionCss = compileMotionTimeline({
+        id: motionTimelineId ?? "",
+        designId: id,
+        sourceRef: activeFile.id,
+        filePath: null,
+        tracks: tracksForSave,
+        durationMs: motionDurationMs,
+        defaultEase: "ease",
+        compiledHash: null,
+        createdAt: "",
+        updatedAt: "",
+      }).css;
+      const localPatchedContent = injectManagedMotionCss(
+        currentContent,
+        localMotionCss,
+      );
       applyMotionEdit(
         {
           designId: id,
           fileId: activeFile.id,
           timelineId: motionTimelineId ?? undefined,
           sourceRef: activeFile.id,
-          tracks: motionTracks.map(({ label: _label, ...track }) => track),
+          tracks: tracksForSave,
           durationMs: motionDurationMs,
-          currentContent: getFreshActiveFileContent({
-            activeContent,
-            latestContent: latestActiveContentRef.current,
-            lastLocalContent: lastLocalContentRef.current,
-          }),
-          includeContent: true,
+          currentContent,
+          includeContent: false,
         },
         {
           onSuccess: (result) => {
             const response = result as {
               fileId?: unknown;
               timelineId?: unknown;
-              patchedContent?: unknown;
+              updatedAt?: unknown;
+              contentPatched?: unknown;
             };
             if (typeof response.timelineId === "string") {
               setMotionTimelineId(response.timelineId);
@@ -7139,10 +8059,15 @@ export default function DesignEditor() {
             }
             if (
               typeof response.fileId === "string" &&
-              typeof response.patchedContent === "string"
+              response.fileId === activeFile.id &&
+              response.contentPatched !== false
             ) {
-              applyFileContentUpdate(response.fileId, response.patchedContent, {
-                refreshPreview: response.fileId === activeFile.id,
+              applyFileContentUpdate(response.fileId, localPatchedContent, {
+                refreshPreview: true,
+                persist: false,
+                ...(typeof response.updatedAt === "string"
+                  ? { updatedAt: response.updatedAt }
+                  : {}),
               });
             }
             void queryClient.invalidateQueries({
@@ -7273,7 +8198,9 @@ export default function DesignEditor() {
                 : storedContent;
             })()
           : storedContent);
-      const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive);
+      const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive, {
+        preserveNegativePosition: targetFile.id === boardFileId,
+      });
       if (!nextContent) {
         toast.error(t("designEditor.toasts.primitiveInsertFailed"));
         return false;
@@ -7287,7 +8214,11 @@ export default function DesignEditor() {
         : null;
 
       if (targetFile.id === activeFile?.id) {
-        applyLocalContentUpdate(nextContent, { immediateSave: true });
+        applyLocalContentUpdate(nextContent, {
+          forcePreviewFullDocument: true,
+          historyBeforeContent: baseContent,
+          immediateSave: true,
+        });
       } else {
         recordContentHistoryEntry({
           fileId: targetFile.id,
@@ -7335,6 +8266,7 @@ export default function DesignEditor() {
       activeContent,
       activeFile?.id,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
       files,
       id,
@@ -7348,13 +8280,14 @@ export default function DesignEditor() {
   );
 
   const handlePrimitiveCreated = useCallback(
-    (screenId: string, nodeId: string) => {
+    (screenId: string, nodeId: string, options?: { selectFrame?: boolean }) => {
       // B2/B4 fix: stay in overview mode after drawing a primitive.  The user
       // drew a shape on the board — they should remain on the board with the
       // new primitive selected, matching Figma behaviour.  We activate the
       // target screen (so the layers panel shows its content) and select the
       // new node, but do NOT switch to single/full view.
-      pendingOverviewScreenSelectionRef.current = screenId;
+      pendingOverviewScreenSelectionRef.current =
+        options?.selectFrame === false ? null : screenId;
       pendingOverviewLayerSelectionRef.current = nodeId;
       clearPendingOverviewLayerSelectionTimer();
       flushSync(() => {
@@ -7363,7 +8296,9 @@ export default function DesignEditor() {
         setSelectedElement(null);
         setHoveredElement(null);
         setSelectedLayerIdsState([nodeId]);
-        setOverviewSelectedScreenIds([screenId]);
+        setOverviewSelectedScreenIds(
+          options?.selectFrame === false ? [] : [screenId],
+        );
         setActiveTool("move");
         setMode("edit");
       });
@@ -7380,7 +8315,7 @@ export default function DesignEditor() {
         scheduleBeginTextEditForScreen(screenId, textNodeId);
       }
     },
-    [clearPendingOverviewLayerSelectionTimer],
+    [clearPendingOverviewLayerSelectionTimer, scheduleBeginTextEditForScreen],
   );
 
   /**
@@ -7394,34 +8329,27 @@ export default function DesignEditor() {
       if (!boardFileId || !canEditDesign) return false;
       const result = handleCreatePrimitive(boardFileId, primitive);
       if (!result) return false;
-
-      // For TEXT primitives drawn on the board surface, immediately enter
-      // text-editing mode via begin-text-edit. The target is the board file,
-      // so use the same iframe-targeted retry path as screen primitives.
-      if (primitive.kind === "text") {
-        const textNodeId =
-          pendingTextEditNodeIdRef.current ?? primitive.nodeId ?? null;
-        pendingTextEditNodeIdRef.current = null;
-        if (textNodeId) {
-          scheduleBeginTextEditForScreen(boardFileId, textNodeId);
-        }
+      const nodeId = typeof result === "string" ? result : primitive.nodeId;
+      if (nodeId) {
+        handlePrimitiveCreated(boardFileId, nodeId, { selectFrame: false });
       }
 
       return result;
     },
-    [boardFileId, canEditDesign, handleCreatePrimitive],
+    [boardFileId, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
   );
 
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[]) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
-      const fileIds = new Set(files.map((file) => file.id));
+      const fileIds = new Set(
+        files.filter((file) => file.id !== boardFileId).map((file) => file.id),
+      );
+      const nextIds = ids.filter((layerId) => fileIds.has(layerId));
       if (pendingId && ids.length === 0) return;
       if (pendingId && ids.includes(pendingId)) {
-        setOverviewSelectedScreenIds(
-          ids.filter(
-            (layerId) => fileIds.has(layerId) || layerId === pendingId,
-          ),
+        setOverviewSelectedScreenIds((current) =>
+          sameStringIds(current, nextIds) ? current : nextIds,
         );
         if (fileIds.has(pendingId)) {
           pendingOverviewScreenSelectionRef.current = null;
@@ -7434,11 +8362,11 @@ export default function DesignEditor() {
         clearPendingOverviewLayerSelectionTimer();
         setCreatedOverviewLayerSelection(null);
       }
-      setOverviewSelectedScreenIds(
-        ids.filter((layerId) => fileIds.has(layerId)),
+      setOverviewSelectedScreenIds((current) =>
+        sameStringIds(current, nextIds) ? current : nextIds,
       );
     },
-    [clearPendingOverviewLayerSelectionTimer, files],
+    [boardFileId, clearPendingOverviewLayerSelectionTimer, files],
   );
 
   const shouldPreserveBlockedOverviewLayerSelectionRef = useRef<
@@ -7447,6 +8375,7 @@ export default function DesignEditor() {
 
   const handleMoveTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     setActiveTool("move");
     setMode("edit");
     setDrawMode(false);
@@ -7455,6 +8384,7 @@ export default function DesignEditor() {
 
   const handleFrameTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("frame");
       setMode("edit");
@@ -7468,6 +8398,7 @@ export default function DesignEditor() {
 
   const handleTextTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("text");
       viewModeRef.current = "overview";
@@ -7482,6 +8413,7 @@ export default function DesignEditor() {
   const handleShapeTool = useCallback(
     (tool: ShapeTool) => {
       if (!canEditDesign) return;
+      blurActiveDesignEditableTarget();
       flushSync(() => {
         setActiveTool(tool);
         viewModeRef.current = "overview";
@@ -7501,6 +8433,7 @@ export default function DesignEditor() {
 
   const handlePenTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("pen");
       viewModeRef.current = "overview";
@@ -7514,6 +8447,7 @@ export default function DesignEditor() {
 
   const handleHandTool = useCallback(() => {
     if (!canEditDesign) return;
+    blurActiveDesignEditableTarget();
     setActiveTool("hand");
     setMode("edit");
     setDrawMode(false);
@@ -7524,6 +8458,7 @@ export default function DesignEditor() {
 
   const handleScaleTool = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
+    blurActiveDesignEditableTarget();
     setActiveTool("scale");
     setMode("edit");
     setDrawMode(false);
@@ -7630,7 +8565,7 @@ export default function DesignEditor() {
         "For tiny source changes, prefer `edit-design`, but make sure the tweak definitions are saved so the Tweaks panel updates.",
       ].join("\n");
 
-      sendToAgentChat({
+      sendToDesignAgentChat({
         message: `Add tweak controls to "${design.title}": ${trimmed}`,
         context,
         submit: true,
@@ -7894,17 +8829,17 @@ export default function DesignEditor() {
   );
 
   const handleScreenElementSelect = useCallback(
-    (screenId: string, info: ElementInfo) => {
+    (screenId: string, info: ElementInfo, intent?: ElementSelectionIntent) => {
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
-      const createdSelection = createdOverviewLayerSelection;
-      if (createdSelection?.screenId === screenId) {
-        return;
-      }
       if (
-        (pendingLayerId || createdSelection?.layerId) &&
-        (!pendingScreenId || pendingScreenId === screenId) &&
-        isScreenRootElementInfo(info)
+        shouldIgnoreOverviewLayerCreationEcho({
+          pendingLayerId,
+          pendingScreenId,
+          screenId,
+          info,
+          event: "select",
+        })
       ) {
         return;
       }
@@ -7927,11 +8862,33 @@ export default function DesignEditor() {
       ) {
         return;
       }
+      const additiveSelection = Boolean(
+        node &&
+        (intent?.additive ||
+          intent?.range ||
+          intent?.shiftKey ||
+          intent?.metaKey ||
+          intent?.ctrlKey),
+      );
       setActiveFileId(screenId);
       setSelectedElement(canonical);
       setHoveredElement(null);
       setHoveredElementScreenId(null);
-      setSelectedLayerIdsState(node ? [node.id] : []);
+      if (node && additiveSelection) {
+        setSelectedLayerIdsState((current) => {
+          const removeExisting =
+            Boolean(intent?.metaKey || intent?.ctrlKey) &&
+            !intent?.shiftKey &&
+            current.includes(node.id);
+          if (removeExisting) {
+            const next = current.filter((layerId) => layerId !== node.id);
+            return next.length > 0 ? next : [node.id];
+          }
+          return dedupeStringIds([...current, node.id]);
+        });
+      } else {
+        setSelectedLayerIdsState(node ? [node.id] : []);
+      }
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
       }
@@ -7941,7 +8898,6 @@ export default function DesignEditor() {
     },
     [
       clearPendingOverviewLayerSelectionTimer,
-      createdOverviewLayerSelection,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       selectedLayerIdsState,
@@ -7952,13 +8908,13 @@ export default function DesignEditor() {
     (screenId: string) => {
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
-      const createdSelection = createdOverviewLayerSelection;
-      if (createdSelection?.screenId === screenId) {
-        return;
-      }
       if (
-        (pendingLayerId || createdSelection?.layerId) &&
-        (!pendingScreenId || pendingScreenId === screenId)
+        shouldIgnoreOverviewLayerCreationEcho({
+          pendingLayerId,
+          pendingScreenId,
+          screenId,
+          event: "clear",
+        })
       ) {
         return;
       }
@@ -7980,14 +8936,14 @@ export default function DesignEditor() {
       setActiveTool("move");
       setMode("edit");
     },
-    [clearPendingOverviewLayerSelectionTimer, createdOverviewLayerSelection],
+    [clearPendingOverviewLayerSelectionTimer],
   );
 
   const handleElementSelect = useCallback(
-    (info: ElementInfo) => {
+    (info: ElementInfo, intent?: ElementSelectionIntent) => {
       const screenId = activeFile?.id ?? activeFileId;
       if (screenId) {
-        handleScreenElementSelect(screenId, info);
+        handleScreenElementSelect(screenId, info, intent);
         return;
       }
       setSelectedElement(
@@ -8172,7 +9128,11 @@ export default function DesignEditor() {
       // advance lastLocalContentRef.current to resolvedNextContent below, the
       // next synchronous call reads the previous call's result and the patches
       // compose. Falls back to activeContent when the ref is unset (file switch).
+      const activeLiveSnapshot = activeFile
+        ? liveScreenSnapshotsById[activeFile.id]
+        : undefined;
       const baseContent =
+        activeLiveSnapshot?.html ??
         latestActiveContentRef.current ??
         lastLocalContentRef.current ??
         activeContent;
@@ -8369,36 +9329,77 @@ export default function DesignEditor() {
             );
           })
         : null;
-
-      setCollabContent(resolvedNextContent);
-      setCollabContentFileId(activeFile.id);
-      setPatchProof((prev) =>
-        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
-      );
-      // Mark as our own write so the get-design reconcile + Yjs observe don't
-      // treat the echo as an external edit and fight the live value.
-      lastLocalContentRef.current = resolvedNextContent;
-      latestActiveContentRef.current = resolvedNextContent;
-      // Write the edit into the shared Y.Doc so other open clients see it live
-      // through Yjs (not only via the slower update-file → applyText round-trip).
-      // Use LOCAL_EDIT_ORIGIN so the UndoManager captures this transaction.
-      if (ydoc && isSynced) {
-        const ytext = ydoc.getText("content");
-        if (ytext.toString() !== resolvedNextContent) {
-          ydoc.transact(() => {
-            ytext.delete(0, ytext.length);
-            ytext.insert(0, resolvedNextContent);
-          }, LOCAL_EDIT_ORIGIN);
+      const liveSnapshotUpdated = activeLiveSnapshot
+        ? updateLiveScreenSnapshotContent(activeFile.id, resolvedNextContent)
+        : false;
+      if (liveSnapshotUpdated) {
+        setPatchProof((prev) =>
+          prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+        );
+        if (!runtimeStyleApplied) {
+          setContentRenderRevision((revision) => revision + 1);
         }
-      }
-      queueFileContentSave(activeFile.id, resolvedNextContent, {
-        syncCollab: !(ydoc && isSynced),
-      });
-      if (
-        !runtimeStyleApplied &&
-        !replacePreviewContent(resolvedNextContent, selector)
-      ) {
-        setContentRenderRevision((revision) => revision + 1);
+      } else {
+        const yjsHistoryAvailable = Boolean(
+          viewModeRef.current !== "overview" &&
+          ydoc &&
+          isSynced &&
+          undoManagerRef.current,
+        );
+        if (
+          !yjsHistoryAvailable &&
+          !suppressContentHistoryRef.current &&
+          baseContent !== resolvedNextContent
+        ) {
+          const change = {
+            fileId: activeFile.id,
+            before: baseContent,
+            after: resolvedNextContent,
+          };
+          if (viewModeRef.current === "overview") {
+            recordContentHistoryEntry(change);
+          } else {
+            recordLocalContentHistoryEntry(change);
+          }
+        }
+
+        setCollabContent(resolvedNextContent);
+        setCollabContentFileId(activeFile.id);
+        setPatchProof((prev) =>
+          prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+        );
+        // Mark as our own write so the get-design reconcile + Yjs observe don't
+        // treat the echo as an external edit and fight the live value.
+        lastLocalContentRef.current = resolvedNextContent;
+        latestActiveContentRef.current = resolvedNextContent;
+        // Write the edit into the shared Y.Doc so other open clients see it live
+        // through Yjs (not only via the slower update-file → applyText round-trip).
+        // Single-screen edits use the active-file UndoManager. Overview edits are
+        // tracked in the global file-content stack so all screens share one order.
+        if (ydoc && isSynced) {
+          const ytext = ydoc.getText("content");
+          if (ytext.toString() !== resolvedNextContent) {
+            ydoc.transact(
+              () => {
+                ytext.delete(0, ytext.length);
+                ytext.insert(0, resolvedNextContent);
+              },
+              yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+            );
+          }
+        }
+        queueFileContentSave(activeFile.id, resolvedNextContent, {
+          syncCollab: !(ydoc && isSynced),
+        });
+        if (
+          shouldReplacePreviewAfterVisualStyleCommit({
+            runtimeApplied: options.runtimeApplied,
+            runtimeStyleApplied,
+          }) &&
+          !replacePreviewContent(resolvedNextContent, selector)
+        ) {
+          setContentRenderRevision((revision) => revision + 1);
+        }
       }
       if (resolvedNode) setSelectedLayerIdsState([resolvedNode.id]);
       setSelectedElement((prev) => {
@@ -8426,12 +9427,125 @@ export default function DesignEditor() {
       activeFile,
       activeBreakpointWidthState,
       canEditDesign,
+      liveScreenSnapshotsById,
       queueFileContentSave,
+      recordContentHistoryEntry,
+      recordLocalContentHistoryEntry,
       replacePreviewContent,
       selectedElement,
       t,
+      updateLiveScreenSnapshotContent,
       ydoc,
       isSynced,
+    ],
+  );
+
+  const commitStylesToSelectedLayers = useCallback(
+    (styles: Record<string, string>) => {
+      if (!canEditDesign) return false;
+      const entries = Object.entries(styles).filter(
+        ([, value]) => value !== undefined,
+      );
+      if (entries.length === 0) return false;
+      const effectiveLayerState = effectiveCodeLayerStateRef.current;
+      const targets = selectedLayerTargetsRef.current.filter(
+        (target) =>
+          !effectiveLayerState.lockedIds.has(target.fileId) &&
+          !effectiveLayerState.hiddenIds.has(target.fileId) &&
+          !effectiveLayerState.lockedIds.has(target.layerId) &&
+          !effectiveLayerState.hiddenIds.has(target.layerId),
+      );
+      if (targets.length <= 1) return false;
+
+      const targetsByFile = new Map<string, SelectedLayerTarget[]>();
+      targets.forEach((target) => {
+        targetsByFile.set(target.fileId, [
+          ...(targetsByFile.get(target.fileId) ?? []),
+          target,
+        ]);
+      });
+
+      let appliedAny = false;
+      targetsByFile.forEach((fileTargets, fileId) => {
+        const baseContent =
+          fileId === activeFile?.id
+            ? getFreshActiveFileContent({
+                activeContent,
+                latestContent: latestActiveContentRef.current,
+                lastLocalContent: lastLocalContentRef.current,
+              })
+            : getScreenContent(fileId);
+        if (!baseContent) return;
+        let nextContent = baseContent;
+        let projection = buildCodeLayerProjection(nextContent);
+        fileTargets.forEach((target) => {
+          const sourceId = bridgeSourceIdForCodeLayerNode(target.node);
+          const selector = preferredCodeLayerSelector(target.node);
+          const node =
+            projection.nodes.find((candidate) =>
+              codeLayerNodeMatchesBridgeTarget(candidate, selector, sourceId),
+            ) ??
+            projection.nodes.find(
+              (candidate) => candidate.id === target.node.id,
+            );
+          if (!node) return;
+
+          entries.forEach(([property, value]) => {
+            const patch = applyVisualEdit(nextContent, {
+              kind: "style",
+              target: { nodeId: node.id },
+              property,
+              value,
+            });
+            if (patch.result.status !== "applied") return;
+            nextContent = patch.content;
+            projection = patch.projection;
+          });
+        });
+        if (nextContent === baseContent) return;
+        appliedAny = true;
+        applyFileContentUpdate(fileId, nextContent, {
+          refreshPreview: fileId === activeFile?.id,
+        });
+      });
+
+      if (appliedAny) {
+        const stylePatch = Object.fromEntries(entries);
+        const primaryTarget = targets[targets.length - 1];
+        if (primaryTarget) {
+          setSelectedElement((previous) => {
+            const previousMatches =
+              previous &&
+              codeLayerNodeMatchesBridgeTarget(
+                primaryTarget.node,
+                previous.selector,
+                previous.sourceId ?? previous.id,
+              );
+            const base = previousMatches
+              ? canonicalElementInfoForCodeLayerNode(
+                  previous,
+                  primaryTarget.node,
+                )
+              : primaryTarget.elementInfo;
+            return {
+              ...base,
+              computedStyles: {
+                ...base.computedStyles,
+                ...stylePatch,
+              },
+            };
+          });
+        }
+      }
+
+      return true;
+    },
+    [
+      activeContent,
+      activeFile?.id,
+      applyFileContentUpdate,
+      canEditDesign,
+      getScreenContent,
     ],
   );
 
@@ -8452,9 +9566,11 @@ export default function DesignEditor() {
           return;
         }
       }
+      if (commitStylesToSelectedLayers({ [property]: value })) return;
       commitVisualStyles(selector, { [property]: value });
     },
     [
+      commitStylesToSelectedLayers,
       commitVisualStyles,
       selectedElement?.selector,
       selectedElement?.sourceId,
@@ -8472,9 +9588,14 @@ export default function DesignEditor() {
         Boolean(value),
       );
       if (entries.length === 0) return;
+      if (commitStylesToSelectedLayers(Object.fromEntries(entries))) return;
       commitVisualStyles(selector, Object.fromEntries(entries));
     },
-    [commitVisualStyles, selectedElement?.selector],
+    [
+      commitStylesToSelectedLayers,
+      commitVisualStyles,
+      selectedElement?.selector,
+    ],
   );
 
   const getFreshActiveContent = useCallback(
@@ -8493,12 +9614,15 @@ export default function DesignEditor() {
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
     ) => {
-      commitVisualStyles(selector, styles, {
-        runtimeApplied: true,
+      if (!activeFile?.id) return;
+      recordPendingVisualStyleEdit(
+        activeFile.id,
+        selector,
+        styles,
         elementInfo,
-      });
+      );
     },
-    [commitVisualStyles],
+    [activeFile?.id, recordPendingVisualStyleEdit],
   );
 
   const handleVisualStructureChange = useCallback(
@@ -8511,6 +9635,9 @@ export default function DesignEditor() {
         sourceId?: string;
         anchorSourceId?: string;
         requestId?: string;
+        dropMode?: "flow-insert" | "absolute-container";
+        sourceRect?: { x: number; y: number; width: number; height: number };
+        anchorRect?: { x: number; y: number; width: number; height: number };
       },
     ) => {
       if (!canEditDesign) return false;
@@ -8551,14 +9678,55 @@ export default function DesignEditor() {
         );
         return false;
       }
-      const movedNode =
+      const movedNodeAttrId =
+        targetNode?.dataAttributes["data-agent-native-node-id"] ??
+        details?.sourceId ??
+        elementInfo?.sourceId ??
         (patch.result.after?.nodeId
           ? patch.projection.nodes.find(
+              (node) => node.id === patch.result.after?.nodeId,
+            )?.dataAttributes["data-agent-native-node-id"]
+          : undefined);
+      const absoluteContainerOffset =
+        details?.dropMode === "absolute-container" &&
+        details.sourceRect &&
+        details.anchorRect
+          ? {
+              x: details.sourceRect.x - details.anchorRect.x,
+              y: details.sourceRect.y - details.anchorRect.y,
+            }
+          : null;
+      const nextContent =
+        isAbsoluteCodeLayerNode(targetNode) && movedNodeAttrId
+          ? details?.dropMode === "absolute-container"
+            ? absoluteContainerOffset
+              ? setAbsolutePositioningForNodeInHtml(
+                  patch.content,
+                  movedNodeAttrId,
+                  absoluteContainerOffset,
+                )
+              : patch.content
+            : removeAbsolutePositioningFromNodeInHtml(
+                patch.content,
+                movedNodeAttrId,
+              )
+          : patch.content;
+      const nextProjection = buildCodeLayerProjection(nextContent);
+      const movedNode =
+        (movedNodeAttrId
+          ? nextProjection.nodes.find(
+              (node) =>
+                node.dataAttributes["data-agent-native-node-id"] ===
+                movedNodeAttrId,
+            )
+          : null) ??
+        (patch.result.after?.nodeId
+          ? nextProjection.nodes.find(
               (node) => node.id === patch.result.after?.nodeId,
             )
           : null) ??
         resolveCodeLayerNodeFromBridge(
-          patch.projection,
+          nextProjection,
           selector,
           details?.sourceId ??
             elementInfo?.sourceId ??
@@ -8566,7 +9734,7 @@ export default function DesignEditor() {
               ? bridgeSourceIdForCodeLayerNode(targetNode)
               : undefined),
         );
-      applyLocalContentUpdate(patch.content, { skipPreview: true });
+      applyLocalContentUpdate(nextContent, { skipPreview: true });
       if (movedNode) setSelectedLayerIdsState([movedNode.id]);
       if (elementInfo) {
         setSelectedElement({
@@ -8677,7 +9845,8 @@ export default function DesignEditor() {
     ) => {
       if (!canEditDesign) return;
       if (!activeFile) return;
-      const baseContent = getFreshActiveContent();
+      const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
+      const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
       const projection = buildCodeLayerProjection(baseContent);
       const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
       const targetNode = targetInfo
@@ -8710,7 +9879,11 @@ export default function DesignEditor() {
         );
         return;
       }
-      applyLocalContentUpdate(nextContent, { skipPreview: true });
+      if (activeLiveSnapshot) {
+        updateLiveScreenSnapshotContent(activeFile.id, nextContent);
+      } else {
+        applyLocalContentUpdate(nextContent, { skipPreview: true });
+      }
       setActiveTool("text");
       setMode("edit");
       if (removedContent) {
@@ -8753,7 +9926,9 @@ export default function DesignEditor() {
       applyLocalContentUpdate,
       canEditDesign,
       getFreshActiveContent,
+      liveScreenSnapshotsById,
       t,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
@@ -8764,69 +9939,9 @@ export default function DesignEditor() {
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
     ) => {
-      if (screenId === activeFile?.id) {
-        handleVisualStyleChange(selector, styles, elementInfo);
-        return;
-      }
-      if (!canEditDesign) return;
-      const entries = Object.entries(styles).filter(
-        ([, value]) => value !== undefined,
-      );
-      if (entries.length === 0) return;
-      const baseContent = getScreenContent(screenId);
-      const projection = buildCodeLayerProjection(baseContent);
-      const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
-      const targetNode = targetInfo
-        ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
-        : resolveCodeLayerNodeFromBridge(projection, selector);
-      const fallbackContent = applyInlineStylesToHtml(baseContent, selector, {
-        ...Object.fromEntries(entries),
-      });
-      const stylePatch = entries.reduce<{
-        content: string;
-        failed: string | null;
-      }>(
-        (current, [property, value]) => {
-          if (current.failed) return current;
-          const patch = applyVisualEdit(current.content, {
-            kind: "style",
-            target: targetNode ? { nodeId: targetNode.id } : { selector },
-            property,
-            value,
-          });
-          if (patch.result.status !== "applied") {
-            return {
-              content: current.content,
-              failed: codeLayerPatchMessage(
-                patch.result.message,
-                t("designEditor.patchProof.selectorMissing"),
-              ),
-            };
-          }
-          return { content: patch.content, failed: null };
-        },
-        { content: baseContent, failed: null },
-      );
-      const nextContent = stylePatch.failed
-        ? fallbackContent
-        : stylePatch.content;
-      if (!nextContent) {
-        toast.error(
-          stylePatch.failed ?? t("designEditor.patchProof.selectorMissing"),
-          { duration: 4000 },
-        );
-        return;
-      }
-      applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      recordPendingVisualStyleEdit(screenId, selector, styles, elementInfo);
     },
-    [
-      activeFile?.id,
-      applyFileContentUpdate,
-      canEditDesign,
-      getScreenContent,
-      handleVisualStyleChange,
-      t,
-    ],
+    [recordPendingVisualStyleEdit],
   );
 
   const handleScreenVisualStructureChange = useCallback(
@@ -8840,6 +9955,9 @@ export default function DesignEditor() {
         sourceId?: string;
         anchorSourceId?: string;
         requestId?: string;
+        dropMode?: "flow-insert" | "absolute-container";
+        sourceRect?: { x: number; y: number; width: number; height: number };
+        anchorRect?: { x: number; y: number; width: number; height: number };
       },
     ) => {
       if (screenId === activeFile?.id) {
@@ -8890,15 +10008,51 @@ export default function DesignEditor() {
         );
         return false;
       }
-      applyFileContentUpdate(screenId, patch.content, { skipPreview: true });
-      const movedNode =
+      const movedNodeAttrId =
+        targetNode?.dataAttributes["data-agent-native-node-id"] ??
+        details?.sourceId ??
+        elementInfo?.sourceId ??
         (patch.result.after?.nodeId
           ? patch.projection.nodes.find(
               (node) => node.id === patch.result.after?.nodeId,
+            )?.dataAttributes["data-agent-native-node-id"]
+          : undefined);
+      const absoluteContainerOffset =
+        details?.dropMode === "absolute-container" &&
+        details.sourceRect &&
+        details.anchorRect
+          ? {
+              x: details.sourceRect.x - details.anchorRect.x,
+              y: details.sourceRect.y - details.anchorRect.y,
+            }
+          : null;
+      const nextContent =
+        isAbsoluteCodeLayerNode(targetNode) && movedNodeAttrId
+          ? details?.dropMode === "absolute-container"
+            ? absoluteContainerOffset
+              ? setAbsolutePositioningForNodeInHtml(
+                  patch.content,
+                  movedNodeAttrId,
+                  absoluteContainerOffset,
+                )
+              : patch.content
+            : removeAbsolutePositioningFromNodeInHtml(
+                patch.content,
+                movedNodeAttrId,
+              )
+          : patch.content;
+      const nextProjection = buildCodeLayerProjection(nextContent);
+      applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      const movedNode =
+        (movedNodeAttrId
+          ? nextProjection.nodes.find(
+              (node) =>
+                node.dataAttributes["data-agent-native-node-id"] ===
+                movedNodeAttrId,
             )
           : null) ??
         resolveCodeLayerNodeFromBridge(
-          patch.projection,
+          nextProjection,
           selector,
           details?.sourceId ??
             elementInfo?.sourceId ??
@@ -9013,7 +10167,8 @@ export default function DesignEditor() {
         return;
       }
       if (!canEditDesign) return;
-      const baseContent = getScreenContent(screenId);
+      const liveSnapshot = liveScreenSnapshotsById[screenId];
+      const baseContent = liveSnapshot?.html ?? getScreenContent(screenId);
       const projection = buildCodeLayerProjection(baseContent);
       const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
       const targetNode = targetInfo
@@ -9046,7 +10201,11 @@ export default function DesignEditor() {
         );
         return;
       }
-      applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      if (liveSnapshot) {
+        updateLiveScreenSnapshotContent(screenId, nextContent);
+      } else {
+        applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      }
       setActiveFileId(screenId);
       setActiveTool("text");
       setMode("edit");
@@ -9091,7 +10250,9 @@ export default function DesignEditor() {
       canEditDesign,
       getScreenContent,
       handleTextContentChange,
+      liveScreenSnapshotsById,
       t,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
@@ -9121,11 +10282,18 @@ export default function DesignEditor() {
             candidate.dataAttributes["data-agent-native-node-id"] === layerId,
         );
         if (!node?.source) continue;
+        const portableStyleSnapshot =
+          selectedElementLayerId &&
+          node.id === selectedElementLayerId &&
+          selectedElement?.portableStyleSnapshot
+            ? selectedElement.portableStyleSnapshot
+            : undefined;
         snapshots.push({
           html: content.slice(node.source.start, node.source.end),
           rootNodeId:
             node.dataAttributes["data-agent-native-node-id"] ?? node.id,
           sourceFileId: file.id,
+          portableStyleSnapshot,
           node,
           sourceIndex: node.source.start,
           tree,
@@ -9152,6 +10320,7 @@ export default function DesignEditor() {
             selectedElement.sourceId ??
             selectedElement.id,
           sourceFileId: activeFile.id,
+          portableStyleSnapshot: selectedElement.portableStyleSnapshot,
           node,
           sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
           tree,
@@ -9216,19 +10385,31 @@ export default function DesignEditor() {
         )
         .filter((node): node is CodeLayerNode => Boolean(node));
       if (insertedNodes.length === 0) return;
+      const lastNode = insertedNodes[insertedNodes.length - 1];
+      if (lastNode) {
+        pendingOverviewScreenSelectionRef.current =
+          screenId === boardFileId ? null : screenId;
+        pendingOverviewLayerSelectionRef.current = lastNode.id;
+        clearPendingOverviewLayerSelectionTimer();
+        setCreatedOverviewLayerSelection({
+          screenId,
+          layerId: lastNode.id,
+        });
+      }
       setActiveFileId(screenId);
       setSelectedLayerIdsState(insertedNodes.map((node) => node.id));
-      const lastNode = insertedNodes[insertedNodes.length - 1];
       setSelectedElement(
         lastNode ? elementInfoFromCodeLayerNode(lastNode) : null,
       );
       setActiveTool("move");
       setMode("edit");
       if (viewModeRef.current === "overview") {
-        setOverviewSelectedScreenIds([screenId]);
+        setOverviewSelectedScreenIds(
+          screenId === boardFileId ? [] : [screenId],
+        );
       }
     },
-    [],
+    [boardFileId, clearPendingOverviewLayerSelectionTimer],
   );
 
   const handleCopySelection = useCallback(async () => {
@@ -9236,6 +10417,7 @@ export default function DesignEditor() {
       html: snapshot.html,
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
+      portableStyleSnapshot: snapshot.portableStyleSnapshot,
     }));
     if (entries.length === 0) return;
     const clipboardText = entries.map((entry) => entry.html).join("\n");
@@ -9253,9 +10435,32 @@ export default function DesignEditor() {
   const handlePasteSelection = useCallback(
     (position?: { x: number; y: number }) => {
       const entries = getCanvasClipboardEntries();
-      if (!activeFile || !canEditDesign || entries.length === 0) return;
-      const baseContent = getFreshActiveContent();
+      const targetFileId =
+        viewModeRef.current === "overview" && position && boardFileId
+          ? boardFileId
+          : activeFile?.id;
+      if (!targetFileId || !canEditDesign || entries.length === 0) return;
+      const targetIsBoard = targetFileId === boardFileId;
+      const baseContent =
+        targetFileId === activeFile?.id
+          ? getFreshActiveContent()
+          : (getScreenContent(targetFileId) ?? "");
+      if (!baseContent && targetFileId !== boardFileId) return;
       const layerHtmls = entries.map((entry) => entry.html);
+      const styleSnapshots = targetIsBoard
+        ? entries.map((entry) => entry.portableStyleSnapshot)
+        : undefined;
+      const applyPasteContentUpdate = (nextContent: string) => {
+        if (targetFileId === activeFile?.id) {
+          applyLocalContentUpdate(nextContent, {
+            forcePreviewFullDocument: true,
+          });
+          return;
+        }
+        applyFileContentUpdate(targetFileId, nextContent, {
+          forcePreviewFullDocument: true,
+        });
+      };
 
       // B7 fix: when an element is selected and no explicit canvas position was
       // given, insert the clone as an in-flow sibling right AFTER the selected
@@ -9263,18 +10468,19 @@ export default function DesignEditor() {
       // in normal document flow instead of being an absolutely-positioned body
       // child.  Fall back to the old position-based clone when nothing is
       // selected or a "Paste here" position is provided.
-      if (!position && selectedElement?.selector) {
+      if (!position && !targetIsBoard && selectedElement?.selector) {
         const selector = selectedCanvasSelector ?? selectedElement.selector;
         const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
           targetSelectors: [selector],
           placement: "after",
           stripRootPosition: true,
+          styleSnapshots,
         });
         if (result) {
           pasteCascadeRef.current += 1;
-          applyLocalContentUpdate(result.content);
+          applyPasteContentUpdate(result.content);
           selectInsertedLayers(
-            activeFile.id,
+            targetFileId,
             result.content,
             result.rootNodeIds,
           );
@@ -9321,18 +10527,22 @@ export default function DesignEditor() {
       });
       const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
         positions,
+        styleSnapshots,
       });
       if (!result) return;
       if (!position) pasteCascadeRef.current += 1;
-      applyLocalContentUpdate(result.content);
-      selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
+      applyPasteContentUpdate(result.content);
+      selectInsertedLayers(targetFileId, result.content, result.rootNodeIds);
     },
     [
       activeFile,
+      applyFileContentUpdate,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
       getCanvasClipboardEntries,
       getFreshActiveContent,
+      getScreenContent,
       selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
@@ -9345,6 +10555,7 @@ export default function DesignEditor() {
     const baseContent = getFreshActiveContent();
     if (selectedElement?.boundingRect) {
       const { x, y } = selectedElement.boundingRect;
+      const targetIsBoard = activeFile.id === boardFileId;
       const result = insertClonedHtmlLayers(
         baseContent,
         entries.map((entry) => entry.html),
@@ -9353,10 +10564,15 @@ export default function DesignEditor() {
             x: x + index * 16,
             y: y + index * 16,
           })),
+          styleSnapshots: targetIsBoard
+            ? entries.map((entry) => entry.portableStyleSnapshot)
+            : undefined,
         },
       );
       if (!result) return;
-      applyLocalContentUpdate(result.content);
+      applyLocalContentUpdate(result.content, {
+        forcePreviewFullDocument: true,
+      });
       selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
     } else {
       handlePasteSelection();
@@ -9364,6 +10580,7 @@ export default function DesignEditor() {
   }, [
     activeFile,
     applyLocalContentUpdate,
+    boardFileId,
     getCanvasClipboardEntries,
     getFreshActiveContent,
     handlePasteSelection,
@@ -9407,7 +10624,10 @@ export default function DesignEditor() {
           insertedRootNodeIds.unshift(...result.rootNodeIds);
         }
         if (insertedRootNodeIds.length === 0) continue;
-        applyFileContentUpdate(file.id, content, { refreshPreview: false });
+        applyFileContentUpdate(file.id, content, {
+          forcePreviewFullDocument: true,
+          refreshPreview: false,
+        });
         selectedScreenIds.push(file.id);
         const finalProjection = buildCodeLayerProjection(content);
         insertedRootNodeIds.forEach((rootNodeId) => {
@@ -9472,7 +10692,9 @@ export default function DesignEditor() {
         placement: "after",
       });
       if (nextContent) {
-        applyLocalContentUpdate(nextContent);
+        applyLocalContentUpdate(nextContent, {
+          forcePreviewFullDocument: true,
+        });
       } else {
         toast.error(t("designEditor.toasts.duplicateElementFailed"));
       }
@@ -9684,63 +10906,12 @@ export default function DesignEditor() {
   ]);
 
   /**
-   * Convert the selected container to full auto-layout. Applies the
-   * { kind: "autoLayout", enabled: true } substrate intent which sets
-   * display:flex on the target AND strips position:absolute/left/top/right/bottom
-   * from its direct children so they become flow children.
-   */
-  const handleAutoLayoutConvert = useCallback(
-    (
-      targetNodeId: string,
-      opts?: { direction?: "row" | "column"; gap?: string },
-    ) => {
-      if (!canEditDesign || !activeFile) return;
-      const baseContent = getFreshActiveContent();
-      const patch = applyVisualEdit(baseContent, {
-        kind: "autoLayout",
-        targetId: targetNodeId,
-        enabled: true,
-        direction: opts?.direction ?? "row",
-        gap: opts?.gap ?? "8px",
-      });
-      if (patch.result.status !== "applied") {
-        toast.error(
-          codeLayerPatchMessage(
-            patch.result.message,
-            t("designEditor.toasts.layerMoveFailed"),
-          ),
-          { duration: 4000 },
-        );
-        return;
-      }
-      applyLocalContentUpdate(patch.content, { skipPreview: true });
-      // Re-select the container so the inspector refreshes its layout state.
-      const containerNode = patch.projection.nodes.find(
-        (n) =>
-          n.dataAttributes["data-agent-native-node-id"] === targetNodeId ||
-          n.id === targetNodeId,
-      );
-      if (containerNode) {
-        setSelectedLayerIdsState([containerNode.id]);
-        setSelectedElement(elementInfoFromCodeLayerNode(containerNode));
-      }
-    },
-    [
-      activeFile,
-      applyLocalContentUpdate,
-      canEditDesign,
-      getFreshActiveContent,
-      t,
-    ],
-  );
-
-  /**
    * Handle a primitive being drag-dropped onto another primitive in the
    * MultiScreenCanvas overview (CONTRACT: onPrimitiveReparent prop).
    *
-   * Same-screen: applies a moveNode intent then strips the moved node's
-   * absolute positioning so it becomes a flow child of the container.
-   * Cross-screen: uses moveNodeBetweenDocuments and persists both files.
+   * Same-screen: applies a moveNode intent then rebases the moved node's
+   * absolute coordinates relative to the target rectangle. Cross-screen uses
+   * moveNodeBetweenDocuments and persists both files.
    */
   const handleOverviewPrimitiveReparent = useCallback(
     ({
@@ -9780,27 +10951,38 @@ export default function DesignEditor() {
           return;
         }
 
-        // 2. Strip absolute positioning from the moved node so it flows naturally.
-        // Use removeAbsolutePositioningFromNodeInHtml (DOM-based) because the
-        // applyVisualEdit substrate rejects empty-string values in isSafeStyleValue,
-        // making applyVisualEdit({kind:"style",value:""}) a silent no-op.
         const movedNodeAttrId =
           movePatch.projection.nodes.find(
             (n) =>
               n.dataAttributes["data-agent-native-node-id"] === sourceNodeId ||
               n.id === sourceNodeId,
           )?.dataAttributes["data-agent-native-node-id"] ?? sourceNodeId;
-        const strippedContent = removeAbsolutePositioningFromNodeInHtml(
-          movePatch.content,
-          movedNodeAttrId,
+        const sourcePosition = getAbsolutePositioningForNodeInHtml(
+          baseContent,
+          sourceNodeId,
         );
+        const targetPosition = getAbsolutePositioningForNodeInHtml(
+          baseContent,
+          targetNodeId,
+        );
+        const nextContent =
+          sourcePosition && targetPosition
+            ? setAbsolutePositioningForNodeInHtml(
+                movePatch.content,
+                movedNodeAttrId,
+                {
+                  x: sourcePosition.x - targetPosition.x,
+                  y: sourcePosition.y - targetPosition.y,
+                },
+              )
+            : movePatch.content;
 
-        applyFileContentUpdate(sourceScreenId, strippedContent, {
+        applyFileContentUpdate(sourceScreenId, nextContent, {
           skipPreview: true,
         });
 
         // Re-select the moved node.
-        const nextProjection = buildCodeLayerProjection(strippedContent);
+        const nextProjection = buildCodeLayerProjection(nextContent);
         const movedNodeAfter = nextProjection.nodes.find(
           (n) =>
             n.dataAttributes["data-agent-native-node-id"] === sourceNodeId ||
@@ -9852,18 +11034,26 @@ export default function DesignEditor() {
         return;
       }
 
-      // Strip absolute positioning from the moved node in the destination.
-      // Use removeAbsolutePositioningFromNodeInHtml (DOM-based) because
-      // applyVisualEdit({kind:"style",value:""}) is a silent no-op (the
-      // substrate rejects empty-string values in isSafeStyleValue). Use
-      // result.movedNodeId (the final id in destHtml, which may differ from
-      // nodeAttrId when a collision triggered an id re-stamp) so the strip and
-      // re-selection always find the correct element.
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
-      const strippedDest = removeAbsolutePositioningFromNodeInHtml(
-        result.destHtml,
-        destNodeAttrId,
+      const sourcePosition = getAbsolutePositioningForNodeInHtml(
+        sourceContent,
+        nodeAttrId,
       );
+      const targetPosition = getAbsolutePositioningForNodeInHtml(
+        destContent,
+        anchorAttrId,
+      );
+      const nextDestContent =
+        sourcePosition && targetPosition
+          ? setAbsolutePositioningForNodeInHtml(
+              result.destHtml,
+              destNodeAttrId,
+              {
+                x: sourcePosition.x - targetPosition.x,
+                y: sourcePosition.y - targetPosition.y,
+              },
+            )
+          : result.destHtml;
 
       recordContentHistoryEntry({
         changes: [
@@ -9875,7 +11065,7 @@ export default function DesignEditor() {
           {
             fileId: targetScreenId,
             before: destContent,
-            after: strippedDest,
+            after: nextDestContent,
           },
         ],
       });
@@ -9884,13 +11074,13 @@ export default function DesignEditor() {
         recordHistory: false,
         refreshPreview: true,
       });
-      applyFileContentUpdate(targetScreenId, strippedDest, {
+      applyFileContentUpdate(targetScreenId, nextDestContent, {
         recordHistory: false,
         refreshPreview: true,
       });
 
       // Re-select the moved node in the destination.
-      const finalProjection = buildCodeLayerProjection(strippedDest);
+      const finalProjection = buildCodeLayerProjection(nextDestContent);
       const movedNodeFinal = finalProjection.nodes.find(
         (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
       );
@@ -9931,6 +11121,11 @@ export default function DesignEditor() {
       targetScreenId,
       targetAnchorNodeId,
       targetAnchorPlacement,
+      targetDropMode,
+      targetAnchorRect,
+      targetLocalPoint,
+      sourcePointerOffset,
+      styleSnapshot,
     }: {
       sourceSelector: string;
       sourceNodeId?: string;
@@ -9938,6 +11133,17 @@ export default function DesignEditor() {
       targetScreenId: string;
       targetAnchorNodeId?: string;
       targetAnchorPlacement?: "before" | "after" | "inside";
+      targetDropMode?: "flow-insert" | "absolute-container";
+      targetAnchorRect?: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      };
+      targetCanvasPoint?: { x: number; y: number };
+      targetLocalPoint?: { x: number; y: number };
+      sourcePointerOffset?: { x: number; y: number };
+      styleSnapshot?: PortableStyleSnapshot;
     }) => {
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
@@ -9966,14 +11172,24 @@ export default function DesignEditor() {
         resolvedSourceNode?.dataAttributes["data-agent-native-node-id"] ??
         sourceNodeId ??
         sourceSelector;
+      const destProjection = buildCodeLayerProjection(destContent);
+      const resolvedTargetAnchor = targetAnchorNodeId
+        ? resolveCodeLayerNodeFromBridge(
+            destProjection,
+            undefined,
+            targetAnchorNodeId,
+          )
+        : null;
+      const targetAnchorAttrId =
+        resolvedTargetAnchor?.dataAttributes["data-agent-native-node-id"];
 
       // Use hit-test anchor when the canvas supplied one; fall back to
       // top-level body append ("inside" with no anchor = existing behaviour).
       const result = moveNodeBetweenDocuments(sourceContent, destContent, {
         nodeId: nodeAttrId,
-        ...(targetAnchorNodeId
+        ...(targetAnchorAttrId
           ? {
-              anchorNodeId: targetAnchorNodeId,
+              anchorNodeId: targetAnchorAttrId,
               placement: targetAnchorPlacement ?? "inside",
             }
           : { placement: "inside" }),
@@ -9989,16 +11205,43 @@ export default function DesignEditor() {
         return;
       }
 
-      // Strip absolute positioning from the moved node in the destination so
-      // it flows naturally as a body child (mirrors handleOverviewPrimitiveReparent).
-      // Use result.movedNodeId (the final id in destHtml, which may differ from
-      // nodeAttrId when a collision triggered an id re-stamp) so the strip and
-      // re-selection always find the correct element.
+      // Hit-test anchors are emitted only for auto-layout insertion targets. If
+      // there is no anchor, preserve absolute mode and rebase left/top to the
+      // release point so screen↔board moves behave like Figma absolute layers.
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
-      const strippedDest = removeAbsolutePositioningFromNodeInHtml(
-        result.destHtml,
-        destNodeAttrId,
-      );
+      const stylePreservedDest =
+        targetScreenId === boardFileId
+          ? applyPortableStyleSnapshotToHtml(
+              result.destHtml,
+              destNodeAttrId,
+              styleSnapshot,
+            )
+          : result.destHtml;
+      const nextDestContent = targetAnchorAttrId
+        ? targetDropMode === "absolute-container"
+          ? targetLocalPoint && targetAnchorRect
+            ? setAbsolutePositioningForNodeInHtml(
+                stylePreservedDest,
+                destNodeAttrId,
+                {
+                  x: targetLocalPoint.x - targetAnchorRect.left,
+                  y: targetLocalPoint.y - targetAnchorRect.top,
+                },
+                sourcePointerOffset,
+              )
+            : stylePreservedDest
+          : removeAbsolutePositioningFromNodeInHtml(
+              stylePreservedDest,
+              destNodeAttrId,
+            )
+        : targetLocalPoint
+          ? setAbsolutePositioningForNodeInHtml(
+              stylePreservedDest,
+              destNodeAttrId,
+              targetLocalPoint,
+              sourcePointerOffset,
+            )
+          : stylePreservedDest;
 
       recordContentHistoryEntry({
         changes: [
@@ -10010,7 +11253,7 @@ export default function DesignEditor() {
           {
             fileId: targetScreenId,
             before: destContent,
-            after: strippedDest,
+            after: nextDestContent,
           },
         ],
       });
@@ -10019,26 +11262,41 @@ export default function DesignEditor() {
         recordHistory: false,
         refreshPreview: true,
       });
-      applyFileContentUpdate(targetScreenId, strippedDest, {
+      applyFileContentUpdate(targetScreenId, nextDestContent, {
         recordHistory: false,
         refreshPreview: true,
       });
 
       // Switch active screen to the target and select the moved node; viewMode
       // stays "overview" (no setViewMode call).
+      pendingOverviewScreenSelectionRef.current =
+        targetScreenId === boardFileId ? null : targetScreenId;
+      pendingOverviewLayerSelectionRef.current = destNodeAttrId;
+      clearPendingOverviewLayerSelectionTimer();
       setActiveFileId(targetScreenId);
-      const finalProjection = buildCodeLayerProjection(strippedDest);
+      const finalProjection = buildCodeLayerProjection(nextDestContent);
       const movedNodeFinal = finalProjection.nodes.find(
         (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
       );
       if (movedNodeFinal) {
+        setCreatedOverviewLayerSelection({
+          screenId: targetScreenId,
+          layerId: movedNodeFinal.id,
+        });
         setSelectedLayerIdsState([movedNodeFinal.id]);
         setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
+        if (viewModeRef.current === "overview") {
+          setOverviewSelectedScreenIds(
+            targetScreenId === boardFileId ? [] : [targetScreenId],
+          );
+        }
       }
     },
     [
       applyFileContentUpdate,
+      boardFileId,
       canEditDesign,
+      clearPendingOverviewLayerSelectionTimer,
       getScreenContent,
       recordContentHistoryEntry,
       t,
@@ -10077,6 +11335,38 @@ export default function DesignEditor() {
         delete nextGeometry[file.id];
       });
 
+      const nextGeometryUndoStack: GeometryHistoryEntry[] = [];
+      let removedGeometryUndoEntries = 0;
+      geometryUndoStackRef.current.forEach((entry) => {
+        if (geometryHistoryEntryTouchesFrameIds(entry, deleteIds)) {
+          removedGeometryUndoEntries += 1;
+          return;
+        }
+        nextGeometryUndoStack.push(entry);
+      });
+      geometryUndoStackRef.current = nextGeometryUndoStack;
+      historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+        historyOrderRef.current,
+        "geometry",
+        removedGeometryUndoEntries,
+      );
+
+      const nextGeometryRedoStack: GeometryHistoryEntry[] = [];
+      let removedGeometryRedoEntries = 0;
+      geometryRedoStackRef.current.forEach((entry) => {
+        if (geometryHistoryEntryTouchesFrameIds(entry, deleteIds)) {
+          removedGeometryRedoEntries += 1;
+          return;
+        }
+        nextGeometryRedoStack.push(entry);
+      });
+      geometryRedoStackRef.current = nextGeometryRedoStack;
+      redoOrderRef.current = removeRecentUndoRedoOrderKinds(
+        redoOrderRef.current,
+        "geometry",
+        removedGeometryRedoEntries,
+      );
+
       writeFrameGeometrySnapshot(nextGeometry);
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
         if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
@@ -10109,7 +11399,12 @@ export default function DesignEditor() {
         });
       });
 
-      return true;
+      // File-backed screen deletion is not a geometry-only edit. The screen rows
+      // are hard-deleted, so suppress MultiScreenCanvas' local frame-history
+      // entry; otherwise undo would restore geometry for files that no longer
+      // exist.
+      syncUndoRedoState();
+      return false;
     },
     [
       activeFile,
@@ -10119,6 +11414,7 @@ export default function DesignEditor() {
       files,
       id,
       queryClient,
+      syncUndoRedoState,
       t,
       writeFrameGeometrySnapshot,
     ],
@@ -10213,8 +11509,10 @@ export default function DesignEditor() {
   const handleUndo = useCallback(() => {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
-    const undoContent = () => {
-      if (um?.canUndo()) {
+    const canUseOverviewHistory = viewModeRef.current === "overview";
+    let prunedUndoHistory = false;
+    const undoContent = (scope: "any" | "local" | "global" = "any") => {
+      if (scope !== "global" && um?.canUndo()) {
         um.undo();
         if (ydoc && activeFile) {
           const next = ydoc.getText("content").toString();
@@ -10227,9 +11525,8 @@ export default function DesignEditor() {
           queueFileContentSave(activeFile.id, next, {
             syncCollab: !(ydoc && isSynced),
           });
-          if (!replacePreviewContent(next)) {
-            setContentRenderRevision((revision) => revision + 1);
-          }
+          replacePreviewContent(next, null, { forceFullDocument: true });
+          setContentRenderRevision((revision) => revision + 1);
           // Clear stale selection if the undo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
@@ -10247,6 +11544,44 @@ export default function DesignEditor() {
         return true;
       }
 
+      if (!canUseOverviewHistory && scope !== "global" && activeFile?.id) {
+        const localIndex = findLastContentHistoryChangeIndex(
+          localContentUndoStackRef.current,
+          activeFile.id,
+        );
+        if (localIndex !== -1) {
+          const [entry] = localContentUndoStackRef.current.splice(
+            localIndex,
+            1,
+          );
+          if (entry) {
+            localContentRedoStackRef.current = [
+              ...localContentRedoStackRef.current.slice(
+                -(MAX_DESIGN_UNDO_STACK - 1),
+              ),
+              entry,
+            ];
+            applyLocalContentUpdate(entry.before, {
+              refreshPreview: false,
+              forcePreviewFullDocument: true,
+              immediateSave: true,
+              recordHistory: false,
+            });
+            setSelectedElement((prev) => {
+              if (!prev) return prev;
+              return refreshElementInfoFromContent(entry.before, prev);
+            });
+            setHoveredElement((prev) => {
+              if (!prev) return prev;
+              return refreshElementInfoFromContent(entry.before, prev);
+            });
+            return true;
+          }
+        }
+      }
+
+      if (scope === "local") return false;
+      if (!canUseOverviewHistory) return false;
       const entry =
         contentUndoStackRef.current[contentUndoStackRef.current.length - 1];
       if (!entry) return false;
@@ -10255,7 +11590,11 @@ export default function DesignEditor() {
         files.map((file) => file.id),
         activeFile?.id,
       );
-      if (changes.length === 0) return false;
+      if (changes.length === 0) {
+        contentUndoStackRef.current.pop();
+        prunedUndoHistory = true;
+        return false;
+      }
       contentUndoStackRef.current.pop();
       contentRedoStackRef.current = [
         ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -10271,6 +11610,7 @@ export default function DesignEditor() {
           if (change.fileId === activeFile?.id) {
             applyLocalContentUpdate(change.before, {
               refreshPreview: false,
+              forcePreviewFullDocument: true,
               immediateSave: true,
               recordHistory: false,
             });
@@ -10300,6 +11640,7 @@ export default function DesignEditor() {
       return true;
     };
     const undoGeometry = () => {
+      if (!canUseOverviewHistory) return false;
       const entry = geometryUndoStackRef.current.pop();
       if (!entry) return false;
       geometryRedoStackRef.current = [
@@ -10319,14 +11660,25 @@ export default function DesignEditor() {
       return true;
     };
 
-    const preferred = historyOrderRef.current.pop();
-    const didUndo =
+    const undoByOrder = (preferred?: UndoRedoOrderKind) =>
       preferred === "geometry"
         ? undoGeometry() || undoContent()
-        : isContentUndoRedoOrderKind(preferred)
-          ? undoContent() || undoGeometry()
-          : undoContent() || undoGeometry();
-    if (didUndo) {
+        : preferred === "file-content"
+          ? undoContent("global") || undoGeometry()
+          : preferred === "content"
+            ? undoContent("local") || undoContent("global") || undoGeometry()
+            : undoContent() || undoGeometry();
+    let didUndo = false;
+    if (canUseOverviewHistory) {
+      while (!didUndo) {
+        const preferred = historyOrderRef.current.pop();
+        didUndo = undoByOrder(preferred);
+        if (didUndo || preferred === undefined) break;
+      }
+    } else {
+      didUndo = undoContent("local");
+    }
+    if (didUndo || prunedUndoHistory) {
       syncUndoRedoState();
     }
   }, [
@@ -10347,8 +11699,10 @@ export default function DesignEditor() {
   const handleRedo = useCallback(() => {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
-    const redoContent = () => {
-      if (um?.canRedo()) {
+    const canUseOverviewHistory = viewModeRef.current === "overview";
+    let prunedRedoHistory = false;
+    const redoContent = (scope: "any" | "local" | "global" = "any") => {
+      if (scope !== "global" && um?.canRedo()) {
         um.redo();
         if (ydoc && activeFile) {
           const next = ydoc.getText("content").toString();
@@ -10361,9 +11715,8 @@ export default function DesignEditor() {
           queueFileContentSave(activeFile.id, next, {
             syncCollab: !(ydoc && isSynced),
           });
-          if (!replacePreviewContent(next)) {
-            setContentRenderRevision((revision) => revision + 1);
-          }
+          replacePreviewContent(next, null, { forceFullDocument: true });
+          setContentRenderRevision((revision) => revision + 1);
           // Clear stale selection if the redo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
@@ -10381,6 +11734,44 @@ export default function DesignEditor() {
         return true;
       }
 
+      if (!canUseOverviewHistory && scope !== "global" && activeFile?.id) {
+        const localIndex = findLastContentHistoryChangeIndex(
+          localContentRedoStackRef.current,
+          activeFile.id,
+        );
+        if (localIndex !== -1) {
+          const [entry] = localContentRedoStackRef.current.splice(
+            localIndex,
+            1,
+          );
+          if (entry) {
+            localContentUndoStackRef.current = [
+              ...localContentUndoStackRef.current.slice(
+                -(MAX_DESIGN_UNDO_STACK - 1),
+              ),
+              entry,
+            ];
+            applyLocalContentUpdate(entry.after, {
+              refreshPreview: false,
+              forcePreviewFullDocument: true,
+              immediateSave: true,
+              recordHistory: false,
+            });
+            setSelectedElement((prev) => {
+              if (!prev) return prev;
+              return refreshElementInfoFromContent(entry.after, prev);
+            });
+            setHoveredElement((prev) => {
+              if (!prev) return prev;
+              return refreshElementInfoFromContent(entry.after, prev);
+            });
+            return true;
+          }
+        }
+      }
+
+      if (scope === "local") return false;
+      if (!canUseOverviewHistory) return false;
       const entry =
         contentRedoStackRef.current[contentRedoStackRef.current.length - 1];
       if (!entry) return false;
@@ -10389,7 +11780,11 @@ export default function DesignEditor() {
         files.map((file) => file.id),
         activeFile?.id,
       );
-      if (changes.length === 0) return false;
+      if (changes.length === 0) {
+        contentRedoStackRef.current.pop();
+        prunedRedoHistory = true;
+        return false;
+      }
       contentRedoStackRef.current.pop();
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -10405,6 +11800,7 @@ export default function DesignEditor() {
           if (change.fileId === activeFile?.id) {
             applyLocalContentUpdate(change.after, {
               refreshPreview: false,
+              forcePreviewFullDocument: true,
               immediateSave: true,
               recordHistory: false,
             });
@@ -10434,6 +11830,7 @@ export default function DesignEditor() {
       return true;
     };
     const redoGeometry = () => {
+      if (!canUseOverviewHistory) return false;
       const entry = geometryRedoStackRef.current.pop();
       if (!entry) return false;
       geometryUndoStackRef.current = [
@@ -10453,14 +11850,25 @@ export default function DesignEditor() {
       return true;
     };
 
-    const preferred = redoOrderRef.current.pop();
-    const didRedo =
+    const redoByOrder = (preferred?: UndoRedoOrderKind) =>
       preferred === "geometry"
         ? redoGeometry() || redoContent()
-        : isContentUndoRedoOrderKind(preferred)
-          ? redoContent() || redoGeometry()
-          : redoContent() || redoGeometry();
-    if (didRedo) {
+        : preferred === "file-content"
+          ? redoContent("global") || redoGeometry()
+          : preferred === "content"
+            ? redoContent("local") || redoContent("global") || redoGeometry()
+            : redoContent() || redoGeometry();
+    let didRedo = false;
+    if (canUseOverviewHistory) {
+      while (!didRedo) {
+        const preferred = redoOrderRef.current.pop();
+        didRedo = redoByOrder(preferred);
+        if (didRedo || preferred === undefined) break;
+      }
+    } else {
+      didRedo = redoContent("local");
+    }
+    if (didRedo || prunedRedoHistory) {
       syncUndoRedoState();
     }
   }, [
@@ -10496,7 +11904,7 @@ export default function DesignEditor() {
     viewModeRef.current = "overview";
     setViewMode("overview");
     setActiveTool("move");
-    setOverviewCanvasZoom(100);
+    setExplicitOverviewCanvasZoom(100);
   }, []);
 
   const runEditorViewTransition = useCallback((update: () => void) => {
@@ -10771,6 +12179,7 @@ export default function DesignEditor() {
   ]);
 
   const handleEscapeHotkey = useCallback(() => {
+    if (cancelActiveEditorDrag()) return;
     if (
       shouldEscapeToOverview({
         activeTool,
@@ -10794,6 +12203,7 @@ export default function DesignEditor() {
     setMode("edit");
   }, [
     activeTool,
+    cancelActiveEditorDrag,
     drawMode,
     enterOverviewFromZoom,
     mode,
@@ -11142,17 +12552,13 @@ export default function DesignEditor() {
 
   const getCodingHandoffClipboardText = useCallback(
     (result: CodingHandoffResult | null) => {
-      const base =
-        typeof result?.clipboardText === "string"
-          ? result.clipboardText
-          : typeof result?.prompt === "string"
-            ? result.prompt
-            : "";
-      const detail = codingHandoffDetail.trim();
-      if (!base || !detail) return base;
-      return `${base}\n\nAdditional implementation detail:\n${detail}`;
+      return typeof result?.clipboardText === "string"
+        ? result.clipboardText
+        : typeof result?.prompt === "string"
+          ? result.prompt
+          : "";
     },
-    [codingHandoffDetail],
+    [],
   );
 
   const handleCopyCodingHandoff = useCallback(async () => {
@@ -11169,6 +12575,125 @@ export default function DesignEditor() {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
   }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+
+  const handleCopyShareLink = useCallback(async () => {
+    if (!editorShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(editorShareUrl);
+      setShareLinkCopied(true);
+      if (shareLinkCopiedResetRef.current !== null) {
+        window.clearTimeout(shareLinkCopiedResetRef.current);
+      }
+      shareLinkCopiedResetRef.current = window.setTimeout(() => {
+        setShareLinkCopied(false);
+        shareLinkCopiedResetRef.current = null;
+      }, 1400);
+      toast.success("Share link copied" /* i18n-ignore share copy toast */);
+    } catch {
+      toast.error(t("designEditor.toasts.clipboardBlocked"));
+    }
+  }, [editorShareUrl, t]);
+
+  const hasPendingVisualStyleEdits = pendingVisualStyleEdits.length > 0;
+  useBeforeUnload(
+    useCallback(
+      (event: BeforeUnloadEvent) => {
+        if (!hasPendingVisualStyleEdits) return;
+        event.preventDefault();
+        event.returnValue = "";
+      },
+      [hasPendingVisualStyleEdits],
+    ),
+    { capture: true },
+  );
+  const pendingVisualStyleNavigationBlocker = useBlocker(
+    useCallback(
+      ({ currentLocation, nextLocation }) =>
+        shouldBlockPendingVisualStyleNavigation({
+          hasPendingVisualStyleEdits,
+          currentPathname: currentLocation.pathname,
+          nextPathname: nextLocation.pathname,
+        }),
+      [hasPendingVisualStyleEdits],
+    ),
+  );
+  const pendingVisualStyleWarningOpen =
+    pendingVisualStyleNavigationBlocker.state === "blocked";
+  const handleStayOnPendingVisualStyleNavigation = useCallback(() => {
+    if (pendingVisualStyleNavigationBlocker.state !== "blocked") return;
+    pendingVisualStyleNavigationBlocker.reset();
+  }, [pendingVisualStyleNavigationBlocker]);
+  const handleDiscardPendingVisualStylesAndNavigate = useCallback(() => {
+    if (pendingVisualStyleNavigationBlocker.state !== "blocked") return;
+    setPendingVisualStyleEdits([]);
+    pendingVisualStyleNavigationBlocker.proceed();
+  }, [pendingVisualStyleNavigationBlocker]);
+
+  const pendingVisualStylePropertyCount = useMemo(
+    () => getPendingVisualStylePropertyCount(pendingVisualStyleEdits),
+    [pendingVisualStyleEdits],
+  );
+  const pendingVisualStyleScreenSourceTypes = useMemo(
+    () =>
+      new Map<string, unknown>(
+        overviewScreens.map((screen) => [
+          screen.id,
+          screen.sourceType ?? designSourceType,
+        ]),
+      ),
+    [designSourceType, overviewScreens],
+  );
+  const showPendingVisualStyleApply = useMemo(
+    () =>
+      shouldShowPendingVisualStyleApply({
+        edits: pendingVisualStyleEdits,
+        screenSourceTypes: pendingVisualStyleScreenSourceTypes,
+        fallbackSourceType: designSourceType,
+      }),
+    [
+      designSourceType,
+      pendingVisualStyleEdits,
+      pendingVisualStyleScreenSourceTypes,
+    ],
+  );
+  const pendingVisualStylePrompt = useMemo(
+    () =>
+      formatPendingVisualStylePrompt({
+        designId: id,
+        designTitle: design?.title,
+        activeFileId: activeFile?.id,
+        activeFilename: activeFile?.filename,
+        edits: pendingVisualStyleEdits,
+      }),
+    [
+      activeFile?.filename,
+      activeFile?.id,
+      design?.title,
+      id,
+      pendingVisualStyleEdits,
+    ],
+  );
+  const handleApplyPendingVisualStylesWithAgent = useCallback(() => {
+    if (pendingVisualStyleEdits.length === 0) return;
+    sendToDesignAgentChat({
+      message: t("designEditor.pendingVisualStyles.agentMessage"),
+      context: pendingVisualStylePrompt,
+      submit: true,
+      openSidebar: true,
+    });
+    setPendingVisualStyleEdits([]);
+    setActiveLeftPanel("agent");
+    toast.success(t("designEditor.pendingVisualStyles.sentToast"));
+  }, [pendingVisualStyleEdits.length, pendingVisualStylePrompt, t]);
+  const handleCopyPendingVisualStylePrompt = useCallback(async () => {
+    if (pendingVisualStyleEdits.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(pendingVisualStylePrompt);
+      toast.success(t("designEditor.pendingVisualStyles.copiedToast"));
+    } catch {
+      toast.error(t("designEditor.toasts.clipboardBlocked"));
+    }
+  }, [pendingVisualStyleEdits.length, pendingVisualStylePrompt, t]);
 
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -11236,22 +12761,6 @@ export default function DesignEditor() {
       },
     });
   }, [exportZipMutation, fallbackExportName, id, t, triggerBlobDownload]);
-
-  const handleDownloadHandoffZip = useCallback(async () => {
-    const result = await ensureCodingHandoff();
-    if (!result?.zipUrl) {
-      toast.error(t("designEditor.toasts.zipCreateError"));
-      return;
-    }
-    const a = document.createElement("a");
-    a.href = result.zipUrl;
-    a.download = fallbackExportName("zip", "agent-handoff");
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    toast.success(t("designEditor.toasts.zipDownloaded"));
-  }, [ensureCodingHandoff, fallbackExportName, t]);
 
   const handleDownloadPng = useCallback(
     async (settings?: Partial<ExportSettingsValue>) => {
@@ -11459,14 +12968,6 @@ ${serializedHtml}
     [handleDownloadPng, handleDownloadSvg],
   );
 
-  const handleSendToPrimaryAction = useCallback(() => {
-    if (downloadZipInstead) {
-      void handleDownloadHandoffZip();
-      return;
-    }
-    void handleCopyCodingHandoff();
-  }, [downloadZipInstead, handleCopyCodingHandoff, handleDownloadHandoffZip]);
-
   const shareExportOptions: Array<{
     value: ShareExportFormat;
     title: string;
@@ -11539,7 +13040,7 @@ ${serializedHtml}
         : codingHandoffPreviewFallback);
   const shareExportTab = (
     <div className="space-y-3">
-      <div className="text-[11px] font-semibold uppercase text-muted-foreground">
+      <div className="!text-[11px] font-semibold uppercase text-muted-foreground">
         {"Format" /* i18n-ignore share export section label */}
       </div>
       <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -11564,11 +13065,11 @@ ${serializedHtml}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12px] font-semibold text-foreground">
                   {option.title}{" "}
-                  <span className="text-[11px] font-medium text-muted-foreground">
+                  <span className="!text-[11px] font-medium text-muted-foreground">
                     {option.extension}
                   </span>
                 </span>
-                <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                <span className="mt-0.5 block !text-[11px] leading-4 text-muted-foreground">
                   {option.description}
                 </span>
               </span>
@@ -11592,7 +13093,7 @@ ${serializedHtml}
           <div className="text-[12px] font-medium text-foreground">
             {selectedShareExportOption.title}
           </div>
-          <div className="text-[11px] text-muted-foreground">
+          <div className="!text-[11px] text-muted-foreground">
             {selectedShareExportOption.description}
           </div>
         </div>
@@ -11630,84 +13131,72 @@ ${serializedHtml}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
-          onClick={handleSendToPrimaryAction}
-          disabled={
-            downloadZipInstead
-              ? !activeFile || codingHandoffLoading
-              : codingHandoffLoading
-          }
+          onClick={() => void handleCopyCodingHandoff()}
+          disabled={codingHandoffLoading}
           className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
         >
-          {downloadZipInstead ? (
-            <IconArchive className="size-3.5" />
-          ) : (
-            <IconClipboard className="size-3.5" />
-          )}
-          {
-            downloadZipInstead
-              ? t("designEditor.downloadZip")
-              : "Copy agent prompt" /* i18n-ignore share send action */
-          }
+          <IconClipboard className="size-3.5" />
+          {"Copy agent prompt" /* i18n-ignore share send action */}
         </Button>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-start gap-2.5">
-          <Checkbox
-            checked={downloadZipInstead}
-            onCheckedChange={(checked) =>
-              setDownloadZipInstead(checked === true)
-            }
-            className="mt-0.5"
-          />
-          <div className="min-w-0">
-            <div className="text-[12px] font-medium text-foreground">
-              {"Download zip instead" /* i18n-ignore share send option */}
-            </div>
-            <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-              {
-                "For agents without the Design connector, drop the bundle into your agent's chat manually." /* i18n-ignore share send option description */
-              }
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-[12px] font-medium text-foreground">
-            {
-              "Give the agent more detail on what to implement" /* i18n-ignore share send detail label */
-            }{" "}
-            <span className="font-normal text-muted-foreground">
-              {"(optional)" /* i18n-ignore optional label */}
-            </span>
-          </label>
-          <Textarea
-            value={codingHandoffDetail}
-            onChange={(event) => setCodingHandoffDetail(event.target.value)}
-            placeholder={activeFile?.filename ?? "Add implementation notes..."}
-            className="min-h-20 resize-none rounded-md bg-[var(--design-editor-control-bg)] text-[12px]"
-          />
-        </div>
       </div>
     </div>
   );
+  const shareLinkFooter = (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
+      <Button
+        type="button"
+        onClick={() => void handleCopyShareLink()}
+        disabled={!editorShareUrl}
+        className="h-8 min-w-[8.75rem] gap-1.5 rounded-md px-3 text-[12px]"
+      >
+        {shareLinkCopied ? (
+          <IconCheck className="size-3.5" />
+        ) : (
+          <IconClipboard className="size-3.5" />
+        )}
+        {
+          shareLinkCopied
+            ? "Copied" /* i18n-ignore share copy action copied */
+            : "Copy share link" /* i18n-ignore share copy action */
+        }
+      </Button>
+    </div>
+  );
+  const designShareTabLabelClassName =
+    "inline-flex items-center justify-center gap-1.5";
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
-    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-0.5 [&_[role=tablist]]:rounded-none [&_[role=tablist]]:bg-transparent [&_[role=tablist]]:p-0 " +
-    "[&_[role=tab]]:!h-6 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-2 [&_[role=tab]]:text-[11px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
-    "[&_[role=tab]:hover]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab]:hover]:text-foreground [&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:ring-0";
+    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
+    "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
+    "[&_[role=tab]:hover]:bg-white/70 dark:[&_[role=tab]:hover]:bg-[var(--design-editor-control-bg)] [&_[role=tab]:hover]:text-foreground " +
+    "[&_[role=tab][aria-selected=true]]:bg-white dark:[&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-control-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:shadow-sm [&_[role=tab][aria-selected=true]]:ring-1 [&_[role=tab][aria-selected=true]]:ring-[var(--design-editor-control-border)]";
   const designShareTabs = {
-    shareLabel: "Share link" /* i18n-ignore share tab label */,
+    shareLabel: (
+      <span className={designShareTabLabelClassName}>
+        <IconLink className="size-3.5" />
+        {"Share link" /* i18n-ignore share tab label */}
+      </span>
+    ),
     defaultValue: "share",
     tabs: [
       {
         value: "export",
-        label: t("designEditor.export"),
+        label: (
+          <span className={designShareTabLabelClassName}>
+            <IconFileExport className="size-3.5" />
+            {t("designEditor.export")}
+          </span>
+        ),
         content: shareExportTab,
       },
       {
         value: "send",
-        label: "Send to agent" /* i18n-ignore share tab label */,
+        label: (
+          <span className={designShareTabLabelClassName}>
+            <IconTerminal2 className="size-3.5" />
+            {"Send to agent" /* i18n-ignore share tab label */}
+          </span>
+        ),
         content: shareSendToTab,
       },
     ],
@@ -11725,7 +13214,7 @@ ${serializedHtml}
       },
     });
     if (!stamped.changed || stamped.content === activeContent) return;
-    applyLocalContentUpdate(stamped.content);
+    applyLocalContentUpdate(stamped.content, { recordHistory: false });
   }, [activeContent, activeFile, applyLocalContentUpdate, id, viewMode]);
   const activeCodeLayerTree = useMemo(
     () => buildCodeLayerTree(activeCodeLayerProjection),
@@ -11740,7 +13229,9 @@ ${serializedHtml}
     () =>
       files.map((file) => {
         const content =
-          file.id === activeFile?.id ? activeContent : (file.content ?? "");
+          file.id === activeFile?.id
+            ? activeProjectionContent
+            : getProjectionContentForScreen(file.id);
         const projection =
           file.id === activeFile?.id
             ? activeCodeLayerProjection
@@ -11759,9 +13250,10 @@ ${serializedHtml}
     [
       activeCodeLayerProjection,
       activeCodeLayerTree,
-      activeContent,
+      activeProjectionContent,
       activeFile?.id,
       files,
+      getProjectionContentForScreen,
     ],
   );
   const codeLayerModelByFileId = useMemo(
@@ -11805,6 +13297,7 @@ ${serializedHtml}
     });
     return state;
   }, [codeLayerModelsByFile, hiddenLayerIds, lockedLayerIds]);
+  effectiveCodeLayerStateRef.current = effectiveCodeLayerState;
   useEffect(() => {
     shouldPreserveBlockedOverviewLayerSelectionRef.current = (
       screenId: string,
@@ -12048,11 +13541,190 @@ ${serializedHtml}
     selectedLayerIdsState,
     viewMode,
   ]);
+  const selectedUrlSelectionId = useMemo(
+    () =>
+      selectedElementLayerId ??
+      [...selectedLayerIds]
+        .reverse()
+        .find((layerId) => codeLayerOwnerByNodeId.has(layerId)) ??
+      null,
+    [codeLayerOwnerByNodeId, selectedElementLayerId, selectedLayerIds],
+  );
   const selectedLayerIdsRef = useRef<string[]>(selectedLayerIds);
 
   useLayoutEffect(() => {
     selectedLayerIdsRef.current = selectedLayerIds;
   }, [selectedLayerIds]);
+
+  useEffect(() => {
+    if (!id) return;
+    if (initialUrlSelectionHydratedForIdRef.current === id) return;
+    if (!initialRouteSelectionId) {
+      initialUrlSelectionHydratedForIdRef.current = id;
+      return;
+    }
+    if (
+      selectedUrlSelectionId &&
+      selectedUrlSelectionId !== initialRouteSelectionId
+    ) {
+      initialUrlSelectionHydratedForIdRef.current = id;
+      return;
+    }
+    const owner = codeLayerOwnerByNodeId.get(initialRouteSelectionId);
+    if (!owner) return;
+    const selectionBlocked =
+      effectiveCodeLayerState.lockedIds.has(owner.fileId) ||
+      effectiveCodeLayerState.hiddenIds.has(owner.fileId) ||
+      effectiveCodeLayerState.lockedIds.has(initialRouteSelectionId) ||
+      effectiveCodeLayerState.hiddenIds.has(initialRouteSelectionId);
+    if (
+      activeFileId === owner.fileId &&
+      selectedLayerIds.includes(initialRouteSelectionId) &&
+      (selectionBlocked || selectedElementLayerId === initialRouteSelectionId)
+    ) {
+      initialUrlSelectionHydratedForIdRef.current = id;
+      return;
+    }
+
+    pendingOverviewScreenSelectionRef.current = null;
+    pendingOverviewLayerSelectionRef.current = null;
+    clearPendingOverviewLayerSelectionTimer();
+    setCreatedOverviewLayerSelection(null);
+    setActiveFileId(owner.fileId);
+    setSelectedLayerIdsState([initialRouteSelectionId]);
+    if (viewModeRef.current === "overview") {
+      setOverviewSelectedScreenIds([]);
+    }
+    setSelectedElement(
+      selectionBlocked ? null : elementInfoFromCodeLayerNode(owner.node),
+    );
+    setHoveredElement(null);
+    setHoveredElementScreenId(null);
+    setActiveTool("move");
+    setMode("edit");
+    if (!selectionBlocked) {
+      focusDesignInspectorForSelection();
+    }
+    initialUrlSelectionHydratedForIdRef.current = id;
+  }, [
+    activeFileId,
+    clearPendingOverviewLayerSelectionTimer,
+    codeLayerOwnerByNodeId,
+    effectiveCodeLayerState,
+    focusDesignInspectorForSelection,
+    id,
+    initialRouteSelectionId,
+    selectedElementLayerId,
+    selectedLayerIds,
+    selectedUrlSelectionId,
+  ]);
+
+  useEffect(() => {
+    if (!id || files.length === 0) return;
+    if (
+      initialRouteScreenTarget &&
+      !findDesignFileByScreenTarget(files, initialRouteScreenTarget) &&
+      !activeFileId
+    ) {
+      return;
+    }
+    const preserveInitialRouteSelection = Boolean(
+      initialRouteSelectionId &&
+      initialUrlSelectionHydratedForIdRef.current !== id &&
+      initialRouteSelectionId !== selectedUrlSelectionId &&
+      codeLayerOwnerByNodeId.size === 0,
+    );
+    const nextSearch = getDesignEditorStateUrlSearch({
+      currentSearch: location.search,
+      viewMode,
+      screenId: activeFile?.id ?? activeFileId,
+      selectionId:
+        selectedUrlSelectionId ??
+        (preserveInitialRouteSelection ? initialRouteSelectionId : null),
+      zoom,
+    });
+    if (nextSearch === location.search) return;
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch,
+        hash: location.hash,
+      },
+      { replace: true, preventScrollReset: true },
+    );
+  }, [
+    activeFile?.id,
+    activeFileId,
+    codeLayerOwnerByNodeId.size,
+    files,
+    id,
+    location.hash,
+    location.pathname,
+    location.search,
+    navigate,
+    initialRouteScreenTarget,
+    initialRouteSelectionId,
+    selectedUrlSelectionId,
+    viewMode,
+    zoom,
+  ]);
+
+  const selectedLayerTargets = useMemo<SelectedLayerTarget[]>(
+    () =>
+      selectedLayerIds
+        .map((layerId) => {
+          const owner = codeLayerOwnerByNodeId.get(layerId);
+          if (!owner) return null;
+          const selectedMatches =
+            selectedElement &&
+            codeLayerNodeMatchesBridgeTarget(
+              owner.node,
+              selectedElement.selector,
+              selectedElement.sourceId ?? selectedElement.id,
+            );
+          return {
+            layerId,
+            fileId: owner.fileId,
+            node: owner.node,
+            tree: owner.tree,
+            elementInfo: selectedMatches
+              ? canonicalElementInfoForCodeLayerNode(
+                  selectedElement,
+                  owner.node,
+                )
+              : elementInfoFromCodeLayerNode(owner.node),
+          };
+        })
+        .filter((target): target is SelectedLayerTarget => Boolean(target)),
+    [codeLayerOwnerByNodeId, selectedElement, selectedLayerIds],
+  );
+
+  useLayoutEffect(() => {
+    selectedLayerTargetsRef.current = selectedLayerTargets;
+  }, [selectedLayerTargets]);
+
+  const selectedLayerSelectorGroupsByScreen = useMemo(() => {
+    const groupsByScreen: Record<string, string[][]> = {};
+    selectedLayerTargets.forEach((target) => {
+      const selectorGroup = codeLayerSelectorAliases(target.node);
+      if (selectorGroup.length === 0) return;
+      groupsByScreen[target.fileId] = [
+        ...(groupsByScreen[target.fileId] ?? []),
+        selectorGroup,
+      ];
+    });
+    return groupsByScreen;
+  }, [selectedLayerTargets]);
+
+  const selectedInspectorElements = useMemo(
+    () =>
+      selectedLayerTargets.length > 0
+        ? selectedLayerTargets.map((target) => target.elementInfo)
+        : selectedElement
+          ? [selectedElement]
+          : [],
+    [selectedElement, selectedLayerTargets],
+  );
 
   const layerPanelSelectedIds = useMemo(
     () =>
@@ -12848,7 +14520,7 @@ ${serializedHtml}
   const handleLayerSelectionChange = useCallback(
     (
       ids: string[],
-      intent: {
+      _intent: {
         additive: boolean;
         currentSelectedIds?: string[];
         id: string;
@@ -12860,40 +14532,30 @@ ${serializedHtml}
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
-      if (intent.additive && !intent.range) {
-        const currentLayerIds = (
-          intent.currentSelectedIds && intent.currentSelectedIds.length > 0
-            ? intent.currentSelectedIds
-            : selectedLayerIdsRef.current
-        ).filter((layerId) => !layerId.startsWith("__"));
-        const additiveLayerIds = currentLayerIds.includes(intent.id)
-          ? currentLayerIds.filter((layerId) => layerId !== intent.id)
-          : [...currentLayerIds, intent.id];
-        setSelectedLayerIdsState(additiveLayerIds);
-        if (viewModeRef.current === "overview") {
-          const fileIds = files.map((file) => file.id);
-          const selectedScreenIds = getOverviewScreenIdsFromLayerSelection({
-            fileIds,
-            layerIds: additiveLayerIds,
-          });
-          setOverviewSelectedScreenIds(selectedScreenIds);
-        }
-        setSelectedElement(null);
-        focusDesignInspectorForSelection();
-        setActiveTool("move");
-        setMode("edit");
-        return;
-      }
       setSelectedLayerIdsState(nextLayerIds);
-      const selectedId = ids[ids.length - 1];
+      const screenFileIds = files
+        .filter((file) => !isBoardFile(file.filename))
+        .map((file) => file.id);
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(
+          getOverviewScreenIdsFromLayerSelection({
+            fileIds: screenFileIds,
+            layerIds: nextLayerIds,
+          }),
+        );
+      }
+      const selectedId = nextLayerIds[nextLayerIds.length - 1];
       if (!selectedId) {
         setSelectedElement(null);
         return;
       }
       const codeLayerOwner = codeLayerOwnerByNodeId.get(selectedId);
       if (codeLayerOwner) {
+        const ownerIsScreenFile = screenFileIds.includes(codeLayerOwner.fileId);
         if (viewModeRef.current === "overview") {
-          pendingOverviewScreenSelectionRef.current = codeLayerOwner.fileId;
+          pendingOverviewScreenSelectionRef.current = ownerIsScreenFile
+            ? codeLayerOwner.fileId
+            : null;
           pendingOverviewLayerSelectionRef.current = selectedId;
         }
         if (codeLayerOwner.fileId !== activeFile?.id) {
@@ -12903,6 +14565,7 @@ ${serializedHtml}
           currentViewMode: viewModeRef.current,
           ownerFileId: codeLayerOwner.fileId,
           overviewSelectedScreenIds,
+          screenFileIds,
         });
         viewModeRef.current = nextSelectionState.viewMode;
         setViewMode(nextSelectionState.viewMode);
@@ -12933,11 +14596,19 @@ ${serializedHtml}
       const fileId = selectedId.startsWith("code:")
         ? selectedId.slice("code:".length)
         : selectedId;
-      if (files.some((file) => file.id === fileId)) {
+      if (
+        files.some((file) => file.id === fileId && !isBoardFile(file.filename))
+      ) {
         setOverviewSelectedScreenIds([fileId]);
         setActiveFileId(fileId);
         setSelectedElement(null);
-        setSelectedLayerIdsState([fileId]);
+        setSelectedLayerIdsState(
+          nextLayerIds.some((layerId) =>
+            files.some((file) => file.id === layerId),
+          )
+            ? nextLayerIds
+            : [fileId],
+        );
         setActiveTool("move");
         setMode("edit");
         viewModeRef.current = "overview";
@@ -12953,6 +14624,113 @@ ${serializedHtml}
       focusDesignInspectorForSelection,
       overviewSelectedScreenIds,
     ],
+  );
+
+  const handleLayerMarqueeSelectionChange = useCallback(
+    (
+      selection: CanvasLayerMarqueeSelection[],
+      intent: ElementSelectionIntent,
+    ) => {
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
+
+      const resolved = selection
+        .map((item) => {
+          const projection = getCodeLayerProjectionForScreen(item.screenId);
+          if (!projection) return null;
+          const canonical = canonicalizeElementInfoFromProjection(
+            projection,
+            item.info,
+          );
+          const node = resolveCodeLayerNodeFromElementInfo(
+            projection,
+            canonical,
+          );
+          if (!node || isScreenRootElementInfo(canonical)) return null;
+          return {
+            screenId: item.screenId,
+            node,
+            elementInfo: canonical,
+          };
+        })
+        .filter(
+          (
+            item,
+          ): item is {
+            screenId: string;
+            node: CodeLayerNode;
+            elementInfo: ElementInfo;
+          } => Boolean(item),
+        );
+
+      const hitLayerIds = dedupeStringIds(resolved.map((item) => item.node.id));
+      setSelectedLayerIdsState((current) =>
+        intent.additive
+          ? dedupeStringIds([
+              ...current.filter((layerId) => !layerId.startsWith("__")),
+              ...hitLayerIds,
+            ])
+          : hitLayerIds,
+      );
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds([]);
+      }
+
+      const primary = resolved[resolved.length - 1];
+      if (primary) {
+        setActiveFileId(primary.screenId);
+        setSelectedElement(primary.elementInfo);
+        focusDesignInspectorForSelection();
+      } else if (!intent.additive) {
+        setSelectedElement(null);
+      }
+
+      setActiveTool("move");
+      setMode("edit");
+    },
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      focusDesignInspectorForSelection,
+      getCodeLayerProjectionForScreen,
+    ],
+  );
+
+  const handleScreenElementMarqueeSelect = useCallback(
+    (
+      screenId: string,
+      infos: ElementInfo[],
+      intent?: ElementSelectionIntent,
+    ) => {
+      handleLayerMarqueeSelectionChange(
+        infos.map((info) => ({ screenId, info })),
+        {
+          additive: Boolean(
+            intent?.additive ||
+            intent?.range ||
+            intent?.shiftKey ||
+            intent?.metaKey ||
+            intent?.ctrlKey,
+          ),
+          range: Boolean(intent?.range || intent?.shiftKey),
+          source: "marquee",
+          shiftKey: Boolean(intent?.shiftKey),
+          metaKey: Boolean(intent?.metaKey),
+          ctrlKey: Boolean(intent?.ctrlKey),
+        },
+      );
+    },
+    [handleLayerMarqueeSelectionChange],
+  );
+
+  const handleElementMarqueeSelect = useCallback(
+    (infos: ElementInfo[], intent?: ElementSelectionIntent) => {
+      const screenId = activeFile?.id ?? activeFileId;
+      if (!screenId) return;
+      handleScreenElementMarqueeSelect(screenId, infos, intent);
+    },
+    [activeFile?.id, activeFileId, handleScreenElementMarqueeSelect],
   );
 
   const handleLayerRename = useCallback(
@@ -13208,7 +14986,12 @@ ${serializedHtml}
   if (!id) return null;
 
   if (designLoading || (!design && pendingGenerationActive)) {
-    return <DesignEditorSkeleton embedded={embedded} />;
+    return (
+      <DesignEditorSkeleton
+        embedded={embedded}
+        pendingGeneration={pendingGenerationActive}
+      />
+    );
   }
 
   if (!design) {
@@ -13223,7 +15006,7 @@ ${serializedHtml}
           className="absolute inset-x-0 top-0 h-px bg-[var(--design-editor-panel-divider-color)]"
         />
         <div className="relative flex w-full max-w-sm flex-col items-center text-center">
-          <div className="mb-2 text-[11px] font-medium uppercase text-muted-foreground">
+          <div className="mb-2 !text-[11px] font-medium uppercase text-muted-foreground">
             404
           </div>
           <h1 className="text-xl font-semibold text-foreground">
@@ -13232,7 +15015,7 @@ ${serializedHtml}
           <Button
             variant="default"
             onClick={() => navigate("/")}
-            className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)] px-3.5 text-[var(--design-editor-accent-contrast-color)] shadow-sm hover:border-[var(--design-editor-accent-hover-color)] hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+            className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-foreground bg-foreground px-3.5 text-background shadow-sm hover:border-foreground/90 hover:bg-foreground/90 hover:text-background focus-visible:ring-foreground"
           >
             <IconArrowLeft className="size-4 rtl:-scale-x-100" />
             {t("designEditor.backToDesigns")}
@@ -13537,30 +15320,39 @@ ${serializedHtml}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
+            asChild
             variant="outline"
             size="sm"
-            onClick={handleSignInToSave}
-            className="h-8 max-w-[13rem] cursor-pointer gap-1.5 truncate rounded-md bg-[var(--design-editor-panel-raised-bg)] px-2 text-xs shadow-none"
+            className="h-8 cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] px-3 text-sm shadow-none"
             aria-label={t("designEditor.signUpToSave")}
           >
-            <IconDeviceFloppy className="size-4 shrink-0" />
-            <span className="truncate">{t("designEditor.signUpToSave")}</span>
+            <a
+              href={signInToSaveHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>{t("home.save")}</span>
+            </a>
           </Button>
         </TooltipTrigger>
-        <TooltipContent>
-          {t("designEditor.signUpToSaveDescription")}
-        </TooltipContent>
+        <TooltipContent>{t("designEditor.signUpToSave")}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
+            asChild
             variant="default"
             size="sm"
-            onClick={handleSignInToShare}
             className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+            aria-label={t("designEditor.signUpToShare")}
           >
-            <span>{t("designEditor.share")}</span>
-            <IconArrowUpRight className="size-4 shrink-0" />
+            <a
+              href={signInToShareHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span>{t("designEditor.share")}</span>
+            </a>
           </Button>
         </TooltipTrigger>
         <TooltipContent>{t("designEditor.signUpToShare")}</TooltipContent>
@@ -13701,7 +15493,7 @@ ${serializedHtml}
             </PopoverContent>
           </Popover>
 
-          {isSignedIn ? (
+          {canRenderAuthenticatedShare ? (
             <ShareButton
               resourceType="design"
               resourceId={id}
@@ -13711,44 +15503,22 @@ ${serializedHtml}
               shareUrl={editorShareUrl}
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+              showShareLinks={false}
+              showDoneButton={false}
+              shareFooterContent={shareLinkFooter}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}
               triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
             />
-          ) : (
+          ) : sessionResolved ? (
             signedOutPersistenceActions
-          )}
+          ) : null}
         </div>
       </div>
     </div>
   );
 
   const leftContentWidth = Math.max(leftSidebarWidth, 320);
-  const motionDockLauncherHidden = motionDockMounted || motionDockOpen;
-  const motionDockLauncher =
-    !embedded && activeFile ? (
-      <div
-        aria-hidden={motionDockLauncherHidden ? true : undefined}
-        className={cn(
-          "overflow-hidden border-t border-[var(--design-editor-panel-divider-color)] transition-[max-height,opacity,border-color] duration-200 ease-out",
-          motionDockLauncherHidden
-            ? "max-h-0 border-transparent opacity-0"
-            : "max-h-9 opacity-100",
-        )}
-      >
-        <button
-          type="button"
-          aria-label={"Expand motion dock" /* i18n-ignore */}
-          className="flex h-8 w-full cursor-pointer items-center gap-2 bg-[var(--design-editor-panel-bg)] px-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
-          disabled={motionDockLauncherHidden}
-          onClick={() => setMotionDockOpenAnimated(true)}
-        >
-          <IconChevronRight className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">Motion</span>
-        </button>
-      </div>
-    ) : null;
-
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
     // so flex-1 on the child doesn't resolve to the available height. h-full
@@ -14124,7 +15894,7 @@ ${serializedHtml}
               />
             )}
 
-            {!embedded && isSignedIn ? (
+            {!embedded && canRenderAuthenticatedShare ? (
               <ShareButton
                 resourceType="design"
                 resourceId={id}
@@ -14135,11 +15905,14 @@ ${serializedHtml}
                 shareUrlDescription={t(
                   "designEditor.shareEditorLinkDescription",
                 )}
+                showShareLinks={false}
+                showDoneButton={false}
+                shareFooterContent={shareLinkFooter}
                 shareTabs={designShareTabs}
                 popoverClassName={designSharePopoverClassName}
                 triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
               />
-            ) : !embedded ? (
+            ) : !embedded && sessionResolved ? (
               signedOutPersistenceActions
             ) : null}
           </div>
@@ -14152,7 +15925,15 @@ ${serializedHtml}
           <div className="relative flex min-h-0 shrink-0 border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]">
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
+              disabledPanels={
+                initialGenerationChromeLimited
+                  ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
+                  : undefined
+              }
+              motionOpen={motionDockOpen}
+              motionDisabled={!activeFile}
               projectMenu={projectMenu}
+              onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
               onPanelChange={setActiveLeftPanel}
             />
             <div
@@ -14186,7 +15967,6 @@ ${serializedHtml}
                     selectedIds={layerPanelSelectedIds}
                     expandedIds={layerPanelExpandedIds}
                     searchQuery={layersSearchQuery}
-                    footer={motionDockLauncher}
                     onScreenSelect={handleSidebarScreenSelect}
                     onScreenOverview={handleSidebarScreenOverview}
                     onAddScreen={handleAddScreen}
@@ -14216,6 +15996,7 @@ ${serializedHtml}
                 <AgentChatSurface
                   mode="panel"
                   className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
+                  storageKey={DESIGN_CHAT_STORAGE_KEY}
                   emptyStateText={t("chat.emptyState")}
                   suggestions={[
                     t("chat.suggestionLandingPage"),
@@ -14223,6 +16004,7 @@ ${serializedHtml}
                     t("chat.suggestionMobile"),
                   ]}
                   scope={designChatScope}
+                  showScopeBadge={false}
                   browserTabId={browserTabId}
                 />
               </div>
@@ -14398,18 +16180,6 @@ ${serializedHtml}
           >
             {activeFile ? (
               <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                {/* Banner for screens connected to a local dev server: edits
-                    route through the agent rather than being applied inline. */}
-                {activeScreenIsLocalSource &&
-                  !localSourceBannerDismissed &&
-                  id && (
-                    <LocalSourceEditBanner
-                      designId={id}
-                      fileId={activeFile.id}
-                      routeSourceFile={activeScreenRouteSourceFile}
-                      onDismiss={() => setLocalSourceBannerDismissed(true)}
-                    />
-                  )}
                 {/* "Apply to source" affordance: write the current editor
                     content back to the local HTML/CSS file via the bridge.
                     Only shown for localhost-backed screens where the route
@@ -14420,7 +16190,7 @@ ${serializedHtml}
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-6 gap-1.5 px-2 text-[11px]"
+                      className="h-6 gap-1.5 px-2 !text-[11px]"
                       disabled={applyToSourcePending}
                       onClick={handleApplyToSource}
                     >
@@ -14455,11 +16225,54 @@ ${serializedHtml}
                       }}
                     />
                   )}
+                  {showPendingVisualStyleApply ? (
+                    <div className="pointer-events-none absolute bottom-5 right-5 z-[70] flex items-end">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            className="pointer-events-auto h-11 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(37,99,235,0.9)] hover:bg-blue-400 focus-visible:ring-blue-400"
+                            aria-label={t(
+                              "designEditor.pendingVisualStyles.applyAria",
+                            )}
+                          >
+                            <IconBrush className="h-4 w-4" />
+                            {t("designEditor.pendingVisualStyles.applyButton")}
+                            <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
+                              {pendingVisualStylePropertyCount}
+                            </span>
+                            <IconChevronDown className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          className="design-editor-app-menu-content w-64"
+                        >
+                          <DropdownMenuLabel className="text-xs text-muted-foreground">
+                            {t("designEditor.pendingVisualStyles.previewLabel")}
+                          </DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={handleApplyPendingVisualStylesWithAgent}
+                          >
+                            <IconMessage className="mr-2 h-4 w-4" />
+                            {t(
+                              "designEditor.pendingVisualStyles.applyWithAgent",
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={handleCopyPendingVisualStylePrompt}
+                          >
+                            <IconClipboard className="mr-2 h-4 w-4" />
+                            {t("designEditor.pendingVisualStyles.copyPrompt")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  ) : null}
                   {viewMode === "overview" ? (
                     <MultiScreenCanvas
                       screens={overviewScreens}
                       zoom={overviewCanvasZoom}
-                      onZoomChange={setOverviewCanvasZoom}
+                      onZoomChange={setExplicitOverviewCanvasZoom}
                       activeId={activeFileId}
                       selectedScreenIds={overviewSelectedScreenIds}
                       fullViewScreenIds={fullViewScreenIds}
@@ -14488,22 +16301,88 @@ ${serializedHtml}
                       onPrimitiveReparent={handleOverviewPrimitiveReparent}
                       onCrossScreenElementDrop={handleCrossScreenElementDrop}
                       boardFileId={boardFileId}
+                      boardIsActive={activeFileId === boardFileId}
                       boardFileContent={boardFileContent}
                       boardFrameGeometry={boardFrameGeometry}
+                      boardClearSelectionRequest={overviewClearSelectionRequest}
+                      boardSelectedSelector={
+                        activeFileId === boardFileId
+                          ? selectedCanvasSelector
+                          : null
+                      }
+                      boardSelectedSelectorCandidates={
+                        activeFileId === boardFileId
+                          ? selectedCanvasSelectorCandidates
+                          : []
+                      }
+                      boardHoveredSelector={
+                        hoveredElementScreenId === boardFileId
+                          ? hoveredCanvasSelector
+                          : null
+                      }
+                      boardHoveredSelectorCandidates={
+                        hoveredElementScreenId === boardFileId
+                          ? hoveredCanvasSelectorCandidates
+                          : []
+                      }
+                      boardLockedSelectors={
+                        boardFileId
+                          ? getLayerSelectorsForFile(
+                              boardFileId,
+                              lockedLayerIds,
+                            )
+                          : []
+                      }
+                      boardHiddenSelectors={
+                        boardFileId
+                          ? getLayerSelectorsForFile(
+                              boardFileId,
+                              hiddenLayerIds,
+                            )
+                          : []
+                      }
                       onBoardDrawPrimitive={
                         canEditDesign ? handleBoardDrawPrimitive : undefined
                       }
                       boardEditMode={canEditDesign}
                       onBoardElementSelect={
                         boardFileId
-                          ? (info) =>
-                              handleScreenElementSelect(boardFileId, info)
+                          ? (info, intent) =>
+                              handleScreenElementSelect(
+                                boardFileId,
+                                info,
+                                intent,
+                              )
+                          : undefined
+                      }
+                      onBoardElementMarqueeSelect={
+                        boardFileId
+                          ? (infos, intent) =>
+                              handleScreenElementMarqueeSelect(
+                                boardFileId,
+                                infos,
+                                intent,
+                              )
                           : undefined
                       }
                       onBoardElementHover={
                         boardFileId
                           ? (info) =>
                               handleScreenElementHover(boardFileId, info)
+                          : undefined
+                      }
+                      onBoardElementClear={
+                        boardFileId
+                          ? () => handleScreenElementClear(boardFileId)
+                          : undefined
+                      }
+                      onBoardIframeHotkey={handleIframeHotkey}
+                      onBoardIframeContextMenu={handleIframeContextMenu}
+                      onBoardTextEditingStateChange={setTextEditingState}
+                      onBoardElementDblClickText={
+                        boardFileId
+                          ? (info) =>
+                              handleScreenElementDblClickText(boardFileId, info)
                           : undefined
                       }
                       onBoardVisualStyleChange={
@@ -14563,6 +16442,12 @@ ${serializedHtml}
                       onCreateScreenFrame={handleCreateScreenFrame}
                       onDeleteSelection={handleDeleteOverviewSelection}
                       onSelectionChange={handleOverviewScreenSelectionChange}
+                      onLayerMarqueeSelectionChange={
+                        handleLayerMarqueeSelectionChange
+                      }
+                      selectedLayerSelectorGroupsByScreen={
+                        selectedLayerSelectorGroupsByScreen
+                      }
                       onPick={(id) => {
                         pendingOverviewScreenSelectionRef.current = null;
                         pendingOverviewLayerSelectionRef.current = null;
@@ -14631,6 +16516,13 @@ ${serializedHtml}
                       renderScreenContent={(screen, metadata, geometry) => {
                         const screenIsActive = screen.id === activeFile?.id;
                         const screenContent = getScreenContent(screen.id);
+                        const screenSourceType =
+                          normalizeDesignSourceType(screen.sourceType) ??
+                          metadata.source ??
+                          designSourceType;
+                        const screenBridgeUrl = screen.bridgeUrl;
+                        const screenSnapshot =
+                          liveScreenSnapshotsById[screen.id]?.html;
                         const screenContentKey = screenIsActive
                           ? [screen.id, contentRenderRevision].join(":")
                           : [
@@ -14647,7 +16539,15 @@ ${serializedHtml}
                             screenId={screen.id}
                             zoom={100}
                             deviceFrame="none"
-                            sourceType={designSourceType}
+                            sourceType={screenSourceType}
+                            bridgeUrl={screenBridgeUrl}
+                            externalSnapshotHtml={screenSnapshot}
+                            onExternalContentSnapshot={(snapshot) =>
+                              handleScreenExternalContentSnapshot(
+                                screen.id,
+                                snapshot,
+                              )
+                            }
                             fusionUrl={designFusionUrl}
                             onComponentSourceJump={handleComponentSourceJump}
                             embeddedFrame={{
@@ -14673,7 +16573,7 @@ ${serializedHtml}
                             editorChromeScaleY={overviewCanvasZoom / 100}
                             editMode={mode === "edit"}
                             interactMode={false}
-                            readOnly={!screenIsActive || !canEditDesign}
+                            readOnly={!canEditDesign}
                             scaleMode={screenIsActive && activeTool === "scale"}
                             clearSelectionRequest={
                               overviewClearSelectionRequest
@@ -14686,6 +16586,10 @@ ${serializedHtml}
                               screenIsActive
                                 ? selectedCanvasSelectorCandidates
                                 : []
+                            }
+                            selectedSelectorGroups={
+                              selectedLayerSelectorGroupsByScreen[screen.id] ??
+                              []
                             }
                             hoveredSelector={
                               hoveredElementScreenId === screen.id
@@ -14705,11 +16609,21 @@ ${serializedHtml}
                               screen.id,
                               hiddenLayerIds,
                             )}
-                            onElementSelect={(info) =>
-                              handleScreenElementSelect(screen.id, info)
+                            onElementSelect={(info, intent) =>
+                              handleScreenElementSelect(screen.id, info, intent)
+                            }
+                            onElementMarqueeSelect={(infos, intent) =>
+                              handleScreenElementMarqueeSelect(
+                                screen.id,
+                                infos,
+                                intent,
+                              )
                             }
                             onElementHover={(info) =>
                               handleScreenElementHover(screen.id, info)
+                            }
+                            onEditorDragStateChange={
+                              handleEditorDragStateChange
                             }
                             onClearSelection={() =>
                               handleScreenElementClear(screen.id)
@@ -14791,7 +16705,16 @@ ${serializedHtml}
                         zoom={zoom}
                         onZoomChange={setZoom}
                         deviceFrame={deviceFrame}
-                        sourceType={designSourceType}
+                        sourceType={activeCanvasSourceType}
+                        bridgeUrl={activeScreenBridgeUrl}
+                        externalSnapshotHtml={activeScreenExternalSnapshotHtml}
+                        onExternalContentSnapshot={(snapshot) => {
+                          if (!activeFile?.id) return;
+                          handleScreenExternalContentSnapshot(
+                            activeFile.id,
+                            snapshot,
+                          );
+                        }}
                         fusionUrl={designFusionUrl}
                         previewWidthPx={activeBreakpointWidthState}
                         shaderFillPreview={shaderFillPreview}
@@ -14806,6 +16729,13 @@ ${serializedHtml}
                         selectedSelectorCandidates={
                           selectedCanvasSelectorCandidates
                         }
+                        selectedSelectorGroups={
+                          activeFile
+                            ? (selectedLayerSelectorGroupsByScreen[
+                                activeFile.id
+                              ] ?? [])
+                            : []
+                        }
                         hoveredSelector={hoveredCanvasSelector}
                         hoveredSelectorCandidates={
                           hoveredCanvasSelectorCandidates
@@ -14813,7 +16743,9 @@ ${serializedHtml}
                         lockedSelectors={lockedLayerSelectors}
                         hiddenSelectors={hiddenLayerSelectors}
                         onElementSelect={handleElementSelect}
+                        onElementMarqueeSelect={handleElementMarqueeSelect}
                         onElementHover={handleElementHover}
+                        onEditorDragStateChange={handleEditorDragStateChange}
                         onClearSelection={() => {
                           setSelectedElement(null);
                           setHoveredElement(null);
@@ -14881,18 +16813,43 @@ ${serializedHtml}
                 </div>
               </div>
             ) : (
-              <div className="flex flex-1 items-center justify-center">
-                <div className="text-center">
+              <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-10">
+                <div className="flex w-full max-w-md flex-col items-center text-center">
                   {generating || pendingGenerationActive ? (
                     <>
-                      <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
+                      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] shadow-[0_18px_50px_-34px_rgba(0,0,0,0.8)]">
+                        <Spinner className="size-5 text-foreground/40" />
+                      </div>
                       <p className="text-sm text-muted-foreground">
                         {t("designEditor.generating")}
                       </p>
                     </>
                   ) : (
                     <>
-                      <p className="mb-3 text-sm text-muted-foreground">
+                      <div
+                        aria-hidden="true"
+                        className="mb-5 w-full max-w-sm rounded-xl bg-[#f7f8fb] p-3 dark:bg-[#f4f6f8]"
+                      >
+                        <div className="flex h-7 items-center justify-between px-1 pb-2">
+                          <div className="flex gap-1.5">
+                            <span className="size-2 rounded-full bg-slate-950/[0.12]" />
+                            <span className="size-2 rounded-full bg-slate-950/[0.1]" />
+                            <span className="size-2 rounded-full bg-slate-950/[0.08]" />
+                          </div>
+                          <span className="h-2 w-16 rounded bg-slate-950/[0.08]" />
+                        </div>
+                        <div className="space-y-3 pt-4">
+                          <span className="block h-5 w-2/3 rounded bg-slate-950/[0.085]" />
+                          <span className="block h-4 w-1/2 rounded bg-slate-950/[0.07]" />
+                          <div className="grid grid-cols-3 gap-2 pt-2">
+                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
+                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
+                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
+                          </div>
+                          <span className="block h-20 rounded-lg bg-slate-950/[0.07]" />
+                        </div>
+                      </div>
+                      <p className="mb-3 text-sm font-medium text-foreground/85">
                         {generationIssue ?? t("designEditor.noFiles")}
                       </p>
                       {retryablePrompt ? (
@@ -14904,7 +16861,7 @@ ${serializedHtml}
                         {retryablePrompt ? (
                           <Button
                             size="sm"
-                            className="cursor-pointer"
+                            className="h-8 cursor-pointer rounded-md"
                             onClick={handleRetryGeneration}
                           >
                             <IconRefresh className="h-3.5 w-3.5" />
@@ -14915,7 +16872,7 @@ ${serializedHtml}
                           ref={generateBtnRef}
                           variant={retryablePrompt ? "ghost" : "outline"}
                           size="sm"
-                          className="cursor-pointer"
+                          className="h-8 cursor-pointer rounded-md"
                           onClick={() => {
                             setRetryablePrompt(null);
                             handlePromptOpenChange(true);
@@ -14936,7 +16893,7 @@ ${serializedHtml}
         )}
 
         {/* Right rail */}
-        {!embedded ? (
+        {!embedded && !initialGenerationChromeLimited ? (
           <div
             className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]"
             style={{ width: rightSidebarWidth }}
@@ -14953,6 +16910,7 @@ ${serializedHtml}
               <div className="min-h-0 flex-1">
                 <EditPanel
                   selectedElement={selectedElement}
+                  selectedElements={selectedInspectorElements}
                   pageStyles={pageStyles}
                   zoom={zoom}
                   headerTrailing={zoomControl}
@@ -14961,7 +16919,6 @@ ${serializedHtml}
                   onActiveTabChange={setActiveInspectorTab}
                   tweaks={tweaks}
                   tweakValues={tweakSelections}
-                  readOnly={initialGenerationReadOnly}
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFile?.updatedAt ?? null}
                   onComponentPropApplied={handleComponentPropApplied}
@@ -14976,16 +16933,19 @@ ${serializedHtml}
                   onRequestTweaks={handleRequestTweaks}
                   onStyleChange={handleStyleChange}
                   onStylesChange={handleStylesChange}
-                  onAutoLayoutConvert={handleAutoLayoutConvert}
                   onExport={handleInspectorExport}
                   exporting={pngExporting || svgExporting}
                   designId={id}
                   fileId={activeFile?.id}
-                  filename={activeFile?.filename}
                   componentNodeId={selectedComponentNodeId}
                   sourceCapabilities={sourceCapabilities}
+                  selectedElementAlreadyComponent={
+                    selectedElementAlreadyComponent
+                  }
                   onCreateComponent={
-                    id && selectedElement ? handleCreateComponent : undefined
+                    id && selectedElement && !selectedElementAlreadyComponent
+                      ? handleCreateComponent
+                      : undefined
                   }
                   defaultComponentName={defaultComponentName}
                   inspectCode={inspectCodeData}
@@ -15046,6 +17006,37 @@ ${serializedHtml}
         ) : null}
       </div>
 
+      <AlertDialog open={pendingVisualStyleWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designEditor.pendingVisualStyles.leaveTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                pendingVisualStylePropertyCount === 1
+                  ? "designEditor.pendingVisualStyles.leaveDescriptionOne"
+                  : "designEditor.pendingVisualStyles.leaveDescriptionOther",
+                { count: pendingVisualStylePropertyCount },
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={handleStayOnPendingVisualStyleNavigation}
+            >
+              {t("designEditor.pendingVisualStyles.stay")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDiscardPendingVisualStylesAndNavigate}
+            >
+              {t("designEditor.pendingVisualStyles.leave")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Motion dock (§6.3) — bottom timeline mounted while opening, open, or
           closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
@@ -15056,6 +17047,7 @@ ${serializedHtml}
           durationMs={motionDurationMs}
           open={motionDockOpen}
           onOpenChange={setMotionDockOpenAnimated}
+          onExitComplete={handleMotionDockExitComplete}
           onTracksChange={handleMotionTracksChange}
           onDurationChange={handleMotionDurationChange}
           canvasIframeRef={canvasIframeRef}
