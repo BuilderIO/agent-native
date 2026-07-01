@@ -282,6 +282,23 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("reconnectContent.length === 0");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
+
+  it("keeps tail-resume reconnect content display-only on normal completion", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("setReconnectFrozen(afterSeq === 0)");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const completionSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(completionSource).toContain("setReconnectFrozen(afterSeq === 0)");
+    expect(completionSource).toContain("if (afterSeq > 0)");
+    expect(completionSource).toContain("setReconnectContent([])");
+    expect(completionSource).toContain("setReconnectFrozen(false)");
+    expect(completionSource).not.toContain("setReconnectFrozen(true)");
+  });
 });
 
 describe("reconnectProgressTimedOut", () => {

@@ -1964,7 +1964,7 @@ const AssistantChatInner = forwardRef<
           return;
         }
 
-        setReconnectFrozen(true);
+        setReconnectFrozen(afterSeq === 0);
         let loaded = false;
         for (let attempt = 0; attempt < 10; attempt++) {
           await new Promise((r) => setTimeout(r, 500));
@@ -1979,6 +1979,10 @@ const AssistantChatInner = forwardRef<
         }
 
         if (reconnectRunIdRef.current === runId) {
+          if (afterSeq > 0) {
+            setReconnectContent([]);
+            setReconnectFrozen(false);
+          }
           clearActiveRunIfMatches(threadId, runId);
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
@@ -1991,6 +1995,10 @@ const AssistantChatInner = forwardRef<
         }
         if (!loaded) {
           await refreshThreadFromServer();
+          if (afterSeq > 0) {
+            setReconnectContent([]);
+            setReconnectFrozen(false);
+          }
         }
       };
 
