@@ -436,14 +436,24 @@ export function BuilderSetupCard({
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
         fullWidth
-          ? "w-full pb-2"
+          ? "w-full px-3 pb-2"
           : sidebarLayout
             ? "mx-auto w-full max-w-[42rem] px-3 pb-2"
             : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit",
       )}
     >
-      <div className="rounded-lg border border-border/80 bg-background/80 p-3 shadow-sm backdrop-blur">
-        <div className="agent-builder-setup-card__content flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div
+        className={cn(
+          "agent-builder-setup-card__panel rounded-lg border border-border/80 bg-background/80 shadow-sm backdrop-blur",
+          sidebarLayout ? "p-2.5" : "p-3",
+        )}
+      >
+        <div
+          className={cn(
+            "agent-builder-setup-card__content flex flex-col sm:flex-row sm:items-center sm:justify-between",
+            sidebarLayout ? "gap-2" : "gap-3",
+          )}
+        >
           <div className="agent-builder-setup-card__copy min-w-0">
             <h3 className="text-[13px] font-medium text-foreground">
               Connect AI
@@ -456,7 +466,7 @@ export function BuilderSetupCard({
             className={cn(
               "agent-builder-setup-card__actions flex shrink-0",
               sidebarLayout
-                ? "flex-col items-start gap-0 sm:items-center"
+                ? "flex-col items-start gap-1 sm:items-center"
                 : "flex-nowrap items-center gap-2",
             )}
           >
@@ -472,7 +482,7 @@ export function BuilderSetupCard({
               )}
               aria-expanded={keyOpen}
             >
-              {sidebarLayout ? "Or, use API key" : "Use API key"}
+              Use API key
             </button>
           </div>
         </div>

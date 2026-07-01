@@ -162,7 +162,9 @@ export function CodeRequiredDialog({
               Object.assign(e.currentTarget.style, s.optionCardHover)
             }
             onMouseLeave={(e) =>
-              Object.assign(e.currentTarget.style, { borderColor: "#e5e7eb" })
+              Object.assign(e.currentTarget.style, {
+                borderColor: "hsl(var(--border))",
+              })
             }
           >
             <div style={s.optionIcon}>
@@ -190,7 +192,9 @@ export function CodeRequiredDialog({
                 Object.assign(e.currentTarget.style, s.optionCardHover)
               }
               onMouseLeave={(e) =>
-                Object.assign(e.currentTarget.style, { borderColor: "#e5e7eb" })
+                Object.assign(e.currentTarget.style, {
+                  borderColor: "hsl(var(--border))",
+                })
               }
               onClick={handleBuilderAgent}
             >
@@ -254,7 +258,7 @@ export function CodeRequiredDialog({
               }
               onMouseLeave={(e) =>
                 Object.assign(e.currentTarget.style, {
-                  borderColor: "#e5e7eb",
+                  borderColor: "hsl(var(--border))",
                 })
               }
             >
@@ -294,7 +298,13 @@ export function CodeRequiredDialog({
         )}
 
         {error && (
-          <p style={{ color: "#ef4444", fontSize: 12, marginTop: 12 }}>
+          <p
+            style={{
+              color: "hsl(var(--destructive))",
+              fontSize: 12,
+              marginTop: 12,
+            }}
+          >
             {error}
           </p>
         )}
@@ -326,8 +336,9 @@ const s: Record<string, React.CSSProperties> = {
   },
   dialog: {
     position: "relative",
-    background: "#fff",
+    background: "hsl(var(--popover))",
     borderRadius: "12px",
+    border: "1px solid hsl(var(--border))",
     maxWidth: "460px",
     width: "100%",
     padding: "24px",
@@ -335,7 +346,7 @@ const s: Record<string, React.CSSProperties> = {
       "0 20px 25px -5px rgba(0,0,0,.1), 0 8px 10px -6px rgba(0,0,0,.1)",
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    color: "#111827",
+    color: "hsl(var(--popover-foreground))",
   },
   header: {
     display: "flex",
@@ -348,11 +359,11 @@ const s: Record<string, React.CSSProperties> = {
     width: "40px",
     height: "40px",
     borderRadius: "10px",
-    background: "#f3f4f6",
+    background: "hsl(var(--muted))",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#6b7280",
+    color: "hsl(var(--muted-foreground))",
   },
   title: {
     margin: 0,
@@ -363,7 +374,7 @@ const s: Record<string, React.CSSProperties> = {
   subtitle: {
     margin: "4px 0 0",
     fontSize: "13px",
-    color: "#6b7280",
+    color: "hsl(var(--muted-foreground))",
     lineHeight: "1.5",
   },
   options: {
@@ -377,7 +388,7 @@ const s: Record<string, React.CSSProperties> = {
     alignItems: "flex-start",
     gap: "14px",
     padding: "14px",
-    border: "1px solid #e5e7eb",
+    border: "1px solid hsl(var(--border))",
     borderRadius: "10px",
     background: "transparent",
     cursor: "pointer",
@@ -388,7 +399,7 @@ const s: Record<string, React.CSSProperties> = {
     color: "inherit",
   },
   optionCardHover: {
-    borderColor: "#a5b4fc",
+    borderColor: "hsl(var(--ring))",
   },
   optionLink: {
     textDecoration: "none",
@@ -410,7 +421,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   optionDesc: {
     fontSize: "12px",
-    color: "#6b7280",
+    color: "hsl(var(--muted-foreground))",
     lineHeight: "1.5",
   },
   badge: {
@@ -420,7 +431,7 @@ const s: Record<string, React.CSSProperties> = {
     fontSize: "10px",
     fontWeight: 600,
     color: "#00B5FF",
-    background: "#e0f2fe",
+    background: "hsl(var(--primary) / 0.08)",
     padding: "2px 8px",
     borderRadius: "99px",
     textTransform: "uppercase",
@@ -435,7 +446,7 @@ const s: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     padding: "6px",
     borderRadius: "6px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -445,7 +456,7 @@ const s: Record<string, React.CSSProperties> = {
     padding: "12px",
     borderRadius: "8px",
     border: "1px solid #22c55e40",
-    background: "#f0fdf4",
+    background: "rgba(34,197,94,0.08)",
     display: "flex",
     flexDirection: "column",
     gap: "4px",

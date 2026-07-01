@@ -38,7 +38,7 @@ function StatusDot({
       ? "bg-green-500"
       : configured
         ? "bg-yellow-500"
-        : "bg-gray-400";
+        : "bg-muted-foreground/55";
   return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
 }
 

@@ -149,6 +149,16 @@ button[title="Open agent sidebar"] {
   }
 }
 
+.deck-grid-container {
+  container-type: inline-size;
+}
+
+@container (max-width: 36rem) {
+  .deck-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Presentation mode styles */
 .presentation-mode {
   cursor: none;

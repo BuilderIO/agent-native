@@ -18,6 +18,7 @@ export interface NavigationState {
   screenId?: string;
   filename?: string;
   screen?: string;
+  selection?: string;
   zoom?: number;
   tool?: string;
   path?: string;
@@ -52,6 +53,7 @@ export interface DesignEditorCommand {
   screenId?: string;
   filename?: string;
   screen?: string;
+  selection?: string;
   zoom?: number;
   tool?: string;
   path?: string;
@@ -117,6 +119,7 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   if (leftPanel) params.set("panel", leftPanel);
   const screen = cmd.fileId ?? cmd.screenId ?? cmd.filename ?? cmd.screen;
   if (screen) params.set("screen", screen);
+  if (cmd.selection) params.set("selection", cmd.selection);
   if (typeof cmd.zoom === "number" && Number.isFinite(cmd.zoom)) {
     params.set("zoom", String(cmd.zoom));
   } else if (editorView === "single") {
@@ -151,6 +154,7 @@ export function editorCommandFromNavigate(
   if (cmd.screenId) command.screenId = cmd.screenId;
   if (cmd.filename) command.filename = cmd.filename;
   if (cmd.screen) command.screen = cmd.screen;
+  if (cmd.selection) command.selection = cmd.selection;
   if (typeof cmd.zoom === "number" && Number.isFinite(cmd.zoom)) {
     command.zoom = cmd.zoom;
   } else if (editorView === "single") {
@@ -186,6 +190,8 @@ export function useNavigationState(enabled = true) {
         if (fileId) state.fileId = fileId;
         const filename = searchParams.get("filename");
         if (filename) state.filename = filename;
+        const selection = searchParams.get("selection");
+        if (selection) state.selection = selection;
         const rawZoom = searchParams.get("zoom");
         if (rawZoom !== null) {
           const zoom = Number(rawZoom);
@@ -200,11 +206,6 @@ export function useNavigationState(enabled = true) {
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
         state.designId = params.id;
-      } else if (
-        pathname.startsWith("/templates") ||
-        pathname.startsWith("/examples")
-      ) {
-        state.view = "templates";
       } else if (pathname.startsWith("/settings")) {
         state.view = "settings";
       }
@@ -221,8 +222,6 @@ export function useNavigationState(enabled = true) {
       }
       if (cmd.view === "present" && cmd.designId)
         return `/present/${cmd.designId}`;
-      if (cmd.view === "templates" || cmd.view === "examples")
-        return "/templates";
       if (cmd.view === "settings") return "/settings";
       return "/";
     },

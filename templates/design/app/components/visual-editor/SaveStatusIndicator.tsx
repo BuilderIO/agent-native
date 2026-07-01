@@ -29,7 +29,7 @@ export function SaveStatusIndicator({
           <div
             data-save-status="offline"
             className={cn(
-              "flex items-center gap-1 text-[11px] text-amber-500",
+              "flex items-center gap-1 !text-[11px] text-amber-500",
               className,
             )}
           >
@@ -51,7 +51,7 @@ export function SaveStatusIndicator({
       <span
         data-save-status="saving"
         className={cn(
-          "animate-pulse text-[11px] text-muted-foreground",
+          "animate-pulse !text-[11px] text-muted-foreground",
           className,
         )}
       >

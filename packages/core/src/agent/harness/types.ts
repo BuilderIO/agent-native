@@ -100,6 +100,7 @@ export type AgentHarnessEvent =
       type: "tool-done";
       id?: string;
       name: string;
+      input?: unknown;
       result?: unknown;
       mcpApp?: AgentMcpAppPayload;
     }

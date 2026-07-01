@@ -77,10 +77,10 @@ const hiIN = {
   home: {
     hero: {
       badge: "ओपन सोर्स framework",
-      titleLine1: "एजेंटिक अनुप्रयोग",
-      titleAccent: "जिन पर आपका अधिकार है",
+      titleLine1: "agentic apps के लिए",
+      titleAccent: "framework",
       body: "Chat-first app और app-agent loop से शुरू करें। जैसे-जैसे आपका agent बढ़े, actions, स्क्रीन, jobs और workflows जोड़ें।",
-      primaryCta: "टेम्पलेट से शुरू करें",
+      primaryCta: "बनाना शुरू करें",
       secondaryCta: "दस्तावेज़ देखें",
     },
     code: {
@@ -90,6 +90,106 @@ const hiIN = {
       frameworkComment:
         "एक action agent, UI, HTTP, MCP, A2A और CLI को चलाता है।",
       frameworkDescription: "स्थानीय app-agent loop से hello कहें।",
+    },
+    actionSurface: {
+      eyebrow: "ऊपर से चिपकाई AI नहीं, सच में agentic",
+      title: "एक action पूरी app surface खोल देता है",
+      body: "एक operation एक बार define करें। Agent-Native उसे UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check और audit trail में बदल देता है।",
+      seeActions: "Actions देखें",
+      frameworkGuide: "Framework guide पढ़ें",
+      benefits: {
+        oneActionDefinition: {
+          title: "एक action definition",
+          body: "UI, agent, HTTP, MCP, A2A और CLI सभी वही operation call करते हैं।",
+        },
+        scopedByDefault: {
+          title: "Default में scoped",
+          body: "Auth, sharing, governance और audit logs काम के साथ चलते हैं।",
+        },
+        headedOrHeadless: {
+          title: "UI वाली या headless",
+          body: "इसे app, agent workflow, queue या scheduled task की तरह चलाएँ।",
+        },
+        contextRichInput: {
+          title: "संदर्भ-समृद्ध input",
+          body: "Chat, voice, skills, instructions और UI state उसी loop में रहते हैं।",
+        },
+        openAgentProtocols: {
+          title: "खुले agent protocols",
+          body: "A2A, MCP, MCP apps और external agents framework-level primitives हैं।",
+        },
+        observableByDesign: {
+          title: "Design से observable",
+          body: "Traces, evals, feedback और audit history agent काम को inspectable बनाते हैं।",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "मॉड्यूलर framework",
+      title: "agentic apps के लिए built-in modules",
+      body: "Production parts के लिए human-verified pieces जिन्हें agents को scratch से invent नहीं करना चाहिए। इन्हें वैसे ही use करें, source inspect करें या app को अलग जरूरत हो तो module replace करें।",
+      pageBody:
+        "Agent-Native production work के लिए human-verified pieces देता है जिन्हें agents को scratch से improvise नहीं करना चाहिए। इन्हें वैसे ही use करें, source inspect करें या product को अलग जरूरत हो तो module replace करें।",
+      viewAll: "सभी modules देखें",
+      browseApps: "Modules से बनी apps देखें",
+      items: {
+        autoStateSyncing: {
+          title: "स्वचालित state syncing",
+          body: "Agent changes UI update करते हैं, और UI state बिना दूसरे bridge के agent को visible रहती है।",
+        },
+        actions: {
+          title: "कार्रवाइयाँ",
+          body: "काम को एक बार define करें और UI, agent, HTTP, MCP, A2A और CLI से use करें।",
+        },
+        sqlStateOrm: {
+          title: "SQL state और ORM",
+          body: "Durable app data, application state, migrations और provider-agnostic schemas।",
+        },
+        dbAdmin: {
+          title: "Database admin",
+          body: "Agent-readable schemas, query surfaces, migrations और admin tools, बिना custom back office।",
+        },
+        authGovernance: {
+          title: "Auth और governance",
+          body: "Login, organizations, multi-tenancy, permissions, approvals और policy hooks।",
+        },
+        sharing: {
+          title: "Sharing layer",
+          body: "Share links, scoped access, public/private resources, comments और review surfaces।",
+        },
+        realtimeCollaboration: {
+          title: "रीयल-टाइम collaboration",
+          body: "Multi-user editing, live presence, optimistic UI और server-backed reconciliation।",
+        },
+        agentInteroperability: {
+          title: "Agent interoperability layer",
+          body: "A2A, MCP, MCP apps, external agents, harness agents और cross-app handoffs।",
+        },
+        automationsQueues: {
+          title: "Automations और queues",
+          body: "Event-triggered work, scheduled tasks, background runs और reliable mutations।",
+        },
+        agentUiSurface: {
+          title: "Agent UI surface layer",
+          body: "Chat, skills, instructions, generative UI, voice input और agent-visible context।",
+        },
+        observability: {
+          title: "Observability stack",
+          body: "Traces, evals, feedback, experiments और proof कि agents ने क्या किया।",
+        },
+        workspaces: {
+          title: "Workspaces layer",
+          body: "UI वाली या headless apps जो एक-दूसरे को discover करती हैं और A2A से coordinate करती हैं।",
+        },
+        sourceOwnership: {
+          title: "Source ownership layer",
+          body: "Docs और source ऐसी जगह रहते हैं जहाँ agents inspect, fork, eject, patch या replace कर सकें।",
+        },
+        auditLogs: {
+          title: "Audit logs layer",
+          body: "Human और agent changes का durable record, उन्हीं resources तक scoped जिन्हें users access कर सकते हैं।",
+        },
+      },
     },
     framework: {
       title: "agent-native apps के लिए framework",
@@ -122,9 +222,9 @@ const hiIN = {
       },
     },
     templates: {
-      title: "पूरी तरह featured app को fork और customize करें",
+      title: "Agent-Native app आज़माएं",
       eyebrow: "100% मुफ्त और ओपन सोर्स",
-      cta: "सभी templates देखें",
+      cta: "apps देखें",
     },
     skills: {
       title: "skill के साथ आज़माएं",
@@ -199,7 +299,7 @@ const hiIN = {
       body: "एक command actions, durable threads और SQLite पर backed स्थानीय app बनाता है। जब अभी browser UI नहीं चाहिए, तो इसके बजाय `--headless` इस्तेमाल करें।",
     },
     finalCta: {
-      title: "आपका अपना software, agentic era के लिए बना",
+      title: "agentic era के लिए बना software",
       body: "एक command या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
       primaryCta: "Action से शुरू करें",
       secondaryCta: "दस्तावेज़ पढ़ें",

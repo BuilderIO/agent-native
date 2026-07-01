@@ -1,5 +1,5 @@
 const MIN_MAX_OUTPUT_TOKENS = 256;
-// Raise the global clamp to 64K to support models like claude-sonnet-4-6
+// Raise the global clamp to 64K to support models like claude-sonnet-5
 // (64K) and GPT-5.x (up to 128K). Callers can still set higher explicit
 // per-call values; this clamp only applies when no explicit value is given.
 const MAX_MAX_OUTPUT_TOKENS = 64_000;

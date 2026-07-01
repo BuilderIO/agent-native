@@ -71,6 +71,39 @@ async function postJson(
   });
 }
 
+async function getJson(
+  url: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    http
+      .get(
+        {
+          hostname: parsed.hostname,
+          port: Number(parsed.port),
+          path: `${parsed.pathname}${parsed.search}`,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            try {
+              resolve({
+                status: res.statusCode ?? 0,
+                body: JSON.parse(
+                  Buffer.concat(chunks).toString("utf8"),
+                ) as Record<string, unknown>,
+              });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        },
+      )
+      .on("error", reject);
+  });
+}
+
 const tmpRoots: string[] = [];
 const appUrlEnvKeys = [
   "AGENT_NATIVE_URL",
@@ -256,6 +289,68 @@ describe("design connect CLI", () => {
 });
 
 describe("design connect bridge endpoints", () => {
+  it("returns read-only HTML snapshots from the connected dev server", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        `<!doctype html><html><body><main data-path="${req.url}">Hello</main></body></html>`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await getJson(
+        `http://127.0.0.1:${port}/snapshot?path=/hello`,
+      );
+      expect(result.status).toBe(200);
+      expect(result.body["ok"]).toBe(true);
+      expect(result.body["url"]).toBe(`http://127.0.0.1:${devPort}/hello`);
+      expect(result.body["html"]).toContain('data-path="/hello"');
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("rejects snapshot URLs outside the connected dev server origin", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await getJson(
+        `http://127.0.0.1:${port}/snapshot?url=http://example.com/`,
+      );
+      expect(result.status).toBe(400);
+      expect(result.body["ok"]).toBe(false);
+      expect(String(result.body["error"])).toContain("connected dev server");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
   it("exposes bridgeToken on the returned bridge object", async () => {
     const root = tmpDir();
     const port = await freePort();

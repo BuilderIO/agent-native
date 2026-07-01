@@ -35,7 +35,7 @@ describe("docs agent web generation", () => {
   );
 
   it(
-    "generates public paths for docs and templates",
+    "generates public paths for docs and apps",
     () => {
       const paths = pages.map((page) => page.path);
 
@@ -43,7 +43,7 @@ describe("docs agent web generation", () => {
       expect(paths).toContain("/docs");
       expect(paths).toContain("/docs/agent-web-surfaces");
       expect(paths).toContain("/terms");
-      expect(paths).toContain("/templates/calendar");
+      expect(paths).toContain("/apps/calendar");
     },
     AGENT_WEB_GENERATION_TIMEOUT_MS,
   );

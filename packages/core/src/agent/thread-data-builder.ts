@@ -278,8 +278,17 @@ function getMessageRunId(message: any): string | undefined {
 }
 
 function messageContentIsEmpty(content: unknown): boolean {
-  if (Array.isArray(content)) return content.length === 0;
-  return content == null || content === "";
+  if (typeof content === "string") return content.trim().length === 0;
+  if (Array.isArray(content)) {
+    return !content.some((part: any) => {
+      if (!part || typeof part !== "object") return false;
+      if (part.type === "text") {
+        return typeof part.text === "string" && part.text.trim().length > 0;
+      }
+      return true;
+    });
+  }
+  return content == null;
 }
 
 function messageText(content: unknown): string {
@@ -790,7 +799,15 @@ export function mergeThreadDataForClientSave(
   const idRewrites = new Map<string, string>();
 
   for (const existingEntry of existingMessages) {
-    const existingKeys = messageIdentityKeys(getStoredMessage(existingEntry));
+    const existingMessage = getStoredMessage(existingEntry);
+    if (
+      existingMessage?.role === "assistant" &&
+      messageContentIsEmpty(existingMessage.content)
+    ) {
+      continue;
+    }
+
+    const existingKeys = messageIdentityKeys(existingMessage);
     const incomingIndex = incomingKeySets.findIndex(
       (keys: Set<string>, index: number) =>
         !usedIncoming.has(index) && existingKeys.some((key) => keys.has(key)),
@@ -813,7 +830,15 @@ export function mergeThreadDataForClientSave(
   }
 
   for (let index = 0; index < incomingMessages.length; index++) {
-    if (!usedIncoming.has(index)) nextMessages.push(incomingMessages[index]);
+    if (usedIncoming.has(index)) continue;
+    const incomingMessage = getStoredMessage(incomingMessages[index]);
+    if (
+      incomingMessage?.role === "assistant" &&
+      messageContentIsEmpty(incomingMessage.content)
+    ) {
+      continue;
+    }
+    nextMessages.push(incomingMessages[index]);
   }
 
   merged.messages = nextMessages.map((entry) =>

@@ -1,8 +1,7 @@
-import {
-  sendToAgentChat,
-  type AgentChatMessage,
-} from "@agent-native/core/client";
+import type { AgentChatMessage } from "@agent-native/core/client";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 // This is only a lost-signal recovery guard. Large design prompts can
 // legitimately take several minutes, so avoid treating normal latency as
@@ -136,7 +135,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       context: string,
       options?: Omit<AgentChatMessage, "message" | "context">,
     ) => {
-      const tabId = sendToAgentChat({
+      const tabId = sendToDesignAgentChat({
         ...options,
         message,
         context,

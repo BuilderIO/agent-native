@@ -193,7 +193,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
     >
       {(state === "listening" || state === "processing") && (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 shadow-2xl max-w-[300px] md:max-w-[250px]">
+          <div className="max-w-[300px] rounded-2xl border border-border bg-card/95 px-4 py-3 shadow-2xl backdrop-blur-xl md:max-w-[250px]">
             {state === "listening" && (
               <div className="flex items-center gap-2">
                 <div className="flex gap-1">

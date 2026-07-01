@@ -3134,7 +3134,13 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          completedSideEffect: false,
+        });
         recordToolResult(result, false);
         return {
           type: "tool-result" as const,
@@ -3152,7 +3158,13 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          completedSideEffect: false,
+        });
         recordToolResult(result, false);
         return {
           type: "tool-result" as const,
@@ -3172,7 +3184,14 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          isError: true,
+          completedSideEffect: false,
+        });
         recordToolResult(result, true);
         return {
           type: "tool-result" as const,
@@ -3247,7 +3266,13 @@ export async function runAgentLoop(opts: {
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
             `NOT execute — a human must approve this specific call before it ` +
             `can run. The turn is paused; do not retry.`;
-          send({ type: "tool_done", tool: toolCall.name, result });
+          send({
+            type: "tool_done",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            completedSideEffect: false,
+          });
           recordToolResult(result, false);
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
@@ -3280,7 +3305,13 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          completedSideEffect: false,
+        });
         recordToolResult(result, false);
         if (repeats >= 3) {
           requestedActionStop ??= {
@@ -3338,7 +3369,13 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
-          send({ type: "tool_done", tool: toolCall.name, result });
+          send({
+            type: "tool_done",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            completedSideEffect: false,
+          });
           recordToolResult(result, false);
           return {
             type: "tool-result" as const,
@@ -3389,6 +3426,7 @@ export async function runAgentLoop(opts: {
             send({
               type: "tool_done",
               tool: toolCall.name,
+              input: toolCall.input as Record<string, unknown>,
               result,
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
@@ -3413,7 +3451,14 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
-          send({ type: "tool_done", tool: toolCall.name, result });
+          send({
+            type: "tool_done",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
           recordToolResult(result, true);
           requestedActionStop ??= {
             message:
@@ -3467,7 +3512,14 @@ export async function runAgentLoop(opts: {
             toolCallSchemaError.error,
           ),
         );
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          isError: true,
+          completedSideEffect: false,
+        });
         recordToolResult(result, true);
         return {
           type: "tool-result" as const,
@@ -3491,7 +3543,14 @@ export async function runAgentLoop(opts: {
             rawToolInputError,
           ),
         );
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          isError: true,
+          completedSideEffect: false,
+        });
         recordToolResult(result, true);
         return {
           type: "tool-result" as const,
@@ -3508,7 +3567,14 @@ export async function runAgentLoop(opts: {
         !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
       ) {
         const result = planModeBlockedMessage(toolCall.name);
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          isError: true,
+          completedSideEffect: false,
+        });
         recordToolResult(result, true);
         return {
           type: "tool-result" as const,
@@ -3586,6 +3652,14 @@ export async function runAgentLoop(opts: {
           actionPromise
             .then((zombieRaw: unknown) => {
               const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
+              if (
+                zombieMcp &&
+                zombieMcp.raw &&
+                typeof zombieMcp.raw === "object" &&
+                (zombieMcp.raw as Record<string, unknown>).isError === true
+              ) {
+                return;
+              }
               const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
               const zombieStr =
                 typeof zombieText === "string"
@@ -3721,7 +3795,10 @@ export async function runAgentLoop(opts: {
       send({
         type: "tool_done",
         tool: toolCall.name,
+        input: toolCall.input as Record<string, unknown>,
         result,
+        ...(isError ? { isError: true } : {}),
+        ...(isError ? { completedSideEffect: false } : {}),
         ...(mcpApp ? { mcpApp } : {}),
         ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
       });

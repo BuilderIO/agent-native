@@ -564,7 +564,7 @@ export function GradientEditor({
               if (Number.isFinite(next))
                 updateStopPosition(selectedStopId, clamp(next, 0, 100));
             }}
-            className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-[11px] tabular-nums focus-visible:outline-none"
+            className="h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums focus-visible:outline-none"
           />
         </div>
 
@@ -595,7 +595,7 @@ export function GradientEditor({
                   }
                 }}
                 onBlur={() => setAngleInput(null)}
-                className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-[11px] tabular-nums focus-visible:outline-none"
+                className="h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums focus-visible:outline-none"
               />
               <span className="flex w-4 shrink-0 items-center justify-center text-[10px] text-muted-foreground">
                 °

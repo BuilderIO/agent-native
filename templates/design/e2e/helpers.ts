@@ -174,10 +174,21 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
   // Wait for the iframe bridge to stamp at least one selectable node.
   await expect
     .poll(
-      async () =>
-        designFrame(page)
-          .locator("[data-agent-native-node-id], h1, h2, p, button")
-          .count(),
+      async () => {
+        const previewIframes = await page
+          .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
+          .elementHandles();
+        let selectableNodeCount = 0;
+        for (const iframe of previewIframes) {
+          const frame = await iframe.contentFrame();
+          if (!frame) continue;
+          selectableNodeCount += await frame
+            .locator("[data-agent-native-node-id], h1, h2, p, button")
+            .count()
+            .catch(() => 0);
+        }
+        return selectableNodeCount;
+      },
       { timeout: 20_000 },
     )
     .toBeGreaterThan(0);

@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { dedupeRepoMessagesById, type NormalizedRepo } from "./repo-helpers.js";
+import {
+  dedupeRepoMessagesById,
+  dropEmptyAssistantMessages,
+  type NormalizedRepo,
+} from "./repo-helpers.js";
 
 describe("dedupeRepoMessagesById", () => {
   it("returns the same reference when there are no duplicate ids", () => {
@@ -87,5 +91,56 @@ describe("dedupeRepoMessagesById", () => {
     expect(dedupeRepoMessagesById(null)).toBeNull();
     expect(dedupeRepoMessagesById(undefined)).toBeUndefined();
     expect(dedupeRepoMessagesById({} as NormalizedRepo)).toEqual({});
+  });
+});
+
+describe("dropEmptyAssistantMessages", () => {
+  it("drops empty assistant placeholders and repairs parent links", () => {
+    const repo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        { parentId: null, message: { id: "user-1", role: "user" } },
+        {
+          parentId: "user-1",
+          message: { id: "empty", role: "assistant", content: [] },
+        },
+        {
+          parentId: "empty",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+          },
+        },
+      ],
+    };
+
+    const result = dropEmptyAssistantMessages(repo)!;
+
+    expect(result).not.toBe(repo);
+    expect(result.messages!.map((entry) => entry.message!.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(result.messages![1].parentId).toBe("user-1");
+    expect(result.headId).toBe("assistant-1");
+  });
+
+  it("keeps tool-only assistant messages", () => {
+    const repo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [{ type: "tool-call", toolName: "search" }],
+          },
+        },
+      ],
+    };
+
+    expect(dropEmptyAssistantMessages(repo)).toBe(repo);
   });
 });

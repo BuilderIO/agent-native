@@ -70,6 +70,7 @@ describe("acpUpdateToHarnessEvents", () => {
           { type: "diff", path: "src/app.ts", oldText: "a", newText: "b" },
           { type: "diff", path: "src/new.ts", oldText: null, newText: "x" },
         ],
+        rawInput: { path: "src/app.ts" },
         rawOutput: { ok: true },
       },
       (id) => (id === "call-2" ? "Edit files" : undefined),
@@ -81,6 +82,33 @@ describe("acpUpdateToHarnessEvents", () => {
         type: "tool-done",
         id: "call-2",
         name: "Edit files",
+        input: { path: "src/app.ts" },
+        result: { ok: true },
+      },
+    ]);
+  });
+
+  it("uses stored raw input for terminal tool updates", () => {
+    expect(
+      acpUpdateToHarnessEvents(
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call-3",
+          status: "completed",
+          rawOutput: { ok: true },
+        },
+        {
+          titleFor: (id) => (id === "call-3" ? "Edit files" : undefined),
+          inputFor: (id) =>
+            id === "call-3" ? { path: "src/app.ts" } : undefined,
+        },
+      ),
+    ).toEqual([
+      {
+        type: "tool-done",
+        id: "call-3",
+        name: "Edit files",
+        input: { path: "src/app.ts" },
         result: { ok: true },
       },
     ]);

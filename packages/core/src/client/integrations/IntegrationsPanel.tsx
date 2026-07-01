@@ -598,7 +598,7 @@ export function IntegrationsPanel() {
                         ? "bg-green-500"
                         : s.configured
                           ? "bg-yellow-500"
-                          : "bg-gray-400"
+                          : "bg-muted-foreground/55"
                     }`}
                   />
                 )}

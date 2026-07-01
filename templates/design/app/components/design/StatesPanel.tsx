@@ -271,7 +271,7 @@ export function StatesPanel({
       {/* ── Responsive breakpoints ── */}
       <section aria-label="Breakpoints">
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-[11px] font-medium text-muted-foreground">
+          <span className="!text-[11px] font-medium text-muted-foreground">
             Responsive
           </span>
           {onAddBreakpoint && (
@@ -346,7 +346,7 @@ export function StatesPanel({
       {/* ── Design states ── */}
       <section aria-label="Design states">
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-[11px] font-medium text-muted-foreground">
+          <span className="!text-[11px] font-medium text-muted-foreground">
             States
           </span>
           <div className="flex items-center gap-0.5">
@@ -461,7 +461,7 @@ export function StatesPanel({
 
         {/* Empty state (no user-created states yet) */}
         {!isLoading && states.length === 0 && !isAdding && (
-          <div className="mt-1 flex h-7 items-center rounded-[5px] px-2 text-[11px] text-muted-foreground/55">
+          <div className="mt-1 flex h-7 items-center rounded-[5px] px-2 !text-[11px] text-muted-foreground/55">
             No saved states
           </div>
         )}
@@ -480,7 +480,7 @@ export function StatesPanel({
               value={newStateName}
               onChange={(e) => setNewStateName(e.target.value)}
               placeholder="State name…"
-              className="h-6 min-w-0 flex-1 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+              className="h-6 min-w-0 flex-1 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   setIsAdding(false);
@@ -491,7 +491,7 @@ export function StatesPanel({
             <Button
               type="submit"
               size="sm"
-              className="h-6 cursor-pointer px-2 text-[11px]"
+              className="h-6 cursor-pointer px-2 !text-[11px]"
               disabled={!newStateName.trim() || createState.isPending}
             >
               Add
@@ -500,7 +500,7 @@ export function StatesPanel({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-6 cursor-pointer px-2 text-[11px]"
+              className="h-6 cursor-pointer px-2 !text-[11px]"
               onClick={() => {
                 setIsAdding(false);
                 setNewStateName("");

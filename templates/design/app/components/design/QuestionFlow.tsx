@@ -346,7 +346,7 @@ function OptionButton({
           <span className="sr-only">{option.description}</span>
         )}
         {option.preview && (
-          <span className="mt-2 block max-h-36 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-background/70 px-2 py-1.5 font-mono text-[11px] leading-4 text-muted-foreground">
+          <span className="mt-2 block max-h-36 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-background/70 px-2 py-1.5 font-mono !text-[11px] leading-4 text-muted-foreground">
             {option.preview}
           </span>
         )}

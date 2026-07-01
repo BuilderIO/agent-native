@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest";
 import action from "./list-design-native-assets.js";
 
 describe("list-design-native-assets", () => {
+  it("exposes a signed-out public read-only catalog", () => {
+    expect(action.requiresAuth).toBe(false);
+    expect(action.publicAgent).toEqual({
+      expose: true,
+      readOnly: true,
+      requiresAuth: false,
+    });
+  });
+
   it("returns editable Design-native primitives and components", async () => {
     const result = await action.run({});
 

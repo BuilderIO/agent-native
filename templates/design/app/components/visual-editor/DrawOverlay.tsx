@@ -603,7 +603,7 @@ export function DrawOverlay({
       <Button
         size="sm"
         data-testid="draw-send"
-        className="h-7 gap-1 px-3 text-[11px] cursor-pointer"
+        className="h-7 gap-1 px-3 !text-[11px] cursor-pointer"
         onClick={send}
         disabled={!hasContent}
       >

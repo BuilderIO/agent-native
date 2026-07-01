@@ -125,12 +125,12 @@ export default function DeckCard({
             )}
             <VisibilityBadge visibility={deck.visibility} />
           </div>
-          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-            <span>
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <span className="shrink-0 whitespace-nowrap">
               {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
             </span>
             {deck.designSystemId && (
-              <span className="inline-flex min-w-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+              <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
                 <IconPalette className="h-3 w-3 shrink-0 text-[#609FF8]" />
                 <span className="max-w-28 truncate">
                   {designSystemTitle || "Design system"}

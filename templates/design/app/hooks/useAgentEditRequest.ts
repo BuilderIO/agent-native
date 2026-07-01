@@ -1,6 +1,8 @@
-import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
 import { useCallback } from "react";
 import { toast } from "sonner";
+
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 export interface AgentEditRequestArgs {
   /** Freeform user message describing the edit to make. */
@@ -95,8 +97,8 @@ export interface UseAgentEditRequestReturn {
 
 /**
  * Shared hook for routing AI edit requests from the inspector and the
- * local-source banner. Reuses sendToAgentChat from @agent-native/core/client
- * and the clipboard+toast pattern established in DesignEditor.tsx.
+ * local-source banner. Reuses the Design-local chat bridge and the
+ * clipboard+toast pattern established in DesignEditor.tsx.
  */
 export function useAgentEditRequest(): UseAgentEditRequestReturn {
   const t = useT();
@@ -104,7 +106,7 @@ export function useAgentEditRequest(): UseAgentEditRequestReturn {
   const sendEdit = useCallback(
     async (args: AgentEditRequestArgs): Promise<void> => {
       const context = buildEditContext(args);
-      sendToAgentChat({
+      sendToDesignAgentChat({
         message: args.message,
         context,
         submit: true,

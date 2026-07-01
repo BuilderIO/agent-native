@@ -72,10 +72,10 @@ describe("DocsSidebar", () => {
     expect(html).toContain('href="/docs/plan-plugin"');
   });
 
-  it("expands the Templates section and the Plans group on a plan sub-doc", () => {
+  it("expands the Apps section and the Plans group on a plan sub-doc", () => {
     const html = renderSidebar("/docs/template-plan");
 
-    expect(html).toContain("Templates");
+    expect(html).toContain("Apps");
     expect(html).toContain('aria-expanded="true"');
 
     // The active child link is highlighted and the group is open.

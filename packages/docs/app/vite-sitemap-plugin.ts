@@ -134,11 +134,11 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
   const templatePages = parseTemplatePages(templateSource).map((template) => {
     const copy = enUS.templates[template.slug];
     return {
-      path: `/templates/${template.slug}`,
-      title: `${template.name} template`,
+      path: `/apps/${template.slug}`,
+      title: `${template.name} app`,
       description: copy.description,
       markdown: [
-        `# ${template.name} template`,
+        `# ${template.name} app`,
         "",
         copy.description,
         "",
@@ -180,26 +180,26 @@ Agent-Native is an open source framework for building apps where AI agents and U
       path: "/privacy",
       title: "Agent-Native Privacy Policy",
       description:
-        "Privacy policy for Agent-Native hosted applications, templates, and browser extensions.",
+        "Privacy policy for Agent-Native hosted applications, apps, and browser extensions.",
       markdown:
-        "# Agent-Native Privacy Policy\n\nPrivacy policy for Agent-Native hosted applications, templates, and browser extensions. Chrome extension disclosures are included at `/privacy#clips-chrome-extension`.\n",
+        "# Agent-Native Privacy Policy\n\nPrivacy policy for Agent-Native hosted applications, apps, and browser extensions. Chrome extension disclosures are included at `/privacy#clips-chrome-extension`.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
     },
     {
       path: "/terms",
       title: "Agent-Native Terms of Service",
       description:
-        "Terms of Service for Agent-Native hosted applications, templates, demos, and official hosted services.",
+        "Terms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.",
       markdown:
-        "# Agent-Native Terms of Service\n\nTerms of Service for Agent-Native hosted applications, templates, demos, and official hosted services.\n",
+        "# Agent-Native Terms of Service\n\nTerms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
     },
     {
-      path: "/templates",
-      title: "Agent-Native Templates",
-      description: "Ready-to-fork app templates built with Agent-Native.",
+      path: "/apps",
+      title: "Agent-Native Apps",
+      description: "Ready-to-fork apps built with Agent-Native.",
       markdown:
-        "# Agent-Native Templates\n\nReady-to-fork app templates built with Agent-Native.\n",
+        "# Agent-Native Apps\n\nReady-to-fork apps built with Agent-Native.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/templates.tsx")),
     },
     {

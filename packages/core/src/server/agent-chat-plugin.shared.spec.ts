@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AgentRunSummary } from "../agent/run-store.js";
 import type { ChatThread } from "../chat-threads/store.js";
-import { handleSharedThreadRequest } from "./agent-chat-plugin.js";
+import {
+  handleSharedThreadRequest,
+  shouldDisableRecurringJobsRuntime,
+} from "./agent-chat-plugin.js";
 
 function createSharedThreadEvent(
   path: string,
@@ -88,6 +91,57 @@ const run: AgentRunSummary = {
   errorCode: null,
   abortReason: null,
 };
+
+describe("recurring jobs runtime startup", () => {
+  it("disables background jobs in local development before scheduler and trigger load", () => {
+    expect(shouldDisableRecurringJobsRuntime({ NODE_ENV: "development" })).toBe(
+      true,
+    );
+  });
+
+  it("disables recurring jobs for loopback app URLs", () => {
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        APP_URL: "http://localhost:8080/design",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        WORKSPACE_GATEWAY_URL: "127.0.0.1:8080",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps recurring jobs enabled for hosted production apps", () => {
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        APP_URL: "https://design.agent-native.com",
+      }),
+    ).toBe(false);
+  });
+
+  it("supports an explicit local opt-in for scheduler development", () => {
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "development",
+        AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS: "1",
+      }),
+    ).toBe(false);
+  });
+
+  it("lets an explicit disable override local opt-in", () => {
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "development",
+        AGENT_NATIVE_DISABLE_RECURRING_JOBS: "1",
+        AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS: "1",
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("shared thread route", () => {
   it("returns sanitized JSON for API callers", async () => {

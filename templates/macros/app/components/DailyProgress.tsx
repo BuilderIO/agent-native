@@ -5,6 +5,7 @@ import {
   IconChartBar,
 } from "@tabler/icons-react";
 import { subDays } from "date-fns";
+import type { CSSProperties } from "react";
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import {
@@ -56,6 +57,15 @@ interface DailyProgressProps {
   fat: number;
 }
 
+const chartTooltipContentStyle = {
+  backgroundColor: "hsl(var(--popover))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: "8px",
+  boxShadow: "0 4px 12px hsl(var(--foreground) / 0.12)",
+  color: "hsl(var(--popover-foreground))",
+  fontSize: "12px",
+} satisfies CSSProperties;
+
 export function DailyProgress({
   totalCalories,
   totalBurnedCalories,
@@ -105,7 +115,7 @@ export function DailyProgress({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 sm:p-5 backdrop-blur-sm">
+    <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-4 sm:p-5">
       <div className="macros-summary-grid">
         {/* Left Side */}
         <div className="space-y-8 flex flex-col justify-center">
@@ -115,7 +125,7 @@ export function DailyProgress({
                 {t("daily.summary")}
               </p>
             </div>
-            <div className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.05] flex items-center">
+            <div className="px-3 py-1.5 rounded-full bg-muted/40 border border-border flex items-center">
               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest leading-none">
                 {t("daily.goalWithValue", { value: goalCalories })}
               </span>
@@ -174,7 +184,7 @@ export function DailyProgress({
                 </span>
               </div>
             </div>
-            <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div
                 className={cn(
                   "h-full transition-all duration-500 ease-out rounded-full",
@@ -194,7 +204,7 @@ export function DailyProgress({
               ].map((m) => (
                 <div
                   key={m.label}
-                  className="p-2.5 sm:p-3 rounded-xl bg-white/[0.03] border border-white/[0.04]"
+                  className="p-2.5 sm:p-3 rounded-xl bg-muted/30 border border-border"
                 >
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
                     {m.label}
@@ -209,14 +219,14 @@ export function DailyProgress({
         </div>
 
         {/* Right Side: Charts */}
-        <div className="macros-summary-chart border-l border-white/[0.08] pl-8 flex-col justify-center transition-all duration-300">
+        <div className="macros-summary-chart border-l border-border pl-8 flex-col justify-center transition-all duration-300">
           <Tabs
             value={activeChart}
             onValueChange={setActiveChart}
             className="flex flex-col space-y-6"
           >
             <div className="flex items-center justify-between">
-              <TabsList className="bg-white/[0.04] border border-white/[0.08] h-8">
+              <TabsList className="bg-muted/40 border border-border h-8">
                 <TabsTrigger
                   value="weight"
                   className="gap-2 text-[10px] uppercase tracking-wider h-6 px-3"
@@ -237,7 +247,7 @@ export function DailyProgress({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 px-2.5 text-[10px] uppercase tracking-widest text-muted-foreground/50 hover:text-foreground hover:bg-white/5 gap-2"
+                        className="h-8 px-2.5 text-[10px] uppercase tracking-widest text-muted-foreground/50 hover:text-foreground hover:bg-accent gap-2"
                       >
                         {t("daily.last30Days")}{" "}
                         <IconChartBar className="h-3.5 w-3.5" />
@@ -246,7 +256,7 @@ export function DailyProgress({
                   </TooltipTrigger>
                   <TooltipContent
                     side="bottom"
-                    className="bg-zinc-900 border-white/10 text-[10px] uppercase tracking-widest py-1.5 px-3"
+                    className="bg-popover border-border text-popover-foreground text-[10px] uppercase tracking-widest py-1.5 px-3"
                   >
                     {t("daily.viewFullAnalytics")}
                   </TooltipContent>
@@ -260,7 +270,7 @@ export function DailyProgress({
             >
               <div className="h-[140px] w-full">
                 {weightLoading ? (
-                  <Skeleton className="h-full w-full rounded-xl bg-white/[0.02]" />
+                  <Skeleton className="h-full w-full rounded-xl bg-muted" />
                 ) : weightHistory.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart
@@ -273,15 +283,10 @@ export function DailyProgress({
                         hide
                       />
                       <ChartTooltip
-                        contentStyle={{
-                          backgroundColor: "#09090b",
-                          border: "1px solid rgba(255,255,255,0.1)",
-                          borderRadius: "8px",
-                          boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-                          fontSize: "12px",
-                          color: "#fff",
+                        contentStyle={chartTooltipContentStyle}
+                        cursor={{
+                          stroke: "hsl(var(--muted-foreground) / 0.25)",
                         }}
-                        cursor={{ stroke: "rgba(255,255,255,0.1)" }}
                         formatter={(value: any, name: any) => [
                           `${value} lbs`,
                           name === "trendWeight"
@@ -292,34 +297,34 @@ export function DailyProgress({
                       <Line
                         type="monotone"
                         dataKey="weight"
-                        stroke="rgba(255,255,255,0.2)"
+                        stroke="hsl(var(--muted-foreground) / 0.35)"
                         strokeWidth={1}
                         dot={{
-                          fill: "rgba(255,255,255,0.2)",
+                          fill: "hsl(var(--muted-foreground) / 0.35)",
                           r: 2,
                         }}
                         activeDot={{
                           r: 4,
                           strokeWidth: 0,
-                          fill: "#fff",
+                          fill: "hsl(var(--foreground))",
                         }}
                       />
                       <Line
                         type="monotone"
                         dataKey="trendWeight"
-                        stroke="#fff"
+                        stroke="hsl(var(--foreground))"
                         strokeWidth={2}
                         dot={false}
                         activeDot={{
                           r: 4,
                           strokeWidth: 0,
-                          fill: "#fff",
+                          fill: "hsl(var(--foreground))",
                         }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="h-full flex items-center justify-center border border-dashed border-white/[0.06] rounded-xl">
+                  <div className="h-full flex items-center justify-center border border-dashed border-border rounded-xl">
                     <p className="text-xs text-muted-foreground">
                       {t("daily.noWeightData")}
                     </p>
@@ -341,7 +346,7 @@ export function DailyProgress({
             >
               <div className="h-[140px] w-full">
                 {calorieLoading ? (
-                  <Skeleton className="h-full w-full rounded-xl bg-white/[0.02]" />
+                  <Skeleton className="h-full w-full rounded-xl bg-muted" />
                 ) : calorieHistory.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
@@ -358,10 +363,14 @@ export function DailyProgress({
                         >
                           <stop
                             offset="5%"
-                            stopColor="#fff"
+                            stopColor="hsl(var(--foreground))"
                             stopOpacity={0.1}
                           />
-                          <stop offset="95%" stopColor="#fff" stopOpacity={0} />
+                          <stop
+                            offset="95%"
+                            stopColor="hsl(var(--foreground))"
+                            stopOpacity={0}
+                          />
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="displayDate" hide />
@@ -370,15 +379,10 @@ export function DailyProgress({
                         hide
                       />
                       <ChartTooltip
-                        contentStyle={{
-                          backgroundColor: "#09090b",
-                          border: "1px solid rgba(255,255,255,0.1)",
-                          borderRadius: "8px",
-                          boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-                          fontSize: "12px",
-                          color: "#fff",
+                        contentStyle={chartTooltipContentStyle}
+                        cursor={{
+                          stroke: "hsl(var(--muted-foreground) / 0.25)",
                         }}
-                        cursor={{ stroke: "rgba(255,255,255,0.1)" }}
                         formatter={(value: any) => [
                           `${value} kcal`,
                           t("daily.netCalories"),
@@ -387,20 +391,20 @@ export function DailyProgress({
                       <Area
                         type="monotone"
                         dataKey="netCalories"
-                        stroke="#fff"
+                        stroke="hsl(var(--foreground))"
                         strokeWidth={2}
                         fillOpacity={1}
                         fill="url(#colorNet)"
                         activeDot={{
                           r: 4,
                           strokeWidth: 0,
-                          fill: "#fff",
+                          fill: "hsl(var(--foreground))",
                         }}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="h-full flex items-center justify-center border border-dashed border-white/[0.06] rounded-xl">
+                  <div className="h-full flex items-center justify-center border border-dashed border-border rounded-xl">
                     <p className="text-xs text-muted-foreground">
                       {t("daily.noActivityData")}
                     </p>

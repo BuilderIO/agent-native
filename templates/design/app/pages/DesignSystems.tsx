@@ -543,7 +543,7 @@ export default function DesignSystems() {
                       <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4">
                         <VisibilityBadge
                           visibility={ds.visibility}
-                          className="text-[11px]"
+                          className="!text-[11px]"
                         />
                         <ShareButton
                           resourceType="design-system"
@@ -893,7 +893,7 @@ function TokenPreview({
                   <div className="text-xs font-medium text-foreground">
                     {color.label}
                   </div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">
+                  <div className="truncate font-mono !text-[11px] text-muted-foreground">
                     {color.value}
                   </div>
                 </div>

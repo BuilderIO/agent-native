@@ -192,8 +192,8 @@ describe("AgentEngine registry", () => {
         computerUse: true,
         parallelToolCalls: true,
       },
-      defaultModel: "claude-sonnet-4-6",
-      supportedModels: ["claude-sonnet-4-6"],
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
       requiredEnvVars: ["ANTHROPIC_API_KEY"],
       create: createFn,
     });
@@ -266,7 +266,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue({
           engine: "anthropic",
-          model: "claude-sonnet-4-6",
+          model: "claude-sonnet-5",
         }),
       }));
       const { getStoredModelForEngine } = await import("./registry.js");
@@ -335,7 +335,7 @@ describe("AgentEngine registry", () => {
           if (key === "u:owner@example.com:agent-app-model-default:analytics") {
             return { engine: "builder", model: "gemini-3-1-pro" };
           }
-          return { engine: "builder", model: "claude-sonnet-4-6" };
+          return { engine: "builder", model: "claude-sonnet-5" };
         }),
       }));
       const { getStoredModelForEngine } = await import("./registry.js");
@@ -351,8 +351,8 @@ describe("AgentEngine registry", () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "builder",
-        defaultModel: "claude-sonnet-4-6",
-        supportedModels: ["auto", "claude-sonnet-4-6"],
+        defaultModel: "claude-sonnet-5",
+        supportedModels: ["auto", "claude-sonnet-5"],
       } as any;
 
       expect(normalizeModelForEngine(engine, "claude-opus-4-8")).toBe("auto");
@@ -362,15 +362,15 @@ describe("AgentEngine registry", () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "builder",
-        defaultModel: "claude-sonnet-4-6",
-        supportedModels: ["auto", "claude-sonnet-4-6"],
+        defaultModel: "claude-sonnet-5",
+        supportedModels: ["auto", "claude-sonnet-5"],
       } as any;
 
-      expect(normalizeModelForEngine(engine, "claude-sonnet-4-6")).toBe(
-        "claude-sonnet-4-6",
+      expect(normalizeModelForEngine(engine, "claude-sonnet-5")).toBe(
+        "claude-sonnet-5",
       );
       expect(normalizeModelForEngine(engine, "auto")).toBe("auto");
-      expect(normalizeModelForEngine(engine, " ")).toBe("claude-sonnet-4-6");
+      expect(normalizeModelForEngine(engine, " ")).toBe("claude-sonnet-5");
     });
 
     it("keeps custom model strings for non-Builder engines", async () => {
@@ -430,7 +430,7 @@ describe("AgentEngine registry", () => {
         computerUse: true,
         parallelToolCalls: true,
       },
-      defaultModel: "claude-sonnet-4-6",
+      defaultModel: "claude-sonnet-5",
       supportedModels: [],
       requiredEnvVars: [],
       create: vi.fn().mockReturnValue(fakeEngine),

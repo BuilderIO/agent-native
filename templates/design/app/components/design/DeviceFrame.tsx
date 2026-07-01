@@ -91,7 +91,7 @@ function MobileFrame({
       {/* Status bar with notch */}
       <div className="relative flex items-center justify-between px-6 h-10 bg-black">
         {/* Time */}
-        <span className="text-[11px] font-semibold text-white">9:41</span>
+        <span className="!text-[11px] font-semibold text-white">9:41</span>
         {/* Dynamic Island / Notch */}
         <div className="absolute left-1/2 -translate-x-1/2 top-1.5 w-24 h-6 rounded-full bg-zinc-900" />
         {/* Status icons */}

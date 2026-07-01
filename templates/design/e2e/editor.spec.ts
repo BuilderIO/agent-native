@@ -324,7 +324,6 @@ test("spacing handles stay visible at rest and remain draggable", async ({
     (selected?.payload?.tagName ?? selected?.tagName ?? "").toUpperCase(),
   ).toBe("MAIN");
 
-  await page.mouse.move(box.x + box.width / 2, box.y + 12);
   const topPaddingHandle = designFrame(page).locator(
     '[data-spacing-key="padding:top"]',
   );
@@ -334,10 +333,19 @@ test("spacing handles stay visible at rest and remain draggable", async ({
   if (!handleBox) throw new Error("missing top padding handle bounds");
   const handleX = handleBox.x + handleBox.width / 2;
   const handleY = handleBox.y + handleBox.height / 2;
+  await page.mouse.move(handleX, handleY);
+  const regionToken = `spacing-region-${Date.now()}`;
+  await topPaddingHandle.evaluate((el, token) => {
+    el.setAttribute("data-e2e-spacing-region-token", token);
+  }, regionToken);
 
   await page.mouse.move(handleX, handleY);
   await page.waitForTimeout(500);
   await expect(topPaddingHandle).toBeVisible();
+  await expect(topPaddingHandle).toHaveAttribute(
+    "data-e2e-spacing-region-token",
+    regionToken,
+  );
 
   await page.evaluate(() => ((window as any).__bridge = []));
   await page.mouse.down();

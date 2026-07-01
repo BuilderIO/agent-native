@@ -17,16 +17,19 @@ import {
   IconAlignJustified,
   IconAlignLeft,
   IconAlignRight,
+  IconAngle,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
   IconArrowRight,
   IconBackground,
   IconBlur,
+  IconBorderCorners,
+  IconBorderRadius,
   IconBorderStyle,
   IconBrush,
+  IconCheck,
   IconCode,
   IconComponents,
-  IconDeviceDesktop,
   IconExternalLink,
   IconDroplet,
   IconEye,
@@ -34,11 +37,10 @@ import {
   IconFlipHorizontal,
   IconFlipVertical,
   IconFrame,
+  IconGridDots,
   IconLayoutDistributeHorizontal,
   IconLayoutGrid,
   IconLoader2,
-  IconShieldCheck,
-  IconSlice,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -49,11 +51,14 @@ import {
   IconLetterSpacing,
   IconLineHeight,
   IconLink,
-  IconLock,
-  IconMaximize,
   IconMinus,
   IconPhoto,
   IconPlus,
+  IconRadiusBottomLeft,
+  IconRadiusBottomRight,
+  IconRadiusTopLeft,
+  IconRadiusTopRight,
+  IconRefresh,
   IconShadow,
   IconSquare,
   IconTypography,
@@ -64,6 +69,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -72,14 +78,6 @@ import { useParams } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -112,6 +110,7 @@ import { cn } from "@/lib/utils";
 
 import {
   AutoLayoutMatrix,
+  ConstraintsPreview,
   ConstraintsWidget,
   ExportSettingsPanel,
   DesignColorPicker,
@@ -133,18 +132,80 @@ import {
 } from "./inspector";
 import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
-import { InspectorAiActions } from "./inspector/InspectorAiActions";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
-import { StatesPanel } from "./StatesPanel";
 import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
 export type InspectorTab = "design" | "tweaks";
 
+const MIXED_VALUE = "Mixed";
+
+function isMixedValue(value: string | undefined): boolean {
+  return value === MIXED_VALUE;
+}
+
+function sameOrMixed(values: string[]): string {
+  if (values.length === 0) return "";
+  const first = values[0] ?? "";
+  return values.every((value) => value === first) ? first : MIXED_VALUE;
+}
+
+function mixedElementFromSelection(
+  elements: ElementInfo[],
+): ElementInfo | null {
+  const base = elements[elements.length - 1];
+  if (!base) return null;
+  const styleKeys = new Set<string>();
+  elements.forEach((element) => {
+    Object.keys(element.computedStyles).forEach((key) => styleKeys.add(key));
+  });
+  const computedStyles = Object.fromEntries(
+    Array.from(styleKeys).map((key) => [
+      key,
+      sameOrMixed(elements.map((element) => element.computedStyles[key] ?? "")),
+    ]),
+  );
+  const minX = Math.min(...elements.map((element) => element.boundingRect.x));
+  const minY = Math.min(...elements.map((element) => element.boundingRect.y));
+  const maxX = Math.max(
+    ...elements.map(
+      (element) => element.boundingRect.x + element.boundingRect.width,
+    ),
+  );
+  const maxY = Math.max(
+    ...elements.map(
+      (element) => element.boundingRect.y + element.boundingRect.height,
+    ),
+  );
+  return {
+    ...base,
+    tagName: sameOrMixed(elements.map((element) => element.tagName)),
+    id: undefined,
+    sourceId: undefined,
+    selector: base.selector,
+    classes: [],
+    computedStyles,
+    boundingRect: {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    },
+    textContent: sameOrMixed(
+      elements.map((element) => element.textContent ?? ""),
+    ),
+    htmlContent: undefined,
+    childElementCount: undefined,
+    isFlexChild: elements.every((element) => element.isFlexChild),
+    isFlexContainer: elements.every((element) => element.isFlexContainer),
+  };
+}
+
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
+  selectedElements?: ElementInfo[];
   pageStyles?: Record<string, string>;
   zoom?: number;
   headerTrailing?: ReactNode;
@@ -157,17 +218,10 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
-  onAutoLayoutConvert?: (
-    targetNodeId: string,
-    opts?: { direction?: "row" | "column"; gap?: string },
-  ) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
-  readOnly?: boolean;
-  /** Active file id — forwarded to InspectorAiActions for agent context. */
+  /** Active file id — used for component prop editing context. */
   fileId?: string;
-  /** Active file name (e.g. "index.html") — forwarded to InspectorAiActions. */
-  filename?: string;
   /** Latest active file HTML, used to compose rapid sequential source edits. */
   activeContent?: string;
   /** Server revision for activeContent. */
@@ -223,6 +277,8 @@ interface EditPanelProps {
    * omitted the "Create component" button is disabled.
    */
   onCreateComponent?: (name: string) => void;
+  /** True when the selected element is already represented as a component. */
+  selectedElementAlreadyComponent?: boolean;
   /** Suggested default name for the create-component dialog. */
   defaultComponentName?: string;
   /** Code-inspection data for the "Inspect code" popover. */
@@ -236,6 +292,12 @@ interface EditPanelProps {
 export interface InspectCodeData {
   /** Outer HTML of the selected element (inline / Alpine source). */
   html?: string | null;
+  /** Selected element tag, used when only runtime selection metadata exists. */
+  tagName?: string | null;
+  /** Selected element id, used for the runtime-metadata fallback preview. */
+  id?: string | null;
+  /** Selected element classes, used for the runtime-metadata fallback preview. */
+  classes?: string[];
   /**
    * Resolved source file for real-app sources (localhost / fusion), when the
    * resolveNodeToFile capability is available.
@@ -249,6 +311,23 @@ export interface InspectCodeData {
     snippet?: string;
   } | null;
 }
+
+const VOID_HTML_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
 
 /**
  * Normalize a CSS length-ish value typed by the user. If the input is bare
@@ -301,12 +380,14 @@ function PropInput({
   defaultUnit?: string;
 }) {
   const [draft, setDraft] = useState(value);
+  const mixed = isMixedValue(value);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
 
   const commit = () => {
+    if (isMixedValue(draft)) return;
     if (defaultUnit === undefined) {
       if (draft !== value) onChange(draft);
       return;
@@ -327,6 +408,9 @@ function PropInput({
       <Input
         type={type}
         value={draft}
+        onFocus={(e) => {
+          if (mixed) e.currentTarget.select();
+        }}
         onChange={(e) => {
           setDraft(e.target.value);
           // For length fields, defer the live update until blur/Enter so that
@@ -344,7 +428,7 @@ function PropInput({
           }
         }}
         placeholder={placeholder}
-        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
       />
     </div>
   );
@@ -681,6 +765,18 @@ function ColorInput({
     setSelectedStopId("stop-0");
   };
 
+  if (isMixedValue(value)) {
+    return (
+      <button
+        type="button"
+        className="flex h-6 w-full items-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] text-muted-foreground"
+        onClick={() => onChange("#000000")}
+      >
+        {MIXED_VALUE}
+      </button>
+    );
+  }
+
   return (
     <DesignColorPicker
       key={pickerKey}
@@ -995,7 +1091,7 @@ function PropSelect({
     <div className="flex items-center gap-1.5">
       <FieldLabel>{label}</FieldLabel>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+        <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -1003,7 +1099,7 @@ function PropSelect({
             <SelectItem
               key={opt.value}
               value={opt.value}
-              className="text-[11px]"
+              className="!text-[11px]"
             >
               {opt.label}
             </SelectItem>
@@ -1043,7 +1139,7 @@ function PropSlider({
         step={step}
         className="flex-1"
       />
-      <span className="w-12 text-right text-[11px] tabular-nums text-muted-foreground">
+      <span className="w-12 text-right !text-[11px] tabular-nums text-muted-foreground">
         {value}
         {unit}
       </span>
@@ -1083,7 +1179,7 @@ function PanelSection({
           onClick={() => setCollapsed((c) => !c)}
           aria-expanded={!collapsed}
         >
-          <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
+          <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
             {title}
           </h3>
         </button>
@@ -1092,7 +1188,7 @@ function PanelSection({
         ) : null}
       </div>
       {!collapsed && children ? (
-        <div className="space-y-1.5 px-3 pb-3 pt-0.5 text-[11px]">
+        <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
           {children}
         </div>
       ) : null}
@@ -1102,7 +1198,7 @@ function PanelSection({
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return (
-    <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground">
+    <Label className="w-[64px] shrink-0 !text-[11px] font-medium text-muted-foreground">
       {children}
     </Label>
   );
@@ -1110,7 +1206,7 @@ function FieldLabel({ children }: { children: ReactNode }) {
 
 function SubsectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11px] font-medium text-muted-foreground">{children}</p>
+    <p className="!text-[11px] font-medium text-muted-foreground">{children}</p>
   );
 }
 
@@ -1152,7 +1248,7 @@ function DesignSpacingControl({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-1.5">
-        <Label className="text-[11px] font-medium text-muted-foreground">
+        <Label className="!text-[11px] font-medium text-muted-foreground">
           {label}
         </Label>
         <Tooltip>
@@ -1515,6 +1611,7 @@ function ScrubStyleInput({
   ariaLabel,
   tooltipLabel,
   hideIcon = true,
+  icon,
 }: {
   label: string;
   value: string;
@@ -1529,15 +1626,18 @@ function ScrubStyleInput({
   hideIcon?: boolean;
   ariaLabel?: string;
   tooltipLabel?: string;
+  icon?: (props: { className?: string }) => ReactNode;
 }) {
+  const mixed = isMixedValue(value);
   return (
     <ScrubInput
       label={label}
       ariaLabel={ariaLabel}
       tooltipLabel={tooltipLabel}
-      icon={hideIcon ? null : undefined}
-      value={value ? parseNumericValue(value) : (placeholder ?? 0)}
+      icon={hideIcon ? null : icon}
+      value={mixed ? 0 : value ? parseNumericValue(value) : (placeholder ?? 0)}
       onChange={onChange}
+      mixed={mixed}
       unit={unit}
       min={min}
       max={max}
@@ -1545,7 +1645,7 @@ function ScrubStyleInput({
       precision={1}
       className="gap-0"
       labelClassName={cn(
-        "h-6 w-7 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] tabular-nums",
+        "h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] tabular-nums",
         labelClassName,
       )}
       inputClassName={cn(
@@ -1620,17 +1720,28 @@ function colorHasVisibleAlpha(value: string | undefined): boolean {
   return parsed.a > 0;
 }
 
+function normalizedElementTagName(tagName: string | null | undefined): string {
+  return tagName?.trim().toLowerCase() || "element";
+}
+
 function inspectorObjectTitle(element: ElementInfo): string {
-  const tag = element.tagName || "element";
+  const componentName = componentNameForElementInfo(element);
+  if (componentName) return componentName;
+  const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return "Text";
-  if (tag === "section") return "Section";
-  if (tag === "img" || tag === "video" || tag === "picture") return "Image";
-  if (tag === "button" || tag === "a") return "Button";
-  if (tag === "svg" || tag === "path") return "Vector";
-  if (element.isFlexContainer || tag === "div" || tag === "main") {
-    return "Frame";
-  }
-  return tag.charAt(0).toUpperCase() + tag.slice(1);
+  return tag;
+}
+
+function componentNameForElementInfo(
+  element: ElementInfo | null | undefined,
+): string {
+  return element?.componentName?.trim() ?? "";
+}
+
+function elementIsComponentSelection(
+  element: ElementInfo | null | undefined,
+): boolean {
+  return componentNameForElementInfo(element).length > 0;
 }
 
 function displayLabel(value: string | undefined): string {
@@ -1741,7 +1852,7 @@ const LEAF_TAGS = new Set([
  * children show the full Auto layout section the same way does.
  */
 function isContainerElement(element: ElementInfo): boolean {
-  if (element.isFlexContainer) return true;
+  if (element.isFlexContainer || element.isGridContainer) return true;
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag) || LEAF_TAGS.has(tag)) return false;
   return CONTAINER_TAGS.has(tag);
@@ -1756,6 +1867,13 @@ function isParentFlex(element: ElementInfo): boolean {
 
 function isParentGrid(element: ElementInfo): boolean {
   return Boolean(element.parentDisplay?.toLowerCase().includes("grid"));
+}
+
+function elementHasLayoutChildren(element: ElementInfo): boolean {
+  if (typeof element.childElementCount === "number") {
+    return element.childElementCount > 0;
+  }
+  return Boolean(element.htmlContent?.match(/<\s*[a-zA-Z][^>]*>/));
 }
 
 function parentFlexDirection(element: ElementInfo): AutoLayoutSizingAxis {
@@ -1977,10 +2095,10 @@ function commitElementSizing(
 }
 
 /**
- * Small modal that prompts for a component name, then promotes the current
- * selection into a reusable component via `onSubmit`.
+ * Header-anchored popover that prompts for a component name, then promotes the
+ * current selection into a reusable component via `onSubmit`.
  */
-function CreateComponentDialog({
+function CreateComponentPopover({
   open,
   onOpenChange,
   defaultName,
@@ -1992,8 +2110,9 @@ function CreateComponentDialog({
   onSubmit: (name: string) => void;
 }) {
   const [name, setName] = useState(defaultName);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset the field to the freshest default each time the dialog opens.
+  // Reset the field to the freshest default each time the popover opens.
   useEffect(() => {
     if (open) setName(defaultName);
   }, [open, defaultName]);
@@ -2006,55 +2125,86 @@ function CreateComponentDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>
-            {"Create component" /* i18n-ignore design inspector action */}
-          </DialogTitle>
-          <DialogDescription>
-            {
-              "Name this element so it becomes a reusable component. The agent can then extract props and replace repeated instances." /* i18n-ignore design inspector copy */
-            }
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="create-component-name"
-            className="text-[11px] font-medium text-muted-foreground"
-          >
-            {"Component name" /* i18n-ignore design inspector label */}
-          </Label>
-          <Input
-            id="create-component-name"
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commit();
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              aria-label={
+                "Create component" /* i18n-ignore design inspector action */
               }
-            }}
-            placeholder={
-              "PrimaryButton" /* i18n-ignore design inspector placeholder */
-            }
-          />
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-          >
-            {"Cancel" /* i18n-ignore design inspector action */}
-          </Button>
-          <Button type="button" onClick={commit} disabled={!name.trim()}>
-            {"Create" /* i18n-ignore design inspector action */}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            >
+              <IconComponents className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Create component" /* i18n-ignore design inspector action */}
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-80 p-3 text-[12px]"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          window.requestAnimationFrame(() => inputRef.current?.select());
+        }}
+      >
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commit();
+          }}
+        >
+          <div className="space-y-1">
+            <h3 className="text-[13px] font-semibold text-foreground">
+              {"Create component" /* i18n-ignore design inspector action */}
+            </h3>
+            <p className="!text-[11px] leading-4 text-muted-foreground">
+              {
+                "Name this element so it becomes a reusable component. The agent can then extract props and replace repeated instances." /* i18n-ignore design inspector copy */
+              }
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label
+              htmlFor="create-component-name"
+              className="!text-[11px] font-medium text-muted-foreground"
+            >
+              {"Component name" /* i18n-ignore design inspector label */}
+            </Label>
+            <Input
+              ref={inputRef}
+              id="create-component-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={
+                "PrimaryButton" /* i18n-ignore design inspector placeholder */
+              }
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
+              {"Cancel" /* i18n-ignore design inspector action */}
+            </Button>
+            <Button type="submit" size="sm" disabled={!name.trim()}>
+              {"Create" /* i18n-ignore design inspector action */}
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -2103,6 +2253,141 @@ export function truncateOpeningTag(openTag: string, max = 32): string {
       return `${quote}${value.slice(0, max - 1)}…${quote}`;
     },
   );
+}
+
+function tagNameFromOpeningTag(openTag: string): string | null {
+  const match = /^<\/?\s*([a-zA-Z][\w:-]*)/.exec(openTag.trim());
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function isSelfClosingOpeningTag(openTag: string, tagName: string): boolean {
+  return /\/>\s*$/.test(openTag) || VOID_HTML_TAGS.has(tagName);
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function fallbackOpeningTag(
+  data: Pick<InspectCodeData, "tagName" | "id" | "classes">,
+) {
+  const tag = normalizedElementTagName(data.tagName);
+  const attrs: string[] = [];
+  const id = data.id?.trim();
+  const classes = data.classes?.map((item) => item.trim()).filter(Boolean);
+  if (id) attrs.push(`id="${escapeHtmlAttribute(id)}"`);
+  if (classes?.length) {
+    attrs.push(`class="${escapeHtmlAttribute(classes.join(" "))}"`);
+  }
+  return `<${tag}${attrs.length ? ` ${attrs.join(" ")}` : ""}>`;
+}
+
+export function elementHtmlPreview(
+  data: Pick<InspectCodeData, "html" | "tagName" | "id" | "classes">,
+): string | null {
+  const openingTag = openingTagOf(data.html);
+  const hasFallbackMetadata = Boolean(
+    data.tagName?.trim() ||
+    data.id?.trim() ||
+    data.classes?.some((item) => item.trim()),
+  );
+  if (!openingTag && !hasFallbackMetadata) return null;
+  const previewOpeningTag = openingTag ?? fallbackOpeningTag(data);
+  const tagName =
+    tagNameFromOpeningTag(previewOpeningTag) ??
+    normalizedElementTagName(data.tagName);
+  if (isSelfClosingOpeningTag(previewOpeningTag, tagName)) {
+    return previewOpeningTag;
+  }
+  return `${previewOpeningTag}\n  ...\n</${tagName}>`;
+}
+
+type HtmlTokenKind = "plain" | "punctuation" | "tag" | "attribute" | "value";
+
+interface HtmlToken {
+  text: string;
+  kind: HtmlTokenKind;
+}
+
+function tokenizeHtmlAttributes(source: string): HtmlToken[] {
+  const tokens: HtmlToken[] = [];
+  const attrPattern =
+    /(\s+)([^\s=/>]+)(?:\s*(=)\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g;
+  let cursor = 0;
+  for (const match of source.matchAll(attrPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      tokens.push({ text: source.slice(cursor, index), kind: "plain" });
+    }
+    tokens.push({ text: match[1] ?? "", kind: "plain" });
+    tokens.push({ text: match[2] ?? "", kind: "attribute" });
+    if (match[3]) tokens.push({ text: match[3], kind: "punctuation" });
+    if (match[4]) tokens.push({ text: match[4], kind: "value" });
+    cursor = index + match[0].length;
+  }
+  if (cursor < source.length) {
+    tokens.push({ text: source.slice(cursor), kind: "plain" });
+  }
+  return tokens;
+}
+
+function tokenizeHtmlTag(source: string): HtmlToken[] {
+  const match = /^(<\/?)([a-zA-Z][\w:-]*)([\s\S]*?)(\/?>)$/.exec(source);
+  if (!match) return [{ text: source, kind: "plain" }];
+  return [
+    { text: match[1] ?? "", kind: "punctuation" },
+    { text: match[2] ?? "", kind: "tag" },
+    ...tokenizeHtmlAttributes(match[3] ?? ""),
+    { text: match[4] ?? "", kind: "punctuation" },
+  ];
+}
+
+function tokenizeHtml(source: string): HtmlToken[] {
+  const tokens: HtmlToken[] = [];
+  const tagPattern = /<\/?[a-zA-Z][\w:-]*(?:"[^"]*"|'[^']*'|[^'">])*>/g;
+  let cursor = 0;
+  for (const match of source.matchAll(tagPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      tokens.push({ text: source.slice(cursor, index), kind: "plain" });
+    }
+    tokens.push(...tokenizeHtmlTag(match[0]));
+    cursor = index + match[0].length;
+  }
+  if (cursor < source.length) {
+    tokens.push({ text: source.slice(cursor), kind: "plain" });
+  }
+  return tokens;
+}
+
+function htmlTokenClassName(kind: HtmlTokenKind): string {
+  switch (kind) {
+    case "punctuation":
+      return "text-muted-foreground/70";
+    case "tag":
+      return "text-[var(--design-editor-accent-color)]";
+    case "attribute":
+      return "text-foreground/90";
+    case "value":
+      return "text-[var(--design-editor-measure-color)]";
+    default:
+      return "text-muted-foreground";
+  }
+}
+
+function highlightedHtml(source: string): ReactNode {
+  return tokenizeHtml(source).map((token, index) => (
+    <span
+      key={`${index}:${token.kind}`}
+      className={htmlTokenClassName(token.kind)}
+    >
+      {token.text}
+    </span>
+  ));
 }
 
 /**
@@ -2467,22 +2752,12 @@ export function isBooleanPropValue(value: string): boolean {
  * TODO: replace the read-only <pre> with an inline Monaco editor for richer
  * (editable) code inspection once the editor bundle is wired into the inspector.
  */
-function InspectCodePopover({
-  trigger,
-  data,
-}: {
-  trigger: ReactNode;
-  data: InspectCodeData;
-}) {
+function InspectCodePopover({ data }: { data: InspectCodeData }) {
   const [copied, setCopied] = useState(false);
   const html = data.html ?? "";
   const source = data.sourceLocation ?? null;
-  const snippet = source?.snippet || html;
-  // At-a-glance opening tag (tag name + attributes), truncated for readability.
-  const openingTag = (() => {
-    const raw = openingTagOf(html);
-    return raw ? truncateOpeningTag(raw) : null;
-  })();
+  const snippet =
+    elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
 
   const handleCopy = () => {
     if (!snippet) return;
@@ -2499,8 +2774,27 @@ function InspectCodePopover({
 
   return (
     <Popover>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent align="end" className="w-80 space-y-2 p-2 text-[11px]">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              aria-label={
+                "Inspect code" /* i18n-ignore design inspector action */
+              }
+            >
+              <IconCode className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Inspect code" /* i18n-ignore design inspector action */}
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="w-80 space-y-2 p-2 !text-[11px]">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
             {"Inspect code" /* i18n-ignore design inspector label */}
@@ -2521,16 +2815,6 @@ function InspectCodePopover({
           </Button>
         </div>
 
-        {/* At-a-glance opening tag (tag name + attributes) above the full HTML. */}
-        {openingTag && (
-          <code
-            className="block truncate rounded bg-[var(--design-editor-control-bg)] px-2 py-1 font-mono text-[10px] text-foreground"
-            title={openingTag}
-          >
-            {openingTag}
-          </code>
-        )}
-
         {source && (
           <div
             className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
@@ -2546,7 +2830,7 @@ function InspectCodePopover({
 
         {snippet ? (
           <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
-            <code>{snippet}</code>
+            <code>{highlightedHtml(snippet)}</code>
           </pre>
         ) : (
           <p className="px-1 py-2 text-muted-foreground">
@@ -2569,7 +2853,7 @@ function InspectCodePopover({
               type="button"
               variant="outline"
               size="sm"
-              className="h-7 w-full gap-1.5 text-[11px]"
+              className="h-7 w-full gap-1.5 !text-[11px]"
             >
               <IconExternalLink className="size-3.5" />
               {"Open in VS Code" /* i18n-ignore design inspector action */}
@@ -2582,7 +2866,8 @@ function InspectCodePopover({
 }
 
 function elementTypeIcon(element: ElementInfo) {
-  const tag = element.tagName || "element";
+  if (elementIsComponentSelection(element)) return IconComponents;
+  const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return IconTypography;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
   if (tag === "svg" || tag === "path") return IconVector;
@@ -2592,53 +2877,80 @@ function elementTypeIcon(element: ElementInfo) {
 
 function SelectionHeader({
   element,
+  selectedCount = 0,
   onCreateComponent,
-  inspectCodePopover,
+  createComponentOpen = false,
+  onCreateComponentOpenChange,
+  showCreateComponentAction = true,
+  defaultComponentName = "Component",
+  inspectCode,
 }: {
   element: ElementInfo | null;
+  selectedCount?: number;
   /** Promote the current selection into a reusable component. Omit/undefined to disable. */
-  onCreateComponent?: () => void;
-  /**
-   * Render prop for the "Inspect code" affordance. Receives the trigger button
-   * so the parent can anchor a Popover to it; returns the full popover element.
-   * When omitted the button renders disabled.
-   */
-  inspectCodePopover?: (trigger: ReactNode) => ReactNode;
+  onCreateComponent?: (name: string) => void;
+  createComponentOpen?: boolean;
+  onCreateComponentOpenChange?: (open: boolean) => void;
+  showCreateComponentAction?: boolean;
+  defaultComponentName?: string;
+  /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
+  inspectCode?: InspectCodeData;
 }) {
   if (!element) return null;
 
-  const title = inspectorObjectTitle(element);
+  const title =
+    selectedCount > 1
+      ? `${selectedCount} selected`
+      : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
-
-  const inspectTrigger = (
-    <SectionIconButton
-      label={"Inspect code" /* i18n-ignore design inspector action */}
-      disabled={!inspectCodePopover}
-    >
-      <IconCode className="size-3.5" />
-    </SectionIconButton>
-  );
+  const isComponentSelection = elementIsComponentSelection(element);
 
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
       {/* Node-type label. Rename lives in the layers panel and device sizing
           lives elsewhere, so this is a plain non-interactive label. */}
       <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
-        <TypeIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <TypeIcon
+          className={cn(
+            "size-3.5 shrink-0",
+            isComponentSelection
+              ? "text-[var(--design-editor-component-color)]"
+              : "text-muted-foreground",
+          )}
+        />
         <span className="truncate">{title}</span>
       </div>
       {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
       <div className="flex shrink-0 items-center gap-0.5">
-        <SectionIconButton
-          label={"Create component" /* i18n-ignore design inspector action */}
-          disabled={!onCreateComponent}
-          onClick={onCreateComponent}
-        >
-          <IconComponents className="size-3.5" />
-        </SectionIconButton>
-        {inspectCodePopover
-          ? inspectCodePopover(inspectTrigger)
-          : inspectTrigger}
+        {showCreateComponentAction ? (
+          onCreateComponent && onCreateComponentOpenChange ? (
+            <CreateComponentPopover
+              open={createComponentOpen}
+              onOpenChange={onCreateComponentOpenChange}
+              defaultName={defaultComponentName}
+              onSubmit={onCreateComponent}
+            />
+          ) : (
+            <SectionIconButton
+              label={
+                "Create component" /* i18n-ignore design inspector action */
+              }
+              disabled
+            >
+              <IconComponents className="size-3.5" />
+            </SectionIconButton>
+          )
+        ) : null}
+        {inspectCode ? (
+          <InspectCodePopover data={inspectCode} />
+        ) : (
+          <SectionIconButton
+            label={"Inspect code" /* i18n-ignore design inspector action */}
+            disabled
+          >
+            <IconCode className="size-3.5" />
+          </SectionIconButton>
+        )}
       </div>
     </div>
   );
@@ -2664,13 +2976,13 @@ function InspectorTabsHeader({
         <TabsList className="h-7 justify-start gap-0.5 rounded-none bg-transparent p-0">
           <TabsTrigger
             value="design"
-            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {"Design" /* i18n-ignore design inspector tab */}
           </TabsTrigger>
           <TabsTrigger
             value="tweaks"
-            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {t("designEditor.tweaks")}
           </TabsTrigger>
@@ -2706,7 +3018,7 @@ function SectionIconButton({
           variant="ghost"
           size="icon"
           className={cn(
-            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
+            "size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
             className,
           )}
           disabled={disabled}
@@ -2888,23 +3200,23 @@ function TypographyDetailsPopover({
       >
         <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
           <div className="flex rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
-            <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-2.5 py-1 text-[11px] font-semibold text-foreground">
+            <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-2.5 py-1 !text-[11px] font-semibold text-foreground">
               {"Basics" /* i18n-ignore design typography details tab */}
             </span>
-            <span className="px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <span className="px-2.5 py-1 !text-[11px] font-medium text-muted-foreground">
               {"Details" /* i18n-ignore design typography details tab */}
             </span>
-            <span className="px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <span className="px-2.5 py-1 !text-[11px] font-medium text-muted-foreground">
               {"Variable" /* i18n-ignore design typography details tab */}
             </span>
           </div>
         </div>
-        <div className="space-y-3 p-4 text-[11px]">
+        <div className="space-y-3 p-4 !text-[11px]">
           <div className="flex h-20 items-center justify-center rounded-md bg-[var(--design-editor-control-bg)] text-[18px] text-muted-foreground/80">
             {"Preview" /* i18n-ignore design typography details preview */}
           </div>
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[11px] font-medium text-muted-foreground">
+            <span className="!text-[11px] font-medium text-muted-foreground">
               {"Text box" /* i18n-ignore design typography details label */}
             </span>
             <TextResizeControls
@@ -2927,7 +3239,6 @@ function CornerRadiusControl({
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
-  const radius = cssLengthNumber(styles.borderRadius || "0");
   const corners = {
     topLeft: cssLengthNumber(styles.borderTopLeftRadius || styles.borderRadius),
     topRight: cssLengthNumber(
@@ -2940,110 +3251,238 @@ function CornerRadiusControl({
       styles.borderBottomLeftRadius || styles.borderRadius,
     ),
   };
+  const cornersDiffer =
+    corners.topLeft !== corners.topRight ||
+    corners.topLeft !== corners.bottomRight ||
+    corners.topLeft !== corners.bottomLeft;
+  const [showIndependentCorners, setShowIndependentCorners] =
+    useState(cornersDiffer);
+  const radius = cornersDiffer
+    ? corners.topLeft
+    : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
+  const commitRadius = (value: number) => {
+    const next = `${Math.max(0, Math.round(value))}px`;
+    onStyleChange("borderRadius", next);
+    if (!showIndependentCorners) return;
+    onStyleChange("borderTopLeftRadius", next);
+    onStyleChange("borderTopRightRadius", next);
+    onStyleChange("borderBottomRightRadius", next);
+    onStyleChange("borderBottomLeftRadius", next);
+  };
+
+  useEffect(() => {
+    if (cornersDiffer) setShowIndependentCorners(true);
+  }, [cornersDiffer]);
 
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-1.5">
-      <ScrubInput
+    <>
+      <AppearanceScrubField
         label={t("editPanel.labels.cornerRadius")}
+        icon={IconBorderRadius}
         value={radius}
-        onChange={(value) =>
-          onStyleChange("borderRadius", `${Math.max(0, Math.round(value))}px`)
-        }
-        unit="px"
+        onChange={commitRadius}
         min={0}
         precision={1}
-        labelClassName="w-24"
-        inputClassName="h-6"
       />
-      <Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]"
-                aria-label={independentCornersLabel}
-              >
-                <IconMaximize className="size-3.5" />
-              </Button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{independentCornersLabel}</TooltipContent>
-        </Tooltip>
-        <PopoverContent
-          side="left"
-          align="start"
-          sideOffset={8}
-          className="w-64 p-3"
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+              showIndependentCorners &&
+                "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-accent-color)]/20 hover:text-[var(--design-editor-accent-color)]",
+            )}
+            aria-label={independentCornersLabel}
+            aria-pressed={showIndependentCorners}
+            onClick={() => setShowIndependentCorners((value) => !value)}
+          >
+            <IconBorderCorners className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{independentCornersLabel}</TooltipContent>
+      </Tooltip>
+      {showIndependentCorners ? (
+        <>
+          <AppearanceScrubField
+            label={t("editPanel.labels.topLeft")}
+            icon={IconRadiusTopLeft}
+            value={corners.topLeft}
+            onChange={(value) =>
+              onStyleChange(
+                "borderTopLeftRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <AppearanceScrubField
+            label={t("editPanel.labels.topRight")}
+            icon={IconRadiusTopRight}
+            value={corners.topRight}
+            onChange={(value) =>
+              onStyleChange(
+                "borderTopRightRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <span aria-hidden="true" />
+          <AppearanceScrubField
+            label={t("editPanel.labels.bottomLeft")}
+            icon={IconRadiusBottomLeft}
+            value={corners.bottomLeft}
+            onChange={(value) =>
+              onStyleChange(
+                "borderBottomLeftRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <AppearanceScrubField
+            label={t("editPanel.labels.bottomRight")}
+            icon={IconRadiusBottomRight}
+            value={corners.bottomRight}
+            onChange={(value) =>
+              onStyleChange(
+                "borderBottomRightRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <span aria-hidden="true" />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function AppearanceScrubField({
+  label,
+  icon,
+  value,
+  onChange,
+  mixed = false,
+  min,
+  max,
+  step,
+  unit,
+  precision,
+}: {
+  label: string;
+  icon: (props: { className?: string }) => ReactNode;
+  value: number;
+  onChange: (value: number) => void;
+  mixed?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  precision?: number;
+}) {
+  return (
+    <ScrubInput
+      label={label}
+      ariaLabel={label}
+      icon={icon}
+      value={value}
+      onChange={onChange}
+      mixed={mixed}
+      min={min}
+      max={max}
+      step={step}
+      unit={unit}
+      precision={precision}
+      className="min-w-0 gap-0"
+      labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground [&>span]:sr-only"
+      inputClassName="h-6 min-w-0 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] border-l-0 bg-[var(--design-editor-control-bg)] px-0 text-left shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+    />
+  );
+}
+
+function BlendModeMenu({
+  styles,
+  onStyleChange,
+}: {
+  styles: Record<string, string>;
+  onStyleChange: (property: string, value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const blendMode = optionValue(
+    BLEND_MODE_OPTIONS,
+    styles.mixBlendMode || "normal",
+    "normal",
+  );
+  const selectedBlendMode =
+    blendMode === "normal" && styles.isolation !== "isolate"
+      ? "pass-through"
+      : blendMode;
+  const options = [
+    {
+      value: "pass-through",
+      label: "Pass through", // i18n-ignore design blend mode label
+    },
+    ...BLEND_MODE_OPTIONS,
+  ] as const;
+  const selectBlendMode = (value: (typeof options)[number]["value"]) => {
+    if (value === "pass-through") {
+      onStyleChange("mixBlendMode", "normal");
+      onStyleChange("isolation", "auto");
+      return;
+    }
+    onStyleChange("mixBlendMode", value);
+    if (value === "normal") onStyleChange("isolation", "isolate");
+  };
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={"Blend mode" /* i18n-ignore design inspector action */}
+          aria-pressed={open}
+          className={cn(
+            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
+            open &&
+              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+          )}
         >
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-foreground">
-              {independentCornersLabel}
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <ScrubInput
-                label={t("editPanel.labels.topLeft")}
-                value={corners.topLeft}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderTopLeftRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.topRight")}
-                value={corners.topRight}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderTopRightRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.bottomLeft")}
-                value={corners.bottomLeft}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderBottomLeftRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.bottomRight")}
-                value={corners.bottomRight}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderBottomRightRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-    </div>
+          <IconDroplet className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="left"
+        align="start"
+        sideOffset={8}
+        className="z-[100010] w-48 rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[13px] text-foreground shadow-2xl"
+      >
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            className="flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-[13px] focus:bg-[var(--design-editor-control-bg)]"
+            onSelect={() => selectBlendMode(option.value)}
+          >
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              {selectedBlendMode === option.value ? (
+                <IconCheck className="size-4" />
+              ) : null}
+            </span>
+            <span>{option.label}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -3098,7 +3537,6 @@ function StrokeLayerControl({
           />
         </div>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={
             visible
               ? t("editPanel.labels.hideLayer")
@@ -3123,7 +3561,6 @@ function StrokeLayerControl({
           )}
         </SectionIconButton>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -3133,7 +3570,7 @@ function StrokeLayerControl({
       {/* design stroke geometry: position + weight side by side */}
       <div className="grid grid-cols-2 gap-1.5">
         <Select value={position} onValueChange={movePosition}>
-          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -3141,7 +3578,7 @@ function StrokeLayerControl({
               <SelectItem
                 key={option.value}
                 value={option.value}
-                className="text-[11px]"
+                className="!text-[11px]"
               >
                 {option.label}
               </SelectItem>
@@ -3163,7 +3600,7 @@ function StrokeLayerControl({
           min={0}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -3268,26 +3705,50 @@ function readBlurFilter(value: string | undefined): number {
   return match ? Math.max(0, Number(match[1])) : 0;
 }
 
+function hasBlurFilter(value: string | undefined): boolean {
+  return /blur\(/.test(value || "");
+}
+
+function setBlurFilterValue(value: string | undefined, blur: number): string {
+  const blurFn = `blur(${Math.max(0, Math.round(blur))}px)`;
+  const existing = compactCssValue(value, "");
+  return existing.includes("blur(")
+    ? existing.replace(/blur\([^)]*\)/, blurFn)
+    : blurFn;
+}
+
+function shadowColorWithOpacity(color: string, opacity: number): string {
+  const parsed = parseCssColor(color);
+  return parsed
+    ? rgbaToCss(withColorOpacity(parsed, opacity))
+    : opacity <= 0
+      ? "rgba(0, 0, 0, 0)"
+      : color;
+}
+
 function ShadowEffectRow({
   layer,
   index,
   onChange,
   onRemove,
+  onToggleVisibility,
 }: {
   layer: ShadowLayer;
   index: number;
   onChange: (patch: Partial<ShadowLayer>) => void;
   onRemove: () => void;
+  onToggleVisibility: () => void;
 }) {
   const t = useT();
+  const visible = colorHasVisibleAlpha(layer.color);
   return (
     <Popover>
-      {/* design effect row: [swatch+label+x,y,blur trigger (flex-1)] [remove] */}
+      {/* design effect row: [swatch+label+x,y,blur trigger (flex-1)] [eye] [remove] */}
       <div className="group flex items-center gap-1.5">
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+            className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
           >
             <span
               className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
@@ -3305,7 +3766,20 @@ function ShadowEffectRow({
           </button>
         </PopoverTrigger>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+          label={
+            visible
+              ? t("editPanel.labels.hideLayer")
+              : t("editPanel.labels.showLayer")
+          }
+          onClick={onToggleVisibility}
+        >
+          {visible ? (
+            <IconEye className="size-3.5" />
+          ) : (
+            <IconEyeOff className="size-3.5" />
+          )}
+        </SectionIconButton>
+        <SectionIconButton
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -3326,7 +3800,7 @@ function ShadowEffectRow({
             <button
               type="button"
               className={cn(
-                "rounded border px-2 py-1 text-[11px]",
+                "rounded border px-2 py-1 !text-[11px]",
                 layer.inset
                   ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
                   : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground",
@@ -3565,7 +4039,7 @@ function TypographyProperties({
         >
           <SelectTrigger
             aria-label={t("editPanel.labels.font")}
-            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
           >
             <SelectValue />
           </SelectTrigger>
@@ -3574,7 +4048,7 @@ function TypographyProperties({
               <SelectItem
                 key={opt.value}
                 value={opt.value}
-                className="text-[11px]"
+                className="!text-[11px]"
               >
                 {opt.label}
               </SelectItem>
@@ -3589,7 +4063,7 @@ function TypographyProperties({
           value={styles.fontWeight || "400"}
           onValueChange={(v) => onStyleChange("fontWeight", v)}
         >
-          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -3597,7 +4071,7 @@ function TypographyProperties({
               <SelectItem
                 key={opt.value}
                 value={opt.value}
-                className="text-[11px]"
+                className="!text-[11px]"
               >
                 {opt.label}
               </SelectItem>
@@ -3616,7 +4090,7 @@ function TypographyProperties({
           min={1}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -3635,7 +4109,7 @@ function TypographyProperties({
           step={0.1}
           precision={2}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
         <ScrubInput
@@ -3649,7 +4123,7 @@ function TypographyProperties({
           unit="px"
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -3725,15 +4199,10 @@ function FlexContainerControls({
   element,
   onStyleChange,
   onStylesChange,
-  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
-  onAutoLayoutConvert?: (
-    targetNodeId: string,
-    opts?: { direction?: "row" | "column"; gap?: string },
-  ) => void;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -3743,7 +4212,11 @@ function FlexContainerControls({
   // control can show the right state (normal vs horizontal/vertical/wrap)
   // instead of an empty "add" affordance.
   const display = (styles.display || "").toLowerCase();
-  const isFlex = display.includes("flex");
+  const isFlex = element.isFlexContainer || display.includes("flex");
+  const displayMode: AutoLayoutMatrixValue["display"] = isFlex
+    ? "flex"
+    : "block";
+  const hasLayoutChildren = elementHasLayoutChildren(element);
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
   const mainGapAxis =
@@ -3772,29 +4245,6 @@ function FlexContainerControls({
     onStyleChange("display", "block");
   };
 
-  /**
-   * "Convert to auto layout" — enables flex on a non-flex container and strips
-   * position:absolute from direct children (full reflow via the autoLayout
-   * substrate intent). Falls back to a style-only patch when no substrate
-   * handler is wired (e.g. read-only or non-editable contexts).
-   */
-  const handleConvertToAutoLayout = () => {
-    if (onAutoLayoutConvert && element.sourceId) {
-      onAutoLayoutConvert(element.sourceId, { direction: "row", gap: "8px" });
-      return;
-    }
-    // Fallback: set display:flex on the parent only (no child strip).
-    commitStylePatch(
-      {
-        display: "flex",
-        flexDirection: "row",
-        gap: "8px",
-        alignItems: "flex-start",
-      },
-      onStyleChange,
-      onStylesChange,
-    );
-  };
   const padding = {
     top: parseNumericValue(styles.paddingTop || "0"),
     right: parseNumericValue(styles.paddingRight || "0"),
@@ -3831,29 +4281,16 @@ function FlexContainerControls({
       horizontal: cssElementSize(element, "horizontal"),
       vertical: cssElementSize(element, "vertical"),
     },
-    // Forward the raw CSS display so the matrix can render the correct Flow
-    // state (normal flow for block/grid, flex for flex/inline-flex). Added as an
-    // optional contract field consumed by AutoLayoutMatrix; harmless when the
-    // matrix ignores it.
-    ...({ display } as Partial<AutoLayoutMatrixValue>),
+    mixedSize: {
+      horizontal: isMixedValue(styles.width),
+      vertical: isMixedValue(styles.height),
+    },
+    display: displayMode,
     spaceBetween: styles.justifyContent === "space-between",
   };
 
   return (
     <div className="space-y-2">
-      {/* Convert to auto layout — shown when the container is not yet flex */}
-      {!isFlex ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 w-full gap-1.5 text-[11px]"
-          onClick={handleConvertToAutoLayout}
-        >
-          <IconLayoutSettings className="size-3.5 shrink-0" />
-          {"Convert to auto layout" /* i18n-ignore design inspector action */}
-        </Button>
-      ) : null}
       <AutoLayoutMatrix
         value={autoLayoutValue}
         onDisplayChange={handleDisplayChange}
@@ -3938,6 +4375,7 @@ function FlexContainerControls({
         onChildMinMaxChange={(axis, kind, val) =>
           commitElementMinMax(axis, kind, val, onStyleChange)
         }
+        showChildLayoutControls={hasLayoutChildren}
       />
     </div>
   );
@@ -4040,15 +4478,10 @@ function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
-  onAutoLayoutConvert,
 }: {
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
-  onAutoLayoutConvert?: (
-    targetNodeId: string,
-    opts?: { direction?: "row" | "column"; gap?: string },
-  ) => void;
 }) {
   const t = useT();
   const flexChild = isParentFlex(element);
@@ -4084,6 +4517,7 @@ function LayoutContextProperties({
             sizingAxis="horizontal"
             value={inferElementSizing(element, "horizontal")}
             resolvedSize={cssElementSize(element, "horizontal")}
+            mixed={isMixedValue(element.computedStyles.width)}
             minMax={readElementMinMax(element, "horizontal")}
             options={availableSizing.horizontal ?? ["fixed"]}
             disabled={false}
@@ -4106,6 +4540,7 @@ function LayoutContextProperties({
             sizingAxis="vertical"
             value={inferElementSizing(element, "vertical")}
             resolvedSize={cssElementSize(element, "vertical")}
+            mixed={isMixedValue(element.computedStyles.height)}
             minMax={readElementMinMax(element, "vertical")}
             options={availableSizing.vertical ?? ["fixed"]}
             disabled={false}
@@ -4141,7 +4576,6 @@ function LayoutContextProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
-        onAutoLayoutConvert={onAutoLayoutConvert}
       />
       {childControls}
     </PanelSection>
@@ -4214,7 +4648,7 @@ function LayoutGuideProperties({
       }
     >
       {active ? (
-        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 !text-[11px] text-muted-foreground">
           <IconLayoutGrid className="size-3.5 shrink-0" />
           <span className="min-w-0 flex-1 truncate text-foreground">
             {"Columns" /* i18n-ignore design inspector label */}
@@ -4222,7 +4656,7 @@ function LayoutGuideProperties({
           <span className="shrink-0 tabular-nums">12</span>
         </div>
       ) : (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="!text-[11px] text-muted-foreground">
           {"No layout guides" /* i18n-ignore design inspector empty state */}
         </p>
       )}
@@ -4309,6 +4743,7 @@ function PositionLayoutProperties({
               ? "center"
               : "top",
   };
+  const [constraintsExpanded, setConstraintsExpanded] = useState(false);
 
   const handleConstraintsChange = useCallback(
     (value: ConstraintsValue) => {
@@ -4469,7 +4904,7 @@ function PositionLayoutProperties({
 
       <div className="space-y-1.5">
         <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_1.75rem] gap-2">
           <ScrubStyleInput
             label="X"
             ariaLabel="X-position"
@@ -4488,7 +4923,39 @@ function PositionLayoutProperties({
             inputClassName="h-6"
             onChange={(v) => onStyleChange("top", `${Math.round(v)}px`)}
           />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={
+                  "Constraints" /* i18n-ignore design inspector action */
+                }
+                aria-pressed={constraintsExpanded}
+                onClick={() => setConstraintsExpanded((expanded) => !expanded)}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md transition-colors",
+                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  constraintsExpanded
+                    ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                    : "text-muted-foreground",
+                )}
+              >
+                <ConstraintsPreview value={constraintsValue} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {"Constraints" /* i18n-ignore design inspector tooltip */}
+            </TooltipContent>
+          </Tooltip>
         </div>
+        {constraintsExpanded ? (
+          <ConstraintsWidget
+            value={constraintsValue}
+            onChange={handleConstraintsChange}
+            className="pt-1"
+          />
+        ) : null}
       </div>
 
       <div className="space-y-1.5">
@@ -4496,7 +4963,12 @@ function PositionLayoutProperties({
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <ScrubStyleInput
-              label="R"
+              label="Rotation"
+              ariaLabel={t("editPanel.labels.rotation")}
+              tooltipLabel={t("editPanel.labels.rotation")}
+              hideIcon={false}
+              icon={IconAngle}
+              labelClassName="[&>span]:sr-only"
               value={`${parseRotationValue(styles.transform)}deg`}
               unit="deg"
               inputClassName="h-6"
@@ -4530,13 +5002,6 @@ function PositionLayoutProperties({
           </InspectorSegment>
         </div>
       </div>
-
-      {constrainedPosition ? (
-        <ConstraintsWidget
-          value={constraintsValue}
-          onChange={handleConstraintsChange}
-        />
-      ) : null}
     </PanelSection>
   );
 }
@@ -4569,6 +5034,12 @@ function FillProperties({
   const backgroundPositionLayers = isTextElement
     ? []
     : splitCssLayers(styles.backgroundPosition || "");
+  const fillIsMixed =
+    isMixedValue(fillValue) ||
+    isMixedValue(styles.backgroundImage) ||
+    isMixedValue(styles.backgroundSize) ||
+    isMixedValue(styles.backgroundRepeat) ||
+    isMixedValue(styles.backgroundPosition);
   const hasBackgroundLayer = !isTextElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
@@ -4638,6 +5109,18 @@ function FillProperties({
           <SectionIconButton
             label={t("editPanel.labels.addLayer")}
             onClick={() => {
+              if (fillIsMixed) {
+                commitStylePatch(
+                  {
+                    color: "#000000",
+                    backgroundColor: "#ffffff",
+                    backgroundImage: "none",
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                );
+                return;
+              }
               if (isTextElement) {
                 onStyleChange(
                   "color",
@@ -4668,7 +5151,13 @@ function FillProperties({
         </>
       }
     >
-      {hasVisibleFill ? (
+      {fillIsMixed ? (
+        <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
+          {
+            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+          }
+        </p>
+      ) : hasVisibleFill ? (
         <div className="space-y-1.5">
           {isTextElement || colorHasVisibleAlpha(fillValue) ? (
             /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
@@ -4700,7 +5189,6 @@ function FillProperties({
                 />
               </div>
               <SectionIconButton
-                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={
                   isHidden
                     ? t("editPanel.labels.showLayer")
@@ -4716,7 +5204,6 @@ function FillProperties({
                 )}
               </SectionIconButton>
               <SectionIconButton
-                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={t("editPanel.labels.removeLayer")}
                 onClick={() => {
                   if (isTextElement) {
@@ -4783,7 +5270,7 @@ function FillProperties({
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
                         >
                           <span
                             className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
@@ -4848,7 +5335,6 @@ function FillProperties({
                       </PopoverContent>
                     </Popover>
                     <SectionIconButton
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={
                         opacity <= 0
                           ? t("editPanel.labels.showLayer")
@@ -4928,7 +5414,6 @@ function FillProperties({
                       )}
                     </SectionIconButton>
                     <SectionIconButton
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={t("editPanel.labels.removeLayer")}
                       onClick={removeLayer}
                     >
@@ -4960,6 +5445,15 @@ function StrokeProperties({
     styles.outlineWidth,
     styles.outlineStyle,
   );
+  const strokeIsMixed = [
+    styles.borderWidth,
+    styles.borderStyle,
+    styles.borderColor,
+    styles.outlineWidth,
+    styles.outlineStyle,
+    styles.outlineColor,
+    styles.outlineOffset,
+  ].some(isMixedValue);
   // Render the row whenever a stroke has been configured (non-zero width),
   // even when its style is "none" (hidden). This mirrors Figma's behavior where
   // hidden stroke rows remain present so the user can re-show them via the eye icon.
@@ -4973,6 +5467,20 @@ function StrokeProperties({
         <SectionIconButton
           label={t("editPanel.labels.addLayer")}
           onClick={() => {
+            if (strokeIsMixed) {
+              commitStylePatch(
+                {
+                  borderWidth: "1px",
+                  borderStyle: "solid",
+                  borderColor: "#000000",
+                  outlineWidth: "0px",
+                  outlineStyle: "none",
+                },
+                onStyleChange,
+                onStylesChange,
+              );
+              return;
+            }
             if (!borderVisible) {
               const borderColor = cssColorOrFallback(
                 styles.borderColor || styles.color,
@@ -5029,7 +5537,13 @@ function StrokeProperties({
         </SectionIconButton>
       }
     >
-      {borderExists ? (
+      {strokeIsMixed ? (
+        <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
+          {
+            "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+          }
+        </p>
+      ) : borderExists ? (
         <StrokeLayerControl
           kind="border"
           visible={borderVisible}
@@ -5085,15 +5599,6 @@ function AppearanceProperties({
       title={t("root.commandAppearance")}
       actions={
         <>
-          {/* Opacity / blend-mode affordance — matches the design editor's pill icon */}
-          <SectionIconButton
-            label={
-              "Opacity & blend mode" /* i18n-ignore design inspector action */
-            }
-          >
-            <IconSlice className="size-3.5" />
-          </SectionIconButton>
-          {/* Visibility toggle */}
           <SectionIconToggle
             label={
               hidden
@@ -5111,55 +5616,36 @@ function AppearanceProperties({
               <IconEye className="size-3.5" />
             )}
           </SectionIconToggle>
-          {/* Styles / fill library affordance — matches the design editor's droplet icon */}
-          <SectionIconButton
-            label={"Styles" /* i18n-ignore design inspector action */}
-          >
-            <IconDroplet className="size-3.5" />
-          </SectionIconButton>
+          <BlendModeMenu styles={styles} onStyleChange={onStyleChange} />
         </>
       }
     >
-      <div className="grid grid-cols-2 gap-2">
-        <ScrubInput
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5">
+        <p className="min-w-0 truncate !text-[11px] font-medium text-muted-foreground">
+          {t("editPanel.labels.opacity")}
+        </p>
+        <p className="min-w-0 truncate !text-[11px] font-medium text-muted-foreground">
+          {t("editPanel.labels.cornerRadius")}
+        </p>
+        <span aria-hidden="true" />
+        <AppearanceScrubField
           label={t("editPanel.labels.opacity")}
-          value={parseNumericValue(styles.opacity || "1") * 100}
+          icon={IconGridDots}
+          value={
+            isMixedValue(styles.opacity)
+              ? 0
+              : parseNumericValue(styles.opacity || "1") * 100
+          }
           onChange={(v) => onStyleChange("opacity", String(v / 100))}
+          mixed={isMixedValue(styles.opacity)}
           min={0}
           max={100}
           step={1}
           unit="%"
           precision={1}
-          labelClassName="w-0 overflow-hidden"
-          inputClassName="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none"
         />
-        {/* M9: blend mode compact — inline select next to opacity, no separate labeled row */}
-        <Select
-          value={optionValue(
-            BLEND_MODE_OPTIONS,
-            styles.mixBlendMode || "normal",
-            "normal",
-          )}
-          onValueChange={(value) => onStyleChange("mixBlendMode", value)}
-        >
-          <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {BLEND_MODE_OPTIONS.map((opt) => (
-              <SelectItem
-                key={opt.value}
-                value={opt.value}
-                className="text-[11px]"
-              >
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <CornerRadiusControl styles={styles} onStyleChange={onStyleChange} />
       </div>
-      {/* M7: use CornerRadiusControl (with independent-corners toggle) instead of bare ScrubInput */}
-      <CornerRadiusControl styles={styles} onStyleChange={onStyleChange} />
     </PanelSection>
   );
 }
@@ -5176,11 +5662,19 @@ function EffectsProperties({
   const t = useT();
   const styles = element.computedStyles;
   const blurValue = readBlurFilter(styles.filter);
+  const filterHasBlur = hasBlurFilter(styles.filter);
   // M5 · Background (backdrop) blur is a distinct design effect type, backed by
   // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
-  const backdropBlurValue = readBlurFilter(
-    styles.backdropFilter || styles.webkitBackdropFilter,
-  );
+  const backdropFilterValue =
+    styles.backdropFilter || styles.webkitBackdropFilter;
+  const backdropFilterHasBlur = hasBlurFilter(backdropFilterValue);
+  const backdropBlurValue = readBlurFilter(backdropFilterValue);
+  const [hiddenEffectStash, setHiddenEffectStash] = useState<
+    Record<string, string>
+  >({});
+  const effectStashKey = elementIdentityKey(element);
+  const layerBlurStashKey = `${effectStashKey}:filter:blur`;
+  const backdropBlurStashKey = `${effectStashKey}:backdrop-filter:blur`;
   const shadowLayers = parseShadowLayers(styles.boxShadow);
   const setShadowLayers = (layers: ShadowLayer[]) => {
     const boxShadow = serializeShadowLayers(layers);
@@ -5213,21 +5707,21 @@ function EffectsProperties({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-44">
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addDropShadow}
             >
               <IconShadow className="size-3.5" />
               {t("editPanel.labels.dropShadow")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addLayerBlur}
             >
               <IconBlur className="size-3.5" />
               {t("editPanel.labels.layerBlur")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addBackgroundBlur}
             >
               <IconBackground className="size-3.5" />
@@ -5252,6 +5746,41 @@ function EffectsProperties({
                 );
                 setShadowLayers(next);
               }}
+              onToggleVisibility={() => {
+                const visible = colorHasVisibleAlpha(layer.color);
+                const shadowStashKey = `${effectStashKey}:shadow:${layer.id}`;
+                if (visible) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [shadowStashKey]: layer.color,
+                  }));
+                  const next = shadowLayers.map((candidate) =>
+                    candidate.id === layer.id
+                      ? {
+                          ...candidate,
+                          color: shadowColorWithOpacity(candidate.color, 0),
+                        }
+                      : candidate,
+                  );
+                  setShadowLayers(next);
+                  return;
+                }
+
+                const restored =
+                  hiddenEffectStash[shadowStashKey] ??
+                  shadowColorWithOpacity(layer.color, 25);
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[shadowStashKey];
+                  return next;
+                });
+                const next = shadowLayers.map((candidate) =>
+                  candidate.id === layer.id
+                    ? { ...candidate, color: restored }
+                    : candidate,
+                );
+                setShadowLayers(next);
+              }}
               onRemove={() =>
                 setShadowLayers(
                   shadowLayers.filter((candidate) => candidate.id !== layer.id),
@@ -5261,14 +5790,14 @@ function EffectsProperties({
           ))}
         </div>
       ) : null}
-      {blurValue > 0 ? (
+      {filterHasBlur ? (
         /* design effect row for layer blur: flat row matching shadow rows */
         <Popover>
           <div className="group flex items-center gap-1.5">
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {t("editPanel.labels.layerBlur")}
@@ -5279,10 +5808,45 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
-              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              label={
+                blurValue > 0
+                  ? t("editPanel.labels.hideLayer")
+                  : t("editPanel.labels.showLayer")
+              }
+              onClick={() => {
+                if (blurValue > 0) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [layerBlurStashKey]: String(blurValue),
+                  }));
+                  onStyleChange("filter", setBlurFilterValue(styles.filter, 0));
+                  return;
+                }
+
+                const restored = Number(hiddenEffectStash[layerBlurStashKey]);
+                const nextBlur =
+                  Number.isFinite(restored) && restored > 0 ? restored : 4;
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[layerBlurStashKey];
+                  return next;
+                });
+                onStyleChange(
+                  "filter",
+                  setBlurFilterValue(styles.filter, nextBlur),
+                );
+              }}
+            >
+              {blurValue > 0 ? (
+                <IconEye className="size-3.5" />
+              ) : (
+                <IconEyeOff className="size-3.5" />
+              )}
+            </SectionIconButton>
+            <SectionIconButton
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("filter", "none")}
-              disabled={!styles.filter || styles.filter === "none"}
+              disabled={!filterHasBlur}
             >
               <IconMinus className="size-3.5" />
             </SectionIconButton>
@@ -5296,14 +5860,12 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={blurValue}
-              onChange={(value) => {
-                const blurFn = `blur(${Math.max(0, Math.round(value))}px)`;
-                const existing = styles.filter || "";
-                const next = existing.includes("blur(")
-                  ? existing.replace(/blur\([^)]*\)/, blurFn)
-                  : blurFn;
-                onStyleChange("filter", next);
-              }}
+              onChange={(value) =>
+                onStyleChange(
+                  "filter",
+                  setBlurFilterValue(styles.filter, value),
+                )
+              }
               unit="px"
               min={0}
               precision={1}
@@ -5313,14 +5875,14 @@ function EffectsProperties({
           </PopoverContent>
         </Popover>
       ) : null}
-      {backdropBlurValue > 0 ? (
+      {backdropFilterHasBlur ? (
         /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
         <Popover>
           <div className="group flex items-center gap-1.5">
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {"Background blur" /* i18n-ignore design effect type */}
@@ -5331,12 +5893,50 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
-              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              label={
+                backdropBlurValue > 0
+                  ? t("editPanel.labels.hideLayer")
+                  : t("editPanel.labels.showLayer")
+              }
+              onClick={() => {
+                if (backdropBlurValue > 0) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [backdropBlurStashKey]: String(backdropBlurValue),
+                  }));
+                  onStyleChange(
+                    "backdropFilter",
+                    setBlurFilterValue(backdropFilterValue, 0),
+                  );
+                  return;
+                }
+
+                const restored = Number(
+                  hiddenEffectStash[backdropBlurStashKey],
+                );
+                const nextBlur =
+                  Number.isFinite(restored) && restored > 0 ? restored : 8;
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[backdropBlurStashKey];
+                  return next;
+                });
+                onStyleChange(
+                  "backdropFilter",
+                  setBlurFilterValue(backdropFilterValue, nextBlur),
+                );
+              }}
+            >
+              {backdropBlurValue > 0 ? (
+                <IconEye className="size-3.5" />
+              ) : (
+                <IconEyeOff className="size-3.5" />
+              )}
+            </SectionIconButton>
+            <SectionIconButton
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("backdropFilter", "none")}
-              disabled={
-                !styles.backdropFilter || styles.backdropFilter === "none"
-              }
+              disabled={!backdropFilterHasBlur}
             >
               <IconMinus className="size-3.5" />
             </SectionIconButton>
@@ -5353,7 +5953,7 @@ function EffectsProperties({
               onChange={(value) =>
                 onStyleChange(
                   "backdropFilter",
-                  `blur(${Math.max(0, Math.round(value))}px)`,
+                  setBlurFilterValue(backdropFilterValue, value),
                 )
               }
               unit="px"
@@ -5433,7 +6033,7 @@ function SelectionColorsProperties({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
                     aria-label={color.value}
                   >
                     <span
@@ -5466,7 +6066,7 @@ function SelectionColorsProperties({
       ) : (
         <button
           type="button"
-          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
+          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left !text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
           onClick={() => setExpanded(true)}
         >
           <span className="truncate">
@@ -5637,11 +6237,11 @@ function MakeItRealCard({
 
   const summary =
     cta.kind === "configure-project"
-      ? `Configure Builder to enable ${featureLabel}.`
+      ? `Choose a Builder project to enable ${featureLabel}.`
       : `Connect Builder to enable ${featureLabel}.`;
   const primaryLabel =
     cta.kind === "configure-project"
-      ? "Configure" /* i18n-ignore make-it-real card */
+      ? "Choose" /* i18n-ignore make-it-real card */
       : "Connect"; /* i18n-ignore make-it-real card */
 
   return (
@@ -6087,10 +6687,10 @@ export function ComponentSection({
       <div className="flex min-h-9 items-center gap-2 px-3">
         {/* Accent diamond matching the workbench artboard component rows */}
         <span
-          className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-accent-color)]"
+          className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
           aria-hidden="true"
         />
-        <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
+        <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
           {name}
         </h3>
         {/* Jump-to-source action */}
@@ -6121,14 +6721,14 @@ export function ComponentSection({
               canJumpToSource
                 ? "Edit component source" /* i18n-ignore design inspector action */
                 : (capabilities.ctaMessage ??
-                  "Connect Builder to jump to component source") /* i18n-ignore design inspector tooltip */
+                  "Source jump needs a connected app") /* i18n-ignore design inspector tooltip */
             }
           </TooltipContent>
         </Tooltip>
       </div>
 
       {/* ── Body ── */}
-      <div className="space-y-1.5 px-3 pb-3 pt-0.5 text-[11px]">
+      <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
         {/* Source path chip */}
         {sourceChip && (
           <div
@@ -6156,7 +6756,7 @@ export function ComponentSection({
               const disabled = !editingEnabled || applyPropMutation.isPending;
               return (
                 <div key={row.name} className="flex items-center gap-1.5">
-                  <Label className="w-[64px] shrink-0 truncate text-[11px] font-medium capitalize text-muted-foreground">
+                  <Label className="w-[64px] shrink-0 truncate !text-[11px] font-medium capitalize text-muted-foreground">
                     {row.name}
                   </Label>
                   {hasOptions ? (
@@ -6166,7 +6766,7 @@ export function ComponentSection({
                       onValueChange={(v) => commitProp(row, v)}
                       disabled={disabled}
                     >
-                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -6174,7 +6774,7 @@ export function ComponentSection({
                           <SelectItem
                             key={opt}
                             value={opt}
-                            className="text-[11px]"
+                            className="!text-[11px]"
                           >
                             {opt}
                           </SelectItem>
@@ -6209,7 +6809,7 @@ export function ComponentSection({
                           e.currentTarget.blur();
                         }
                       }}
-                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
                     />
                   )}
                 </div>
@@ -6218,11 +6818,11 @@ export function ComponentSection({
           </div>
         )}
 
-        {/* Connect-Builder CTA (inline, only when real-app features are gated) */}
-        {capabilities.ctaRequired && (
+        {/* Connect-Builder CTA (only when prop editing is actually gated). */}
+        {capabilities.ctaRequired && !editingEnabled && (
           <MakeItRealCard
             designId={designId}
-            featureLabel="component source jump and full prop controls"
+            featureLabel="component source jump and typed prop metadata"
           />
         )}
       </div>
@@ -6232,6 +6832,7 @@ export function ComponentSection({
 
 export function EditPanel({
   selectedElement,
+  selectedElements,
   pageStyles = {},
   headerTrailing,
   width = 256,
@@ -6243,21 +6844,18 @@ export function EditPanel({
   onRequestTweaks,
   onStyleChange,
   onStylesChange,
-  onAutoLayoutConvert,
   onExport,
   exporting = false,
-  readOnly = false,
   fileId,
-  filename,
   activeContent,
   activeFileUpdatedAt,
   designId,
   onComponentPropApplied,
-  statesPanelProps,
   reviewPanelProps,
   componentNodeId,
   sourceCapabilities = [],
   onCreateComponent,
+  selectedElementAlreadyComponent = false,
   defaultComponentName = "Component",
   inspectCode,
 }: EditPanelProps) {
@@ -6268,12 +6866,42 @@ export function EditPanel({
   );
   const [showExportPreview, setShowExportPreview] = useState(false);
 
-  const selectedElementKey = selectedElement
-    ? elementIdentityKey(selectedElement)
+  const effectiveSelectedElements = useMemo(
+    () =>
+      selectedElements && selectedElements.length > 0
+        ? selectedElements
+        : selectedElement
+          ? [selectedElement]
+          : [],
+    [selectedElement, selectedElements],
+  );
+  const inspectorElement = useMemo(
+    () =>
+      effectiveSelectedElements.length > 1
+        ? mixedElementFromSelection(effectiveSelectedElements)
+        : (effectiveSelectedElements[0] ?? null),
+    [effectiveSelectedElements],
+  );
+  const selectedCount = effectiveSelectedElements.length;
+  const selectionAlreadyComponent =
+    selectedCount === 1 &&
+    (selectedElementAlreadyComponent ||
+      elementIsComponentSelection(selectedElement));
+  const canCreateComponent = Boolean(
+    onCreateComponent &&
+    selectedElement &&
+    selectedCount <= 1 &&
+    !selectionAlreadyComponent,
+  );
+  const selectedElementKey = inspectorElement
+    ? `${selectedCount}:${elementIdentityKey(inspectorElement)}`
     : "none";
-  const isTextElement = selectedElement
-    ? TEXT_TAGS.has(selectedElement.tagName)
-    : false;
+  const selectionHasTextElement = effectiveSelectedElements.some((element) =>
+    isTextElement(element),
+  );
+  const selectionHasContainerElement = effectiveSelectedElements.some(
+    (element) => isContainerElement(element),
+  );
   const handleActiveTabChange = useCallback(
     (tab: InspectorTab) => onActiveTabChange?.(tab),
     [onActiveTabChange],
@@ -6296,6 +6924,10 @@ export function EditPanel({
     setShowExportPreview(false);
   }, [selectedElementKey]);
 
+  useEffect(() => {
+    if (!canCreateComponent) setCreateComponentOpen(false);
+  }, [canCreateComponent]);
+
   // Scroll guard: suppress the click that fires immediately after a scroll
   // gesture ends (rubber-band or normal scroll). Using onScroll instead of
   // onPointerDown avoids side-effects like Radix DismissableLayer detecting a
@@ -6305,41 +6937,6 @@ export function EditPanel({
   const scrolledRecentlyRef = useRef(false);
   const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  if (readOnly) {
-    return (
-      <div
-        className={cn(
-          "shrink-0 bg-[var(--design-editor-panel-bg)]",
-          "flex h-full min-h-0 flex-col overflow-hidden",
-        )}
-        style={{ width }}
-      >
-        <div className="flex min-h-8 shrink-0 items-center border-b border-border/90 px-3">
-          <h2 className="min-w-0 truncate text-[12px] font-semibold text-foreground">
-            {t("editPanel.properties")}
-          </h2>
-        </div>
-        <div className="flex min-h-0 flex-1 items-center justify-center px-5">
-          <div
-            className="max-w-[188px] text-center"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground/60">
-              <IconLock className="size-4" aria-hidden="true" />
-            </div>
-            <h3 className="text-[12px] font-semibold leading-snug text-foreground">
-              {t("designEditor.inspectorLockedTitle")}
-            </h3>
-            <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground/70">
-              {t("designEditor.inspectorLockedDescription")}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -6358,28 +6955,21 @@ export function EditPanel({
       {activeTab === "design" ? (
         <>
           <SelectionHeader
-            element={selectedElement}
+            element={inspectorElement}
+            selectedCount={selectedCount}
             onCreateComponent={
-              onCreateComponent && selectedElement
-                ? () => setCreateComponentOpen(true)
-                : undefined
+              canCreateComponent ? onCreateComponent : undefined
             }
-            inspectCodePopover={
-              inspectCode && selectedElement
-                ? (trigger) => (
-                    <InspectCodePopover trigger={trigger} data={inspectCode} />
-                  )
+            createComponentOpen={createComponentOpen}
+            onCreateComponentOpenChange={setCreateComponentOpen}
+            showCreateComponentAction={!selectionAlreadyComponent}
+            defaultComponentName={defaultComponentName}
+            inspectCode={
+              inspectCode && selectedElement && selectedCount <= 1
+                ? inspectCode
                 : undefined
             }
           />
-          {onCreateComponent && (
-            <CreateComponentDialog
-              open={createComponentOpen}
-              onOpenChange={setCreateComponentOpen}
-              defaultName={defaultComponentName}
-              onSubmit={onCreateComponent}
-            />
-          )}
 
           <div
             className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
@@ -6456,7 +7046,7 @@ export function EditPanel({
           >
             {/* §6.1 Component section — shown at the top when a component
                 instance is selected. Requires designId + componentNodeId. */}
-            {designId && componentNodeId && (
+            {designId && componentNodeId && selectedCount <= 1 && (
               <ComponentSection
                 designId={designId}
                 fileId={fileId}
@@ -6468,7 +7058,7 @@ export function EditPanel({
               />
             )}
 
-            {!selectedElement && (
+            {!inspectorElement && (
               <PageProperties
                 styles={pageStyles}
                 onStyleChange={onStyleChange}
@@ -6476,64 +7066,52 @@ export function EditPanel({
               />
             )}
 
-            {selectedElement && (
+            {inspectorElement && (
               <>
                 <PositionLayoutProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
                 <LayoutContextProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
-                  onAutoLayoutConvert={onAutoLayoutConvert}
                 />
                 <AppearanceProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
-                {isTextElement ? (
+                {selectionHasTextElement ? (
                   <TypographyProperties
-                    element={selectedElement}
+                    element={inspectorElement}
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
                 <FillProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <StrokeProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <EffectsProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <SelectionColorsProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
-                {isContainerElement(selectedElement) ? (
+                {selectionHasContainerElement ? (
                   <LayoutGuideProperties
-                    element={selectedElement}
+                    element={inspectorElement}
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
-                {/* AI edit request block — collapsible, collapsed by default */}
-                <section className="shrink-0 border-t border-[var(--design-editor-control-border)]">
-                  <InspectorAiActions
-                    selector={selectedElement.selector}
-                    sourceId={selectedElement.sourceId}
-                    designId={designId}
-                    fileId={fileId}
-                    filename={filename}
-                    canEdit={!readOnly}
-                  />
-                </section>
               </>
             )}
             {onExport ? (
@@ -6564,53 +7142,8 @@ export function EditPanel({
                   onExport={onExport}
                 />
                 {showExportPreview ? (
-                  <ExportPreview element={selectedElement} />
+                  <ExportPreview element={inspectorElement} />
                 ) : null}
-              </PanelSection>
-            ) : null}
-
-            {/* §6.4 States & Responsive — contextual section in Design tab.
-                Collapsed by default so existing Design content is not buried.
-                Only mounts when designId is provided so there is something to
-                load; without it the panel would fire an action with no id. */}
-            {designId && statesPanelProps ? (
-              <PanelSection
-                title={"States" /* i18n-ignore design inspector section */}
-                defaultCollapsed
-                actions={
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-6 rounded-md text-muted-foreground hover:text-foreground"
-                        aria-label={
-                          "Breakpoints & states" /* i18n-ignore design inspector action */
-                        }
-                      >
-                        <IconDeviceDesktop className="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {
-                        "Breakpoints & states" /* i18n-ignore design inspector action */
-                      }
-                    </TooltipContent>
-                  </Tooltip>
-                }
-              >
-                <StatesPanel designId={designId} {...statesPanelProps} />
-                {/* §6.4 / §6.6 — live captures (real running-app data, route
-                    props, API responses) are a real-app capability. When
-                    canCapture is false (inline source) surface a compact
-                    "Make it real" CTA so the user knows it's one step away. */}
-                {!statesPanelProps.canCapture && (
-                  <MakeItRealCard
-                    designId={designId}
-                    featureLabel="live data captures and real-app states"
-                  />
-                )}
               </PanelSection>
             ) : null}
 
@@ -6629,17 +7162,25 @@ export function EditPanel({
                         variant="ghost"
                         size="icon"
                         className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                        disabled={reviewPanelProps.auditLoading}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          reviewPanelProps.onRunAudit?.();
+                        }}
                         aria-label={
-                          "Accessibility & visual diff" /* i18n-ignore design inspector action */
+                          "Run audit" /* i18n-ignore design inspector action */
                         }
                       >
-                        <IconShieldCheck className="size-3.5" />
+                        <IconRefresh
+                          className={cn(
+                            "size-3.5",
+                            reviewPanelProps.auditLoading && "animate-spin",
+                          )}
+                        />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {
-                        "Accessibility & visual diff" /* i18n-ignore design inspector action */
-                      }
+                      {"Run audit" /* i18n-ignore design inspector action */}
                     </TooltipContent>
                   </Tooltip>
                 }

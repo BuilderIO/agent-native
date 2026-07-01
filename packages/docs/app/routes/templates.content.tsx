@@ -1,7 +1,8 @@
-import { useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { sitePathForLocale } from "../components/docs-locale";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
@@ -97,6 +98,7 @@ function CliCopy() {
 
 export default function ContentTemplate() {
   const t = useT();
+  const { locale } = useLocale();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -542,7 +544,7 @@ export default function ContentTemplate() {
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
-            to="/templates"
+            to={sitePathForLocale("/apps", locale)}
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             {t("templateLanding.content.s062")}

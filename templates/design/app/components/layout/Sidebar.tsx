@@ -12,7 +12,6 @@ import {
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconTemplate,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
@@ -27,7 +26,6 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { icon: IconPencil, labelKey: "navigation.designs", href: "/" },
-  { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
   {
     icon: IconPalette,
     labelKey: "navigation.designSystems",

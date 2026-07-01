@@ -7,8 +7,11 @@ import {
   getAvailableContentHistoryChanges,
   getFreshActiveFileContent,
   getFreshScreenContent,
+  getUndoRedoPriorityOrder,
   getContentHistoryChanges,
+  getDefaultOverviewCanvasZoom,
   getDesignEditorShareUrl,
+  getDesignEditorStateUrlSearch,
   getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
   getLocalhostRouteSourceFile,
@@ -25,7 +28,8 @@ import {
   isScreenRootElementInfo,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
-  shouldLockInspectorForInitialGeneration,
+  shouldReplacePreviewAfterVisualStyleCommit,
+  shouldLimitEditorChromeUntilContentReady,
   shouldEscapeToOverview,
   sortCodeLayerIdsByTreeOrder,
 } from "./DesignEditor";
@@ -49,6 +53,35 @@ describe("DesignEditor overview selection state", () => {
         viewMode: "single",
       }),
     ).toEqual(["screen-active"]);
+  });
+});
+
+describe("DesignEditor visual style preview replacement", () => {
+  it("skips runtime document replacement for iframe-origin style commits", () => {
+    expect(
+      shouldReplacePreviewAfterVisualStyleCommit({
+        runtimeApplied: true,
+        runtimeStyleApplied: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("replaces the runtime document for inspector-origin style commits when no runtime bridge handled it", () => {
+    expect(
+      shouldReplacePreviewAfterVisualStyleCommit({
+        runtimeApplied: false,
+        runtimeStyleApplied: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("skips runtime document replacement when a runtime bridge already applied inspector styles", () => {
+    expect(
+      shouldReplacePreviewAfterVisualStyleCommit({
+        runtimeApplied: false,
+        runtimeStyleApplied: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -126,6 +159,7 @@ describe("DesignEditor sidebar code layer selection", () => {
         currentViewMode: "overview",
         ownerFileId: "screen-a",
         overviewSelectedScreenIds: ["previous-screen"],
+        screenFileIds: ["screen-a", "screen-b"],
       }),
     ).toEqual({
       viewMode: "overview",
@@ -133,11 +167,27 @@ describe("DesignEditor sidebar code layer selection", () => {
     });
   });
 
+  it("clears screen selection when selecting a board layer in overview", () => {
+    expect(
+      getSidebarCodeLayerSelectionState({
+        currentViewMode: "overview",
+        ownerFileId: "board-file",
+        overviewSelectedScreenIds: ["screen-a"],
+        screenFileIds: ["screen-a", "screen-b"],
+      }),
+    ).toEqual({
+      viewMode: "overview",
+      overviewSelectedScreenIds: [],
+    });
+  });
+
   it("leaves single-screen selection state alone", () => {
     expect(
       getSidebarCodeLayerSelectionState({
         currentViewMode: "single",
+        ownerFileId: "board-file",
         overviewSelectedScreenIds: ["screen-a"],
+        screenFileIds: ["screen-a"],
       }),
     ).toEqual({
       viewMode: "single",
@@ -220,6 +270,17 @@ describe("DesignEditor overview zoom display", () => {
     expect(getOverviewDisplayZoom(100, scale)).toBe(25);
     expect(getOverviewCanvasZoom(100, scale)).toBe(400);
   });
+
+  it("defaults the overview display zoom to 60%", () => {
+    const scale = getOverviewZoomScale({
+      frameWidth: 1440,
+      sourceWidth: 1024,
+    });
+
+    expect(
+      getOverviewDisplayZoom(getDefaultOverviewCanvasZoom(scale), scale),
+    ).toBe(60);
+  });
 });
 
 describe("DesignEditor share URLs", () => {
@@ -237,6 +298,35 @@ describe("DesignEditor share URLs", () => {
     expect(
       getDesignEditorShareUrl("design-123", "https://builder.example"),
     ).toBe("https://builder.example/design/design-123");
+  });
+});
+
+describe("DesignEditor URL state", () => {
+  it("serializes focused screen and selection state while preserving unrelated params", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?design_host=builder&view=overview&fileId=old",
+        viewMode: "single",
+        screenId: "screen-123",
+        selectionId: "node-456",
+        zoom: 100,
+      }),
+    ).toBe(
+      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100",
+    );
+  });
+
+  it("removes stale selection aliases when no element is selected", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch:
+          "?view=single&screen=screen-123&selection=node-456&filename=old.html&zoom=125.555",
+        viewMode: "overview",
+        screenId: "screen-123",
+        selectionId: null,
+        zoom: 33.3333,
+      }),
+    ).toBe("?view=overview&screen=screen-123&zoom=33.33");
   });
 });
 
@@ -408,6 +498,23 @@ describe("DesignEditor layer move source snapshots", () => {
       }),
     ).toBe("other screen content");
   });
+
+  it("does not use a stale active snapshot for a different active file", () => {
+    const fileContentById = new Map([
+      ["screen", "screen content"],
+      ["board", "board content"],
+    ]);
+
+    expect(
+      getFreshScreenContent({
+        screenId: "screen",
+        activeFileId: "screen",
+        freshActiveContentFileId: "board",
+        freshActiveContent: "stale board content",
+        fileContentById,
+      }),
+    ).toBe("screen content");
+  });
 });
 
 describe("DesignEditor escape semantics", () => {
@@ -469,25 +576,44 @@ describe("DesignEditor escape semantics", () => {
   });
 });
 
-describe("DesignEditor initial generation inspector lock", () => {
-  it("locks the inspector only while an empty design is generating", () => {
+describe("DesignEditor initial generation chrome", () => {
+  it("limits editor chrome until generated content is ready", () => {
     expect(
-      shouldLockInspectorForInitialGeneration({
+      shouldLimitEditorChromeUntilContentReady({
         fileCount: 0,
+        hasActiveCanvasContent: false,
         generating: true,
         pendingGenerationActive: false,
       }),
     ).toBe(true);
     expect(
-      shouldLockInspectorForInitialGeneration({
+      shouldLimitEditorChromeUntilContentReady({
         fileCount: 0,
+        hasActiveCanvasContent: false,
+        generating: false,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldLimitEditorChromeUntilContentReady({
+        fileCount: 0,
+        hasActiveCanvasContent: false,
         generating: false,
         pendingGenerationActive: true,
       }),
     ).toBe(true);
     expect(
-      shouldLockInspectorForInitialGeneration({
+      shouldLimitEditorChromeUntilContentReady({
         fileCount: 1,
+        hasActiveCanvasContent: false,
+        generating: false,
+        pendingGenerationActive: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldLimitEditorChromeUntilContentReady({
+        fileCount: 1,
+        hasActiveCanvasContent: true,
         generating: true,
         pendingGenerationActive: true,
       }),
@@ -645,6 +771,27 @@ describe("DesignEditor element canonicalization", () => {
     expect(refreshed?.computedStyles.fontSize).toBe("32px");
   });
 
+  it("refreshes source-backed child counts and class-derived flex layout", () => {
+    const previous = {
+      tagName: "section",
+      selector: '[data-agent-native-node-id="hero"]',
+      sourceId: "hero",
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<main><section class="flex" data-agent-native-node-id="hero"><div>Child</div></section></main>`,
+      previous,
+    );
+
+    expect(refreshed?.childElementCount).toBe(1);
+    expect(refreshed?.isFlexContainer).toBe(true);
+  });
+
   it("drops stale class-backed computed styles when the source class is removed", () => {
     const previous = {
       tagName: "section",
@@ -719,6 +866,19 @@ describe("DesignEditor undo order helpers", () => {
       ),
     ).toEqual([
       { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
+    ]);
+  });
+
+  it("keeps active content and grouped file-content stacks distinct", () => {
+    expect(getUndoRedoPriorityOrder("file-content")).toEqual([
+      "file-content",
+      "content",
+      "geometry",
+    ]);
+    expect(getUndoRedoPriorityOrder("content")).toEqual([
+      "content",
+      "file-content",
+      "geometry",
     ]);
   });
 });
