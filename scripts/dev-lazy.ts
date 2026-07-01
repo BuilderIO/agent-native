@@ -865,8 +865,8 @@ function startApp(app: TemplateApp): void {
   app.outputTail = undefined;
 
   const basePath = `/${app.id}`;
-  const child = spawn(
-    "pnpm",
+ const child = spawn(
+    "pnpm.cmd",
     [
       "--dir",
       app.dir,
@@ -879,6 +879,7 @@ function startApp(app: TemplateApp): void {
       "--strictPort",
     ],
     {
+      shell: true,
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
@@ -1429,7 +1430,7 @@ if (usePollingFileWatcher) {
   );
 }
 
-startBackgroundProcess("core", "pnpm", [
+startBackgroundProcess("core", "pnpm.cmd", [
   "--filter",
   "@agent-native/core",
   "exec",
@@ -1487,7 +1488,7 @@ function listen(port: number, attempts = 20): void {
       // Google sign-in opens the Clips backend URL directly in the browser.
       const startClipsTray = () => {
         if (shuttingDown) return;
-        startBackgroundProcess("tray", "pnpm", [
+        startBackgroundProcess("tray", "pnpm.cmd", [
           "--filter",
           "clips-desktop",
           "dev",
@@ -1520,13 +1521,13 @@ function listen(port: number, attempts = 20): void {
       const env = electronLazyEnv();
       startBackgroundProcess(
         "frame",
-        "pnpm",
+        "pnpm.cmd",
         ["--filter", "@agent-native/frame", "dev"],
         env,
       );
       startBackgroundProcess(
         "electron",
-        "pnpm",
+        "pnpm.cmd",
         ["--filter", "@agent-native/desktop-app", "dev"],
         env,
       );
