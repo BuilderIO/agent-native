@@ -648,8 +648,15 @@ export interface AssistantChatHandle {
   ): void;
   /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
-  /** Add or replace keyed context for the next composer submission. */
-  setComposerContextItem(item: AgentChatContextItem): void;
+  /**
+   * Add or replace keyed context for the next composer submission.
+   * Focuses the composer by default; pass `{ focus: false }` for passive
+   * context mirroring (e.g. canvas selection) that must not steal focus.
+   */
+  setComposerContextItem(
+    item: AgentChatContextItem,
+    options?: { focus?: boolean },
+  ): void;
   /** Remove a keyed context item from the composer. */
   removeComposerContextItem(key: string): void;
   /** Clear all staged context items from the composer. */
@@ -2969,9 +2976,17 @@ const AssistantChatInner = forwardRef<
         tiptapRef.current?.setText(text);
         tiptapRef.current?.focus();
       },
-      setComposerContextItem(item: AgentChatContextItem) {
+      setComposerContextItem(
+        item: AgentChatContextItem,
+        options?: { focus?: boolean },
+      ) {
         stageComposerContextItem(item);
-        tiptapRef.current?.focus();
+        // Only pull focus into the composer for explicit user gestures.
+        // Passive context mirroring (e.g. a canvas selection staged with
+        // openSidebar:false) must not steal focus — doing so blurs an active
+        // inline text editor living in the design canvas iframe and tears it
+        // down the instant it opens.
+        if (options?.focus !== false) tiptapRef.current?.focus();
       },
       removeComposerContextItem(key: string) {
         removeComposerContextItem(key);

@@ -9068,6 +9068,11 @@ export default function DesignEditor() {
       title: shortLabel,
       context: contextLines.join("\n"),
       openSidebar: false,
+      // Mirror the selection into chat context without stealing focus: this
+      // effect re-fires on every selection change and on each get-design poll
+      // during an agent run, and focusing the composer here would blur (and
+      // tear down) an in-progress inline text edit on the canvas.
+      focus: false,
     });
   }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
 

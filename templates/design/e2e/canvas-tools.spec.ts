@@ -7,7 +7,12 @@ import {
 } from "@playwright/test";
 
 import { FIXTURE_HTML } from "./global-setup";
-import { gotoEditor, installBridge } from "./helpers";
+import {
+  designFrame,
+  enterDirectMode,
+  gotoEditor,
+  installBridge,
+} from "./helpers";
 
 let designId: string;
 let baseURLForActions: string;
@@ -691,6 +696,89 @@ test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
     "aria-pressed",
     "true",
   );
+});
+
+async function textEditingCount(page: Page): Promise<number> {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .evaluateAll((iframes) =>
+      iframes.reduce((count, iframe) => {
+        const frame = iframe as HTMLIFrameElement;
+        return (
+          count +
+          (frame.contentDocument?.querySelectorAll(
+            "[data-agent-native-text-editing]",
+          ).length ?? 0)
+        );
+      }, 0),
+    );
+}
+
+async function dblClickText(page: Page, text: string): Promise<void> {
+  const target = designFrame(page).getByText(text).first();
+  await target.waitFor({ state: "visible", timeout: 10_000 });
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`no bounding box for text: ${text}`);
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+test("double-click existing text starts inline editing and stays open (overview)", async ({
+  page,
+}) => {
+  await installBridge(page);
+
+  await dblClickText(page, "E2E Hero Heading");
+
+  // Inline editing must begin — the iframe stamps the contenteditable target.
+  await waitForTextEditing(page);
+
+  // ...and must stay open. The reported bug tears it down within ~1 frame
+  // (the caret "blinks" then focus jumps to the chat composer), so wait a beat
+  // and confirm we are still editing with focus.
+  await page.waitForTimeout(800);
+  const summary = await textEditingChromeSummary(page);
+  expect(summary?.editing, "still in inline text-editing mode").toBe(true);
+  expect(summary?.active, "editable still holds focus").toBe(true);
+  expect(await textEditingCount(page), "exactly one editor open").toBe(1);
+
+  // Typing replaces the text inline (no AI round-trip). Verify by observing
+  // the committed text in the iframe DOM rather than a bridge payload shape.
+  const selectAll = process.platform === "darwin" ? "Meta+A" : "Control+A";
+  await page.keyboard.press(selectAll);
+  await page.keyboard.type("Edited Inline");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator("iframe[data-design-preview-iframe]")
+          .evaluateAll((iframes) =>
+            iframes.some((iframe) =>
+              (
+                (iframe as HTMLIFrameElement).contentDocument?.body
+                  ?.textContent ?? ""
+              ).includes("Edited Inline"),
+            ),
+          ),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+});
+
+test("double-click existing text starts inline editing and stays open (full view)", async ({
+  page,
+}) => {
+  await installBridge(page);
+  await enterDirectMode(page);
+
+  await dblClickText(page, "E2E Hero Heading");
+
+  await waitForTextEditing(page);
+
+  await page.waitForTimeout(800);
+  const summary = await textEditingChromeSummary(page);
+  expect(summary?.editing, "still in inline text-editing mode").toBe(true);
+  expect(summary?.active, "editable still holds focus").toBe(true);
 });
 
 test("text insertion keeps the new primitive selected", async ({ page }) => {
