@@ -108,7 +108,10 @@ cd templates/content && pnpm action <name> [args]
 | `list-local-component-files`                |                                                                                                                                                                | List registered local MDX component source files                                                                                        |
 | `write-local-component-file`                | `--workspaceId <id> --path <relative-component-path> --content <source>`                                                                                       | Create or update a file in a registered local `components/` folder                                                                      |
 | `create-content-database`                   | `[--documentId <id>] [--parentId <id>] [--title <text>]`                                                                                                       | Create a database page or convert an existing page into a database                                                                      |
+| `create-inline-content-database`            | `--hostDocumentId <id> [--title <text>]`                                                                                                                       | Create a database owned by an inline database block in the host document                                                                |
 | `get-content-database`                      | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Get a database table with property schema and item pages                                                                                |
+| `list-trashed-content-databases`            |                                                                                                                                                                | List soft-deleted databases visible in the sidebar Trash surface                                                                        |
+| `restore-content-database`                  | `--databaseId <id>`                                                                                                                                            | Restore a soft-deleted database from the sidebar Trash surface                                                                          |
 | `get-content-database-source`               | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Inspect local/no-source or source-backed status, mappings, row identity, freshness, and change sets                                     |
 | `attach-content-database-source`            | `--databaseId <id>` or `--documentId <id> [--sourceType mock\|builder-cms] [--sourceName] [--sourceTable] [--relationshipMode items\|details] [--join <json>]` | Attach a source binding; use `items` to add more rows and `details` to match a source onto existing rows                                |
 | `change-content-database-source-role`       | `--databaseId <id>` or `--documentId <id> --sourceId <id> --relationshipMode items\|details [--join <json>]`                                                   | Change an attached source between adding rows and adding matched detail columns without removing the source                             |
@@ -567,12 +570,14 @@ columns updates that row page's grouping property through
 multi-select, users can add a new board group from the board itself; this
 appends a new option to the grouped property definition.
 Use
-`create-content-database`, `get-content-database`,
-`add-database-item`, `duplicate-database-item`, `move-database-item`,
-`update-content-database-view`, `list-document-properties`,
-`configure-document-property`, `set-document-property`,
-`duplicate-document-property`, and `delete-document-property`; do not edit
-property rows or view config via raw SQL when an action can do it.
+`create-content-database`, `create-inline-content-database`,
+`get-content-database`, `list-trashed-content-databases`,
+`restore-content-database`, `add-database-item`, `duplicate-database-item`,
+`move-database-item`, `update-content-database-view`,
+`list-document-properties`, `configure-document-property`,
+`set-document-property`, `duplicate-document-property`, and
+`delete-document-property`; do not edit property rows or view config via raw SQL
+when an action can do it.
 
 ## UI Components
 

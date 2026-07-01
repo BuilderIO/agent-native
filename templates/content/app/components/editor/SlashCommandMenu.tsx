@@ -649,18 +649,30 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
+      if (slashRange) {
+        editor.chain().focus().deleteRange(slashRange).run();
+      }
       const toastId = toast.loading(t("editor.creatingDatabase"));
       try {
         const result = await createInlineDatabase.mutateAsync({
           hostDocumentId: documentId,
           title: t("editor.untitledDatabase"),
         });
-        const inserted = insertInlineDatabaseBlock(
-          editor,
-          result.block,
-          slashRange,
-        );
+        const inserted = insertInlineDatabaseBlock(editor, result.block);
         if (!inserted) throw new Error(t("empty.genericError"));
+        await waitForEditorUpdateFrame();
+        const content = collapseExactRepeatedNfm(
+          docToNfm(editor.getJSON() as any),
+          {
+            requiredText: result.block.ownerBlockId,
+          },
+        );
+        if (onDraftPersisted) {
+          const persisted = await onDraftPersisted(content);
+          if (!persisted) throw new Error(t("empty.genericError"));
+        } else {
+          await onDraftCommitted?.();
+        }
         toast.success(t("editor.databaseCreated"), { id: toastId });
       } catch (error) {
         toast.error(t("editor.failedToCreateDatabase"), {

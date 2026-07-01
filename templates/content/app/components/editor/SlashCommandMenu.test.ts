@@ -175,7 +175,10 @@ describe("inline database slash command", () => {
     expect(source).toContain("useCreateInlineContentDatabase");
     expect(source).toContain("hostDocumentId: documentId");
     expect(source).toContain("preserveSlashRange: true");
+    expect(source).toContain("deleteRange(slashRange)");
     expect(source).toContain("insertInlineDatabaseBlock(");
+    expect(source).toContain("requiredText: result.block.ownerBlockId");
+    expect(source).toContain("await onDraftPersisted(content)");
     expect(source).not.toContain("useCreateContentDatabase");
     expect(source).not.toContain(
       "navigate(`/page/${result.database.documentId}`",
