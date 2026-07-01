@@ -322,11 +322,13 @@ iteration, or a human-in-the-loop choice among design directions.
 
 - Use \`create-design\` first to create a project shell. Do not report the
   design as ready until it has renderable HTML.
-- For open-ended UX exploration, generate distinct, complete HTML directions
-  (2-5, three by default) and call \`present-design-variants\`. Design saves
-  every option as a normal screen on the overview board and renders an inline
-  chat choice with one button per screen name. After the user picks, delete the
-  unchosen variant screens and continue from the kept screen.
+- For open-ended UX exploration, generate distinct, compact, complete HTML
+  directions (2-5, three by default) and call \`present-design-variants\`. Each
+  direction should be one representative screen or directional snapshot, not a
+  full app per variant. Design saves every option as a normal screen on the
+  overview board and renders an inline chat choice with one button per screen
+  name. After the user picks, delete the unchosen variant screens and continue
+  from the kept screen.
 - If the chat choice buttons are not available in the host, ask the user to
   tell you the screen name they prefer. The variants are already real screens
   on the board, so do not ask them to paste HTML or copy a generated handoff
@@ -343,8 +345,8 @@ iteration, or a human-in-the-loop choice among design directions.
 1. Default to three variants unless the user asks for a different count
    (\`present-design-variants\` accepts 2-5; three is the sweet spot).
 2. Make variants structurally and stylistically distinct, not just color swaps.
-3. Each variant must be a complete standalone HTML document that renders
-   without a build step.
+3. Each variant must be a compact, complete standalone HTML document that
+   renders without a build step.
 4. For product UI redesigns, prefer cleaner hierarchy, progressive disclosure,
    and realistic controls over decorative mockups.
 5. After \`present-design-variants\`, wait for the user's pick before

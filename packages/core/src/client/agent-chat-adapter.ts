@@ -1814,7 +1814,7 @@ export function createAgentChatAdapter(
           }
           const isTransient = signal.reason !== "loop_limit";
           const visibleContent = visibleContentForContinuation();
-          const currentPartialHistory =
+          let currentPartialHistory =
             contentToContinuationHistory(visibleContent);
           // Real, content-weight progress: streamed text or a completed tool
           // result. Used to reset the stalled/empty counters so trivial
@@ -1983,6 +1983,18 @@ export function createAgentChatAdapter(
                 MAX_TOTAL_TRANSIENT_CONTINUATIONS
             ) {
               return { ok: false, resetVisibleContent: false };
+            }
+          }
+
+          if (isTransient) {
+            const settledInterruptedTools = settleInterruptedToolCalls(
+              visibleContent,
+              undefined,
+              { includeActivity: true },
+            );
+            if (settledInterruptedTools) {
+              currentPartialHistory =
+                contentToContinuationHistory(visibleContent);
             }
           }
 

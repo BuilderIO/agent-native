@@ -563,7 +563,7 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  it("renders tool-scoped activity as a pending tool call", async () => {
+  it("errors when a terminal stream leaves tool-scoped activity unresolved", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -625,8 +625,17 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
+            result: "Stopped before this action started.",
           }),
+          {
+            type: "text",
+            text: "Error: The agent stopped before starting the create document action. No tool result was returned, so the requested changes were not made.",
+          },
         ],
+        status: {
+          type: "incomplete",
+          reason: "error",
+        },
         metadata: {
           custom: {
             activityTrail: [
@@ -635,6 +644,13 @@ describe("SSE event processor error classification", () => {
                 tool: "create-document",
               },
             ],
+            runError: {
+              message:
+                "The agent stopped before starting the create document action. No tool result was returned, so the requested changes were not made.",
+              details: "interrupted_actions: create-document",
+              errorCode: "action_not_started",
+              recoverable: true,
+            },
           },
         },
       },
@@ -697,6 +713,11 @@ describe("SSE event processor error classification", () => {
             tool: "generate-design",
             input: { designId: "design-1" },
           },
+          {
+            type: "tool_done",
+            tool: "generate-design",
+            result: '{"saved":true}',
+          },
           { type: "done" },
         ]),
         [],
@@ -722,6 +743,89 @@ describe("SSE event processor error classification", () => {
         args: { designId: "design-1" },
       }),
     ]);
+    expect(results[2].content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        result: '{"saved":true}',
+      }),
+    ]);
+  });
+
+  it("errors when a terminal stream leaves a started tool unresolved", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "present-design-variants",
+            input: { designId: "design-1" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-unfinished-tool",
+      ),
+    );
+
+    expect(results.at(-1)).toEqual({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "present-design-variants",
+          result: "Interrupted before this tool returned a result.",
+        }),
+        {
+          type: "text",
+          text: "Error: The agent stopped before the present design variants action returned a result. The requested changes may not have been made.",
+        },
+      ],
+      status: {
+        type: "incomplete",
+        reason: "error",
+      },
+      metadata: {
+        custom: {
+          activityTrail: [
+            {
+              label: "Running present design variants",
+              tool: "present-design-variants",
+            },
+          ],
+          runError: {
+            message:
+              "The agent stopped before the present design variants action returned a result. The requested changes may not have been made.",
+            details: "interrupted_actions: present-design-variants",
+            errorCode: "action_not_started",
+            recoverable: true,
+          },
+        },
+      },
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "action_not_started",
+          tabId: "tab-unfinished-tool",
+        }),
+      }),
+    );
   });
 
   it("clears visible activity when the server clears a corrective draft", async () => {

@@ -1309,7 +1309,7 @@ function designGenerationDirectives(
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
-    "If the user asked to explore variations, call `present-design-variants` with 2-5 complete HTML directions, wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen. Otherwise generate one polished first direction.",
+    "If the user asked to explore variations, call `present-design-variants` with 2-5 compact, complete HTML directions: one representative screen per direction, not a full app per variant. Wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen. Otherwise generate one polished first direction.",
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, stop and summarize what was created.",
   ];
