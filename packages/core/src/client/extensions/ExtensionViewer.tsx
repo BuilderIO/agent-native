@@ -343,10 +343,16 @@ function SourceCodeDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Re-sync when the extension content changes externally
+  // Sync in only when the dialog opens (not on every close — closing via
+  // Escape/outside-click would otherwise silently discard in-progress edits).
   useEffect(() => {
-    if (!open) setCode(extension.content ?? "");
-  }, [extension.content, open]);
+    if (open) setCode(extension.content ?? "");
+  }, [open]);
+
+  const handleCancel = () => {
+    setOpen(false);
+    setError(null);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -411,7 +417,7 @@ function SourceCodeDialog({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={handleCancel}
                 className="inline-flex h-8 cursor-pointer items-center rounded-md border border-input px-3 text-xs hover:bg-accent"
               >
                 Cancel
