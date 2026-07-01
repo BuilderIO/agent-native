@@ -12,6 +12,7 @@ import { extensionPath } from "../../extensions/path.js";
 import { THEME_VAR_NAMES } from "../../extensions/theme.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
+import { useAppearance } from "../appearance.js";
 import {
   Popover,
   PopoverContent,
@@ -221,6 +222,8 @@ export function EmbeddedExtension({
     readyFiredRef.current = false;
   }, [extensionId, extension?.updatedAt]);
 
+  const appearance = useAppearance();
+
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -228,7 +231,7 @@ export function EmbeddedExtension({
       { type: "agent-native-theme-update", isDark, vars: readHostThemeVars() },
       "*",
     );
-  }, [isDark]);
+  }, [isDark, appearance]);
 
   // Forward slot context whenever it changes. The iframe's own load handler
   // posts the initial value once it's ready; this effect handles updates.
