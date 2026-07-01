@@ -3,6 +3,7 @@ import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
   IconDotsVertical,
+  IconExternalLink,
   IconMaximize,
   IconPencil,
   IconRefresh,
@@ -12,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
@@ -119,6 +121,8 @@ export function SqlChartCard({
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [extRefreshKey, setExtRefreshKey] = useState(0);
+  const navigate = useNavigate();
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
     eagerLoad ||
@@ -291,10 +295,12 @@ export function SqlChartCard({
   }
 
   // Extension panels render their sandboxed iframe full-bleed with no card chrome
-  // or title — the extension owns its own UI. Editable dashboards still get a
-  // hover overlay for delete/drag. Editing routes through the agent (the manual
-  // panel editor has no extension picker), so no inline edit action here.
+  // or title — the extension owns its own UI. All viewers get the read-only
+  // actions (full screen, refresh, open extension); editable dashboards also get
+  // delete and drag.
   if (panel.chartType === "extension") {
+    const extensionId = (panel.config as Record<string, unknown> | undefined)
+      ?.extensionId as string | undefined;
     return (
       <div
         ref={setCardNodeRef}
@@ -302,45 +308,87 @@ export function SqlChartCard({
         data-dragging={isDragSource ? "true" : undefined}
         className="dashboard-extension-card group relative h-full"
       >
-        <SqlChart panel={panel} resolvedSql={resolvedSql} loadData />
-        {editable ? (
-          <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="p-1 rounded bg-background/80 text-muted-foreground hover:text-foreground"
-                      aria-label={t("sqlDashboard.panelOptions")}
-                    >
-                      <IconDotsVertical className="h-3.5 w-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("sqlDashboard.panelOptions")}
-                </TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-40">
+        <SqlChart key={extRefreshKey} panel={panel} resolvedSql={resolvedSql} loadData />
+        <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="p-1 rounded bg-background/80 text-muted-foreground hover:text-foreground"
+                    aria-label={t("sqlDashboard.panelOptions")}
+                  >
+                    <IconDotsVertical className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("sqlDashboard.panelOptions")}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onSelect={() => setExpanded(true)}>
+                <IconMaximize className="h-4 w-4 mr-2" />
+                {t("sqlDashboard.fullScreen")}
+              </DropdownMenuItem>
+              {extensionId ? (
                 <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setConfirmOpen(true);
-                  }}
+                  onSelect={() =>
+                    navigate(
+                      `/extensions/${extensionId}/${encodeURIComponent(
+                        (panel.title ?? "extension")
+                          .toLowerCase()
+                          .replace(/[^a-z0-9]+/g, "-"),
+                      )}`,
+                    )
+                  }
                 >
-                  <IconTrash className="h-4 w-4 mr-2" />
-                  {t("sidebar.delete")}
+                  <IconExternalLink className="h-4 w-4 mr-2" />
+                  Open extension
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              ) : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setExtRefreshKey((k) => k + 1)}>
+                <IconRefresh className="h-4 w-4 mr-2" />
+                {t("sqlDashboard.refresh")}
+              </DropdownMenuItem>
+              {editable ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setConfirmOpen(true);
+                    }}
+                  >
+                    <IconTrash className="h-4 w-4 mr-2" />
+                    {t("sidebar.delete")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {editable ? (
             <PanelDragHandle
               panelId={panel.id}
               label={t("sqlDashboard.dragToReorder")}
               className="p-1 rounded bg-background/80 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
               iconClassName="h-3.5 w-3.5"
             />
-          </div>
-        ) : null}
+          ) : null}
+        </div>
+        <Dialog open={expanded} onOpenChange={setExpanded}>
+          <DialogContent className="flex h-[90vh] w-[95vw] max-w-[1400px] flex-col gap-4">
+            <DialogHeader className="shrink-0 pr-8 text-left">
+              <DialogTitle className="truncate">{panel.title}</DialogTitle>
+            </DialogHeader>
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <ChartFillHeight>
+                <SqlChart panel={panel} resolvedSql={resolvedSql} loadData />
+              </ChartFillHeight>
+            </div>
+          </DialogContent>
+        </Dialog>
         {editable ? (
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent>
