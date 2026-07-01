@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.84.21
+
+### Patch Changes
+
+- f883173: Refresh public booking branding with a plain Agent Native logo, updated open-source copy, and a ghost icon language picker for public pages.
+- f883173: Fix PR visual recap gating and comments so nested AGENTS.md files no longer count as recap-control files, trusted write actors can recap control-file edits, stale success bodies are replaced by skipped comments, and screenshot capture no longer waits for network-idle.
+- f883173: Offer Claude Opus 4.8 in the managed Builder gateway model picker, keep action-preparation recovery progress-aware for large streamed tool inputs, retry A2A auth with org-scoped bearer fallbacks in mixed deployments, and allow Builder uploads to skip waiting on server-side compression when callers can process asynchronously.
+
 ## 0.84.20
 
 ### Patch Changes
