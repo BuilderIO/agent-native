@@ -6,7 +6,11 @@ interface ExecCall {
 }
 
 const execCalls: ExecCall[] = [];
-let latestEventRows: Array<{ seq: number; event_data: string }> = [];
+let latestEventRows: Array<{
+  seq: number;
+  event_at?: number | null;
+  event_data: string;
+}> = [];
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let runStatusRows: Array<{ status: string }> = [];
@@ -26,7 +30,11 @@ const mockDb = {
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
     execCalls.push({ sql: rawSql, args });
 
-    if (/SELECT seq, event_data FROM agent_run_events/i.test(rawSql)) {
+    if (
+      /SELECT seq, event_data(?:, event_at)? FROM agent_run_events/i.test(
+        rawSql,
+      )
+    ) {
       return { rows: latestEventRows, rowsAffected: 0 };
     }
     // tryClaimRunSlot: SELECT id FROM agent_runs WHERE thread_id = ? AND ...
@@ -182,7 +190,10 @@ describe("run store", () => {
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
-    expect(insert?.args).toEqual(["run-abort", 0, '{"type":"done"}']);
+    expect(insert?.args[0]).toBe("run-abort");
+    expect(insert?.args[1]).toBe(0);
+    expect(typeof insert?.args[2]).toBe("number");
+    expect(insert?.args[3]).toBe('{"type":"done"}');
   });
 
   it("does not append another terminal event after auto_continue", async () => {
@@ -252,8 +263,58 @@ describe("run store", () => {
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
     expect(insert?.args[0]).toBe("run-stale");
-    const eventJson = insert?.args[2] as string;
+    expect(typeof insert?.args[2]).toBe("number");
+    const eventJson = insert?.args[3] as string;
     expect(JSON.parse(eventJson)).toEqual(STALE_RUN_ERROR_EVENT);
+  });
+
+  it("reconciles a persisted terminal event instead of stale-reaping the run", async () => {
+    latestEventRows = [
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+
+    const reaped = await reapIfStale("run-done-event");
+
+    expect(reaped).toBe(false);
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("completed");
+    expect(repair?.args[1]).toBe(123_456);
+    expect(repair?.args[6]).toBe("done");
+    expect(repair?.args[7]).toBe("run-done-event");
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs[\s\S]*SET status = 'errored'/i.test(call.sql) &&
+          call.args.includes("run-done-event"),
+      ),
+    ).toBe(false);
+  });
+
+  it("reconciles legacy terminal events without stamping repair time", async () => {
+    latestEventRows = [
+      { seq: 9, event_data: JSON.stringify({ type: "done" }) },
+    ];
+
+    await reapIfStale("run-legacy-done-event");
+
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.sql).toContain("completed_at = COALESCE");
+    expect(repair?.sql).toContain("last_progress_at");
+    expect(repair?.sql).toContain("heartbeat_at");
+    expect(repair?.args[0]).toBe("completed");
+    expect(repair?.args[1]).toBeNull();
   });
 
   it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
@@ -305,7 +366,7 @@ describe("run store", () => {
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
     expect(insert?.args[0]).toBe("old-but-heartbeating-run");
-    expect(insert?.args[2] as string).toContain('"errorCode":"stale_run"');
+    expect(insert?.args[3] as string).toContain('"errorCode":"stale_run"');
   });
 
   it("persists stale error diagnostics for all stale-run reap paths", async () => {

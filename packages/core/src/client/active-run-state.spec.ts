@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearActiveRun,
+  getActiveRun,
+  getActiveRunActivityTool,
   resolveReconnectAfterSeq,
   setActiveRun,
+  updateActiveRunActivity,
+  updateActiveRunSeq,
 } from "./active-run-state.js";
 
 function createMemoryStorage(): Storage {
@@ -51,5 +55,31 @@ describe("resolveReconnectAfterSeq", () => {
     expect(resolveReconnectAfterSeq("thread-2", "run-1")).toBe(0);
     clearActiveRun();
     expect(resolveReconnectAfterSeq("thread-1", "run-1")).toBe(0);
+  });
+
+  it("persists the current activity tool for refresh-time reconnects", () => {
+    setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 10 });
+
+    updateActiveRunActivity(" generate-design ");
+    expect(getActiveRunActivityTool("thread-1", "run-1")).toBe(
+      "generate-design",
+    );
+    expect(getActiveRunActivityTool("thread-1", "run-2")).toBeNull();
+
+    updateActiveRunSeq(12);
+    expect(getActiveRun()).toMatchObject({
+      threadId: "thread-1",
+      runId: "run-1",
+      lastSeq: 12,
+      activityTool: "generate-design",
+    });
+
+    updateActiveRunActivity("");
+    expect(getActiveRun()).toMatchObject({
+      threadId: "thread-1",
+      runId: "run-1",
+      lastSeq: 12,
+    });
+    expect(getActiveRun()?.activityTool).toBeUndefined();
   });
 });

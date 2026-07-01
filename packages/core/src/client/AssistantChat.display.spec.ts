@@ -26,6 +26,7 @@ import {
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
   latestNonRecoveryUserMessageText,
+  reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
   resolveAssistantChatSubmitIntent,
@@ -182,6 +183,36 @@ describe("waitForThreadRunToClear", () => {
     // perpetual "Working" — that label was removed.
     expect(labelSource).not.toContain('"Working"');
     expect(labelSource).toContain('"Thinking"');
+  });
+
+  it("builds a running tool card for tail-reconnect activity", () => {
+    expect(reconnectActivityFallbackContent(" generate-design ")).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        argsText: "",
+        args: {},
+        activity: true,
+      }),
+    ]);
+    expect(reconnectActivityFallbackContent("")).toEqual([]);
+  });
+
+  it("rehydrates reconnect activity from active-run state", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("getActiveRunActivityTool(threadId, runId)");
+    expect(helperSource).toContain(
+      "setRunningActivityTool(storedActivityTool)",
+    );
+    expect(helperSource).toContain("activityTool: storedActivityTool");
   });
 });
 

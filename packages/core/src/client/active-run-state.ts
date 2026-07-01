@@ -4,6 +4,13 @@ export interface ActiveRunState {
   threadId: string;
   runId: string;
   lastSeq: number;
+  activityTool?: string | null;
+}
+
+function normalizeActivityTool(toolName: unknown): string | null {
+  if (typeof toolName !== "string") return null;
+  const tool = toolName.trim();
+  return tool || null;
 }
 
 export function setActiveRun(state: ActiveRunState): void {
@@ -28,6 +35,29 @@ export function updateActiveRunSeq(seq: number): void {
     state.lastSeq = seq;
     setActiveRun(state);
   }
+}
+
+export function updateActiveRunActivity(
+  toolName: string | null | undefined,
+): void {
+  const state = getActiveRun();
+  if (!state) return;
+  const activityTool = normalizeActivityTool(toolName);
+  if (activityTool) {
+    setActiveRun({ ...state, activityTool });
+    return;
+  }
+  const { activityTool: _activityTool, ...nextState } = state;
+  setActiveRun(nextState);
+}
+
+export function getActiveRunActivityTool(
+  threadId: string,
+  runId: string,
+): string | null {
+  const stored = getActiveRun();
+  if (stored?.threadId !== threadId || stored.runId !== runId) return null;
+  return normalizeActivityTool(stored.activityTool);
 }
 
 export function clearActiveRun(): void {

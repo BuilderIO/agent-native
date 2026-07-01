@@ -29,6 +29,8 @@ export const RUN_STALE_MS = 15_000;
  * With the normal 15s window the reaper would falsely kill that freshly-
  * inserted-but-not-yet-heartbeaten row. 90s tolerates a slow background
  * cold-start while still reaping a genuinely dead background worker promptly.
+ * Claimed background workers heartbeat during long work; the stale watchdog is a
+ * liveness timeout, not the Netlify background-function execution budget.
  *
  * Only applied to rows explicitly marked background-dispatched; ordinary
  * foreground runs keep the tight 15s window unchanged.
@@ -85,13 +87,14 @@ export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
  * Grace period before a never-claimed background run (dispatch_mode still
  * 'background', no worker claim) is treated as a dead handoff and reaped.
  *
- * This is intentionally MUCH tighter than `BACKGROUND_RUN_STALE_MS` (90s). The
- * wide 90s window exists ONLY to protect a CLAIMED worker whose heartbeat lags
- * during a slow cold start. A run that is still `dispatch_mode = 'background'`
- * has, by definition, NO worker — nothing to protect — so once a Netlify
+ * This is intentionally tighter than `BACKGROUND_RUN_STALE_MS`. That wider
+ * window protects cold-starting or temporarily delayed background dispatches,
+ * while claimed workers stay alive by heartbeat/progress updates. A run that is
+ * still `dispatch_mode = 'background'` has, by definition, NO worker — nothing
+ * to protect — so once a Netlify
  * background function has had a reasonable cold-start window to claim it and
  * hasn't, the handoff is dead and should surface promptly instead of leaving
- * the user staring at a spinner for 90s. 25s comfortably exceeds a normal
+ * the user staring at a spinner for the durable-worker window. 25s comfortably exceeds a normal
  * Netlify Lambda cold start while still failing fast on a silent worker death.
  */
 export const UNCLAIMED_BACKGROUND_RUN_GRACE_MS = 25_000;
@@ -125,6 +128,7 @@ async function ensureRunTables(): Promise<void> {
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
           seq ${intType()} NOT NULL,
+          event_at ${intType()},
           event_data TEXT NOT NULL,
           PRIMARY KEY (run_id, seq)
         )
@@ -200,6 +204,11 @@ async function ensureRunTables(): Promise<void> {
           );
         }
         await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+        await ensureColumnExists(
+          "agent_run_events",
+          "event_at",
+          `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at ${intType()}`,
+        );
         await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
@@ -213,6 +222,7 @@ async function ensureRunTables(): Promise<void> {
           "heartbeat_at",
           "last_progress_at",
         ]);
+        await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
         await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
         return;
       }
@@ -278,6 +288,13 @@ async function ensureRunTables(): Promise<void> {
         }
       }
       await client.execute(agentRunEventsCreateSql);
+      try {
+        await client.execute(
+          `ALTER TABLE agent_run_events ADD COLUMN event_at ${intType()}`,
+        );
+      } catch {
+        // Column already exists — ignore
+      }
       await client.execute(agentToolLedgerCreateSql);
       // Widen millisecond-timestamp columns that older deployments created as
       // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
@@ -291,6 +308,7 @@ async function ensureRunTables(): Promise<void> {
         "heartbeat_at",
         "last_progress_at",
       ]);
+      await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
       await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
@@ -429,6 +447,20 @@ function backgroundAwareStaleCutoffSql(): string {
   // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
   // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
   return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+}
+
+function terminalRunEventExclusionSql(runIdColumn = "id"): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM agent_run_events terminal_events
+    WHERE terminal_events.run_id = agent_runs.${runIdColumn}
+      AND (
+        terminal_events.event_data LIKE '{"type":"done"%'
+        OR terminal_events.event_data LIKE '{"type":"error"%'
+        OR terminal_events.event_data LIKE '{"type":"missing_api_key"%'
+        OR terminal_events.event_data LIKE '{"type":"loop_limit"%'
+        OR terminal_events.event_data LIKE '{"type":"auto_continue"%'
+      )
+  )`;
 }
 
 /**
@@ -573,6 +605,7 @@ export async function tryClaimRunSlot(
       sql: `SELECT id FROM agent_runs
             WHERE thread_id = ?
               AND status = 'running'
+              AND ${terminalRunEventExclusionSql()}
               AND COALESCE(heartbeat_at, started_at) >= ?
             ORDER BY started_at DESC LIMIT 1`,
       args: [threadId, heartbeatCutoff],
@@ -586,6 +619,7 @@ export async function tryClaimRunSlot(
     sql: `SELECT id FROM agent_runs
           WHERE thread_id = ?
             AND status = 'running'
+            AND ${terminalRunEventExclusionSql()}
             AND COALESCE(heartbeat_at, started_at) >= ${backgroundAwareStaleCutoffSql()}
           ORDER BY started_at DESC LIMIT 1`,
     args: [threadId, now],
@@ -644,6 +678,112 @@ export async function setRunTerminalReason(
   } catch {
     // Diagnostics are best-effort; never let them break completion.
   }
+}
+
+function terminalStatusForEvent(
+  event: AgentChatEvent,
+): "completed" | "errored" | null {
+  if (event.type === "error") return "errored";
+  if (
+    event.type === "done" ||
+    event.type === "missing_api_key" ||
+    event.type === "loop_limit" ||
+    event.type === "auto_continue"
+  ) {
+    return "completed";
+  }
+  return null;
+}
+
+function terminalReasonForEvent(event: AgentChatEvent): string | null {
+  if (event.type === "auto_continue") return event.reason || "auto_continue";
+  if (event.type === "loop_limit") return "loop_limit";
+  if (event.type === "missing_api_key") return "missing_api_key";
+  if (event.type === "error") return `error:${event.errorCode || "unknown"}`;
+  if (event.type === "done") return "done";
+  return null;
+}
+
+async function getLatestRunEvent(runId: string): Promise<{
+  event: AgentChatEvent;
+  eventAt: number | null;
+} | null> {
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT seq, event_data, event_at FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows[0] as
+    | {
+        event_at?: number | string | null;
+        event_data?: string;
+      }
+    | undefined;
+  const raw = row?.event_data;
+  if (!raw) return null;
+  try {
+    const eventAt = row.event_at == null ? NaN : Number(row.event_at);
+    return {
+      event: JSON.parse(raw) as AgentChatEvent,
+      eventAt: Number.isFinite(eventAt) && eventAt > 0 ? eventAt : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Repair a run whose terminal event was durably appended but whose final
+ * `agent_runs.status` write lost a race with reconnect/reaper code.
+ *
+ * The event ledger is the durable transcript users see. If its latest event is
+ * terminal, the run is no longer alive and must not be converted into a stale
+ * error later. This keeps `agent_runs` and `agent_run_events` from telling two
+ * different stories after delayed DB writes or background function teardown.
+ */
+export async function reconcileTerminalRunFromEvents(
+  runId: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const latest = await getLatestRunEvent(runId);
+  if (!latest) return false;
+  const status = terminalStatusForEvent(latest.event);
+  const terminalReason = terminalReasonForEvent(latest.event);
+  if (!status || !terminalReason) return false;
+
+  const client = getDbExec();
+  const errorCode =
+    latest.event.type === "error" ? (latest.event.errorCode ?? null) : null;
+  const errorDetail =
+    latest.event.type === "error"
+      ? (latest.event.details || latest.event.error || "").slice(0, 2000) ||
+        null
+      : null;
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs
+          SET status = ?,
+              completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
+              error_code = CASE WHEN ? IS NOT NULL THEN ? ELSE error_code END,
+              error_detail = CASE WHEN ? IS NOT NULL THEN ? ELSE error_detail END,
+              terminal_reason = COALESCE(terminal_reason, ?)
+          WHERE id = ?
+            AND (
+              status = 'running'
+              OR (status = 'errored' AND error_code = ?)
+            )`,
+    args: [
+      status,
+      latest.eventAt,
+      errorCode,
+      errorCode,
+      errorDetail,
+      errorDetail,
+      terminalReason,
+      runId,
+      STALE_RUN_ERROR_EVENT.errorCode,
+    ],
+  });
+  return (rowsAffected ?? 0) > 0;
 }
 
 /**
@@ -774,6 +914,7 @@ export async function reapIfStale(
   maxStaleMs?: number,
 ): Promise<boolean> {
   await ensureRunTables();
+  if (await reconcileTerminalRunFromEvents(runId)) return false;
   const client = getDbExec();
   const completedAt = Date.now();
   // Background-dispatched runs get the wider stale window so a slow cold-start
@@ -794,6 +935,7 @@ export async function reapIfStale(
               terminal_reason = ?
           WHERE id = ?
             AND status = 'running'
+            AND ${terminalRunEventExclusionSql()}
             AND ${staleClause}`,
     args: [
       completedAt,
@@ -805,6 +947,7 @@ export async function reapIfStale(
     ],
   });
   const reaped = (rowsAffected ?? 0) > 0;
+  if (!reaped && (await reconcileTerminalRunFromEvents(runId))) return false;
   if (reaped) {
     await safeAppendTerminalRunEvent(
       runId,
@@ -823,7 +966,7 @@ export async function reapIfStale(
  * before it can claim), the row stays `background`, never heartbeats again, and
  * — because dispatch returned 202 — the foreground already returned the SSE
  * stream, so the existing fast-fail inline fallback never engaged. The run would
- * otherwise hang for the full 90s background window and then error opaquely.
+ * otherwise hang for the full durable background window and then error opaquely.
  *
  * This reaps such a run EARLY and DISTINCTLY: a row that is still unclaimed
  * (`dispatch_mode = 'background'`) past the tight `UNCLAIMED_BACKGROUND_RUN_GRACE_MS`
@@ -973,8 +1116,8 @@ export async function insertRunEvent(
   // run aborts at the same time the producer emits its final event.
   // Treat the second write as a no-op so the run completes cleanly.
   await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, seq, eventData],
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+    args: [runId, seq, Date.now(), eventData],
   });
 }
 
@@ -1040,8 +1183,8 @@ export async function getRunByThread(
   await ensureRunTables();
   const client = getDbExec();
   const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
+    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
+    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
   const { rows } = await client.execute({ sql, args: [threadId] });
   if (rows.length === 0) return null;
   const r = rows[0] as {
@@ -1056,7 +1199,15 @@ export async function getRunByThread(
     dispatch_mode?: string | null;
     terminal_reason?: string | null;
     diag_stage?: string | null;
+    error_code?: string | null;
   };
+  const canReconcileFromEvents =
+    r.status === "running" ||
+    (r.status === "errored" &&
+      r.error_code === STALE_RUN_ERROR_EVENT.errorCode);
+  if (canReconcileFromEvents && (await reconcileTerminalRunFromEvents(r.id))) {
+    return getRunByThread(threadId, options);
+  }
   return {
     id: r.id,
     threadId: r.thread_id,
@@ -1212,6 +1363,12 @@ export async function reapAllStaleRuns(): Promise<number> {
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [now],
   });
+  for (const row of stale.rows) {
+    const id = (row as { id?: unknown }).id;
+    if (typeof id === "string") {
+      await reconcileTerminalRunFromEvents(id);
+    }
+  }
   const completedAt = Date.now();
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
@@ -1221,6 +1378,7 @@ export async function reapAllStaleRuns(): Promise<number> {
               error_detail = ?,
               terminal_reason = ?
           WHERE status = 'running'
+            AND ${terminalRunEventExclusionSql()}
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
@@ -1272,6 +1430,12 @@ export async function cleanupOldRuns(
     )`,
     args: [now, cutoff],
   });
+  for (const row of stale.rows) {
+    const id = (row as { id?: unknown }).id;
+    if (typeof id === "string") {
+      await reconcileTerminalRunFromEvents(id);
+    }
+  }
   const completedAt = Date.now();
   await client.execute({
     sql: `UPDATE agent_runs
@@ -1280,7 +1444,9 @@ export async function cleanupOldRuns(
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?
-          WHERE status = 'running' AND started_at < ?`,
+          WHERE status = 'running'
+            AND ${terminalRunEventExclusionSql()}
+            AND started_at < ?`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
@@ -1299,6 +1465,7 @@ export async function cleanupOldRuns(
               error_detail = ?,
               terminal_reason = ?
           WHERE status = 'running'
+            AND ${terminalRunEventExclusionSql()}
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
@@ -1493,7 +1660,7 @@ async function appendTerminalRunEvent(
   }
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
   await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, nextSeq, JSON.stringify(event)],
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+    args: [runId, nextSeq, Date.now(), JSON.stringify(event)],
   });
 }

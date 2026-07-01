@@ -209,7 +209,9 @@ const mockDb = {
     }
 
     // append-terminal-event read / insert paths used by safeAppendTerminalRunEvent
-    if (/SELECT seq, event_data FROM agent_run_events/i.test(sql)) {
+    if (
+      /SELECT seq, event_data(?:, event_at)? FROM agent_run_events/i.test(sql)
+    ) {
       return { rows: [], rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(sql)) {
@@ -296,8 +298,8 @@ describe("run-store durable background", () => {
     const now = Date.now();
     await insertRun("r-live-bg", "t1", "turn", { dispatchMode: "background" });
     const row = rows.find((r) => r.id === "r-live-bg")!;
-    // Heartbeat 30s ago: past the 15s foreground window, but well within the
-    // 90s background window — must NOT be reaped.
+    // Heartbeat 30s ago: past the 15s foreground window, but within the 90s
+    // background window — must NOT be reaped.
     row.heartbeat_at = now - 30_000;
 
     const reaped = await reapIfStale("r-live-bg");
@@ -390,7 +392,7 @@ describe("run-store durable background", () => {
 
   // ─── FALLBACK HARDENING: reapUnclaimedBackgroundRun ────────────────────────
   describe("reapUnclaimedBackgroundRun (202-acked but worker never started)", () => {
-    it("exports a grace MUCH tighter than the 90s claimed-worker window", () => {
+    it("exports a grace MUCH tighter than the claimed-worker window", () => {
       expect(UNCLAIMED_BACKGROUND_RUN_GRACE_MS).toBe(25_000);
       expect(UNCLAIMED_BACKGROUND_RUN_GRACE_MS).toBeLessThan(
         STORE_BACKGROUND_RUN_STALE_MS,
