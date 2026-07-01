@@ -4,8 +4,8 @@
  * - `GA_MEASUREMENT_ID` — Google Analytics 4 measurement ID
  *
  * Netlify configuration-file env vars are build-time only for serverless
- * functions, so the Vite plugin also bakes this public value into SSR bundles
- * as `__AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__`.
+ * functions, so the Vite/Nitro build paths also bake this public value into
+ * SSR bundles.
  *
  * Amplitude and Sentry are initialized client-side via their npm packages
  * (see `packages/core/src/client/analytics.ts`). Only GA requires script
@@ -28,14 +28,17 @@ function normalizeMeasurementId(value: string | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+function getViteBakedGaMeasurementId(): string | undefined {
+  return typeof __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__ === "string"
+    ? __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__
+    : undefined;
+}
+
 function getGaMeasurementId(): string | null {
   return (
     normalizeMeasurementId(process.env.GA_MEASUREMENT_ID) ||
-    normalizeMeasurementId(
-      typeof __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__ === "string"
-        ? __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__
-        : undefined,
-    )
+    normalizeMeasurementId(process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID) ||
+    normalizeMeasurementId(getViteBakedGaMeasurementId())
   );
 }
 
@@ -49,6 +52,25 @@ function getGaMeasurementId(): string | null {
 export const GA_CSP_SCRIPT_HOSTS = [
   "https://www.googletagmanager.com",
   "https://www.google-analytics.com",
+] as const;
+
+/**
+ * Network/image hosts used by the GA4 loader when it sends page-view and event
+ * beacons. These are separate from `script-src`: a stricter deployment CSP with
+ * `connect-src 'self'` or `img-src 'self'` can load gtag.js but still drop all
+ * analytics events unless these hosts are present too.
+ */
+export const GA_CSP_CONNECT_HOSTS = [
+  "https://www.google-analytics.com",
+  "https://analytics.google.com",
+  "https://stats.g.doubleclick.net",
+  "https://region1.google-analytics.com",
+] as const;
+
+export const GA_CSP_IMG_HOSTS = [
+  "https://www.google-analytics.com",
+  "https://www.googletagmanager.com",
+  "https://stats.g.doubleclick.net",
 ] as const;
 
 /**
