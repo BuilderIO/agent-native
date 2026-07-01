@@ -87,11 +87,31 @@ function looksLikeDecodedJson(bytes: Buffer): boolean {
   return first === "{" || first === "[";
 }
 
+function tryGunzip(bytes: Buffer): Buffer | null {
+  try {
+    return gunzipSync(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function decodeTextWrappedGzip(
+  bytes: Buffer,
+): { decoded: Buffer; requestBytes: number } | null {
+  const text = bytes.toString("utf8");
+  const binaryStringBytes = Buffer.from(text, "latin1");
+  if (binaryStringBytes.equals(bytes)) return null;
+  const decoded = tryGunzip(binaryStringBytes);
+  return decoded
+    ? { decoded, requestBytes: binaryStringBytes.byteLength }
+    : null;
+}
+
 export function decodeSessionReplayRequestBody(
   rawBody: Buffer | Uint8Array | string | undefined,
   contentEncoding?: string | null,
 ): { body: unknown; requestBytes: number } {
-  const requestBytes =
+  let requestBytes =
     typeof rawBody === "string"
       ? Buffer.byteLength(rawBody, "utf8")
       : (rawBody?.byteLength ?? 0);
@@ -104,15 +124,25 @@ export function decodeSessionReplayRequestBody(
   let decoded = bytes;
 
   if (encoding === "gzip" || encoding === "x-gzip") {
-    try {
-      decoded = gunzipSync(bytes);
-    } catch {
+    const gunzipped = tryGunzip(bytes);
+    if (gunzipped) {
+      decoded = gunzipped;
+    } else {
       // Netlify may hand Nitro an already-decoded body while preserving the
       // original browser Content-Encoding header.
       if (looksLikeDecodedJson(bytes)) {
         decoded = bytes;
       } else {
-        throw statusError("Invalid gzip-compressed replay body", 400);
+        // Some Netlify paths wrap binary request bodies in a JS string before
+        // Nitro reads them back as UTF-8. Reinterpret that text as one-byte
+        // binary data so real browser CompressionStream uploads survive.
+        const textWrappedGzip = decodeTextWrappedGzip(bytes);
+        if (textWrappedGzip) {
+          decoded = textWrappedGzip.decoded;
+          requestBytes = textWrappedGzip.requestBytes;
+        } else {
+          throw statusError("Invalid gzip-compressed replay body", 400);
+        }
       }
     }
   } else if (encoding && encoding !== "identity") {
