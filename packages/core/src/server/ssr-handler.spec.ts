@@ -897,6 +897,8 @@ describe("createH3SSRHandler", () => {
         expect(csp).toContain("script-src 'nonce-abc123' 'strict-dynamic'");
         expect(csp).not.toContain("https://www.googletagmanager.com");
         expect(csp).not.toContain("https://www.google-analytics.com");
+        expect(csp).not.toContain("https://analytics.google.com");
+        expect(csp).not.toContain("https://stats.g.doubleclick.net");
         expect(csp).not.toMatch(/'sha256-[A-Za-z0-9+/]+=*'/);
         const reportOnly = response.headers.get(
           "content-security-policy-report-only",
@@ -940,6 +942,8 @@ describe("createH3SSRHandler", () => {
         expect(csp).toContain("script-src-elem 'self'");
         expect(csp).not.toContain("https://www.googletagmanager.com");
         expect(csp).not.toContain("https://www.google-analytics.com");
+        expect(csp).not.toContain("https://analytics.google.com");
+        expect(csp).not.toContain("https://stats.g.doubleclick.net");
       } finally {
         if (previousNodeEnv === undefined) {
           delete process.env.NODE_ENV;
@@ -1034,7 +1038,7 @@ describe("createH3SSRHandler", () => {
       process.env.NODE_ENV = "production";
       process.env.GA_MEASUREMENT_ID = "G-CSPTEST123";
       try {
-        const existingCsp = "frame-ancestors 'none', script-src 'self'";
+        const existingCsp = "frame-ancestors 'none', trusted-types default";
         mocks.requestHandler.mockResolvedValueOnce(
           new Response("<html><head></head><body>ok</body></html>", {
             headers: {

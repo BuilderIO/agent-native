@@ -314,9 +314,11 @@ function appendCspTokens(
 
 const CSP_DIRECTIVE_NAMES = new Set([
   "base-uri",
+  "block-all-mixed-content",
   "child-src",
   "connect-src",
   "default-src",
+  "fenced-frame-src",
   "font-src",
   "form-action",
   "frame-ancestors",
@@ -324,10 +326,14 @@ const CSP_DIRECTIVE_NAMES = new Set([
   "img-src",
   "manifest-src",
   "media-src",
+  "navigate-to",
   "object-src",
   "prefetch-src",
+  "referrer",
   "report-to",
   "report-uri",
+  "require-sri-for",
+  "require-trusted-types-for",
   "sandbox",
   "script-src",
   "script-src-attr",
@@ -335,11 +341,13 @@ const CSP_DIRECTIVE_NAMES = new Set([
   "style-src",
   "style-src-attr",
   "style-src-elem",
+  "trusted-types",
+  "upgrade-insecure-requests",
   "worker-src",
 ]);
 
 function hasMultipleCspPolicies(policy: string): boolean {
-  const policyBreakPattern = /,\s*([a-z][a-z0-9-]*)\b/gi;
+  const policyBreakPattern = /,\s*([a-z][a-z0-9-]*)(?=\s|;|$)/gi;
   let match: RegExpExecArray | null;
   while ((match = policyBreakPattern.exec(policy))) {
     if (CSP_DIRECTIVE_NAMES.has(match[1].toLowerCase())) return true;
@@ -442,7 +450,7 @@ function augmentExistingCspForFrameworkScripts(
     );
   }
 
-  if (options.gaEnabled) {
+  if (options.gaEnabled && !scriptSrcUsesStrictDynamic) {
     appendToExistingOrDefaultCspDirective(
       directives,
       "connect-src",
