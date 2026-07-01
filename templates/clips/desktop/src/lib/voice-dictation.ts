@@ -1813,11 +1813,14 @@ export function installDesktopVoiceDictation(
     .catch(() => {});
   onFinalTranscript(({ text }) => {
     // Whisper emits final segments throughout a long dictation whenever the
-    // speaker pauses. Native speech usually emits its final at stop. Route both
-    // through the same accumulator so pauses never replace earlier paragraphs.
+    // speaker pauses. Native speech emits its final after stop, when the
+    // stopped session is parked in lingeringSession. Native final events do not
+    // carry a session id, so never fall back to an active native session here:
+    // a late final from the previous stop could otherwise be appended to a new
+    // dictation.
     const current = lingeringSession
       ? lingeringSession
-      : session && (session.kind === "native" || session.kind === "whisper")
+      : session && session.kind === "whisper" && !session.stopping
         ? session
         : null;
     if (!current) return;

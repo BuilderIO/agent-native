@@ -513,7 +513,9 @@ export function RunErrorRecoveryCard({
   onDismiss: () => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
   const builderReconnect = useBuilderConnectFlow({
@@ -538,11 +540,15 @@ export function RunErrorRecoveryCard({
     ]
       .filter(Boolean)
       .join("\n\n");
-    void writeClipboardText(text).then((ok) => {
-      if (!ok) return;
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
+    void writeClipboardText(text)
+      .then((ok) => {
+        setCopyState(ok ? "copied" : "failed");
+        setTimeout(() => setCopyState("idle"), 1600);
+      })
+      .catch(() => {
+        setCopyState("failed");
+        setTimeout(() => setCopyState("idle"), 1600);
+      });
   }, [info]);
   const startNewChat = useCallback(() => {
     window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
@@ -705,8 +711,20 @@ export function RunErrorRecoveryCard({
           onClick={copyDetails}
           className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
         >
-          {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-          {copied ? "Copied" : copyLabel}
+          {copyState === "copied" ? (
+            <IconCheck size={13} />
+          ) : copyState === "failed" ? (
+            <IconX size={13} />
+          ) : (
+            <IconCopy size={13} />
+          )}
+          <span aria-live="polite">
+            {copyState === "copied"
+              ? "Copied"
+              : copyState === "failed"
+                ? "Copy failed"
+                : copyLabel}
+          </span>
         </button>
       </div>
       {shouldShowBuilderReconnect && builderReconnect.error && (

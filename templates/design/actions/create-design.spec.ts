@@ -63,15 +63,14 @@ describe("create-design org visibility", () => {
     });
   });
 
-  it("backfills existing org-scoped designs without changing personal rows", () => {
+  it("does not bulk-promote existing private org-scoped designs", () => {
     const migrationSource = readFileSync(
       resolve(__dirname, "../server/plugins/db.ts"),
       "utf8",
     );
 
     expect(migrationSource).toContain("version: 18");
-    expect(migrationSource).toContain(
-      "UPDATE designs SET visibility = 'org' WHERE org_id IS NOT NULL AND visibility = 'private'",
-    );
+    expect(migrationSource).toContain("sql: {}");
+    expect(migrationSource).not.toContain("UPDATE designs SET visibility");
   });
 });

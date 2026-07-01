@@ -27,6 +27,7 @@ import {
   isAssistantUiStaleIndexError,
   latestNonRecoveryUserMessageText,
   reconnectProgressTimedOut,
+  resolveAssistantChatRunningState,
   resolveAssistantChatSubmitIntent,
 } from "./AssistantChat.js";
 
@@ -99,6 +100,32 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+});
+
+describe("resolveAssistantChatRunningState", () => {
+  it("keeps UI running during auto-continuation gaps without changing queue gating", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: false,
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        optimisticRunning: false,
+        isAutoResuming: true,
+      }),
+    ).toEqual({ isRunning: false, showRunningInUI: true });
+  });
+
+  it("clears both running states after an explicit stop", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: true,
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        optimisticRunning: true,
+        isAutoResuming: true,
+      }),
+    ).toEqual({ isRunning: false, showRunningInUI: false });
   });
 });
 

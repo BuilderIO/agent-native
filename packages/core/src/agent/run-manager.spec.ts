@@ -709,6 +709,88 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("captures initial run-row persistence failures with the run id", async () => {
+    const provider = vi.fn(() => "evt_run_insert");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-insert-persistence-test",
+      provider,
+    );
+    const err = new Error("insert failed");
+    vi.mocked(insertRun).mockRejectedValueOnce(err);
+
+    try {
+      startRun(
+        "run-insert-missing",
+        "thread-insert-missing",
+        async () => {},
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          err,
+          expect.objectContaining({
+            route: "/_agent-native/agent-chat",
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "insert-run",
+            }),
+            extra: expect.objectContaining({
+              runId: "run-insert-missing",
+              threadId: "thread-insert-missing",
+            }),
+          }),
+        ),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
+  it("captures run-event persistence failures with the sequence and event type", async () => {
+    const provider = vi.fn(() => "evt_run_event");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-event-persistence-test",
+      provider,
+    );
+    const err = new Error("event insert failed");
+    vi.mocked(insertRunEvent).mockRejectedValueOnce(err);
+
+    try {
+      startRun(
+        "run-event-missing",
+        "thread-event-missing",
+        async (send) => {
+          send({ type: "text", text: "hello" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          err,
+          expect.objectContaining({
+            route: "/_agent-native/agent-chat",
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "insert-event",
+            }),
+            extra: expect.objectContaining({
+              runId: "run-event-missing",
+              threadId: "thread-event-missing",
+              seq: 0,
+              eventType: "text",
+            }),
+          }),
+        ),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
   it("captures background run errors through the generic capture registry", async () => {
     const provider = vi.fn(() => "evt_run");
     const unregister = registerErrorCaptureProvider(

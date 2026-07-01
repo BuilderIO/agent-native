@@ -601,6 +601,31 @@ export function resolveAssistantChatSubmitIntent({
   return requestedIntent ?? "immediate";
 }
 
+export function resolveAssistantChatRunningState({
+  forceStopped,
+  isRuntimeRunning,
+  isReconnecting,
+  optimisticRunning,
+  isAutoResuming,
+}: {
+  forceStopped: boolean;
+  isRuntimeRunning: boolean;
+  isReconnecting: boolean;
+  optimisticRunning: boolean;
+  isAutoResuming: boolean;
+}): { isRunning: boolean; showRunningInUI: boolean } {
+  const isRunning =
+    !forceStopped && (isRuntimeRunning || isReconnecting || optimisticRunning);
+  return {
+    isRunning,
+    // During auto-continuation, assistant-ui can briefly mark the message done
+    // between chunks even though the adapter is about to POST the next run.
+    // Keep the visible chat state running so the latest assistant message shows
+    // Thinking/Resuming and does not expose footer actions prematurely.
+    showRunningInUI: !forceStopped && (isRunning || isAutoResuming),
+  };
+}
+
 type QueuedMessage = {
   id: string;
   text: string;
@@ -1378,14 +1403,17 @@ const AssistantChatInner = forwardRef<
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
   // wedged (e.g. after a tab refresh + stop during reconnect).
   const [forceStopped, setForceStopped] = useState(false);
-  // Real running state — drives submission/queue gating. Treat reconnecting
-  // to an active run the same as running, UNLESS the user has explicitly
-  // clicked stop (forceStopped).
-  const isRunning =
-    !forceStopped && (isRuntimeRunning || isReconnecting || optimisticRunning);
-  const textStreaming = isRunning || externalStreaming;
-  // UI-only running state — drives the stop button and thinking indicator.
-  const showRunningInUI = isRunning;
+  // Real running state drives submission/queue gating; UI running also covers
+  // short auto-continuation gaps so the latest assistant message does not flash
+  // into a done state while the agent is still working.
+  const { isRunning, showRunningInUI } = resolveAssistantChatRunningState({
+    forceStopped,
+    isRuntimeRunning,
+    isReconnecting,
+    optimisticRunning,
+    isAutoResuming,
+  });
+  const textStreaming = showRunningInUI || externalStreaming;
   // A revealed activity label wins; otherwise stay a steady "Thinking" by
   // default. We only surface "Reconnecting" while we are actively replaying
   // recovered content (reconnectContent populated). A bare reconnect with no
@@ -3214,7 +3242,7 @@ const AssistantChatInner = forwardRef<
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ApprovalContext.Provider value={approvalCtx}>
-          <ChatRunningContext.Provider value={isRunning}>
+          <ChatRunningContext.Provider value={showRunningInUI}>
             <TextStreamingContext.Provider value={textStreaming}>
               <div
                 data-agent-empty-state={

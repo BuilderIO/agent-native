@@ -349,11 +349,45 @@ export function startRun(
   activeRuns.set(runId, run);
   threadToRun.set(threadId, runId);
 
+  const captureRunPersistenceError = (
+    error: unknown,
+    phase: "insert-run" | "insert-event",
+    extra: Record<string, unknown> = {},
+  ) => {
+    captureError(error, {
+      route: "/_agent-native/agent-chat",
+      tags: {
+        source: "agent-run-manager",
+        phase,
+        runStatus: run.status,
+      },
+      extra: {
+        runId,
+        threadId,
+        eventCount: run.events.length,
+        startedAt: run.startedAt,
+        ...extra,
+      },
+      contexts: {
+        agentRun: {
+          runId,
+          threadId,
+          status: run.status,
+          phase,
+          eventCount: run.events.length,
+          startedAt: run.startedAt,
+        },
+      },
+    });
+  };
+
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
   const insertRunPromise = insertRun(runId, threadId, options?.turnId).catch(
-    () => {},
+    (error) => {
+      captureRunPersistenceError(error, "insert-run");
+    },
   );
 
   // Per-run event persistence chain: events are chained so SQL inserts commit
@@ -368,6 +402,7 @@ export function startRun(
   // chunk. The stuck-detector threshold is on the order of tens of seconds,
   // so 1s resolution is plenty.
   let lastProgressBumpAt = 0;
+  let eventPersistenceErrorCaptured = false;
   const bumpProgressIfDue = () => {
     const now = Date.now();
     if (now - lastProgressBumpAt < 1000) return;
@@ -494,7 +529,15 @@ export function startRun(
     const thisInsert = persistenceChain.then(() =>
       insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)),
     );
-    persistenceChain = thisInsert.catch(() => {});
+    persistenceChain = thisInsert.catch((error) => {
+      if (!eventPersistenceErrorCaptured) {
+        eventPersistenceErrorCaptured = true;
+        captureRunPersistenceError(error, "insert-event", {
+          seq: runEvent.seq,
+          eventType: runEvent.event.type,
+        });
+      }
+    });
     const persistence = thisInsert;
     if (!options?.surfacePersistenceError) {
       persistence.catch(() => {});

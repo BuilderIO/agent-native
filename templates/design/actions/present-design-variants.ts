@@ -41,16 +41,19 @@ const FALLBACK_INSTRUCTIONS =
   "overview board. The chat shows one button per screen. Ask the user to pick " +
   "a screen by name if the inline buttons are not available; after they pick, " +
   "delete the other variant screens, call get-design-snapshot with fileId for " +
-  "the kept screen, and continue from that one file in a bounded pass.";
+  "the kept screen, then call edit-design on that same fileId in a bounded pass. " +
+  'Use mode "replace-file" when expanding the representative placeholder. ' +
+  "Do not call generate-design after a variant pick.";
 
 const VARIANT_PICK_SUBMIT_MESSAGE =
   "Use this design direction. Delete the other variant screens, call " +
   "get-design-snapshot with the selected option's fileId (or filename if " +
-  "needed) for the kept file, then continue from that current HTML in a " +
-  "bounded single-file pass. Prefer edit-design for refinements; if " +
-  "generate-design is needed, update only the kept file compactly. Do not " +
-  "generate a full multi-screen rewrite or resend a huge payload. Stop after " +
-  "the first successful save.";
+  "needed) for the kept file, then call edit-design with that same fileId in " +
+  'a bounded single-file pass. Use mode "replace-file" when replacing the ' +
+  "representative placeholder with the full chosen direction, or search/replace " +
+  "for smaller refinements. Do not call generate-design after a variant pick, " +
+  "do not create index.html, and do not resend a huge payload. Stop after the " +
+  "first successful edit-design save.";
 
 const variantSchema = z.object({
   id: z.string().min(1).describe("Stable variant id, e.g. 'minimal-focus'"),
@@ -421,9 +424,11 @@ export default defineAction({
     "exploration before follow-up refinement. After the user's choice, keep " +
     "the chosen screen, delete the other generated variant screens, and " +
     "call get-design-snapshot with fileId for the kept screen before " +
-    "continuing from that single file in a bounded pass. Prefer edit-design " +
-    "for refinements; if generate-design is needed, update only the kept file " +
-    "compactly and stop after the first successful save. For complex apps, " +
+    "calling edit-design on that same fileId in a bounded pass. Use " +
+    '`mode: "replace-file"` when expanding the representative placeholder ' +
+    "into the full chosen direction. Do not call generate-design after a " +
+    "variant pick. Stop after the first successful edit-design save. For " +
+    "complex apps, " +
     "make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
     "and omit content when full HTML would be too large. Design will render " +
@@ -577,7 +582,7 @@ export default defineAction({
     await writeAppStateForCurrentTab("guided-questions", {
       title: prompt ?? "Pick a direction",
       description:
-        "All options are on the board. Choose one to keep; I will delete the others, read only the kept screen, and continue from that single file in a bounded pass.",
+        "All options are on the board. Choose one to keep; I will delete the others, read only the kept screen, and edit that same file in a bounded pass.",
       submitLabel: "Use selected direction",
       submitMessage: VARIANT_PICK_SUBMIT_MESSAGE,
       skipLabel: "Show another set",
@@ -605,7 +610,7 @@ export default defineAction({
               value:
                 `Keep "${screen.label}" (${screen.filename}, file id ${screen.id}) ` +
                 `from variant set ${variantSetId}. Delete the other variant screens: ${otherScreens}. ` +
-                `Then call get-design-snapshot with designId ${designId} and fileId ${screen.id} (filename ${screen.filename}) and continue from that current HTML in a bounded single-file pass. Prefer edit-design for refinements; if generate-design is needed, update only this kept file compactly. Do not generate a full multi-screen rewrite or resend a huge payload. Stop after the first successful save.`,
+                `Then call get-design-snapshot with designId ${designId} and fileId ${screen.id} (filename ${screen.filename}), then call edit-design with fileId ${screen.id} on that same kept file in a bounded single-file pass. Use mode "replace-file" when replacing the representative placeholder with the full chosen direction, or search/replace for smaller refinements. Do not call generate-design after this variant pick, do not create index.html, and do not resend a huge payload. Stop after the first successful edit-design save.`,
             };
           }),
         },
@@ -623,7 +628,7 @@ export default defineAction({
       embed: true,
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       nextRequiredAction:
-        "Wait for the user to pick a screen in chat. Then delete the unchosen variant screens with delete-file, call get-design-snapshot with fileId for the chosen screen, and continue from that single file in a bounded pass. Prefer edit-design; if generate-design is needed, update only the kept file compactly and stop after the first successful save.",
+        'Wait for the user to pick a screen in chat. Then delete the unchosen variant screens with delete-file, call get-design-snapshot with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" when expanding the placeholder into the full chosen direction. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',
     };
   },
   link: ({ result }) => {

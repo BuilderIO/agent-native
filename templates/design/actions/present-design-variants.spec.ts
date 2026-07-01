@@ -227,15 +227,22 @@ describe("present-design-variants", () => {
     };
     expect(guidedQuestions.submitMessage).toContain("bounded single-file pass");
     expect(guidedQuestions.submitMessage).toContain("fileId");
+    expect(guidedQuestions.submitMessage).toContain("edit-design");
+    expect(guidedQuestions.submitMessage).toContain('mode "replace-file"');
     expect(guidedQuestions.submitMessage).toContain(
-      "Do not generate a full multi-screen rewrite",
+      "Do not call generate-design after a variant pick",
     );
     const firstOption = guidedQuestions.questions[0]?.options[0];
     expect(firstOption?.value).toContain("get-design-snapshot");
     expect(firstOption?.value).toContain("fileId file-a");
+    expect(firstOption?.value).toContain("edit-design with fileId file-a");
+    expect(firstOption?.value).toContain('mode "replace-file"');
     expect(firstOption?.value).toContain("bounded single-file pass");
     expect(firstOption?.value).toContain(
-      "Stop after the first successful save",
+      "Do not call generate-design after this variant pick",
+    );
+    expect(firstOption?.value).toContain(
+      "Stop after the first successful edit-design save",
     );
     expect(mocks.deleteAppState).toHaveBeenCalledWith("design-variants");
 
@@ -272,6 +279,11 @@ describe("present-design-variants", () => {
     });
     expect(result.nextRequiredAction).toContain("get-design-snapshot");
     expect(result.nextRequiredAction).toContain("fileId");
+    expect(result.nextRequiredAction).toContain("edit-design");
+    expect(result.nextRequiredAction).toContain('mode "replace-file"');
+    expect(result.nextRequiredAction).toContain(
+      "Do not call generate-design after a variant pick",
+    );
     expect(result.nextRequiredAction).toContain("bounded pass");
   });
 

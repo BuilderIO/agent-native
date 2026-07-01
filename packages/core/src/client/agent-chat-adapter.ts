@@ -807,6 +807,21 @@ function lastActivityTool(
   return undefined;
 }
 
+function formatActivityTrail(
+  trail: readonly AgentActivityTrailEntry[],
+): string | undefined {
+  const items = trail
+    .slice(-8)
+    .map((entry) => {
+      const label = entry.label.replace(/\s+/g, " ").trim();
+      const tool = entry.tool?.replace(/\s+/g, " ").trim();
+      if (label && tool && label !== tool) return `${label} (${tool})`;
+      return label || tool || "";
+    })
+    .filter(Boolean);
+  return items.length > 0 ? items.join(" > ") : undefined;
+}
+
 function lastUnresolvedToolActivity(
   content: ContentPart[],
 ): string | undefined {
@@ -928,9 +943,9 @@ function incrementalActionGuidance(tool: string): string | undefined {
       return "create a compact working v1 with `create-extension`, then use focused `update-extension` edits for refinements";
     case "generate-design":
     case "update-design":
-      return "persist a minimal first version (fewer files) with `generate-design`, then refine individual files with `edit-design` search/replace instead of resending everything";
+      return 'if an existing design file or snapshot is already in history, especially after a Design variant pick, stop retrying `generate-design`: call `get-design-snapshot` for the selected file, then call `edit-design` once on that same `fileId` (`mode: "replace-file"` for a compact full-file replacement, or search/replace for smaller edits). Use `generate-design` only for a brand-new compact first file when no target file exists yet';
     case "present-design-variants":
-      return "call `present-design-variants` with concise labels, descriptions, accent colors, and feature bullets; omit large `content` HTML when needed so the action can render compact representative screens, then refine the chosen direction with `generate-design` or `edit-design`";
+      return 'call `present-design-variants` with concise labels, descriptions, accent colors, and feature bullets; omit large `content` HTML when needed so the action can render compact representative screens. After the user picks a direction, delete unchosen screens, snapshot the selected `fileId`, and refine that same file with `edit-design` (`mode: "replace-file"` for placeholder expansion). Do not call `generate-design` after the variant pick';
     case "create-visual-plan":
     case "create-ui-plan":
     case "create-plan-design":
@@ -1439,6 +1454,7 @@ export function createAgentChatAdapter(
       let visibleContinuationPrefix: ContentPart[] = [];
       let lastAutoContinueReason: string | null = null;
       let lastRecoverableRunError: AgentAutoContinueErrorInfo | null = null;
+      let lastActivityTrail: AgentActivityTrailEntry[] = [];
       const attemptedRunIds: string[] = [];
       let authRecoveryAttempted = false;
       let continuationToolCallCounter = 0;
@@ -1467,6 +1483,9 @@ export function createAgentChatAdapter(
           `repeated_action_preparation_stalls: ${repeatedActionPreparationCount}`,
           lastPreparingToolName
             ? `last_preparing_tool: ${lastPreparingToolName}`
+            : "",
+          formatActivityTrail(lastActivityTrail)
+            ? `activity_trail: ${formatActivityTrail(lastActivityTrail)}`
             : "",
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
           attemptedRunIds.length > 0
@@ -1559,6 +1578,7 @@ export function createAgentChatAdapter(
             lastSeq,
             contentParts: content.length,
             attemptedRunIds: [...attemptedRunIds],
+            activityTrail: [...lastActivityTrail],
             startupRecoveryAttempts,
             staleRunContinuationAttempts,
             stalledTransientContinuationAttempts,
@@ -1867,6 +1887,7 @@ export function createAgentChatAdapter(
           completedToolName?: string;
         } => {
           lastAutoContinueReason = signal.reason;
+          lastActivityTrail = [...signal.activityTrail];
           if (signal.errorInfo) {
             lastRecoverableRunError = signal.errorInfo;
           }
