@@ -121,6 +121,8 @@ export interface MotionDockProps {
   autoKeyframe?: boolean;
   /** Called when the auto-keyframe toggle changes. */
   onAutoKeyframeChange?: (enabled: boolean) => void;
+  /** Controlled playhead position, normalized to [0, 1]. */
+  playhead?: number;
   /** Called whenever the playhead moves. */
   onPlayheadChange?: (t: number) => void;
   /**
@@ -147,6 +149,7 @@ export function MotionDock({
   applying = false,
   autoKeyframe: autoKeyframeProp,
   onAutoKeyframeChange,
+  playhead: playheadProp,
   onPlayheadChange,
   selectedTarget = null,
 }: MotionDockProps) {
@@ -162,10 +165,14 @@ export function MotionDock({
   );
 
   // Playhead position: normalised [0, 1].
-  const [playhead, setPlayhead] = useState(0);
+  const [playhead, setPlayhead] = useState(playheadProp ?? 0);
   const [playing, setPlaying] = useState(false);
   const playRafRef = useRef<number | null>(null);
   const playStartRef = useRef<{ wallMs: number; startT: number } | null>(null);
+  useEffect(() => {
+    if (playheadProp === undefined) return;
+    setPlayhead(Math.max(0, Math.min(1, playheadProp)));
+  }, [playheadProp]);
 
   // Auto-keyframe mode: inspector/style edits create keyframes at the playhead.
   const [autoKeyframeInternal, setAutoKeyframeInternal] = useState(false);

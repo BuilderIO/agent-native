@@ -12024,7 +12024,7 @@ export default function DesignEditor() {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
-    let prunedRedoHistory = false;
+    let prunedRedoHistory = 0;
     const redoContent = (scope: "any" | "local" | "global" = "any") => {
       if (scope !== "global" && um?.canRedo()) {
         um.redo();
@@ -12106,7 +12106,7 @@ export default function DesignEditor() {
       );
       if (changes.length === 0) {
         contentRedoStackRef.current.pop();
-        prunedRedoHistory = true;
+        prunedRedoHistory += 1;
         return false;
       }
       contentRedoStackRef.current.pop();
@@ -12174,14 +12174,24 @@ export default function DesignEditor() {
       return true;
     };
 
-    const redoByOrder = (preferred?: UndoRedoOrderKind) =>
-      preferred === "geometry"
-        ? redoGeometry() || redoContent()
-        : preferred === "file-content"
-          ? redoContent("global") || redoGeometry()
-          : preferred === "content"
-            ? redoContent("local") || redoContent("global") || redoGeometry()
-            : redoContent() || redoGeometry();
+    const redoByOrder = (preferred?: UndoRedoOrderKind) => {
+      if (preferred === "geometry") return redoGeometry() || redoContent();
+      if (preferred === "file-content") {
+        const prunedBefore = prunedRedoHistory;
+        if (redoContent("global")) return true;
+        if (prunedRedoHistory > prunedBefore) return false;
+        return redoGeometry();
+      }
+      if (preferred === "content") {
+        const prunedBefore = prunedRedoHistory;
+        return (
+          redoContent("local") ||
+          redoContent("global") ||
+          (prunedRedoHistory > prunedBefore ? false : redoGeometry())
+        );
+      }
+      return redoContent() || redoGeometry();
+    };
     let didRedo = false;
     if (canUseOverviewHistory) {
       while (!didRedo) {
@@ -12192,7 +12202,7 @@ export default function DesignEditor() {
     } else {
       didRedo = redoContent("local");
     }
-    if (didRedo || prunedRedoHistory) {
+    if (didRedo || prunedRedoHistory > 0) {
       syncUndoRedoState();
     }
   }, [
@@ -17394,6 +17404,7 @@ ${serializedHtml}
           canvasIframeRef={canvasIframeRef}
           autoKeyframe={motionAutoKeyframeEnabled}
           onAutoKeyframeChange={setMotionAutoKeyframeEnabled}
+          playhead={motionPlayhead}
           onPlayheadChange={setMotionPlayhead}
           selectedTarget={motionSelectedTarget}
           applying={motionAutosavePending}

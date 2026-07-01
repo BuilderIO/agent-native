@@ -1592,6 +1592,18 @@ test("overview undo skips deleted screen content history", async ({ page }) => {
       (file) => file.id === aboutFile.id,
     ),
   ).toBe(false);
+
+  await pressPrimaryShortcut(page, "z", { shift: true });
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toBe(homeRectanglesBefore + 1);
+  expect(
+    htmlScreenFiles(await designFiles(page)).some(
+      (file) => file.id === aboutFile.id,
+    ),
+  ).toBe(false);
 });
 
 test("overview undo does not restore ghost geometry for deleted screens", async ({

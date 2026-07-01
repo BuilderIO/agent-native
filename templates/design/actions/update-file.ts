@@ -5,10 +5,19 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+
+function rowsAffected(result: unknown): number | undefined {
+  const candidate = result as
+    | { rowsAffected?: unknown; rowCount?: unknown; changes?: unknown }
+    | null;
+  const value =
+    candidate?.rowsAffected ?? candidate?.rowCount ?? candidate?.changes;
+  return typeof value === "number" ? value : undefined;
+}
 
 export default defineAction({
   description:
@@ -70,11 +79,33 @@ export default defineAction({
 
     await assertAccess("design", file.designId, "editor");
 
-    // Reject a rename that would collide with an existing filename in the same
-    // design. SQLite's local async transaction wrapper can fail under concurrent
-    // editor/collab writes; keep this action to direct statements until a DB-level
-    // UNIQUE index can enforce the invariant atomically.
-    if (filename !== undefined) {
+    const updates: Record<string, unknown> = { updatedAt: now };
+    if (content !== undefined) updates.content = content;
+    if (filename !== undefined) updates.filename = filename;
+    if (fileType !== undefined) updates.fileType = fileType;
+
+    // Reject colliding renames as part of the write. SQLite's local async
+    // transaction wrapper can fail under concurrent editor/collab writes, so
+    // keep this to one guarded UPDATE instead of a SELECT-then-UPDATE window.
+    const updateWhere =
+      filename === undefined
+        ? eq(schema.designFiles.id, id)
+        : and(
+            eq(schema.designFiles.id, id),
+            sql`NOT EXISTS (
+              SELECT 1 FROM design_files AS sibling
+              WHERE sibling.design_id = ${file.designId}
+                AND sibling.filename = ${filename}
+                AND sibling.id <> ${id}
+            )`,
+          );
+
+    const updateResult = await db
+      .update(schema.designFiles)
+      .set(updates)
+      .where(updateWhere);
+
+    if (filename !== undefined && rowsAffected(updateResult) === 0) {
       const [collision] = await db
         .select({ id: schema.designFiles.id })
         .from(schema.designFiles)
@@ -91,16 +122,6 @@ export default defineAction({
         );
       }
     }
-
-    const updates: Record<string, unknown> = { updatedAt: now };
-    if (content !== undefined) updates.content = content;
-    if (filename !== undefined) updates.filename = filename;
-    if (fileType !== undefined) updates.fileType = fileType;
-
-    await db
-      .update(schema.designFiles)
-      .set(updates)
-      .where(eq(schema.designFiles.id, id));
 
     // Push content through the collab layer so live editors see the change
     if (content !== undefined && syncCollab) {
