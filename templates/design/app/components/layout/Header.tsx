@@ -1,4 +1,9 @@
-import { useActionQuery, useT } from "@agent-native/core/client";
+import {
+  requestAgentChatThreadOpen,
+  requestAgentTaskOpen,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
 import { useCallback } from "react";
@@ -50,12 +55,6 @@ export function Header() {
   const actions = useHeaderActions();
   const openRunThread = useCallback(
     (threadId: string, run?: HeaderAgentRun) => {
-      window.dispatchEvent(
-        new CustomEvent("agent-panel:set-mode", {
-          detail: { mode: "chat" },
-        }),
-      );
-      window.dispatchEvent(new CustomEvent("agent-panel:open"));
       const metadata = run?.metadata ?? {};
       const parentThreadId =
         typeof metadata.parentThreadId === "string"
@@ -64,24 +63,18 @@ export function Header() {
       const isAgentTeam =
         metadata.kind === "agent-team" || metadata.source === "agent-teams";
       if (isAgentTeam && parentThreadId && parentThreadId !== threadId) {
-        window.dispatchEvent(
-          new CustomEvent("agent-task-open", {
-            detail: {
-              threadId,
-              parentThreadId,
-              description:
-                typeof metadata.description === "string"
-                  ? metadata.description
-                  : run?.title || "",
-              name: typeof metadata.name === "string" ? metadata.name : "",
-            },
-          }),
-        );
+        requestAgentTaskOpen({
+          threadId,
+          parentThreadId,
+          description:
+            typeof metadata.description === "string"
+              ? metadata.description
+              : run?.title || "",
+          name: typeof metadata.name === "string" ? metadata.name : "",
+        });
         return;
       }
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:open-thread", { detail: { threadId } }),
-      );
+      requestAgentChatThreadOpen({ threadId });
     },
     [],
   );
