@@ -2624,6 +2624,7 @@ const AssistantChatInner = forwardRef<
   // all the stop-related state in its own dep array.
   const stopActiveRun = useCallback(() => {
     setForceStopped(true);
+    setOptimisticRunning(false);
     const activeRun = getActiveRun();
     const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
     userStoppedRunRef.current = {
@@ -2864,19 +2865,25 @@ const AssistantChatInner = forwardRef<
           },
         ]);
       } else {
-        appendThreadMessage({
-          role: "user",
-          content: [{ type: "text", text: submittedText }],
-          ...(messageAttachments.length > 0
-            ? { attachments: messageAttachments }
-            : {}),
-          ...createUserMessageRunConfig(
-            references,
-            effectiveRequestMode,
-            recoveryAction,
-            trackInRunsTray,
-          ),
-        } as Parameters<typeof threadRuntime.append>[0]);
+        markOptimisticRunning();
+        try {
+          appendThreadMessage({
+            role: "user",
+            content: [{ type: "text", text: submittedText }],
+            ...(messageAttachments.length > 0
+              ? { attachments: messageAttachments }
+              : {}),
+            ...createUserMessageRunConfig(
+              references,
+              effectiveRequestMode,
+              recoveryAction,
+              trackInRunsTray,
+            ),
+          } as Parameters<typeof threadRuntime.append>[0]);
+        } catch (error) {
+          setOptimisticRunning(false);
+          throw error;
+        }
       }
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
@@ -2889,6 +2896,7 @@ const AssistantChatInner = forwardRef<
       execMode,
       isRunning,
       materializeFrozenReconnectContent,
+      markOptimisticRunning,
       appendThreadMessage,
       updateComposerContextItems,
     ],
@@ -3173,6 +3181,7 @@ const AssistantChatInner = forwardRef<
   const approvalCtx = useMemo<ApprovalContextValue>(
     () => ({
       onApprove: (approvalKey: string) => {
+        markOptimisticRunning();
         appendThreadMessage({
           role: "user",
           content: [
@@ -3195,7 +3204,7 @@ const AssistantChatInner = forwardRef<
         } as Parameters<typeof threadRuntime.append>[0]);
       },
     }),
-    [appendThreadMessage, execMode],
+    [appendThreadMessage, execMode, markOptimisticRunning],
   );
 
   return (
