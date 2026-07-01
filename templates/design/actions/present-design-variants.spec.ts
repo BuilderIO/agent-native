@@ -321,6 +321,128 @@ describe("present-design-variants", () => {
     expect(action.schema.safeParse(withVariants(6)).success).toBe(false);
   });
 
+  it("can render compact variants from direction summaries without inline HTML", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Dark todo app with board, list, calendar, and keyboard flow",
+      variants: [
+        {
+          id: "glass",
+          label: "Glass Command Center",
+          description: "Frosted panels, cyan accents, and airy kanban density.",
+          accentColor: "#06b6d4",
+          features: ["Board view", "Priority chips", "Keyboard hints"],
+        },
+        {
+          id: "terminal",
+          label: "Terminal Focus",
+          description:
+            "Dense monospace workflow with high-contrast focus cues.",
+          accentColor: "#22c55e",
+        },
+      ],
+    });
+
+    expect(mocks.insertChain.values).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        filename: "variant-glass-command-center.html",
+        content: expect.stringContaining("Glass Command Center"),
+      }),
+    );
+    expect(mocks.insertChain.values).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        filename: "variant-terminal-focus.html",
+        content: expect.stringContaining("Terminal Focus"),
+      }),
+    );
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining("Keyboard hints"),
+    );
+  });
+
+  it("renders compact fallback variants from non-todo mobile direction data", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt:
+        "Mobile recipe planner with pantry scanning, meal prep, shopping lists, and nutrition summaries",
+      variants: [
+        {
+          id: "pantry",
+          label: "Pantry Scanner",
+          description:
+            "A handheld-first recipe flow centered on scanning ingredients.",
+          width: 390,
+          height: 844,
+          features: ["Pantry scanning", "Meal prep", "Shopping lists"],
+        },
+        {
+          id: "nutrition",
+          label: "Nutrition Coach",
+          description: "A coaching direction for macros and weekly planning.",
+          width: 390,
+          height: 844,
+          features: ["Macro summary", "Weekly plan", "Grocery sync"],
+        },
+      ],
+    });
+
+    const firstContent = (
+      mocks.insertChain.values.mock.calls[0]?.[0] as {
+        content: string;
+      }
+    ).content;
+    expect(firstContent).toContain("Pantry Scanner");
+    expect(firstContent).toContain("Pantry scanning");
+    expect(firstContent).toContain("Mobile recipe planner");
+    expect(firstContent).toContain("width: 390px");
+    expect(firstContent).not.toContain("Finalize launch checklist");
+
+    const dataUpdate = mocks.txUpdateChain.set.mock.calls[0]?.[0] as {
+      data: string;
+    };
+    const data = JSON.parse(dataUpdate.data);
+    expect(Object.values(data.canvasFrames)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ width: 390, height: 844 }),
+        expect.objectContaining({ width: 390, height: 844 }),
+      ]),
+    );
+  });
+
+  it("does not let prompt text resize provided desktop HTML variants", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt:
+        "Mobile analytics companion with a compact summary view and push alerts",
+      variants: [
+        {
+          id: "desktop-command",
+          label: "Desktop Command Center",
+          content:
+            "<!doctype html><style>.app{width:1280px;min-height:900px}</style><div class='app'>Desktop analytics</div>",
+        },
+        {
+          id: "mobile-summary",
+          label: "Mobile Summary",
+          description: "Phone-first glanceable KPI cards.",
+          features: ["KPI cards", "Push alerts"],
+        },
+      ],
+    });
+
+    expect(
+      result.screens.find(
+        (screen) => screen.label === "Desktop Command Center",
+      ),
+    ).toMatchObject({ width: 1280, height: 900 });
+    expect(
+      result.screens.find((screen) => screen.label === "Mobile Summary"),
+    ).toMatchObject({ width: 390, height: 844 });
+  });
+
   it("deep-links external hosts into overview mode", () => {
     expect(
       action.link?.({
