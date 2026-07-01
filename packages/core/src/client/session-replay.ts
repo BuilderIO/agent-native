@@ -761,7 +761,7 @@ async function gzipReplayBody(body: string): Promise<Blob | null> {
       .stream()
       .pipeThrough(new CompressionStream("gzip"));
     const compressed = await new Response(stream).arrayBuffer();
-    return new Blob([compressed], { type: "application/json" });
+    return new Blob([compressed], { type: "application/octet-stream" });
   } catch {
     return null;
   }
@@ -774,7 +774,7 @@ async function buildReplayUploadBody(body: string): Promise<ReplayUploadBody> {
       body: compressed,
       compressed: true,
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/octet-stream",
         "Content-Encoding": "gzip",
       },
     };
