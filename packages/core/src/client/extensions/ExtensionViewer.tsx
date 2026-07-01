@@ -339,13 +339,22 @@ function SourceCodeDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync in only when the dialog opens (not on every close — closing via
-  // Escape/outside-click would otherwise silently discard in-progress edits).
+  // Sync in only when the dialog opens.
   useEffect(() => {
     if (open) setCode(extension.content ?? "");
   }, [open]);
 
+  const isDirty = code !== (extension.content ?? "");
+
+  // Block Escape / outside-click from closing while there are unsaved edits.
+  const handleOpenChange = (next: boolean) => {
+    if (!next && isDirty) return;
+    setOpen(next);
+    if (!next) setError(null);
+  };
+
   const handleCancel = () => {
+    setCode(extension.content ?? "");
     setOpen(false);
     setError(null);
   };
@@ -393,7 +402,7 @@ function SourceCodeDialog({
         </TooltipTrigger>
         <TooltipContent>View / edit source</TooltipContent>
       </Tooltip>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col gap-0 overflow-hidden p-0">
           <div className="flex shrink-0 items-center border-b border-border px-5 py-3 pr-12">
             <DialogTitle className="truncate text-sm font-medium">
