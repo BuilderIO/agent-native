@@ -381,6 +381,33 @@ function interruptedToolMessage(pending: {
   return `The agent stopped before starting ${actionLabel}. No tool result was returned, so the requested changes were not made.`;
 }
 
+function hasAssistantText(content: ContentPart[]): boolean {
+  return content.some(
+    (part) => part.type === "text" && part.text.trim().length > 0,
+  );
+}
+
+function completedToolNames(content: ContentPart[]): string[] {
+  const names = new Set<string>();
+  for (const part of content) {
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined &&
+      part.isError !== true
+    ) {
+      names.add(part.toolName);
+    }
+  }
+  return [...names];
+}
+
+function completedToolOnlyMessage(toolNames: string[]): string | null {
+  if (toolNames.length === 0) return null;
+  const label = formatToolNames(toolNames);
+  return `The agent completed ${label}, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.`;
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -822,6 +849,31 @@ export function processEvent(
           content: [...content],
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
+        } as ChatModelRunResult,
+      };
+    }
+    const toolOnlyMessage = hasAssistantText(content)
+      ? null
+      : completedToolOnlyMessage(completedToolNames(content));
+    if (toolOnlyMessage) {
+      content.push({
+        type: "text",
+        text: toolOnlyMessage,
+      });
+      return {
+        action: "done",
+        result: {
+          content: [...content],
+          status: { type: "complete" as const, reason: "stop" as const },
+          metadata: {
+            custom: {
+              runWarning: {
+                message: toolOnlyMessage,
+                errorCode: "final_response_missing_after_tool",
+                recoverable: true,
+              },
+            },
+          },
         } as ChatModelRunResult,
       };
     }

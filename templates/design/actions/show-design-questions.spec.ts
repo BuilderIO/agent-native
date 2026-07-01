@@ -59,7 +59,8 @@ describe("show-design-questions", () => {
       "design_123",
       "editor",
     );
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
+    expect(mocks.writeAppState).toHaveBeenNthCalledWith(
+      1,
       "show-questions:design_123",
       {
         designId: "design_123",
@@ -82,6 +83,12 @@ describe("show-design-questions", () => {
         ],
       },
     );
+    expect(mocks.writeAppState).toHaveBeenNthCalledWith(2, "navigate", {
+      view: "editor",
+      designId: "design_123",
+      editorView: "overview",
+      path: "/design/design_123?view=overview",
+    });
     expect(result).toMatchObject({
       designId: "design_123",
       count: 2,
