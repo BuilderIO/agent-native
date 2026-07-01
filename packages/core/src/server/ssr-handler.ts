@@ -346,13 +346,20 @@ const CSP_DIRECTIVE_NAMES = new Set([
   "worker-src",
 ]);
 
-function hasMultipleCspPolicies(policy: string): boolean {
+function splitCspPolicies(policy: string): string[] {
   const policyBreakPattern = /,\s*([a-z][a-z0-9-]*)(?=\s|;|$)/gi;
+  const policies: string[] = [];
+  let policyStart = 0;
   let match: RegExpExecArray | null;
   while ((match = policyBreakPattern.exec(policy))) {
-    if (CSP_DIRECTIVE_NAMES.has(match[1].toLowerCase())) return true;
+    if (!CSP_DIRECTIVE_NAMES.has(match[1].toLowerCase())) continue;
+    const previousPolicy = policy.slice(policyStart, match.index).trim();
+    if (previousPolicy) policies.push(previousPolicy);
+    policyStart = match.index + match[0].length - match[1].length;
   }
-  return false;
+  const finalPolicy = policy.slice(policyStart).trim();
+  if (finalPolicy) policies.push(finalPolicy);
+  return policies;
 }
 
 function usesStrictDynamic(tokens: readonly string[]): boolean {
@@ -424,8 +431,17 @@ function augmentExistingCspForFrameworkScripts(
     gaEnabled: boolean;
   },
 ): string {
+  const policies = splitCspPolicies(policy);
+  if (policies.length > 1) {
+    return policies
+      .map((singlePolicy) =>
+        augmentExistingCspForFrameworkScripts(singlePolicy, options),
+      )
+      .join(", ");
+  }
+
   const directives = parseCsp(policy);
-  if (!directives.length || hasMultipleCspPolicies(policy)) return policy;
+  if (!directives.length) return policy;
   const scriptSrcUsesStrictDynamic =
     options.preserveStrictScriptPolicies &&
     usesStrictDynamic(findCspDirective(directives, "script-src")?.tokens ?? []);

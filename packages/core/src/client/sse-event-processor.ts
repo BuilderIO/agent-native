@@ -288,6 +288,7 @@ function deletePreparingActionEntryForToolEvent(
       } else {
         state.noIdStartedToolCounts?.set(tool, startedCount - 1);
       }
+      deleteOnePreparingActionEntryForTool(state, tool);
       return;
     }
   }
@@ -296,11 +297,21 @@ function deletePreparingActionEntryForToolEvent(
     const counts = state.noIdStartedToolCounts ?? new Map<string, number>();
     state.noIdStartedToolCounts = counts;
     counts.set(tool, (counts.get(tool) ?? 0) + 1);
+    if (state.entries.has(tool)) state.entries.delete(tool);
+    return;
   }
 
   // Legacy production streams may omit ids on tool_start/tool_done. Treat that
   // as one matching action starting/finishing, not as proof that every parallel
   // same-tool preparation has completed.
+  deleteOnePreparingActionEntryForTool(state, tool);
+}
+
+function deleteOnePreparingActionEntryForTool(
+  state: PreparingActionState,
+  tool: string,
+): void {
+  if (!state.entries?.size) return;
   if (state.entries.has(tool)) {
     state.entries.delete(tool);
     return;

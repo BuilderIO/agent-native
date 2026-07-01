@@ -362,6 +362,58 @@ function noIdToolPairDuringParallelSameToolPreparationStream(
   });
 }
 
+function noIdToolStartDuringParallelThenIdCompletionStream(
+  tool = "edit-design",
+): ReadableStream<Uint8Array> {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encode = (event: unknown) =>
+        new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+      controller.enqueue(
+        encode({
+          type: "activity",
+          label: `Preparing ${tool} action`,
+          tool,
+          id: "call-a",
+          progressBytes: 65_536,
+        }),
+      );
+      controller.enqueue(
+        encode({
+          type: "activity",
+          label: `Preparing ${tool} action`,
+          tool,
+          id: "call-b",
+          progressBytes: 32_768,
+        }),
+      );
+      controller.enqueue(encode({ type: "tool_start", tool, input: {} }));
+      controller.enqueue(
+        encode({ type: "tool_start", tool, id: "call-b", input: {} }),
+      );
+      controller.enqueue(
+        encode({ type: "tool_done", tool, id: "call-b", result: "ok" }),
+      );
+      timer = setInterval(() => {
+        try {
+          controller.enqueue(
+            encode({
+              type: "activity",
+              label: "Still reasoning",
+            }),
+          );
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, 10_000);
+    },
+    cancel() {
+      if (timer) clearInterval(timer);
+    },
+  });
+}
+
 function noIdPositivePreparationFallbackStream(
   tool = "edit-design",
 ): ReadableStream<Uint8Array> {
@@ -652,6 +704,33 @@ describe("SSE event processor no-progress recovery", () => {
       try {
         for await (const _ of readSSEStream(
           noIdToolPairDuringParallelSameToolPreparationStream(),
+          [],
+          { value: 0 },
+          undefined,
+        )) {
+          // no-op
+        }
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+  });
+
+  it("does not let a no-id tool_start clear an id-keyed parallel preparation", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          noIdToolStartDuringParallelThenIdCompletionStream(),
           [],
           { value: 0 },
           undefined,

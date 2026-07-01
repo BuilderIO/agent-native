@@ -1071,6 +1071,49 @@ describe("createH3SSRHandler", () => {
       }
     });
 
+    it("augments each comma-combined enforced CSP policy independently", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      const previousGa = process.env.GA_MEASUREMENT_ID;
+      process.env.NODE_ENV = "production";
+      process.env.GA_MEASUREMENT_ID = "G-CSPTEST123";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy":
+                "script-src 'self'; object-src 'none', default-src 'self'; frame-ancestors 'none'",
+            },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/"));
+
+        const csp = response.headers.get("content-security-policy");
+        expect(csp).toContain("script-src 'self' 'sha256-");
+        expect(csp).toContain("https://www.googletagmanager.com");
+        expect(csp).toContain(
+          "default-src 'self'; frame-ancestors 'none'; script-src 'self'",
+        );
+        expect(csp).toContain("connect-src 'self'");
+        expect(csp).toContain("https://analytics.google.com");
+        expect(csp).toContain("img-src 'self'");
+        expect(csp).toContain("https://stats.g.doubleclick.net");
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+        if (previousGa === undefined) {
+          delete process.env.GA_MEASUREMENT_ID;
+        } else {
+          process.env.GA_MEASUREMENT_ID = previousGa;
+        }
+      }
+    });
+
     it("adds GA script, connect, and image directives when an existing default-src would block them", async () => {
       const previousNodeEnv = process.env.NODE_ENV;
       const previousGa = process.env.GA_MEASUREMENT_ID;
