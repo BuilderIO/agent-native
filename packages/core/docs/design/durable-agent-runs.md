@@ -83,10 +83,11 @@ terminate with an untruthful "done" state.
 not buy more time — it just converts a graceful hand-off into a hard kill. The
 walls, in order:
 
-1. **Builder model gateway hard cap — ~45s.**
-   `MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000` in
-   `packages/core/src/agent/engine/builder-engine.ts`. A single model call is
-   killed at the gateway after 45s. **Not raisable** by the framework.
+1. **Builder model gateway foreground cap — ~45s.**
+   Hosted foreground calls keep a 45s cap in
+   `packages/core/src/agent/engine/builder-engine.ts`. Local/non-hosted and
+   proven background-function calls use the longer background-style cap because
+   they are not constrained by the synchronous function wall.
 2. **Serverless function kill — ~60–65s.** The hosting function is terminated
    shortly after; the heartbeat then reaps the run row as `stale_run`.
 
@@ -366,8 +367,8 @@ The whole `auto_continue` / 40s soft-timeout dance exists to stay under the
 **serverless function wall** (~60–65s synchronous on Netlify), not under any
 model limit. Evidence:
 
-- `builder-engine.ts:62` `MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS = 180_000`
-  (3 min) is allowed locally; the run loop has no inherent reason to stop at 40s.
+- `builder-engine.ts` allows the long background gateway cap in local/non-hosted
+  runs; the run loop has no inherent reason to stop at 40s.
 - `run-manager.ts:58,68` `DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS` /
   `HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000` are pinned just under the function
   wall, and `templates/brain/netlify.toml` sets `[functions."*"] timeout = 75`.
@@ -379,10 +380,9 @@ function there is no ~60s wall, so:
 
 - The agent loop can run for minutes in a single invocation with **few or no
   `auto_continue` continuations**.
-- The per-model-call gateway cap (`MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000`,
-  `builder-engine.ts:60`) still applies per call — see
-  [Per-model-call gateway cap](#per-model-call-gateway-cap) — but the _run_ is no
-  longer chopped into 40s chunks.
+- The foreground hosted per-model-call gateway cap still applies per call — see
+  [Per-model-call gateway cap](#per-model-call-gateway-cap) — but the _run_ is
+  no longer chopped into 40s chunks.
 
 This is exactly the Layer 1 worker with a concrete long-lived host: Netlify is
 the durable worker, reached through the existing self-dispatch primitive — the
@@ -527,29 +527,27 @@ Minimal client change, because the reconnect machinery already exists:
 
 ## Per-model-call gateway cap
 
-Even in a 15-min function, a _single_ model call is still capped by the Builder
-gateway: `MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000` (`builder-engine.ts:60`),
-resolved by `getBuilderGatewayTimeoutMs()` (`:770`) /
-`resolveMaxBuilderGatewayTimeoutMs()` (`:758`). Locally the cap is already
-`180_000` (`:62`) when the gateway base URL is localhost.
+Builder gateway calls now use a runtime-aware cap. Hosted foreground calls keep
+the 45s cap so the synchronous function can still checkpoint before its hard
+wall. Local/non-hosted runs use a longer local cap, and proven Netlify
+background-function runs may use a background cap below the 15-minute function
+wall. The run-manager's 13-minute background soft-timeout should fire before
+the gateway cap in normal durable background operation.
 
 Options, in scope-order:
 
-1. **In scope / safe now:** keep the 45s per-call cap. A 15-min function makes
-   _many_ 45s calls; the cap bounds one call, not the run. This alone delivers
-   the goal (long multi-step runs finish) with **zero gateway changes**.
-2. **Flag, out of scope until confirmed:** raise the per-call cap toward 180s in
-   the background context. `getBuilderGatewayTimeoutMs()` already honors
-   `AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS`, but it is hard-clamped to
-   `resolveMaxBuilderGatewayTimeoutMs()` = 45s for non-localhost gateways. Raising
-   it requires the **hosted Builder gateway to actually allow >45s upstream** —
-   unverified, and not the framework's call. Until confirmed, do not raise it.
-3. **Escape hatch:** a direct Anthropic engine (no Builder gateway) has no 45s
-   cap, so a single very long call could use it. Out of scope for this change;
-   note it as the lever if a single model call truly needs >45s.
+1. **Foreground hosted:** keep the 45s cap. The synchronous function wall is the
+   constraint, and a larger cap would turn graceful checkpointing into a hard
+   platform kill.
+2. **Local/non-hosted:** allow longer calls by default. Local development should
+   not inherit a serverless wall it does not have.
+3. **Durable background:** allow longer calls only when the runtime proves it is
+   inside the emitted background function. Keep the cap below 15 minutes and
+   above the 13-minute run soft-timeout so background checkpointing still owns
+   logical-turn continuation.
 
-**Recommendation:** ship with option 1. The win is removing the _run-level_
-ceiling; the per-call cap is orthogonal and rarely the binding constraint.
+**Recommendation:** preserve this split. Do not raise the foreground cap; use
+durable background for long-running tool-input generation.
 
 ## Idempotency / dedup
 
@@ -626,7 +624,8 @@ only): foreground handler inserts the run row, dispatches, returns the SSE
 stream from `subscribeToRun`. The background `_process-run` claims the run and
 calls the same `startRun` + `runAgentLoop` the inline path uses, with
 `softTimeoutMs ≈ 13min` (new `backgroundFunction` option in
-`resolveRunSoftTimeoutMs`). Per-call gateway cap stays at 45s (option 1).
+`resolveRunSoftTimeoutMs`). Builder gateway calls use the background cap only
+when the worker proves it is inside the emitted background function.
 **Done when:** a long multi-step turn that thrashes today completes in one
 background invocation with zero `auto_continue`, events streaming to the client
 via the SQL-poll path, terminal `done` persisted.
@@ -645,10 +644,10 @@ dispatches, and background→background `auto_continue` chaining for the rare
 > 13-min turn (mirror `agent-teams.ts:1886`). Internal checkpointing (Option A)
 > for monotonic progress across any continuation.
 
-**Slice 4 (optional, separate decision) — raise the per-call gateway cap.**
-Only after confirming the hosted Builder gateway accepts >45s upstream; wire
-`AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS` through with a background-context max.
-Out of scope until that confirmation exists.
+**Slice 4 — foreground remains capped.**
+Do not raise the hosted foreground per-call gateway cap. Any future tuning
+should stay in the local/background timeout regime unless the synchronous
+platform wall changes.
 
 ## Open risks / unknowns
 

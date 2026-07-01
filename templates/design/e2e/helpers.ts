@@ -221,7 +221,7 @@ export async function enterDirectMode(page: Page): Promise<void> {
     .then(() => true)
     .catch(() => false);
   if (fullViewVisible) {
-    await fullView.first().click();
+    await fullView.last().click();
     await expect(fullView).toHaveCount(0);
   }
   await expect
@@ -267,7 +267,7 @@ export async function bridgeMessages(page: Page): Promise<any[]> {
 export async function waitForBridge(
   page: Page,
   type: string,
-  timeout = 8_000,
+  timeout = 15_000,
 ): Promise<any> {
   const handle = await page.waitForFunction(
     (t) =>

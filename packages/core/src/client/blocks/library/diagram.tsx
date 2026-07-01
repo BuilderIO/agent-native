@@ -291,7 +291,7 @@ function PositionedDiagram({
               return (
                 <span
                   key={`${edge.from}-${edge.to}-${index}-label`}
-                  className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-background px-2 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm"
+                  className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 break-words rounded-full border border-border bg-background px-2 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm [overflow-wrap:anywhere]"
                   style={{
                     left: `${(from.displayX + to.displayX) / 2}%`,
                     top: `${(from.displayY + to.displayY) / 2}%`,
@@ -305,7 +305,7 @@ function PositionedDiagram({
           {displayNodesForDirection.map((node, index) => (
             <article
               key={node.id}
-              className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm"
+              className="absolute z-20 -translate-x-1/2 -translate-y-1/2 break-words rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm [overflow-wrap:anywhere]"
               style={{
                 left: `${node.displayX}%`,
                 top: `${node.displayY}%`,
@@ -485,7 +485,7 @@ function SequenceDiagram({
               {next && (
                 <div className="grid min-w-[72px] justify-items-center gap-1 text-muted-foreground">
                   {edge?.label && (
-                    <span className="max-w-[96px] truncate rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold">
+                    <span className="max-w-[96px] whitespace-normal break-words rounded-full border border-border px-2 py-0.5 text-center text-[11px] font-semibold [overflow-wrap:anywhere]">
                       {edge.label}
                     </span>
                   )}

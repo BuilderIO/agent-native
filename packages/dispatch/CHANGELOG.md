@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.5
+
+### Patch Changes
+
+- 2b27c0f: Avoid unsupported array helpers in Builder engine message caching and stabilize prep-load tests.
+
 ## 0.13.4
 
 ### Patch Changes

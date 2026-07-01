@@ -26,6 +26,7 @@ vi.mock("./run-store.js", () => ({
   reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   setRunError: vi.fn(() => Promise.resolve()),
+  setRunTerminalReason: vi.fn(() => Promise.resolve()),
   STALE_RUN_ERROR_EVENT: {
     type: "error",
     error:
@@ -69,6 +70,7 @@ import {
   ensureTerminalRunEvent,
   cleanupOldRuns,
   setRunError,
+  setRunTerminalReason,
   reapIfStale,
   reapUnclaimedBackgroundRun,
 } from "./run-store.js";
@@ -149,6 +151,7 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
     vi.mocked(setRunError).mockClear();
+    vi.mocked(setRunTerminalReason).mockClear();
     vi.mocked(reapUnclaimedBackgroundRun).mockReset();
     vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValue(false);
     vi.mocked(reapIfStale).mockReset();
@@ -163,6 +166,7 @@ describe("run manager soft timeout", () => {
   it("emits an internal continuation signal and aborts the run chunk", async () => {
     const events: AgentChatEvent[] = [];
     let aborted = false;
+    let abortReason: unknown;
 
     const run = startRun(
       "run-soft-timeout",
@@ -171,6 +175,7 @@ describe("run manager soft timeout", () => {
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => {
             aborted = true;
+            abortReason = signal.reason;
             resolve();
           });
         });
@@ -183,6 +188,7 @@ describe("run manager soft timeout", () => {
     await vi.advanceTimersByTimeAsync(11);
 
     expect(aborted).toBe(true);
+    expect(abortReason).toBe("run_timeout");
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "auto_continue",
@@ -190,6 +196,12 @@ describe("run manager soft timeout", () => {
       }),
     );
     expect(run.status).toBe("completed");
+    await vi.waitFor(() =>
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        "run-soft-timeout",
+        "run_timeout",
+      ),
+    );
   });
 
   it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {
@@ -707,6 +719,88 @@ describe("run manager soft timeout", () => {
         "completed",
       ),
     );
+  });
+
+  it("captures initial run-row persistence failures with the run id", async () => {
+    const provider = vi.fn(() => "evt_run_insert");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-insert-persistence-test",
+      provider,
+    );
+    const err = new Error("insert failed");
+    vi.mocked(insertRun).mockRejectedValueOnce(err);
+
+    try {
+      startRun(
+        "run-insert-missing",
+        "thread-insert-missing",
+        async () => {},
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          err,
+          expect.objectContaining({
+            route: "/_agent-native/agent-chat",
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "insert-run",
+            }),
+            extra: expect.objectContaining({
+              runId: "run-insert-missing",
+              threadId: "thread-insert-missing",
+            }),
+          }),
+        ),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
+  it("captures run-event persistence failures with the sequence and event type", async () => {
+    const provider = vi.fn(() => "evt_run_event");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-event-persistence-test",
+      provider,
+    );
+    const err = new Error("event insert failed");
+    vi.mocked(insertRunEvent).mockRejectedValueOnce(err);
+
+    try {
+      startRun(
+        "run-event-missing",
+        "thread-event-missing",
+        async (send) => {
+          send({ type: "text", text: "hello" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          err,
+          expect.objectContaining({
+            route: "/_agent-native/agent-chat",
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "insert-event",
+            }),
+            extra: expect.objectContaining({
+              runId: "run-event-missing",
+              threadId: "thread-event-missing",
+              seq: 0,
+              eventType: "text",
+            }),
+          }),
+        ),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("captures background run errors through the generic capture registry", async () => {

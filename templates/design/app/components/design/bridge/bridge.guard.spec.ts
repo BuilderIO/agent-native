@@ -336,6 +336,98 @@ it(
 );
 
 it(
+  "editor chrome bridge cancels an active element drag on Escape",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          (window as any).__bridgeMessages.push(event.data);
+        });
+      });
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #target {
+        position: absolute;
+        left: 120px;
+        top: 140px;
+        width: 120px;
+        height: 48px;
+        border: 0;
+        border-radius: 8px;
+        background: #6366f1;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="target" data-agent-native-node-id="target-button">Target</button>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(180, 164);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+      });
+      await page.mouse.move(180, 164);
+      await page.mouse.down();
+      await page.mouse.move(260, 224, { steps: 8 });
+      await page.waitForFunction(() => {
+        const target = document.querySelector<HTMLElement>("#target");
+        return target?.style.left !== "120px";
+      });
+
+      await page.keyboard.press("Escape");
+      await page.mouse.move(300, 260);
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target");
+        const computed = target ? window.getComputedStyle(target) : null;
+        return {
+          left: computed?.left,
+          top: computed?.top,
+          messageTypes: ((window as any).__bridgeMessages ?? []).map(
+            (message: { type?: string }) => message.type,
+          ),
+        };
+      });
+
+      expect(result.left).toBe("120px");
+      expect(result.top).toBe("140px");
+      expect(result.messageTypes).not.toContain("visual-style-change");
+      expect(result.messageTypes).not.toContain("visual-structure-change");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge keeps the previous primary outlined during shift-click multi-select",
   { timeout: 30_000 },
   async () => {

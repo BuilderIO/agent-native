@@ -1,6 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import {
-  IconConfetti,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
@@ -13,7 +12,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isMacPlatform } from "@/lib/utils";
 
 import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 
@@ -22,11 +20,10 @@ export interface RecordingToolbarProps {
   isPaused: boolean;
   onTogglePause: () => void;
   onStop: () => void;
-  onConfetti: () => void;
   onCancel: () => void;
 }
 
-const TOOLBAR_WIDTH = 276;
+const TOOLBAR_WIDTH = 232;
 const TOOLBAR_HEIGHT = 56;
 // Drop the toolbar just below the centered "Recording your screen…" status
 // text (which sits at the viewport's vertical center) so the controls don't
@@ -45,7 +42,6 @@ export function RecordingToolbar({
   isPaused,
   onTogglePause,
   onStop,
-  onConfetti,
   onCancel,
 }: RecordingToolbarProps) {
   const t = useT();
@@ -200,23 +196,6 @@ export function RecordingToolbar({
           <span className="text-[10px] uppercase tracking-wide">Paused</span>
         )}
       </div>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            data-toolbar-btn
-            type="button"
-            onClick={onConfetti}
-            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-            aria-label="Confetti"
-          >
-            <IconConfetti className="h-4 w-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>
-          Confetti ({isMacPlatform() ? "Ctrl+\u2318+C" : "Ctrl+Alt+C"})
-        </TooltipContent>
-      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>

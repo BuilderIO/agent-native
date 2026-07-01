@@ -25,6 +25,18 @@ describe("edit-design action schema", () => {
     ).toBe(true);
   });
 
+  it("accepts replace-file mode targeted by fileId", () => {
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        fileId: "file_variant_123",
+        mode: "replace-file",
+        replacementContent:
+          "<!DOCTYPE html><html><body><h1>Chosen direction</h1></body></html>",
+      }).success,
+    ).toBe(true);
+  });
+
   it("infers replace-file mode when replacementContent is provided", () => {
     expect(
       action.schema.safeParse({

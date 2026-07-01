@@ -31,6 +31,10 @@ import {
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import {
+  GA_CSP_SCRIPT_HOSTS,
+  getGaInlineConfigScriptBody,
+} from "./analytics.js";
+import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
@@ -278,13 +282,18 @@ function extractScriptBody(scriptTag: string | null): string | null {
  *     user-controlled content reaches the HTML).
  *
  * A third directive, `script-src`, is emitted via `Content-Security-Policy-
- * Report-Only` rather than enforced. The framework injects one deterministic
- * inline script per process (the Sentry config block — its hash is computed
- * once at process startup from the resolved env vars). Templates additionally
- * render a theme-init inline script whose exact content varies by template
- * (default theme param, custom docs variant, etc.) and which is rendered by
- * React Router, not this handler, so its hash is not available here. Shipping
- * script-src as Report-Only surfaces violations without breaking template
+ * Report-Only` rather than enforced. The framework injects deterministic inline
+ * scripts (the Sentry config block, whose hash is computed once at process
+ * startup from the resolved env vars, and — when `GA_MEASUREMENT_ID` is set —
+ * the gtag config block, whose hash is derived from the same string
+ * `wrapWithAnalytics` embeds). It also loads Google Tag Manager / GA4 from
+ * `GA_CSP_SCRIPT_HOSTS`. All of those are listed here so the report-only policy
+ * reflects the code the framework itself injects instead of reporting a
+ * violation on every page load. Templates additionally render a theme-init
+ * inline script whose exact content varies by template (default theme param,
+ * custom docs variant, etc.) and which is rendered by React Router, not this
+ * handler, so its hash is not available here. Shipping script-src as
+ * Report-Only surfaces the remaining violations without breaking template
  * customisations; teams can graduate to enforcement once their hashes are
  * enumerated.
  *
@@ -306,13 +315,23 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
     );
   }
 
-  // script-src as Report-Only: list 'self' plus the hash for the Sentry config
-  // script the SSR handler injects into every HTML response (the hash is
-  // computed once from the resolved env vars at process startup). Template
-  // theme-init hashes are NOT included here — see function comment above.
+  // script-src as Report-Only: list 'self', the framework-injected inline
+  // script hashes (Sentry config + gtag config), and the Google Analytics /
+  // Tag Manager loader hosts. These are exactly the scripts the framework
+  // itself injects, so listing them keeps the report-only policy from flagging
+  // GA on every page load (and keeps it safe to graduate to enforcement).
+  // Template theme-init hashes are NOT included here — see function comment.
   const sentryBody = extractScriptBody(sentryScript);
   const sentryHash = sentryBody ? computeInlineScriptHash(sentryBody) : null;
-  const scriptSrcTokens = ["'self'", ...(sentryHash ? [sentryHash] : [])];
+  const gaInlineBody = getGaInlineConfigScriptBody();
+  const gaHash = gaInlineBody ? computeInlineScriptHash(gaInlineBody) : null;
+  const gaHosts = gaInlineBody ? [...GA_CSP_SCRIPT_HOSTS] : [];
+  const scriptSrcTokens = [
+    "'self'",
+    ...(sentryHash ? [sentryHash] : []),
+    ...(gaHash ? [gaHash] : []),
+    ...gaHosts,
+  ];
   const scriptSrc = `script-src ${scriptSrcTokens.join(" ")}`;
 
   const existingRo = headers.get("content-security-policy-report-only") ?? "";

@@ -1,11 +1,12 @@
 import {
   OpenSourceBadge,
   PoweredByBadge,
+  LanguagePicker,
   StarfieldBackground,
   useT,
 } from "@agent-native/core/client";
 import type { Booking } from "@shared/api";
-import { IconCalendar } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";
 import {
   addMinutes,
   endOfMonth,
@@ -53,13 +54,23 @@ function BookingPageShell({
   return (
     <div
       className={cn(
-        "relative min-h-screen overflow-x-hidden bg-background p-4",
+        "relative min-h-screen bg-background dark:bg-black",
         className,
       )}
     >
       <StarfieldBackground className="fixed inset-0 opacity-25 dark:opacity-60" />
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,hsl(var(--background)/0.88)_72%)]" />
-      <div className="relative z-10 flow-root">{children}</div>
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,hsl(var(--background)/0.88)_72%)] dark:bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,#000000_100%)]" />
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
+        <LanguagePicker variant="ghost-icon" />
+        <ThemeToggle />
+      </div>
+      <div className="fixed bottom-[21px] left-4 z-50 flex flex-col items-start gap-2 max-sm:static max-sm:mx-auto max-sm:mt-8">
+        <PoweredByBadge variant="plain" embedded />
+        <OpenSourceBadge embedded />
+      </div>
+      <div className="relative z-10 min-h-screen overflow-x-hidden p-4">
+        {children}
+      </div>
     </div>
   );
 }
@@ -122,23 +133,26 @@ export default function BookingPage() {
     availability?.slotDurationMinutes ??
     settings?.defaultEventDuration ??
     30;
-  const { data: slots = [], isLoading: slotsLoading } = useAvailableSlots(
-    dateStr,
-    duration,
-    slug,
-  );
+  const {
+    data: slots = [],
+    isLoading: slotsLoading,
+    error: slotsError,
+  } = useAvailableSlots(dateStr, duration, slug);
   const monthStart = format(startOfMonth(viewMonth), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(viewMonth), "yyyy-MM-dd");
-  const { data: availableDates = [], isLoading: availableDatesLoading } =
-    useAvailableDays(
-      monthStart,
-      monthEnd,
-      duration,
-      slug,
-      step === "date" &&
-        !!availability &&
-        (!hasDurationChoice || selectedDuration !== null),
-    );
+  const {
+    data: availableDates = [],
+    isLoading: availableDatesLoading,
+    error: availableDatesError,
+  } = useAvailableDays(
+    monthStart,
+    monthEnd,
+    duration,
+    slug,
+    step === "date" &&
+      !!availability &&
+      (!hasDurationChoice || selectedDuration !== null),
+  );
   const createBooking = useCreateBooking();
   const selectedSlotRange = selectedSlot
     ? {
@@ -236,6 +250,7 @@ export default function BookingPage() {
   const pageTitle = bookingLink?.title || title;
   const pageDescription = bookingLink?.description || description;
   const requiredHostCount = (bookingLink?.hosts?.length ?? 0) + 1;
+  const availabilityErrorMessage = t("bookingLinks.availabilityUnavailable");
 
   useEffect(() => {
     if (hasDurationChoice && step === "date" && selectedDuration === null) {
@@ -277,9 +292,6 @@ export default function BookingPage() {
 
   return (
     <BookingPageShell className="pb-20">
-      <div className="absolute top-4 right-4 z-20">
-        <ThemeToggle />
-      </div>
       <div className="mx-auto mt-[7.5vh] w-full max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">
@@ -404,17 +416,26 @@ export default function BookingPage() {
               <h3 className="mb-4 text-sm font-medium text-center">
                 {t("bookingLinks.selectDate")}
               </h3>
-              <div className="flex justify-center">
-                <DatePicker
-                  selectedDate={selectedDate}
-                  onSelect={handleDateSelect}
-                  availability={availability}
-                  availableDates={availableDates}
-                  availabilityLoading={availableDatesLoading}
-                  viewMonth={viewMonth}
-                  onViewMonthChange={setViewMonth}
-                />
-              </div>
+              {availableDatesError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-3 py-3 text-sm text-destructive">
+                  <div className="flex items-start gap-2">
+                    <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>{availabilityErrorMessage}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center">
+                  <DatePicker
+                    selectedDate={selectedDate}
+                    onSelect={handleDateSelect}
+                    availability={availability}
+                    availableDates={availableDates}
+                    availabilityLoading={availableDatesLoading}
+                    viewMonth={viewMonth}
+                    onViewMonthChange={setViewMonth}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -443,6 +464,7 @@ export default function BookingPage() {
                 selectedSlot={selectedSlot}
                 onSelect={handleSlotSelect}
                 loading={slotsLoading}
+                errorMessage={slotsError ? availabilityErrorMessage : undefined}
               />
             </div>
           )}
@@ -495,8 +517,6 @@ export default function BookingPage() {
           )}
         </div>
       </div>
-      <OpenSourceBadge />
-      <PoweredByBadge />
     </BookingPageShell>
   );
 }

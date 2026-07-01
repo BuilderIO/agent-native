@@ -107,6 +107,27 @@ details live in `.agents/skills/`.
   `@sparticuz/chromium-min` in serverless runtimes; set
   `DASHBOARD_REPORT_CHROMIUM_PACK_URL` only when overriding the default
   Chromium pack location.
+- Analytics alert rules live in SQL via the `analytics-alert-rules` actions.
+  Use `save-analytics-alert-rule`, `list-analytics-alert-rules`,
+  `delete-analytics-alert-rule`, and `run-analytics-alerts`; do not hardcode
+  one-off alert checks in product code. Rules are generic over first-party
+  analytics events: set `eventName` for an exact event name, then filter on
+  columns like `event_name`, `app`, `template`, `user_key`, `session_id`,
+  `path`, or nested JSON fields like `properties.stage` and
+  `context.referrer`. `thresholdMode: "event_count"` counts matching events;
+  `thresholdMode: "distinct_count"` counts unique values from `distinctBy`.
+  Alert notifications use the shared notification channel registry, so
+  `channels` can include `inbox`, `email`, `slack`, `webhook`, or any custom
+  registered channel. Configure Slack with `NOTIFICATIONS_SLACK_WEBHOOK_URL`
+  and optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with
+  `NOTIFICATIONS_EMAIL_CHANNEL=1`, existing `RESEND_API_KEY` or
+  `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule `emailRecipients` or
+  the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`.
+  Netlify builds emit an alert cron trigger plus background worker from
+  `scripts/emit-netlify-dashboard-report-cron.ts` every five minutes; long-lived
+  runtimes use the in-process scheduler unless `ANALYTICS_ALERT_JOBS=0` is set.
+  External cron callers can POST `/api/analytics-alerts/run` with
+  `Authorization: Bearer $ANALYTICS_ALERTS_CRON_SECRET`.
 
 ## Application State
 
@@ -137,7 +158,7 @@ details live in `.agents/skills/`.
   name the metrics and the server generates the validated SQL/config for every
   panel in ONE fast call. Do NOT hand-author big `update-dashboard` configs
   panel-by-panel or loop `update-dashboard` — streaming a giant multi-panel
-  argument inside the ~40s budget fails and thrashes. Unknown metric keys are
+  argument across timeout boundaries fails and thrashes. Unknown metric keys are
   skipped and reported; per-panel SQL validates independently; existing
   dashboards append by default (`overwrite: true` replaces). Report the returned
   `panelCount` as proof-of-done.

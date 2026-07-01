@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getText, hasCollabState } from "@agent-native/core/collab";
-import { accessFilter } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -67,13 +67,8 @@ async function readManagedCssForSource(args: {
       content: schema.designFiles.content,
     })
     .from(schema.designFiles)
-    .innerJoin(
-      schema.designs,
-      eq(schema.designFiles.designId, schema.designs.id),
-    )
     .where(
       and(
-        accessFilter(schema.designs, schema.designShares),
         eq(schema.designFiles.designId, args.designId),
         eq(schema.designFiles.id, args.sourceRef),
       ),
@@ -124,12 +119,11 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, timelineId, sourceRef }) => {
+    await assertAccess("design", designId, "viewer");
+
     const db = getDb();
 
-    const conditions = [
-      accessFilter(schema.designs, schema.designShares),
-      eq(schema.motionTimeline.designId, designId),
-    ];
+    const conditions = [eq(schema.motionTimeline.designId, designId)];
 
     if (timelineId) {
       conditions.push(eq(schema.motionTimeline.id, timelineId));
@@ -151,10 +145,6 @@ export default defineAction({
         updatedAt: schema.motionTimeline.updatedAt,
       })
       .from(schema.motionTimeline)
-      .innerJoin(
-        schema.designs,
-        eq(schema.motionTimeline.designId, schema.designs.id),
-      )
       .where(and(...conditions))
       .orderBy(desc(schema.motionTimeline.updatedAt))
       .limit(timelineId ? 1 : 100);

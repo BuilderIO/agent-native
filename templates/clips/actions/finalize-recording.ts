@@ -39,6 +39,7 @@ import {
   deleteResumableSession,
   getResumableSession,
 } from "../server/lib/resumable-session.js";
+import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -341,6 +342,11 @@ export default defineAction({
       // Resumable path: create-recording initialized a session and chunk.post.ts
       // forwarded all chunks to the provider. Complete the session to get the CDN URL.
       const resumableSession = await getResumableSession(id);
+      if (resumableSession && isStreamingUploadDisabled()) {
+        console.warn(
+          `[finalize] streaming uploads are disabled, but completing existing resumable session for in-flight recording: ${id}`,
+        );
+      }
       if (resumableSession) {
         debugLog("[finalize] resumable session found, completing upload", {
           id,
@@ -351,6 +357,9 @@ export default defineAction({
           if (!uploadProvider?.resumable) {
             throw new Error("No resumable upload provider configured");
           }
+          if (resumableSession.bytesUploaded <= 0) {
+            throw new Error("Recording upload contained no video bytes");
+          }
           const videoUrl = await uploadProvider.resumable.completeSession(
             {
               sessionId: resumableSession.sessionId,
@@ -359,6 +368,7 @@ export default defineAction({
             typeof resumableSession.meta.filename === "string"
               ? resumableSession.meta.filename
               : "",
+            { skipCompressionWait: true },
           );
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
           const result = await markRecordingReady({
@@ -560,6 +570,7 @@ export default defineAction({
           filename: `${id}.${videoFormat}`,
           mimeType,
           ownerEmail,
+          skipCompressionWait: true,
         });
       } catch (err) {
         // Capture structured context so a "Builder.io upload failed (500)" can

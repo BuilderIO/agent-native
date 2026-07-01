@@ -163,6 +163,7 @@ type ConflictItem = { start: string; end: string };
 type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
+const BOOKING_SLOT_STEP_MINUTES = 30;
 
 type LocalDateTimeParts = {
   year: number;
@@ -341,6 +342,27 @@ function dateEndIso(date: string, timezone: string): string {
   ).toISOString();
 }
 
+function formatAvailabilityUnavailableReason(email?: string): string {
+  return email
+    ? `Calendar availability unavailable for ${email}`
+    : "Calendar availability unavailable";
+}
+
+function unavailableAvailabilityResponse(event: H3Event) {
+  setResponseStatus(event, 503);
+  return {
+    error:
+      "The host's calendar availability could not be checked. Please try again later.",
+    code: "calendar_availability_unavailable",
+  };
+}
+
+function formatLocalTime(totalMinutes: number): string {
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 async function resolveAvailabilityContext({
   slug,
   db = getDb(),
@@ -397,7 +419,7 @@ async function resolveAvailabilityContext({
   };
 }
 
-async function getConflictItems({
+export async function getConflictItems({
   db = getDb(),
   ownerEmail,
   hostEmails,
@@ -424,7 +446,18 @@ async function getConflictItems({
   );
   const freeBusyResolvedHosts = new Set<string>();
 
-  if (await googleCalendar.isConnected(ownerEmail)) {
+  const ownerConnected = ownerEmail
+    ? await googleCalendar.isConnected(ownerEmail)
+    : false;
+
+  if (ownerEmail && !ownerConnected) {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
+
+  if (ownerConnected) {
     try {
       if (requiredHosts.length > 0) {
         const freeBusy = await googleCalendar.getFreeBusy(
@@ -434,6 +467,14 @@ async function getConflictItems({
           ownerEmail,
           timezone,
         );
+        if (freeBusy.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              freeBusy.errors[0]?.email || ownerEmail,
+            ),
+          };
+        }
         for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
           const normalizedEmail = email.toLowerCase();
           if (!calendar.errors || calendar.errors.length === 0) {
@@ -448,11 +489,16 @@ async function getConflictItems({
         }
       }
 
-      const { events: googleEvents } = await googleCalendar.listEvents(
-        rangeStartIso,
-        rangeEndIso,
-        ownerEmail,
-      );
+      const { events: googleEvents, errors: googleEventErrors } =
+        await googleCalendar.listEvents(rangeStartIso, rangeEndIso, ownerEmail);
+      if (googleEventErrors.length > 0) {
+        return {
+          items: [],
+          unavailableReason: formatAvailabilityUnavailableReason(
+            googleEventErrors[0]?.email || ownerEmail,
+          ),
+        };
+      }
       conflictItems.push(
         ...googleEvents.filter(eventBlocksAvailability).map((event) => ({
           start: event.start,
@@ -460,7 +506,10 @@ async function getConflictItems({
         })),
       );
     } catch {
-      // Continue without Google events if API fails
+      return {
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+      };
     }
   }
 
@@ -501,7 +550,7 @@ async function getConflictItems({
   return { items: conflictItems };
 }
 
-function generateAvailableSlotsForDate({
+export function generateAvailableSlotsForDate({
   date,
   duration,
   config,
@@ -571,7 +620,17 @@ function generateAvailableSlotsForDate({
     const slotEnd = zonedTimeToUtc(date, scheduleSlot.end, timezone);
     if (slotEnd <= slotStart) continue;
 
-    let current = new Date(slotStart);
+    const scheduleStartMinutes = startHour * 60 + startMin;
+    const firstSlotStartMinutes =
+      Math.ceil(scheduleStartMinutes / BOOKING_SLOT_STEP_MINUTES) *
+      BOOKING_SLOT_STEP_MINUTES;
+    if (firstSlotStartMinutes >= 24 * 60) continue;
+
+    let current = zonedTimeToUtc(
+      date,
+      formatLocalTime(firstSlotStartMinutes),
+      timezone,
+    );
 
     while (current.getTime() + slotDuration * 60 * 1000 <= slotEnd.getTime()) {
       const candidateStart = new Date(current);
@@ -598,7 +657,9 @@ function generateAvailableSlotsForDate({
         });
       }
 
-      current = new Date(current.getTime() + slotDuration * 60 * 1000);
+      current = new Date(
+        current.getTime() + BOOKING_SLOT_STEP_MINUTES * 60 * 1000,
+      );
     }
   }
 
@@ -1147,7 +1208,9 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
         rangeEndIso: dateEndIso(rangeEnd, timezone),
         timezone,
       });
-      if (conflictResult.unavailableReason) return { dates: [] };
+      if (conflictResult.unavailableReason) {
+        return unavailableAvailabilityResponse(event);
+      }
       const dates: string[] = [];
       for (
         let cursor = new Date(from!);
@@ -1177,7 +1240,9 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
       rangeEndIso: dateEndIso(date, timezone),
       timezone,
     });
-    if (conflictResult.unavailableReason) return { slots: [] };
+    if (conflictResult.unavailableReason) {
+      return unavailableAvailabilityResponse(event);
+    }
     const availableSlots = generateAvailableSlotsForDate({
       date,
       duration,

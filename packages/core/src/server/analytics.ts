@@ -39,14 +39,30 @@ function getGaMeasurementId(): string | null {
   );
 }
 
-function getGaScript(): string | null {
+/**
+ * Script hosts the injected GA loader pulls executable code from. Google Tag
+ * Manager serves `gtag/js`, and GA4 can lazy-load additional collectors from
+ * `www.google-analytics.com`. These must be listed in the document `script-src`
+ * so the CSP reflects the code the framework itself injects (see
+ * `applyDocumentCsp` in `ssr-handler.ts`).
+ */
+export const GA_CSP_SCRIPT_HOSTS = [
+  "https://www.googletagmanager.com",
+  "https://www.google-analytics.com",
+] as const;
+
+/**
+ * The exact JS body (no surrounding `<script>` tags) of the inline gtag config
+ * block injected next to the gtag.js loader. Returned so the SSR handler can
+ * hash it for the `script-src` CSP directive — the hash must be computed from
+ * the identical string that `getGaScript()` embeds, so both call this helper.
+ * Returns `null` when GA is not configured.
+ */
+export function getGaInlineConfigScriptBody(): string | null {
   const id = getGaMeasurementId();
   if (!id) return null;
-  const srcId = encodeURIComponent(id);
   const jsId = JSON.stringify(id);
   return (
-    `<script async src="https://www.googletagmanager.com/gtag/js?id=${srcId}"></script>` +
-    `<script>` +
     `window.dataLayer=window.dataLayer||[];` +
     `function gtag(){dataLayer.push(arguments);}` +
     `gtag('js',new Date());` +
@@ -54,8 +70,18 @@ function getGaScript(): string | null {
     `if(typeof sessionStorage!=='undefined'&&sessionStorage.getItem('__an_signin')){` +
     `sessionStorage.removeItem('__an_signin');` +
     `gtag('event','sign_in');` +
-    `}` +
-    `</script>`
+    `}`
+  );
+}
+
+function getGaScript(): string | null {
+  const id = getGaMeasurementId();
+  if (!id) return null;
+  const srcId = encodeURIComponent(id);
+  const inlineBody = getGaInlineConfigScriptBody();
+  return (
+    `<script async src="https://www.googletagmanager.com/gtag/js?id=${srcId}"></script>` +
+    `<script>${inlineBody}</script>`
   );
 }
 

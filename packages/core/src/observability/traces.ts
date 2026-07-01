@@ -89,6 +89,14 @@ export async function instrumentAgentLoop(opts: {
    *  reads. */
   userId: string | null;
   config: ObservabilityConfig;
+  classifyError?: (error: unknown) =>
+    | {
+        status?: "success" | "error";
+        errorMessage?: string | null;
+        metadata?: Record<string, unknown> | null;
+      }
+    | null
+    | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
   const runStart = Date.now();
@@ -260,11 +268,17 @@ export async function instrumentAgentLoop(opts: {
   let usage: AgentLoopUsage | undefined;
   let runStatus: "success" | "error" = "success";
   let errorMessage: string | null = null;
+  let runMetadata: Record<string, unknown> | null = null;
   try {
     usage = await runAgentLoop({ ...loopOpts, send: instrumentedSend });
   } catch (err: any) {
-    runStatus = "error";
-    errorMessage = err?.message ?? String(err);
+    const classification = opts.classifyError?.(err) ?? null;
+    runStatus = classification?.status ?? "error";
+    errorMessage =
+      classification?.errorMessage === undefined
+        ? (err?.message ?? String(err))
+        : classification.errorMessage;
+    runMetadata = classification?.metadata ?? null;
     throw err;
   } finally {
     const runEnd = Date.now();
@@ -325,7 +339,7 @@ export async function instrumentAgentLoop(opts: {
       durationMs: totalDurationMs,
       status: runStatus,
       errorMessage,
-      metadata: null,
+      metadata: runMetadata,
       createdAt: runStart,
     };
     spans.push(parentSpan);

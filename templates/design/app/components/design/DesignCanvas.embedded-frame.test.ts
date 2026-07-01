@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getEmbeddedFrameDocumentContent,
   getEmbeddedFrameBackgroundStyle,
   getEmbeddedIframeBackgroundColor,
 } from "./DesignCanvas";
@@ -32,5 +33,21 @@ describe("DesignCanvas embedded frame backgrounds", () => {
         embeddedFrameBackground: "hsl(0 0% 10%)",
       }),
     ).toContain("hsl(0 0% 10%)");
+  });
+
+  it("preserves embedded frame styles for live document replacement", () => {
+    const content = getEmbeddedFrameDocumentContent({
+      content:
+        '<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="rect"></div></body></html>',
+      embeddedFrameBackground: "hsl(0 0% 10%)",
+      contentOffsetX: -100,
+      contentOffsetY: -200,
+    });
+
+    expect(content).toContain("data-agent-native-frame-background");
+    expect(content).toContain("background:hsl(0 0% 10%)");
+    expect(content).toContain("data-agent-native-content-offset");
+    expect(content).toContain("translate:-100px -200px");
+    expect(content).toContain('data-agent-native-node-id="rect"');
   });
 });

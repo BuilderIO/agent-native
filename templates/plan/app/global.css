@@ -156,7 +156,7 @@
   }
 
   .plan-content-surface[data-recap-screenshot-theme] .plan-document-shell {
-    padding: 10px;
+    padding: 0;
   }
 
   .plan-content-surface[data-recap-screenshot-theme] .plan-document-body {

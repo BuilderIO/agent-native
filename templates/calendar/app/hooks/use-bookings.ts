@@ -30,7 +30,9 @@ export function useAvailableSlots(
       const res = await fetch(
         appApiPath(`/api/bookings/available-slots?${params}`),
       );
-      if (!res.ok) throw new Error("Failed to fetch available slots");
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, "Failed to fetch slots"));
+      }
       const data = await res.json();
       return Array.isArray(data) ? data : (data.slots ?? []);
     },
@@ -57,7 +59,9 @@ export function useAvailableDays(
       const res = await fetch(
         appApiPath(`/api/bookings/available-slots?${params}`),
       );
-      if (!res.ok) throw new Error("Failed to fetch available days");
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, "Failed to fetch days"));
+      }
       const data = await res.json();
       return Array.isArray(data?.dates) ? data.dates : [];
     },

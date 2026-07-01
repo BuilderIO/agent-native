@@ -33,6 +33,7 @@ import {
   useDisconnectGoogle,
   type DesktopAuthIssue,
 } from "@/hooks/use-google-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 interface EnvKeyStatus {
   key: string;
@@ -93,6 +94,7 @@ export function GoogleConnectBanner({
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const canOfferOAuthSetup = useMemo(() => shouldOfferGoogleOAuthSetup(), []);
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
   const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -184,10 +186,17 @@ export function GoogleConnectBanner({
   useEffect(() => {
     if (authUrl.error) {
       setWantAuthUrl(false);
-      setShowWizard(true);
-      fetchStatus();
+      if (canOfferOAuthSetup) {
+        setShowWizard(true);
+        fetchStatus();
+      } else {
+        setDesktopAuthIssue({
+          code: "managed_credentials_unavailable",
+          message: t("googleConnect.managedCredentialsUnavailableDescription"),
+        });
+      }
     }
-  }, [authUrl.error, fetchStatus]);
+  }, [authUrl.error, canOfferOAuthSetup, fetchStatus, t]);
 
   useEffect(() => {
     if (
@@ -388,7 +397,7 @@ export function GoogleConnectBanner({
           </div>
         )}
 
-        {showWizard && !allConfigured && (
+        {showWizard && !allConfigured && canOfferOAuthSetup && (
           <div className="mt-8 w-full max-w-lg text-start">
             <SetupWizard
               currentStep={currentStep}
@@ -481,7 +490,7 @@ export function GoogleConnectBanner({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {showWizard && !allConfigured ? (
+          {showWizard && !allConfigured && canOfferOAuthSetup ? (
             <Button
               size="sm"
               variant="outline"
@@ -541,7 +550,7 @@ export function GoogleConnectBanner({
       />
 
       {/* Inline setup wizard */}
-      {showWizard && !allConfigured && (
+      {showWizard && !allConfigured && canOfferOAuthSetup && (
         <div className="px-5 pb-4 pt-1 max-w-2xl">
           <p className="text-xs text-muted-foreground mb-3">
             {t("googleConnect.followSteps")}

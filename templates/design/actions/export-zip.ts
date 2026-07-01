@@ -8,6 +8,7 @@ import {
   exportFilename,
   trySaveExportFile,
 } from "../server/lib/design-export.js";
+import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 const METADATA_ARCHIVE_DIR = "agent-native-metadata";
@@ -40,6 +41,7 @@ export default defineAction({
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
+    const exportFiles = files.filter((file) => !isBoardFile(file.filename));
 
     // Dynamic import JSZip
     const JSZip = (await import("jszip")).default;
@@ -57,14 +59,14 @@ export default defineAction({
       "",
       "## Files",
       "",
-      ...files.map((f) => `- ${f.filename} (${f.fileType})`),
+      ...exportFiles.map((f) => `- ${f.filename} (${f.fileType})`),
     ].join("\n");
 
     zip.file(`${METADATA_ARCHIVE_DIR}/README.md`, readme);
 
     // Preserve design-relative paths so exported HTML keeps working with
     // sibling CSS/assets. Strip traversal segments defensively for legacy rows.
-    for (const [index, file] of files.entries()) {
+    for (const [index, file] of exportFiles.entries()) {
       const filename = safeArchivePath(
         file.filename,
         `design-file-${index + 1}.txt`,
@@ -84,6 +86,11 @@ export default defineAction({
     const filename = exportFilename(row.title, "zip");
     const saveResult = await trySaveExportFile(filename, zipBuffer);
 
-    return { zipBase64, filename, ...saveResult, fileCount: files.length };
+    return {
+      zipBase64,
+      filename,
+      ...saveResult,
+      fileCount: exportFiles.length,
+    };
   },
 });

@@ -47,10 +47,25 @@ prompt, aspectRatio }`.
   composer is empty. The image model is the only remaining composer-side
   default; the image-model picker writes `imageGenerationModel`, which image
   generation actions may use when `model` is omitted.
+- When a `preset` is tagged, the server embeds that preset's aesthetics and
+  creative philosophy (brand style brief, prompt template, text/logo policy,
+  output format) into your message inside a `<tagged-generation-presets>` block.
+  Study and internalize that brief before you generate — let it drive
+  composition, mood, lighting, and subject — then pass the `presetId` to
+  `generate-image` / `generate-image-batch` so the saved format/model/tier/logo
+  apply automatically. Do not restate those as ad-hoc args.
 - For exact visible copy inside a generated image, pass `embeddedText` and
   optional `textPlacement` to `generate-image` or each `generate-image-batch`
   slot. Keep the general `prompt` for creative direction; the structured text
   fields are what allow the pipeline to render copy instead of suppressing it.
+- Logo compositing is a preset option: a generation preset carries
+  `includeLogo`, and `generate-image` / `generate-image-batch` stamp the
+  library's pixel-perfect canonical logo onto the result when the resolved
+  preset has it on (no-op if the library has no canonical logo). Set it via
+  `create-generation-preset` / `update-generation-preset` (`includeLogo`). The
+  model never draws the logo itself. Pass `includeLogo` on a generate call only
+  to override the preset for that one run; otherwise omit it. See the
+  `logo-composite` skill.
 - `asset-variants` is the shared live generation tray state. New image
   candidates should appear there through `generate-image` or
   `generate-image-batch`; do not invent page-local progress surfaces.

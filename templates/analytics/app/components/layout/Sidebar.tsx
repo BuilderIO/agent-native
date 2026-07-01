@@ -7,6 +7,7 @@ import {
   IconStar,
   IconPencil,
   IconSettings,
+  IconFilter,
   IconGripVertical,
   IconBook2,
   IconDatabase,
@@ -251,7 +252,7 @@ function SidebarSectionSettingsPopover({
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
               aria-label={settingsLabel}
             >
-              <IconSettings className="h-3.5 w-3.5" />
+              <IconFilter className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>

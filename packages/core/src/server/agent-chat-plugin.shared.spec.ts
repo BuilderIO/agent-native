@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentRunSummary } from "../agent/run-store.js";
+import { CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT } from "../agent/run-store.js";
 import type { ChatThread } from "../chat-threads/store.js";
 import {
+  finalizeClaimedAgentChatProcessRunFailure,
   handleSharedThreadRequest,
   shouldDisableRecurringJobsRuntime,
 } from "./agent-chat-plugin.js";
@@ -90,6 +92,9 @@ const run: AgentRunSummary = {
   lastProgressAt: 150,
   errorCode: null,
   abortReason: null,
+  dispatchMode: null,
+  terminalReason: "done",
+  diagStage: null,
 };
 
 describe("recurring jobs runtime startup", () => {
@@ -140,6 +145,79 @@ describe("recurring jobs runtime startup", () => {
         AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS: "1",
       }),
     ).toBe(true);
+  });
+});
+
+describe("agent chat process-run failure finalization", () => {
+  function deps(dispatchMode: string | null) {
+    return {
+      readBackgroundRunClaim: vi.fn(async () => ({
+        dispatchMode,
+        status: "running",
+      })),
+      recordRunDiagnostic: vi.fn(async () => {}),
+      setRunError: vi.fn(async () => {}),
+      setRunTerminalReason: vi.fn(async () => {}),
+      updateRunStatusIfRunning: vi.fn(async () => true),
+      ensureTerminalRunEvent: vi.fn(async () => {}),
+    };
+  }
+
+  it("marks claimed background worker setup failures terminal immediately", async () => {
+    const d = deps("background-processing");
+
+    await expect(
+      finalizeClaimedAgentChatProcessRunFailure(
+        "run-claimed",
+        new Error("setup exploded"),
+        d,
+      ),
+    ).resolves.toBe(true);
+
+    expect(d.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-claimed",
+      "route_threw",
+      "setup exploded",
+    );
+    expect(d.setRunError).toHaveBeenCalledWith(
+      "run-claimed",
+      "background_worker_failed",
+      expect.stringContaining("setup exploded"),
+    );
+    expect(d.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-claimed",
+      "errored",
+    );
+    expect(d.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-claimed",
+      "background_worker_failed",
+    );
+    expect(d.ensureTerminalRunEvent).toHaveBeenCalledWith(
+      "run-claimed",
+      CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+    );
+  });
+
+  it("leaves unclaimed worker failures recoverable by foreground inline fallback", async () => {
+    const d = deps("background");
+
+    await expect(
+      finalizeClaimedAgentChatProcessRunFailure(
+        "run-unclaimed",
+        new Error("pre-claim failure"),
+        d,
+      ),
+    ).resolves.toBe(false);
+
+    expect(d.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-unclaimed",
+      "route_threw",
+      "pre-claim failure",
+    );
+    expect(d.setRunError).not.toHaveBeenCalled();
+    expect(d.setRunTerminalReason).not.toHaveBeenCalled();
+    expect(d.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(d.ensureTerminalRunEvent).not.toHaveBeenCalled();
   });
 });
 

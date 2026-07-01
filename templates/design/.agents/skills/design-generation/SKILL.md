@@ -119,14 +119,21 @@ Each `content` is a complete, self-contained document (Alpine.js + Tailwind via 
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
-from the kept screen. If inline chat choice buttons are unavailable in the host,
-ask the user to tell you the preferred screen name. Do not ask them to paste HTML
-or a generated handoff summary; the variants are already real screens on the
-board.
+from the kept screen by calling `get-design-snapshot` with the selected
+screen's `fileId`, then calling `edit-design` on that same `fileId`. Use
+`mode: "replace-file"` when expanding the representative placeholder into the
+full chosen direction. Do not call `generate-design` after a variant pick. If
+inline chat choice buttons are unavailable in the host, ask the user to tell you
+the preferred screen name. Do not ask them to paste HTML or a generated handoff
+summary; the variants are already real screens on the board.
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 
-Skip variants and call `generate-design` directly for: refinements to an already-picked design, multi-screen additions to an existing design, or one-shot prompts where the direction is unambiguous.
+Skip variants and call `generate-design` directly for: a brand-new first
+renderable file, multi-screen additions to an existing design, or one-shot
+prompts where the direction is unambiguous. For refinements to an already-picked
+design or selected screen, use `get-design-snapshot` followed by `edit-design`
+instead.
 
 ```bash
 pnpm action generate-design \
@@ -476,7 +483,9 @@ regeneration is slow, expensive, and regresses unrelated parts.
    Each `search` must match the file **exactly and uniquely** — include enough
    surrounding context to be unambiguous. Wrapping an element in a new div is
    just a search/replace whose `replace` adds the wrapper around the original.
-3. **Reserve `generate-design` for** net-new files or large structural rewrites.
+3. **Reserve `generate-design` for** net-new files. For large structural
+   rewrites of an existing selected file, call `edit-design` with
+   `mode: "replace-file"` and the exact `fileId` from `get-design-snapshot`.
    Never resend files you aren't changing.
 4. **Treat `:root` as the global spec.** For theme-wide restyles, edit the
    tokens in `:root` rather than touching every element.

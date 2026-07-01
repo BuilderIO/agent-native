@@ -1,0 +1,162 @@
+name: Promote Netlify deploy
+
+# Netlify has no native "jump the queue" primitive: production builds share a
+# per-account concurrency pool, so when one site is busted it can sit behind a
+# backlog of other sites' queued builds. This manual workflow prioritizes a
+# single site by (a) cancelling queued-but-not-yet-started production deploys
+# for the target site, (b) optionally cancelling OTHER sites' queued production
+# deploys to free build slots, and (c) triggering a fresh production build of
+# the target site so the latest main ships immediately. In-progress deploys are
+# never cancelled.
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: Site to prioritize
+        required: true
+        type: choice
+        options:
+          - assets
+          - brain
+          - design
+          - clips
+          - videos
+          - chat
+          - slides
+          - mail
+          - macros
+          - forms
+          - plan
+          - dispatch
+          - content
+          - calendar
+          - analytics
+          - fw
+      clear_others:
+        description: Cancel other sites' queued (not in-progress) production deploys to free build slots
+        required: false
+        type: boolean
+        default: true
+      rebuild:
+        description: Trigger a fresh production build of the target site
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-netlify-deploy
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: scripts/netlify-sites.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          TARGET: ${{ inputs.site }}
+          CLEAR_OTHERS: ${{ inputs.clear_others }}
+          REBUILD: ${{ inputs.rebuild }}
+        with:
+          script: |
+            const fs = require('fs');
+            const sites = JSON.parse(fs.readFileSync('scripts/netlify-sites.json', 'utf8'));
+
+            const token = process.env.NETLIFY_TOKEN;
+            if (!token) {
+              core.setFailed('NETLIFY_AUTH_TOKEN secret not set; cannot promote a deploy.');
+              return;
+            }
+
+            const target = process.env.TARGET;
+            const targetId = sites[target];
+            if (!targetId) {
+              core.setFailed(`Unknown site: ${target}`);
+              return;
+            }
+
+            const clearOthers = process.env.CLEAR_OTHERS === 'true';
+            const rebuild = process.env.REBUILD === 'true';
+            const headers = { Authorization: `Bearer ${token}` };
+            const CANCELABLE_STATES = new Set(['new', 'enqueued']);
+
+            async function cancelQueuedProductionDeploys(name, id, options = {}) {
+              const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
+              let r;
+              try {
+                r = await fetch(url, { headers });
+              } catch (err) {
+                core.warning(`[${name}] list fetch failed: ${err?.message || err}`);
+                return 0;
+              }
+              if (!r.ok) { core.warning(`[${name}] list ${r.status}`); return 0; }
+              let deploys;
+              try {
+                deploys = await r.json();
+              } catch (err) {
+                core.warning(`[${name}] list json failed: ${err?.message || err}`);
+                return 0;
+              }
+              const queued = deploys.filter(d =>
+                d.context === 'production' && CANCELABLE_STATES.has(d.state)
+              );
+              const keepDeploy = options.keepNewest && queued.length
+                ? queued
+                    .slice()
+                    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
+                : null;
+              const cancelable = keepDeploy
+                ? queued.filter(d => d.id !== keepDeploy.id)
+                : queued;
+              if (keepDeploy) {
+                core.info(`[${name}] keeping newest queued production deploy ${keepDeploy.id}; canceling older queued deploys only.`);
+              }
+              let ok = 0;
+              for (const d of cancelable) {
+                try {
+                  const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
+                  if (c.ok) ok++;
+                } catch (err) {
+                  core.warning(`[${name}] cancel ${d.id} failed: ${err?.message || err}`);
+                }
+              }
+              if (cancelable.length) {
+                core.info(`[${name}] freed ${ok}/${cancelable.length} queued production deploys`);
+              }
+              return ok;
+            }
+
+            if (clearOthers) {
+              const others = Object.entries(sites).filter(([name]) => name !== target);
+              let freed = 0;
+              await Promise.all(others.map(async ([name, id]) => {
+                freed += await cancelQueuedProductionDeploys(name, id);
+              }));
+              core.info(`Cleared ${freed} queued production deploys across other sites.`);
+            }
+
+            if (rebuild) {
+              const r = await fetch(`https://api.netlify.com/api/v1/sites/${targetId}/builds`, { method: 'POST', headers });
+              if (r.ok) {
+                core.info(`[${target}] triggered a fresh production build.`);
+              } else {
+                core.setFailed(`[${target}] build trigger failed: ${r.status} ${await r.text()}`);
+                return;
+              }
+              const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
+              core.info(`[${target}] cleared ${freedTarget} older queued deploys after rebuild trigger.`);
+            } else {
+              const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
+              core.info(`[${target}] rebuild not requested; cleared ${freedTarget} older queued deploys so the newest existing deploy runs sooner.`);
+            }
+
+            core.info(`Promotion complete for ${target} (clear_others=${clearOthers}, rebuild=${rebuild}).`);

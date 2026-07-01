@@ -24,6 +24,7 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import { isInBackgroundFunctionRuntime } from "../durable-background.js";
 import { BUILDER_MODEL_CONFIG } from "../model-config.js";
 import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
 import {
@@ -53,13 +54,20 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
 
 export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
-// Keep the gateway timeout below the hosted run soft timeout so the agent loop
-// can append a continuation and persist terminal state before serverless hosts
-// (Netlify synchronous Functions are 60s) hard-kill the invocation.
+// Keep the foreground hosted gateway timeout below the synchronous serverless
+// wall so the agent loop can append a continuation and persist terminal state
+// before the host hard-kills the invocation.
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
-const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
-/** Local ai-services has no serverless wall; allow longer streams in dev. */
-const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS = 180_000;
+const MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
+/**
+ * Netlify background functions have a 15-minute wall. Keep the Builder gateway
+ * ceiling below that, but above the run-manager's 13-minute soft-timeout so
+ * durable background runs checkpoint before this timer wins.
+ */
+const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
+/** Local and non-hosted runtimes have no synchronous serverless wall. */
+const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS =
+  MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
@@ -185,9 +193,13 @@ class BuilderEngine implements AgentEngine {
     // content block so the entire conversation prefix is cached.
     let cachedMessages = messages;
     if (cacheEnabled && messages.length > 0) {
-      const lastUserIdx = [...messages].findLastIndex(
-        (m: any) => m.role === "user",
-      );
+      let lastUserIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if ((messages[i] as any).role === "user") {
+          lastUserIdx = i;
+          break;
+        }
+      }
       if (lastUserIdx >= 0) {
         cachedMessages = [...messages];
         const lastMsg = { ...cachedMessages[lastUserIdx] } as any;
@@ -315,6 +327,7 @@ class BuilderEngine implements AgentEngine {
       }
 
       yield* parseJsonlStream(reader, opts.model, {
+        abortSignal: gatewayAbort.signal,
         didGatewayTimeout: gatewayAbort.didTimeout,
         gatewayTimeoutMs,
         gatewayUrl,
@@ -430,11 +443,12 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
 // a complete line and the client must still process it.
 async function* readJsonlLines(
   reader: ReadableStreamDefaultReader<Uint8Array>,
+  abortSignal?: AbortSignal,
 ): AsyncIterable<string> {
   const decoder = new TextDecoder();
   let buffer = "";
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readStreamChunk(reader, abortSignal);
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let newlineIdx = buffer.indexOf("\n");
@@ -457,6 +471,7 @@ async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   model: string,
   captureContext: {
+    abortSignal?: AbortSignal;
     didGatewayTimeout?: () => boolean;
     gatewayTimeoutMs?: number;
     gatewayUrl?: URL;
@@ -487,7 +502,10 @@ async function* parseJsonlStream(
   };
 
   try {
-    for await (const line of readJsonlLines(reader)) {
+    for await (const line of readJsonlLines(
+      reader,
+      captureContext.abortSignal,
+    )) {
       let event: any;
       try {
         event = JSON.parse(line);
@@ -722,6 +740,32 @@ async function* parseJsonlStream(
   }
 }
 
+function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  abortSignal?: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!abortSignal) return reader.read();
+  if (abortSignal.aborted) {
+    return Promise.reject(abortSignal.reason ?? new Error("Stream aborted"));
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      reject(abortSignal.reason ?? new Error("Stream aborted"));
+    };
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+    reader.read().then(
+      (value) => {
+        abortSignal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        abortSignal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 function normalizeGatewayErrorText(raw: string, status: number): string {
   const text = raw.trim();
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(text);
@@ -761,6 +805,14 @@ export function createBuilderEngine(
 }
 
 function resolveMaxBuilderGatewayTimeoutMs(): number {
+  if (isInBackgroundFunctionRuntime()) {
+    return MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
+  }
+
+  if (!isHostedBuilderRuntime()) {
+    return MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS;
+  }
+
   try {
     const base = getBuilderGatewayBaseUrl();
     if (/^https?:\/\/(localhost|127\.0\.0\.1)([:/]|$)/i.test(base)) {
@@ -769,7 +821,31 @@ function resolveMaxBuilderGatewayTimeoutMs(): number {
   } catch {
     // ignore malformed override
   }
-  return MAX_BUILDER_GATEWAY_TIMEOUT_MS;
+  return MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
+}
+
+function isHostedBuilderRuntime(): boolean {
+  if (
+    process.env.NETLIFY &&
+    process.env.NETLIFY !== "false" &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  if (
+    process.env.AWS_LAMBDA_FUNCTION_NAME &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  return Boolean(
+    process.env.CF_PAGES ||
+    process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.RENDER ||
+    process.env.FLY_APP_NAME ||
+    process.env.K_SERVICE,
+  );
 }
 
 function getBuilderGatewayTimeoutMs(): number {

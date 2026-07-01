@@ -58,7 +58,7 @@ describe("resolveA2ACallerAuth", () => {
     );
   });
 
-  it("prefers the org A2A secret and includes the verified org domain hint", async () => {
+  it("prefers the shared A2A secret and includes the verified org domain hint", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
 
     await runWithRequestContext(
@@ -75,7 +75,7 @@ describe("resolveA2ACallerAuth", () => {
         await expect(
           jose.jwtVerify(
             auth.apiKey!,
-            new TextEncoder().encode("org-a2a-secret"),
+            new TextEncoder().encode("global-a2a-secret"),
           ),
         ).resolves.toMatchObject({
           payload: {
@@ -86,9 +86,46 @@ describe("resolveA2ACallerAuth", () => {
         await expect(
           jose.jwtVerify(
             auth.apiKey!,
-            new TextEncoder().encode("global-a2a-secret"),
+            new TextEncoder().encode("org-a2a-secret"),
           ),
         ).rejects.toThrow();
+        expect(auth.apiKeyFallbacks).toHaveLength(1);
+        await expect(
+          jose.jwtVerify(
+            auth.apiKeyFallbacks![0],
+            new TextEncoder().encode("org-a2a-secret"),
+          ),
+        ).resolves.toMatchObject({
+          payload: {
+            sub: "alice+qa@agent-native.test",
+            org_domain: "builder.io",
+          },
+        });
+      },
+    );
+  });
+
+  it("falls back to the org A2A secret when no shared secret is configured", async () => {
+    delete process.env.A2A_SECRET;
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth();
+
+        expect(auth.orgDomain).toBe("builder.io");
+        expect(auth.orgSecret).toBe("org-a2a-secret");
+        await expect(
+          jose.jwtVerify(
+            auth.apiKey!,
+            new TextEncoder().encode("org-a2a-secret"),
+          ),
+        ).resolves.toMatchObject({
+          payload: {
+            sub: "alice+qa@agent-native.test",
+            org_domain: "builder.io",
+          },
+        });
       },
     );
   });
