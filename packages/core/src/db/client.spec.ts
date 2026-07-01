@@ -13,6 +13,14 @@ describe("db/client dialect detection", () => {
 
   afterEach(() => {
     process.env = originalEnv;
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
+    );
     vi.resetModules();
   });
 
@@ -79,6 +87,28 @@ describe("db/client dialect detection", () => {
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     const { getDatabaseUrl } = await import("./client.js");
     expect(getDatabaseUrl()).toBe("postgres://plan.example/db");
+  });
+
+  it("keeps the Neon foreground pool small on serverless", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(false);
+    expect(neonPoolMax()).toBe(2);
+  });
+
+  it("uses the background Neon pool when the verified process-run marker expects a background function", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
+
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(true);
+    expect(neonPoolMax()).toBe(8);
   });
 });
 

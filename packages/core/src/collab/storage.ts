@@ -10,6 +10,41 @@ import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
+type DbExecClient = ReturnType<typeof getDbExec>;
+type DbExecuteArg = Parameters<DbExecClient["execute"]>[0];
+type DbExecuteResult = Awaited<ReturnType<DbExecClient["execute"]>>;
+
+function isSqliteBusyError(error: unknown): boolean {
+  if (isPostgres()) return false;
+  const candidate = error as { code?: unknown; message?: unknown } | null;
+  return (
+    candidate?.code === "SQLITE_BUSY" ||
+    candidate?.code === "SQLITE_BUSY_RECOVERY" ||
+    (typeof candidate?.message === "string" &&
+      /database is locked|SQLITE_BUSY/i.test(candidate.message))
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function executeWithSqliteRetry(
+  client: DbExecClient,
+  statement: DbExecuteArg,
+): Promise<DbExecuteResult> {
+  const delays = [25, 75, 150, 300, 600];
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await client.execute(statement);
+    } catch (error) {
+      const delay = delays[attempt];
+      if (delay === undefined || !isSqliteBusyError(error)) throw error;
+      await sleep(delay);
+    }
+  }
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -97,7 +132,7 @@ export async function trySaveYDocState(
   const b64 = uint8ArrayToBase64(state);
   const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
   if (expectedVersion === null) {
-    const result = await client.execute({
+    const result = await executeWithSqliteRetry(client, {
       sql: isPostgres()
         ? `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`
         : `INSERT OR IGNORE INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr})`,
@@ -106,7 +141,7 @@ export async function trySaveYDocState(
     return result.rowsAffected > 0;
   }
 
-  const result = await client.execute({
+  const result = await executeWithSqliteRetry(client, {
     sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
     args: [b64, textSnapshot, docId, expectedVersion],
   });
@@ -123,13 +158,13 @@ export async function saveYDocState(
   const client = getDbExec();
   const b64 = uint8ArrayToBase64(state);
   const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-  const updated = await client.execute({
+  const updated = await executeWithSqliteRetry(client, {
     sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
     args: [b64, textSnapshot, docId],
   });
   if (updated.rowsAffected > 0) return;
 
-  const inserted = await client.execute({
+  const inserted = await executeWithSqliteRetry(client, {
     sql: isPostgres()
       ? `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`
       : `INSERT OR IGNORE INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr})`,
@@ -137,7 +172,7 @@ export async function saveYDocState(
   });
   if (inserted.rowsAffected > 0) return;
 
-  await client.execute({
+  await executeWithSqliteRetry(client, {
     sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
     args: [b64, textSnapshot, docId],
   });

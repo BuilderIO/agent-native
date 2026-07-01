@@ -601,6 +601,31 @@ export function resolveAssistantChatSubmitIntent({
   return requestedIntent ?? "immediate";
 }
 
+export function resolveAssistantChatRunningState({
+  forceStopped,
+  isRuntimeRunning,
+  isReconnecting,
+  optimisticRunning,
+  isAutoResuming,
+}: {
+  forceStopped: boolean;
+  isRuntimeRunning: boolean;
+  isReconnecting: boolean;
+  optimisticRunning: boolean;
+  isAutoResuming: boolean;
+}): { isRunning: boolean; showRunningInUI: boolean } {
+  const isRunning =
+    !forceStopped && (isRuntimeRunning || isReconnecting || optimisticRunning);
+  return {
+    isRunning,
+    // During auto-continuation, assistant-ui can briefly mark the message done
+    // between chunks even though the adapter is about to POST the next run.
+    // Keep the visible chat state running so the latest assistant message shows
+    // Thinking/Resuming and does not expose footer actions prematurely.
+    showRunningInUI: !forceStopped && (isRunning || isAutoResuming),
+  };
+}
+
 type QueuedMessage = {
   id: string;
   text: string;
@@ -623,8 +648,15 @@ export interface AssistantChatHandle {
   ): void;
   /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
-  /** Add or replace keyed context for the next composer submission. */
-  setComposerContextItem(item: AgentChatContextItem): void;
+  /**
+   * Add or replace keyed context for the next composer submission.
+   * Focuses the composer by default; pass `{ focus: false }` for passive
+   * context mirroring (e.g. canvas selection) that must not steal focus.
+   */
+  setComposerContextItem(
+    item: AgentChatContextItem,
+    options?: { focus?: boolean },
+  ): void;
   /** Remove a keyed context item from the composer. */
   removeComposerContextItem(key: string): void;
   /** Clear all staged context items from the composer. */
@@ -1180,6 +1212,17 @@ const AssistantChatInner = forwardRef<
   );
   const missingApiKey = agentEngineConfigured.missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
+  // Once a provider connects, `useAgentEngineConfigured` flips to "configured"
+  // off the `agent-engine:configured-changed` event. The composer banner is a
+  // separate piece of state that would otherwise only clear on manual dismiss
+  // or the next successful send, so drop the stale "no LLM provider" message
+  // here to match the resolved connection.
+  useEffect(() => {
+    if (agentEngineConfigured.state !== "configured") return;
+    setComposerError((current) =>
+      current === LLM_MISSING_CREDENTIALS_MESSAGE ? null : current,
+    );
+  }, [agentEngineConfigured.state]);
   const missingApiKeySetupAboveComposer =
     missingApiKeySetupLayout === "sidebar";
   // Increments each time the user tries to chat while no LLM is connected.
@@ -1378,14 +1421,17 @@ const AssistantChatInner = forwardRef<
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
   // wedged (e.g. after a tab refresh + stop during reconnect).
   const [forceStopped, setForceStopped] = useState(false);
-  // Real running state — drives submission/queue gating. Treat reconnecting
-  // to an active run the same as running, UNLESS the user has explicitly
-  // clicked stop (forceStopped).
-  const isRunning =
-    !forceStopped && (isRuntimeRunning || isReconnecting || optimisticRunning);
-  const textStreaming = isRunning || externalStreaming;
-  // UI-only running state — drives the stop button and thinking indicator.
-  const showRunningInUI = isRunning;
+  // Real running state drives submission/queue gating; UI running also covers
+  // short auto-continuation gaps so the latest assistant message does not flash
+  // into a done state while the agent is still working.
+  const { isRunning, showRunningInUI } = resolveAssistantChatRunningState({
+    forceStopped,
+    isRuntimeRunning,
+    isReconnecting,
+    optimisticRunning,
+    isAutoResuming,
+  });
+  const textStreaming = showRunningInUI || externalStreaming;
   // A revealed activity label wins; otherwise stay a steady "Thinking" by
   // default. We only surface "Reconnecting" while we are actively replaying
   // recovered content (reconnectContent populated). A bare reconnect with no
@@ -2265,6 +2311,8 @@ const AssistantChatInner = forwardRef<
 
   useEffect(() => {
     if (!authError) return;
+    const shouldCaptureStuckAuthCard =
+      authSessionAvailable || authError.sessionExpired;
     // Auto-recovery (`checkAuthSession`) runs immediately + at 250ms. If the
     // card is still showing 3 seconds later, recovery failed and the user
     // is about to hit "Refresh chat" — that's the "Reload UI required"
@@ -2273,6 +2321,7 @@ const AssistantChatInner = forwardRef<
       void (async () => {
         const hasSession = await checkAuthSession();
         if (hasSession) return;
+        if (!shouldCaptureStuckAuthCard) return;
         captureError(new Error("agent-chat:auth_error_card_stuck"), {
           tags: {
             context: "agent-native-chat",
@@ -2927,9 +2976,17 @@ const AssistantChatInner = forwardRef<
         tiptapRef.current?.setText(text);
         tiptapRef.current?.focus();
       },
-      setComposerContextItem(item: AgentChatContextItem) {
+      setComposerContextItem(
+        item: AgentChatContextItem,
+        options?: { focus?: boolean },
+      ) {
         stageComposerContextItem(item);
-        tiptapRef.current?.focus();
+        // Only pull focus into the composer for explicit user gestures.
+        // Passive context mirroring (e.g. a canvas selection staged with
+        // openSidebar:false) must not steal focus — doing so blurs an active
+        // inline text editor living in the design canvas iframe and tears it
+        // down the instant it opens.
+        if (options?.focus !== false) tiptapRef.current?.focus();
       },
       removeComposerContextItem(key: string) {
         removeComposerContextItem(key);
@@ -3211,7 +3268,7 @@ const AssistantChatInner = forwardRef<
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ApprovalContext.Provider value={approvalCtx}>
-          <ChatRunningContext.Provider value={isRunning}>
+          <ChatRunningContext.Provider value={showRunningInUI}>
             <TextStreamingContext.Provider value={textStreaming}>
               <div
                 data-agent-empty-state={

@@ -53,9 +53,11 @@ import {
 import { computeProtectedSegmentIds } from "./context-xray/segments.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  backgroundRuntimeDiagnosticDetail,
+  dispatchPathTargetsNetlifyBackgroundFunction,
   isAgentChatDurableBackgroundEnabled,
-  isInBackgroundFunctionRuntime,
   resolveAgentChatProcessRunDispatchPath,
+  shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -123,6 +125,7 @@ import {
   insertRun,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
+  setRunTerminalReason,
   claimBackgroundRun,
   readBackgroundRunClaim,
   recordRunDiagnostic,
@@ -4032,6 +4035,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   requestTurnId?: string | null;
   continuationCount: number;
   runsInBackgroundFunction: boolean;
+  backgroundRuntimeDetail?: string;
   deps?: {
     recordRunDiagnostic?: typeof recordRunDiagnostic;
     insertRun?: typeof insertRun;
@@ -4057,7 +4061,13 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   await record(
     opts.runId,
     RUN_DIAG_STAGE.workerEntered,
-    `runsInBackgroundFunction=${opts.runsInBackgroundFunction} continuationCount=${opts.continuationCount}`,
+    [
+      `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
+      `continuationCount=${opts.continuationCount}`,
+      opts.backgroundRuntimeDetail,
+    ]
+      .filter(Boolean)
+      .join(" "),
   ).catch(() => {});
 
   if (opts.continuationCount > 0) {
@@ -4218,7 +4228,11 @@ export function createProductionAgentHandler(
     // function. Only a true value unlocks the ~13-min soft-timeout budget; a
     // worker on the 60s function keeps the 40s clamp and checkpoints cleanly.
     const runsInBackgroundFunction =
-      isBackgroundWorker && isInBackgroundFunctionRuntime();
+      isBackgroundWorker &&
+      shouldUseBackgroundFunctionTimeoutForWorker(backgroundRunMarker);
+    const backgroundRuntimeDetail = isBackgroundWorker
+      ? backgroundRuntimeDiagnosticDetail(backgroundRunMarker)
+      : "";
     // How many server-driven background continuations have already chained into
     // this logical turn (0 on the first chunk). Used to bound the chain.
     const backgroundContinuationCount =
@@ -4239,6 +4253,7 @@ export function createProductionAgentHandler(
         requestTurnId,
         continuationCount: backgroundContinuationCount,
         runsInBackgroundFunction,
+        backgroundRuntimeDetail,
       });
       if (!earlyClaim.claimed) {
         return { ok: true, skipped: earlyClaim.skipped };
@@ -5001,6 +5016,9 @@ export function createProductionAgentHandler(
       }
 
       let dispatched = false;
+      const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
+      const expectsNetlifyBackgroundFunction =
+        dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
       try {
         await fireInternalDispatch({
           event,
@@ -5014,7 +5032,7 @@ export function createProductionAgentHandler(
           // inline. `fireInternalDispatch` strips the app base path for
           // /.netlify/* targets so the request reaches the host-root function url;
           // the Authorization Bearer HMAC is preserved either way.
-          path: resolveAgentChatProcessRunDispatchPath(),
+          path: backgroundDispatchPath,
           taskId: runId,
           body: {
             ...body,
@@ -5022,6 +5040,8 @@ export function createProductionAgentHandler(
             [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
               runId,
               turnId: effectiveTurnId,
+              backgroundFunctionRuntimeExpected:
+                expectsNetlifyBackgroundFunction,
             },
           },
         });
@@ -5071,7 +5091,17 @@ export function createProductionAgentHandler(
         }
         // A background worker owns this run but we cannot subscribe — surface an
         // error rather than risk a double-run by falling through to inline.
-        await updateRunStatusIfRunning(runId, "errored").catch(() => {});
+        const terminalReason =
+          backgroundOutcome.action === "stream"
+            ? "background_subscribe_failed"
+            : "background_dispatch_failed";
+        const statusUpdated = await updateRunStatusIfRunning(
+          runId,
+          "errored",
+        ).catch(() => false);
+        if (statusUpdated) {
+          await setRunTerminalReason(runId, terminalReason).catch(() => {});
+        }
         setResponseStatus(event, 500);
         return {
           error:
@@ -5284,6 +5314,12 @@ export function createProductionAgentHandler(
                 // its seq log starts clean; same turnId folds the assistant
                 // message across chunks.
                 const nextRunId = generateRunId();
+                const continuationDispatchPath =
+                  resolveAgentChatProcessRunDispatchPath();
+                const continuationExpectsNetlifyBackgroundFunction =
+                  dispatchPathTargetsNetlifyBackgroundFunction(
+                    continuationDispatchPath,
+                  );
                 try {
                   await fireInternalDispatch({
                     event,
@@ -5293,7 +5329,7 @@ export function createProductionAgentHandler(
                     // background:true; never shadowed because /.netlify/* is
                     // excluded from the /* catch-all) so each chunk keeps the
                     // 15-min budget; off-Netlify the in-process framework route.
-                    path: resolveAgentChatProcessRunDispatchPath(),
+                    path: continuationDispatchPath,
                     taskId: nextRunId,
                     body: {
                       ...body,
@@ -5302,6 +5338,8 @@ export function createProductionAgentHandler(
                         runId: nextRunId,
                         turnId: effectiveTurnId,
                         continuationCount: backgroundContinuationCount + 1,
+                        backgroundFunctionRuntimeExpected:
+                          continuationExpectsNetlifyBackgroundFunction,
                       },
                     },
                   });
@@ -5313,9 +5351,16 @@ export function createProductionAgentHandler(
                     "[agent-chat] background continuation dispatch failed:",
                     chainErr instanceof Error ? chainErr.message : chainErr,
                   );
-                  await updateRunStatusIfRunning(runId, "errored").catch(
-                    () => {},
-                  );
+                  const statusUpdated = await updateRunStatusIfRunning(
+                    runId,
+                    "errored",
+                  ).catch(() => false);
+                  if (statusUpdated) {
+                    await setRunTerminalReason(
+                      runId,
+                      "background_continuation_dispatch_failed",
+                    ).catch(() => {});
+                  }
                 }
               }
             } finally {
@@ -5335,7 +5380,13 @@ export function createProductionAgentHandler(
         await recordRunDiagnostic(
           runId,
           RUN_DIAG_STAGE.workerEntered,
-          `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
+          [
+            `runsInBackgroundFunction=${runsInBackgroundFunction}`,
+            `continuationCount=${backgroundContinuationCount}`,
+            backgroundRuntimeDetail,
+          ]
+            .filter(Boolean)
+            .join(" "),
         ).catch(() => {});
         if (isChainedBackgroundContinuation) {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
@@ -5368,7 +5419,9 @@ export function createProductionAgentHandler(
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)
-        .join(" ") + ` total=${Date.now() - setupT0}`;
+        .join(" ") +
+      ` total=${Date.now() - setupT0}` +
+      (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "");
 
     startRun(
       runId,
@@ -5738,6 +5791,22 @@ export function createProductionAgentHandler(
               threadId: threadId ?? null,
               userId: ownerEmail,
               config: obsConfig,
+              classifyError: () => {
+                if (
+                  agentLoopOpts.signal.aborted &&
+                  agentLoopOpts.signal.reason === "run_timeout"
+                ) {
+                  return {
+                    status: "success",
+                    errorMessage: null,
+                    metadata: {
+                      terminalReason: "run_timeout",
+                      recoverableContinuation: true,
+                    },
+                  };
+                }
+                return null;
+              },
             });
           }
         } catch (err) {

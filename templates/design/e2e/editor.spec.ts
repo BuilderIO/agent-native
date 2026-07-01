@@ -341,7 +341,21 @@ test("spacing handles stay visible at rest and remain draggable", async ({
   const box = await container.boundingBox();
   if (!box) throw new Error("missing fixture container bounds");
 
-  await page.mouse.click(box.x + 12, box.y + 12);
+  const frameBox = await page
+    .locator("iframe[data-design-preview-iframe]")
+    .last()
+    .boundingBox();
+  if (!frameBox) throw new Error("missing design iframe bounds");
+  await designFrame(page)
+    .locator('[data-agent-native-edit-overlay="shield"]')
+    .first()
+    .dispatchEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientX: box.x - frameBox.x + 12,
+      clientY: box.y - frameBox.y + 12,
+      detail: 1,
+    });
   const selected = await waitForBridge(page, "element-select");
   expect(
     (selected?.payload?.tagName ?? selected?.tagName ?? "").toUpperCase(),

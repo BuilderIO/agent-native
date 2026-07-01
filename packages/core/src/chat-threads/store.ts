@@ -712,6 +712,7 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   maxAttempts?: number;
+  ignoreConflicts?: boolean;
 }
 
 function parseThreadData(value: string): any {
@@ -792,6 +793,7 @@ export async function updateThreadData(
   }
 
   if (lastConflict) {
+    if (options.ignoreConflicts) return;
     throw new Error(
       `Failed to update chat thread ${id} after concurrent write conflicts.`,
     );

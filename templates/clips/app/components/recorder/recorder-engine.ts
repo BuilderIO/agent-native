@@ -1145,6 +1145,9 @@ export class RecorderEngine {
       // mid-state — the UI spinner is wired to engine state and would
       // hang forever otherwise.
       const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name !== "AbortError") {
+        this.rememberUploadFailure(e);
+      }
       this.transition("error", { message: e.message });
       throw e;
     } finally {
@@ -1183,6 +1186,9 @@ export class RecorderEngine {
       return this.toFinalizeResult(result, meta);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name !== "AbortError") {
+        this.rememberUploadFailure(e);
+      }
       this.transition("error", { message: e.message });
       throw e;
     } finally {
@@ -1595,26 +1601,18 @@ export class RecorderEngine {
         const failure = err instanceof Error ? err : new Error(String(err));
         // User-initiated cancel — cancel() already runs the abortUrl path.
         if (failure.name === "AbortError") return;
-        await this.markUploadFailed(failure);
+        this.rememberUploadFailure(failure);
         this.emitError(failure);
       }
     });
   }
 
-  private async markUploadFailed(err: Error): Promise<void> {
+  private rememberUploadFailure(err: Error): void {
     if (!this.uploadFailure) {
       this.uploadFailure = err;
     }
-    if (!this.opts.abortUrl) return;
-    try {
-      await fetch(this.opts.abortUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: err.message }),
-      });
-    } catch {
-      // ignore — the stop path will surface the original upload error.
-    }
+    // Do not call abortUrl for retryable upload failures. retryUpload() reuses
+    // this recording id; cancel() owns the terminal server-side abort path.
   }
 
   private async uploadBlobInSlices(

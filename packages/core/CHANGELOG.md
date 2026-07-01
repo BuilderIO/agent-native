@@ -1,5 +1,108 @@
 # @agent-native/core
 
+## 0.84.17
+
+### Patch Changes
+
+- a4f5303: Keep background chat continuation markers and database pool detection aligned with the actual background function dispatch path.
+
+## 0.84.16
+
+### Patch Changes
+
+- 564460a: Add an optional `focus` flag to `setAgentChatContextItem` (and thread it through to the composer). Callers that mirror ambient UI state into chat context — such as a design canvas element selection — can now pass `focus: false` to stage the context chip without moving keyboard focus into the composer. This stops passive context staging from blurring and tearing down an in-progress inline text editor in the Design canvas (which re-fires on every selection and on each get-design poll during an agent run). Focus stays enabled by default, so existing callers are unchanged.
+- 2b27c0f: Avoid unsupported array helpers in Builder engine message caching and stabilize prep-load tests.
+- a4f5303: Keep background chat continuation markers and database pool detection aligned with the actual background function dispatch path.
+
+## 0.84.15
+
+### Patch Changes
+
+- 946ff86: Fix the "No LLM provider is connected" chat banner staying visible after a
+  provider is connected. The composer now clears that error once the engine
+  status flips to configured, and the status check no longer reads a stale
+  cached "missing" response after connecting.
+
+## 0.84.14
+
+### Patch Changes
+
+- bbc0a56: Persist terminal reasons for agent runs and classify recoverable run-timeout continuations separately in traces.
+- bbc0a56: Improve agent run diagnostics by recording terminal continuation reasons and adding safe run context to copied recovery debug details.
+- bbc0a56: Keep visual plan and recap diagram labels wrapped inside their boxes instead of overflowing authored diagram shapes.
+
+## 0.84.13
+
+### Patch Changes
+
+- dd5b0a4: Honor the long Netlify background-function timeout for durable agent-chat workers and record runtime diagnostics when a background run starts.
+- dd5b0a4: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+- dd5b0a4: Double the agent chat smooth-streaming reveal speed.
+- dd5b0a4: Avoid noisy Sentry reports from expected chat auth states and best-effort client thread-save conflicts.
+- dd5b0a4: Keep activity-only tool cards and the latest assistant message visibly running during agent chat continuations, steer interrupted Design generation retries toward smaller existing-file edits, and capture run persistence failures with run IDs so missing request IDs are diagnosable.
+- dd5b0a4: Compress the Plan mode composer callout into a quieter inline status pill.
+
+## 0.84.12
+
+### Patch Changes
+
+- 9032acb: Don't reap a run that is actively making progress. The stale reapers
+  (`reapIfStale`, `reapAllStaleRuns`, and the heartbeat-stale path of
+  `cleanupOldRuns`) keyed liveness solely on `heartbeat_at` (the 1.5s
+  process-liveness timer) and ignored `last_progress_at` (bumped whenever the
+  agent emits an event, including a long-running tool's periodic activity
+  heartbeats — e.g. image generation streaming activity every 8s). When the
+  heartbeat write lagged while a multi-minute tool was in flight, the run was
+  flipped to `errored`, and the producing isolate's SQL-abort check then
+  self-aborted the in-flight tool with "Run aborted" — looping on the
+  durable-background self-chaining path and interrupting once inline. The reapers
+  now use the most recent of `heartbeat_at` and `last_progress_at` (falling back to
+  `started_at`) as their liveness basis, so a demonstrably-progressing run is never
+  reaped mid-tool. Portable across SQLite and Postgres; can only make reaping more
+  conservative (a dead producer emits neither signal).
+- 9032acb: Add a `trigger="label-icon"` option to `ShareButton` that renders a leading
+  share glyph alongside the "Share" label, so the trigger matches adjacent
+  icon+label buttons (e.g. an Upload button). The default `"label"` trigger stays
+  text-only and `"icon"` stays icon-only.
+- 351ee93: Fix an infinite sign-in redirect loop under base-path deploys. When the
+  authenticated app shell (wrapped in `RequireSession`) was served at the sign-in
+  path — e.g. `/<app>/_agent-native/sign-in` on a path-prefixed deploy — the gate
+  redirected to the sign-in page from the sign-in page, nesting and re-encoding the
+  current URL as a fresh `?return=` on every hop (`…sign-in?return=%252F…sign-in%253Freturn…`).
+  `RequireSession` now refuses to redirect when already on the sign-in entry point
+  (new exported `isOnSignInPage` helper), and `safeReturnPath` collapses any
+  `return` that resolves back to `…/_agent-native/sign-in` to `/`.
+
+## 0.84.11
+
+### Patch Changes
+
+- a2ce30e: Improve local SQLite collab write robustness for Design editor workflows.
+
+## 0.84.10
+
+### Patch Changes
+
+- 720b8b0: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+
+## 0.84.9
+
+### Patch Changes
+
+- 8cfc0ee: Show a visible warning when an agent stops after its final completed tool action, even if it sent text before that tool finished.
+
+## 0.84.8
+
+### Patch Changes
+
+- b5cc580: Show a visible warning when an agent run completes tools but stops before sending any final assistant text.
+
+## 0.84.7
+
+### Patch Changes
+
+- ab1e410: Stop repeated agent-chat action-preparation loops with a clear terminal warning, and let Design agents present compact variant directions without streaming large HTML payloads.
+
 ## 0.84.6
 
 ### Patch Changes

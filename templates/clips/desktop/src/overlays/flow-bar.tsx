@@ -3,11 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
-import {
-  onAudioLevel,
-  onFinalTranscript,
-  onPartialTranscript,
-} from "../lib/transcription-engine";
+import { onAudioLevel } from "../lib/transcription-engine";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
@@ -28,7 +24,6 @@ export function FlowBar() {
   // "idle" caused the bar to flash an "EN" language pill that never went
   // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
-  const [partialTranscript, setPartialTranscript] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -60,23 +55,6 @@ export function FlowBar() {
     trackListen(
       onAudioLevel(({ level }) => {
         levelRef.current = Math.max(0, Math.min(1, level));
-      }),
-    );
-
-    trackListen(
-      onPartialTranscript(({ text }) => {
-        // Live transcript as the user speaks — rendered above the pill.
-        // Empty payload clears the display (sent at session start/end).
-        setPartialTranscript(text);
-      }),
-    );
-
-    trackListen(
-      onFinalTranscript(({ text }) => {
-        // Final result from the recognizer (only fires after stop is
-        // requested). Show it on the bar — the last word lingers there
-        // for ~1s before voice-dictation.ts dismisses everything.
-        if (text) setPartialTranscript(text);
       }),
     );
 
@@ -166,29 +144,12 @@ export function FlowBar() {
     }, 250);
   };
 
-  // The transcript chip is independent of the pill — it can linger on
-  // its own after Fn release while the pill dismisses snappily. Voice-
-  // dictation.ts emits an empty payload to clear it once the linger
-  // window expires.
-  const showTranscript = partialTranscript.length > 0;
-
   return (
     <div className="flow-bar-root">
-      {showTranscript && (
-        <div className="flow-bar-transcript">
-          {/* <bdi> + unicode-bidi: plaintext (in CSS) keeps Latin text
-              in its natural LTR order while the parent's direction:rtl
-              clips overflow from the visual left. Without this, the
-              last few characters of the newest words were being pushed
-              past the visible right edge by bidi reordering. */}
-          <bdi>{partialTranscript}</bdi>
-        </div>
-      )}
       {/* Pill is ALWAYS mounted — when state goes idle we fade the
-          opacity to 0 (see CSS) instead of removing it from the DOM,
-          so the transcript chip above doesn't reflow when the pill
-          "goes away". Inner content keeps its last frame rendered
-          during the fade so the canvas doesn't pop. */}
+          opacity to 0 (see CSS) instead of removing it from the DOM.
+          Inner content keeps its last frame rendered during the fade
+          so the canvas doesn't pop. */}
       <div className={`flow-bar flow-bar-${state}`}>
         {(state === "recording" || state === "idle") && (
           <div className="flow-bar-recording">

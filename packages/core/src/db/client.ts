@@ -837,10 +837,19 @@ export function neonPoolMax(): number {
  * (agent/durable-background.ts), replicated here to avoid a `db` → `agent`
  * import cycle. Keep the signals in sync with that function.
  */
-function isBackgroundFunctionPoolContext(): boolean {
+export function isBackgroundFunctionPoolContext(): boolean {
   if (
     (globalThis as Record<string, unknown>)
       .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
+  ) {
+    return true;
+  }
+  // Set by the HMAC-authenticated agent-chat `_process-run` route before it
+  // re-enters the normal chat handler. This mirrors the marker-only runtime
+  // proof used by durable-background.ts without importing agent code into db/.
+  if (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ === true
   ) {
     return true;
   }

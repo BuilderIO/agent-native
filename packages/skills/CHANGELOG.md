@@ -1,5 +1,95 @@
 # @agent-native/skills
 
+## 0.2.191
+
+### Patch Changes
+
+- Updated dependencies [a4f5303]
+  - @agent-native/core@0.84.17
+
+## 0.2.190
+
+### Patch Changes
+
+- Updated dependencies [564460a]
+- Updated dependencies [2b27c0f]
+- Updated dependencies [a4f5303]
+  - @agent-native/core@0.84.16
+
+## 0.2.189
+
+### Patch Changes
+
+- Updated dependencies [946ff86]
+  - @agent-native/core@0.84.15
+
+## 0.2.188
+
+### Patch Changes
+
+- Updated dependencies [bbc0a56]
+- Updated dependencies [bbc0a56]
+- Updated dependencies [bbc0a56]
+  - @agent-native/core@0.84.14
+
+## 0.2.187
+
+### Patch Changes
+
+- dd5b0a4: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+- Updated dependencies [dd5b0a4]
+- Updated dependencies [dd5b0a4]
+- Updated dependencies [dd5b0a4]
+- Updated dependencies [dd5b0a4]
+- Updated dependencies [dd5b0a4]
+- Updated dependencies [dd5b0a4]
+  - @agent-native/core@0.84.13
+
+## 0.2.186
+
+### Patch Changes
+
+- Updated dependencies [9032acb]
+- Updated dependencies [9032acb]
+- Updated dependencies [351ee93]
+  - @agent-native/core@0.84.12
+
+## 0.2.185
+
+### Patch Changes
+
+- Updated dependencies [a2ce30e]
+  - @agent-native/core@0.84.11
+
+## 0.2.184
+
+### Patch Changes
+
+- 720b8b0: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+- Updated dependencies [720b8b0]
+  - @agent-native/core@0.84.10
+
+## 0.2.183
+
+### Patch Changes
+
+- Updated dependencies [8cfc0ee]
+  - @agent-native/core@0.84.9
+
+## 0.2.182
+
+### Patch Changes
+
+- Updated dependencies [b5cc580]
+  - @agent-native/core@0.84.8
+
+## 0.2.181
+
+### Patch Changes
+
+- Updated dependencies [ab1e410]
+  - @agent-native/core@0.84.7
+
 ## 0.2.180
 
 ### Patch Changes

@@ -103,7 +103,12 @@ export default defineAction({
       .describe(
         "Exact reference assets to use. When omitted, the server deterministically chooses a small relevant subset from the latest library references.",
       ),
-    includeLogo: z.coerce.boolean().default(false),
+    includeLogo: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "Composite the library's pixel-perfect canonical logo onto the finished image. When omitted, the selected preset's logo setting is used; pass an explicit value to override it. No-op if the library has no canonical logo.",
+      ),
     slotId: z.string().optional(),
     variantBatchId: z.string().optional(),
     variantScopeId: z
@@ -259,11 +264,13 @@ export default defineAction({
       preset?.imageSize ??
       collection?.defaultImageSize ??
       "2K") as (typeof IMAGE_SIZES)[number];
-    const presetSettings = parseJson<{ tier?: ImageQualityTier }>(
-      preset?.settings,
-      {},
-    );
+    const presetSettings = parseJson<{
+      tier?: ImageQualityTier;
+      includeLogo?: boolean;
+    }>(preset?.settings, {});
     const resolvedTier = args.tier ?? presetSettings.tier;
+    const resolvedIncludeLogo =
+      args.includeLogo ?? presetSettings.includeLogo ?? false;
     const category = (args.categories?.[0] ??
       preset?.category ??
       collection?.category) as ImageCategory | undefined;
@@ -320,7 +327,7 @@ export default defineAction({
       embeddedText: args.embeddedText,
       textPlacement: args.textPlacement,
       referenceCount: references.length,
-      includeLogo: args.includeLogo,
+      includeLogo: resolvedIncludeLogo,
       aspectRatio: resolvedAspectRatio,
       imageSize: resolvedImageSize,
       category,
@@ -363,7 +370,7 @@ export default defineAction({
       aspectRatio: resolvedAspectRatio,
       imageSize: resolvedImageSize,
       groundingMode: args.groundingMode,
-      includeLogo: args.includeLogo,
+      includeLogo: resolvedIncludeLogo,
       categories: resolvedCategories ?? [],
       collectionId: resolvedCollectionId ?? null,
       presetId: preset?.id ?? null,
@@ -386,7 +393,7 @@ export default defineAction({
       intent: args.intent,
       styleStrength: args.styleStrength,
       tier: resolvedTier,
-      includeLogo: args.includeLogo,
+      includeLogo: resolvedIncludeLogo,
       categories: resolvedCategories ?? [],
       presetId: preset?.id,
       sessionId: session?.id,
@@ -463,7 +470,7 @@ export default defineAction({
       await deleteAppState("image-generation-setup").catch(() => {});
       let image = generated.image;
       let mimeType = generated.mimeType;
-      if (args.includeLogo && library.canonicalLogoAssetId) {
+      if (resolvedIncludeLogo && library.canonicalLogoAssetId) {
         const [logo] = await db
           .select()
           .from(schema.assets)
@@ -539,7 +546,7 @@ export default defineAction({
               intent: args.intent,
               styleStrength: args.styleStrength,
               tier: resolvedTier,
-              includeLogo: args.includeLogo,
+              includeLogo: resolvedIncludeLogo,
               presetId: preset?.id,
               sessionId: session?.id,
               generated: true,
@@ -584,7 +591,7 @@ export default defineAction({
             intent: args.intent,
             styleStrength: args.styleStrength,
             tier: resolvedTier,
-            includeLogo: args.includeLogo,
+            includeLogo: resolvedIncludeLogo,
             categories: resolvedCategories ?? [],
             referenceSelection,
             settingsUsed,
