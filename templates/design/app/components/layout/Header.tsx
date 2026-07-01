@@ -7,7 +7,6 @@ import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.designs",
-  "/templates": "navigation.templates",
   "/design-systems": "navigation.designSystems",
   "/design-systems/setup": "navigation.setupDesignSystem",
   "/settings": "navigation.settings",

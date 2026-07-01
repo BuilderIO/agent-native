@@ -12,6 +12,11 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  chartAxisStroke,
+  chartGridStroke,
+  chartTooltipContentStyle,
+} from "@/lib/chart-theme";
 
 interface CumulativeNetChartProps {
   title: string;
@@ -78,14 +83,14 @@ export function CumulativeNetChart({
                 </defs>
                 <XAxis
                   dataKey="day"
-                  stroke="#52525b"
+                  stroke={chartAxisStroke}
                   fontSize={12}
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={formatDate}
                 />
                 <YAxis
-                  stroke="#52525b"
+                  stroke={chartAxisStroke}
                   fontSize={12}
                   tickLine={false}
                   axisLine={false}
@@ -93,17 +98,12 @@ export function CumulativeNetChart({
                 />
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="#27272a"
+                  stroke={chartGridStroke}
                   vertical={false}
                 />
-                <ReferenceLine y={0} stroke="#52525b" strokeWidth={1} />
+                <ReferenceLine y={0} stroke={chartAxisStroke} strokeWidth={1} />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#09090b",
-                    border: "1px solid #27272a",
-                    borderRadius: "8px",
-                    color: "#fafafa",
-                  }}
+                  contentStyle={chartTooltipContentStyle}
                   labelFormatter={formatDate}
                   formatter={(value: any) => [
                     `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,

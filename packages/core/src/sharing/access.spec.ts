@@ -314,6 +314,43 @@ describe("shareable resource access helpers", () => {
     );
   });
 
+  it("allows a resource registration to explicitly upgrade public-by-link access", async () => {
+    const publicEditType = "qa-doc-public-editor";
+    registerShareableResource({
+      type: publicEditType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Public Editable Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      publicAccessRole: (resource) =>
+        resource.id === "doc-public-edit" ? "editor" : "viewer",
+    });
+
+    await insertDoc({
+      id: "doc-public-view",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+    await insertDoc({
+      id: "doc-public-edit",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({}, async () => {
+      await expect(
+        resolveAccess(publicEditType, "doc-public-view"),
+      ).resolves.toMatchObject({ role: "viewer" });
+      await expect(
+        assertAccess(publicEditType, "doc-public-view", "editor"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        assertAccess(publicEditType, "doc-public-edit", "editor"),
+      ).resolves.toMatchObject({ role: "editor" });
+    });
+  });
+
   it("matches owner and user-share emails case-insensitively", async () => {
     await insertDoc({
       id: "doc-owned-case",

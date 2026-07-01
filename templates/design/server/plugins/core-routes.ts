@@ -16,4 +16,8 @@ export default createCoreRoutesPlugin({
     if (view === "editor") return "/";
     return null;
   },
+  allowUnauthenticatedOpen: ({ target }) => {
+    const path = target.split(/[?#]/, 1)[0] ?? "/";
+    return path.startsWith("/design/");
+  },
 });

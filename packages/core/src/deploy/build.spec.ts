@@ -698,6 +698,23 @@ export default {
     });
   });
 
+  it("allows browser action-client headers in generated worker preflight responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/ping", {
+        method: "OPTIONS",
+      }),
+      {},
+      {},
+    );
+
+    expect(response.status).toBe(204);
+    const allowHeaders = response.headers.get("Access-Control-Allow-Headers");
+    expect(allowHeaders).toContain("X-Agent-Native-Frontend");
+    expect(allowHeaders).toContain("X-User-Timezone");
+  });
+
   it("mounts an action under its custom http.path, not its name", async () => {
     const dir = makeTempDir();
     const actionPath = path.join(dir, "aliased-action.mjs");

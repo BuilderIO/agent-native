@@ -167,6 +167,33 @@ export function extractManagedMotionCss(html: string): string | null {
 }
 
 /**
+ * Inject or replace the managed `<style data-agent-native-motion>` block in an
+ * HTML document. Inserts before `</head>` when no managed block exists, or at
+ * the top of the document when there is no `<head>`.
+ */
+export function injectManagedMotionCss(html: string, css: string): string {
+  const openRe = /<style\b(?=[^>]*\bdata-agent-native-motion\b)[^>]*>/i;
+  const openMatch = openRe.exec(html);
+  const block = `<style data-agent-native-motion>\n${css}\n</style>`;
+
+  if (openMatch) {
+    const bodyStart = openMatch.index + openMatch[0].length;
+    const afterOpen = html.slice(bodyStart);
+    const closeMatch = /<\s*\/\s*style\b[^>]*>/i.exec(afterOpen);
+    if (closeMatch) {
+      const closeEnd = bodyStart + closeMatch.index + closeMatch[0].length;
+      return html.slice(0, openMatch.index) + block + html.slice(closeEnd);
+    }
+  }
+
+  const headClose = html.lastIndexOf("</head>");
+  if (headClose !== -1) {
+    return html.slice(0, headClose) + block + "\n" + html.slice(headClose);
+  }
+  return block + "\n" + html;
+}
+
+/**
  * Return the djb2 hash of a CSS string — useful for verifying stored
  * `compiled_hash` values without re-compiling a full timeline.
  */

@@ -9,6 +9,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -153,6 +154,33 @@ describe("tool-call result ledger", () => {
       expect.stringContaining("save-data"),
       "zombie-result",
     );
+  });
+
+  it("does not write a ledger entry for resolved MCP error results", async () => {
+    const action = makeWriteAction();
+    (action.run as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [MCP_ACTION_RESULT_MARKER]: true,
+      text: "MCP tool failed",
+      raw: { isError: true },
+      serverId: "test-server",
+      toolName: "save-data",
+      originalToolName: "save-data",
+      input: { payload: "x" },
+    });
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { payload: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: () => {},
+      signal: new AbortController().signal,
+      threadId: "thread-mcp-error",
+    });
+
+    expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
   it("returns the ledger result without re-executing on continuation match", async () => {

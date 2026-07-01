@@ -1,6 +1,9 @@
-export { default } from "../pages/Templates";
-import { messagesByLocale } from "@/i18n-data";
+import { redirect } from "react-router";
 
-export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.designTemplates }];
+export function loader() {
+  return redirect("/", 302);
+}
+
+export default function TemplatesRedirect() {
+  return null;
 }

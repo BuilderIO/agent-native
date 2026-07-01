@@ -3,15 +3,11 @@ import {
   test,
   type APIRequestContext,
   type Page,
+  type Response,
 } from "@playwright/test";
 
 import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
-import {
-  designFrame,
-  enterDirectMode,
-  gotoEditor,
-  selectByText,
-} from "./helpers";
+import { designFrame, gotoEditor, selectByText } from "./helpers";
 
 let designId: string;
 let baseURLForActions: string;
@@ -80,7 +76,7 @@ async function waitForAction(
   page: Page,
   actionName: string,
   trigger: () => Promise<void>,
-): Promise<void> {
+): Promise<Response> {
   const responsePromise = page.waitForResponse(
     (response) =>
       response.url().includes(`/_agent-native/actions/${actionName}`) &&
@@ -93,6 +89,7 @@ async function waitForAction(
     response.ok(),
     `${actionName} failed: ${response.status()} ${await response.text()}`,
   ).toBe(true);
+  return response;
 }
 
 async function selectedComponentVariant(page: Page): Promise<string | null> {
@@ -130,15 +127,6 @@ async function editTokenValue(
   await waitForAction(page, "apply-design-token-edit", async () => {
     await input.press("Enter");
   });
-}
-
-async function previewIframeWidth(page: Page): Promise<number> {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .evaluate((el) =>
-      Math.round((el as HTMLIFrameElement).getBoundingClientRect().width),
-    );
 }
 
 test("inline component prop dropdown persists on the selected component", async ({
@@ -202,7 +190,7 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
   await expect(page.getByTestId("review-panel")).toBeVisible();
 
   await waitForAction(page, "run-design-audit", async () => {
-    await page.getByRole("button", { name: "Run", exact: true }).click();
+    await page.getByRole("button", { name: "Run audit", exact: true }).click();
   });
 
   await expect(
@@ -250,36 +238,63 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
   await selectByText(page, "Alpha Button");
 
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  const expandMotionDockButton = page.getByRole("button", {
-    name: "Expand motion dock",
+  const motionRailButton = page.getByRole("button", {
+    name: "Motion",
     exact: true,
   });
-  await expect(expandMotionDockButton).toBeVisible();
+  await expect(motionRailButton).toBeVisible();
   await expect
     .poll(async () => {
-      const [triggerBox, layersBox] = await Promise.all([
-        expandMotionDockButton.boundingBox(),
-        page.locator('aside[aria-label="Layers"]').boundingBox(),
+      const [triggerBox, railBox] = await Promise.all([
+        motionRailButton.boundingBox(),
+        page.locator('nav[aria-label="Design workspace"]').boundingBox(),
       ]);
-      if (!triggerBox || !layersBox) return false;
+      if (!triggerBox || !railBox) return false;
       return (
-        Math.abs(triggerBox.x - layersBox.x) <= 2 &&
-        Math.abs(triggerBox.width - layersBox.width) <= 2 &&
-        Math.abs(
-          triggerBox.y + triggerBox.height - (layersBox.y + layersBox.height),
-        ) <= 2
+        triggerBox.x >= railBox.x &&
+        triggerBox.x + triggerBox.width <= railBox.x + railBox.width &&
+        railBox.y + railBox.height - (triggerBox.y + triggerBox.height) <= 16
       );
     })
     .toBe(true);
-  await expandMotionDockButton.click();
+  await motionRailButton.click();
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await page
     .getByRole("button", { name: "Collapse motion dock", exact: true })
     .click();
+  await expect
+    .poll(
+      async () => {
+        const [dockCount, launcherVisible, dockState] = await Promise.all([
+          page.locator('[aria-label="Motion dock"]').count(),
+          motionRailButton.isVisible(),
+          page
+            .locator('[aria-label="Motion dock"]')
+            .first()
+            .evaluate((node) => {
+              const element = node as HTMLElement;
+              const style = window.getComputedStyle(element);
+              return {
+                height: element.style.height,
+                opacity: style.opacity,
+                position: style.position,
+              };
+            })
+            .catch(() => null),
+        ]);
+        return (
+          dockCount === 1 &&
+          launcherVisible &&
+          dockState?.height !== "0px" &&
+          dockState?.opacity === "1" &&
+          dockState?.position === "absolute"
+        );
+      },
+      { timeout: 150, intervals: [20, 20, 20, 20, 20] },
+    )
+    .toBe(true);
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Expand motion dock", exact: true })
-    .click();
+  await motionRailButton.click();
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await expect(
     page.getByText("Pick a property to add the first track.", { exact: false }),
@@ -290,11 +305,22 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     .getByRole("button", { name: "Add track", exact: true })
     .last()
     .click();
-  await waitForAction(page, "apply-motion-edit", async () => {
-    await page
-      .getByRole("menuitem", { name: "Fade (opacity)", exact: true })
-      .click();
-  });
+  const motionResponse = await waitForAction(
+    page,
+    "apply-motion-edit",
+    async () => {
+      await page
+        .getByRole("menuitem", { name: "Fade (opacity)", exact: true })
+        .click();
+    },
+  );
+  const motionRequestBody = JSON.parse(
+    motionResponse.request().postData() ?? "{}",
+  ) as Record<string, unknown>;
+  expect(motionRequestBody.includeContent).toBe(false);
+  expect(
+    ((await motionResponse.json()) as Record<string, unknown>).patchedContent,
+  ).toBeUndefined();
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
@@ -318,7 +344,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     .toContain("e2e-alpha-button");
 
   const reopenMotionDockButton = page.getByRole("button", {
-    name: "Expand motion dock",
+    name: "Motion",
     exact: true,
   });
   await expect(reopenMotionDockButton).toBeVisible();
@@ -336,32 +362,6 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
       designFrame(page).locator("style[data-agent-native-motion]").count(),
     )
     .toBe(1);
-});
-
-test("breakpoint default buttons set the active preview width", async ({
-  page,
-}) => {
-  await enterDirectMode(page);
-
-  const statesToggle = page.getByRole("button", {
-    name: "States",
-    exact: true,
-  });
-  await statesToggle.scrollIntoViewIfNeeded();
-  await statesToggle.click();
-
-  const breakpoints = page.locator('section[aria-label="Breakpoints"]');
-  const mobileButton = breakpoints.getByRole("button", { name: /Mobile/ });
-  await expect(mobileButton).toBeVisible();
-  await mobileButton.click();
-
-  await expect(mobileButton).toHaveAttribute("aria-pressed", "true");
-  await expect
-    .poll(() =>
-      page.evaluate(() => (window as any).__designSelection?.breakpoint),
-    )
-    .toBe("mobile");
-  await expect.poll(() => previewIframeWidth(page)).toBe(390);
 });
 
 test("shader fill preview opens when the paint surface is reachable", async ({

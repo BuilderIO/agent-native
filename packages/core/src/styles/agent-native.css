@@ -167,17 +167,6 @@
   container: agent-native-main / inline-size;
 }
 
-.agent-layout-main-surface::before,
-.agent-sidebar-main-surface::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  pointer-events: none;
-  border-radius: inherit;
-  box-shadow: var(--agent-native-raised-outline);
-}
-
 .agent-layout-shell
   :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
   > :first-child
@@ -537,6 +526,57 @@
   }
 }
 
+/* Guided questions size themselves from the rendered container, not viewport
+   breakpoints, so they stay readable in narrow chat sidebars. */
+.guided-question-flow {
+  container-type: inline-size;
+  container-name: guided-question-flow;
+}
+
+.guided-question-flow-options {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container guided-question-flow (min-width: 42rem) {
+  .guided-question-flow-inner {
+    padding: 2rem;
+  }
+
+  .guided-question-flow-header {
+    margin-bottom: 1.5rem;
+  }
+
+  .guided-question-flow-title {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+
+  .guided-question-flow-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guided-question-flow-footer {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+  }
+}
+
+@container guided-question-flow (max-width: 24rem) {
+  .guided-question-flow-description {
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+
+  .guided-question-flow-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guided-question-flow-footer > :last-child {
+    justify-content: flex-end;
+  }
+}
+
 /* Connect AI card: use the card width, not the viewport, so narrow embedded
    sidebars stack the copy and actions before the secondary button clips. */
 .agent-builder-setup-card {
@@ -546,6 +586,32 @@
 .agent-builder-setup-card--sidebar {
   container-type: inline-size;
   container-name: agent-builder-setup;
+}
+
+.agent-builder-setup-card--sidebar .agent-builder-setup-card__actions {
+  gap: 0.25rem;
+}
+
+.agent-builder-setup-card--sidebar .agent-builder-setup-card__builder-button {
+  justify-content: center;
+  min-height: 2rem;
+}
+
+.agent-builder-setup-card--sidebar .agent-builder-setup-card__key-button {
+  align-self: center;
+  justify-content: center;
+  width: auto;
+  min-height: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  padding-inline: 0.25rem;
+}
+
+.agent-builder-setup-card--sidebar .agent-builder-setup-card__key-button:hover {
+  background: transparent;
+  color: hsl(var(--foreground));
 }
 
 @container agent-builder-setup (max-width: 560px) {
@@ -564,23 +630,19 @@
 
   .agent-builder-setup-card__builder-cta {
     align-items: stretch;
-    flex: 1 1 11rem;
+    flex: 0 1 auto;
   }
 
-  .agent-builder-setup-card__builder-button,
-  .agent-builder-setup-card__key-button {
+  .agent-builder-setup-card__builder-button {
     justify-content: center;
     min-width: 0;
     width: 100%;
   }
 
   .agent-builder-setup-card__key-button {
-    border: 1px solid hsl(var(--border));
-    background: hsl(var(--background));
-    color: hsl(var(--foreground));
-    flex: 1 1 8rem;
-    height: 2rem;
-    padding-inline: 0.75rem;
+    flex: 0 0 auto;
+    min-width: 0;
+    width: auto;
   }
 }
 
@@ -627,6 +689,28 @@
 [data-agent-empty-state="centered"] > .agent-chat-scroll {
   flex: 0 0 auto;
   overflow: visible;
+}
+
+[data-agent-empty-state="compact-setup"] > .agent-chat-scroll {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+[data-agent-empty-state="compact-setup"] .agent-empty-state {
+  height: auto;
+  min-height: 5rem;
+  gap: 0.5rem;
+  padding-block: 0.875rem;
+}
+
+[data-agent-empty-state="compact-setup"] .agent-empty-state > div:first-child {
+  width: 2rem;
+  height: 2rem;
+}
+
+[data-agent-empty-state="compact-setup"] .agent-empty-state svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .agent-thinking-indicator {

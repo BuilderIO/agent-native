@@ -1,10 +1,11 @@
 import {
   formatGuidedAnswersForAgent,
-  sendToAgentChat,
   useGuidedQuestionFlow,
   type GuidedQuestionAnswers,
 } from "@agent-native/core/client";
 import { useCallback } from "react";
+
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 interface UseQuestionFlowOptions {
   continuationTabId?: string | null;
@@ -53,7 +54,7 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     (message: string, context?: string) => {
-      const tabId = sendToAgentChat({
+      const tabId = sendToDesignAgentChat({
         message,
         context,
         submit: true,

@@ -347,7 +347,7 @@ export function ImageFillControls({
           placeholder={"Image URL" /* i18n-ignore */}
           aria-label={"Image URL" /* i18n-ignore */}
           spellCheck={false}
-          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px]"
+          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
           onChange={(event) => {
             urlDraftRef.current = event.target.value;
             setUrlDraft(event.target.value);
@@ -400,13 +400,13 @@ export function ImageFillControls({
       >
         <SelectTrigger
           aria-label={"Fill" /* i18n-ignore image fit selector */}
-          className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
+          className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
         >
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="text-[11px]">
+        <SelectContent className="!text-[11px]">
           {FIT_MODES.map(({ mode, label }) => (
-            <SelectItem key={mode} value={mode} className="text-[11px]">
+            <SelectItem key={mode} value={mode} className="!text-[11px]">
               {label}
             </SelectItem>
           ))}

@@ -42,6 +42,20 @@
     hsl(213 91% 67%) 14%,
     transparent
   );
+  --design-editor-component-color: hsl(263 84% 64%);
+  --design-editor-component-hover-color: hsl(263 72% 56%);
+  --design-editor-component-selection-color: color-mix(
+    in srgb,
+    hsl(263 84% 64%) 16%,
+    transparent
+  );
+  --design-editor-component-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(263 84% 64%) 10%,
+    transparent
+  );
+  --design-editor-component-strong-color: var(--design-editor-component-color);
+  --design-editor-component-contrast-color: #ffffff;
   --design-editor-active-row-color: color-mix(
     in srgb,
     hsl(0 0% 15%) 8%,
@@ -71,6 +85,11 @@
   --design-editor-control-border: hsl(var(--border));
   --design-editor-canvas-bg: hsl(0 0% 92%);
   --design-editor-skeleton-canvas-bg: hsl(0 0% 92%);
+  --design-editor-skeleton-panel-ghost-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 6%,
+    transparent
+  );
 }
 
 .dark {
@@ -109,6 +128,20 @@
     hsl(213 91% 67%) 24%,
     transparent
   );
+  --design-editor-component-color: hsl(263 88% 74%);
+  --design-editor-component-hover-color: hsl(263 82% 68%);
+  --design-editor-component-selection-color: color-mix(
+    in srgb,
+    hsl(263 88% 74%) 28%,
+    transparent
+  );
+  --design-editor-component-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(263 88% 74%) 18%,
+    transparent
+  );
+  --design-editor-component-strong-color: var(--design-editor-component-color);
+  --design-editor-component-contrast-color: #ffffff;
   --design-editor-active-row-color: hsl(0 0% 20%);
   --design-editor-layer-hover-color: color-mix(
     in srgb,
@@ -268,6 +301,29 @@
 .design-editor-app-menu-content[data-state="open"],
 .design-editor-app-menu-content[data-state="closed"] {
   animation: none !important;
+}
+
+.design-motion-dock-space {
+  --design-motion-dock-duration: 200ms;
+  --design-motion-dock-easing: ease-out;
+  transition: height var(--design-motion-dock-duration)
+    var(--design-motion-dock-easing);
+}
+
+.design-motion-dock {
+  transition:
+    border-color var(--design-motion-dock-duration)
+      var(--design-motion-dock-easing),
+    transform var(--design-motion-dock-duration)
+      var(--design-motion-dock-easing);
+}
+
+.design-motion-dock-space.design-motion-dock-resizing .design-motion-dock {
+  transition-duration: 0ms;
+}
+
+.design-motion-dock-space.design-motion-dock-resizing {
+  transition-duration: 0ms;
 }
 
 .dark .design-editor-app-menu-content {

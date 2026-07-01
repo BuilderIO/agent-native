@@ -749,9 +749,9 @@ function buttonPrimary(primary: boolean | undefined): React.CSSProperties {
     borderRadius: 6,
     border: primary
       ? "1px solid transparent"
-      : "1px solid rgba(255,255,255,0.15)",
-    background: primary ? "#3b82f6" : "rgba(255,255,255,0.04)",
-    color: primary ? "#fff" : "inherit",
+      : "1px solid hsl(var(--border) / 0.8)",
+    background: primary ? "hsl(var(--primary))" : "hsl(var(--muted) / 0.4)",
+    color: primary ? "hsl(var(--primary-foreground))" : "inherit",
     fontSize: 12,
     fontWeight: 500,
     cursor: "pointer",
@@ -761,9 +761,9 @@ function buttonPrimary(primary: boolean | undefined): React.CSSProperties {
 function buttonDisabled(primary: boolean | undefined): React.CSSProperties {
   return {
     ...buttonPrimary(primary),
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: primary ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
-    color: "rgba(255,255,255,0.5)",
+    border: "1px solid hsl(var(--border) / 0.6)",
+    background: "hsl(var(--muted) / 0.35)",
+    color: "hsl(var(--muted-foreground))",
     cursor: "not-allowed",
   };
 }
@@ -792,8 +792,8 @@ function badgeStyle(
 
 const styles: Record<string, React.CSSProperties> = {
   root: {
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    background: "rgba(255,255,255,0.02)",
+    borderBottom: "1px solid hsl(var(--border) / 0.7)",
+    background: "hsl(var(--muted) / 0.25)",
     fontSize: 12,
     display: "flex",
     flexDirection: "column",
@@ -804,7 +804,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    borderBottom: "1px solid hsl(var(--border) / 0.7)",
     background: "rgba(34,197,94,0.04)",
     fontSize: 12,
   },
@@ -915,7 +915,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: 16,
     height: 16,
     borderRadius: "50%",
-    border: "1px solid rgba(255,255,255,0.2)",
+    border: "1px solid hsl(var(--border))",
   },
   cardBody: {
     paddingBlock: "0 10px",
@@ -937,9 +937,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   method: {
     padding: "8px 10px",
-    border: "1px solid rgba(255,255,255,0.06)",
+    border: "1px solid hsl(var(--border) / 0.65)",
     borderRadius: 6,
-    background: "rgba(255,255,255,0.02)",
+    background: "hsl(var(--card) / 0.55)",
     display: "flex",
     flexDirection: "column",
     gap: 6,
@@ -967,8 +967,8 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     padding: "7px 8px",
     borderRadius: 6,
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.025)",
+    border: "1px solid hsl(var(--border) / 0.7)",
+    background: "hsl(var(--muted) / 0.35)",
     color: "inherit",
     cursor: "pointer",
     fontSize: 11,
@@ -996,8 +996,8 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "6px 8px",
     fontSize: 12,
     borderRadius: 5,
-    border: "1px solid rgba(255,255,255,0.1)",
-    background: "rgba(0,0,0,0.25)",
+    border: "1px solid hsl(var(--input))",
+    background: "hsl(var(--background))",
     color: "inherit",
     outline: "none",
     boxSizing: "border-box" as const,
@@ -1007,13 +1007,17 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "6px 8px",
     fontSize: 12,
     borderRadius: 5,
-    border: "1px solid rgba(255,255,255,0.1)",
-    background: "rgba(0,0,0,0.25)",
+    border: "1px solid hsl(var(--input))",
+    background: "hsl(var(--background))",
     color: "inherit",
     outline: "none",
     boxSizing: "border-box" as const,
   },
-  methodHint: { margin: 0, fontSize: 11, color: "rgba(255,255,255,0.62)" },
+  methodHint: {
+    margin: 0,
+    fontSize: 11,
+    color: "hsl(var(--muted-foreground))",
+  },
   errText: { margin: 0, fontSize: 11, color: "#f87171" },
   footer: {
     padding: "0 12px 10px",

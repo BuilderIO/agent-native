@@ -8,17 +8,18 @@
  * jump and the B6 ellipse border-radius jump.
  *
  * Design decisions:
- * - Fill: `hsl(var(--primary) / 0.12)` — the calm, theme-adaptive tint already
- *   used by the draft preview.  NOT the saturated blue previously hard-coded in
- *   appendCanvasPrimitiveToHtml (`rgba(37,99,235,0.16)`).
- * - Stroke: `hsl(var(--primary) / 0.7)` — same CSS-var approach, adapts to
- *   light/dark mode automatically.
+ * - Fill: `hsl(var(--primary, 213 91% 67%) / 0.24)` — theme-adaptive when the
+ *   document defines `--primary`, but still visibly blue inside standalone
+ *   iframe documents such as the overview board.
+ * - Stroke: `hsl(var(--primary, 213 91% 67%) / 0.95)` — same CSS-var approach
+ *   with a fallback so committed shapes do not become invisible.
  * - Stroke width: 1px for div-based shapes.
  * - Ellipse: borderRadius "50%" in both paths — no more "oval on commit" jump.
  * - Rect: borderRadius "2px" (small, matches the previous committed value; the
  *   preview used Tailwind `rounded-sm` which resolves to 2px).
  * - Frame: dashed border, slightly lighter fill (matches preview semantics).
- * - Text: inherits current color; dashed outline as placeholder affordance.
+ * - Text: inherits current color. Selection/edit chrome owns outlines so text
+ *   does not carry a persistent border that double-stacks with focused states.
  *
  * CSS custom properties (`hsl(var(--primary) / …)`) work in the committed HTML
  * because the iframe inherits the design-editor stylesheet that defines
@@ -57,17 +58,20 @@ export interface CanvasPrimitiveVisual {
 // Canonical tokens
 // ---------------------------------------------------------------------------
 
-/** Default fill tint — calm, theme-adaptive, not saturated. */
-const DEFAULT_FILL = "hsl(var(--primary) / 0.12)";
+/** Default fill — a soft Figma-like neutral gray. */
+const DEFAULT_FILL = "rgb(218 218 218)";
 
-/** Default stroke — uses the same hue at higher opacity for clarity. */
-const DEFAULT_STROKE = "hsl(var(--primary) / 0.7)";
+/** Default stroke — slightly darker so new rectangles stay visible. */
+const DEFAULT_STROKE = "rgb(168 168 168)";
 
 /** Stroke width in pixels for div-based shapes. */
 const DEFAULT_STROKE_WIDTH_PX = 1;
 
 /** Border shorthand shared by rect + ellipse. */
 const DEFAULT_BORDER = `${DEFAULT_STROKE_WIDTH_PX}px solid ${DEFAULT_STROKE}`;
+
+/** Text nodes rely on editor chrome for outlines; the element itself is bare. */
+const TEXT_BORDER = "0 solid transparent";
 
 /** Frame gets a dashed border to signal it is a layout container. */
 const FRAME_BORDER = `${DEFAULT_STROKE_WIDTH_PX}px dashed ${DEFAULT_STROKE}`;
@@ -114,7 +118,7 @@ export function canvasPrimitiveVisual(
     case "text":
       return {
         background: "transparent",
-        border: `${DEFAULT_STROKE_WIDTH_PX}px dashed hsl(var(--primary) / 0.6)`,
+        border: TEXT_BORDER,
         borderRadius: RECT_RADIUS,
         color: "currentColor",
       };
@@ -202,6 +206,15 @@ export function canvasPrimitiveReactStyle(
 
   if (kind === "frame" || kind === "text") {
     borderStyle = "dashed";
+  }
+
+  if (
+    kind === "text" &&
+    !overrides?.stroke &&
+    overrides?.strokeWidth === undefined
+  ) {
+    borderWidth = 0;
+    borderStyle = "solid";
   }
 
   if (overrides?.fill) {

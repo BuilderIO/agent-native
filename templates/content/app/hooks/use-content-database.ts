@@ -13,6 +13,7 @@ import type {
   ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
+  DatabaseItemsBatchRequest,
   DisconnectContentDatabaseSourceRequest,
   ExecuteBuilderSourceBatchRequest,
   ExecuteBuilderSourceBatchResponse,
@@ -256,6 +257,40 @@ export function useDuplicateDatabaseItem(documentId: string) {
       });
     },
   });
+}
+
+export function useDuplicateDatabaseItems(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
+    "duplicate-database-items",
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: contentDatabaseQueryKey(documentId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      },
+    },
+  );
+}
+
+export function useDeleteDatabaseItems(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
+    "delete-database-items",
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: contentDatabaseQueryKey(documentId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      },
+    },
+  );
 }
 
 export function useMoveDatabaseItem(documentId: string) {

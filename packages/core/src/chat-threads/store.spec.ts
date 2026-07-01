@@ -174,6 +174,43 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("does not retain empty assistant placeholders when saving the real answer", async () => {
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { message: userMessage, parentId: null },
+        {
+          message: { id: "placeholder", role: "assistant", content: [] },
+          parentId: "user-1",
+        },
+      ],
+      headId: "placeholder",
+    });
+    row!.message_count = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [
+          { message: userMessage, parentId: null },
+          { message: assistantMessage, parentId: "user-1" },
+        ],
+        headId: "assistant-1",
+      }),
+      "Thread",
+      "Done.",
+      2,
+    );
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(repo.messages[1].parentId).toBe("user-1");
+    expect(repo.headId).toBe("assistant-1");
+    expect(row!.message_count).toBe(2);
+  });
+
   it("lets queued-message clears win while preserving concurrent assistant messages", async () => {
     row!.thread_data = JSON.stringify({
       queuedMessages: [{ id: "queued-1", text: "next" }],

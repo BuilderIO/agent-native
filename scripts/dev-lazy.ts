@@ -14,6 +14,7 @@ import path from "node:path";
 import type { Duplex } from "node:stream";
 
 import {
+  attachGatewaySocketErrorSink,
   escapeHtml,
   normalizeOrigin,
   rewriteRedirectLocation,
@@ -305,7 +306,6 @@ const defaultApp =
       ? "dispatch"
       : apps[0].id;
 const backgroundProcesses: ChildProcess[] = [];
-const proxySocketsWithErrorSink = new WeakSet<net.Socket>();
 let shuttingDown = false;
 let gatewayServer: http.Server | undefined;
 
@@ -848,6 +848,16 @@ function proxyHeaders(
   };
 }
 
+function appDatabaseEnv(app: TemplateApp): NodeJS.ProcessEnv {
+  const appEnvName = app.id.toUpperCase().replace(/-/g, "_");
+  const databaseUrlKey = `${appEnvName}_DATABASE_URL`;
+  if (process.env[databaseUrlKey]) return {};
+
+  return {
+    [databaseUrlKey]: `file:${path.join(app.dir, "data", "app.db")}`,
+  };
+}
+
 function startApp(app: TemplateApp): void {
   if (app.process && !app.process.killed) return;
   if (app.restartTimer) return;
@@ -874,6 +884,7 @@ function startApp(app: TemplateApp): void {
       detached: process.platform !== "win32",
       env: devWatcherEnv({
         ...process.env,
+        ...appDatabaseEnv(app),
         // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
         // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
         // stdout is a TTY, so ANSI codes pass straight through to the user.
@@ -1045,9 +1056,7 @@ function proxyHttp(
       },
     );
     proxyReq.once("socket", (socket) => {
-      if (proxySocketsWithErrorSink.has(socket)) return;
-      proxySocketsWithErrorSink.add(socket);
-      socket.on("error", () => {});
+      attachGatewaySocketErrorSink(socket);
     });
     res.once("error", () => {
       proxyReq.destroy();
@@ -1118,14 +1127,22 @@ function proxyUpgrade(
   head: Buffer,
 ): void {
   startApp(app);
+  let target: net.Socket | undefined;
+  attachGatewaySocketErrorSink(socket, () => {
+    target?.destroy();
+  });
+  socket.once("close", () => {
+    target?.destroy();
+  });
   void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
       failAppStartupTimeout(app);
       socket.destroy();
       return;
     }
+    if (socket.destroyed) return;
     app.ready = true;
-    const target = net.connect(app.port, "127.0.0.1", () => {
+    const upstream = net.connect(app.port, "127.0.0.1", () => {
       const headers = Object.entries(proxyHeaders(req, `127.0.0.1:${app.port}`))
         .flatMap(([key, value]) =>
           Array.isArray(value)
@@ -1133,14 +1150,20 @@ function proxyUpgrade(
             : [`${key}: ${value ?? ""}`],
         )
         .join("\r\n");
-      target.write(
+      upstream.write(
         `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`,
       );
-      if (head.length) target.write(head);
-      socket.pipe(target).pipe(socket);
+      if (head.length) upstream.write(head);
+      socket.pipe(upstream).pipe(socket);
     });
+    target = upstream;
 
-    target.on("error", () => socket.destroy());
+    attachGatewaySocketErrorSink(upstream, () => {
+      if (!socket.destroyed) socket.destroy();
+    });
+    upstream.once("close", () => {
+      if (!socket.destroyed) socket.destroy();
+    });
   });
 }
 

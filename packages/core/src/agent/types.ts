@@ -207,16 +207,21 @@ export interface AgentChatRequest {
   approvedToolCalls?: string[];
 }
 
+export type AgentToolInput = Record<string, unknown>;
+
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "activity"; label: string; tool?: string }
   | { type: "stream_keepalive" }
-  | { type: "tool_start"; tool: string; input: Record<string, string> }
+  | { type: "tool_start"; tool: string; input: AgentToolInput }
   | {
       type: "tool_done";
       tool: string;
+      input?: AgentToolInput;
       result: string;
+      isError?: boolean;
+      completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
     }

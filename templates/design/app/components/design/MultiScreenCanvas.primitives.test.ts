@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  getBoardContentKey,
+  getBoardContentLayerSignature,
+  getBoardSurfaceLayerStyle,
+  getBoardSurfaceRenderContent,
+  getCrossScreenDropGuideForHitTest,
   getPrimitiveDropTargetForPoint,
+  hasBoardSurfaceContent,
   ParsedScreenPrimitive,
   primitiveLocalToBoardRect,
   primitiveParseCache,
   resolveNodeScreenId,
+  shouldBoardSurfaceCapturePointerEvents,
   type FrameGeometry,
 } from "./MultiScreenCanvas";
 
@@ -67,6 +74,197 @@ beforeEach(() => {
   primitiveParseCache.clear();
 });
 
+describe("board surface pointer capture", () => {
+  it("keeps the oversized board layer transparent", () => {
+    const style = getBoardSurfaceLayerStyle({
+      geometry: makeGeom(-65536, -65536, 131072, 131072),
+      interactive: true,
+    });
+
+    expect(style.background).toBe("transparent");
+    expect(style.pointerEvents).toBe("auto");
+  });
+
+  it("treats empty board documents as having no surface content", () => {
+    expect(
+      hasBoardSurfaceContent(
+        `<!doctype html><html><head><style>body{margin:0}</style></head><body>
+        </body></html>`,
+      ),
+    ).toBe(false);
+    expect(
+      hasBoardSurfaceContent(
+        `<!doctype html><html><body><div data-agent-native-node-id="shape"></div></body></html>`,
+      ),
+    ).toBe(true);
+  });
+
+  it("injects a board-only transparent surface guard", () => {
+    const html = `<!doctype html><html><head><style>body{background:white}</style></head><body><div class="page" style="background:white"><div data-agent-native-node-id="rect" style="background:#ddd"></div></div></body></html>`;
+    const result = getBoardSurfaceRenderContent(html);
+
+    expect(result).toContain("data-agent-native-board-surface-render");
+    expect(result).toContain(
+      "body>:not([data-agent-native-node-id]):not(style):not(script)",
+    );
+    expect(result).toContain(
+      "body>[data-agent-native-node-id]:not([data-an-primitive]):has([data-agent-native-node-id])",
+    );
+    expect(result).toContain('body>[data-agent-native-layer-name="<body>"]');
+    expect(result).toContain(
+      `<div data-agent-native-node-id="rect" style="background:#ddd">`,
+    );
+  });
+
+  it("hides only oversized neutral board backdrop rectangles", () => {
+    const html = `<!doctype html><html><body>
+      <div data-agent-native-node-id="backdrop" data-an-primitive="rectangle" style="position:absolute;left:-16305px;top:-25001px;width:5800px;height:5500px;background:rgb(218, 218, 218);border:1px solid rgb(168, 168, 168);"></div>
+      <div data-agent-native-node-id="normal" data-an-primitive="rectangle" style="position:absolute;left:10px;top:10px;width:160px;height:120px;background:#d9d9d9;border:1px solid #bdbdbd;"></div>
+    </body></html>`;
+    const result = getBoardSurfaceRenderContent(html);
+
+    expect(result).toContain(
+      '[data-agent-native-board-backdrop-candidate="true"]',
+    );
+    expect(result).toMatch(
+      /data-agent-native-node-id="backdrop"[^>]*data-agent-native-board-backdrop-candidate="true"/,
+    );
+    expect(result).not.toMatch(
+      /data-agent-native-node-id="normal"[^>]*data-agent-native-board-backdrop-candidate="true"/,
+    );
+  });
+
+  it("captures only direct board edit tools", () => {
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "move" })).toBe(true);
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "select" })).toBe(
+      true,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "scale" })).toBe(
+      true,
+    );
+    expect(
+      shouldBoardSurfaceCapturePointerEvents({
+        tool: "move",
+        gestureActive: true,
+      }),
+    ).toBe(false);
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "hand" })).toBe(
+      false,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "rect" })).toBe(
+      false,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "rectangle" })).toBe(
+      false,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "pen" })).toBe(false);
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "comment" })).toBe(
+      false,
+    );
+    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "draw" })).toBe(
+      false,
+    );
+  });
+
+  it("keeps the active board iframe content key stable across local edits", () => {
+    const before = `<body><div data-agent-native-node-id="rect" style="left:1px"></div></body>`;
+    const after = `<body><div data-agent-native-node-id="rect" style="left:2px"></div></body>`;
+
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: before,
+        boardIsActive: true,
+      }),
+    ).toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: after,
+        boardIsActive: true,
+      }),
+    );
+  });
+
+  it("changes the active board iframe content key when layer ids change", () => {
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div></body>`,
+        boardIsActive: true,
+      }),
+    ).not.toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
+        boardIsActive: true,
+      }),
+    );
+    expect(
+      getBoardContentLayerSignature(
+        `<body><div data-agent-native-node-id="rect-a"></div></body>`,
+      ),
+    ).not.toBe(
+      getBoardContentLayerSignature(
+        `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
+      ),
+    );
+  });
+
+  it("changes the active board iframe content key when layer hierarchy changes", () => {
+    const before = `<body><div data-agent-native-node-id="parent"></div><div data-agent-native-node-id="child"></div></body>`;
+    const after = `<body><div data-agent-native-node-id="parent"><div data-agent-native-node-id="child"></div></div></body>`;
+
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: before,
+        boardIsActive: true,
+      }),
+    ).not.toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: after,
+        boardIsActive: true,
+      }),
+    );
+  });
+
+  it("keeps inactive board iframe content keys stable across local edits", () => {
+    const before = `<body><div data-agent-native-node-id="rect" style="left:1px"></div></body>`;
+    const after = `<body><div data-agent-native-node-id="rect" style="left:2px"></div></body>`;
+
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: before,
+        boardIsActive: false,
+      }),
+    ).toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: after,
+        boardIsActive: false,
+      }),
+    );
+  });
+
+  it("changes inactive board iframe content keys when layer ids change", () => {
+    expect(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div></body>`,
+        boardIsActive: false,
+      }),
+    ).not.toBe(
+      getBoardContentKey({
+        boardFileId: "board",
+        boardFileContent: `<body><div data-agent-native-node-id="rect-a"></div><div data-agent-native-node-id="rect-b"></div></body>`,
+        boardIsActive: false,
+      }),
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // primitiveLocalToBoardRect
 // ---------------------------------------------------------------------------
@@ -119,6 +317,39 @@ describe("primitiveLocalToBoardRect", () => {
         height: 0,
       }),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getCrossScreenDropGuideForHitTest
+// ---------------------------------------------------------------------------
+describe("getCrossScreenDropGuideForHitTest", () => {
+  it("converts target iframe hit-test rects to board-space drop guides", () => {
+    const result = getCrossScreenDropGuideForHitTest({
+      hit: {
+        placement: "after",
+        axis: "x",
+        anchorRect: { left: 160, top: 80, width: 40, height: 120 },
+      },
+      targetGeometry: makeGeom(100, 200, 320, 640),
+      targetMetadata: { width: 640, height: 1280 },
+    });
+
+    expect(result).toEqual({
+      placement: "after",
+      axis: "x",
+      boardRect: { x: 180, y: 240, width: 20, height: 60 },
+    });
+  });
+
+  it("returns null when a hit-test response has no anchor rect", () => {
+    expect(
+      getCrossScreenDropGuideForHitTest({
+        hit: { placement: "inside", axis: "y" },
+        targetGeometry: makeGeom(0, 0, 320, 640),
+        targetMetadata: { width: 320, height: 640 },
+      }),
+    ).toBeNull();
   });
 });
 

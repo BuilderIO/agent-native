@@ -1,5 +1,39 @@
 # @agent-native/core
 
+## 0.84.1
+
+### Patch Changes
+
+- 87806ef: Report intentionally gated eval cases as skipped, keep skipped suites from setting up agent runners, and avoid action/engine setup for eval cases that fully short-circuit with custom run handlers.
+
+## 0.84.0
+
+### Minor Changes
+
+- 31983c1: Add Claude Sonnet 5 to the managed Builder gateway and Anthropic model catalogs.
+
+### Patch Changes
+
+- 31983c1: Keep Builder.io Connect polling after the auth window closes so slow status confirmation does not show a false warning.
+- 31983c1: Keep OAuth state and environment status checks aligned with scoped workspace credentials.
+- 31983c1: Use Claude Opus 4.8 instead of 4.7 in the managed Builder gateway model catalog.
+- 31983c1: Keep the Connect AI setup card aligned with the composer and stop stretching the Builder.io button in compact rows.
+- 31983c1: Simplify guided question layout and keep chat-sidebar choices readable with container queries.
+- 31983c1: Fix spacing in the Extensions sidebar sort menu.
+- 31983c1: Allow generated deploy workers to accept browser action-client headers during CORS preflight.
+- 31983c1: Keep lazy workspace gateway socket resets from crashing local dev servers.
+- 31983c1: Add GLM 5.2 to the curated OpenRouter model catalog and setup copy.
+- 31983c1: Disable recurring job and automation trigger background loading during local development.
+- 31983c1: Expose a guarded localhost Design bridge snapshot endpoint so URL-backed visual-edit screens can become editable in Design without replacing their saved URL source.
+- 31983c1: Use neutral button colors on the missing design screen.
+- 31983c1: Render PR visual recap screenshots without wrapping the thumbnail image in a link.
+- 31983c1: Prevent failed or blocked tool calls from being replayed as completed durable side effects.
+- 31983c1: Allow apps to opt specific deep-link open targets into anonymous redirects.
+- 31983c1: Temporarily hide Claude Sonnet 5 behind a code flag so Claude Sonnet 4.6 remains the visible Sonnet option and default until the Builder gateway deploy supports Sonnet 5.
+- 31983c1: Use theme tokens for shared setup, onboarding, editor, and integration chrome.
+- 31983c1: Tighten the sidebar Connect AI setup card so secondary API-key setup stays compact.
+- 31983c1: Fix the exported visual-edit skill instructions so editable localhost sessions keep the Design bridge running.
+
 ## 0.83.0
 
 ### Minor Changes

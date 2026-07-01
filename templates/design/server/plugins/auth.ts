@@ -28,5 +28,6 @@ export default createAuthPlugin({
     "/api/design-handoff",
     "/__manifest",
     "/_agent-native/actions/get-design",
+    "/_agent-native/actions/list-design-native-assets",
   ],
 });

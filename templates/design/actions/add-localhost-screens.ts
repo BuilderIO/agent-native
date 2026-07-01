@@ -17,6 +17,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   mergeCanvasFramePlacements,
+  parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import {
@@ -148,6 +149,25 @@ function uniqueFilename(
   return filename;
 }
 
+export function viewportFilename(
+  pathOrUrl: string,
+  width: number,
+  height: number,
+) {
+  const viewport = `${Math.round(width)}x${Math.round(height)}`;
+  return `localhost-${slugForPath(pathOrUrl)}-${viewport}.html`;
+}
+
+function metadataNumber(
+  metadata: Record<string, unknown> | undefined,
+  key: "width" | "height",
+) {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
 export default defineAction({
   description:
     "Create or refresh URL-backed localhost screens in a design project. " +
@@ -179,14 +199,12 @@ export default defineAction({
       .number()
       .positive()
       .optional()
-      .default(1280)
-      .describe("Default iframe viewport width."),
+      .describe("Default iframe viewport width. Defaults to 1280."),
     defaultHeight: z
       .number()
       .positive()
       .optional()
-      .default(900)
-      .describe("Default iframe viewport height."),
+      .describe("Default iframe viewport height. Defaults to 900."),
     startX: z.number().optional().default(0),
     startY: z.number().optional().default(0),
     gap: z.number().optional().default(160),
@@ -292,6 +310,13 @@ export default defineAction({
       .from(schema.designs)
       .where(eq(schema.designs.id, designId))
       .limit(1);
+    const prevData = parseJson<Record<string, unknown>>(design?.data, {});
+    const existingCanvasFrames = parseCanvasFrameGeometryById(
+      prevData.canvasFrames,
+    );
+    const existingMetadata = isRecord(prevData.screenMetadata)
+      ? (prevData.screenMetadata as Record<string, unknown>)
+      : {};
     const existingFiles = await db
       .select()
       .from(schema.designFiles)
@@ -301,6 +326,8 @@ export default defineAction({
     );
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const now = new Date().toISOString();
+    const effectiveDefaultWidth = defaultWidth ?? 1280;
+    const effectiveDefaultHeight = defaultHeight ?? 900;
     const savedScreens: Array<{
       id: string;
       filename: string;
@@ -333,9 +360,38 @@ export default defineAction({
       const title =
         input.title ?? manifestRoute?.title ?? titleFromRoutePath(path);
       const sourceFile = input.sourceFile ?? manifestRoute?.sourceFile;
-      const width = input.width ?? defaultWidth;
-      const height = input.height ?? defaultHeight;
-      const preferredFilename = `localhost-${slugForPath(path)}.html`;
+      const width = input.width ?? effectiveDefaultWidth;
+      const height = input.height ?? effectiveDefaultHeight;
+      const basePreferredFilename = `localhost-${slugForPath(path)}.html`;
+      const existingBase = existingByFilename.get(basePreferredFilename);
+      const requestedViewportExplicitly =
+        input.width !== undefined ||
+        input.height !== undefined ||
+        defaultWidth !== undefined ||
+        defaultHeight !== undefined;
+      const existingBaseMetadata = isRecord(
+        existingBase ? existingMetadata[existingBase.id] : undefined,
+      )
+        ? (existingMetadata[existingBase!.id] as Record<string, unknown>)
+        : undefined;
+      const existingBaseFrame = existingBase
+        ? existingCanvasFrames[existingBase.id]
+        : undefined;
+      const existingBaseWidth =
+        existingBaseFrame?.width ??
+        metadataNumber(existingBaseMetadata, "width");
+      const existingBaseHeight =
+        existingBaseFrame?.height ??
+        metadataNumber(existingBaseMetadata, "height");
+      const viewportDiffersFromBase =
+        (typeof existingBaseWidth === "number" &&
+          existingBaseWidth !== width) ||
+        (typeof existingBaseHeight === "number" &&
+          existingBaseHeight !== height);
+      const preferredFilename =
+        existingBase && requestedViewportExplicitly && viewportDiffersFromBase
+          ? viewportFilename(path, width, height)
+          : basePreferredFilename;
       const existing = existingByFilename.get(preferredFilename);
       const filename =
         existing?.filename ??
@@ -387,7 +443,6 @@ export default defineAction({
       });
     }
 
-    const prevData = parseJson<Record<string, unknown>>(design?.data, {});
     const mergedFrames = mergeCanvasFramePlacements({
       existing: prevData.canvasFrames,
       placements,

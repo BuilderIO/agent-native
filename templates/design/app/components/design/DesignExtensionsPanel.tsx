@@ -1,7 +1,6 @@
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 import {
   agentNativePath,
-  sendToAgentChat,
   useActionQuery,
   useActionMutation,
   useChangeVersions,
@@ -20,11 +19,12 @@ import {
   IconChevronDown,
   IconExternalLink,
   IconLock,
+  IconMessageCircle,
+  IconPalette,
   IconPhoto,
   IconPlayerPlay,
   IconPuzzle,
   IconSearch,
-  IconSparkles,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -53,6 +53,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
 import { ShaderFillsPanel } from "./inspector/ShaderFillsPanel";
@@ -320,8 +321,7 @@ function FirstPartyExtRow({
           <span className="block truncate text-sm font-medium leading-tight text-foreground">
             {label}
           </span>
-          <span className="mt-0.5 flex items-center gap-1.5 truncate text-xs leading-none text-muted-foreground">
-            <IconPuzzle className="size-3 shrink-0" />
+          <span className="mt-0.5 block truncate text-xs leading-none text-muted-foreground">
             <span className="truncate">Built-in</span>
           </span>
         </span>
@@ -581,15 +581,15 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
       <Tabs defaultValue="native" className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-border/60 px-2 py-1.5">
           <TabsList className="grid h-7 w-full grid-cols-3 rounded-md p-0.5">
-            <TabsTrigger value="native" className="h-6 gap-1 px-2 text-[11px]">
+            <TabsTrigger value="native" className="h-6 gap-1 px-2 !text-[11px]">
               <IconAssembly className="size-3" />
               Native
             </TabsTrigger>
-            <TabsTrigger value="media" className="h-6 gap-1 px-2 text-[11px]">
+            <TabsTrigger value="media" className="h-6 gap-1 px-2 !text-[11px]">
               <IconPhoto className="size-3" />
               Media
             </TabsTrigger>
-            <TabsTrigger value="figma" className="h-6 gap-1 px-2 text-[11px]">
+            <TabsTrigger value="figma" className="h-6 gap-1 px-2 !text-[11px]">
               <IconBrandFigma className="size-3" />
               Figma
             </TabsTrigger>
@@ -631,7 +631,7 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5">
-                      <span className="truncate text-[11px] font-medium leading-tight text-foreground">
+                      <span className="truncate !text-[11px] font-medium leading-tight text-foreground">
                         {asset.title}
                       </span>
                       <span className="shrink-0 rounded border border-border/70 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
@@ -678,19 +678,19 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
               value={figmaFileInput}
               onChange={(event) => setFigmaFileInput(event.target.value)}
               placeholder="Figma file URL or key"
-              className="h-7 text-[11px]"
+              className="h-7 !text-[11px] md:!text-[11px]"
             />
             <div className="flex gap-1.5">
               <Input
                 value={figmaQueryInput}
                 onChange={(event) => setFigmaQueryInput(event.target.value)}
                 placeholder="Search components"
-                className="h-7 min-w-0 flex-1 text-[11px]"
+                className="h-7 min-w-0 flex-1 !text-[11px] md:!text-[11px]"
               />
               <Button
                 type="submit"
                 size="sm"
-                className="h-7 cursor-pointer gap-1 px-2 text-[11px]"
+                className="h-7 cursor-pointer gap-1 px-2 !text-[11px]"
                 disabled={!figmaFileInput.trim() || figmaAssets.isFetching}
               >
                 <IconSearch className="size-3" />
@@ -949,10 +949,10 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           <Button
             type="button"
             size="sm"
-            className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+            className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
             onClick={() => setShowShaders(true)}
           >
-            <IconSparkles className="size-3" />
+            <IconPalette className="size-3" />
             Browse Shaders
           </Button>
         </div>
@@ -991,7 +991,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
           <Button
             type="button"
             size="sm"
-            className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+            className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
             disabled={!previewMatchesTarget || applyShaderFill.isPending}
             onClick={() => {
               if (previewMatchesTarget && previewed) {
@@ -999,7 +999,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
               }
             }}
           >
-            <IconSparkles className="size-3" />
+            <IconPalette className="size-3" />
             {applyShaderFill.isPending
               ? "Applying…"
               : previewMatchesTarget
@@ -1027,7 +1027,7 @@ function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
   const t = useT();
 
   const handleAskAgent = () => {
-    sendToAgentChat({
+    sendToDesignAgentChat({
       message:
         "Run a token audit on the active design: index CSS custom properties, surface any hard-coded colours that should be tokens, flag clashes, and suggest fixes.",
       context: [
@@ -1056,10 +1056,10 @@ function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
         <Button
           type="button"
           size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+          className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
           onClick={handleAskAgent}
         >
-          <IconSparkles className="size-3" />
+          <IconMessageCircle className="size-3" />
           {t("designEditor.askAgent") || "Ask agent"}
         </Button>
       </div>
@@ -1077,7 +1077,7 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
   const t = useT();
 
   const handleAskAgent = () => {
-    sendToAgentChat({
+    sendToDesignAgentChat({
       message:
         "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to write the keyframes atomically.",
       context: [
@@ -1111,10 +1111,10 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
         <Button
           type="button"
           size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 text-[11px]"
+          className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
           onClick={handleAskAgent}
         >
-          <IconSparkles className="size-3" />
+          <IconMessageCircle className="size-3" />
           {t("designEditor.askAgent") || "Ask agent"}
         </Button>
       </div>
@@ -1159,7 +1159,7 @@ export function DesignExtensionsPanel({
   const submitCreatePrompt: CreateExtensionSubmitHandler = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    sendToAgentChat({
+    sendToDesignAgentChat({
       message: `Create a Design extension: ${trimmed}`,
       context: buildExtensionCreateContext(trimmed, context),
       submit: true,
@@ -1211,7 +1211,7 @@ export function DesignExtensionsPanel({
       label: "Shader Fills",
       description: "GPU shader fill presets — preview & apply",
       category: "shader",
-      icon: <IconSparkles className="size-3.5" />,
+      icon: <IconPalette className="size-3.5" />,
       panel: <ShaderFillsExtPanel context={context} />,
     },
     {
@@ -1454,11 +1454,10 @@ function CreateExtensionPopover({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 cursor-pointer gap-1.5 rounded-md bg-transparent px-3 text-sm font-medium"
+          className="h-8 cursor-pointer rounded-md bg-transparent px-3 text-sm font-medium"
           aria-label={t("designEditor.addExtension")}
         >
           Create
-          <IconChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-80 p-3">
@@ -1486,10 +1485,9 @@ function CreateExtensionPopover({
             <Button
               type="submit"
               size="sm"
-              className="h-8 gap-1.5 px-3"
+              className="h-8 px-3"
               disabled={!canSubmit}
             >
-              <IconSparkles className="size-3.5" />
               Create
             </Button>
           </div>

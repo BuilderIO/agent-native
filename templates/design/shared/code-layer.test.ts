@@ -165,14 +165,12 @@ describe("code-layer projection", () => {
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
     const mainNode = tree[0];
     expect(mainNode).toBeTruthy();
-    const navBar = mainNode?.children.find(
-      (child) => child.name === "Frame" || child.type === "component",
-    );
-    // The NavBar-annotated div must be classified as "component".
+    // The NavBar-annotated div must use the component name and classification.
     const componentChild = mainNode?.children.find(
       (child) => child.type === "component",
     );
     expect(componentChild).toBeTruthy();
+    expect(componentChild?.name).toBe("NavBar");
   });
 
   it("builds a design-editor DOM layer tree from projection parentage", () => {
@@ -223,8 +221,64 @@ describe("code-layer projection", () => {
       "shape",
       "text",
       "frame",
-      "shape",
+      "ellipse",
     ]);
+  });
+
+  it("classifies SVG-based vector primitives by their data-an-primitive kind marker", () => {
+    // Pen-tool vectors, lines, arrows, polygons, and stars are <svg>s. Without
+    // a distinct type they would fall through to "shape" and show a rectangle
+    // glyph. The kind marker gives each its own vector/line/arrow/polygon/star
+    // classification.
+    const html = `
+      <svg data-agent-native-node-id="p1" data-an-primitive="path" style="position:absolute"><path d="M 0 0 L 10 10"/></svg>
+      <svg data-agent-native-node-id="l1" data-an-primitive="line" style="position:absolute"><path d="M 0 5 L 100 5"/></svg>
+      <svg data-agent-native-node-id="a1" data-an-primitive="arrow" style="position:absolute"><path d="M 0 5 L 100 5" marker-end="url(#a)"/></svg>
+      <svg data-agent-native-node-id="g1" data-an-primitive="polygon" style="position:absolute"><polygon points="0,0 10,0 5,10"/></svg>
+      <svg data-agent-native-node-id="s1" data-an-primitive="star" style="position:absolute"><polygon points="0,0 2,2 4,0"/></svg>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree.map((node) => node.type)).toEqual([
+      "vector",
+      "line",
+      "arrow",
+      "polygon",
+      "star",
+    ]);
+    // Each SVG primitive is a single leaf layer: its internal geometry
+    // (<path>/<polygon>) must not be projected as a child layer.
+    expect(tree.map((node) => node.children.length)).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("does not project inline-SVG internals as child layers", () => {
+    const html = `
+      <div data-agent-native-node-id="logo" style="position:absolute">
+        <svg viewBox="0 0 24 24"><g><path d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="6"/></g></svg>
+      </div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const container = tree[0];
+    const svg = container?.children.find((child) => child.tag === "svg");
+    expect(svg).toBeTruthy();
+    expect(svg?.children).toEqual([]);
+  });
+
+  it("classifies rectangle/rect data-an-primitive as a generic shape", () => {
+    const html = `
+      <div data-agent-native-node-id="r1" data-an-primitive="rectangle" style="position:absolute;width:80px;height:40px;background:#2563eb"></div>
+      <div data-agent-native-node-id="r2" data-an-primitive="rect" style="position:absolute;width:80px;height:40px;background:#2563eb"></div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree.map((node) => node.type)).toEqual(["shape", "shape"]);
+  });
+
+  it("classifies circle and oval data-an-primitive variants as ellipse", () => {
+    const html = `
+      <div data-agent-native-node-id="c1" data-an-primitive="circle" style="position:absolute;width:40px;height:40px;border-radius:50%"></div>
+      <div data-agent-native-node-id="o1" data-an-primitive="oval" style="position:absolute;width:80px;height:50px;border-radius:50%"></div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree.map((node) => node.type)).toEqual(["ellipse", "ellipse"]);
   });
 
   it("deduplicates malformed duplicate root ids in the layer tree", () => {
@@ -275,6 +329,13 @@ describe("code-layer projection", () => {
     ]);
     expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
     expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
+  });
+
+  it("omits empty unnamed document shell rows from the layer tree", () => {
+    const html = `<!doctype html><html><head></head><body></body></html>`;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+
+    expect(tree).toEqual([]);
   });
 
   it("keeps explicitly named document shell rows in the layer tree", () => {

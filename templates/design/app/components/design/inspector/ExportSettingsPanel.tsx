@@ -140,7 +140,7 @@ function ScaleSelect({
     >
       <SelectTrigger
         className={cn(
-          "h-6 w-14 shrink-0 px-1.5 text-[11px]",
+          "h-6 w-14 shrink-0 px-1.5 !text-[11px]",
           controlChromeClass,
         )}
       >
@@ -149,7 +149,7 @@ function ScaleSelect({
       <SelectContent>
         <SelectGroup>
           {SCALE_PRESETS.map((p) => (
-            <SelectItem key={p.value} value={p.value} className="text-[11px]">
+            <SelectItem key={p.value} value={p.value} className="!text-[11px]">
               {p.label}
             </SelectItem>
           ))}
@@ -241,7 +241,7 @@ export function ExportSettingsPanel({
     <div className={cn("space-y-1.5", className)}>
       {/* Section header: title left, "+" right — matches the design editor export header */}
       <div className="flex h-6 items-center justify-between">
-        <span className="text-[11px] font-medium text-muted-foreground">
+        <span className="!text-[11px] font-medium text-muted-foreground">
           {copy.title}
         </span>
         <button
@@ -275,7 +275,7 @@ export function ExportSettingsPanel({
         variant="outline"
         disabled={isDisabled}
         onClick={handleExport}
-        className={cn("h-6 w-full px-2 text-[11px]", controlChromeClass)}
+        className={cn("h-6 w-full px-2 !text-[11px]", controlChromeClass)}
       >
         <IconDownload className="size-3.5" />
         {copy.export}
@@ -333,7 +333,7 @@ function ExportRow({
             }
           }}
           className={cn(
-            "h-6 w-14 shrink-0 px-1.5 text-[11px] tabular-nums",
+            "h-6 w-14 shrink-0 px-1.5 !text-[11px] tabular-nums md:!text-[11px]",
             controlChromeClass,
           )}
           aria-label="Scale"
@@ -365,7 +365,7 @@ function ExportRow({
       >
         <SelectTrigger
           className={cn(
-            "h-6 min-w-0 flex-1 px-1.5 text-[11px]",
+            "h-6 min-w-0 flex-1 px-1.5 !text-[11px]",
             controlChromeClass,
           )}
         >
@@ -377,7 +377,7 @@ function ExportRow({
               <SelectItem
                 key={format}
                 value={format}
-                className="text-[11px] uppercase"
+                className="!text-[11px] uppercase"
               >
                 {format.toUpperCase()}
               </SelectItem>
@@ -393,7 +393,7 @@ function ExportRow({
         onChange={(e) => onPatchRow(row.id, { suffix: e.target.value })}
         placeholder={labels.suffix}
         className={cn(
-          "h-6 min-w-0 flex-1 px-1.5 text-[11px]",
+          "h-6 min-w-0 flex-1 px-1.5 !text-[11px] md:!text-[11px]",
           controlChromeClass,
         )}
         aria-label={labels.suffix}

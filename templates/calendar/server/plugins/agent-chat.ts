@@ -70,6 +70,7 @@ const INITIAL_TOOL_NAMES = [
   "find-a-time",
   "search-people",
   "navigate",
+  "connect-google-calendar",
   "list-booking-links",
   "create-booking-link",
   "update-booking-link",
@@ -111,6 +112,7 @@ Provider-specific Calendar actions are shortcuts, not limits. If a first-class a
 - \`pnpm action navigate --view=calendar --date=YYYY-MM-DD\` — Navigate to a specific date
 - \`pnpm action navigate --view=availability\` — Show availability settings
 - \`pnpm action navigate --view=booking-links\` — Show booking links
+- \`pnpm action connect-google-calendar\` — Create a user-clickable Google Calendar OAuth link. Use this when the user asks to connect or reconnect Google Calendar. Do not fetch \`/_agent-native/google/auth-url\` yourself; OAuth must be opened by the signed-in user in their browser.
 - \`pnpm action update-calendar-visual-preferences --colorMode multi\` — Color the local app UI by meeting type without modifying Google Calendar events
 - \`pnpm action update-calendar-visual-preferences --colorMode single --singleColor '#5B9BD5'\` — Use one local display color for the user's Google events
 - \`pnpm action check-availability --date YYYY-MM-DD --duration 60\` — Check free slots
@@ -124,6 +126,8 @@ Use \`create-event\` or \`update-event --colorId 1..11\` when the user wants one
 
 ## Google Connection Check
 Before answering schedule questions, run view-screen first for context, then use list-events for the requested date range even if the user is currently on Settings, Booking Links, or another non-calendar page. Do not infer a Google Calendar connection problem just because the current page is Settings. Only ask the user to reconnect Google if list-events or the explicit Google status reports an auth/connection error.
+
+When the user explicitly asks you to connect or reconnect Google Calendar, call \`connect-google-calendar\` and give them the returned link. Do not call raw HTTP/fetch/web-request against \`/_agent-native/google/auth-url\`; that route depends on the user's browser session and will return 401 from the agent backend.
 
 For relationship-history or frequency questions such as "who have I met at Adobe?" or "how often do I meet with Mattel?", prefer the raw Google Calendar API through provider-api-request so you can choose the exact timeMin/timeMax, q, calendarId, maxResults, and pageToken behavior. Stage large paginated results before analysis. Do not conclude there are no recurring meetings from the visible range or from a convenience action alone.
 

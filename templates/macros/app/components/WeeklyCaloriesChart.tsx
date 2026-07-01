@@ -261,7 +261,7 @@ export function WeeklyCaloriesChart({
           />
           <Tooltip
             content={<CustomTooltip t={t} />}
-            cursor={{ fill: "rgba(255,255,255,0.03)" }}
+            cursor={{ fill: "hsl(var(--muted) / 0.5)" }}
           />
           <ReferenceLine
             y={weeklyGoal}

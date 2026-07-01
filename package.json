@@ -30,6 +30,7 @@
     "fix:imports": "oxfmt --write .",
     "test": "tsx scripts/workspace-run.ts test",
     "test:brain-evals": "pnpm --filter brain eval:ci",
+    "test:content-parity": "pnpm --filter content test:parity-capabilities",
     "qa:cli": "tsx scripts/qa-cli-smoke.ts",
     "qa:headless-onramp": "tsx scripts/qa-headless-onramp-smoke.ts",
     "qa:standalone-chat-dev": "tsx scripts/qa-standalone-chat-dev-smoke.ts",

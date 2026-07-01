@@ -285,8 +285,8 @@ export async function isSoftDeletedDatabaseDocument(documentId: string) {
 export async function getDatabaseByDocumentId(
   documentId: string,
   options: { includeDeleted?: boolean } = {},
+  db = getDb(),
 ) {
-  const db = getDb();
   const clauses = [eq(schema.contentDatabases.documentId, documentId)];
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
@@ -301,8 +301,8 @@ export async function getDatabaseByDocumentId(
 export async function getDatabaseItemByDocumentId(
   documentId: string,
   options: { includeDeleted?: boolean } = {},
+  db = getDb(),
 ) {
-  const db = getDb();
   const clauses = [eq(schema.contentDatabaseItems.documentId, documentId)];
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
@@ -332,11 +332,15 @@ export async function getDatabaseItemByDocumentId(
 export async function deleteDatabaseDataForDocument(
   documentId: string,
   ownerEmail: string,
+  db = getDb(),
 ) {
-  const db = getDb();
-  const database = await getDatabaseByDocumentId(documentId, {
-    includeDeleted: true,
-  });
+  const database = await getDatabaseByDocumentId(
+    documentId,
+    {
+      includeDeleted: true,
+    },
+    db,
+  );
   if (database) {
     const definitions = await db
       .select({ id: schema.documentPropertyDefinitions.id })
@@ -395,9 +399,13 @@ export async function deleteDatabaseDataForDocument(
       .where(eq(schema.contentDatabases.id, database.id));
   }
 
-  const item = await getDatabaseItemByDocumentId(documentId, {
-    includeDeleted: true,
-  });
+  const item = await getDatabaseItemByDocumentId(
+    documentId,
+    {
+      includeDeleted: true,
+    },
+    db,
+  );
   if (item) {
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
