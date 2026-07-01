@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.8
+
+### Patch Changes
+
+- b5cc580: Show a visible warning when an agent run completes tools but stops before sending any final assistant text.
+
 ## 0.84.7
 
 ### Patch Changes
