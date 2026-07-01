@@ -108,6 +108,7 @@ import {
   IconDownload,
   IconClipboard,
   IconFileExport,
+  IconFileImport,
   IconPlayerPlay,
   IconDeviceFloppy,
   IconRocket,
@@ -158,6 +159,7 @@ import {
   DesignExtensionsPanel,
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
+import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import {
   EditPanel,
   type InspectCodeData,
@@ -3470,13 +3472,20 @@ function AgentNativeMenuMark({ className }: { className?: string }) {
   );
 }
 
-type DesignLeftPanel = "file" | "agent" | "assets" | "tools" | "tokens";
+type DesignLeftPanel =
+  | "file"
+  | "agent"
+  | "assets"
+  | "tools"
+  | "tokens"
+  | "import";
 
 const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
   "file",
   "assets",
   "tools",
   "tokens",
+  "import",
 ]);
 
 function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
@@ -3485,7 +3494,8 @@ function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
     value === "agent" ||
     value === "assets" ||
     value === "tools" ||
-    value === "tokens"
+    value === "tokens" ||
+    value === "import"
     ? value
     : undefined;
 }
@@ -3527,6 +3537,11 @@ function DesignWorkspaceRail({
       panel: "assets",
       label: t("designEditor.leftRail.assets"),
       icon: <IconPhoto className="size-[15px]" />,
+    },
+    {
+      panel: "import",
+      label: t("designEditor.leftRail.import"),
+      icon: <IconFileImport className="size-[15px]" />,
     },
     {
       panel: "tools",
@@ -16722,6 +16737,23 @@ ${serializedHtml}
                     title={"Assets require editor access" /* i18n-ignore */}
                     description={
                       "Ask an owner for edit access before inserting assets into this design." /* i18n-ignore */
+                    }
+                  />
+                )}
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "import" ? "flex" : "hidden",
+                )}
+              >
+                {canEditDesign ? (
+                  <DesignImportPanel context={designExtensionContext} />
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={"Import requires editor access" /* i18n-ignore */}
+                    description={
+                      "Ask an owner for edit access before importing files into this design." /* i18n-ignore */
                     }
                   />
                 )}

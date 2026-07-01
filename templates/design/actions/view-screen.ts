@@ -95,7 +95,7 @@ function resolveActiveScreen(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, tools, or tokens), overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, import, tools, or tokens), overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   run: async () => {

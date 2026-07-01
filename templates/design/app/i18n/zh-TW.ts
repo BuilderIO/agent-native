@@ -248,6 +248,7 @@ const messages = {
       file: "檔案",
       agent: "代理",
       assets: "資源",
+      import: "匯入",
       tools: "工具",
       tokens: "權杖",
       label: "設計工作區",
@@ -271,6 +272,45 @@ const messages = {
       empty: "尚無權杖",
       emptyHint: "新增設計權杖以重複使用顏色、間距等。",
       applying: "套用中…",
+    },
+    import: {
+      title: "匯入",
+      description:
+        "將 Figma 選取內容、.fig 匯出檔或獨立 HTML 帶入為 Design 螢幕。",
+      figmaPasteTitle: "從 Figma 貼上",
+      figmaPasteDescription:
+        "在 Figma 複製畫框或圖層，然後聚焦此目標並貼上。可用時會直接匯入 Figma 中繼資料。",
+      figmaPasteTarget: "在此貼上 Figma 內容",
+      figUploadTitle: "上傳 .fig",
+      figUploadDescription:
+        "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
+      chooseFigFile: "選擇 .fig 檔案",
+      htmlTitle: "匯入 HTML",
+      htmlDescription:
+        "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
+      htmlPlaceholder: "<main>在此貼上獨立 HTML...</main>",
+      importHtml: "匯入 HTML",
+      chooseHtmlFile: "選擇 HTML 檔案",
+      githubTitle: "GitHub",
+      githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
+      localTitle: "本機 app / VS Code",
+      localDescription: "即將推出：連接執行中的本機 app 並匯入 URL 螢幕。",
+      visualEditGuidance:
+        "目前可請代理使用 visual-edit。它可以執行 app、呼叫 `npx @agent-native/core@latest design connect`，並新增 URL 螢幕。",
+      useVisualEditNow: "立即使用 visual-edit",
+      comingSoon: "即將推出",
+      warningsToast: "匯入完成但有警告",
+      figmaSuccess: "已匯入 Figma 貼上內容",
+      htmlSuccess: "已匯入 HTML",
+      uploadSuccess: "已匯入檔案",
+      visualEditSent: "已將 visual-edit 請求傳送給代理",
+      lastImport: "上次匯入",
+      errors: {
+        notHtml: "請貼上或選擇有效的 HTML 以匯入。",
+        importFailed: "匯入失敗",
+        figmaPasteFailed: "Figma 貼上匯入失敗",
+        uploadFailed: "檔案上傳失敗",
+      },
     },
     generationMayHaveStopped:
       "生成可能在建立檔案前停止。請檢視代理訊息或重試。",
