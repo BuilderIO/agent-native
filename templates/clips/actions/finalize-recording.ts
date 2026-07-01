@@ -362,6 +362,9 @@ export default defineAction({
           if (!uploadProvider?.resumable) {
             throw new Error("No resumable upload provider configured");
           }
+          if (resumableSession.bytesUploaded <= 0) {
+            throw new Error("Recording upload contained no video bytes");
+          }
           const videoUrl = await uploadProvider.resumable.completeSession(
             {
               sessionId: resumableSession.sessionId,
