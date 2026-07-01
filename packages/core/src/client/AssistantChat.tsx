@@ -1945,6 +1945,7 @@ const AssistantChatInner = forwardRef<
             settleInterruptedToolCalls(latestContent);
             setReconnectContent([...latestContent]);
             setReconnectFrozen(latestContent.length > 0);
+            reconnectCanMaterializeRef.current = latestContent.length > 0;
           }
           setRunErrorInfo({
             message:
@@ -1958,7 +1959,9 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
-          reconnectCanMaterializeRef.current = false;
+          if (afterSeq > 0) {
+            reconnectCanMaterializeRef.current = false;
+          }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -1976,6 +1979,7 @@ const AssistantChatInner = forwardRef<
           if (repoHasAssistantMessage(repo)) {
             setReconnectContent([]);
             setReconnectFrozen(false);
+            reconnectCanMaterializeRef.current = false;
             loaded = true;
             break;
           }
@@ -1990,7 +1994,9 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
-          reconnectCanMaterializeRef.current = false;
+          if (loaded || afterSeq > 0 || latestContent.length === 0) {
+            reconnectCanMaterializeRef.current = false;
+          }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -1998,10 +2004,11 @@ const AssistantChatInner = forwardRef<
           );
         }
         if (!loaded) {
-          await refreshThreadFromServer();
-          if (afterSeq > 0) {
+          const repo = await refreshThreadFromServer();
+          if (afterSeq > 0 || repoHasAssistantMessage(repo)) {
             setReconnectContent([]);
             setReconnectFrozen(false);
+            reconnectCanMaterializeRef.current = false;
           }
         }
       };
@@ -2696,6 +2703,7 @@ const AssistantChatInner = forwardRef<
       if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
+        reconnectCanMaterializeRef.current = false;
       }
       if (forceStopped) {
         setForceStopped(false);
@@ -2761,6 +2769,7 @@ const AssistantChatInner = forwardRef<
       threadRuntime.import(ensureMessageMetadata(repo));
       setReconnectFrozen(false);
       setReconnectContent([]);
+      reconnectCanMaterializeRef.current = false;
     } catch (err) {
       captureError(err, {
         tags: {
@@ -2809,13 +2818,15 @@ const AssistantChatInner = forwardRef<
       reconnectAbortRef.current = null;
       reconnectRunIdRef.current = null;
       setIsReconnecting(false);
-      if (reconnectCanMaterializeRef.current) {
-        setReconnectFrozen(reconnectContent.length > 0);
+      const shouldFreezeReconnectContent =
+        reconnectCanMaterializeRef.current && reconnectContent.length > 0;
+      if (shouldFreezeReconnectContent) {
+        setReconnectFrozen(true);
       } else {
         setReconnectFrozen(false);
         setReconnectContent([]);
+        reconnectCanMaterializeRef.current = false;
       }
-      reconnectCanMaterializeRef.current = false;
     }
     threadRuntime.cancelRun();
     if (typeof window !== "undefined") {
