@@ -69,6 +69,7 @@ import {
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
   setRunError,
+  setRunTerminalReason,
   updateRunStatusIfRunning,
 } from "../agent/run-store.js";
 import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
@@ -3876,6 +3877,7 @@ type AgentChatProcessRunFailureDeps = {
   readBackgroundRunClaim?: typeof readBackgroundRunClaim;
   recordRunDiagnostic?: typeof recordRunDiagnostic;
   setRunError?: typeof setRunError;
+  setRunTerminalReason?: typeof setRunTerminalReason;
   updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
   ensureTerminalRunEvent?: typeof ensureTerminalRunEvent;
 };
@@ -3888,6 +3890,7 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
   const readClaim = deps.readBackgroundRunClaim ?? readBackgroundRunClaim;
   const record = deps.recordRunDiagnostic ?? recordRunDiagnostic;
   const setError = deps.setRunError ?? setRunError;
+  const setTerminalReason = deps.setRunTerminalReason ?? setRunTerminalReason;
   const updateStatus =
     deps.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
   const ensureTerminal = deps.ensureTerminalRunEvent ?? ensureTerminalRunEvent;
@@ -3908,7 +3911,13 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
     CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
     `${CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.details} setupError=${message}`,
   ).catch(() => {});
-  await updateStatus(runId, "errored").catch(() => {});
+  const statusUpdated = await updateStatus(runId, "errored").catch(() => false);
+  if (statusUpdated) {
+    await setTerminalReason(
+      runId,
+      CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
+    ).catch(() => {});
+  }
   await ensureTerminal(
     runId,
     CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
@@ -7400,6 +7409,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // unreadable Netlify background-function logs — read
               // `/runs/active?threadId=...` and inspect `diagStage`.
               dispatchMode: run.dispatchMode ?? null,
+              terminalReason: run.terminalReason ?? null,
               diagStage: run.diagStage ?? null,
               workerStage: workerClaim?.workerStage ?? null,
               // Server clock so the client computes "stuck" elapsed time

@@ -32,6 +32,7 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type ConsoleLevel = "debug" | "log" | "info" | "warn" | "error";
 type NetworkType = "fetch" | "xhr";
+type UploadMode = "streaming" | "buffered";
 
 type ExtensionSettings = {
   clipsBaseUrl: string;
@@ -134,6 +135,7 @@ type NativeRecording = {
   recordingId: string;
   clipsBaseUrl: string;
   uploadUrl: string;
+  uploadMode: UploadMode;
   targetTabId: number;
   targetTitle: string | null;
   targetUrl: string | null;
@@ -1049,6 +1051,7 @@ async function armRecording(args: {
     id?: string;
     uploadChunkUrl?: string;
     abortUrl?: string;
+    uploadMode?: UploadMode;
   };
   let created: CreatedRecording;
   try {
@@ -1061,6 +1064,8 @@ async function armRecording(args: {
       hasAudio:
         settings.includeMicrophone || settings.captureSurface !== "camera",
       visibility: "public",
+      mimeType: "video/webm",
+      requestStreaming: true,
     });
   } catch (err) {
     captureExtensionError(err, {
@@ -1091,6 +1096,7 @@ async function armRecording(args: {
     recordingId: created.id,
     clipsBaseUrl: settings.clipsBaseUrl,
     uploadUrl,
+    uploadMode: created.uploadMode ?? "buffered",
     targetTabId: tab.id as number,
     targetTitle: tab.title?.trim() || null,
     targetUrl: tab.url?.trim() || null,
@@ -1122,6 +1128,7 @@ async function armRecording(args: {
       sessionId,
       recordingId: created.id,
       uploadUrl,
+      uploadMode: created.uploadMode ?? "buffered",
       hasCamera: cameraInvolved,
       startDelayMs,
       authToken,
@@ -1274,6 +1281,7 @@ async function handleOverlayRestart() {
       sessionId: recording.sessionId,
       recordingId: recording.recordingId,
       uploadUrl: recording.uploadUrl,
+      uploadMode: recording.uploadMode ?? "buffered",
       hasCamera:
         recording.captureSurface === "camera" || recording.includeCamera,
       startDelayMs: COUNTDOWN_SECONDS * 1000,

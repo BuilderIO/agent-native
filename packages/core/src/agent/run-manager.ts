@@ -18,6 +18,7 @@ import {
   reapUnclaimedBackgroundRun,
   ensureTerminalRunEvent,
   setRunError,
+  setRunTerminalReason,
   STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
@@ -293,6 +294,26 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+function terminalReasonForRun(
+  finalStatus: "completed" | "errored" | "aborted",
+  terminalEvent: AgentChatEvent | null,
+  abortReason: string | undefined,
+  completionError: unknown,
+): string {
+  if (terminalEvent?.type === "auto_continue") {
+    return terminalEvent.reason || "auto_continue";
+  }
+  if (terminalEvent?.type === "loop_limit") return "loop_limit";
+  if (terminalEvent?.type === "missing_api_key") return "missing_api_key";
+  if (terminalEvent?.type === "error") {
+    return `error:${terminalEvent.errorCode || "unknown"}`;
+  }
+  if (finalStatus === "aborted") return `aborted:${abortReason ?? "user"}`;
+  if (completionError) return "completion_error";
+  if (finalStatus === "errored") return "error:unknown";
+  return "done";
+}
+
 function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   run.abortReason = reason;
   run.status = "aborted";
@@ -459,7 +480,7 @@ export function startRun(
             type: "auto_continue",
             reason: "run_timeout",
           });
-          abort.abort();
+          abort.abort("run_timeout");
         }, softTimeoutMs)
       : null;
   let pendingTerminalEvent: RunEvent | null = null;
@@ -634,6 +655,12 @@ export function startRun(
           : run.status === "errored" || completionError
             ? "errored"
             : "completed";
+      const terminalReason = terminalReasonForRun(
+        finalStatus,
+        pendingTerminalEvent?.event ?? null,
+        run.abortReason,
+        completionError,
+      );
 
       // 3. Emit the terminal event only after thread_data is durable. Live
       //    SSE clients close on this event and usually fetch thread_data
@@ -706,7 +733,13 @@ export function startRun(
       try {
         await insertRunPromise;
         if (!terminalPersistenceError) {
-          await updateRunStatusIfRunning(runId, finalStatus);
+          const statusUpdated = await updateRunStatusIfRunning(
+            runId,
+            finalStatus,
+          );
+          if (statusUpdated) {
+            await setRunTerminalReason(runId, terminalReason);
+          }
         }
       } catch {
         // Best-effort — reapIfStale will eventually clean this up via
@@ -1077,6 +1110,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   lastProgressAt: number | null;
   /** How the run was dispatched (NULL/foreground, background, background-processing). */
   dispatchMode?: string | null;
+  /** Compact terminal classification, e.g. done, run_timeout, stale_run. */
+  terminalReason?: string | null;
   /**
    * Last reached `_process-run` worker stage as a JSON string
    * `{stage,detail?,at}`. Surfaced so a silent background-worker death is
@@ -1143,6 +1178,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
+        terminalReason: sqlRun.terminalReason,
         diagStage: sqlRun.diagStage,
       };
     }
@@ -1170,6 +1206,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
+        terminalReason: sqlRun.terminalReason,
         diagStage: sqlRun.diagStage,
       };
     }

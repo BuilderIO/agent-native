@@ -26,6 +26,7 @@ vi.mock("./run-store.js", () => ({
   reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   setRunError: vi.fn(() => Promise.resolve()),
+  setRunTerminalReason: vi.fn(() => Promise.resolve()),
   STALE_RUN_ERROR_EVENT: {
     type: "error",
     error:
@@ -69,6 +70,7 @@ import {
   ensureTerminalRunEvent,
   cleanupOldRuns,
   setRunError,
+  setRunTerminalReason,
   reapIfStale,
   reapUnclaimedBackgroundRun,
 } from "./run-store.js";
@@ -149,6 +151,7 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
     vi.mocked(setRunError).mockClear();
+    vi.mocked(setRunTerminalReason).mockClear();
     vi.mocked(reapUnclaimedBackgroundRun).mockReset();
     vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValue(false);
     vi.mocked(reapIfStale).mockReset();
@@ -163,6 +166,7 @@ describe("run manager soft timeout", () => {
   it("emits an internal continuation signal and aborts the run chunk", async () => {
     const events: AgentChatEvent[] = [];
     let aborted = false;
+    let abortReason: unknown;
 
     const run = startRun(
       "run-soft-timeout",
@@ -171,6 +175,7 @@ describe("run manager soft timeout", () => {
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => {
             aborted = true;
+            abortReason = signal.reason;
             resolve();
           });
         });
@@ -183,6 +188,7 @@ describe("run manager soft timeout", () => {
     await vi.advanceTimersByTimeAsync(11);
 
     expect(aborted).toBe(true);
+    expect(abortReason).toBe("run_timeout");
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "auto_continue",
@@ -190,6 +196,12 @@ describe("run manager soft timeout", () => {
       }),
     );
     expect(run.status).toBe("completed");
+    await vi.waitFor(() =>
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        "run-soft-timeout",
+        "run_timeout",
+      ),
+    );
   });
 
   it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {

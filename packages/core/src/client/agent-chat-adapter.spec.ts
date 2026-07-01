@@ -2634,6 +2634,19 @@ describe("createAgentChatAdapter", () => {
       ([event]) => event?.type === "agent-chat:run-error",
     )?.[0] as CustomEvent<{ details?: string }> | undefined;
     expect(dispatchedRunError?.detail.details).toContain(
+      "api_url: /_agent-native/agent-chat",
+    );
+    expect(dispatchedRunError?.detail.details).toContain(
+      "tab_id: chat-repeated-prep",
+    );
+    expect(dispatchedRunError?.detail.details).toContain(
+      "thread_id: thread-repeated-prep",
+    );
+    expect(dispatchedRunError?.detail.details).toContain("current_run: run-qa");
+    expect(dispatchedRunError?.detail.details).toContain(
+      "attempted_runs: run-qa",
+    );
+    expect(dispatchedRunError?.detail.details).toContain(
       "last_preparing_tool: present-design-variants",
     );
     const last = results.at(-1) as any;

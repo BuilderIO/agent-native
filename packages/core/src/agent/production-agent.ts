@@ -124,6 +124,7 @@ import {
   insertRun,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
+  setRunTerminalReason,
   claimBackgroundRun,
   readBackgroundRunClaim,
   recordRunDiagnostic,
@@ -5089,7 +5090,17 @@ export function createProductionAgentHandler(
         }
         // A background worker owns this run but we cannot subscribe — surface an
         // error rather than risk a double-run by falling through to inline.
-        await updateRunStatusIfRunning(runId, "errored").catch(() => {});
+        const terminalReason =
+          backgroundOutcome.action === "stream"
+            ? "background_subscribe_failed"
+            : "background_dispatch_failed";
+        const statusUpdated = await updateRunStatusIfRunning(
+          runId,
+          "errored",
+        ).catch(() => false);
+        if (statusUpdated) {
+          await setRunTerminalReason(runId, terminalReason).catch(() => {});
+        }
         setResponseStatus(event, 500);
         return {
           error:
@@ -5333,9 +5344,16 @@ export function createProductionAgentHandler(
                     "[agent-chat] background continuation dispatch failed:",
                     chainErr instanceof Error ? chainErr.message : chainErr,
                   );
-                  await updateRunStatusIfRunning(runId, "errored").catch(
-                    () => {},
-                  );
+                  const statusUpdated = await updateRunStatusIfRunning(
+                    runId,
+                    "errored",
+                  ).catch(() => false);
+                  if (statusUpdated) {
+                    await setRunTerminalReason(
+                      runId,
+                      "background_continuation_dispatch_failed",
+                    ).catch(() => {});
+                  }
                 }
               }
             } finally {
@@ -5766,6 +5784,22 @@ export function createProductionAgentHandler(
               threadId: threadId ?? null,
               userId: ownerEmail,
               config: obsConfig,
+              classifyError: () => {
+                if (
+                  agentLoopOpts.signal.aborted &&
+                  agentLoopOpts.signal.reason === "run_timeout"
+                ) {
+                  return {
+                    status: "success",
+                    errorMessage: null,
+                    metadata: {
+                      terminalReason: "run_timeout",
+                      recoverableContinuation: true,
+                    },
+                  };
+                }
+                return null;
+              },
             });
           }
         } catch (err) {
