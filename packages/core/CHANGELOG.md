@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.84.20
+
+### Patch Changes
+
+- 93ed23b: Use a filter icon instead of a gear icon for the Extensions sidebar section sort/filter options trigger.
+- ce62d53: Fix extension iframe theme inheritance and add source-code editor. Extensions now correctly inherit the host app's dark/light theme and CSS custom properties instead of rendering with a white background. Adds a raw HTML/Alpine.js source editor dialog to ExtensionViewer so extensions can be edited directly without going through the AI chat.
+
 ## 0.84.19
 
 ### Patch Changes
