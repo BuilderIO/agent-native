@@ -315,7 +315,7 @@ function parallelSameToolPreparationStream(
   });
 }
 
-function noIdToolStartDuringParallelSameToolPreparationStream(
+function noIdToolPairDuringParallelSameToolPreparationStream(
   tool = "edit-design",
 ): ReadableStream<Uint8Array> {
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -342,6 +342,7 @@ function noIdToolStartDuringParallelSameToolPreparationStream(
         }),
       );
       controller.enqueue(encode({ type: "tool_start", tool, input: {} }));
+      controller.enqueue(encode({ type: "tool_done", tool, result: "ok" }));
       timer = setInterval(() => {
         try {
           controller.enqueue(
@@ -644,13 +645,13 @@ describe("SSE event processor no-progress recovery", () => {
     await expect(donePromise).resolves.toBeDefined();
   });
 
-  it("keeps one same-tool preparation after a no-id tool_start", async () => {
+  it("keeps one same-tool preparation after a no-id tool_start and tool_done pair", async () => {
     vi.useFakeTimers();
 
     const errPromise = (async () => {
       try {
         for await (const _ of readSSEStream(
-          noIdToolStartDuringParallelSameToolPreparationStream(),
+          noIdToolPairDuringParallelSameToolPreparationStream(),
           [],
           { value: 0 },
           undefined,

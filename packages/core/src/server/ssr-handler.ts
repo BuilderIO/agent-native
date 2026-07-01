@@ -312,17 +312,12 @@ function appendCspTokens(
   return next;
 }
 
-function isStrictScriptCsp(tokens: readonly string[]): boolean {
-  return tokens.some((token) => {
-    const normalized = token.toLowerCase();
-    return (
-      normalized === "'strict-dynamic'" ||
-      normalized.startsWith("'nonce-") ||
-      normalized.startsWith("'sha256-") ||
-      normalized.startsWith("'sha384-") ||
-      normalized.startsWith("'sha512-")
-    );
-  });
+function hasMultipleCspPolicies(policy: string): boolean {
+  return policy.includes(",");
+}
+
+function usesStrictDynamic(tokens: readonly string[]): boolean {
+  return tokens.some((token) => token.toLowerCase() === "'strict-dynamic'");
 }
 
 function findCspDirective(
@@ -336,14 +331,14 @@ function appendToExistingOrDefaultCspDirective(
   directives: CspDirective[],
   name: string,
   additions: readonly string[],
-  options: { skipStrictScriptPolicies?: boolean } = {},
+  options: { skipStrictDynamicScriptPolicies?: boolean } = {},
 ): void {
   if (!additions.length) return;
   const existing = findCspDirective(directives, name);
   if (existing) {
     if (
-      options.skipStrictScriptPolicies &&
-      isStrictScriptCsp(existing.tokens)
+      options.skipStrictDynamicScriptPolicies &&
+      usesStrictDynamic(existing.tokens)
     ) {
       return;
     }
@@ -354,8 +349,8 @@ function appendToExistingOrDefaultCspDirective(
   const defaultSrc = findCspDirective(directives, "default-src");
   if (!defaultSrc) return;
   if (
-    options.skipStrictScriptPolicies &&
-    isStrictScriptCsp(defaultSrc.tokens)
+    options.skipStrictDynamicScriptPolicies &&
+    usesStrictDynamic(defaultSrc.tokens)
   ) {
     return;
   }
@@ -369,11 +364,14 @@ function appendToExistingCspDirective(
   directives: CspDirective[],
   name: string,
   additions: readonly string[],
-  options: { skipStrictScriptPolicies?: boolean } = {},
+  options: { skipStrictDynamicScriptPolicies?: boolean } = {},
 ): void {
   const existing = findCspDirective(directives, name);
   if (!existing) return;
-  if (options.skipStrictScriptPolicies && isStrictScriptCsp(existing.tokens)) {
+  if (
+    options.skipStrictDynamicScriptPolicies &&
+    usesStrictDynamic(existing.tokens)
+  ) {
     return;
   }
   existing.tokens = appendCspTokens(existing.tokens, additions);
@@ -388,20 +386,24 @@ function augmentExistingCspForFrameworkScripts(
   },
 ): string {
   const directives = parseCsp(policy);
-  if (!directives.length) return policy;
+  if (!directives.length || hasMultipleCspPolicies(policy)) return policy;
 
   appendToExistingOrDefaultCspDirective(
     directives,
     "script-src",
     options.scriptSrcTokens,
-    { skipStrictScriptPolicies: options.preserveStrictScriptPolicies },
+    {
+      skipStrictDynamicScriptPolicies: options.preserveStrictScriptPolicies,
+    },
   );
   // `script-src-elem` overrides `script-src` for script tags when present.
   appendToExistingCspDirective(
     directives,
     "script-src-elem",
     options.scriptSrcTokens,
-    { skipStrictScriptPolicies: options.preserveStrictScriptPolicies },
+    {
+      skipStrictDynamicScriptPolicies: options.preserveStrictScriptPolicies,
+    },
   );
 
   if (options.gaEnabled) {

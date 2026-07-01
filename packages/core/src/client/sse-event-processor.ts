@@ -168,6 +168,7 @@ type PreparingActionEntry = {
 
 type PreparingActionState = {
   entries?: Map<string, PreparingActionEntry>;
+  noIdStartedToolCounts?: Map<string, number>;
 };
 
 function formatProgressBytes(bytes: number): string {
@@ -279,6 +280,24 @@ function deletePreparingActionEntryForToolEvent(
   }
   if (!tool) return;
 
+  if (ev.type === "tool_done") {
+    const startedCount = state.noIdStartedToolCounts?.get(tool) ?? 0;
+    if (startedCount > 0) {
+      if (startedCount === 1) {
+        state.noIdStartedToolCounts?.delete(tool);
+      } else {
+        state.noIdStartedToolCounts?.set(tool, startedCount - 1);
+      }
+      return;
+    }
+  }
+
+  if (ev.type === "tool_start") {
+    const counts = state.noIdStartedToolCounts ?? new Map<string, number>();
+    state.noIdStartedToolCounts = counts;
+    counts.set(tool, (counts.get(tool) ?? 0) + 1);
+  }
+
   // Legacy production streams may omit ids on tool_start/tool_done. Treat that
   // as one matching action starting/finishing, not as proof that every parallel
   // same-tool preparation has completed.
@@ -355,6 +374,7 @@ function updatePreparingActionState(
       deletePreparingActionEntryForToolEvent(state, ev);
     } else {
       state.entries?.clear();
+      state.noIdStartedToolCounts?.clear();
     }
   }
   return undefined;
