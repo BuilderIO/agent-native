@@ -19,11 +19,12 @@ import {
   IconChevronDown,
   IconExternalLink,
   IconLock,
+  IconMessageCircle,
+  IconPalette,
   IconPhoto,
   IconPlayerPlay,
   IconPuzzle,
   IconSearch,
-  IconSparkles,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -952,7 +953,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
             className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
             onClick={() => setShowShaders(true)}
           >
-            <IconSparkles className="size-3" />
+            <IconPalette className="size-3" />
             Browse Shaders
           </Button>
         </div>
@@ -999,7 +1000,7 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
               }
             }}
           >
-            <IconSparkles className="size-3" />
+            <IconPalette className="size-3" />
             {applyShaderFill.isPending
               ? "Applying…"
               : previewMatchesTarget
@@ -1059,7 +1060,7 @@ function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
           className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
           onClick={handleAskAgent}
         >
-          <IconSparkles className="size-3" />
+          <IconMessageCircle className="size-3" />
           {t("designEditor.askAgent") || "Ask agent"}
         </Button>
       </div>
@@ -1114,7 +1115,7 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
           className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
           onClick={handleAskAgent}
         >
-          <IconSparkles className="size-3" />
+          <IconMessageCircle className="size-3" />
           {t("designEditor.askAgent") || "Ask agent"}
         </Button>
       </div>
@@ -1211,7 +1212,7 @@ export function DesignExtensionsPanel({
       label: "Shader Fills",
       description: "GPU shader fill presets — preview & apply",
       category: "shader",
-      icon: <IconSparkles className="size-3.5" />,
+      icon: <IconPalette className="size-3.5" />,
       panel: <ShaderFillsExtPanel context={context} />,
     },
     {
@@ -1454,11 +1455,10 @@ function CreateExtensionPopover({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 cursor-pointer gap-1.5 rounded-md bg-transparent px-3 text-sm font-medium"
+          className="h-8 cursor-pointer rounded-md bg-transparent px-3 text-sm font-medium"
           aria-label={t("designEditor.addExtension")}
         >
           Create
-          <IconChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-80 p-3">
@@ -1486,10 +1486,9 @@ function CreateExtensionPopover({
             <Button
               type="submit"
               size="sm"
-              className="h-8 gap-1.5 px-3"
+              className="h-8 px-3"
               disabled={!canSubmit}
             >
-              <IconSparkles className="size-3.5" />
               Create
             </Button>
           </div>

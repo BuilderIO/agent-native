@@ -108,11 +108,17 @@ function repoMessageContentIsEmpty(content: unknown): boolean {
   });
 }
 
-function entryWithParentId(entry: RepoEntry, parentId: string | null): RepoEntry {
+function entryWithParentId(
+  entry: RepoEntry,
+  parentId: string | null,
+): RepoEntry {
   return { ...entry, parentId };
 }
 
-function repairRepoLinks<T extends NormalizedRepo>(repo: T, entries: RepoEntry[]): T {
+function repairRepoLinks<T extends NormalizedRepo>(
+  repo: T,
+  entries: RepoEntry[],
+): T {
   const seenIds = new Set<string>();
   let previousId: string | null = null;
   const repaired: RepoEntry[] = [];
@@ -149,7 +155,8 @@ export function dropEmptyAssistantMessages<T extends NormalizedRepo>(
   const messages = repo.messages.filter((entry) => {
     const message = getRepoMessage(entry);
     const drop =
-      message?.role === "assistant" && repoMessageContentIsEmpty(message.content);
+      message?.role === "assistant" &&
+      repoMessageContentIsEmpty(message.content);
     if (drop) changed = true;
     return !drop;
   });

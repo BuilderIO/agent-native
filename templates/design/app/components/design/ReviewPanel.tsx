@@ -29,7 +29,7 @@ import {
   IconChevronRight,
   IconRefresh,
   IconShieldCheck,
-  IconWand,
+  IconTool,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -330,7 +330,7 @@ function FindingRow({
               {fixStatus === "pending" ? (
                 <IconRefresh className="size-3 animate-spin" />
               ) : (
-                <IconWand className="size-3" />
+                <IconTool className="size-3" />
               )}
               {fixStatus === "error" ? "Retry" : "Fix"}
             </Button>

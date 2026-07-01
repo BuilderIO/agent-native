@@ -90,7 +90,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  requiresAuth: false,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   run: ({ category }) => {
     const assets = category
       ? DESIGN_NATIVE_ASSETS.filter((asset) => asset.category === category)

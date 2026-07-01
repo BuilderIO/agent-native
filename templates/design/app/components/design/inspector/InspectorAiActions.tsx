@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client";
 import {
   IconClipboard,
   IconChevronDown,
-  IconSparkles,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -71,7 +71,7 @@ export function InspectorAiActions({
           )}
         >
           <span className="flex items-center gap-1.5">
-            <IconSparkles className="size-3.5 shrink-0" />
+            <IconMessageCircle className="size-3.5 shrink-0" />
             {t("designEditor.localSourceEdit.askAi")}
           </span>
           <IconChevronDown
@@ -115,7 +115,7 @@ export function InspectorAiActions({
                 setOpen(false);
               }}
             >
-              <IconSparkles className="size-3.5 shrink-0" />
+              <IconMessageCircle className="size-3.5 shrink-0" />
               {t("designEditor.localSourceEdit.applyWithAi")}
             </Button>
             <Button
