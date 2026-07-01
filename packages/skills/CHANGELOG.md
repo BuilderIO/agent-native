@@ -1,5 +1,31 @@
 # @agent-native/skills
 
+## 0.2.174
+
+### Patch Changes
+
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+- Updated dependencies [31983c1]
+  - @agent-native/core@0.84.0
+
 ## 0.2.173
 
 ### Patch Changes
