@@ -65,6 +65,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  formatDesignTokenValue,
+  getCssColorToken,
+} from "@/lib/design-system-preview";
 
 interface DesignSystem {
   id: string;
@@ -83,25 +87,25 @@ interface DesignSystem {
 
 interface DesignSystemData {
   colors?: {
-    primary?: string;
-    secondary?: string;
-    accent?: string;
-    background?: string;
-    surface?: string;
-    text?: string;
-    textMuted?: string;
+    primary?: unknown;
+    secondary?: unknown;
+    accent?: unknown;
+    background?: unknown;
+    surface?: unknown;
+    text?: unknown;
+    textMuted?: unknown;
   };
   typography?: {
-    headingFont?: string;
-    bodyFont?: string;
-    headingWeight?: string;
-    bodyWeight?: string;
+    headingFont?: unknown;
+    bodyFont?: unknown;
+    headingWeight?: unknown;
+    bodyWeight?: unknown;
   };
-  spacing?: Record<string, string | undefined>;
-  borders?: Record<string, string | undefined>;
+  spacing?: Record<string, unknown>;
+  borders?: Record<string, unknown>;
   logos?: Array<{ url?: string; name?: string; variant?: string }>;
-  defaults?: Record<string, string | undefined>;
-  notes?: string;
+  defaults?: Record<string, unknown>;
+  notes?: unknown;
 }
 
 export default function DesignSystems() {
@@ -474,6 +478,12 @@ export default function DesignSystems() {
                 {designSystems.map((ds) => {
                   const parsed = parseData(ds.data);
                   const colors = parsed?.colors;
+                  const primaryColor = getCssColorToken(colors?.primary);
+                  const secondaryColor = getCssColorToken(colors?.secondary);
+                  const accentColor = getCssColorToken(colors?.accent);
+                  const headingFont = formatDesignTokenValue(
+                    parsed?.typography?.headingFont,
+                  );
                   const isSelected = selectedSystemIds.has(ds.id);
                   return (
                     <div
@@ -498,29 +508,27 @@ export default function DesignSystems() {
                       >
                         {/* Color preview */}
                         <div className="aspect-video bg-muted/50 flex items-center justify-center gap-2 p-4">
-                          {colors?.primary && (
+                          {primaryColor && (
                             <div
                               className="w-10 h-10 rounded-lg"
-                              style={{ backgroundColor: colors.primary }}
+                              style={{ backgroundColor: primaryColor }}
                             />
                           )}
-                          {colors?.secondary && (
+                          {secondaryColor && (
                             <div
                               className="w-10 h-10 rounded-lg"
-                              style={{ backgroundColor: colors.secondary }}
+                              style={{ backgroundColor: secondaryColor }}
                             />
                           )}
-                          {colors?.accent && (
+                          {accentColor && (
                             <div
                               className="w-10 h-10 rounded-lg"
-                              style={{ backgroundColor: colors.accent }}
+                              style={{ backgroundColor: accentColor }}
                             />
                           )}
-                          {!colors?.primary &&
-                            !colors?.secondary &&
-                            !colors?.accent && (
-                              <IconPalette className="w-8 h-8 text-muted-foreground/40" />
-                            )}
+                          {!primaryColor && !secondaryColor && !accentColor && (
+                            <IconPalette className="w-8 h-8 text-muted-foreground/40" />
+                          )}
                         </div>
                         <div className="p-4 pb-3">
                           <div className="flex items-center gap-2 mb-1">
@@ -533,9 +541,9 @@ export default function DesignSystems() {
                               </span>
                             )}
                           </div>
-                          {parsed?.typography?.headingFont && (
+                          {headingFont && (
                             <div className="text-xs text-muted-foreground/70">
-                              {parsed.typography.headingFont}
+                              {headingFont}
                             </div>
                           )}
                         </div>
@@ -885,10 +893,12 @@ function TokenPreview({
                 key={color.label}
                 className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-muted/30 p-2"
               >
-                <div
-                  className="h-9 w-9 shrink-0 rounded-md border border-border"
-                  style={{ backgroundColor: color.value }}
-                />
+                {color.swatch ? (
+                  <div
+                    className="h-9 w-9 shrink-0 rounded-md border border-border"
+                    style={{ backgroundColor: color.swatch }}
+                  />
+                ) : null}
                 <div className="min-w-0">
                   <div className="text-xs font-medium text-foreground">
                     {color.label}
@@ -1001,34 +1011,47 @@ function getColorTokens(data: DesignSystemData | null, t: DesignT) {
   return [
     {
       label: t("designSystems.tokenPreview.colorLabels.primary"),
-      value: colors.primary,
+      value: formatDesignTokenValue(colors.primary),
+      swatch: getCssColorToken(colors.primary),
     },
     {
       label: t("designSystems.tokenPreview.colorLabels.secondary"),
-      value: colors.secondary,
+      value: formatDesignTokenValue(colors.secondary),
+      swatch: getCssColorToken(colors.secondary),
     },
     {
       label: t("designSystems.tokenPreview.colorLabels.accent"),
-      value: colors.accent,
+      value: formatDesignTokenValue(colors.accent),
+      swatch: getCssColorToken(colors.accent),
     },
     {
       label: t("designSystems.tokenPreview.colorLabels.background"),
-      value: colors.background,
+      value: formatDesignTokenValue(colors.background),
+      swatch: getCssColorToken(colors.background),
     },
     {
       label: t("designSystems.tokenPreview.colorLabels.surface"),
-      value: colors.surface,
+      value: formatDesignTokenValue(colors.surface),
+      swatch: getCssColorToken(colors.surface),
     },
     {
       label: t("designSystems.tokenPreview.colorLabels.text"),
-      value: colors.text,
+      value: formatDesignTokenValue(colors.text),
+      swatch: getCssColorToken(colors.text),
     },
     {
       label: t("designSystems.tokenPreview.colorLabels.mutedText"),
-      value: colors.textMuted,
+      value: formatDesignTokenValue(colors.textMuted),
+      swatch: getCssColorToken(colors.textMuted),
     },
-  ].filter((item): item is { label: string; value: string } =>
-    Boolean(item.value),
+  ].filter(
+    (
+      item,
+    ): item is {
+      label: string;
+      value: string;
+      swatch: string | undefined;
+    } => Boolean(item.value),
   );
 }
 
@@ -1038,19 +1061,19 @@ function getTypographyTokens(data: DesignSystemData | null, t: DesignT) {
   return [
     {
       label: t("designSystems.tokenPreview.typeLabels.headingFont"),
-      value: typography.headingFont,
+      value: formatDesignTokenValue(typography.headingFont),
     },
     {
       label: t("designSystems.tokenPreview.typeLabels.bodyFont"),
-      value: typography.bodyFont,
+      value: formatDesignTokenValue(typography.bodyFont),
     },
     {
       label: t("designSystems.tokenPreview.typeLabels.headingWeight"),
-      value: typography.headingWeight,
+      value: formatDesignTokenValue(typography.headingWeight),
     },
     {
       label: t("designSystems.tokenPreview.typeLabels.bodyWeight"),
-      value: typography.bodyWeight,
+      value: formatDesignTokenValue(typography.bodyWeight),
     },
   ].filter((item): item is { label: string; value: string } =>
     Boolean(item.value),
@@ -1089,12 +1112,10 @@ function getDetailTokens(
   ].filter((item): item is { label: string; value: string } => Boolean(item));
 }
 
-function objectPreviewItems(
-  prefix: string,
-  values: Record<string, string | undefined>,
-) {
+function objectPreviewItems(prefix: string, values: Record<string, unknown>) {
   return Object.entries(values)
-    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([key, value]) => [key, formatDesignTokenValue(value)] as const)
+    .filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
     .slice(0, 4)
     .map(([key, value]) => ({
       label: `${prefix}: ${labelizeKey(key)}`,
