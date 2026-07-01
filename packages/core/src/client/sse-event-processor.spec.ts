@@ -1248,7 +1248,7 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:activity",
         detail: {
-          label: "Preparing create document action",
+          label: "Starting create document...",
           tool: "create-document",
           tabId: "tab-activity",
         },
@@ -1314,11 +1314,64 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:activity",
         detail: {
-          label: "Preparing create document action (1.5 KB streamed)",
+          label: "Writing create document... (1.5 KB prepared)",
           tool: "create-document",
           tabId: "tab-activity-progress",
         },
       }),
+    );
+  });
+
+  it("hides zero-byte preparation counts from visible activity", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing create-document action",
+            tool: "create-document",
+            progressBytes: 0,
+          },
+          { type: "tool_start", tool: "create-document", input: {} },
+          { type: "tool_done", tool: "create-document", result: "ok" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-activity-progress-zero",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity",
+        detail: {
+          label: "Preparing create document...",
+          tool: "create-document",
+          tabId: "tab-activity-progress-zero",
+        },
+      }),
+    );
+    const visibleLabels = dispatchEvent.mock.calls
+      .map((call) => (call[0] as CustomEvent<{ label?: string }>).detail?.label)
+      .filter(Boolean);
+    expect(visibleLabels).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("0 B")]),
     );
   });
 

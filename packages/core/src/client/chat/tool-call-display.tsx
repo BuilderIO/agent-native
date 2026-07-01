@@ -70,6 +70,8 @@ export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
 );
 
+export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
+
 // ─── Tool-payload formatting ──────────────────────────────────────────────────
 
 type ToolDetailSection = "input" | "result";
@@ -511,6 +513,7 @@ function ToolCallDisplayGeneric({
   const agentStreamText = isAgentCall ? (argsText ?? "") : "";
   const hasStreamText = agentStreamText.length > 0;
   const hasArgs = !isAgentCall && Object.keys(args).length > 0;
+  const [showLongRunningHint, setShowLongRunningHint] = useState(false);
 
   // NOTE: All hooks must be above any conditional returns
   useEffect(() => {
@@ -518,6 +521,18 @@ function ToolCallDisplayGeneric({
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [agentStreamText, isAgentCall, isRunning]);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setShowLongRunningHint(false);
+      return;
+    }
+    setShowLongRunningHint(false);
+    const timeout = window.setTimeout(() => {
+      setShowLongRunningHint(true);
+    }, TOOL_LONG_RUNNING_HINT_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [isRunning, toolName]);
 
   // Render connect-builder as ConnectBuilderCard once the result is available
   if (toolName === "connect-builder" && result) {
@@ -662,6 +677,11 @@ function ToolCallDisplayGeneric({
           />
         )}
       </button>
+      {isRunning && showLongRunningHint && (
+        <div className="mt-1 px-2.5 text-[11px] leading-snug text-muted-foreground/80">
+          Still working. Large updates can take a minute or two.
+        </div>
+      )}
       {isExpanded && isAgentCall && hasStreamText && (
         <div
           ref={streamRef}

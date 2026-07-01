@@ -11,6 +11,7 @@ import {
   ReconnectStreamMessage,
   ToolCallDisplay,
   ToolCallFallback,
+  TOOL_LONG_RUNNING_HINT_DELAY_MS,
 } from "./tool-call-display.js";
 import {
   clearReservedToolRenderersForTests,
@@ -162,6 +163,46 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("generate design");
     expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  it("shows a subtle long-running hint after a running tool stays active", () => {
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        root.render(
+          <ToolCallDisplay toolName="edit-design" args={{}} isRunning={true} />,
+        );
+      });
+
+      expect(container.textContent).toContain("edit screen");
+      expect(container.textContent).not.toContain(
+        "Large updates can take a minute or two.",
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(container.textContent).toContain(
+        "Still working. Large updates can take a minute or two.",
+      );
+
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="edit-design"
+            args={{}}
+            isRunning={false}
+          />,
+        );
+      });
+
+      expect(container.textContent).not.toContain(
+        "Large updates can take a minute or two.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("lets generic tool rows fill the assistant message column", () => {
