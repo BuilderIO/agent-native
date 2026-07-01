@@ -4,6 +4,7 @@ import { getSession } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   defineEventHandler,
+  getQuery,
   getRequestHeader,
   readMultipartFormData,
   setResponseStatus,
@@ -53,24 +54,39 @@ export const importDesignFile = defineEventHandler(async (event) => {
     return { error: "Request body too large" };
   }
 
-  const parts = await readMultipartFormData(event);
-  const designId = fieldText(parts, "designId");
-  const filePart = parts?.find((part) => part.name === "file" && part.data);
-  if (!designId) {
-    setResponseStatus(event, 400);
-    return { error: "Missing designId" };
-  }
-  if (!filePart?.data) {
-    setResponseStatus(event, 400);
-    return { error: "No file uploaded" };
-  }
-
-  const originalName = filePart.filename || "import";
-  const ext = path.extname(originalName).toLowerCase();
-  const data = Buffer.from(filePart.data);
-
   try {
-    await assertAccess("design", designId, "editor");
+    const query = getQuery(event);
+    const queryDesignId =
+      typeof query.designId === "string" ? query.designId.trim() : undefined;
+    let accessChecked = false;
+    if (queryDesignId) {
+      await assertAccess("design", queryDesignId, "editor");
+      accessChecked = true;
+    }
+
+    const parts = await readMultipartFormData(event);
+    const bodyDesignId = fieldText(parts, "designId");
+    if (queryDesignId && bodyDesignId && bodyDesignId !== queryDesignId) {
+      setResponseStatus(event, 400);
+      return { error: "Mismatched designId" };
+    }
+    const designId = queryDesignId ?? bodyDesignId;
+    const filePart = parts?.find((part) => part.name === "file" && part.data);
+    if (!designId) {
+      setResponseStatus(event, 400);
+      return { error: "Missing designId" };
+    }
+    if (!accessChecked) {
+      await assertAccess("design", designId, "editor");
+    }
+    if (!filePart?.data) {
+      setResponseStatus(event, 400);
+      return { error: "No file uploaded" };
+    }
+
+    const originalName = filePart.filename || "import";
+    const ext = path.extname(originalName).toLowerCase();
+    const data = Buffer.from(filePart.data);
 
     if (ext === ".html" || ext === ".htm") {
       if (data.length > MAX_HTML_BYTES) {

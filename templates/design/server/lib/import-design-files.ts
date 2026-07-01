@@ -56,7 +56,9 @@ function stringFromState(value: unknown, key: string): string | undefined {
     : undefined;
 }
 
-async function resolveDesignId(explicitDesignId?: string): Promise<string> {
+export async function resolveImportDesignId(
+  explicitDesignId?: string,
+): Promise<string> {
   if (explicitDesignId?.trim()) return explicitDesignId.trim();
   const navigation = await readAppStateForCurrentTab("navigation").catch(
     () => null,
@@ -184,7 +186,7 @@ export async function saveImportedDesignFiles(
   if (input.files.length === 0) {
     throw new Error("No files were produced by the import.");
   }
-  const designId = await resolveDesignId(input.designId);
+  const designId = await resolveImportDesignId(input.designId);
   await assertAccess("design", designId, "editor");
 
   const db = getDb();

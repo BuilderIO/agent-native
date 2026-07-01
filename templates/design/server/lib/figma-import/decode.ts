@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as zlib from "node:zlib";
 
-import { decompress as zstdDecompress } from "fzstd";
+import { Decompress as ZstdDecompress } from "fzstd";
 import {
   ByteBuffer,
   compileSchema,
@@ -88,6 +88,22 @@ function checkDecompressedSize(
   return buf;
 }
 
+function decompressZstdChunk(buf: Buffer, maxOutputLength: number): Buffer {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  const decoder = new ZstdDecompress((chunk) => {
+    totalBytes += chunk.length;
+    if (totalBytes > maxOutputLength) {
+      throw new Error(
+        `Decompressed chunk exceeds size limit (${totalBytes} > ${maxOutputLength})`,
+      );
+    }
+    chunks.push(Buffer.from(chunk));
+  });
+  decoder.push(buf, true);
+  return Buffer.concat(chunks, totalBytes);
+}
+
 function decompressChunk(buf: Buffer, remainingBytes: number): Buffer {
   const maxOutputLength = Math.min(MAX_DECOMPRESSED_BYTES, remainingBytes);
   if (maxOutputLength <= 0) {
@@ -95,11 +111,11 @@ function decompressChunk(buf: Buffer, remainingBytes: number): Buffer {
   }
   if (buf.length >= 4 && buf.subarray(0, 4).equals(ZSTD_MAGIC)) {
     try {
-      return checkDecompressedSize(
-        Buffer.from(zstdDecompress(buf)),
-        maxOutputLength,
-      );
-    } catch {
+      return decompressZstdChunk(buf, maxOutputLength);
+    } catch (error) {
+      if (error instanceof Error && /size limit/i.test(error.message)) {
+        throw error;
+      }
       // Some historical files carry misleading chunk headers; try zlib below.
     }
   }

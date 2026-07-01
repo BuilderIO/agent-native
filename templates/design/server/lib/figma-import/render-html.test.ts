@@ -61,4 +61,19 @@ describe("renderFigmaHtml", () => {
 
     expect(result.warnings.join("\n")).toContain("missing-hash");
   });
+
+  it("caps top-level frame imports", () => {
+    const result = renderFigmaHtml({
+      filename: "many.fig",
+      document: {
+        children: Array.from({ length: 30 }, (_, index) => ({
+          type: "FRAME",
+          name: `Frame ${index + 1}`,
+        })),
+      },
+    });
+
+    expect(result.files).toHaveLength(24);
+    expect(result.warnings.join("\n")).toContain("Only the first 24");
+  });
 });

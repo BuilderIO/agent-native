@@ -1,5 +1,7 @@
 import type { ImportedFigmaHtmlFile } from "./types.js";
 
+const MAX_RENDERED_FRAMES = 24;
+
 export interface RenderFigmaHtmlOptions {
   filename: string;
   document: unknown;
@@ -346,7 +348,8 @@ export function renderFigmaHtml(
     imageMap: options.imageMap ?? new Map(),
     unresolvedImages: new Set(),
   };
-  const frames = topLevelFrames(root, options.selectionNodeId);
+  const frameCandidates = topLevelFrames(root, options.selectionNodeId);
+  const frames = frameCandidates.slice(0, MAX_RENDERED_FRAMES);
   if (frames.length === 0) {
     throw new Error("Decoded Figma document did not contain any frames.");
   }
@@ -381,5 +384,10 @@ export function renderFigmaHtml(
     (hash) =>
       `Image ${hash} was referenced by the Figma file but was not available in the import payload.`,
   );
+  if (frameCandidates.length > MAX_RENDERED_FRAMES) {
+    warnings.push(
+      `Only the first ${MAX_RENDERED_FRAMES} top-level Figma frames were imported. Export fewer frames or select a specific frame to import the rest.`,
+    );
+  }
   return { files, warnings };
 }

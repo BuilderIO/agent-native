@@ -7,6 +7,7 @@ import type {
 } from "./types.js";
 
 const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_GENERATED_HTML_BYTES = 25 * 1024 * 1024;
 
 export interface ImportFigmaBufferInput {
   buffer: Buffer;
@@ -91,6 +92,15 @@ export async function importFigmaBuffer(
       version: decoded.version,
     },
   });
+  const totalHtmlBytes = render.files.reduce(
+    (total, file) => total + Buffer.byteLength(file.content, "utf8"),
+    0,
+  );
+  if (totalHtmlBytes > MAX_GENERATED_HTML_BYTES) {
+    throw new Error(
+      "The Figma import generated more than 25 MB of HTML. Export fewer frames or simplify large layers and try again.",
+    );
+  }
 
   return {
     files: render.files,

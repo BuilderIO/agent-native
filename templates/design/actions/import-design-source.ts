@@ -1,10 +1,12 @@
 import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { parseFigmaClipboardHtml } from "../server/lib/figma-import/clipboard.js";
 import { importFigmaBuffer } from "../server/lib/figma-import/processor.js";
 import {
   normalizeImportedHtmlDocument,
+  resolveImportDesignId,
   saveImportedDesignFiles,
   type ImportedDesignFile,
 } from "../server/lib/import-design-files.js";
@@ -30,15 +32,22 @@ export default defineAction({
       .optional()
       .describe("Design id. Defaults to the active editor navigation state."),
     sourceType: z.enum(["figma-paste-html", "html-string"]),
-    content: z.string(),
+    content: z
+      .string()
+      .max(
+        MAX_HTML_IMPORT_BYTES,
+        "HTML import content is too large (max 2 MB).",
+      ),
     originalName: z.string().optional(),
   }),
   run: async ({ designId, sourceType, content, originalName }) => {
     ensureHtmlSize(content);
+    const resolvedDesignId = await resolveImportDesignId(designId);
+    await assertAccess("design", resolvedDesignId, "editor");
 
     if (sourceType === "html-string") {
       const saved = await saveImportedDesignFiles({
-        designId,
+        designId: resolvedDesignId,
         sourceType: "html-import",
         files: [
           {
@@ -81,7 +90,7 @@ export default defineAction({
           },
         }));
         const saved = await saveImportedDesignFiles({
-          designId,
+          designId: resolvedDesignId,
           sourceType: "figma-paste",
           files,
           warnings: [...warnings, ...imported.warnings],
@@ -106,7 +115,7 @@ export default defineAction({
       );
     }
     const saved = await saveImportedDesignFiles({
-      designId,
+      designId: resolvedDesignId,
       sourceType: "figma-paste-fallback",
       files: [
         {

@@ -86,7 +86,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
           description: result.warnings[0],
         });
       }
-      navigate(`/design/${result?.designId ?? context.designId}`);
+      navigate(`/design/${result?.designId ?? context.designId}?view=overview`);
     },
     [context.designId, navigate, queryClient, t],
   );
@@ -174,10 +174,15 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
       body.append("designId", context.designId);
       body.append("file", file);
       try {
-        const response = await fetch(appApiPath("/api/import-design-file"), {
-          method: "POST",
-          body,
-        });
+        const response = await fetch(
+          appApiPath(
+            `/api/import-design-file?designId=${encodeURIComponent(context.designId)}`,
+          ),
+          {
+            method: "POST",
+            body,
+          },
+        );
         const result = (await response.json()) as ImportResult;
         if (!response.ok) {
           throw new Error(
