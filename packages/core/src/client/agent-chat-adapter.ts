@@ -851,6 +851,8 @@ function incrementalActionGuidance(tool: string): string | undefined {
     case "generate-design":
     case "update-design":
       return "persist a minimal first version (fewer files) with `generate-design`, then refine individual files with `edit-design` search/replace instead of resending everything";
+    case "present-design-variants":
+      return "save compact but complete variant screens with `present-design-variants` first, keeping each HTML direction focused enough to finish, then refine the chosen direction with `generate-design` or `edit-design`";
     case "create-visual-plan":
     case "create-ui-plan":
     case "create-plan-design":
