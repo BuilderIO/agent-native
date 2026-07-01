@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.84.23
+
+### Patch Changes
+
+- fde28eb: Expose notification delivery channel results so callers can distinguish custom-channel delivery from inbox persistence.
+- fde28eb: Re-enable Claude Sonnet 5 as the visible and default Sonnet model now that the Builder gateway supports it.
+- fde28eb: Sharpen the exported Design skill's quality bar to defeat "AI slop": frame the variant flow as separating taste/exploration/spec/code, pair every banned default with a concrete alternative, warn about second-order convergence, and add explicit guidance for building on an existing design system or codebase.
+
 ## 0.84.22
 
 ### Patch Changes
