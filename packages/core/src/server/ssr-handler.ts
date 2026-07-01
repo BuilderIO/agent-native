@@ -312,8 +312,39 @@ function appendCspTokens(
   return next;
 }
 
+const CSP_DIRECTIVE_NAMES = new Set([
+  "base-uri",
+  "child-src",
+  "connect-src",
+  "default-src",
+  "font-src",
+  "form-action",
+  "frame-ancestors",
+  "frame-src",
+  "img-src",
+  "manifest-src",
+  "media-src",
+  "object-src",
+  "prefetch-src",
+  "report-to",
+  "report-uri",
+  "sandbox",
+  "script-src",
+  "script-src-attr",
+  "script-src-elem",
+  "style-src",
+  "style-src-attr",
+  "style-src-elem",
+  "worker-src",
+]);
+
 function hasMultipleCspPolicies(policy: string): boolean {
-  return policy.includes(",");
+  const policyBreakPattern = /,\s*([a-z][a-z0-9-]*)\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = policyBreakPattern.exec(policy))) {
+    if (CSP_DIRECTIVE_NAMES.has(match[1].toLowerCase())) return true;
+  }
+  return false;
 }
 
 function usesStrictDynamic(tokens: readonly string[]): boolean {
@@ -387,6 +418,9 @@ function augmentExistingCspForFrameworkScripts(
 ): string {
   const directives = parseCsp(policy);
   if (!directives.length || hasMultipleCspPolicies(policy)) return policy;
+  const scriptSrcUsesStrictDynamic =
+    options.preserveStrictScriptPolicies &&
+    usesStrictDynamic(findCspDirective(directives, "script-src")?.tokens ?? []);
 
   appendToExistingOrDefaultCspDirective(
     directives,
@@ -397,14 +431,16 @@ function augmentExistingCspForFrameworkScripts(
     },
   );
   // `script-src-elem` overrides `script-src` for script tags when present.
-  appendToExistingCspDirective(
-    directives,
-    "script-src-elem",
-    options.scriptSrcTokens,
-    {
-      skipStrictDynamicScriptPolicies: options.preserveStrictScriptPolicies,
-    },
-  );
+  if (!scriptSrcUsesStrictDynamic) {
+    appendToExistingCspDirective(
+      directives,
+      "script-src-elem",
+      options.scriptSrcTokens,
+      {
+        skipStrictDynamicScriptPolicies: options.preserveStrictScriptPolicies,
+      },
+    );
+  }
 
   if (options.gaEnabled) {
     appendToExistingOrDefaultCspDirective(
