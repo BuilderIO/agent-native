@@ -308,7 +308,12 @@ export function SqlChartCard({
         data-dragging={isDragSource ? "true" : undefined}
         className="dashboard-extension-card group relative h-full"
       >
-        <SqlChart key={extRefreshKey} panel={panel} resolvedSql={resolvedSql} loadData />
+        <SqlChart
+          key={extRefreshKey}
+          panel={panel}
+          resolvedSql={resolvedSql}
+          loadData
+        />
         <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
           <DropdownMenu>
             <Tooltip>
@@ -322,9 +327,7 @@ export function SqlChartCard({
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>
-                {t("sqlDashboard.panelOptions")}
-              </TooltipContent>
+              <TooltipContent>{t("sqlDashboard.panelOptions")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onSelect={() => setExpanded(true)}>
