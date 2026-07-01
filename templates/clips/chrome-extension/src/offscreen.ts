@@ -56,11 +56,13 @@ function waitForRetry(ms: number): Promise<void> {
 
 function isFinalUploadRecoveryCandidate(error: Error): boolean {
   const tagged = error as {
+    finalUploadRecoveryAttempted?: boolean;
     finalUpload?: boolean;
     status?: number;
     storageSetupRequired?: boolean;
   };
   if (!tagged.finalUpload || tagged.storageSetupRequired) return false;
+  if (tagged.finalUploadRecoveryAttempted) return false;
   if (tagged.status === 413) return false;
   return !/too large|exceeds.*limit|chunk too large/i.test(error.message);
 }
@@ -466,6 +468,7 @@ async function uploadChunk(
     headers.Authorization = `Bearer ${recording.authToken}`;
   }
   let res: Response | null = null;
+  let triedFinalUploadRecovery = false;
   for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt++) {
     try {
       res = await fetch(url, {
@@ -485,6 +488,17 @@ async function uploadChunk(
       attempt < CHUNK_UPLOAD_MAX_ATTEMPTS &&
       isRetryableChunkUploadStatus(res.status)
     ) {
+      if (extra.isFinal && res.status === 504) {
+        triedFinalUploadRecovery = true;
+        await res.text().catch(() => "");
+        const recovered = await waitForReadyRecordingAfterFinalizeError({
+          uploadUrl: recording.uploadUrl,
+          recordingId: recording.recordingId,
+          authToken: recording.authToken,
+        });
+        if (recovered) return recovered;
+        break;
+      }
       await res.text().catch(() => "");
       await waitForRetry(retryDelayMs(attempt));
       continue;
@@ -524,9 +538,11 @@ async function uploadChunk(
             `Upload failed (${res.status}): ${text || res.statusText}`,
     );
     const uploadError = error as {
+      finalUploadRecoveryAttempted?: boolean;
       status?: number;
       storageSetupRequired?: boolean;
     };
+    uploadError.finalUploadRecoveryAttempted = triedFinalUploadRecovery;
     uploadError.status = res.status;
     uploadError.storageSetupRequired = storageSetupRequired;
     captureExtensionError(error, {

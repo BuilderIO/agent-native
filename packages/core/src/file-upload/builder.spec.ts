@@ -104,6 +104,21 @@ describe("builderFileUploadProvider", () => {
     expect(init.headers["Content-Type"]).toBe("image/png");
   });
 
+  it("passes skipCompressionWait through the legacy upload path when requested", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ url: "https://cdn/x" }));
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1]),
+      mimeType: "image/png",
+      skipCompressionWait: true,
+    });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(
+      new URL(url.toString()).searchParams.get("skipCompressionWait"),
+    ).toBe("true");
+  });
+
   it("routes video uploads through the signed URL path even when small", async () => {
     fetchMock
       .mockResolvedValueOnce(
@@ -265,7 +280,7 @@ describe("builderFileUploadProvider", () => {
     ).rejects.toThrow(/returned no URL/);
   });
 
-  it("passes skipCompressionWait through resumable completion metadata", async () => {
+  it("passes skipCompressionWait through resumable completion options", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
     );
@@ -273,9 +288,10 @@ describe("builderFileUploadProvider", () => {
     const url = await builderFileUploadProvider.resumable!.completeSession(
       {
         sessionId: "https://storage.example.com/session",
-        meta: { assetId: "asset-1", skipCompressionWait: true },
+        meta: { assetId: "asset-1" },
       },
       "clip.webm",
+      { skipCompressionWait: true },
     );
 
     expect(url).toBe("https://cdn.builder.io/video");

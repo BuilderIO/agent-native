@@ -499,6 +499,10 @@ function friendlyRecordingErrorMessage(error: string): string {
   return error;
 }
 
+function userFacingActionErrorMessage(error: string): string {
+  return error.replace(/^Action [a-z0-9-]+ failed:\s*/i, "").trim() || error;
+}
+
 function captureThumbnailFromPreview(
   video: HTMLVideoElement | null,
   recordingId: string,
@@ -1745,7 +1749,7 @@ export default function RecordRoute() {
       } catch (err) {
         throw new Error(
           err instanceof Error
-            ? err.message
+            ? userFacingActionErrorMessage(err.message)
             : t("recordRoute.couldNotImportLoom"),
         );
       } finally {

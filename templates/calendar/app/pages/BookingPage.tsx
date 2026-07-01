@@ -64,7 +64,7 @@ function BookingPageShell({
         <LanguagePicker variant="ghost-icon" />
         <ThemeToggle />
       </div>
-      <div className="fixed bottom-[18px] left-4 z-50 flex flex-col items-start gap-2 max-sm:static max-sm:mx-auto max-sm:mt-8">
+      <div className="fixed bottom-[21px] left-4 z-50 flex flex-col items-start gap-2 max-sm:static max-sm:mx-auto max-sm:mt-8">
         <PoweredByBadge variant="plain" embedded />
         <OpenSourceBadge embedded />
       </div>

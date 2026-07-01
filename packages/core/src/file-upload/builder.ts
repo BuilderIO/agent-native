@@ -254,6 +254,9 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
     const url = new URL("/api/v1/upload", builderUploadHost());
     if (filename) url.searchParams.set("name", filename);
+    if (input.skipCompressionWait) {
+      url.searchParams.set("skipCompressionWait", "true");
+    }
 
     const response = await uploadSmallFile(url, {
       method: "POST",
@@ -379,7 +382,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
         : new Error("GCS PUT failed after retries");
     },
 
-    async completeSession(session, filename) {
+    async completeSession(session, filename, options) {
       const { resolveBuilderPrivateKey } =
         await import("../server/credential-provider.js");
       const privateKey = await resolveBuilderPrivateKey();
@@ -392,7 +395,9 @@ export const builderFileUploadProvider: FileUploadProvider = {
         assetId,
         filename,
         {
-          skipCompressionWait: session.meta.skipCompressionWait === true,
+          skipCompressionWait:
+            options?.skipCompressionWait ||
+            session.meta.skipCompressionWait === true,
         },
       );
       console.log(`[builder-resumable] upload complete: ${url}`);

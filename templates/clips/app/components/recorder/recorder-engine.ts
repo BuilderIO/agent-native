@@ -1721,6 +1721,7 @@ export class RecorderEngine {
 
     const body = await blob.arrayBuffer();
     let res: Response | null = null;
+    let triedFinalUploadRecovery = false;
     for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt++) {
       try {
         res = await fetch(url, {
@@ -1758,6 +1759,13 @@ export class RecorderEngine {
         attempt < CHUNK_UPLOAD_MAX_ATTEMPTS &&
         isRetryableChunkUploadStatus(res.status)
       ) {
+        if (extra.isFinal && res.status === 504) {
+          triedFinalUploadRecovery = true;
+          await res.text().catch(() => "");
+          const recovered = await this.recoverReadyAfterFinalUploadError();
+          if (recovered) return recovered;
+          break;
+        }
         await res.text().catch(() => "");
         await waitForRetry(retryDelayMs(attempt), extra.signal);
         continue;
@@ -1777,6 +1785,7 @@ export class RecorderEngine {
       );
       if (
         extra.isFinal &&
+        !triedFinalUploadRecovery &&
         this.isFinalUploadRecoveryCandidate(res.status, err)
       ) {
         const recovered = await this.recoverReadyAfterFinalUploadError();

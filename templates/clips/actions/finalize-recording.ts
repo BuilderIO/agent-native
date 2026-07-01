@@ -368,6 +368,7 @@ export default defineAction({
             typeof resumableSession.meta.filename === "string"
               ? resumableSession.meta.filename
               : "",
+            { skipCompressionWait: true },
           );
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
           const result = await markRecordingReady({

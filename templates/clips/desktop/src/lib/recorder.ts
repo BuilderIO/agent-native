@@ -51,6 +51,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
+import { waitForReadyRecordingAfterFinalizeError } from "../../../shared/finalize-recovery";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -718,6 +719,28 @@ async function markBrowserRecordingBackupError(
   });
 }
 
+async function recoverReadyRecordingAfterFinalizeError({
+  serverUrl,
+  recordingId,
+  authToken,
+}: {
+  serverUrl: string;
+  recordingId: string;
+  authToken?: string;
+}): Promise<boolean> {
+  const recovered = await waitForReadyRecordingAfterFinalizeError({
+    uploadUrl: chunkUrl(serverUrl, recordingId, 0, false),
+    recordingId,
+    authToken,
+    preferAuthenticated: true,
+  });
+  if (!recovered) return false;
+  await deleteBrowserRecordingBackup(recordingId).catch((err) => {
+    console.warn("[clips-recorder] recovered backup cleanup failed:", err);
+  });
+  return true;
+}
+
 export async function listBrowserRecordingBackups(): Promise<
   PendingBrowserRecordingUpload[]
 > {
@@ -827,8 +850,12 @@ export async function retryBrowserRecordingBackup(input: {
       );
     }
 
-    await postBackupChunk(
-      chunkUrl(meta.serverUrl, meta.recordingId, validatedChunks.length, true, {
+    const finalChunkUrl = chunkUrl(
+      meta.serverUrl,
+      meta.recordingId,
+      validatedChunks.length,
+      true,
+      {
         total: String(totalPosts),
         mimeType: meta.mimeType,
         durationMs: String(Math.round(meta.durationMs || 0)),
@@ -836,10 +863,29 @@ export async function retryBrowserRecordingBackup(input: {
         ...(meta.height ? { height: String(meta.height) } : {}),
         hasAudio: meta.hasAudio ? "1" : "0",
         hasCamera: meta.hasCamera ? "1" : "0",
-      }),
-      new Blob([], { type: meta.mimeType }),
-      input.authToken,
+      },
     );
+    try {
+      await postBackupChunk(
+        finalChunkUrl,
+        new Blob([], { type: meta.mimeType }),
+        input.authToken,
+      );
+    } catch (err) {
+      if (
+        await recoverReadyRecordingAfterFinalizeError({
+          serverUrl: meta.serverUrl,
+          recordingId: meta.recordingId,
+          authToken: input.authToken,
+        })
+      ) {
+        return {
+          recordingId: meta.recordingId,
+          viewUrl: `/r/${meta.recordingId}`,
+        };
+      }
+      throw err;
+    }
 
     await deleteBrowserRecordingBackup(meta.recordingId);
     return { recordingId: meta.recordingId, viewUrl: `/r/${meta.recordingId}` };
@@ -1986,6 +2032,22 @@ async function startNativeFullscreenRecording(
           try {
             uploadResult = await uploadPromise;
           } catch (err) {
+            if (
+              await recoverReadyRecordingAfterFinalizeError({
+                serverUrl: params.serverUrl,
+                recordingId: id,
+                authToken: params.authToken,
+              })
+            ) {
+              try {
+                await openExternal(
+                  `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+                );
+              } catch (openErr) {
+                console.error("[clips-recorder] openExternal failed:", openErr);
+              }
+              return { recordingId: id, viewUrl };
+            }
             await abortRecordingUpload(
               params.serverUrl,
               id,
@@ -3225,6 +3287,26 @@ async function startRecordingInner(
       } catch (err) {
         console.error("[clips-recorder] finalize fetch failed:", err);
         const error = err instanceof Error ? err : new Error(String(err));
+        if (
+          await recoverReadyRecordingAfterFinalizeError({
+            serverUrl: params.serverUrl,
+            recordingId: id,
+            authToken: params.authToken,
+          })
+        ) {
+          const viewUrl = `/r/${id}`;
+          try {
+            await openExternal(
+              `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+            );
+          } catch (openErr) {
+            console.error("[clips-recorder] openExternal failed:", openErr);
+          }
+          invoke("hide_finalizing").catch((hideErr) =>
+            console.error("[clips-recorder] hide_finalizing failed:", hideErr),
+          );
+          return { recordingId: id, viewUrl };
+        }
         await markBrowserRecordingBackupError(id, error.message).catch(
           () => {},
         );

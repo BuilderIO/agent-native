@@ -77,7 +77,7 @@ export function PoweredByBadge({
       <style>{`
         .an-powered-logo {
           display: block;
-          height: ${isPlain ? "18px" : "14px"};
+          height: ${isPlain ? "16.2px" : "14px"};
           width: auto;
           flex: none;
         }
