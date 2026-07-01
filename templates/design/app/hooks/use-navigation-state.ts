@@ -12,10 +12,13 @@ export interface NavigationState {
   editorView?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
+  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens";
   fileId?: string;
   screenId?: string;
   filename?: string;
   screen?: string;
+  selection?: string;
   zoom?: number;
   tool?: string;
   path?: string;
@@ -44,10 +47,13 @@ export interface DesignEditorCommand {
   viewMode?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
+  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens";
   fileId?: string;
   screenId?: string;
   filename?: string;
   screen?: string;
+  selection?: string;
   zoom?: number;
   tool?: string;
   path?: string;
@@ -80,6 +86,19 @@ function normalizeInspectorTab(
     : undefined;
 }
 
+function normalizeLeftPanel(
+  value: unknown,
+): "file" | "agent" | "assets" | "tools" | "tokens" | undefined {
+  if (value === "extensions") return "tools";
+  return value === "file" ||
+    value === "agent" ||
+    value === "assets" ||
+    value === "tools" ||
+    value === "tokens"
+    ? value
+    : undefined;
+}
+
 function normalizeDesignTool(value: unknown): string | undefined {
   return typeof value === "string" &&
     DESIGN_EDITOR_TOOLS.includes(value as (typeof DESIGN_EDITOR_TOOLS)[number])
@@ -96,8 +115,11 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   if (editorView) params.set("view", editorView);
   const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
   if (inspectorTab) params.set("inspector", inspectorTab);
+  const leftPanel = normalizeLeftPanel(cmd.leftPanel ?? cmd.panel);
+  if (leftPanel) params.set("panel", leftPanel);
   const screen = cmd.fileId ?? cmd.screenId ?? cmd.filename ?? cmd.screen;
   if (screen) params.set("screen", screen);
+  if (cmd.selection) params.set("selection", cmd.selection);
   if (typeof cmd.zoom === "number" && Number.isFinite(cmd.zoom)) {
     params.set("zoom", String(cmd.zoom));
   } else if (editorView === "single") {
@@ -117,6 +139,9 @@ export function editorCommandFromNavigate(
   if (cmd.view !== "editor" || !cmd.designId) return null;
   const editorView = normalizeEditorView(cmd.editorView);
   const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
+  const leftPanel =
+    normalizeLeftPanel(cmd.leftPanel ?? cmd.panel) ??
+    normalizeLeftPanel(cmd.inspectorTab ?? cmd.inspector);
   const command: DesignEditorCommand = {
     designId: cmd.designId,
     issuedAt: Date.now(),
@@ -124,10 +149,12 @@ export function editorCommandFromNavigate(
   };
   if (editorView) command.editorView = editorView;
   if (inspectorTab) command.inspectorTab = inspectorTab;
+  if (leftPanel) command.leftPanel = leftPanel;
   if (cmd.fileId) command.fileId = cmd.fileId;
   if (cmd.screenId) command.screenId = cmd.screenId;
   if (cmd.filename) command.filename = cmd.filename;
   if (cmd.screen) command.screen = cmd.screen;
+  if (cmd.selection) command.selection = cmd.selection;
   if (typeof cmd.zoom === "number" && Number.isFinite(cmd.zoom)) {
     command.zoom = cmd.zoom;
   } else if (editorView === "single") {
@@ -163,6 +190,8 @@ export function useNavigationState(enabled = true) {
         if (fileId) state.fileId = fileId;
         const filename = searchParams.get("filename");
         if (filename) state.filename = filename;
+        const selection = searchParams.get("selection");
+        if (selection) state.selection = selection;
         const rawZoom = searchParams.get("zoom");
         if (rawZoom !== null) {
           const zoom = Number(rawZoom);
@@ -177,11 +206,6 @@ export function useNavigationState(enabled = true) {
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
         state.designId = params.id;
-      } else if (
-        pathname.startsWith("/templates") ||
-        pathname.startsWith("/examples")
-      ) {
-        state.view = "templates";
       } else if (pathname.startsWith("/settings")) {
         state.view = "settings";
       }
@@ -198,8 +222,6 @@ export function useNavigationState(enabled = true) {
       }
       if (cmd.view === "present" && cmd.designId)
         return `/present/${cmd.designId}`;
-      if (cmd.view === "templates" || cmd.view === "examples")
-        return "/templates";
       if (cmd.view === "settings") return "/settings";
       return "/";
     },

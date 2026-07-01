@@ -151,6 +151,14 @@ export function BuiltinCapabilityDetail({
             existing login.
           </p>
         )}
+
+        {capability.id === "screen-memory" && (
+          <p className="mt-6 rounded-md border border-border bg-muted/40 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
+            Screen Memory only reads local Clips desktop context on this
+            machine. Turn it on from Clips desktop Settings before expecting
+            recent context results.
+          </p>
+        )}
       </div>
     </div>
   );

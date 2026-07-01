@@ -692,10 +692,12 @@ export function ToolCallFallback({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   structuredMeta?: Record<string, unknown>;
+  activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  const isRunning = result === undefined && chatRunning;
+  const isRunning =
+    result === undefined && (chatRunning || rest.activity === true);
   return (
     <ToolCallDisplay
       toolName={toolName}
@@ -757,7 +759,10 @@ export function ReconnectStreamMessage({
                 mcpApp={part.mcpApp}
                 chatUI={part.chatUI}
                 structuredMeta={part.structuredMeta}
-                isRunning={part.result === undefined && chatRunning}
+                isRunning={
+                  part.result === undefined &&
+                  (chatRunning || part.activity === true)
+                }
                 approval={part.approval}
               />
             );

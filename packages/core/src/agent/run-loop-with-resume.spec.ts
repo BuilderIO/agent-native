@@ -391,7 +391,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(err.errorCode).toBe(RUN_BUDGET_EXHAUSTED_ERROR_CODE);
     expect(err.error).toBe(RUN_BUDGET_EXHAUSTED_MESSAGE);
     expect(err.error).toContain("stopped");
-    expect(err.error).toContain("nothing was partially saved");
+    expect(err.error).toContain("Check any completed tool cards");
     expect(err.recoverable).toBe(true);
     // The unfinished partial text must be cleared before the terminal so it
     // stands alone instead of trailing a half sentence.
@@ -399,6 +399,66 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     const errorIndex = sentEvents.findIndex((e) => e.type === "error");
     expect(clearIndex).toBeGreaterThanOrEqual(0);
     expect(clearIndex).toBeLessThan(errorIndex);
+  });
+
+  it("preserves completed tool cards when the continuation budget is exhausted after a side effect", async () => {
+    const sentEvents: AgentChatEvent[] = [];
+    let attempts = 0;
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      { type: "tool_start", tool: "generate-design", input: { id: "d1" } },
+      {
+        type: "tool_done",
+        tool: "generate-design",
+        input: { id: "d1" },
+        result: '{"designId":"d1"}',
+        completedSideEffect: true,
+      },
+    ]);
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({
+          type: "tool_start",
+          tool: "generate-design",
+          input: { id: "d1" },
+        });
+        opts.send({
+          type: "tool_done",
+          tool: "generate-design",
+          input: { id: "d1" },
+          result: '{"designId":"d1"}',
+          completedSideEffect: true,
+        });
+      }
+      throw new Error("socket hang up");
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
+    const terminal = sentEvents.find((e) => e.type === "error");
+    expect(terminal).toMatchObject({
+      type: "error",
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+    });
+    expect(sentEvents.some((event) => event.type === "clear")).toBe(false);
+    expect(sentEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "generate-design",
+          completedSideEffect: true,
+        }),
+      ]),
+    );
   });
 
   it("does NOT emit a give-up terminal when the turn finishes cleanly", async () => {

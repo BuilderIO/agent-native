@@ -231,6 +231,14 @@ Exit-Codes:
 | `1`  | Mindestens eine Bewertung lag unter dem Schwellenwert oder die Suite ist fehlerhaft.                |
 | `2`  | Ungültige Argumente (z. B. `--threshold` außerhalb von `[0, 1]`).                                   |
 
+### Gated Evals überspringen {#skipping}
+
+Verwenden Sie `skipReason`, wenn eine Eval-Suite absichtlich nur manuell,
+nachts oder mit Secrets ausgeführt werden soll. Übersprungene Evals führen
+weder Agent noch Scorer aus, lassen die Suite nicht fehlschlagen und erscheinen
+in der JSON-Ausgabe mit `status: "skipped"` und `skipReason`. Günstige
+deterministische Abdeckung bleibt im normalen PR-CI.
+
 ### Als CI-Deploy-Gate {#ci}
 
 Fügen Sie es der Pipeline hinzu, die vor einer Bereitstellung ausgeführt wird:

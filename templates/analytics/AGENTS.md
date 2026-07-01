@@ -44,6 +44,12 @@ details live in `.agents/skills/`.
   request action uses the shared `@agent-native/core/provider-api` runtime,
   injects configured credentials, blocks private/internal URLs, and redacts
   secrets.
+- For questions about tracking events or instrumentation in GitHub-hosted code,
+  use `github-repo-files` before raw provider requests: check
+  `data-source-status` for GitHub, `operation="search"` likely event names/calls
+  with `includeTextMatches=true`, then `operation="read"` the relevant files.
+  Report the repo, ref/default branch, queries used, files read, and any
+  truncation or GitHub incomplete-results flags so absence claims are auditable.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
@@ -131,7 +137,7 @@ details live in `.agents/skills/`.
   name the metrics and the server generates the validated SQL/config for every
   panel in ONE fast call. Do NOT hand-author big `update-dashboard` configs
   panel-by-panel or loop `update-dashboard` — streaming a giant multi-panel
-  argument inside the ~40s budget fails and thrashes. Unknown metric keys are
+  argument across timeout boundaries fails and thrashes. Unknown metric keys are
   skipped and reported; per-panel SQL validates independently; existing
   dashboards append by default (`overwrite: true` replaces). Report the returned
   `panelCount` as proof-of-done.

@@ -65,6 +65,23 @@ export const UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT = {
 } as const;
 
 /**
+ * Terminal error for a background worker that DID claim the run, then failed
+ * during route/handler setup before `startRun` could emit its own error event.
+ * Claimed runs are no longer eligible for foreground inline recovery, so the
+ * route boundary must fail them loudly instead of leaving subscribers to wait
+ * for stale-run recovery.
+ */
+export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The background agent worker stopped before it could start the turn. You can retry from the preserved chat context.",
+  errorCode: "background_worker_failed",
+  recoverable: true,
+  details:
+    "The durable background worker claimed the run but threw during setup before it could emit agent events.",
+} as const;
+
+/**
  * Grace period before a never-claimed background run (dispatch_mode still
  * 'background', no worker claim) is treated as a dead handoff and reaped.
  *
@@ -99,6 +116,7 @@ async function ensureRunTables(): Promise<void> {
           turn_id TEXT,
           error_code TEXT,
           error_detail TEXT,
+          terminal_reason TEXT,
           dispatch_mode TEXT,
           diag_stage TEXT
         )
@@ -170,6 +188,7 @@ async function ensureRunTables(): Promise<void> {
           ["turn_id", "TEXT"],
           ["error_code", "TEXT"],
           ["error_detail", "TEXT"],
+          ["terminal_reason", "TEXT"],
           ["dispatch_mode", "TEXT"],
           ["diag_stage", "TEXT"],
           ["worker_stage", "TEXT"],
@@ -247,6 +266,7 @@ async function ensureRunTables(): Promise<void> {
         "turn_id",
         "error_code",
         "error_detail",
+        "terminal_reason",
         "dispatch_mode",
         "diag_stage",
         "worker_stage",
@@ -409,6 +429,29 @@ function backgroundAwareStaleCutoffSql(): string {
   // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
   // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
   return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+}
+
+/**
+ * Liveness basis for the stale reapers: the MOST RECENT of `heartbeat_at`
+ * ("process is up", bumped on a 1.5s timer) and `last_progress_at` ("real work
+ * is happening", bumped whenever the agent emits an event — including a
+ * long-running tool's periodic activity heartbeats, e.g. image generation every
+ * 8s), falling back to `started_at`.
+ *
+ * The reapers previously keyed liveness on `heartbeat_at` alone, so a run that
+ * was demonstrably progressing got reaped ('running' → 'errored') the moment the
+ * process-liveness write lagged (DB latency, a brief event-loop stall). The
+ * producing isolate's SQL-abort check then self-aborted the in-flight action
+ * with "Run aborted"; on the durable-background self-chaining path this re-drove
+ * the turn in a loop. Honoring progress means a run doing real work is never
+ * reaped mid-tool. It can only make reaping MORE conservative — a genuinely dead
+ * producer emits neither signal — so a truly-dead run is still reaped.
+ *
+ * Portable across SQLite and Postgres (CASE + COALESCE only; no GREATEST or
+ * scalar MAX, which differ between engines).
+ */
+function livenessBasisSql(): string {
+  return `(CASE WHEN COALESCE(last_progress_at, started_at) > COALESCE(heartbeat_at, started_at) THEN COALESCE(last_progress_at, started_at) ELSE COALESCE(heartbeat_at, started_at) END)`;
 }
 
 /**
@@ -582,6 +625,28 @@ export async function setRunError(
 }
 
 /**
+ * Record why a run reached its terminal status. Unlike error_code/error_detail,
+ * this is set for successful checkpoint boundaries too (for example
+ * status='completed' + terminal_reason='run_timeout').
+ */
+export async function setRunTerminalReason(
+  runId: string,
+  terminalReason: string | undefined,
+): Promise<void> {
+  if (!terminalReason) return;
+  try {
+    await ensureRunTables();
+    const client = getDbExec();
+    await client.execute({
+      sql: `UPDATE agent_runs SET terminal_reason = ? WHERE id = ?`,
+      args: [terminalReason.slice(0, 200), runId],
+    });
+  } catch {
+    // Diagnostics are best-effort; never let them break completion.
+  }
+}
+
+/**
  * Diagnostic stage names recorded onto a background run as it moves through the
  * `_process-run` worker pipeline. Each value is the LAST stage successfully
  * reached, so a stuck run's `diag_stage` reveals exactly where it died. Ordered
@@ -716,8 +781,8 @@ export async function reapIfStale(
   // override forces a flat window for callers that want one.
   const staleClause =
     typeof maxStaleMs === "number"
-      ? `COALESCE(heartbeat_at, started_at) < ?`
-      : `COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`;
+      ? `${livenessBasisSql()} < ?`
+      : `${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`;
   const staleArgs =
     typeof maxStaleMs === "number" ? [completedAt - maxStaleMs] : [completedAt];
   const { rowsAffected } = await client.execute({
@@ -725,7 +790,8 @@ export async function reapIfStale(
           SET status = 'errored',
               completed_at = ?,
               error_code = ?,
-              error_detail = ?
+              error_detail = ?,
+              terminal_reason = ?
           WHERE id = ?
             AND status = 'running'
             AND ${staleClause}`,
@@ -733,6 +799,7 @@ export async function reapIfStale(
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
+      STALE_RUN_ERROR_EVENT.errorCode,
       runId,
       ...staleArgs,
     ],
@@ -781,7 +848,8 @@ export async function reapUnclaimedBackgroundRun(
           SET status = 'errored',
               completed_at = ?,
               error_code = ?,
-              error_detail = ?
+              error_detail = ?,
+              terminal_reason = ?
           WHERE id = ?
             AND status = 'running'
             AND dispatch_mode = 'background'
@@ -790,6 +858,7 @@ export async function reapUnclaimedBackgroundRun(
       completedAt,
       UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
       UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
+      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
       runId,
       cutoff,
     ],
@@ -862,8 +931,8 @@ export async function markRunAborted(
   await ensureRunTables();
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ? WHERE id = ?`,
-    args: [reason ?? "user", Date.now(), runId],
+    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ?`,
+    args: [reason ?? "user", Date.now(), `aborted:${reason ?? "user"}`, runId],
   });
   await safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-aborted");
 }
@@ -965,13 +1034,14 @@ export async function getRunByThread(
   completedAt: number | null;
   lastProgressAt: number | null;
   dispatchMode: string | null;
+  terminalReason: string | null;
   diagStage: string | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, diag_stage FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, diag_stage FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
+    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
+    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
   const { rows } = await client.execute({ sql, args: [threadId] });
   if (rows.length === 0) return null;
   const r = rows[0] as {
@@ -984,6 +1054,7 @@ export async function getRunByThread(
     completed_at: number | string | null;
     last_progress_at: number | string | null;
     dispatch_mode?: string | null;
+    terminal_reason?: string | null;
     diag_stage?: string | null;
   };
   return {
@@ -997,6 +1068,7 @@ export async function getRunByThread(
     lastProgressAt:
       r.last_progress_at == null ? null : Number(r.last_progress_at),
     dispatchMode: r.dispatch_mode ?? null,
+    terminalReason: r.terminal_reason ?? null,
     diagStage: r.diag_stage ?? null,
   };
 }
@@ -1013,6 +1085,7 @@ export interface AgentRunSummary {
   errorCode: string | null;
   abortReason: string | null;
   dispatchMode: string | null;
+  terminalReason: string | null;
   /** Last reached `_process-run` worker stage (JSON `{stage,detail?,at}`). */
   diagStage: string | null;
 }
@@ -1025,7 +1098,7 @@ export async function listRunsForThread(
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, diag_stage
+    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
           FROM agent_runs
           WHERE thread_id = ?
           ORDER BY started_at DESC
@@ -1045,6 +1118,7 @@ export async function listRunsForThread(
       error_code?: string | null;
       abort_reason?: string | null;
       dispatch_mode?: string | null;
+      terminal_reason?: string | null;
       diag_stage?: string | null;
     };
     return {
@@ -1060,6 +1134,7 @@ export async function listRunsForThread(
       errorCode: row.error_code ?? null,
       abortReason: row.abort_reason ?? null,
       dispatchMode: row.dispatch_mode ?? null,
+      terminalReason: row.terminal_reason ?? null,
       diagStage: row.diag_stage ?? null,
     };
   });
@@ -1134,7 +1209,7 @@ export async function reapAllStaleRuns(): Promise<number> {
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
+            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [now],
   });
   const completedAt = Date.now();
@@ -1143,13 +1218,15 @@ export async function reapAllStaleRuns(): Promise<number> {
           SET status = 'errored',
               completed_at = ?,
               error_code = ?,
-              error_detail = ?
+              error_detail = ?,
+              terminal_reason = ?
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
+            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
+      STALE_RUN_ERROR_EVENT.errorCode,
       completedAt,
     ],
   });
@@ -1190,7 +1267,7 @@ export async function cleanupOldRuns(
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND (
-              COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}
+              ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
               OR started_at < ?
     )`,
     args: [now, cutoff],
@@ -1201,12 +1278,14 @@ export async function cleanupOldRuns(
           SET status = 'errored',
               completed_at = ?,
               error_code = ?,
-              error_detail = ?
+              error_detail = ?,
+              terminal_reason = ?
           WHERE status = 'running' AND started_at < ?`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
+      STALE_RUN_ERROR_EVENT.errorCode,
       cutoff,
     ],
   });
@@ -1217,13 +1296,15 @@ export async function cleanupOldRuns(
           SET status = 'errored',
               completed_at = ?,
               error_code = ?,
-              error_detail = ?
+              error_detail = ?,
+              terminal_reason = ?
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
+            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
+      STALE_RUN_ERROR_EVENT.errorCode,
       completedAt,
     ],
   });
@@ -1272,6 +1353,7 @@ export async function listErroredRuns(options?: {
     status: string;
     errorCode: string | null;
     errorDetail: string | null;
+    terminalReason: string | null;
     startedAt: number;
     completedAt: number | null;
     durationMs: number | null;
@@ -1283,7 +1365,7 @@ export async function listErroredRuns(options?: {
   const since =
     options?.sinceMs && options.sinceMs > 0 ? Date.now() - options.sinceMs : 0;
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_id, turn_id, status, error_code, error_detail, started_at, completed_at
+    sql: `SELECT id, thread_id, turn_id, status, error_code, error_detail, terminal_reason, started_at, completed_at
           FROM agent_runs
           WHERE status IN ('errored', 'aborted')
             AND COALESCE(completed_at, started_at) >= ?
@@ -1299,6 +1381,7 @@ export async function listErroredRuns(options?: {
       status: string;
       error_code: string | null;
       error_detail: string | null;
+      terminal_reason: string | null;
       started_at: number | string;
       completed_at: number | string | null;
     };
@@ -1312,6 +1395,7 @@ export async function listErroredRuns(options?: {
       status: row.status,
       errorCode: row.error_code ?? null,
       errorDetail: row.error_detail ?? null,
+      terminalReason: row.terminal_reason ?? null,
       startedAt,
       completedAt,
       durationMs: completedAt == null ? null : completedAt - startedAt,

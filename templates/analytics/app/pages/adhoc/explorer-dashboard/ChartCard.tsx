@@ -106,7 +106,7 @@ export function DashboardChartCard({
       ref={setNodeRef}
       style={style}
       data-dragging={isDragging ? "true" : undefined}
-      className={`group relative ${chart.width === 2 ? "md:col-span-2" : ""}`}
+      className={`explorer-dashboard-card group relative ${chart.width === 2 ? "explorer-dashboard-card-wide" : ""}`}
     >
       <Card className="h-full">
         <CardHeader className="pb-2 flex flex-row items-center gap-2">

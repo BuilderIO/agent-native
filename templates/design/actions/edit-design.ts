@@ -139,20 +139,31 @@ export default defineAction({
     "`replace` adds the wrapper around the original text. For broad copy-only " +
     'changes such as translating all visible text, use `mode: "replace-file"` ' +
     "with `replacementContent`: the complete updated file content copied from " +
-    "the snapshot with only the requested copy changed. Use `generate-design` " +
-    "instead only for brand-new files or large structural rewrites.",
+    "the snapshot with only the requested copy changed. After a variant pick " +
+    "or any other selected-screen follow-up, pass the exact `fileId` from " +
+    '`get-design-snapshot` and use `mode: "replace-file"` when replacing ' +
+    "the representative placeholder with the full chosen direction. Use " +
+    "`generate-design` instead only for brand-new files.",
   schema: z
     .object({
       designId: z.string().describe("Design project ID"),
+      fileId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional exact design file ID to edit. Use this after a variant pick or selected-screen snapshot; when provided, it wins over filename.",
+        ),
       filename: z
         .string()
-        .default("index.html")
-        .describe("File to edit (e.g. 'index.html')"),
+        .optional()
+        .describe(
+          "File to edit (e.g. 'index.html'). Defaults to index.html only when fileId is omitted.",
+        ),
       mode: z
         .enum(["search-replace", "replace-file"])
         .optional()
         .describe(
-          "Defaults to search-replace. Use replace-file for broad copy-only edits like translating the whole page after reading get-design-snapshot.",
+          "Defaults to search-replace. Use replace-file for selected variant expansion or broad copy-only edits after reading get-design-snapshot.",
         ),
       edits: editBlocksSchema
         .optional()
@@ -164,7 +175,7 @@ export default defineAction({
         .min(1)
         .optional()
         .describe(
-          "Complete updated file content. Use only with mode=replace-file for broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot.",
+          "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot.",
         ),
     })
     .superRefine((value, ctx) => {
@@ -201,16 +212,31 @@ export default defineAction({
         });
       }
     }),
-  run: async ({ designId, filename, edits, mode, replacementContent }) => {
+  run: async ({
+    designId,
+    fileId,
+    filename,
+    edits,
+    mode,
+    replacementContent,
+  }) => {
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
     const now = new Date().toISOString();
+    const requestedFileId = fileId?.trim();
+    const targetFilename = requestedFileId
+      ? undefined
+      : filename?.trim() || "index.html";
+    const targetCondition = requestedFileId
+      ? eq(schema.designFiles.id, requestedFileId)
+      : eq(schema.designFiles.filename, targetFilename!);
 
-    // Resolve the target file (access-scoped) by design + filename.
+    // Resolve the target file (access-scoped) by design + fileId or filename.
     const [file] = await db
       .select({
         id: schema.designFiles.id,
+        filename: schema.designFiles.filename,
         content: schema.designFiles.content,
       })
       .from(schema.designFiles)
@@ -221,14 +247,18 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.designId, designId),
-          eq(schema.designFiles.filename, filename),
+          targetCondition,
           accessFilter(schema.designs, schema.designShares),
         ),
       )
       .limit(1);
 
     if (!file) {
-      throw new Error(`File "${filename}" not found in design ${designId}`);
+      throw new Error(
+        requestedFileId
+          ? `File id "${requestedFileId}" not found in design ${designId}`
+          : `File "${targetFilename}" not found in design ${designId}`,
+      );
     }
 
     // Prefer live collab content so we edit in-flight changes, not a stale
@@ -265,13 +295,13 @@ export default defineAction({
           selection: firstSearch
             ? `[data-edit-target="${firstSearch.slice(0, 40)}"]`
             : null,
-          editingFile: filename,
+          editingFile: file.filename,
           designId,
         });
       } else {
         agentUpdateSelection(file.id, {
           selection: null,
-          editingFile: filename,
+          editingFile: file.filename,
           designId,
         });
       }
@@ -301,7 +331,7 @@ export default defineAction({
 
     return {
       designId,
-      filename,
+      filename: file.filename,
       fileId: file.id,
       mode: resolvedMode,
       editsApplied: applied,

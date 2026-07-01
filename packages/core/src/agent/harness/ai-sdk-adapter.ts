@@ -448,6 +448,9 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
         type: "tool-done",
         id: part.toolCallId ?? part.id,
         name: part.toolName ?? part.name ?? "tool",
+        ...(part.input !== undefined || part.args !== undefined
+          ? { input: part.input ?? part.args }
+          : {}),
         result: part.output ?? part.result,
       });
       break;

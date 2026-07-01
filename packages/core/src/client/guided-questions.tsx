@@ -1,7 +1,6 @@
 import {
   IconCheck,
   IconChevronRight,
-  IconHelpCircle,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
@@ -50,6 +49,8 @@ export interface GuidedQuestion {
   allowOther?: boolean;
   includeExplore?: boolean;
   includeDecide?: boolean;
+  /** Submit immediately when a single-select option is clicked. */
+  submitOnSelect?: boolean;
 }
 
 export type GuidedQuestionAnswers = Record<string, unknown>;
@@ -60,6 +61,8 @@ export interface GuidedQuestionPayload {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  submitMessage?: string;
+  skipMessage?: string;
   /**
    * @internal Set by {@link askUserQuestion} for client-initiated questions.
    * When present, `useGuidedQuestionFlow` resolves the matching in-memory
@@ -374,6 +377,7 @@ export function guidedQuestionsFingerprint(
       allowOther: question.allowOther ?? null,
       includeExplore: question.includeExplore ?? null,
       includeDecide: question.includeDecide ?? null,
+      submitOnSelect: question.submitOnSelect ?? false,
       min: question.min ?? null,
       max: question.max ?? null,
       step: question.step ?? null,
@@ -428,8 +432,8 @@ export function GuidedQuestionFlow({
   questions,
   onSubmit,
   onSkip,
-  title = "A few choices before I generate",
-  description = "Pick what you know. Use Other for anything that does not fit, or let the agent decide.",
+  title = "Before I generate",
+  description = "Use Other for custom details, or let the agent decide.",
   skipLabel = "Skip",
   submitLabel = "Continue",
   className,
@@ -447,6 +451,11 @@ export function GuidedQuestionFlow({
   const setAnswer = useCallback((id: string, value: unknown) => {
     setAnswers((prev) => ({ ...prev, [id]: value }));
   }, []);
+  const submitAnswers = useCallback(
+    (nextAnswers: GuidedQuestionAnswers = answers) =>
+      onSubmit(normalizeGuidedAnswers(nextAnswers)),
+    [answers, onSubmit],
+  );
 
   const allRequiredAnswered = questions
     .filter((question) => question.required)
@@ -455,28 +464,23 @@ export function GuidedQuestionFlow({
   return (
     <div
       className={cn(
-        "flex h-full w-full items-center justify-center bg-background text-foreground",
+        "guided-question-flow flex h-full w-full items-center justify-center bg-background text-foreground",
         className,
       )}
     >
-      <div className="flex max-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-8 sm:py-10">
-        <div className="mb-6 flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40 text-primary">
-            <IconHelpCircle className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-xl font-semibold tracking-normal text-foreground sm:text-2xl">
-              {title}
-            </h2>
-            {description && (
-              <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
-                {description}
-              </p>
-            )}
-          </div>
+      <div className="guided-question-flow-inner flex max-h-full w-full max-w-3xl flex-col px-3 py-4">
+        <div className="guided-question-flow-header mb-4 min-w-0">
+          <h2 className="guided-question-flow-title text-lg font-semibold leading-tight tracking-normal text-foreground">
+            {title}
+          </h2>
+          {description && (
+            <p className="guided-question-flow-description mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
+              {description}
+            </p>
+          )}
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pe-1">
+        <div className="guided-question-flow-list min-h-0 flex-1 overflow-y-auto pe-1">
           {questions.map((question, index) => (
             <QuestionCard
               key={question.id}
@@ -484,11 +488,14 @@ export function GuidedQuestionFlow({
               question={question}
               value={answers[question.id]}
               onChange={(value) => setAnswer(question.id, value)}
+              onSubmitAnswer={(value) =>
+                submitAnswers({ ...answers, [question.id]: value })
+              }
             />
           ))}
         </div>
 
-        <div className="mt-5 flex shrink-0 items-center justify-between gap-4 border-t border-border pt-4">
+        <div className="guided-question-flow-footer mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
           <div className="flex items-center gap-1.5">
             {questions.map((question, index) => (
               <span
@@ -512,7 +519,7 @@ export function GuidedQuestionFlow({
             </button>
             <button
               type="button"
-              onClick={() => onSubmit(normalizeGuidedAnswers(answers))}
+              onClick={() => submitAnswers()}
               disabled={!allRequiredAnswered}
               className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
@@ -531,16 +538,18 @@ function QuestionCard({
   question,
   value,
   onChange,
+  onSubmitAnswer,
 }: {
   index: number;
   question: GuidedQuestion;
   value: unknown;
   onChange: (value: unknown) => void;
+  onSubmitAnswer: (value: unknown) => void;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-card/65 p-4 shadow-sm">
-      <div className="mb-3 flex gap-3">
-        <div className="flex h-6 min-w-6 items-center justify-center rounded-md bg-muted text-xs font-medium text-muted-foreground">
+    <section className="guided-question-card border-t border-border/60 py-3 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="mb-2 flex gap-2.5">
+        <div className="guided-question-index mt-0.5 min-w-4 text-xs font-medium tabular-nums text-muted-foreground">
           {index + 1}
         </div>
         <div className="min-w-0">
@@ -564,7 +573,12 @@ function QuestionCard({
       </div>
 
       {question.type === "text-options" && (
-        <TextOptions question={question} value={value} onChange={onChange} />
+        <TextOptions
+          question={question}
+          value={value}
+          onChange={onChange}
+          onSubmitAnswer={onSubmitAnswer}
+        />
       )}
       {question.type === "color-options" && (
         <ColorOptions question={question} value={value} onChange={onChange} />
@@ -591,10 +605,12 @@ function TextOptions({
   question,
   value,
   onChange,
+  onSubmitAnswer,
 }: {
   question: GuidedQuestion;
   value: unknown;
   onChange: (value: unknown) => void;
+  onSubmitAnswer: (value: unknown) => void;
 }) {
   const options = useMemo(() => withDefaultOptions(question), [question]);
   const multiSelect = question.multiSelect === true;
@@ -612,6 +628,7 @@ function TextOptions({
   const toggleOption = (optionValue: string) => {
     if (!multiSelect) {
       onChange(optionValue);
+      if (question.submitOnSelect) onSubmitAnswer(optionValue);
       return;
     }
     const next = selectedValues.includes(optionValue)
@@ -647,8 +664,8 @@ function TextOptions({
   const allowOther = question.allowOther !== false;
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2">
+    <div className="space-y-2.5">
+      <div className="guided-question-flow-options grid grid-cols-1 gap-2">
         {options.map((option) => (
           <OptionButton
             key={`${option.value}:${option.label}`}
@@ -701,7 +718,7 @@ function OptionButton({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        "group flex min-h-[56px] cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-start transition-colors",
+        "group flex min-h-11 min-w-0 cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-start transition-colors",
         selected
           ? "border-primary bg-primary/10 text-foreground ring-2 ring-primary/25"
           : "border-border bg-muted/30 text-muted-foreground hover:border-muted-foreground/50 hover:bg-muted/45 hover:text-foreground",
@@ -1060,6 +1077,7 @@ export function useGuidedQuestionFlow({
         return;
       }
       const formattedAnswers = formatGuidedAnswersForAgent(answers);
+      const resolvedSubmitMessage = payload?.submitMessage ?? submitMessage;
       const context =
         buildSubmitContext?.({ answers, formattedAnswers }) ??
         [
@@ -1068,7 +1086,11 @@ export function useGuidedQuestionFlow({
           "Answers:",
           formattedAnswers,
         ].join("\n");
-      sendToAgentChat({ message: submitMessage, context, submit: true });
+      sendToAgentChat({
+        message: resolvedSubmitMessage,
+        context,
+        submit: true,
+      });
       clear();
     },
     [buildSubmitContext, clear, payload, submitMessage],
@@ -1082,7 +1104,7 @@ export function useGuidedQuestionFlow({
       return;
     }
     sendToAgentChat({
-      message: skipMessage,
+      message: payload?.skipMessage ?? skipMessage,
       context: buildSkipContext?.(),
       submit: true,
     });

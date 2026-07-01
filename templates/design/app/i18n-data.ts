@@ -34,6 +34,7 @@ const enUS = {
     presentBackToEditor: "Back to editor",
     presentExitHint: "Press Esc to exit",
     notFoundDescription: "The page you are looking for does not exist.",
+    notFoundSignIn: "Sign in",
     notFoundBackToDesigns: "Back to designs",
     teamCreateOrgDescription:
       "Set up a team to share designs with your colleagues.",
@@ -244,6 +245,39 @@ const enUS = {
     },
   },
   designEditor: {
+    askAgent: "Ask agent",
+    leftRail: {
+      file: "File",
+      agent: "Agent",
+      assets: "Assets",
+      tools: "Tools",
+      tokens: "Tokens",
+      label: "Design workspace",
+    },
+    applyToSource: "Apply to source",
+    applyToSourcePath: "Apply to source ({{path}})",
+    writingToSource: "Writing…",
+    tokens: {
+      title: "Tokens",
+      newToken: "New token",
+      cssVar: "CSS variable",
+      value: "Value",
+      add: "Add token",
+      refresh: "Refresh tokens",
+      import: "Import tokens",
+      importTitle: "Import tokens",
+      importHint:
+        "Use design.md, CSS, theme files, or the current design before adding tokens by hand.",
+      files: "Files",
+      folder: "Folder",
+      current: "Current",
+      pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
+      importPasted: "Import pasted tokens",
+      importedCount: "Imported {{count}} tokens",
+      empty: "No tokens yet",
+      emptyHint: "Add design tokens to reuse colors, spacing, and more.",
+      applying: "Applying…",
+    },
     generationMayHaveStopped:
       "Generation may have stopped before creating files. Check the agent message or try again.",
     generationMayHaveStoppedToast:
@@ -260,7 +294,7 @@ const enUS = {
     signUpToSave: "Sign up free to save",
     signUpToSaveDescription:
       "Sign up for a free account to save designs, screen layouts, and generate new ones.",
-    signUpToShare: "Sign up to save and share",
+    signUpToShare: "Sign up to share",
     shareEditorLink: "Design editor link",
     shareEditorLinkDescription:
       "Anyone with access can open this design in the editor.",
@@ -319,7 +353,7 @@ const enUS = {
     downloadZip: "Download ZIP",
     exportHtml: "Export HTML",
     exportPdf: "Export PDF",
-    copyCodingHandoff: "Copy coding handoff",
+    copyCodingHandoff: "Copy agent prompt",
     designTools: "Design tools",
     drawOnCanvas: "Draw on canvas",
     dropCommentPin: "Drop comment pin",
@@ -389,14 +423,31 @@ const enUS = {
         rolledBack: "Rolled back",
       },
     },
+    pendingVisualStyles: {
+      applyAria: "Apply pending visual style edits",
+      applyButton: "Apply styles",
+      previewLabel: "Pending visual preview",
+      applyWithAgent: "Apply with Design agent",
+      copyPrompt: "Copy prompt to your agent",
+      agentMessage: "Apply the pending visual style edits to the source.",
+      sentToast: "Style edits sent to the Design agent",
+      copiedToast: "Style prompt copied",
+      leaveTitle: "Apply styles before leaving?",
+      leaveDescriptionOne:
+        "You have {{count}} pending visual style edit in the live preview. Leaving now will discard that unapplied style change.",
+      leaveDescriptionOther:
+        "You have {{count}} pending visual style edits in the live preview. Leaving now will discard those unapplied style changes.",
+      stay: "Stay here",
+      leave: "Leave without applying",
+    },
     capabilities: {
       "deterministic-style-edit": "Safe style edit",
       "deterministic-class-edit": "Safe class edit",
       "agent-structural-edit": "Agent needed for structural move",
     },
     toasts: {
-      codingHandoffError: "Could not create coding handoff",
-      codingHandoffCopied: "Coding handoff copied",
+      codingHandoffError: "Could not create agent handoff",
+      codingHandoffCopied: "Agent prompt copied",
       clipboardBlocked: "Clipboard blocked",
       htmlCreateError: "Could not create HTML download",
       htmlDownloaded: "HTML downloaded",
@@ -421,12 +472,26 @@ const enUS = {
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
+      duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
+      auditRunFailed: "Unable to run design audit",
+      componentCreated: "Component created",
+      componentCreateFailed: "Could not create component",
+    },
+    localSourceEdit: {
+      copyPrompt: "Copy prompt",
+      askAi: "Ask AI",
+      applyWithAi: "Apply with AI",
+      copyPromptTooltip: "Copy prompt to clipboard",
+      targeting: "Targeting:",
+      describeElementChange: "Describe the change for this element…",
+      describeChange: "Describe what you want to change…",
     },
   },
   layersPanel: {
     title: "Layers",
     screens: "Screens",
+    allScreens: "All screens",
     thumbnail: "Thumbnail",
     addScreen: "Add screen",
     searchPlaceholder: "Search layers...",
@@ -442,7 +507,7 @@ const enUS = {
     hide: "Hide layer",
     show: "Show layer",
     rename: "Rename layer",
-    selected: "{{count}} selected",
+    deleteBoardObject: "Delete board object",
   },
   multiScreenCanvas: {
     duplicate: "Duplicate",
@@ -601,6 +666,7 @@ const enUS = {
     newDesign: "New Design",
     newDesignLower: "New design",
     createDesignProject: "Create a design project",
+    openingDesign: "Opening design...",
     describeBuild: "Describe what you want to build...",
     selected: "{{count}} selected",
     clearVisibleSelection: "Clear visible selection",
@@ -638,7 +704,7 @@ const enUS = {
     title: "Inspect local app screens before you sign in",
     description:
       "Open visual-edit without an account. Sign up only when you want to save designs, keep screen layouts, share with others, or generate new directions.",
-    saveCta: "Sign up free to save",
+    saveCta: "Save",
     openDesign: "Open Design",
     templatesCta: "Browse templates",
     previewLabel: "Local preview",
@@ -4328,6 +4394,7 @@ const designRawLiteralOverrides = {
       newDesign: "新Design",
       newDesignLower: "新设计",
       createDesignProject: "创建一个设计项目",
+      openingDesign: "正在打开设计...",
       describeBuild: "描述您想要构建的内容...",
       selected: "已选择 {{count}}",
       clearVisibleSelection: "清晰可见的选择",
@@ -4481,6 +4548,7 @@ const designRawLiteralOverrides = {
       newDesign: "Nuevo Design",
       newDesignLower: "Nuevo diseño",
       createDesignProject: "Crear un proyecto de diseño.",
+      openingDesign: "Abriendo diseño...",
       describeBuild: "Describe lo que quieres crear...",
       selected: "{{count}} seleccionado",
       clearVisibleSelection: "Borrar selección visible",
@@ -4635,6 +4703,7 @@ const designRawLiteralOverrides = {
       newDesign: "Nouveau Design",
       newDesignLower: "Nouveau design",
       createDesignProject: "Créer un projet de conception",
+      openingDesign: "Ouverture du design...",
       describeBuild: "Décrivez ce que vous voulez créer...",
       selected: "{{count}} sélectionné",
       clearVisibleSelection: "Effacer la sélection visible",
@@ -4790,6 +4859,7 @@ const designRawLiteralOverrides = {
       newDesign: "Neue Design",
       newDesignLower: "Neues Design",
       createDesignProject: "Erstellen Sie ein Designprojekt",
+      openingDesign: "Design wird geöffnet...",
       describeBuild: "Beschreiben Sie, was Sie erstellen möchten...",
       selected: "{{count}} ausgewählt",
       clearVisibleSelection: "Klare sichtbare Auswahl",
@@ -4941,6 +5011,7 @@ const designRawLiteralOverrides = {
       newDesign: "新しいDesign",
       newDesignLower: "新しいデザイン",
       createDesignProject: "デザインプロジェクトを作成する",
+      openingDesign: "デザインを開いています...",
       describeBuild: "作成したいものを説明してください...",
       selected: "{{count}} が選択されました",
       clearVisibleSelection: "表示されている選択範囲をクリアします",
@@ -5090,6 +5161,7 @@ const designRawLiteralOverrides = {
       newDesign: "새로운 Design",
       newDesignLower: "새로운 디자인",
       createDesignProject: "디자인 프로젝트 만들기",
+      openingDesign: "디자인을 여는 중...",
       describeBuild: "만들고 싶은 것을 설명하세요...",
       selected: "{{count}} 선택됨",
       clearVisibleSelection: "보이는 선택 항목 지우기",
@@ -5243,6 +5315,7 @@ const designRawLiteralOverrides = {
       newDesign: "Novo Design",
       newDesignLower: "Novo design",
       createDesignProject: "Crie um projeto de design",
+      openingDesign: "Abrindo design...",
       describeBuild: "Descreva o que você quer criar...",
       selected: "{{count}} selecionado",
       clearVisibleSelection: "Limpar seleção visível",
@@ -5393,6 +5466,7 @@ const designRawLiteralOverrides = {
       newDesign: "नया Design",
       newDesignLower: "नया डिज़ाइन",
       createDesignProject: "एक डिज़ाइन प्रोजेक्ट बनाएं",
+      openingDesign: "डिज़ाइन खोला जा रहा है...",
       describeBuild: "बताएँ कि आप क्या बनाना चाहते हैं...",
       selected: "{{count}} चयनित",
       clearVisibleSelection: "स्पष्ट दृश्यमान चयन",
@@ -5542,6 +5616,7 @@ const designRawLiteralOverrides = {
       newDesign: "جديد Design",
       newDesignLower: "تصميم جديد",
       createDesignProject: "إنشاء مشروع تصميم",
+      openingDesign: "جارٍ فتح التصميم...",
       describeBuild: "صف ما تريد إنشاءه...",
       selected: "تم تحديد {{count}}",
       clearVisibleSelection: "مسح التحديد المرئي",
@@ -5609,6 +5684,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "按 Esc 退出",
       notFoundDescription: "您要查找的页面不存在。",
+      notFoundSignIn: "登录",
       notFoundBackToDesigns: "返回设计",
     },
     designSystemSetup: {
@@ -5682,6 +5758,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Pulsa Esc para salir",
       notFoundDescription: "La página que buscas no existe.",
+      notFoundSignIn: "Iniciar sesión",
       notFoundBackToDesigns: "Volver a diseños",
     },
     designSystemSetup: {
@@ -5757,6 +5834,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Appuyez sur Esc pour quitter",
       notFoundDescription: "La page que vous recherchez n’existe pas.",
+      notFoundSignIn: "Se connecter",
       notFoundBackToDesigns: "Retour aux designs",
     },
     designSystemSetup: {
@@ -5833,6 +5911,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Esc drücken, um zu beenden",
       notFoundDescription: "Die gesuchte Seite existiert nicht.",
+      notFoundSignIn: "Anmelden",
       notFoundBackToDesigns: "Zurück zu Designs",
     },
     designSystemSetup: {
@@ -5909,6 +5988,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Esc を押して終了",
       notFoundDescription: "お探しのページは存在しません。",
+      notFoundSignIn: "ログイン",
       notFoundBackToDesigns: "デザインに戻る",
     },
     designSystemSetup: {
@@ -5985,6 +6065,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Esc 키를 눌러 종료",
       notFoundDescription: "찾고 있는 페이지가 없습니다.",
+      notFoundSignIn: "로그인",
       notFoundBackToDesigns: "디자인으로 돌아가기",
     },
     designSystemSetup: {
@@ -6060,6 +6141,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Pressione Esc para sair",
       notFoundDescription: "A página que você procura não existe.",
+      notFoundSignIn: "Entrar",
       notFoundBackToDesigns: "Voltar aos designs",
     },
     designSystemSetup: {
@@ -6135,6 +6217,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "बाहर निकलने के लिए Esc दबाएँ",
       notFoundDescription: "आप जिस पृष्ठ को ढूँढ रहे हैं वह मौजूद नहीं है।",
+      notFoundSignIn: "साइन इन करें",
       notFoundBackToDesigns: "डिज़ाइन पर वापस जाएँ",
     },
     designSystemSetup: {
@@ -6209,6 +6292,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "اضغط على Esc للخروج",
       notFoundDescription: "الصفحة التي تبحث عنها غير موجودة.",
+      notFoundSignIn: "تسجيل الدخول",
       notFoundBackToDesigns: "العودة إلى التصاميم",
     },
     designSystemSetup: {
@@ -8079,6 +8163,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "圖層",
       screens: "畫面",
+      allScreens: "所有畫面",
       thumbnail: "縮圖",
       addScreen: "新增畫面",
       searchPlaceholder: "搜尋圖層...",
@@ -8094,7 +8179,7 @@ const designCanvasFeatureOverrides = {
       hide: "隱藏圖層",
       show: "顯示圖層",
       rename: "重新命名圖層",
-      selected: "已選取 {{count}} 個",
+      deleteBoardObject: "刪除畫布物件",
     },
   },
   "zh-CN": {
@@ -8104,6 +8189,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
+        duplicateElementFailed: "无法复制该元素",
       },
     },
     editPanel: {
@@ -8137,6 +8223,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "图层",
       screens: "屏幕",
+      allScreens: "所有屏幕",
       thumbnail: "缩略图",
       addScreen: "添加屏幕",
       searchPlaceholder: "搜索图层...",
@@ -8152,7 +8239,7 @@ const designCanvasFeatureOverrides = {
       hide: "隐藏图层",
       show: "显示图层",
       rename: "重命名图层",
-      selected: "已选择 {{count}} 个",
+      deleteBoardObject: "删除画布对象",
     },
   },
   "es-ES": {
@@ -8162,6 +8249,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
+        duplicateElementFailed: "No se pudo duplicar ese elemento",
       },
     },
     editPanel: {
@@ -8195,6 +8283,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Capas",
       screens: "Pantallas",
+      allScreens: "Todas las pantallas",
       thumbnail: "Miniatura",
       addScreen: "Añadir pantalla",
       searchPlaceholder: "Buscar capas...",
@@ -8210,7 +8299,7 @@ const designCanvasFeatureOverrides = {
       hide: "Ocultar capa",
       show: "Mostrar capa",
       rename: "Renombrar capa",
-      selected: "{{count}} seleccionadas",
+      deleteBoardObject: "Eliminar objeto del lienzo",
     },
   },
   "fr-FR": {
@@ -8220,6 +8309,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
+        duplicateElementFailed: "Impossible de dupliquer cet élément",
       },
     },
     editPanel: {
@@ -8253,6 +8343,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Calques",
       screens: "Écrans",
+      allScreens: "Tous les écrans",
       thumbnail: "Miniature",
       addScreen: "Ajouter un écran",
       searchPlaceholder: "Rechercher des calques...",
@@ -8268,7 +8359,7 @@ const designCanvasFeatureOverrides = {
       hide: "Masquer le calque",
       show: "Afficher le calque",
       rename: "Renommer le calque",
-      selected: "{{count}} sélectionnés",
+      deleteBoardObject: "Supprimer l’objet du canevas",
     },
   },
   "de-DE": {
@@ -8279,6 +8370,7 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed:
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
+        duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
       },
     },
     editPanel: {
@@ -8312,6 +8404,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Ebenen",
       screens: "Screens",
+      allScreens: "Alle Screens",
       thumbnail: "Miniaturansicht",
       addScreen: "Screen hinzufügen",
       searchPlaceholder: "Ebenen suchen...",
@@ -8327,7 +8420,7 @@ const designCanvasFeatureOverrides = {
       hide: "Ebene ausblenden",
       show: "Ebene anzeigen",
       rename: "Ebene umbenennen",
-      selected: "{{count}} ausgewählt",
+      deleteBoardObject: "Canvas-Objekt löschen",
     },
   },
   "ja-JP": {
@@ -8337,6 +8430,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
+        duplicateElementFailed: "その要素を複製できませんでした",
       },
     },
     editPanel: {
@@ -8370,6 +8464,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "レイヤー",
       screens: "画面",
+      allScreens: "すべての画面",
       thumbnail: "サムネイル",
       addScreen: "画面を追加",
       searchPlaceholder: "レイヤーを検索...",
@@ -8385,7 +8480,7 @@ const designCanvasFeatureOverrides = {
       hide: "レイヤーを非表示",
       show: "レイヤーを表示",
       rename: "レイヤー名を変更",
-      selected: "{{count}} 件選択",
+      deleteBoardObject: "キャンバスオブジェクトを削除",
     },
   },
   "ko-KR": {
@@ -8395,6 +8490,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
+        duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
       },
     },
     editPanel: {
@@ -8428,6 +8524,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "레이어",
       screens: "화면",
+      allScreens: "모든 화면",
       thumbnail: "썸네일",
       addScreen: "화면 추가",
       searchPlaceholder: "레이어 검색...",
@@ -8443,7 +8540,7 @@ const designCanvasFeatureOverrides = {
       hide: "레이어 숨기기",
       show: "레이어 표시",
       rename: "레이어 이름 변경",
-      selected: "{{count}}개 선택됨",
+      deleteBoardObject: "캔버스 오브젝트 삭제",
     },
   },
   "pt-BR": {
@@ -8453,6 +8550,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
+        duplicateElementFailed: "Não foi possível duplicar esse elemento",
       },
     },
     editPanel: {
@@ -8486,6 +8584,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Camadas",
       screens: "Telas",
+      allScreens: "Todas as telas",
       thumbnail: "Miniatura",
       addScreen: "Adicionar tela",
       searchPlaceholder: "Buscar camadas...",
@@ -8501,7 +8600,7 @@ const designCanvasFeatureOverrides = {
       hide: "Ocultar camada",
       show: "Mostrar camada",
       rename: "Renomear camada",
-      selected: "{{count}} selecionadas",
+      deleteBoardObject: "Excluir objeto da tela",
     },
   },
   "hi-IN": {
@@ -8511,6 +8610,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
+        duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
       },
     },
     editPanel: {
@@ -8544,6 +8644,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "परतें",
       screens: "स्क्रीन",
+      allScreens: "सभी स्क्रीन",
       thumbnail: "थंबनेल",
       addScreen: "स्क्रीन जोड़ें",
       searchPlaceholder: "परतें खोजें...",
@@ -8559,7 +8660,7 @@ const designCanvasFeatureOverrides = {
       hide: "परत छिपाएं",
       show: "परत दिखाएं",
       rename: "परत का नाम बदलें",
-      selected: "{{count}} चयनित",
+      deleteBoardObject: "कैनवास ऑब्जेक्ट हटाएं",
     },
   },
   "ar-SA": {
@@ -8569,6 +8670,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
+        duplicateElementFailed: "تعذّر تكرار هذا العنصر",
       },
     },
     editPanel: {
@@ -8602,6 +8704,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "الطبقات",
       screens: "الشاشات",
+      allScreens: "كل الشاشات",
       thumbnail: "الصورة المصغرة",
       addScreen: "إضافة شاشة",
       searchPlaceholder: "البحث في الطبقات...",
@@ -8617,7 +8720,7 @@ const designCanvasFeatureOverrides = {
       hide: "إخفاء الطبقة",
       show: "إظهار الطبقة",
       rename: "إعادة تسمية الطبقة",
-      selected: "{{count}} محددة",
+      deleteBoardObject: "حذف كائن اللوحة",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
@@ -8819,14 +8922,15 @@ const designPublicShareOverrides = {
   "zh-TW": {
     designEditor: {
       share: "分享",
-      signUpToSave: "免費註冊以儲存",
+      signUpToSave: "註冊以儲存",
       signUpToSaveDescription:
         "註冊免費帳號即可儲存設計、畫面版面，並產生新的方向。",
-      signUpToShare: "註冊以儲存並分享",
+      signUpToShare: "註冊以分享",
       shareEditorLink: "設計編輯器連結",
       shareEditorLinkDescription: "有權限的任何人都能在編輯器中開啟這個設計。",
       toasts: {
         saveCopyError: "無法儲存這個設計的副本",
+        auditRunFailed: "無法執行設計稽核",
       },
     },
     visualEdit: {
@@ -8834,7 +8938,7 @@ const designPublicShareOverrides = {
       title: "登入前先檢視本機 App 畫面",
       description:
         "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、分享給他人或產生新方向時才需要註冊。",
-      saveCta: "免費註冊以儲存",
+      saveCta: "儲存",
       openDesign: "開啟 Design",
       templatesCta: "瀏覽範本",
       previewLabel: "本機預覽",
@@ -8847,15 +8951,16 @@ const designPublicShareOverrides = {
   "zh-CN": {
     designEditor: {
       share: "分享",
-      signUpToSave: "免费注册以保存",
+      signUpToSave: "注册以保存",
       signUpToSaveDescription:
         "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
-      signUpToShare: "注册以保存并共享",
+      signUpToShare: "注册以共享",
       shareEditorLink: "设计编辑器链接",
       shareEditorLinkDescription:
         "有访问权限的任何人都可以在编辑器中打开此设计。",
       toasts: {
         saveCopyError: "无法保存此设计的副本",
+        auditRunFailed: "无法运行设计审核",
       },
     },
     visualEdit: {
@@ -8863,7 +8968,7 @@ const designPublicShareOverrides = {
       title: "登录前先检查本地应用屏幕",
       description:
         "无需帐户即可打开 visual-edit。只有在需要保存设计、保留屏幕布局、与他人共享或生成新方向时才注册。",
-      saveCta: "免费注册以保存",
+      saveCta: "保存",
       openDesign: "打开 Design",
       templatesCta: "浏览模板",
       previewLabel: "本地预览",
@@ -8876,15 +8981,16 @@ const designPublicShareOverrides = {
   "es-ES": {
     designEditor: {
       share: "Compartir",
-      signUpToSave: "Registrarse gratis para guardar",
+      signUpToSave: "Registrarse para guardar",
       signUpToSaveDescription:
         "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
-      signUpToShare: "Registrarse para guardar y compartir",
+      signUpToShare: "Registrarse para compartir",
       shareEditorLink: "Enlace del editor de diseño",
       shareEditorLinkDescription:
         "Cualquier persona con acceso puede abrir este diseño en el editor.",
       toasts: {
         saveCopyError: "No se pudo guardar una copia de este diseño",
+        auditRunFailed: "No se pudo ejecutar la auditoria de diseno",
       },
     },
     visualEdit: {
@@ -8892,7 +8998,7 @@ const designPublicShareOverrides = {
       title: "Inspecciona pantallas locales antes de iniciar sesion",
       description:
         "Abre visual-edit sin una cuenta. Registrate solo cuando quieras guardar diseños, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
-      saveCta: "Registrarse gratis para guardar",
+      saveCta: "Guardar",
       openDesign: "Abrir Design",
       templatesCta: "Explorar plantillas",
       previewLabel: "Vista previa local",
@@ -8905,15 +9011,16 @@ const designPublicShareOverrides = {
   "fr-FR": {
     designEditor: {
       share: "Partager",
-      signUpToSave: "S'inscrire gratuitement pour enregistrer",
+      signUpToSave: "S'inscrire pour enregistrer",
       signUpToSaveDescription:
         "Creez un compte gratuit pour enregistrer des designs, des mises en page et generer de nouvelles directions.",
-      signUpToShare: "S'inscrire pour enregistrer et partager",
+      signUpToShare: "S'inscrire pour partager",
       shareEditorLink: "Lien de l'editeur de design",
       shareEditorLinkDescription:
         "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
       toasts: {
         saveCopyError: "Impossible d'enregistrer une copie de ce design",
+        auditRunFailed: "Impossible d'executer l'audit de design",
       },
     },
     visualEdit: {
@@ -8921,7 +9028,7 @@ const designPublicShareOverrides = {
       title: "Inspectez les ecrans locaux avant de vous connecter",
       description:
         "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
-      saveCta: "S'inscrire gratuitement pour enregistrer",
+      saveCta: "Enregistrer",
       openDesign: "Ouvrir Design",
       templatesCta: "Parcourir les modeles",
       previewLabel: "Apercu local",
@@ -8934,16 +9041,17 @@ const designPublicShareOverrides = {
   "de-DE": {
     designEditor: {
       share: "Teilen",
-      signUpToSave: "Kostenlos registrieren zum Speichern",
+      signUpToSave: "Zum Speichern registrieren",
       signUpToSaveDescription:
         "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
-      signUpToShare: "Registrieren zum Speichern und Teilen",
+      signUpToShare: "Zum Teilen registrieren",
       shareEditorLink: "Design-Editor-Link",
       shareEditorLinkDescription:
         "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
       toasts: {
         saveCopyError:
           "Eine Kopie dieses Designs konnte nicht gespeichert werden",
+        auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
       },
     },
     visualEdit: {
@@ -8951,7 +9059,7 @@ const designPublicShareOverrides = {
       title: "Lokale App-Screens vor der Anmeldung pruefen",
       description:
         "Oeffne visual-edit ohne Konto. Registriere dich erst, wenn du Designs speichern, Screen-Layouts behalten, teilen oder neue Richtungen generieren moechtest.",
-      saveCta: "Kostenlos registrieren zum Speichern",
+      saveCta: "Speichern",
       openDesign: "Design oeffnen",
       templatesCta: "Vorlagen durchsuchen",
       previewLabel: "Lokale Vorschau",
@@ -8964,15 +9072,16 @@ const designPublicShareOverrides = {
   "ja-JP": {
     designEditor: {
       share: "共有",
-      signUpToSave: "無料登録して保存",
+      signUpToSave: "登録して保存",
       signUpToSaveDescription:
         "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
-      signUpToShare: "登録して保存と共有",
+      signUpToShare: "登録して共有",
       shareEditorLink: "デザインエディターリンク",
       shareEditorLinkDescription:
         "アクセス権のある人は、このデザインをエディターで開けます。",
       toasts: {
         saveCopyError: "このデザインのコピーを保存できませんでした",
+        auditRunFailed: "デザイン監査を実行できませんでした",
       },
     },
     visualEdit: {
@@ -8980,7 +9089,7 @@ const designPublicShareOverrides = {
       title: "サインイン前にローカルアプリ画面を確認",
       description:
         "アカウントなしで visual-edit を開けます。デザインの保存、画面レイアウトの保持、共有、新しい方向の生成が必要なときだけ登録します。",
-      saveCta: "無料登録して保存",
+      saveCta: "保存",
       openDesign: "Design を開く",
       templatesCta: "テンプレートを見る",
       previewLabel: "ローカルプレビュー",
@@ -8993,15 +9102,16 @@ const designPublicShareOverrides = {
   "ko-KR": {
     designEditor: {
       share: "공유",
-      signUpToSave: "무료 가입하고 저장",
+      signUpToSave: "가입하고 저장",
       signUpToSaveDescription:
         "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
-      signUpToShare: "가입하고 저장 및 공유",
+      signUpToShare: "가입하고 공유",
       shareEditorLink: "디자인 편집기 링크",
       shareEditorLinkDescription:
         "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
       toasts: {
         saveCopyError: "이 디자인의 사본을 저장할 수 없습니다",
+        auditRunFailed: "디자인 감사를 실행할 수 없습니다",
       },
     },
     visualEdit: {
@@ -9009,7 +9119,7 @@ const designPublicShareOverrides = {
       title: "로그인 전에 로컬 앱 화면 확인",
       description:
         "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 보관, 공유 또는 새 방향 생성이 필요할 때만 가입하세요.",
-      saveCta: "무료 가입하고 저장",
+      saveCta: "저장",
       openDesign: "Design 열기",
       templatesCta: "템플릿 찾아보기",
       previewLabel: "로컬 미리보기",
@@ -9022,15 +9132,16 @@ const designPublicShareOverrides = {
   "pt-BR": {
     designEditor: {
       share: "Compartilhar",
-      signUpToSave: "Criar conta gratis para salvar",
+      signUpToSave: "Criar conta para salvar",
       signUpToSaveDescription:
         "Crie uma conta gratis para salvar designs, layouts de tela e gerar novas direcoes.",
-      signUpToShare: "Criar conta para salvar e compartilhar",
+      signUpToShare: "Criar conta para compartilhar",
       shareEditorLink: "Link do editor de design",
       shareEditorLinkDescription:
         "Qualquer pessoa com acesso pode abrir este design no editor.",
       toasts: {
         saveCopyError: "Nao foi possivel salvar uma copia deste design",
+        auditRunFailed: "Nao foi possivel executar a auditoria de design",
       },
     },
     visualEdit: {
@@ -9038,7 +9149,7 @@ const designPublicShareOverrides = {
       title: "Inspecione telas locais antes de entrar",
       description:
         "Abra o visual-edit sem uma conta. Crie uma conta apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
-      saveCta: "Criar conta gratis para salvar",
+      saveCta: "Salvar",
       openDesign: "Abrir Design",
       templatesCta: "Ver modelos",
       previewLabel: "Previa local",
@@ -9051,15 +9162,16 @@ const designPublicShareOverrides = {
   "hi-IN": {
     designEditor: {
       share: "साझा करें",
-      signUpToSave: "सहेजने के लिए मुफ्त साइन अप करें",
+      signUpToSave: "सहेजने के लिए साइन अप करें",
       signUpToSaveDescription:
         "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
-      signUpToShare: "सहेजने और साझा करने के लिए sign up करें",
+      signUpToShare: "साझा करने के लिए sign up करें",
       shareEditorLink: "design editor link",
       shareEditorLinkDescription:
         "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
       toasts: {
         saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
+        auditRunFailed: "design audit चलाया नहीं जा सका",
       },
     },
     visualEdit: {
@@ -9067,7 +9179,7 @@ const designPublicShareOverrides = {
       title: "sign in से पहले local app screens देखें",
       description:
         "account के बिना visual-edit खोलें। designs सहेजने, screen layouts रखने, share करने या नए directions generate करने के लिए ही sign up करें।",
-      saveCta: "सहेजने के लिए मुफ्त साइन अप करें",
+      saveCta: "सहेजें",
       openDesign: "Design खोलें",
       templatesCta: "templates देखें",
       previewLabel: "स्थानीय पूर्वावलोकन",
@@ -9080,15 +9192,16 @@ const designPublicShareOverrides = {
   "ar-SA": {
     designEditor: {
       share: "مشاركة",
-      signUpToSave: "سجل مجانا للحفظ",
+      signUpToSave: "سجل للحفظ",
       signUpToSaveDescription:
         "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
-      signUpToShare: "سجل للحفظ والمشاركة",
+      signUpToShare: "سجل للمشاركة",
       shareEditorLink: "رابط محرر التصميم",
       shareEditorLinkDescription:
         "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
       toasts: {
         saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
+        auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       },
     },
     visualEdit: {
@@ -9096,7 +9209,7 @@ const designPublicShareOverrides = {
       title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
       description:
         "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم وتخطيطات الشاشة او مشاركتها او انشاء اتجاهات جديدة.",
-      saveCta: "سجل مجانا للحفظ",
+      saveCta: "حفظ",
       openDesign: "افتح Design",
       templatesCta: "تصفح القوالب",
       previewLabel: "معاينة محلية",
@@ -9115,7 +9228,7 @@ const designVisualEditOverrides = {
       title: "登入前先檢查本機應用畫面",
       description:
         "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
-      saveCta: "免費註冊以儲存",
+      saveCta: "儲存",
       openDesign: "開啟 Design",
       templatesCta: "瀏覽範本",
       previewLabel: "本機預覽",
@@ -9131,7 +9244,7 @@ const designVisualEditOverrides = {
       title: "登录前检查本地应用屏幕",
       description:
         "无需账号即可打开 visual-edit。只有在想保存设计、保留屏幕布局、与他人共享或生成新方向时才需要注册。",
-      saveCta: "免费注册以保存",
+      saveCta: "保存",
       openDesign: "打开 Design",
       templatesCta: "浏览模板",
       previewLabel: "本地预览",
@@ -9147,7 +9260,7 @@ const designVisualEditOverrides = {
       title: "Inspecciona pantallas locales de la app antes de iniciar sesion",
       description:
         "Abre visual-edit sin cuenta. Registrate solo cuando quieras guardar disenos, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
-      saveCta: "Registrate gratis para guardar",
+      saveCta: "Guardar",
       openDesign: "Abrir Design",
       templatesCta: "Ver plantillas",
       previewLabel: "Vista previa local",
@@ -9163,7 +9276,7 @@ const designVisualEditOverrides = {
       title: "Inspectez les ecrans locaux de l'app avant connexion",
       description:
         "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
-      saveCta: "Inscription gratuite pour enregistrer",
+      saveCta: "Enregistrer",
       openDesign: "Ouvrir Design",
       templatesCta: "Parcourir les modeles",
       previewLabel: "Apercu local",
@@ -9179,7 +9292,7 @@ const designVisualEditOverrides = {
       title: "Lokale App-Bildschirme vor der Anmeldung pruefen",
       description:
         "Oeffne visual-edit ohne Konto. Melde dich nur an, wenn du Designs speichern, Layouts behalten, teilen oder neue Richtungen generieren willst.",
-      saveCta: "Kostenlos registrieren und speichern",
+      saveCta: "Speichern",
       openDesign: "Design oeffnen",
       templatesCta: "Vorlagen durchsuchen",
       previewLabel: "Lokale Vorschau",
@@ -9195,7 +9308,7 @@ const designVisualEditOverrides = {
       title: "サインイン前にローカルアプリ画面を確認",
       description:
         "アカウントなしで visual-edit を開けます。デザイン保存、画面レイアウト保持、共有、新しい方向の生成が必要なときだけ登録します。",
-      saveCta: "無料登録して保存",
+      saveCta: "保存",
       openDesign: "Design を開く",
       templatesCta: "テンプレートを見る",
       previewLabel: "ローカルプレビュー",
@@ -9211,7 +9324,7 @@ const designVisualEditOverrides = {
       title: "로그인 전에 로컬 앱 화면 검사",
       description:
         "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 유지, 공유, 새 방향 생성을 원할 때만 가입하세요.",
-      saveCta: "무료 가입하고 저장",
+      saveCta: "저장",
       openDesign: "Design 열기",
       templatesCta: "템플릿 둘러보기",
       previewLabel: "로컬 미리보기",
@@ -9227,7 +9340,7 @@ const designVisualEditOverrides = {
       title: "Inspecione telas locais do app antes de entrar",
       description:
         "Abra visual-edit sem conta. Cadastre-se apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
-      saveCta: "Cadastre-se gratis para salvar",
+      saveCta: "Salvar",
       openDesign: "Abrir Design",
       templatesCta: "Ver modelos",
       previewLabel: "Previa local",
@@ -9243,7 +9356,7 @@ const designVisualEditOverrides = {
       title: "Sign in से पहले local app screens जांचें",
       description:
         "बिना account visual-edit खोलें। Designs save करने, screen layouts रखने, share करने या नई directions generate करने पर ही sign up करें।",
-      saveCta: "Save करने के लिए free sign up",
+      saveCta: "सहेजें",
       openDesign: "Design खोलें",
       templatesCta: "Templates देखें",
       previewLabel: "स्थानीय पूर्वावलोकन",
@@ -9259,7 +9372,7 @@ const designVisualEditOverrides = {
       title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
       description:
         "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم أو الاحتفاظ بتخطيطات الشاشة أو المشاركة أو توليد اتجاهات جديدة.",
-      saveCta: "سجل مجانا للحفظ",
+      saveCta: "حفظ",
       openDesign: "فتح Design",
       templatesCta: "تصفح القوالب",
       previewLabel: "معاينة محلية",
@@ -9271,15 +9384,676 @@ const designVisualEditOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
+const designLocalSourceEditOverrides = {
+  "zh-TW": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "複製提示",
+        askAi: "詢問 AI",
+        applyWithAi: "用 AI 套用",
+        copyPromptTooltip: "將提示複製到剪貼簿",
+        targeting: "目標：",
+        describeElementChange: "描述要對此元素進行的更改…",
+        describeChange: "描述您想要更改的內容…",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "复制提示",
+        askAi: "询问 AI",
+        applyWithAi: "用 AI 应用",
+        copyPromptTooltip: "将提示复制到剪贴板",
+        targeting: "目标：",
+        describeElementChange: "描述要对此元素进行的更改…",
+        describeChange: "描述您想要更改的内容…",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "Copiar prompt",
+        askAi: "Preguntar a la IA",
+        applyWithAi: "Aplicar con IA",
+        copyPromptTooltip: "Copiar prompt al portapapeles",
+        targeting: "Objetivo:",
+        describeElementChange: "Describe el cambio para este elemento…",
+        describeChange: "Describe lo que quieres cambiar…",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "Copier le prompt",
+        askAi: "Demander à l'IA",
+        applyWithAi: "Appliquer avec l'IA",
+        copyPromptTooltip: "Copier le prompt dans le presse-papiers",
+        targeting: "Cible :",
+        describeElementChange: "Décrivez la modification pour cet élément…",
+        describeChange: "Décrivez ce que vous voulez changer…",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "Prompt kopieren",
+        askAi: "KI fragen",
+        applyWithAi: "Mit KI anwenden",
+        copyPromptTooltip: "Prompt in die Zwischenablage kopieren",
+        targeting: "Ziel:",
+        describeElementChange: "Beschreibe die Änderung für dieses Element…",
+        describeChange: "Beschreibe, was du ändern möchtest…",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "プロンプトをコピー",
+        askAi: "AI に質問",
+        applyWithAi: "AI で適用",
+        copyPromptTooltip: "プロンプトをクリップボードにコピー",
+        targeting: "対象：",
+        describeElementChange: "この要素への変更を説明してください…",
+        describeChange: "変更したい内容を説明してください…",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "프롬프트 복사",
+        askAi: "AI에 질문",
+        applyWithAi: "AI로 적용",
+        copyPromptTooltip: "프롬프트를 클립보드에 복사",
+        targeting: "대상:",
+        describeElementChange: "이 요소에 대한 변경 사항을 설명하세요…",
+        describeChange: "변경하려는 내용을 설명하세요…",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "Copiar prompt",
+        askAi: "Perguntar à IA",
+        applyWithAi: "Aplicar com IA",
+        copyPromptTooltip: "Copiar prompt para a área de transferência",
+        targeting: "Alvo:",
+        describeElementChange: "Descreva a alteração para este elemento…",
+        describeChange: "Descreva o que você quer mudar…",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "Prompt कॉपी करें",
+        askAi: "AI से पूछें",
+        applyWithAi: "AI से लागू करें",
+        copyPromptTooltip: "Prompt को clipboard पर कॉपी करें",
+        targeting: "लक्ष्य:",
+        describeElementChange: "इस element के लिए बदलाव बताएं…",
+        describeChange: "आप क्या बदलना चाहते हैं, बताएं…",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      localSourceEdit: {
+        copyPrompt: "نسخ الموجّه",
+        askAi: "اسأل الذكاء الاصطناعي",
+        applyWithAi: "تطبيق بالذكاء الاصطناعي",
+        copyPromptTooltip: "نسخ الموجّه إلى الحافظة",
+        targeting: "الهدف:",
+        describeElementChange: "صف التغيير المطلوب على هذا العنصر…",
+        describeChange: "صف ما تريد تغييره…",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designPendingVisualStyleOverrides = {
+  "zh-TW": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "套用待處理的視覺樣式編輯",
+        applyButton: "套用樣式",
+        previewLabel: "待處理的視覺預覽",
+        applyWithAgent: "用 Design 代理套用",
+        copyPrompt: "將提示複製給您的代理",
+        agentMessage: "將待處理的視覺樣式編輯套用到來源。",
+        sentToast: "樣式編輯已傳送給 Design 代理",
+        copiedToast: "樣式提示已複製",
+        leaveTitle: "離開前要套用樣式嗎？",
+        leaveDescriptionOne:
+          "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+        leaveDescriptionOther:
+          "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+        stay: "留在這裡",
+        leave: "不套用並離開",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "应用待处理的视觉样式编辑",
+        applyButton: "应用样式",
+        previewLabel: "待处理的视觉预览",
+        applyWithAgent: "用 Design 代理应用",
+        copyPrompt: "将提示复制给你的代理",
+        agentMessage: "将待处理的视觉样式编辑应用到源文件。",
+        sentToast: "样式编辑已发送给 Design 代理",
+        copiedToast: "样式提示已复制",
+        leaveTitle: "离开前应用样式？",
+        leaveDescriptionOne:
+          "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这个未应用的样式更改。",
+        leaveDescriptionOther:
+          "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这些未应用的样式更改。",
+        stay: "留在这里",
+        leave: "不应用并离开",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "Aplicar ediciones visuales de estilo pendientes",
+        applyButton: "Aplicar estilos",
+        previewLabel: "Vista previa visual pendiente",
+        applyWithAgent: "Aplicar con el agente de Design",
+        copyPrompt: "Copiar prompt a tu agente",
+        agentMessage:
+          "Aplica las ediciones visuales de estilo pendientes al código fuente.",
+        sentToast: "Ediciones de estilo enviadas al agente de Design",
+        copiedToast: "Prompt de estilo copiado",
+        leaveTitle: "¿Aplicar estilos antes de salir?",
+        leaveDescriptionOne:
+          "Tienes {{count}} edición visual de estilo pendiente en la vista previa en vivo. Si sales ahora, se descartará ese cambio de estilo sin aplicar.",
+        leaveDescriptionOther:
+          "Tienes {{count}} ediciones visuales de estilo pendientes en la vista previa en vivo. Si sales ahora, se descartarán esos cambios de estilo sin aplicar.",
+        stay: "Quedarse aquí",
+        leave: "Salir sin aplicar",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "Appliquer les modifications visuelles de style en attente",
+        applyButton: "Appliquer les styles",
+        previewLabel: "Aperçu visuel en attente",
+        applyWithAgent: "Appliquer avec l’agent Design",
+        copyPrompt: "Copier le prompt vers votre agent",
+        agentMessage:
+          "Appliquez les modifications visuelles de style en attente à la source.",
+        sentToast: "Modifications de style envoyées à l’agent Design",
+        copiedToast: "Prompt de style copié",
+        leaveTitle: "Appliquer les styles avant de quitter ?",
+        leaveDescriptionOne:
+          "Vous avez {{count}} modification visuelle de style en attente dans l’aperçu en direct. Quitter maintenant supprimera cette modification non appliquée.",
+        leaveDescriptionOther:
+          "Vous avez {{count}} modifications visuelles de style en attente dans l’aperçu en direct. Quitter maintenant supprimera ces modifications non appliquées.",
+        stay: "Rester ici",
+        leave: "Quitter sans appliquer",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "Ausstehende visuelle Stiländerungen anwenden",
+        applyButton: "Stile anwenden",
+        previewLabel: "Ausstehende visuelle Vorschau",
+        applyWithAgent: "Mit Design-Agent anwenden",
+        copyPrompt: "Prompt an deinen Agent kopieren",
+        agentMessage:
+          "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
+        sentToast: "Stiländerungen an den Design-Agent gesendet",
+        copiedToast: "Stil-Prompt kopiert",
+        leaveTitle: "Stile vor dem Verlassen anwenden?",
+        leaveDescriptionOne:
+          "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerung. Wenn du jetzt gehst, wird diese nicht angewendete Stiländerung verworfen.",
+        leaveDescriptionOther:
+          "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerungen. Wenn du jetzt gehst, werden diese nicht angewendeten Stiländerungen verworfen.",
+        stay: "Hier bleiben",
+        leave: "Ohne Anwenden verlassen",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "保留中のビジュアルスタイル編集を適用",
+        applyButton: "スタイルを適用",
+        previewLabel: "保留中のビジュアルプレビュー",
+        applyWithAgent: "Design エージェントで適用",
+        copyPrompt: "エージェントにプロンプトをコピー",
+        agentMessage:
+          "保留中のビジュアルスタイル編集をソースに適用してください。",
+        sentToast: "スタイル編集を Design エージェントに送信しました",
+        copiedToast: "スタイルプロンプトをコピーしました",
+        leaveTitle: "離れる前にスタイルを適用しますか？",
+        leaveDescriptionOne:
+          "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
+        leaveDescriptionOther:
+          "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
+        stay: "ここに留まる",
+        leave: "適用せずに離れる",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "보류 중인 시각 스타일 편집 적용",
+        applyButton: "스타일 적용",
+        previewLabel: "보류 중인 시각 미리보기",
+        applyWithAgent: "Design 에이전트로 적용",
+        copyPrompt: "에이전트에 프롬프트 복사",
+        agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
+        sentToast: "스타일 편집을 Design 에이전트로 보냈습니다",
+        copiedToast: "스타일 프롬프트가 복사되었습니다",
+        leaveTitle: "나가기 전에 스타일을 적용할까요?",
+        leaveDescriptionOne:
+          "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
+        leaveDescriptionOther:
+          "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
+        stay: "여기에 머물기",
+        leave: "적용하지 않고 나가기",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "Aplicar edições visuais de estilo pendentes",
+        applyButton: "Aplicar estilos",
+        previewLabel: "Prévia visual pendente",
+        applyWithAgent: "Aplicar com o agente Design",
+        copyPrompt: "Copiar prompt para seu agente",
+        agentMessage:
+          "Aplique as edições visuais de estilo pendentes à origem.",
+        sentToast: "Edições de estilo enviadas ao agente Design",
+        copiedToast: "Prompt de estilo copiado",
+        leaveTitle: "Aplicar estilos antes de sair?",
+        leaveDescriptionOne:
+          "Você tem {{count}} edição visual de estilo pendente na prévia ao vivo. Sair agora descartará essa alteração de estilo não aplicada.",
+        leaveDescriptionOther:
+          "Você tem {{count}} edições visuais de estilo pendentes na prévia ao vivo. Sair agora descartará essas alterações de estilo não aplicadas.",
+        stay: "Ficar aqui",
+        leave: "Sair sem aplicar",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "लंबित visual style edits लागू करें",
+        applyButton: "Styles लागू करें",
+        previewLabel: "लंबित visual preview",
+        applyWithAgent: "Design agent से लागू करें",
+        copyPrompt: "Prompt अपने agent को कॉपी करें",
+        agentMessage: "लंबित visual style edits को source पर लागू करें।",
+        sentToast: "Style edits Design agent को भेजे गए",
+        copiedToast: "Style prompt कॉपी हुआ",
+        leaveTitle: "छोड़ने से पहले styles लागू करें?",
+        leaveDescriptionOne:
+          "Live preview में {{count}} लंबित visual style edit है। अभी छोड़ने पर वह unapplied style change हट जाएगा।",
+        leaveDescriptionOther:
+          "Live preview में {{count}} लंबित visual style edits हैं। अभी छोड़ने पर वे unapplied style changes हट जाएंगे।",
+        stay: "यहीं रहें",
+        leave: "बिना लागू किए छोड़ें",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
+        applyButton: "تطبيق الأنماط",
+        previewLabel: "معاينة مرئية معلقة",
+        applyWithAgent: "تطبيق عبر وكيل Design",
+        copyPrompt: "نسخ الموجه إلى وكيلك",
+        agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
+        sentToast: "تم إرسال تعديلات النمط إلى وكيل Design",
+        copiedToast: "تم نسخ موجه النمط",
+        leaveTitle: "تطبيق الأنماط قبل المغادرة؟",
+        leaveDescriptionOne:
+          "لديك {{count}} تعديل نمط مرئي معلق في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغيير النمط غير المطبق.",
+        leaveDescriptionOther:
+          "لديك {{count}} تعديلات نمط مرئية معلقة في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغييرات النمط غير المطبقة.",
+        stay: "البقاء هنا",
+        leave: "المغادرة دون تطبيق",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designLeftRailOverrides = {
+  "zh-TW": {
+    designEditor: {
+      applyToSource: "套用至來源",
+      applyToSourcePath: "套用至來源（{{path}}）",
+      writingToSource: "寫入中…",
+      leftRail: {
+        file: "檔案",
+        agent: "代理",
+        assets: "資源",
+        tools: "工具",
+        tokens: "權杖",
+        label: "設計工作區",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      applyToSource: "应用到源文件",
+      applyToSourcePath: "应用到源文件（{{path}}）",
+      writingToSource: "正在写入…",
+      leftRail: {
+        file: "文件",
+        agent: "代理",
+        assets: "资源",
+        tools: "工具",
+        tokens: "设计令牌",
+        label: "设计工作区",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      applyToSource: "Aplicar al código fuente",
+      applyToSourcePath: "Aplicar al código fuente ({{path}})",
+      writingToSource: "Escribiendo…",
+      leftRail: {
+        file: "Archivo",
+        agent: "Agente",
+        assets: "Recursos",
+        tools: "Herramientas",
+        tokens: "Tokens de diseño",
+        label: "Espacio de trabajo de diseño",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      applyToSource: "Appliquer à la source",
+      applyToSourcePath: "Appliquer à la source ({{path}})",
+      writingToSource: "Écriture…",
+      leftRail: {
+        file: "Fichier",
+        agent: "Agent",
+        assets: "Ressources",
+        tools: "Outils",
+        tokens: "Jetons",
+        label: "Espace de travail Design",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      applyToSource: "Auf Quelle anwenden",
+      applyToSourcePath: "Auf Quelle anwenden ({{path}})",
+      writingToSource: "Wird geschrieben…",
+      leftRail: {
+        file: "Datei",
+        agent: "Agent",
+        assets: "Ressourcen",
+        tools: "Werkzeuge",
+        tokens: "Design-Tokens",
+        label: "Design-Arbeitsbereich",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      applyToSource: "ソースに適用",
+      applyToSourcePath: "ソースに適用（{{path}}）",
+      writingToSource: "書き込み中…",
+      leftRail: {
+        file: "ファイル",
+        agent: "エージェント",
+        assets: "アセット",
+        tools: "ツール",
+        tokens: "トークン",
+        label: "デザインワークスペース",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      applyToSource: "소스에 적용",
+      applyToSourcePath: "소스에 적용({{path}})",
+      writingToSource: "쓰는 중…",
+      leftRail: {
+        file: "파일",
+        agent: "에이전트",
+        assets: "에셋",
+        tools: "도구",
+        tokens: "토큰",
+        label: "디자인 작업공간",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      applyToSource: "Aplicar à origem",
+      applyToSourcePath: "Aplicar à origem ({{path}})",
+      writingToSource: "Gravando…",
+      leftRail: {
+        file: "Arquivo",
+        agent: "Agente",
+        assets: "Recursos",
+        tools: "Ferramentas",
+        tokens: "Tokens de design",
+        label: "Área de trabalho de design",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      applyToSource: "स्रोत पर लागू करें",
+      applyToSourcePath: "स्रोत पर लागू करें ({{path}})",
+      writingToSource: "लिखा जा रहा है…",
+      leftRail: {
+        file: "फ़ाइल",
+        agent: "एजेंट",
+        assets: "एसेट",
+        tools: "उपकरण",
+        tokens: "टोकन",
+        label: "डिज़ाइन कार्यक्षेत्र",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      applyToSource: "تطبيق على المصدر",
+      applyToSourcePath: "تطبيق على المصدر ({{path}})",
+      writingToSource: "جارٍ الكتابة…",
+      leftRail: {
+        file: "ملف",
+        agent: "الوكيل",
+        assets: "الأصول",
+        tools: "الأدوات",
+        tokens: "الرموز",
+        label: "مساحة عمل التصميم",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designTokenImportOverrides = {
+  "zh-TW": {
+    designEditor: {
+      tokens: {
+        import: "匯入權杖",
+        importTitle: "匯入權杖",
+        importHint:
+          "先使用 design.md、CSS、主題檔案或目前設計，再手動新增權杖。",
+        files: "檔案",
+        folder: "資料夾",
+        current: "目前",
+        importPasted: "匯入貼上的權杖",
+        importedCount: "已匯入 {{count}} 個權杖",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      tokens: {
+        import: "导入设计令牌",
+        importTitle: "导入设计令牌",
+        importHint:
+          "先使用 design.md、CSS、主题文件或当前设计，再手动添加令牌。",
+        files: "文件",
+        folder: "文件夹",
+        current: "当前",
+        importPasted: "导入粘贴的令牌",
+        importedCount: "已导入 {{count}} 个令牌",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      tokens: {
+        import: "Importar tokens",
+        importTitle: "Importar tokens",
+        importHint:
+          "Usa design.md, CSS, archivos de tema o el diseño actual antes de añadir tokens a mano.",
+        files: "Archivos",
+        folder: "Carpeta",
+        current: "Actual",
+        importPasted: "Importar tokens pegados",
+        importedCount: "{{count}} tokens importados",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      tokens: {
+        import: "Importer des jetons",
+        importTitle: "Importer des jetons",
+        importHint:
+          "Utilisez design.md, CSS, les fichiers de thème ou le design actuel avant d'ajouter des jetons à la main.",
+        files: "Fichiers",
+        folder: "Dossier",
+        current: "Actuel",
+        importPasted: "Importer les jetons collés",
+        importedCount: "{{count}} jetons importés",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      tokens: {
+        import: "Tokens importieren",
+        importTitle: "Tokens importieren",
+        importHint:
+          "Nutze zuerst design.md, CSS, Theme-Dateien oder das aktuelle Design, bevor du Tokens manuell hinzufügst.",
+        files: "Dateien",
+        folder: "Ordner",
+        current: "Aktuell",
+        importPasted: "Eingefügte Tokens importieren",
+        importedCount: "{{count}} Tokens importiert",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      tokens: {
+        import: "トークンをインポート",
+        importTitle: "トークンをインポート",
+        importHint:
+          "手入力の前に design.md、CSS、テーマファイル、または現在のデザインを使います。",
+        files: "ファイル",
+        folder: "フォルダー",
+        current: "現在",
+        importPasted: "貼り付けたトークンをインポート",
+        importedCount: "{{count}} 個のトークンをインポートしました",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      tokens: {
+        import: "토큰 가져오기",
+        importTitle: "토큰 가져오기",
+        importHint:
+          "수동으로 추가하기 전에 design.md, CSS, 테마 파일 또는 현재 디자인을 사용하세요.",
+        files: "파일",
+        folder: "폴더",
+        current: "현재",
+        importPasted: "붙여넣은 토큰 가져오기",
+        importedCount: "{{count}}개 토큰을 가져왔습니다",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      tokens: {
+        import: "Importar tokens",
+        importTitle: "Importar tokens",
+        importHint:
+          "Use design.md, CSS, arquivos de tema ou o design atual antes de adicionar tokens manualmente.",
+        files: "Arquivos",
+        folder: "Pasta",
+        current: "Atual",
+        importPasted: "Importar tokens colados",
+        importedCount: "{{count}} tokens importados",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      tokens: {
+        import: "टोकन इम्पोर्ट करें",
+        importTitle: "टोकन इम्पोर्ट करें",
+        importHint:
+          "हाथ से जोड़ने से पहले design.md, CSS, theme files या current design इस्तेमाल करें।",
+        files: "फाइलें",
+        folder: "फोल्डर",
+        current: "मौजूदा",
+        importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
+        importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      tokens: {
+        import: "استيراد الرموز",
+        importTitle: "استيراد الرموز",
+        importHint:
+          "استخدم design.md أو CSS أو ملفات السمة أو التصميم الحالي قبل إضافة الرموز يدويا.",
+        files: "ملفات",
+        folder: "مجلد",
+        current: "الحالي",
+        importPasted: "استيراد الرموز الملصقة",
+        importedCount: "تم استيراد {{count}} رمزا",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
     mergePartialMessages(
       zhTW,
+      designLeftRailOverrides["zh-TW"],
+      designTokenImportOverrides["zh-TW"],
       designModeFeatureOverrides["zh-TW"],
       designShapeToolOverrides["zh-TW"],
       designPublicShareOverrides["zh-TW"],
       designVisualEditOverrides["zh-TW"],
+      designLocalSourceEditOverrides["zh-TW"],
+      designPendingVisualStyleOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -9287,11 +10061,15 @@ export const messagesByLocale = {
       designLocaleOverrides["zh-CN"],
       designRawLiteralOverrides["zh-CN"],
       designExactEnglishOverrides["zh-CN"],
+      designLeftRailOverrides["zh-CN"],
+      designTokenImportOverrides["zh-CN"],
       designModeFeatureOverrides["zh-CN"],
       designCanvasFeatureOverrides["zh-CN"],
       designShapeToolOverrides["zh-CN"],
       designPublicShareOverrides["zh-CN"],
       designVisualEditOverrides["zh-CN"],
+      designLocalSourceEditOverrides["zh-CN"],
+      designPendingVisualStyleOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -9338,11 +10116,15 @@ export const messagesByLocale = {
       designLocaleOverrides["es-ES"],
       designRawLiteralOverrides["es-ES"],
       designExactEnglishOverrides["es-ES"],
+      designLeftRailOverrides["es-ES"],
+      designTokenImportOverrides["es-ES"],
       designModeFeatureOverrides["es-ES"],
       designCanvasFeatureOverrides["es-ES"],
       designShapeToolOverrides["es-ES"],
       designPublicShareOverrides["es-ES"],
       designVisualEditOverrides["es-ES"],
+      designLocalSourceEditOverrides["es-ES"],
+      designPendingVisualStyleOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -9389,11 +10171,15 @@ export const messagesByLocale = {
       designLocaleOverrides["fr-FR"],
       designRawLiteralOverrides["fr-FR"],
       designExactEnglishOverrides["fr-FR"],
+      designLeftRailOverrides["fr-FR"],
+      designTokenImportOverrides["fr-FR"],
       designModeFeatureOverrides["fr-FR"],
       designCanvasFeatureOverrides["fr-FR"],
       designShapeToolOverrides["fr-FR"],
       designPublicShareOverrides["fr-FR"],
       designVisualEditOverrides["fr-FR"],
+      designLocalSourceEditOverrides["fr-FR"],
+      designPendingVisualStyleOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -9440,11 +10226,15 @@ export const messagesByLocale = {
       designLocaleOverrides["de-DE"],
       designRawLiteralOverrides["de-DE"],
       designExactEnglishOverrides["de-DE"],
+      designLeftRailOverrides["de-DE"],
+      designTokenImportOverrides["de-DE"],
       designModeFeatureOverrides["de-DE"],
       designCanvasFeatureOverrides["de-DE"],
       designShapeToolOverrides["de-DE"],
       designPublicShareOverrides["de-DE"],
       designVisualEditOverrides["de-DE"],
+      designLocalSourceEditOverrides["de-DE"],
+      designPendingVisualStyleOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -9491,11 +10281,15 @@ export const messagesByLocale = {
       designLocaleOverrides["ja-JP"],
       designRawLiteralOverrides["ja-JP"],
       designExactEnglishOverrides["ja-JP"],
+      designLeftRailOverrides["ja-JP"],
+      designTokenImportOverrides["ja-JP"],
       designModeFeatureOverrides["ja-JP"],
       designCanvasFeatureOverrides["ja-JP"],
       designShapeToolOverrides["ja-JP"],
       designPublicShareOverrides["ja-JP"],
       designVisualEditOverrides["ja-JP"],
+      designLocalSourceEditOverrides["ja-JP"],
+      designPendingVisualStyleOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -9543,11 +10337,15 @@ export const messagesByLocale = {
       designLocaleOverrides["ko-KR"],
       designRawLiteralOverrides["ko-KR"],
       designExactEnglishOverrides["ko-KR"],
+      designLeftRailOverrides["ko-KR"],
+      designTokenImportOverrides["ko-KR"],
       designModeFeatureOverrides["ko-KR"],
       designCanvasFeatureOverrides["ko-KR"],
       designShapeToolOverrides["ko-KR"],
       designPublicShareOverrides["ko-KR"],
       designVisualEditOverrides["ko-KR"],
+      designLocalSourceEditOverrides["ko-KR"],
+      designPendingVisualStyleOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -9593,11 +10391,15 @@ export const messagesByLocale = {
       designLocaleOverrides["pt-BR"],
       designRawLiteralOverrides["pt-BR"],
       designExactEnglishOverrides["pt-BR"],
+      designLeftRailOverrides["pt-BR"],
+      designTokenImportOverrides["pt-BR"],
       designModeFeatureOverrides["pt-BR"],
       designCanvasFeatureOverrides["pt-BR"],
       designShapeToolOverrides["pt-BR"],
       designPublicShareOverrides["pt-BR"],
       designVisualEditOverrides["pt-BR"],
+      designLocalSourceEditOverrides["pt-BR"],
+      designPendingVisualStyleOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -9644,11 +10446,15 @@ export const messagesByLocale = {
       designLocaleOverrides["hi-IN"],
       designRawLiteralOverrides["hi-IN"],
       designExactEnglishOverrides["hi-IN"],
+      designLeftRailOverrides["hi-IN"],
+      designTokenImportOverrides["hi-IN"],
       designModeFeatureOverrides["hi-IN"],
       designCanvasFeatureOverrides["hi-IN"],
       designShapeToolOverrides["hi-IN"],
       designPublicShareOverrides["hi-IN"],
       designVisualEditOverrides["hi-IN"],
+      designLocalSourceEditOverrides["hi-IN"],
+      designPendingVisualStyleOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -9695,11 +10501,15 @@ export const messagesByLocale = {
       designLocaleOverrides["ar-SA"],
       designRawLiteralOverrides["ar-SA"],
       designExactEnglishOverrides["ar-SA"],
+      designLeftRailOverrides["ar-SA"],
+      designTokenImportOverrides["ar-SA"],
       designModeFeatureOverrides["ar-SA"],
       designCanvasFeatureOverrides["ar-SA"],
       designShapeToolOverrides["ar-SA"],
       designPublicShareOverrides["ar-SA"],
       designVisualEditOverrides["ar-SA"],
+      designLocalSourceEditOverrides["ar-SA"],
+      designPendingVisualStyleOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

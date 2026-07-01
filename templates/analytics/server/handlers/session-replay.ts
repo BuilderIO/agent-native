@@ -82,6 +82,11 @@ function statusError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
 
+function looksLikeDecodedJson(bytes: Buffer): boolean {
+  const first = bytes.toString("utf8").trimStart()[0];
+  return first === "{" || first === "[";
+}
+
 export function decodeSessionReplayRequestBody(
   rawBody: Buffer | Uint8Array | string | undefined,
   contentEncoding?: string | null,
@@ -102,7 +107,13 @@ export function decodeSessionReplayRequestBody(
     try {
       decoded = gunzipSync(bytes);
     } catch {
-      throw statusError("Invalid gzip-compressed replay body", 400);
+      // Netlify may hand Nitro an already-decoded body while preserving the
+      // original browser Content-Encoding header.
+      if (looksLikeDecodedJson(bytes)) {
+        decoded = bytes;
+      } else {
+        throw statusError("Invalid gzip-compressed replay body", 400);
+      }
     }
   } else if (encoding && encoding !== "identity") {
     throw statusError(

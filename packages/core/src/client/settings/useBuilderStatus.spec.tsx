@@ -434,7 +434,7 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured");
   });
 
-  it("clears the spinner when the callback succeeds but status never confirms credentials", async () => {
+  it("keeps polling when the callback succeeds but status has not confirmed credentials", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -479,11 +479,11 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
 
-    expect(container.textContent).toContain("not-configured idle");
-    expect(container.textContent).toContain("couldn't confirm");
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("couldn't confirm");
   });
 
-  it("clears the spinner when the popup closes before status confirms credentials", async () => {
+  it("keeps polling when the popup closes before status confirms credentials", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -523,8 +523,8 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(8000);
     });
 
-    expect(container.textContent).toContain("not-configured idle");
-    expect(container.textContent).toContain("couldn't confirm");
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("couldn't confirm");
   });
 
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {

@@ -20,9 +20,82 @@ import { getDb, schema } from "../server/db/index.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
 
+function stringProp(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "string" ? candidate : undefined;
+}
+
+function stringArrayProp(value: unknown, key: string): string[] {
+  if (!value || typeof value !== "object") return [];
+  const candidate = (value as Record<string, unknown>)[key];
+  return Array.isArray(candidate)
+    ? candidate.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function resolveActiveScreen(
+  files: Array<{
+    id: string;
+    filename: string;
+    fileType: string | null;
+    updatedAt: string | null;
+  }>,
+  navigation: unknown,
+  designSelection: unknown,
+) {
+  const selectionFileId = stringProp(designSelection, "activeFileId");
+  if (selectionFileId) {
+    const active = files.find((file) => file.id === selectionFileId);
+    if (active) return active;
+  }
+
+  const selectionFilename = stringProp(designSelection, "activeFilename");
+  if (selectionFilename) {
+    const active = files.find((file) => file.filename === selectionFilename);
+    if (active) return active;
+  }
+
+  const selectedScreenIds = stringArrayProp(
+    designSelection,
+    "selectedScreenIds",
+  );
+  for (const screenId of selectedScreenIds) {
+    const selected = files.find((file) => file.id === screenId);
+    if (selected) return selected;
+  }
+
+  const navigationTargets = [
+    stringProp(navigation, "fileId"),
+    stringProp(navigation, "screenId"),
+    stringProp(navigation, "filename"),
+    stringProp(navigation, "screen"),
+  ].filter((value): value is string => !!value);
+  for (const target of navigationTargets) {
+    const active = files.find(
+      (file) =>
+        file.id === target ||
+        file.filename === target ||
+        file.filename.replace(/\.[^.]+$/, "") === target,
+    );
+    if (active) return active;
+  }
+
+  const view = stringProp(navigation, "view");
+  const editorView =
+    stringProp(navigation, "editorView") ?? stringProp(navigation, "viewMode");
+  if (view === "present" || (view === "editor" && editorView === "single")) {
+    return (
+      files.find((file) => file.filename === "index.html") ?? files[0] ?? null
+    );
+  }
+
+  return null;
+}
+
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, templates, settings), active/focused design screen, selected element, active inspector tab (design, tweaks, or extensions), overview canvas state, plus any pending question overlay or variant grid. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, tools, or tokens), overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -42,14 +115,6 @@ export default defineAction({
         : undefined) ?? (await readAppState("show-questions"));
     const generationSession = designId
       ? await readAppState(designGenerationSessionKey(designId))
-      : undefined;
-    const designVariants = designId
-      ? await readAppState("design-variants").then((value) => {
-          if (!value || typeof value !== "object") return undefined;
-          return (value as { designId?: unknown }).designId === designId
-            ? value
-            : undefined;
-        })
       : undefined;
 
     const screen: Record<string, unknown> = {};
@@ -84,27 +149,11 @@ export default defineAction({
             data = {};
           }
         }
-        const activeFileId =
-          designSelection &&
-          typeof designSelection === "object" &&
-          typeof (designSelection as { activeFileId?: unknown })
-            .activeFileId === "string"
-            ? (designSelection as { activeFileId: string }).activeFileId
-            : undefined;
-        const activeFilename =
-          designSelection &&
-          typeof designSelection === "object" &&
-          typeof (designSelection as { activeFilename?: unknown })
-            .activeFilename === "string"
-            ? (designSelection as { activeFilename: string }).activeFilename
-            : undefined;
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
-          activeScreen: activeFileId
-            ? (files.find((file) => file.id === activeFileId) ?? null)
-            : (files.find((file) => file.filename === activeFilename) ?? null),
+          activeScreen: resolveActiveScreen(files, navigation, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
       }
@@ -114,13 +163,22 @@ export default defineAction({
       screen.note =
         "Questions are visible to the user as a full-canvas overlay. Wait for their answers (they'll come back as a chat message) before generating.";
     }
-    if (designVariants) {
-      screen.pendingVariants = designVariants;
-      screen.variantsNote =
-        'A variant picker is open. Wait for the user to choose a direction before generating further. In an inline MCP app their pick returns to you automatically; if it opened as a browser tab (a CLI or code editor), they paste an auto-copied summary or just tell you which one (e.g. "use variant A"). Once you know the choice, read the saved index.html with get-design-snapshot. Do not call generate-design while this picker is open.';
-    }
     if (generationSession) {
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const startedAt =
+        typeof (generationSession as { startedAt?: unknown }).startedAt ===
+        "string"
+          ? new Date(
+              (generationSession as { startedAt: string }).startedAt,
+            ).getTime()
+          : 0;
+      const isStale =
+        startedAt > 0 && Date.now() - startedAt > GENERATION_SESSION_TTL_MS;
       screen.generationSession = generationSession;
+      if (isStale) {
+        screen.generationSessionNote =
+          "This generation session may be stale or abandoned (started more than 10 minutes ago). Verify saved screens via the design file list rather than assuming generation is still in progress.";
+      }
     }
 
     if (Object.keys(screen).length === 0) {

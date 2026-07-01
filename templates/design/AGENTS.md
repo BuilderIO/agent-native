@@ -25,6 +25,18 @@ patterns live in `.agents/skills/`.
   selected file is not already clear from context.
 - Generated files must be complete, standalone HTML unless the user asks for a
   different export format. They should render in the iframe without a build step.
+- For design generation, ground the work in a concrete audience, primary job,
+  and visual thesis before writing. For existing products, inspect current
+  screens, linked design systems, tokens, and component language before
+  inventing a new direction. Use realistic content/copy and one signature choice
+  per direction; avoid lorem ipsum, generic SaaS filler, and decorative
+  placeholders. Include expected responsive/accessibility states and visually
+  inspect the result before calling it ready.
+- For editable reusable building blocks inside Design, use
+  `list-design-native-assets` first, then `insert-design-native-asset` with the
+  chosen kind. These are Design-native HTML primitives/components, not external
+  media, so prefer them when the user asks for a Figma Assets-style library that
+  supports our own primitives.
 - For raster image generation, restyling, or editing existing screenshots/photos,
   use the available first-party Assets MCP tool such as `generate-asset` instead
   of placeholders or generic stock imagery. When the Assets picker returns a
@@ -36,6 +48,15 @@ patterns live in `.agents/skills/`.
   chat-attachment URL or call `upload-image` to create one before delegating. If
   no image/upload provider is configured, say that specific setup is needed and
   continue any non-image Design work separately.
+- For reusable Figma library components, use `list-figma-library-assets` with a
+  Figma file URL or file key. It returns components/component sets with
+  thumbnails, rendered insert URLs, and Figma provenance. Insert with
+  `insert-figma-library-asset`, preserving `fileKey`, `nodeId`, `componentKey`,
+  `sourceUrl`, and the rendered URL. This path requires the saved
+  `FIGMA_ACCESS_TOKEN` secret; never ask the user to paste that token into chat
+  or pass it as an action parameter. Figma styles and variables are design-system
+  inputs, not draggable media assets; route full file/design-system extraction
+  through Builder-backed indexing.
 - Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
   directives over raw inline event handlers.
 - Navigate between prototype screens with Alpine state (`x-show`), a
@@ -43,8 +64,9 @@ patterns live in `.agents/skills/`.
   URLs, which would navigate the preview iframe to the app itself.
 - To refine an existing design, make the smallest change: read it with
   `get-design-snapshot`, then use `edit-design` (search/replace). Reserve
-  `generate-design` for new files or large structural rewrites; never resend
-  files you aren't changing.
+  `generate-design` for new files. For broad rewrites of an existing selected
+  file, use `edit-design` with `mode: "replace-file"` and the exact `fileId`;
+  never resend files you aren't changing.
 - When the user asks to add tweak controls, preserve existing useful tweaks,
   add or update the requested `tweaks` definitions, and make sure each control
   is backed by a CSS custom property the rendered file actually uses. If source
@@ -65,6 +87,13 @@ patterns live in `.agents/skills/`.
   `inspectorTab: "extensions"` after installing it.
 - Follow linked design-system tokens and `customInstructions` whenever present;
   explicit user instructions in the current turn still win.
+- When a user wants tokens from design.md, CSS, theme/tokens JSON, Tailwind
+  config, local files, or the current design, call `import-design-tokens` and
+  preserve its `tokens`, `filesAnalyzed`, and provenance in your answer. Manual
+  `apply-design-token-edit` / one-by-one token entry is the fallback for a small
+  one-off token, not the primary import workflow. For Figma variables/styles or
+  raw `.fig` files, keep using Builder-backed design-system indexing instead of
+  local `.fig` parsing.
 - Persist useful work early: create/update the design and files as soon as a
   coherent candidate exists, then iterate.
 - For non-trivial new design prompts, ask before generating: create/open the
@@ -97,9 +126,19 @@ patterns live in `.agents/skills/`.
   generated CSS selectors as a compatibility fallback only. For localhost React
   screens, resolve through build-time source/debug metadata (stable generated
   ids, component name, file, and line) before falling back to selectors.
-- For multi-variant work, write candidates incrementally so the UI can preview
-  progress. External MCP hosts should use `present-design-variants` so the same
-  picker opens inline instead of writing `application_state` directly.
+- For inline/Alpine motion, use `get-motion-timeline` to inspect the active
+  file's saved or CSS-recovered timeline, then call `apply-motion-edit` with the
+  same `sourceRef`/`fileId` to update it. Motion edits persist as durable
+  managed keyframes in `<style data-agent-native-motion>` plus editable timeline
+  metadata; it is not a one-way export. Real CSS module or `motion/react`
+  write-back remains a localhost/fusion follow-up capability.
+- For multi-variant work, use `present-design-variants` so every candidate is
+  saved as a normal overview-board screen and the user gets one inline chat
+  button per screen name. Keep each variant compact: prefer concise labels,
+  descriptions, accent colors, and feature bullets, and omit full HTML when it
+  would make the tool input too large. The action can render representative
+  screens from direction data. After the user picks, delete the unchosen
+  variant screens before continuing from the kept screen.
 - Use framework sharing actions for design and design-system visibility/grants.
 - `/visual-edit` is a public entry route and public `/design/:id` links may
   render read-only public designs without a session. Do not open anonymous write
@@ -127,11 +166,15 @@ patterns live in `.agents/skills/`.
 - `navigate` moves the UI and is auto-deleted after the client consumes it.
 - `design-selection` includes active screen, selected element, overview mode,
   inspector tab, zoom, and screen list for the current tab.
-- `design-generation-session:<designId>` contains visible multi-screen
-  generation frames created by `generate-screens`.
+- `design-generation-session:<designId>` contains agent-facing multi-screen
+  generation planning state created by `generate-screens` (canvas region
+  assignments and per-frame instructions consumed by `generate-design` and
+  `view-screen`; not rendered as canvas overlays).
 - `show-design-questions` opens focused pre-generation questions in the main
   design canvas (`show-questions` application state).
-- `design-variants` contains in-progress candidates for the variant picker.
+- `guided-questions` may contain a one-click chat choice for the current
+  variant set. Variants themselves are normal design files with `canvasFrames`
+  and `screenMetadata`.
 
 ## Code Layers
 
@@ -178,15 +221,16 @@ patterns live in `.agents/skills/`.
   register that manifest with `connect-localhost`, call `add-localhost-screens`,
   and open the editor in overview mode.
 - For human-in-the-loop UI exploration, create a design shell, call
-  `present-design-variants` with 2-5 complete HTML directions (three by
-  default), wait for the user to pick one, then use `get-design-snapshot` and
-  `generate-design` for follow-up refinements.
-- Inline MCP-app hosts (ChatGPT / Claude / Claude Desktop main chat) carry the
-  pick back over the chat bridge automatically. If the Design app instead opens
-  as a browser link (CLI hosts like Codex / Claude Code, deep link carries
-  `handoff=chat`), the user picks there and the editor shows a copyable summary
-  (also in `present-design-variants` result `fallbackInstructions`) — ask them
-  to paste it back into chat so you can continue from the chosen direction.
+  `present-design-variants` with 2-5 concise directions (three by default),
+  wait for the user to pick one in chat, delete the other generated variant
+  screens with `delete-file`, call `get-design-snapshot` with the selected
+  screen's `fileId`, then call `edit-design` on that same `fileId` for
+  follow-up refinement. Use `mode: "replace-file"` when expanding the
+  representative placeholder into the full chosen direction. Do not call
+  `generate-design` after a variant pick.
+- If inline chat choice buttons are unavailable, the user can tell you the
+  preferred screen name. Do not show a separate variant picker or ask them to
+  paste a copyable handoff summary.
 
 ## Skills
 

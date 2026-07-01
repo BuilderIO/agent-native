@@ -17,18 +17,25 @@ iteration, or a human-in-the-loop choice among design directions.
 
 - Use `create-design` first to create a project shell. Do not report the
   design as ready until it has renderable HTML.
-- For open-ended UX exploration, generate distinct, complete HTML directions
-  (2-5, three by default) and call `present-design-variants`. The inline
-  Design MCP app shows the options, lets the user pick one, and persists the
-  selected variant.
-- If the Design app opens as a browser link instead of inline (CLI hosts like
-  Codex / Claude Code, where the deep link carries `handoff=chat`), the user
-  picks a direction there and the editor shows a copyable summary — ask them to
-  paste it back into chat so you can continue from the chosen direction. The
-  `present-design-variants` result's `fallbackInstructions` describe this.
+- For open-ended UX exploration, generate distinct, compact, complete HTML
+  directions (2-5, three by default) and call `present-design-variants`. Each
+  direction should be one representative screen or directional snapshot, not a
+  full app per variant. Design saves every option as a normal screen on the
+  overview board and renders an inline chat choice with one button per screen
+  name. After the user picks, delete the unchosen variant screens and continue
+  from the kept screen by first calling `get-design-snapshot` with that
+  screen's `fileId`, then calling `edit-design` on that same `fileId` in a
+  bounded single-file pass. Use `mode: "replace-file"` when expanding the
+  representative placeholder into the full chosen direction. Do not call
+  `generate-design` after a variant pick.
+- If the chat choice buttons are not available in the host, ask the user to
+  tell you the screen name they prefer. The variants are already real screens
+  on the board, so do not ask them to paste HTML or copy a generated handoff
+  summary.
 - For direct refinements to an already chosen direction, call
-  `get-design-snapshot`, edit from the current tuned HTML, then call
-  `generate-design`.
+  `get-design-snapshot`, edit from the current tuned HTML, and use
+  `edit-design` for surgical changes or `mode: "replace-file"` for a bounded
+  selected-file replacement. Use `generate-design` for new files only.
 - Use `export-coding-handoff` when the user wants to implement the chosen
   design in a codebase.
 
@@ -37,13 +44,37 @@ iteration, or a human-in-the-loop choice among design directions.
 1. Default to three variants unless the user asks for a different count
    (`present-design-variants` accepts 2-5; three is the sweet spot).
 2. Make variants structurally and stylistically distinct, not just color swaps.
-3. Each variant must be a complete standalone HTML document that renders
-   without a build step.
+3. Each variant must be a compact, complete standalone HTML document that
+   renders without a build step.
 4. For product UI redesigns, prefer cleaner hierarchy, progressive disclosure,
    and realistic controls over decorative mockups.
 5. After `present-design-variants`, wait for the user's pick before
-   generating the next version. If they say "I like #2 but...", snapshot the
-   chosen design and refine that direction with `generate-design`.
+   generating the next version. Keep the chosen screen, delete the other
+   variant screens, call `get-design-snapshot` with `fileId` for the kept
+   screen, then call `edit-design` on that same `fileId` in a bounded pass.
+   Use `mode: "replace-file"` when expanding the representative placeholder
+   into the full chosen direction. Do not call `generate-design` after a
+   variant pick. Stop after the first successful `edit-design` save.
+
+## Design Quality Bar
+
+- Before generating, name the concrete audience, the screen's primary job, and
+  the visual thesis. If the brief is vague, make a reasonable choice and state
+  it instead of producing a generic dashboard/landing-page default.
+- For existing products, inspect the current screen, design system, tokens,
+  component language, or codebase context before inventing a new direction.
+- Make each direction distinct in structure and behavior, not just palette.
+  Give every variant one memorable signature choice, then keep the surrounding
+  chrome disciplined.
+- Treat copy, data, and imagery as design material. Use realistic domain
+  content and first-party/generated assets when images matter; avoid lorem
+  ipsum, vague SaaS filler, and decorative placeholder boxes.
+- Build to a quiet quality floor: responsive desktop/mobile layout, visible
+  keyboard focus, useful loading/empty/error states for app UI, and reduced
+  motion support when custom motion is present.
+- After broad generation or refinement, inspect the rendered Design surface or
+  a screenshot-capable host before calling it ready. Fix obvious hierarchy,
+  overflow, contrast, broken interaction, and placeholder-content issues first.
 
 ## Cross-App Use
 

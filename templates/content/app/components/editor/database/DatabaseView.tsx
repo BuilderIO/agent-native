@@ -146,11 +146,14 @@ import {
   useContentDatabase,
   useContentDatabases,
   contentDatabaseQueryKey,
+  useDeleteDatabaseItems,
   useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
+  useDuplicateDatabaseItems,
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
   usePrepareBuilderSourceReview,
+  useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
   useSuggestSourceJoinKey,
@@ -479,6 +482,7 @@ function DatabaseTable({
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
+  const processBuilderBodies = useProcessBuilderBodyHydration(document.id);
   const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
   const executeBuilderExecution = useExecuteBuilderSourceExecution(document.id);
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
@@ -1570,6 +1574,9 @@ function DatabaseTable({
             sourceId,
           })
         }
+        onHydrateBuilderBodies={(sourceId) =>
+          processBuilderBodies.mutate({ sourceId })
+        }
         onDisconnectSource={(sourceId) =>
           disconnectSource.mutate(
             {
@@ -1635,6 +1642,7 @@ function DatabaseTable({
           attachSource.isPending ||
           changeSourceRole.isPending ||
           refreshSource.isPending ||
+          processBuilderBodies.isPending ||
           disconnectSource.isPending ||
           prepareBuilderReview.isPending ||
           executeBuilderExecution.isPending ||
@@ -2760,9 +2768,9 @@ function DatabaseTableView({
 }) {
   const queryClient = useQueryClient();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
-  const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
+  const duplicateItems = useDuplicateDatabaseItems(databaseDocumentId);
   const setProperty = useSetDocumentProperty(databaseDocumentId);
-  const deleteDocument = useDeleteDocument();
+  const deleteItems = useDeleteDatabaseItems(databaseDocumentId);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
   const [draggedPropertyId, setDraggedPropertyId] = useState<string | null>(
@@ -3006,14 +3014,15 @@ function DatabaseTableView({
   async function deleteSelectedRows() {
     if (selectedItems.length === 0) return;
     const selectedSnapshot = selectedItems;
-    onClearSelection();
     setConfirmDeleteSelectedOpen(false);
 
     try {
+      await deleteItems.mutateAsync({
+        documentId: databaseDocumentId,
+        itemIds: selectedSnapshot.map((item) => item.id),
+      });
+      onClearSelection();
       onDeletedPreviewItems(selectedSnapshot);
-      for (const item of selectedSnapshot) {
-        await deleteDocument.mutateAsync({ id: item.document.id });
-      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -3037,22 +3046,11 @@ function DatabaseTableView({
     const selectedSnapshot = selectedItems;
     setIsDuplicatingSelected(true);
 
-    let duplicatedPreviewItem: ContentDatabaseItem | null = null;
-    let duplicatedCount = 0;
-    let failedCount = 0;
-
     try {
-      for (const item of selectedSnapshot) {
-        try {
-          const response = await duplicateItem.mutateAsync({ itemId: item.id });
-          duplicatedCount += 1;
-          duplicatedPreviewItem =
-            databaseDuplicatedItemFromResponse(response) ??
-            duplicatedPreviewItem;
-        } catch {
-          failedCount += 1;
-        }
-      }
+      const response = await duplicateItems.mutateAsync({
+        documentId: databaseDocumentId,
+        itemIds: selectedSnapshot.map((item) => item.id),
+      });
 
       await queryClient.invalidateQueries({
         queryKey: [
@@ -3065,16 +3063,15 @@ function DatabaseTableView({
         queryKey: ["action", "list-documents"],
       });
 
+      const duplicatedPreviewItem =
+        databaseDuplicatedItemFromResponse(response);
       if (duplicatedPreviewItem) onPreview(duplicatedPreviewItem);
-      if (duplicatedCount > 0) onClearSelection();
-      if (failedCount > 0) {
-        toast.error(dbText("failedToDuplicateEverySelectedRow"), {
-          description:
-            duplicatedCount > 0
-              ? `${duplicatedCount} duplicated, ${failedCount} failed.`
-              : "No rows were duplicated.",
-        });
-      }
+      onClearSelection();
+    } catch (err) {
+      toast.error(dbText("failedToDuplicateEverySelectedRow"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
     } finally {
       setIsDuplicatingSelected(false);
     }
@@ -3133,9 +3130,11 @@ function DatabaseTableView({
             canEdit={canEdit}
             properties={bulkEditableProperties}
             duplicateDisabled={
-              isDuplicatingSelected || deleteDocument.isPending
+              isDuplicatingSelected ||
+              duplicateItems.isPending ||
+              deleteItems.isPending
             }
-            deleteDisabled={deleteDocument.isPending}
+            deleteDisabled={deleteItems.isPending}
             updateDisabled={setProperty.isPending}
             onClearSelection={onClearSelection}
             onSetPropertyValue={setSelectedPropertyValue}
@@ -3354,10 +3353,10 @@ function DatabaseTableView({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
+              disabled={deleteItems.isPending}
               onClick={() => void deleteSelectedRows()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {deleteItems.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3539,6 +3538,7 @@ function DatabaseSettingsPanelSheet({
   onChangeSourceRole,
   onDisconnectSecondary,
   onRefreshSource,
+  onHydrateBuilderBodies,
   onDisconnectSource,
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
@@ -3580,6 +3580,7 @@ function DatabaseSettingsPanelSheet({
   ) => Promise<ContentDatabaseResponse>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
+  onHydrateBuilderBodies: (sourceId: string) => void;
   onDisconnectSource: (sourceId?: string) => void;
   onReviewBuilderUpdate: () => void;
   onSetBuilderLiveWrites: (enabled: boolean) => void;
@@ -3677,6 +3678,7 @@ function DatabaseSettingsPanelSheet({
               setSourceNavStack([]);
             }}
             onRefreshSource={onRefreshSource}
+            onHydrateBuilderBodies={onHydrateBuilderBodies}
             onDisconnectSource={onDisconnectSource}
             onReviewBuilderUpdate={onReviewBuilderUpdate}
             onSetBuilderLiveWrites={onSetBuilderLiveWrites}
@@ -3976,6 +3978,7 @@ function DatabaseSettingsSourcePanel({
   onChangeSourceRole,
   onDisconnectSecondary,
   onRefreshSource,
+  onHydrateBuilderBodies,
   onDisconnectSource,
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
@@ -4004,6 +4007,7 @@ function DatabaseSettingsSourcePanel({
   ) => Promise<ContentDatabaseResponse>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
+  onHydrateBuilderBodies: (sourceId: string) => void;
   onDisconnectSource: (sourceId?: string) => void;
   onReviewBuilderUpdate: () => void;
   onSetBuilderLiveWrites: (enabled: boolean) => void;
@@ -4440,6 +4444,15 @@ function DatabaseSettingsSourcePanel({
               </Button>
             </div>
           </div>
+        ) : null}
+
+        {isBuilderSource && source.bodyHydration ? (
+          <BuilderBodyHydrationCard
+            source={source}
+            canEdit={canEdit}
+            pending={sourceActionPending}
+            onHydrate={() => onHydrateBuilderBodies(source.id)}
+          />
         ) : null}
 
         {isCodeMode ? (
@@ -5169,6 +5182,78 @@ function SourceRoleCard({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function BuilderBodyHydrationCard({
+  source,
+  canEdit,
+  pending,
+  onHydrate,
+}: {
+  source: ContentDatabaseSource;
+  canEdit: boolean;
+  pending: boolean;
+  onHydrate: () => void;
+}) {
+  const summary = source.bodyHydration;
+  if (!summary || summary.total === 0) return null;
+  const activeCount = summary.pending + summary.hydrating;
+  const needsWork = activeCount > 0 || summary.error > 0;
+  const hydratedLabel = dbText("builderBodiesHydrated", {
+    hydrated: summary.hydrated,
+    total: summary.total,
+  });
+  const detail = needsWork
+    ? [
+        activeCount > 0
+          ? dbText("builderBodiesQueued", { count: activeCount })
+          : null,
+        summary.error > 0
+          ? dbText("builderBodySyncFailed", { count: summary.error })
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : dbText("builderBodiesReadyLocally");
+
+  return (
+    <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-medium">{dbText("builderBodySync")}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {hydratedLabel}
+          </div>
+        </div>
+        {needsWork ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 px-2 text-xs"
+            disabled={!canEdit || pending}
+            onClick={onHydrate}
+          >
+            {pending ? (
+              <Spinner className="mr-1 size-3.5" />
+            ) : (
+              <IconRefresh className="mr-1 size-3.5" />
+            )}
+            {summary.error > 0 ? dbText("retry") : dbText("resume")}
+          </Button>
+        ) : null}
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-foreground transition-[width]"
+          style={{
+            width: `${Math.round((summary.hydrated / summary.total) * 100)}%`,
+          }}
+        />
+      </div>
+      <div className="break-words text-xs text-muted-foreground">{detail}</div>
     </div>
   );
 }
@@ -7354,7 +7439,7 @@ function DatabaseGalleryView({
           {dbText("loadingGallery")}
         </div>
       ) : (
-        <div className="grid gap-3 px-1 py-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="content-database-gallery-grid grid gap-3 px-1 py-3">
           {databaseViewHasNoMatchingPages(
             items.length,
             hasSearch,
@@ -7455,7 +7540,7 @@ function DatabaseGroupedGallerySection({
         onCollapsedChange={onCollapsedChange}
       />
       {!collapsed ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="content-database-gallery-grid grid gap-3">
           {group.items.map((item, index) => (
             <DatabaseGalleryCard
               key={`${group.id}-${item.id}`}
@@ -7936,7 +8021,7 @@ function DatabaseDateViewNoDateSection({
           {items.length}
         </span>
       </div>
-      <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="content-database-calendar-undated-grid grid gap-1">
         {items.map((item) => (
           <DatabaseCalendarCard
             key={item.id}

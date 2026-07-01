@@ -112,6 +112,10 @@ export interface StyleBrief {
   texture?: string;
   composition?: string;
   lighting?: string;
+  fontFamilies?: string[];
+  fontWeights?: string[];
+  letterforms?: string;
+  caseStyle?: string;
   typographyPolicy?: string;
   doNot?: string[];
 }
@@ -233,6 +237,7 @@ export interface GenerationPresetSummary {
   model: ImageModel | VideoModel;
   textPolicy: string;
   referencePolicy: GenerationPresetReferencePolicy;
+  includeLogo: boolean;
   settings: Record<string, unknown>;
   sortOrder: number;
   createdAt?: string;

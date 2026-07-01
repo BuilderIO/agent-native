@@ -1,8 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { linkDocumentToNotionPage } from "../server/lib/notion-sync.js";
+import {
+  getNotionDocumentOwner,
+  resolveDocumentId,
+} from "./_notion-action-utils.js";
 
 export default defineAction({
   description: "Link a document to a Notion page for syncing.",
@@ -10,19 +13,19 @@ export default defineAction({
     documentId: z.string().optional().describe("Document ID (required)"),
     id: z.string().optional().describe("Alias for --documentId"),
     pageId: z.string().optional().describe("Notion page ID or URL (required)"),
+    pageIdOrUrl: z.string().optional().describe("Alias for --pageId"),
     url: z.string().optional().describe("Alias for --pageId"),
   }),
-  http: false,
+  http: { method: "POST" },
   run: async (args) => {
-    const owner = getRequestUserEmail();
-    if (!owner) throw new Error("no authenticated user");
-    const documentId = args.documentId || args.id;
-    const pageIdOrUrl = args.pageId || args.url;
+    const documentId = resolveDocumentId(args);
+    const pageIdOrUrl = args.pageId || args.pageIdOrUrl || args.url;
 
-    if (!documentId || !pageIdOrUrl) {
+    if (!pageIdOrUrl) {
       throw new Error("documentId and pageId are required");
     }
 
+    const owner = await getNotionDocumentOwner(documentId);
     return linkDocumentToNotionPage(owner, documentId, pageIdOrUrl);
   },
 });

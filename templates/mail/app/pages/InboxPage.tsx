@@ -686,7 +686,7 @@ export function InboxPage() {
 
       {/* Right contact panel — hidden during initial load or when maximized */}
       {!emailListLoading && !(hasThread && isMaximized) && (
-        <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
+        <div className="mail-contact-side-panel hidden w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
           <ContactPanel
             emailId={contactEmailId}
             contactEmail={sidebarContactEmail}

@@ -198,6 +198,17 @@ export function GoogleConnectBanner({
     }
   }, [authUrl.error, canOfferOAuthSetup, fetchStatus, t]);
 
+  useEffect(() => {
+    if (
+      desktopAuthIssue?.code !== "missing_credentials" &&
+      desktopAuthIssue?.error !== "missing_credentials"
+    ) {
+      return;
+    }
+    setShowWizard(true);
+    fetchStatus();
+  }, [desktopAuthIssue, fetchStatus]);
+
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 

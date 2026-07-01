@@ -229,6 +229,14 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 | `1` | कम से कम एक ईवल ने सीमा से नीचे स्कोर किया, या सुइट में त्रुटि हुई। |
 | `2` | खराब तर्क (उदाहरण के लिए `[0, 1]` के बाहर `--threshold`)।           |
 
+### gated evals छोड़ना {#skipping}
+
+जब कोई eval suite केवल manual, nightly, या secret-backed execution के लिए हो,
+तो `skipReason` का उपयोग करें। छोड़े गए evals agent या scorers नहीं चलाते,
+suite को fail नहीं करते, और JSON output में `status: "skipped"` और
+`skipReason` के साथ दिखते हैं। सस्ती deterministic coverage को सामान्य PR CI
+में रखें।
+
 ### सीआई परिनियोजन गेट के रूप में {#ci}
 
 इसे उस पाइपलाइन में जोड़ें जो परिनियोजन से पहले चलती है:

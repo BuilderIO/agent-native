@@ -35,10 +35,13 @@ async function fetchStatusJson(
     }, timeoutMs);
   });
 
-  const request = fetch(
-    agentNativePath(path),
-    controller ? { signal: controller.signal } : undefined,
-  )
+  // Never serve a stale status from the HTTP cache: this is re-fetched right
+  // after a provider connects, and a cached "missing" would keep the composer
+  // gate and error banner pinned even though a provider is now configured.
+  const request = fetch(agentNativePath(path), {
+    cache: "no-store",
+    ...(controller ? { signal: controller.signal } : {}),
+  })
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null)
     .finally(() => {

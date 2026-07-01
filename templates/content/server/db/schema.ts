@@ -139,9 +139,36 @@ export const contentDatabaseItems = table("content_database_items", {
   databaseId: text("database_id").notNull(),
   documentId: text("document_id").notNull(),
   position: integer("position").notNull().default(0),
+  bodyHydrationStatus: text("body_hydration_status")
+    .notNull()
+    .default("hydrated"),
+  bodyHydrationAttemptedAt: text("body_hydration_attempted_at"),
+  bodyHydrationError: text("body_hydration_error"),
+  bodyHydrationVersion: text("body_hydration_version"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
+
+export const contentDatabaseBodyHydrationQueue = table(
+  "content_database_body_hydration_queue",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    sourceId: text("source_id").notNull(),
+    databaseItemId: text("database_item_id").notNull(),
+    documentId: text("document_id").notNull(),
+    sourceRowId: text("source_row_id").notNull(),
+    sourceTable: text("source_table").notNull(),
+    sourceEntryJson: text("source_entry_json").notNull().default("{}"),
+    priority: integer("priority").notNull().default(10),
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptedAt: text("last_attempted_at"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
 
 export const contentDatabaseSources = table("content_database_sources", {
   id: text("id").primaryKey(),

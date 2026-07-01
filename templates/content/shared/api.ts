@@ -309,6 +309,29 @@ export interface ContentDatabaseMembership {
   databaseDocumentId: string;
   databaseTitle: string;
   position: number;
+  sourceId?: string | null;
+  bodyHydration?: ContentDatabaseBodyHydration;
+}
+
+export type ContentDatabaseBodyHydrationState =
+  | "pending"
+  | "hydrating"
+  | "hydrated"
+  | "error";
+
+export interface ContentDatabaseBodyHydration {
+  status: ContentDatabaseBodyHydrationState;
+  attemptedAt: string | null;
+  error: string | null;
+  version: string | null;
+}
+
+export interface ContentDatabaseBodyHydrationSummary {
+  pending: number;
+  hydrating: number;
+  hydrated: number;
+  error: number;
+  total: number;
 }
 
 export interface ContentDatabaseItem {
@@ -317,6 +340,7 @@ export interface ContentDatabaseItem {
   document: Document;
   position: number;
   properties: DocumentProperty[];
+  bodyHydration?: ContentDatabaseBodyHydration;
   sourceRecord?: ContentDatabaseSourceRow;
   // Federation (NEXT): the row's normalized join key, and the read-only columns
   // a secondary source contributes on top of it. Absent for non-federated rows.
@@ -439,6 +463,12 @@ export interface ContentDatabaseSourceBodyChange {
   summary: string;
   currentExcerpt: string | null;
   proposedExcerpt: string | null;
+  currentHash?: string | null;
+  proposedHash?: string | null;
+  proposedContent?: string | null;
+  proposedBlocksJson?: string | null;
+  sidecarsJson?: string | null;
+  warnings?: string[];
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -565,6 +595,7 @@ export interface ContentDatabaseSource {
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
   changeSets: ContentDatabaseSourceChangeSet[];
+  bodyHydration?: ContentDatabaseBodyHydrationSummary;
 }
 
 export interface ContentDatabaseSourceStatusResponse {
@@ -615,6 +646,10 @@ export interface ContentDatabaseResponse {
   createdDocumentId?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
+  duplicatedItemIds?: string[];
+  duplicatedDocumentIds?: string[];
+  deletedItemIds?: string[];
+  deletedDocumentIds?: string[];
 }
 
 export interface ContentDatabaseUnavailableResponse {
@@ -668,6 +703,13 @@ export interface DuplicateDatabaseItemRequest {
   itemId?: string;
   documentId?: string;
   title?: string;
+}
+
+export interface DatabaseItemsBatchRequest {
+  databaseId?: string;
+  documentId?: string;
+  itemIds?: string[];
+  documentIds?: string[];
 }
 
 export interface MoveDatabaseItemRequest {
@@ -944,4 +986,18 @@ export interface PrepareBuilderSourceReviewResponse {
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
   review: ContentDatabaseSourceReviewPayload;
+}
+
+export interface ProcessBuilderBodyHydrationRequest {
+  sourceId: string;
+  documentId?: string;
+  limit?: number;
+}
+
+export interface ProcessBuilderBodyHydrationResponse {
+  sourceId: string;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  remaining: number;
 }

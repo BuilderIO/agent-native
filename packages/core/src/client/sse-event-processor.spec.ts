@@ -563,7 +563,7 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  it("renders tool-scoped activity as a pending tool call", async () => {
+  it("errors when a terminal stream leaves tool-scoped activity unresolved", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -625,8 +625,17 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
+            result: "Stopped before this action started.",
           }),
+          {
+            type: "text",
+            text: "Error: The agent stopped before starting the create document action. No tool result was returned, so the requested changes were not made.",
+          },
         ],
+        status: {
+          type: "incomplete",
+          reason: "error",
+        },
         metadata: {
           custom: {
             activityTrail: [
@@ -635,6 +644,13 @@ describe("SSE event processor error classification", () => {
                 tool: "create-document",
               },
             ],
+            runError: {
+              message:
+                "The agent stopped before starting the create document action. No tool result was returned, so the requested changes were not made.",
+              details: "interrupted_actions: create-document",
+              errorCode: "action_not_started",
+              recoverable: true,
+            },
           },
         },
       },
@@ -697,6 +713,11 @@ describe("SSE event processor error classification", () => {
             tool: "generate-design",
             input: { designId: "design-1" },
           },
+          {
+            type: "tool_done",
+            tool: "generate-design",
+            result: '{"saved":true}',
+          },
           { type: "done" },
         ]),
         [],
@@ -722,6 +743,306 @@ describe("SSE event processor error classification", () => {
         args: { designId: "design-1" },
       }),
     ]);
+    expect(results[2].content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        result: '{"saved":true}',
+      }),
+    ]);
+  });
+
+  it("adds a visible warning when a run completes after tools but sends no final text", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "show-design-questions",
+            input: { designId: "design-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "show-design-questions",
+            result: '{"designId":"design-1","count":5}',
+            completedSideEffect: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-only",
+        undefined,
+        "run-tool-only",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          runId: "run-tool-only",
+          runWarning: {
+            errorCode: "final_response_missing_after_tool",
+            recoverable: true,
+          },
+        },
+      },
+    });
+    expect(last.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "show-design-questions",
+        result: '{"designId":"design-1","count":5}',
+        completedSideEffect: true,
+      }),
+      {
+        type: "text",
+        text: "The agent completed the show design questions action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
+      },
+    ]);
+  });
+
+  it("adds a visible warning when a run stops after a tool even if it sent text before the tool", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "text",
+            text: "I'll generate the full app now.",
+          },
+          {
+            type: "tool_start",
+            tool: "generate-design",
+            input: { designId: "design-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "generate-design",
+            result: '{"saved":true}',
+            completedSideEffect: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-text-before-tool",
+        undefined,
+        "run-text-before-tool",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          runId: "run-text-before-tool",
+          runWarning: {
+            errorCode: "final_response_missing_after_tool",
+            recoverable: true,
+          },
+        },
+      },
+    });
+    expect(last.content).toEqual([
+      {
+        type: "text",
+        text: "I'll generate the full app now.",
+      },
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        result: '{"saved":true}',
+        completedSideEffect: true,
+      }),
+      {
+        type: "text",
+        text: "The agent completed the generate design action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
+      },
+    ]);
+  });
+
+  it("adds a visible warning when a tool returns after the final assistant text", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "generate-design",
+            input: { designId: "design-1" },
+          },
+          {
+            type: "text",
+            text: "I'm generating the full app now.",
+          },
+          {
+            type: "tool_done",
+            tool: "generate-design",
+            result: '{"saved":true}',
+            completedSideEffect: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-result-after-text",
+        undefined,
+        "run-tool-result-after-text",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          runId: "run-tool-result-after-text",
+          runWarning: {
+            errorCode: "final_response_missing_after_tool",
+            recoverable: true,
+          },
+        },
+      },
+    });
+    expect(last.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        result: '{"saved":true}',
+        completedSideEffect: true,
+      }),
+      {
+        type: "text",
+        text: "I'm generating the full app now.",
+      },
+      {
+        type: "text",
+        text: "The agent completed the generate design action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
+      },
+    ]);
+  });
+
+  it("does not add a missing-final warning when text arrives after the last completed tool", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "generate-design",
+            input: { designId: "design-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "generate-design",
+            result: '{"saved":true}',
+            completedSideEffect: true,
+          },
+          {
+            type: "text",
+            text: "Done — the app is ready.",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-text-after-tool",
+        undefined,
+        "run-text-after-tool",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
+    expect(last.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        result: '{"saved":true}',
+        completedSideEffect: true,
+      }),
+      {
+        type: "text",
+        text: "Done — the app is ready.",
+      },
+    ]);
+  });
+
+  it("errors when a terminal stream leaves a started tool unresolved", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "present-design-variants",
+            input: { designId: "design-1" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-unfinished-tool",
+      ),
+    );
+
+    expect(results.at(-1)).toEqual({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "present-design-variants",
+          result: "Interrupted before this tool returned a result.",
+        }),
+        {
+          type: "text",
+          text: "Error: The agent stopped before the present design variants action returned a result. The requested changes may not have been made.",
+        },
+      ],
+      status: {
+        type: "incomplete",
+        reason: "error",
+      },
+      metadata: {
+        custom: {
+          activityTrail: [
+            {
+              label: "Running present design variants",
+              tool: "present-design-variants",
+            },
+          ],
+          runError: {
+            message:
+              "The agent stopped before the present design variants action returned a result. The requested changes may not have been made.",
+            details: "interrupted_actions: present-design-variants",
+            errorCode: "action_not_started",
+            recoverable: true,
+          },
+        },
+      },
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "action_not_started",
+          tabId: "tab-unfinished-tool",
+        }),
+      }),
+    );
   });
 
   it("clears visible activity when the server clears a corrective draft", async () => {
@@ -936,6 +1257,11 @@ describe("SSE event processor error classification", () => {
 
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "builder_gateway_network_error",
+      message: "Builder gateway network error: socket hang up",
+      recoverable: true,
+    });
   });
 
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
@@ -954,7 +1280,7 @@ describe("SSE event processor error classification", () => {
     );
 
     const giveUpMessage =
-      "I ran out of time before finishing this step (hosted runs have a ~40s budget). " +
+      "I ran out of time before finishing this step. " +
       "I stopped rather than leave things half-done — nothing was partially saved by me here. " +
       "Please retry, ideally as a single bulk action.";
 
@@ -1135,5 +1461,71 @@ describe("SSE event processor tool id matching", () => {
     expect(part?.approval).toEqual({
       approvalKey: 'send-email:{"to":"a@b.com"}',
     });
+  });
+});
+
+describe("SSE event processor activity-label clearing", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const stubWindow = () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    return dispatchEvent;
+  };
+
+  it("clears the running activity label when a tool finishes", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "generate-image", input: {} },
+          { type: "tool_done", tool: "generate-image", result: "ok" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear-tool",
+      ),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear-tool" },
+      }),
+    );
+  });
+
+  it("clears the running activity label when visible text streams", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Here is your answer." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear-text",
+      ),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear-text" },
+      }),
+    );
   });
 });

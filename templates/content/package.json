@@ -5,13 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "agent-native dev",
+    "dev:database": "node scripts/check-native-deps.mjs && node scripts/dev-database.mjs",
     "build": "agent-native build",
     "start": "agent-native start",
     "test": "vitest --run",
+    "test:parity": "vitest --run parity",
+    "test:parity-capabilities": "vitest --run parity actions/content-database-lifecycle.db.test.ts actions/bind-content-database-source-field.db.test.ts actions/_local-file-documents.test.ts actions/builder-source-review-gates.db.test.ts",
+    "eval:parity": "agent-native eval parity",
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
     "action": "agent-native action",
-    "script": "agent-native script"
+    "script": "agent-native script",
+    "seed:demo": "node scripts/seed-demo-user.mjs"
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",

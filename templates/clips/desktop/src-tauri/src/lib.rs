@@ -16,6 +16,7 @@ mod native_speech;
 mod notifications;
 mod permission_status;
 mod recording_indicator;
+mod screen_memory;
 mod sentry_report;
 mod shortcuts;
 mod silence_detector;
@@ -100,6 +101,14 @@ pub fn run() {
             // config commands
             config::get_feature_config,
             config::set_feature_config,
+            // local-only Screen Memory backend
+            screen_memory::screen_memory_status,
+            screen_memory::screen_memory_configure,
+            screen_memory::screen_memory_start,
+            screen_memory::screen_memory_pause,
+            screen_memory::screen_memory_stop,
+            screen_memory::screen_memory_delete,
+            screen_memory::screen_memory_recent_segments,
             // native macOS speech recognition (no-op stubs on other OSes)
             native_speech::native_speech_start,
             native_speech::native_speech_stop,
@@ -120,6 +129,11 @@ pub fn run() {
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
             native_screen::native_fullscreen_recording_discard_upload,
+            // local-only always-on screen memory compatibility helpers
+            screen_memory::screen_memory_query,
+            screen_memory::screen_memory_delete_all,
+            screen_memory::screen_memory_export_recent,
+            screen_memory::screen_memory_open_folder,
             // recording indicator pill
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
@@ -187,6 +201,7 @@ pub fn run() {
         .manage(VoiceTargetBundle::default())
         .manage(LastTranscript::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
+        .manage(screen_memory::ScreenMemoryState::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
         .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
@@ -213,6 +228,8 @@ pub fn run() {
 
             tray::build_tray(app)?;
             config::sync_launch_at_login(app.handle());
+            let feature_config = config::feature_config(app.handle());
+            screen_memory::sync_from_config(app.handle(), &feature_config);
             // Re-show always-on region guides after relaunch/reboot when the
             // setting is on (no-op if a recording owns the window or the
             // toggle is off).

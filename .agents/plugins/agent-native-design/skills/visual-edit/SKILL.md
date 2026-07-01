@@ -3,6 +3,8 @@ name: visual-edit
 description: >-
   Open a running local app in Design overview mode as URL-backed iframe screens
   for visual editing, flow review, duplication, and route-state exploration.
+  Use when the user asks to inspect, compare, or edit a real local app visually
+  in Design.
 metadata:
   visibility: exported
 ---
@@ -30,46 +32,84 @@ iframe-backed screens on the infinite canvas.
   `localhost:1234/onboarding/1` means
   `http://localhost:1234/onboarding/1`.
 
+## Review Quality
+
+- Treat the running app as the truth. Preserve its component language, tokens,
+  route state, and real content unless the user explicitly asks for a new visual
+  direction.
+- Use multiple URL states to reveal meaningful UX moments: empty/loading/error
+  states, focused panels, modals, responsive breakpoints, and completed flow
+  steps when those matter to the review.
+- For visual edits, compare before/after at the relevant viewport sizes and
+  check key hover/focus/scroll states when the app exposes them.
+
+## Account And Sharing Model
+
+- The `/visual-edit` entry route can open before the viewer signs in. Public
+  `/design/:id` editor links can also render read-only public designs without a
+  session.
+- Prefer links returned by Design actions or `/_agent-native/open` deep links.
+  Do not surface URLs with `_session=` tokens. Query sessions are only a
+  fallback after normal cookie resolution, so an existing browser session can
+  still open the design as a different user and show "Design not found".
+- Do not attempt anonymous write actions. Bridge registration, design creation,
+  screen placement, generation, saving, and sharing are account-backed. If a
+  signed-out visitor wants to save or share, send them through the framework
+  sign-in return flow, then save or copy the design into that account before
+  opening the share dialog.
+
 ## Required Local Bridge
 
 From the target app repo, make sure its dev server is running, then run:
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
 ```
 
-Use the app's real port. The command starts a local bridge on
-`http://127.0.0.1:7331` by default and exposes `/manifest.json`,
-`/routes.json`, and `/health`.
+Use the app's real port. The command starts a detached local bridge on
+`http://127.0.0.1:7331` by default, waits for `/health`, prints the
+manifest JSON, and keeps the bridge alive after the agent command exits.
 
-For one-shot agent setup, ask for JSON and keep the long-running bridge open in
-a second terminal if the user needs live updates:
+For a manual health/manifest check:
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --json
+curl http://127.0.0.1:7331/manifest.json
 ```
+
+Do not use `--json` for an editable session. `--json`, `--once`, and
+`--dry-run` print the manifest and exit, so Design will fall back to a
+non-editable live iframe as soon as it tries to refresh the snapshot.
 
 ## Action Flow
 
-1. Register or refresh the bridge with `connect-localhost`, passing the
-   `/manifest.json` result as `routeManifest` and `capabilities`.
-2. Create or reuse a Design project with `create-design`.
-3. Place URL-backed screens with `add-localhost-screens`:
+Prefer the single authenticated `open-visual-edit` action. It registers or
+refreshes the localhost bridge, creates or reuses a Design project, places
+URL-backed screens, stores the active visual-edit context, and navigates to
+overview mode in one call. This avoids creating a private design under a
+synthetic CLI user and then handing the browser a tokenized URL that may be
+shadowed by an existing session.
 
 ```bash
-pnpm action add-localhost-screens '{
-  "designId": "<design-id>",
-  "connectionId": "<connection-id>",
+pnpm action open-visual-edit '{
+  "title": "Docs homepage visual edit",
+  "devServerUrl": "http://localhost:5173",
+  "bridgeUrl": "http://127.0.0.1:7331",
+  "rootPath": "/absolute/path/to/app",
+  "routeManifest": { "...": "from /manifest.json" },
   "paths": ["/", "/pricing", "/checkout?step=payment"]
 }'
 ```
 
+The action returns `designId`, `connectionId`, `screens`, `urlPath`, and
+`openUrl`. Keep those IDs in the chat context for follow-ups.
+
 For a numbered flow the user describes in chat, keep the labels and order:
 
 ```bash
-pnpm action add-localhost-screens '{
-  "designId": "<design-id>",
-  "connectionId": "<connection-id>",
+pnpm action open-visual-edit '{
+  "designId": "<existing-design-id>",
+  "connectionId": "<existing-connection-id>",
+  "devServerUrl": "http://localhost:1234",
   "routes": [
     { "url": "localhost:1234/onboarding/1", "title": "Screen 1" },
     { "url": "localhost:1234/onboarding/2", "title": "Screen 2" },
@@ -78,14 +118,32 @@ pnpm action add-localhost-screens '{
 }'
 ```
 
-If no `routes` or `paths` are supplied, `add-localhost-screens` uses every
-route from the latest localhost manifest.
-
-4. Navigate to overview mode:
+For responsive follow-ups, call `open-visual-edit` again with the same
+`designId` and `connectionId`, plus explicit viewport dimensions:
 
 ```bash
-pnpm action navigate --view editor --designId "<design-id>" --editorView overview
+pnpm action open-visual-edit '{
+  "designId": "<existing-design-id>",
+  "connectionId": "<existing-connection-id>",
+  "devServerUrl": "http://localhost:5173",
+  "paths": ["/"],
+  "defaultWidth": 390,
+  "defaultHeight": 844,
+  "startX": 1600,
+  "startY": 0
+}'
 ```
+
+If no `routes` or `paths` are supplied, `open-visual-edit` uses every route
+from the localhost manifest.
+
+Fallback, only when `open-visual-edit` is unavailable:
+
+1. Register or refresh the bridge with `connect-localhost`, passing the
+   `/manifest.json` result as `routeManifest` and `capabilities`.
+2. Create or reuse a Design project with `create-design`.
+3. Place URL-backed screens with `add-localhost-screens`.
+4. Navigate to overview mode with `navigate`.
 
 ## Open The Design Surface
 
@@ -93,6 +151,8 @@ pnpm action navigate --view editor --designId "<design-id>" --editorView overvie
   the user sees the canvas. In Codex Desktop or VS Code, prefer opening that
   Design URL in the available preview/webview panel; otherwise surface the
   "Open design" link.
+- Return or open the `openUrl` / action link, not a hand-built
+  `/design/:id?_session=...` URL.
 - If the user is working in VS Code, the Agent Native extension can open the
   same URL via
   `vscode://builder.agent-native/open?url=<encoded-design-url>`. Its

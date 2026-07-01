@@ -20,6 +20,30 @@ describe("session replay ingest handler", () => {
     expect(decoded.body).toEqual(payload);
   });
 
+  it("accepts decoded JSON bodies when the gzip header is preserved", () => {
+    const payload = {
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      events: [{ type: 4, data: { href: "/inbox" } }],
+    };
+    const decoded = decodeSessionReplayRequestBody(
+      Buffer.from(JSON.stringify(payload), "utf8"),
+      "gzip",
+    );
+
+    expect(decoded.requestBytes).toBe(
+      Buffer.byteLength(JSON.stringify(payload), "utf8"),
+    );
+    expect(decoded.body).toEqual(payload);
+  });
+
+  it("still rejects malformed gzip replay request bodies", () => {
+    expect(() =>
+      decodeSessionReplayRequestBody(Buffer.from("not gzip"), "gzip"),
+    ).toThrow("Invalid gzip-compressed replay body");
+  });
+
   it("rejects unsupported replay request encodings", () => {
     expect(() =>
       decodeSessionReplayRequestBody(Buffer.from("{}"), "br"),

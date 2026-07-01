@@ -9,14 +9,24 @@ import {
   type LocaleCode,
   type LocaleMessages,
   type LocalizationPreference,
+  useActionQuery,
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
+import type { ListContentDatabasesResponse } from "@shared/api";
+import {
+  IconDatabase,
+  IconDeviceDesktop,
+  IconFileText,
+  IconFolderOpen,
+  IconLoader2,
+  IconMoon,
+  IconSun,
+} from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Links,
   Meta,
@@ -26,6 +36,7 @@ import {
   isRouteErrorResponse,
   useLoaderData,
   useLocation,
+  useNavigate,
   useRouteLoaderData,
   useRouteError,
 } from "react-router";
@@ -40,6 +51,11 @@ import changelog from "../CHANGELOG.md?raw";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
+import {
+  contentCommandDocumentPath,
+  groupContentCommandSearchResults,
+  type CommandSearchDocumentsResponse,
+} from "./lib/content-command-search";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -226,6 +242,211 @@ function ThemeToggleItem() {
   );
 }
 
+function CommandStateMessage({
+  children,
+  icon,
+}: {
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
+      {icon}
+      <span className="min-w-0 flex-1">{children}</span>
+    </div>
+  );
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedValue(value), delayMs);
+    return () => window.clearTimeout(id);
+  }, [delayMs, value]);
+
+  return debouncedValue;
+}
+
+function ContentCommandSearchResults({
+  query,
+  onOpenChange,
+}: {
+  query: string;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
+  const trimmedQuery = query.trim();
+  const debouncedQuery = useDebouncedValue(trimmedQuery, 200);
+  const searchEnabled = debouncedQuery.length > 0;
+  const documentsQuery = useActionQuery<CommandSearchDocumentsResponse>(
+    "search-documents",
+    searchEnabled ? { query: debouncedQuery, limit: 8 } : undefined,
+    { enabled: searchEnabled, retry: false },
+  );
+  const databasesQuery = useActionQuery<ListContentDatabasesResponse>(
+    "list-content-databases",
+    searchEnabled ? { query: debouncedQuery, limit: 6 } : undefined,
+    { enabled: searchEnabled, retry: false, staleTime: 60_000 },
+  );
+
+  const searchGroups = useMemo(
+    () =>
+      groupContentCommandSearchResults({
+        documents: documentsQuery.data?.documents ?? [],
+        databases: databasesQuery.data?.databases ?? [],
+        query: debouncedQuery,
+      }),
+    [
+      databasesQuery.data?.databases,
+      documentsQuery.data?.documents,
+      debouncedQuery,
+    ],
+  );
+
+  if (!trimmedQuery) return null;
+
+  const resultCount =
+    searchGroups.documents.length +
+    searchGroups.databases.length +
+    searchGroups.localFiles.length;
+  const isWaitingForDebounce = trimmedQuery !== debouncedQuery;
+  const isLoading =
+    (isWaitingForDebounce ||
+      documentsQuery.isLoading ||
+      databasesQuery.isLoading) &&
+    resultCount === 0;
+  const error = documentsQuery.error ?? databasesQuery.error;
+  const hasResults = resultCount > 0;
+
+  const openDocument = (documentId: string) => {
+    onOpenChange(false);
+    navigate(contentCommandDocumentPath(documentId));
+  };
+
+  if (isLoading) {
+    return (
+      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+        <CommandStateMessage
+          icon={<IconLoader2 className="size-4 animate-spin" />}
+        >
+          {t("root.commandSearchLoading")}
+        </CommandStateMessage>
+      </CommandMenu.Group>
+    );
+  }
+
+  if (error && !hasResults) {
+    return (
+      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+        <CommandStateMessage>
+          {t("root.commandSearchError")}
+        </CommandStateMessage>
+      </CommandMenu.Group>
+    );
+  }
+
+  if (!hasResults) {
+    return (
+      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+        <CommandStateMessage>
+          {t("root.commandSearchEmpty")}
+        </CommandStateMessage>
+      </CommandMenu.Group>
+    );
+  }
+
+  return (
+    <>
+      {error ? (
+        <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+          <CommandStateMessage>
+            {t("root.commandSearchPartialError")}
+          </CommandStateMessage>
+        </CommandMenu.Group>
+      ) : null}
+
+      {searchGroups.documents.length > 0 ? (
+        <CommandMenu.Group heading={t("root.commandDocumentsHeading")}>
+          {searchGroups.documents.map((document) => (
+            <CommandMenu.Item
+              key={`document:${document.id}`}
+              onSelect={() => openDocument(document.id)}
+              deferSelect={false}
+              className="items-start py-2"
+            >
+              <IconFileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {document.title || t("sidebar.untitled")}
+                </span>
+                {document.snippet ? (
+                  <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
+                    {document.snippet}
+                  </span>
+                ) : null}
+              </span>
+            </CommandMenu.Item>
+          ))}
+        </CommandMenu.Group>
+      ) : null}
+
+      {searchGroups.databases.length > 0 ? (
+        <CommandMenu.Group heading={t("root.commandDatabasesHeading")}>
+          {searchGroups.databases.map((database) => (
+            <CommandMenu.Item
+              key={`database:${database.databaseId}`}
+              onSelect={() => openDocument(database.documentId)}
+              deferSelect={false}
+              className="items-start py-2"
+            >
+              <IconDatabase className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {database.title || t("sidebar.untitled")}
+                </span>
+                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                  {t("root.commandDatabaseResultDescription")}
+                </span>
+              </span>
+            </CommandMenu.Item>
+          ))}
+        </CommandMenu.Group>
+      ) : null}
+
+      {searchGroups.localFiles.length > 0 ? (
+        <CommandMenu.Group heading={t("root.commandLocalFilesHeading")}>
+          {searchGroups.localFiles.map((document) => (
+            <CommandMenu.Item
+              key={`local-file:${document.id}`}
+              onSelect={() => openDocument(document.id)}
+              deferSelect={false}
+              className="items-start py-2"
+            >
+              <IconFolderOpen className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {document.title || t("sidebar.untitled")}
+                </span>
+                {document.snippet ? (
+                  <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
+                    {document.snippet}
+                  </span>
+                ) : null}
+              </span>
+            </CommandMenu.Item>
+          ))}
+        </CommandMenu.Group>
+      ) : null}
+    </>
+  );
+}
+
 function PublicAgentShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const t = useT();
@@ -282,14 +503,16 @@ function ContentCommandMenu({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
+      placeholder={t("root.commandSearchPlaceholder")}
       changelog={changelog}
       changelogKey="content"
+      renderResults={(search) => (
+        <ContentCommandSearchResults
+          query={search}
+          onOpenChange={onOpenChange}
+        />
+      )}
     >
-      <CommandMenu.Group heading={t("root.commandContent")}>
-        <CommandMenu.Item onSelect={() => {}}>
-          {t("root.commandSearchDocuments")}
-        </CommandMenu.Item>
-      </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>
         <ThemeToggleItem />
       </CommandMenu.Group>
@@ -302,7 +525,12 @@ export default function Root() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  useCommandMenuShortcut(
+    useCallback(() => setCmdkOpen(true), []),
+    {
+      allowContentEditable: true,
+    },
+  );
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.

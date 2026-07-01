@@ -53,9 +53,11 @@ import {
 import { computeProtectedSegmentIds } from "./context-xray/segments.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  backgroundRuntimeDiagnosticDetail,
+  dispatchPathTargetsNetlifyBackgroundFunction,
   isAgentChatDurableBackgroundEnabled,
-  isInBackgroundFunctionRuntime,
   resolveAgentChatProcessRunDispatchPath,
+  shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -123,6 +125,7 @@ import {
   insertRun,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
+  setRunTerminalReason,
   claimBackgroundRun,
   readBackgroundRunClaim,
   recordRunDiagnostic,
@@ -2171,6 +2174,63 @@ function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
 }
 
+const INTERRUPTED_TOOL_LEDGER_POLL_MS =
+  process.env.NODE_ENV === "test" ? 0 : 2_000;
+
+async function waitForInterruptedToolLedgerEntry(opts: {
+  threadId: string;
+  toolKey: string;
+  toolName: string;
+  timeoutMs: number;
+  signal: AbortSignal;
+  send: (event: AgentChatEvent) => void;
+}): Promise<string | null> {
+  const pollMs = INTERRUPTED_TOOL_LEDGER_POLL_MS;
+  // Wait up to the tool's OWN declared timeout — the abandoned zombie can keep
+  // running that long (e.g. a 12-minute image generation, whose provider keeps
+  // generating after the run aborts), and giving up early re-runs the same
+  // write tool while the original is still in flight, duplicating work and
+  // double-charging. A flat sub-tool-timeout cap (previously 5 min) silently
+  // truncated long tools. The run's AbortSignal still bounds this to the run's
+  // remaining budget: when the run is cut off, the poll returns null and the
+  // re-dispatch hits the already-aborted signal instead of launching a real
+  // second call, so the wait never outlives the run.
+  const maxWaitMs =
+    process.env.NODE_ENV === "test" ? 1 : Math.max(0, opts.timeoutMs);
+  const maxPolls =
+    process.env.NODE_ENV === "test"
+      ? 3
+      : Math.max(1, Math.ceil(maxWaitMs / Math.max(1, pollMs)) + 1);
+
+  for (let attempt = 0; attempt < maxPolls; attempt++) {
+    if (opts.signal.aborted) return null;
+    const ledgerResult = await readLedgerEntry(opts.threadId, opts.toolKey);
+    if (ledgerResult !== null) return ledgerResult;
+
+    if (attempt >= maxPolls - 1) break;
+    opts.send({
+      type: "activity",
+      tool: opts.toolName,
+      label: `Waiting for previous ${opts.toolName} result.`,
+    });
+    if (pollMs <= 0) continue;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        opts.signal.removeEventListener("abort", done);
+        resolve();
+      };
+      const timer = setTimeout(done, pollMs);
+      opts.signal.addEventListener("abort", done, { once: true });
+    });
+  }
+
+  return null;
+}
+
 function normalizeToolErrorForBreaker(error: string): string {
   return error.replace(/\s+/g, " ").trim();
 }
@@ -3077,7 +3137,13 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          completedSideEffect: false,
+        });
         recordToolResult(result, false);
         return {
           type: "tool-result" as const,
@@ -3095,7 +3161,13 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          completedSideEffect: false,
+        });
         recordToolResult(result, false);
         return {
           type: "tool-result" as const,
@@ -3115,7 +3187,14 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          isError: true,
+          completedSideEffect: false,
+        });
         recordToolResult(result, true);
         return {
           type: "tool-result" as const,
@@ -3190,7 +3269,13 @@ export async function runAgentLoop(opts: {
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
             `NOT execute — a human must approve this specific call before it ` +
             `can run. The turn is paused; do not retry.`;
-          send({ type: "tool_done", tool: toolCall.name, result });
+          send({
+            type: "tool_done",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            completedSideEffect: false,
+          });
           recordToolResult(result, false);
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
@@ -3223,7 +3308,13 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          completedSideEffect: false,
+        });
         recordToolResult(result, false);
         if (repeats >= 3) {
           requestedActionStop ??= {
@@ -3240,6 +3331,20 @@ export async function runAgentLoop(opts: {
           content: result,
         };
       }
+
+      const DEFAULT_TOOL_RESULT_CHARS = 50_000;
+      // Default action tools should not undercut durable/background runs. The
+      // run-manager still aborts foreground hosted runs around 40s, while
+      // background runs get nearly the full 15-minute function budget.
+      const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
+      const toolTimeoutMs =
+        actionEntry.timeoutMs ??
+        opts.toolLimits?.timeoutMs ??
+        DEFAULT_TOOL_TIMEOUT_MS;
+      const toolMaxResultChars =
+        actionEntry.maxResultChars ??
+        opts.toolLimits?.maxResultChars ??
+        DEFAULT_TOOL_RESULT_CHARS;
 
       // TOOL-CALL JOURNAL HARD-BLOCK (resume safety, tool-layer enforcement).
       // The prompt-level resume journal already TELLS a resuming model not to
@@ -3270,7 +3375,13 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
-          send({ type: "tool_done", tool: toolCall.name, result });
+          send({
+            type: "tool_done",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            completedSideEffect: false,
+          });
           recordToolResult(result, false);
           return {
             type: "tool-result" as const,
@@ -3291,17 +3402,23 @@ export async function runAgentLoop(opts: {
       // previous invocation's zombie actually completed and wrote its result to
       // the durable ledger. If so, return the ledger result without re-executing
       // (prevents the duplicate side effect) and skip counting it toward the
-      // interruption budget.
+      // interruption budget. A just-abandoned long tool may need a short grace
+      // period before its detached promise writes the ledger, so wait while the
+      // current run still has budget instead of immediately re-running it.
       if (!actionEntry.readOnly) {
         const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
         const priorInterruptions =
           writeToolInterruptions.get(writeCacheKey) ?? 0;
 
         if (priorInterruptions > 0 && opts.threadId) {
-          const ledgerResult = await readLedgerEntry(
-            opts.threadId,
-            writeCacheKey,
-          );
+          const ledgerResult = await waitForInterruptedToolLedgerEntry({
+            threadId: opts.threadId,
+            toolKey: writeCacheKey,
+            toolName: toolCall.name,
+            timeoutMs: toolTimeoutMs,
+            signal,
+            send,
+          });
           if (ledgerResult !== null) {
             // Zombie completed — recover the real result without re-executing.
             const result =
@@ -3315,6 +3432,7 @@ export async function runAgentLoop(opts: {
             send({
               type: "tool_done",
               tool: toolCall.name,
+              input: toolCall.input as Record<string, unknown>,
               result,
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
@@ -3339,7 +3457,14 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
-          send({ type: "tool_done", tool: toolCall.name, result });
+          send({
+            type: "tool_done",
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
           recordToolResult(result, true);
           requestedActionStop ??= {
             message:
@@ -3359,6 +3484,25 @@ export async function runAgentLoop(opts: {
         }
       }
 
+      // Stop BEFORE emitting tool_start if the run was already aborted —
+      // typically because the ledger wait above polled for minutes and the soft
+      // timeout fired meanwhile. Emitting tool_start/tool_done here would leave a
+      // bogus interrupted pair in the transcript for a tool that never re-ran,
+      // and re-invoking would spawn a duplicate zombie. Return the interrupted
+      // marker (no events) so the next continuation recovers via the ledger.
+      // (A second guard inside the try below still covers an abort that lands in
+      // the tiny sync window between here and the action invocation.)
+      if (signal.aborted) {
+        recordToolResult(INTERRUPTED_TOOL_RESULT_MARKER, false);
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: INTERRUPTED_TOOL_RESULT_MARKER,
+        };
+      }
+
       send({
         type: "tool_start",
         tool: toolCall.name,
@@ -3374,7 +3518,14 @@ export async function runAgentLoop(opts: {
             toolCallSchemaError.error,
           ),
         );
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          isError: true,
+          completedSideEffect: false,
+        });
         recordToolResult(result, true);
         return {
           type: "tool-result" as const,
@@ -3398,7 +3549,14 @@ export async function runAgentLoop(opts: {
             rawToolInputError,
           ),
         );
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          isError: true,
+          completedSideEffect: false,
+        });
         recordToolResult(result, true);
         return {
           type: "tool-result" as const,
@@ -3415,7 +3573,14 @@ export async function runAgentLoop(opts: {
         !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
       ) {
         const result = planModeBlockedMessage(toolCall.name);
-        send({ type: "tool_done", tool: toolCall.name, result });
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          isError: true,
+          completedSideEffect: false,
+        });
         recordToolResult(result, true);
         return {
           type: "tool-result" as const,
@@ -3427,22 +3592,22 @@ export async function runAgentLoop(opts: {
         };
       }
 
-      const DEFAULT_TOOL_RESULT_CHARS = 50_000;
-      const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
-      const toolTimeoutMs =
-        actionEntry.timeoutMs ??
-        opts.toolLimits?.timeoutMs ??
-        DEFAULT_TOOL_TIMEOUT_MS;
-      const toolMaxResultChars =
-        actionEntry.maxResultChars ??
-        opts.toolLimits?.maxResultChars ??
-        DEFAULT_TOOL_RESULT_CHARS;
       let result: string;
       let isError = false;
       let mcpApp:
         | import("../mcp-client/app-result.js").AgentMcpAppPayload
         | undefined;
       try {
+        // The run may have been aborted while we waited above for an
+        // interrupted tool's ledger result (the wait can poll for minutes).
+        // Re-check before invoking the action: starting it now would spawn a
+        // fresh zombie execution — a duplicate side effect / double charge —
+        // which the ledger-recovery path exists to prevent. The Promise.race
+        // "Run aborted" leg below only rejects AFTER the action is invoked, so
+        // it cannot guard this. Throw here instead, handled like any abort.
+        if (signal.aborted) {
+          throw new Error("Run aborted");
+        }
         const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
         const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
         const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
@@ -3493,6 +3658,14 @@ export async function runAgentLoop(opts: {
           actionPromise
             .then((zombieRaw: unknown) => {
               const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
+              if (
+                zombieMcp &&
+                zombieMcp.raw &&
+                typeof zombieMcp.raw === "object" &&
+                (zombieMcp.raw as Record<string, unknown>).isError === true
+              ) {
+                return;
+              }
               const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
               const zombieStr =
                 typeof zombieText === "string"
@@ -3628,7 +3801,14 @@ export async function runAgentLoop(opts: {
       send({
         type: "tool_done",
         tool: toolCall.name,
+        input: toolCall.input as Record<string, unknown>,
         result,
+        ...(isError ? { isError: true } : {}),
+        ...(isError
+          ? { completedSideEffect: false }
+          : actionEntry.readOnly !== true
+            ? { completedSideEffect: true }
+            : {}),
         ...(mcpApp ? { mcpApp } : {}),
         ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
       });
@@ -3848,6 +4028,65 @@ export function shouldChainBackgroundContinuation(opts: {
   );
 }
 
+export async function claimBackgroundWorkerRunEarly(opts: {
+  runId: string;
+  threadId?: string | null;
+  markerTurnId?: string | null;
+  requestTurnId?: string | null;
+  continuationCount: number;
+  runsInBackgroundFunction: boolean;
+  backgroundRuntimeDetail?: string;
+  deps?: {
+    recordRunDiagnostic?: typeof recordRunDiagnostic;
+    insertRun?: typeof insertRun;
+    claimBackgroundRun?: typeof claimBackgroundRun;
+    updateRunHeartbeat?: typeof updateRunHeartbeat;
+  };
+}): Promise<{ claimed: true } | { claimed: false; skipped: string }> {
+  const record = opts.deps?.recordRunDiagnostic ?? recordRunDiagnostic;
+  const insert = opts.deps?.insertRun ?? insertRun;
+  const claim = opts.deps?.claimBackgroundRun ?? claimBackgroundRun;
+  const heartbeat = opts.deps?.updateRunHeartbeat ?? updateRunHeartbeat;
+  const threadId =
+    typeof opts.threadId === "string" && opts.threadId.trim()
+      ? opts.threadId.trim()
+      : opts.runId;
+  const turnId =
+    typeof opts.markerTurnId === "string" && opts.markerTurnId.trim()
+      ? opts.markerTurnId.trim()
+      : typeof opts.requestTurnId === "string" && opts.requestTurnId.trim()
+        ? opts.requestTurnId.trim()
+        : opts.runId;
+
+  await record(
+    opts.runId,
+    RUN_DIAG_STAGE.workerEntered,
+    [
+      `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
+      `continuationCount=${opts.continuationCount}`,
+      opts.backgroundRuntimeDetail,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  ).catch(() => {});
+
+  if (opts.continuationCount > 0) {
+    await insert(opts.runId, threadId, turnId, {
+      dispatchMode: "background",
+    }).catch(() => {});
+  }
+
+  const won = await claim(opts.runId);
+  if (!won) {
+    await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
+    return { claimed: false, skipped: "already-claimed" };
+  }
+
+  await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
+  await heartbeat(opts.runId).catch(() => {});
+  return { claimed: true };
+}
+
 function progressStepFromAgentChatEvent(event: AgentChatEvent): string | null {
   switch (event.type) {
     case "activity":
@@ -3989,7 +4228,11 @@ export function createProductionAgentHandler(
     // function. Only a true value unlocks the ~13-min soft-timeout budget; a
     // worker on the 60s function keeps the 40s clamp and checkpoints cleanly.
     const runsInBackgroundFunction =
-      isBackgroundWorker && isInBackgroundFunctionRuntime();
+      isBackgroundWorker &&
+      shouldUseBackgroundFunctionTimeoutForWorker(backgroundRunMarker);
+    const backgroundRuntimeDetail = isBackgroundWorker
+      ? backgroundRuntimeDiagnosticDetail(backgroundRunMarker)
+      : "";
     // How many server-driven background continuations have already chained into
     // this logical turn (0 on the first chunk). Used to bound the chain.
     const backgroundContinuationCount =
@@ -3998,6 +4241,25 @@ export function createProductionAgentHandler(
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
         : 0;
+    let backgroundRunClaimedEarly = false;
+    if (isBackgroundWorker && bgRunId) {
+      const earlyClaim = await claimBackgroundWorkerRunEarly({
+        runId: bgRunId,
+        threadId,
+        markerTurnId:
+          typeof backgroundRunMarker?.turnId === "string"
+            ? backgroundRunMarker.turnId
+            : null,
+        requestTurnId,
+        continuationCount: backgroundContinuationCount,
+        runsInBackgroundFunction,
+        backgroundRuntimeDetail,
+      });
+      if (!earlyClaim.claimed) {
+        return { ok: true, skipped: earlyClaim.skipped };
+      }
+      backgroundRunClaimedEarly = true;
+    }
     // The foreground POST decides whether to dispatch into a background
     // function. The background worker itself never re-dispatches.
     const dispatchToBackground =
@@ -4754,6 +5016,9 @@ export function createProductionAgentHandler(
       }
 
       let dispatched = false;
+      const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
+      const expectsNetlifyBackgroundFunction =
+        dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
       try {
         await fireInternalDispatch({
           event,
@@ -4767,7 +5032,7 @@ export function createProductionAgentHandler(
           // inline. `fireInternalDispatch` strips the app base path for
           // /.netlify/* targets so the request reaches the host-root function url;
           // the Authorization Bearer HMAC is preserved either way.
-          path: resolveAgentChatProcessRunDispatchPath(),
+          path: backgroundDispatchPath,
           taskId: runId,
           body: {
             ...body,
@@ -4775,6 +5040,8 @@ export function createProductionAgentHandler(
             [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
               runId,
               turnId: effectiveTurnId,
+              backgroundFunctionRuntimeExpected:
+                expectsNetlifyBackgroundFunction,
             },
           },
         });
@@ -4824,7 +5091,17 @@ export function createProductionAgentHandler(
         }
         // A background worker owns this run but we cannot subscribe — surface an
         // error rather than risk a double-run by falling through to inline.
-        await updateRunStatusIfRunning(runId, "errored").catch(() => {});
+        const terminalReason =
+          backgroundOutcome.action === "stream"
+            ? "background_subscribe_failed"
+            : "background_dispatch_failed";
+        const statusUpdated = await updateRunStatusIfRunning(
+          runId,
+          "errored",
+        ).catch(() => false);
+        if (statusUpdated) {
+          await setRunTerminalReason(runId, terminalReason).catch(() => {});
+        }
         setResponseStatus(event, 500);
         return {
           error:
@@ -5037,6 +5314,12 @@ export function createProductionAgentHandler(
                 // its seq log starts clean; same turnId folds the assistant
                 // message across chunks.
                 const nextRunId = generateRunId();
+                const continuationDispatchPath =
+                  resolveAgentChatProcessRunDispatchPath();
+                const continuationExpectsNetlifyBackgroundFunction =
+                  dispatchPathTargetsNetlifyBackgroundFunction(
+                    continuationDispatchPath,
+                  );
                 try {
                   await fireInternalDispatch({
                     event,
@@ -5046,7 +5329,7 @@ export function createProductionAgentHandler(
                     // background:true; never shadowed because /.netlify/* is
                     // excluded from the /* catch-all) so each chunk keeps the
                     // 15-min budget; off-Netlify the in-process framework route.
-                    path: resolveAgentChatProcessRunDispatchPath(),
+                    path: continuationDispatchPath,
                     taskId: nextRunId,
                     body: {
                       ...body,
@@ -5055,6 +5338,8 @@ export function createProductionAgentHandler(
                         runId: nextRunId,
                         turnId: effectiveTurnId,
                         continuationCount: backgroundContinuationCount + 1,
+                        backgroundFunctionRuntimeExpected:
+                          continuationExpectsNetlifyBackgroundFunction,
                       },
                     },
                   });
@@ -5066,9 +5351,16 @@ export function createProductionAgentHandler(
                     "[agent-chat] background continuation dispatch failed:",
                     chainErr instanceof Error ? chainErr.message : chainErr,
                   );
-                  await updateRunStatusIfRunning(runId, "errored").catch(
-                    () => {},
-                  );
+                  const statusUpdated = await updateRunStatusIfRunning(
+                    runId,
+                    "errored",
+                  ).catch(() => false);
+                  if (statusUpdated) {
+                    await setRunTerminalReason(
+                      runId,
+                      "background_continuation_dispatch_failed",
+                    ).catch(() => {});
+                  }
                 }
               }
             } finally {
@@ -5077,48 +5369,43 @@ export function createProductionAgentHandler(
           }
         : undefined;
 
-    // Background worker: claim the pre-inserted run idempotently before
-    // executing. A duplicate Netlify delivery loses the claim and no-ops here,
-    // so the run can never be double-executed. Bump the heartbeat immediately
-    // on entry so a slow cold-start doesn't leave the row looking stale to the
-    // reaper before startRun's 1.5s heartbeat timer takes over.
+    // Background worker: the run was claimed immediately after the authenticated
+    // `_process-run` body was parsed, before owner/model/prompt/tool setup. That
+    // early claim is what lets the foreground subscribe to the real background
+    // worker instead of racing slow setup and falling back to the 40s inline
+    // path. This late block is a defensive fallback for older/custom callers
+    // that somehow reach here without the early claim.
     if (isBackgroundWorker) {
-      // DIAGNOSTIC: the re-entered handler recognized itself as the background
-      // worker. Record the runtime regime too — `isInBackgroundFunctionRuntime()`
-      // reads a globalThis marker set by the bg-fn entry, which may NOT be set in
-      // this isolate; recording the ACTUAL resolved value reveals whether the
-      // worker is on the 13-min `-background` budget or the 40s clamp. This is
-      // the proof the worker reached its own code (vs. dying at auth before it).
-      await recordRunDiagnostic(
-        runId,
-        RUN_DIAG_STAGE.workerEntered,
-        `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
-      ).catch(() => {});
-      // A chained continuation chunk's runId was minted by the prior chunk and
-      // never inserted, so insert its background row now (idempotently — a
-      // duplicate Netlify delivery that already inserted it just PK-collides and
-      // the claim below dedups). The first chunk's row was inserted by the
-      // foreground, so skip the insert there.
-      if (isChainedBackgroundContinuation) {
-        await insertRun(runId, effectiveThreadId, effectiveTurnId, {
-          dispatchMode: "background",
-        }).catch(() => {});
-      }
-      const won = await claimBackgroundRun(runId);
-      if (!won) {
-        // Already claimed by an earlier delivery — return a benign ack so
-        // Netlify doesn't retry a successful handoff.
-        await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimLost).catch(
+      if (!backgroundRunClaimedEarly) {
+        await recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.workerEntered,
+          [
+            `runsInBackgroundFunction=${runsInBackgroundFunction}`,
+            `continuationCount=${backgroundContinuationCount}`,
+            backgroundRuntimeDetail,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        ).catch(() => {});
+        if (isChainedBackgroundContinuation) {
+          await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+            dispatchMode: "background",
+          }).catch(() => {});
+        }
+        const won = await claimBackgroundRun(runId);
+        if (!won) {
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerClaimLost,
+          ).catch(() => {});
+          return { ok: true, skipped: "already-claimed" };
+        }
+        await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
           () => {},
         );
-        return { ok: true, skipped: "already-claimed" };
+        await updateRunHeartbeat(runId).catch(() => {});
       }
-      // DIAGNOSTIC: this worker won the claim and now OWNS the run. If a run
-      // ever stalls at this stage it means the loop below failed to start.
-      await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
-        () => {},
-      );
-      await updateRunHeartbeat(runId).catch(() => {});
     }
 
     // DIAGNOSTIC-ONLY: build the pre-startRun setup-timing breakdown now (so the
@@ -5132,7 +5419,9 @@ export function createProductionAgentHandler(
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)
-        .join(" ") + ` total=${Date.now() - setupT0}`;
+        .join(" ") +
+      ` total=${Date.now() - setupT0}` +
+      (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "");
 
     startRun(
       runId,
@@ -5502,6 +5791,22 @@ export function createProductionAgentHandler(
               threadId: threadId ?? null,
               userId: ownerEmail,
               config: obsConfig,
+              classifyError: () => {
+                if (
+                  agentLoopOpts.signal.aborted &&
+                  agentLoopOpts.signal.reason === "run_timeout"
+                ) {
+                  return {
+                    status: "success",
+                    errorMessage: null,
+                    metadata: {
+                      terminalReason: "run_timeout",
+                      recoverableContinuation: true,
+                    },
+                  };
+                }
+                return null;
+              },
             });
           }
         } catch (err) {

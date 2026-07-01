@@ -1,4 +1,8 @@
-import { useT } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
 import {
   alphaToOpacity,
@@ -7,29 +11,36 @@ import {
   rgbaToHex,
   withColorOpacity,
 } from "@shared/color-utils";
+import { propNameToDataAttribute } from "@shared/component-model";
 import {
   IconAlignCenter,
   IconAlignJustified,
   IconAlignLeft,
   IconAlignRight,
+  IconAngle,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
+  IconArrowRight,
   IconBackground,
   IconBlur,
+  IconBorderCorners,
+  IconBorderRadius,
   IconBorderStyle,
   IconBrush,
-  IconChevronDown,
+  IconCheck,
   IconCode,
   IconComponents,
+  IconExternalLink,
   IconDroplet,
   IconEye,
   IconEyeOff,
   IconFlipHorizontal,
   IconFlipVertical,
   IconFrame,
+  IconGridDots,
   IconLayoutDistributeHorizontal,
   IconLayoutGrid,
-  IconSlice,
+  IconLoader2,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -40,18 +51,31 @@ import {
   IconLetterSpacing,
   IconLineHeight,
   IconLink,
-  IconMaximize,
   IconMinus,
-  IconPalette,
   IconPhoto,
   IconPlus,
+  IconRadiusBottomLeft,
+  IconRadiusBottomRight,
+  IconRadiusTopLeft,
+  IconRadiusTopRight,
+  IconRefresh,
   IconShadow,
   IconSquare,
   IconTypography,
   IconUnlink,
   IconVector,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -75,6 +99,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -84,11 +109,8 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
-  DesignExtensionsPanel,
-  type DesignExtensionSlotContext,
-} from "./DesignExtensionsPanel";
-import {
   AutoLayoutMatrix,
+  ConstraintsPreview,
   ConstraintsWidget,
   ExportSettingsPanel,
   DesignColorPicker,
@@ -100,20 +122,90 @@ import {
   type AutoLayoutSizingAxis,
   type ConstraintsValue,
   type ExportSettingsValue,
+  imageFillToBackgroundStyles,
   type DesignFillRow,
   type DesignFillRowPatch,
   type DesignGradientStop,
   type DesignGradientStopPatch,
   type DesignGradientType,
+  type ImageFillValue,
 } from "./inspector";
+import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
+import { ReviewPanel } from "./ReviewPanel";
+import type { ReviewPanelProps } from "./ReviewPanel";
+import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
 export type InspectorTab = "design" | "tweaks" | "extensions";
 
+const MIXED_VALUE = "Mixed";
+
+function isMixedValue(value: string | undefined): boolean {
+  return value === MIXED_VALUE;
+}
+
+function sameOrMixed(values: string[]): string {
+  if (values.length === 0) return "";
+  const first = values[0] ?? "";
+  return values.every((value) => value === first) ? first : MIXED_VALUE;
+}
+
+function mixedElementFromSelection(
+  elements: ElementInfo[],
+): ElementInfo | null {
+  const base = elements[elements.length - 1];
+  if (!base) return null;
+  const styleKeys = new Set<string>();
+  elements.forEach((element) => {
+    Object.keys(element.computedStyles).forEach((key) => styleKeys.add(key));
+  });
+  const computedStyles = Object.fromEntries(
+    Array.from(styleKeys).map((key) => [
+      key,
+      sameOrMixed(elements.map((element) => element.computedStyles[key] ?? "")),
+    ]),
+  );
+  const minX = Math.min(...elements.map((element) => element.boundingRect.x));
+  const minY = Math.min(...elements.map((element) => element.boundingRect.y));
+  const maxX = Math.max(
+    ...elements.map(
+      (element) => element.boundingRect.x + element.boundingRect.width,
+    ),
+  );
+  const maxY = Math.max(
+    ...elements.map(
+      (element) => element.boundingRect.y + element.boundingRect.height,
+    ),
+  );
+  return {
+    ...base,
+    tagName: sameOrMixed(elements.map((element) => element.tagName)),
+    id: undefined,
+    sourceId: undefined,
+    selector: base.selector,
+    classes: [],
+    computedStyles,
+    boundingRect: {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    },
+    textContent: sameOrMixed(
+      elements.map((element) => element.textContent ?? ""),
+    ),
+    htmlContent: undefined,
+    childElementCount: undefined,
+    isFlexChild: elements.every((element) => element.isFlexChild),
+    isFlexContainer: elements.every((element) => element.isFlexContainer),
+  };
+}
+
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
+  selectedElements?: ElementInfo[];
   pageStyles?: Record<string, string>;
   zoom?: number;
   headerTrailing?: ReactNode;
@@ -122,14 +214,123 @@ interface EditPanelProps {
   onActiveTabChange?: (tab: InspectorTab) => void;
   tweaks?: TweakDefinition[];
   tweakValues?: Record<string, string | number | boolean>;
-  extensionContext?: DesignExtensionSlotContext;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
   onRequestTweaks?: (anchor: HTMLElement) => void;
+  extensionsPanel?: ReactNode;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
+  /** Active file id — used for component prop editing context. */
+  fileId?: string;
+  /** Latest active file HTML, used to compose rapid sequential source edits. */
+  activeContent?: string;
+  /** Server revision for activeContent. */
+  activeFileUpdatedAt?: string | null;
+  // -------------------------------------------------------------------------
+  // Design Studio panels (§6.2, §6.4, §6.5)
+  // Pass `designId` to unlock Tokens, States, and Review sections.
+  // -------------------------------------------------------------------------
+  /** The active design's id — required to mount Tokens / States / Review. */
+  designId?: string;
+  /**
+   * Called after a component prop edit returns the patched source so the parent
+   * editor can sync local/Yjs content instead of waiting for query invalidation.
+   */
+  onComponentPropApplied?: (
+    fileId: string,
+    content: string,
+    updatedAt?: string,
+  ) => void;
+  /**
+   * Called after a token edit is applied so the parent can push the resolved
+   * CSS-var map into the iframe via the tweak-values postMessage.
+   */
+  onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
+  /** Props forwarded to the StatesPanel (§6.4). Requires `designId`. */
+  statesPanelProps?: Omit<StatesPanelProps, "designId">;
+  /** Props forwarded to the ReviewPanel (§6.5). */
+  reviewPanelProps?: Omit<ReviewPanelProps, "className">;
+  // -------------------------------------------------------------------------
+  // Component section (§6.1)
+  // When a component instance is selected, pass its node id here to unlock
+  // the contextual Component section at the top of the Design tab.
+  // -------------------------------------------------------------------------
+  /**
+   * The `data-agent-native-node-id` of the currently-selected component root
+   * element.  When provided (along with `designId`), a Component section is
+   * shown at the top of the Design tab with name, source path, prop controls,
+   * and an Edit component action.
+   */
+  componentNodeId?: string;
+  /**
+   * Source capabilities for the current design.  Used to gate the Edit
+   * component / jump-to-source affordances.  When absent all writes default
+   * to disabled (inline / Alpine tier behaviour).
+   */
+  sourceCapabilities?: string[];
+  // -------------------------------------------------------------------------
+  // Selection header quick actions ("Create component" + "Inspect code")
+  // -------------------------------------------------------------------------
+  /**
+   * Promote the current selection into a reusable component. Receives the
+   * (already-normalized-by-the-action) component name the user typed. When
+   * omitted the "Create component" button is disabled.
+   */
+  onCreateComponent?: (name: string) => void;
+  /** True when the selected element is already represented as a component. */
+  selectedElementAlreadyComponent?: boolean;
+  /** Suggested default name for the create-component dialog. */
+  defaultComponentName?: string;
+  /** Code-inspection data for the "Inspect code" popover. */
+  inspectCode?: InspectCodeData;
+  /** Optional compact AI edit controls for selected/local source elements. */
+  aiActions?: ReactNode;
 }
+
+/**
+ * Data backing the "Inspect code" popover. The parent resolves the selected
+ * node's HTML and (for real-app sources) its source file location.
+ */
+export interface InspectCodeData {
+  /** Outer HTML of the selected element (inline / Alpine source). */
+  html?: string | null;
+  /** Selected element tag, used when only runtime selection metadata exists. */
+  tagName?: string | null;
+  /** Selected element id, used for the runtime-metadata fallback preview. */
+  id?: string | null;
+  /** Selected element classes, used for the runtime-metadata fallback preview. */
+  classes?: string[];
+  /**
+   * Resolved source file for real-app sources (localhost / fusion), when the
+   * resolveNodeToFile capability is available.
+   */
+  sourceLocation?: {
+    /** Absolute path on disk — used to build the vscode:// deep link. */
+    absolutePath: string;
+    line?: number;
+    column?: number;
+    /** Optional snippet to show above the Open-in-VS-Code button. */
+    snippet?: string;
+  } | null;
+}
+
+const VOID_HTML_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
 
 /**
  * Normalize a CSS length-ish value typed by the user. If the input is bare
@@ -182,12 +383,14 @@ function PropInput({
   defaultUnit?: string;
 }) {
   const [draft, setDraft] = useState(value);
+  const mixed = isMixedValue(value);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
 
   const commit = () => {
+    if (isMixedValue(draft)) return;
     if (defaultUnit === undefined) {
       if (draft !== value) onChange(draft);
       return;
@@ -208,6 +411,9 @@ function PropInput({
       <Input
         type={type}
         value={draft}
+        onFocus={(e) => {
+          if (mixed) e.currentTarget.select();
+        }}
         onChange={(e) => {
           setDraft(e.target.value);
           // For length fields, defer the live update until blur/Enter so that
@@ -225,7 +431,7 @@ function PropInput({
           }
         }}
         placeholder={placeholder}
-        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
       />
     </div>
   );
@@ -237,7 +443,11 @@ function ColorInput({
   value,
   onChange,
   backgroundImage,
+  backgroundSize,
+  backgroundRepeat,
+  backgroundPosition,
   onBackgroundImageChange,
+  onImageFillChange,
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
@@ -248,7 +458,11 @@ function ColorInput({
   value: string;
   onChange: (value: string) => void;
   backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundRepeat?: string;
+  backgroundPosition?: string;
   onBackgroundImageChange?: (value: string) => void;
+  onImageFillChange?: (value: ImageFillValue) => void;
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
@@ -265,6 +479,9 @@ function ColorInput({
   }, [value]);
 
   const backgroundLayers = splitCssLayers(backgroundImage || "");
+  const backgroundSizeLayers = splitCssLayers(backgroundSize || "");
+  const backgroundRepeatLayers = splitCssLayers(backgroundRepeat || "");
+  const backgroundPositionLayers = splitCssLayers(backgroundPosition || "");
   const selectedLayerIndex = fillLayerIndex(selectedFillId);
   const selectedGradient =
     selectedLayerIndex !== null
@@ -499,6 +716,8 @@ function ColorInput({
     selectedLayerIndex !== null
       ? (backgroundLayers[selectedLayerIndex] ?? draft ?? value ?? "#000000")
       : draft || "#000000";
+  const selectedBackgroundLayerValue = (layers: string[]): string | undefined =>
+    selectedLayerIndex !== null ? layers[selectedLayerIndex] : undefined;
   const handlePaintTypeChange = (type: DesignPaintType) => {
     const selectedLayer = fillLayerIndex(selectedFillId);
     if (type === "solid") {
@@ -549,6 +768,18 @@ function ColorInput({
     setSelectedStopId("stop-0");
   };
 
+  if (isMixedValue(value)) {
+    return (
+      <button
+        type="button"
+        className="flex h-6 w-full items-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] text-muted-foreground"
+        onClick={() => onChange("#000000")}
+      >
+        {MIXED_VALUE}
+      </button>
+    );
+  }
+
   return (
     <DesignColorPicker
       key={pickerKey}
@@ -558,9 +789,16 @@ function ColorInput({
       onPaintValueChange={
         supportsLayeredFills ? handlePaintValueChange : undefined
       }
+      onImageFillChange={onImageFillChange}
+      backgroundImage={selectedBackgroundLayerValue(backgroundLayers)}
+      backgroundSize={selectedBackgroundLayerValue(backgroundSizeLayers)}
+      backgroundRepeat={selectedBackgroundLayerValue(backgroundRepeatLayers)}
+      backgroundPosition={selectedBackgroundLayerValue(
+        backgroundPositionLayers,
+      )}
       blendMode={blendMode}
       onBlendModeChange={onBlendModeChange}
-      showBlendMode={supportsLayeredFills}
+      showBlendMode={Boolean(onBlendModeChange)}
       fillRows={fillRows}
       selectedFillId={selectedFillId}
       onFillSelect={supportsLayeredFills ? setSelectedFillId : undefined}
@@ -856,7 +1094,7 @@ function PropSelect({
     <div className="flex items-center gap-1.5">
       <FieldLabel>{label}</FieldLabel>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+        <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -864,7 +1102,7 @@ function PropSelect({
             <SelectItem
               key={opt.value}
               value={opt.value}
-              className="text-[11px]"
+              className="!text-[11px]"
             >
               {opt.label}
             </SelectItem>
@@ -904,15 +1142,13 @@ function PropSlider({
         step={step}
         className="flex-1"
       />
-      <span className="w-12 text-right text-[11px] tabular-nums text-muted-foreground">
+      <span className="w-12 text-right !text-[11px] tabular-nums text-muted-foreground">
         {value}
         {unit}
       </span>
     </div>
   );
 }
-
-const EmptyScrubIcon = () => null;
 
 /**
  * design-editor inspector section. Matches the design editor "Design" panel chrome:
@@ -946,7 +1182,7 @@ function PanelSection({
           onClick={() => setCollapsed((c) => !c)}
           aria-expanded={!collapsed}
         >
-          <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
+          <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
             {title}
           </h3>
         </button>
@@ -955,7 +1191,7 @@ function PanelSection({
         ) : null}
       </div>
       {!collapsed && children ? (
-        <div className="space-y-1.5 px-3 pb-3 pt-0.5 text-[11px]">
+        <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
           {children}
         </div>
       ) : null}
@@ -965,7 +1201,7 @@ function PanelSection({
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return (
-    <Label className="w-[64px] shrink-0 text-[11px] font-medium text-muted-foreground">
+    <Label className="w-[64px] shrink-0 !text-[11px] font-medium text-muted-foreground">
       {children}
     </Label>
   );
@@ -973,7 +1209,7 @@ function FieldLabel({ children }: { children: ReactNode }) {
 
 function SubsectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11px] font-medium text-muted-foreground">{children}</p>
+    <p className="!text-[11px] font-medium text-muted-foreground">{children}</p>
   );
 }
 
@@ -1015,7 +1251,7 @@ function DesignSpacingControl({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-1.5">
-        <Label className="text-[11px] font-medium text-muted-foreground">
+        <Label className="!text-[11px] font-medium text-muted-foreground">
           {label}
         </Label>
         <Tooltip>
@@ -1130,6 +1366,99 @@ const FONT_WEIGHT_OPTIONS = [
   { value: "800", key: "extraBold" },
   { value: "900", key: "black" },
 ] as const;
+
+type TextResizeMode = "auto-width" | "auto-height" | "fixed";
+
+function cleanFontFamilyName(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function splitFontFamilyList(value: string | undefined): string[] {
+  const raw = value?.trim();
+  if (!raw) return [];
+
+  const families: string[] = [];
+  let token = "";
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if ((char === '"' || char === "'") && raw[i - 1] !== "\\") {
+      if (quote === char) quote = null;
+      else if (!quote) quote = char;
+      token += char;
+      continue;
+    }
+    if (char === "," && !quote) {
+      const cleaned = cleanFontFamilyName(token);
+      if (cleaned) families.push(cleaned);
+      token = "";
+      continue;
+    }
+    token += char;
+  }
+
+  const cleaned = cleanFontFamilyName(token);
+  if (cleaned) families.push(cleaned);
+  return families;
+}
+
+function normalizeFontFamilyName(value: string): string {
+  return cleanFontFamilyName(value).replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeFontFamilyStack(value: string): string {
+  return splitFontFamilyList(value).map(normalizeFontFamilyName).join(",");
+}
+
+function displayFontFamilyName(value: string | undefined): string {
+  const first = splitFontFamilyList(value)[0];
+  if (!first) return "Sans Serif"; // i18n-ignore design generic font label
+
+  const normalized = normalizeFontFamilyName(first);
+  if (normalized === "sans-serif") {
+    return "Sans Serif"; // i18n-ignore design generic font label
+  }
+  if (normalized === "serif") return "Serif"; // i18n-ignore design generic font label
+  if (normalized === "monospace") {
+    return "Monospace"; // i18n-ignore design generic font label
+  }
+  if (normalized === "system-ui" || normalized === "-apple-system") {
+    return "System UI"; // i18n-ignore design generic font label
+  }
+  if (normalized === "blinkmacsystemfont") {
+    return "Apple System"; // i18n-ignore design generic font label
+  }
+  return first;
+}
+
+function resolveFontFamilySelectValue(value: string | undefined): string {
+  const raw = value?.trim();
+  if (!raw) return "sans-serif";
+
+  const normalizedStack = normalizeFontFamilyStack(raw);
+  const exactOption = FONT_FAMILY_OPTIONS.find(
+    (option) => normalizeFontFamilyStack(option.value) === normalizedStack,
+  );
+  if (exactOption) return exactOption.value;
+
+  const firstFamily = normalizeFontFamilyName(
+    splitFontFamilyList(raw)[0] ?? "",
+  );
+  const firstFamilyOption = FONT_FAMILY_OPTIONS.find(
+    (option) =>
+      normalizeFontFamilyName(splitFontFamilyList(option.value)[0] ?? "") ===
+      firstFamily,
+  );
+  return firstFamilyOption?.value ?? raw;
+}
 
 const ALIGN_SELF_OPTIONS = [
   { value: "auto", key: "auto" },
@@ -1282,7 +1611,10 @@ function ScrubStyleInput({
   step = 1,
   labelClassName,
   inputClassName,
+  ariaLabel,
+  tooltipLabel,
   hideIcon = true,
+  icon,
 }: {
   label: string;
   value: string;
@@ -1295,13 +1627,20 @@ function ScrubStyleInput({
   labelClassName?: string;
   inputClassName?: string;
   hideIcon?: boolean;
+  ariaLabel?: string;
+  tooltipLabel?: string;
+  icon?: (props: { className?: string }) => ReactNode;
 }) {
+  const mixed = isMixedValue(value);
   return (
     <ScrubInput
       label={label}
-      icon={hideIcon ? EmptyScrubIcon : undefined}
-      value={value ? parseNumericValue(value) : (placeholder ?? 0)}
+      ariaLabel={ariaLabel}
+      tooltipLabel={tooltipLabel}
+      icon={hideIcon ? null : icon}
+      value={mixed ? 0 : value ? parseNumericValue(value) : (placeholder ?? 0)}
       onChange={onChange}
+      mixed={mixed}
       unit={unit}
       min={min}
       max={max}
@@ -1309,7 +1648,7 @@ function ScrubStyleInput({
       precision={1}
       className="gap-0"
       labelClassName={cn(
-        "h-6 w-7 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] tabular-nums",
+        "h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] tabular-nums",
         labelClassName,
       )}
       inputClassName={cn(
@@ -1384,17 +1723,28 @@ function colorHasVisibleAlpha(value: string | undefined): boolean {
   return parsed.a > 0;
 }
 
+function normalizedElementTagName(tagName: string | null | undefined): string {
+  return tagName?.trim().toLowerCase() || "element";
+}
+
 function inspectorObjectTitle(element: ElementInfo): string {
-  const tag = element.tagName || "element";
+  const componentName = componentNameForElementInfo(element);
+  if (componentName) return componentName;
+  const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return "Text";
-  if (tag === "section") return "Section";
-  if (tag === "img" || tag === "video" || tag === "picture") return "Image";
-  if (tag === "button" || tag === "a") return "Button";
-  if (tag === "svg" || tag === "path") return "Vector";
-  if (element.isFlexContainer || tag === "div" || tag === "main") {
-    return "Frame";
-  }
-  return tag.charAt(0).toUpperCase() + tag.slice(1);
+  return tag;
+}
+
+function componentNameForElementInfo(
+  element: ElementInfo | null | undefined,
+): string {
+  return element?.componentName?.trim() ?? "";
+}
+
+function elementIsComponentSelection(
+  element: ElementInfo | null | undefined,
+): boolean {
+  return componentNameForElementInfo(element).length > 0;
 }
 
 function displayLabel(value: string | undefined): string {
@@ -1505,7 +1855,7 @@ const LEAF_TAGS = new Set([
  * children show the full Auto layout section the same way does.
  */
 function isContainerElement(element: ElementInfo): boolean {
-  if (element.isFlexContainer) return true;
+  if (element.isFlexContainer || element.isGridContainer) return true;
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag) || LEAF_TAGS.has(tag)) return false;
   return CONTAINER_TAGS.has(tag);
@@ -1520,6 +1870,13 @@ function isParentFlex(element: ElementInfo): boolean {
 
 function isParentGrid(element: ElementInfo): boolean {
   return Boolean(element.parentDisplay?.toLowerCase().includes("grid"));
+}
+
+function elementHasLayoutChildren(element: ElementInfo): boolean {
+  if (typeof element.childElementCount === "number") {
+    return element.childElementCount > 0;
+  }
+  return Boolean(element.htmlContent?.match(/<\s*[a-zA-Z][^>]*>/));
 }
 
 function parentFlexDirection(element: ElementInfo): AutoLayoutSizingAxis {
@@ -1650,6 +2007,33 @@ function inferElementSizing(
   return "fixed";
 }
 
+/**
+ * Return the element's geometric dimension on the given axis in CSS pixels.
+ *
+ * `getComputedStyle().width/height` always resolves to a computed px value
+ * (even for `width: auto` the browser returns e.g. "200px"). For rotated
+ * elements this is the pre-rotation CSS box size — what Figma shows in the
+ * inspector — while `getBoundingClientRect().width/height` would be the
+ * axis-aligned bounding box which is inflated by the rotation.
+ *
+ * Falls back to the bounding-rect dimension only when the computed style is
+ * missing or unparseable (e.g. the bridge hasn't populated it yet).
+ */
+function cssElementSize(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+): number {
+  const isHorizontal = axis === "horizontal";
+  const cssValue = isHorizontal
+    ? element.computedStyles.width
+    : element.computedStyles.height;
+  const parsed = parseFloat(cssValue || "");
+  const fallback = isHorizontal
+    ? element.boundingRect.width
+    : element.boundingRect.height;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function commitElementSizing(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
@@ -1659,12 +2043,10 @@ function commitElementSizing(
 ) {
   const isHorizontal = axis === "horizontal";
   const sizeProperty = isHorizontal ? "width" : "height";
-  const resolvedSize = Math.max(
-    1,
-    Math.round(
-      isHorizontal ? element.boundingRect.width : element.boundingRect.height,
-    ),
-  );
+  // Use CSS computed dimension (pre-rotation box size) as the seed for "fixed"
+  // sizing so a rotated element is locked to its actual CSS width/height rather
+  // than the inflated axis-aligned bounding rect.
+  const resolvedSize = Math.max(1, Math.round(cssElementSize(element, axis)));
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
   const isGrid = isParentGrid(element);
@@ -1715,8 +2097,780 @@ function commitElementSizing(
   commitStylePatch(patch, onStyleChange, onStylesChange);
 }
 
+/**
+ * Header-anchored popover that prompts for a component name, then promotes the
+ * current selection into a reusable component via `onSubmit`.
+ */
+function CreateComponentPopover({
+  open,
+  onOpenChange,
+  defaultName,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  defaultName: string;
+  onSubmit: (name: string) => void;
+}) {
+  const [name, setName] = useState(defaultName);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Reset the field to the freshest default each time the popover opens.
+  useEffect(() => {
+    if (open) setName(defaultName);
+  }, [open, defaultName]);
+
+  const commit = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+    onOpenChange(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              aria-label={
+                "Create component" /* i18n-ignore design inspector action */
+              }
+            >
+              <IconComponents className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Create component" /* i18n-ignore design inspector action */}
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-80 p-3 text-[12px]"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          window.requestAnimationFrame(() => inputRef.current?.select());
+        }}
+      >
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commit();
+          }}
+        >
+          <div className="space-y-1">
+            <h3 className="text-[13px] font-semibold text-foreground">
+              {"Create component" /* i18n-ignore design inspector action */}
+            </h3>
+            <p className="!text-[11px] leading-4 text-muted-foreground">
+              {
+                "Name this element so it becomes a reusable component. The agent can then extract props and replace repeated instances." /* i18n-ignore design inspector copy */
+              }
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label
+              htmlFor="create-component-name"
+              className="!text-[11px] font-medium text-muted-foreground"
+            >
+              {"Component name" /* i18n-ignore design inspector label */}
+            </Label>
+            <Input
+              ref={inputRef}
+              id="create-component-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={
+                "PrimaryButton" /* i18n-ignore design inspector placeholder */
+              }
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
+              {"Cancel" /* i18n-ignore design inspector action */}
+            </Button>
+            <Button type="submit" size="sm" disabled={!name.trim()}>
+              {"Create" /* i18n-ignore design inspector action */}
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Build a `vscode://file/...` deep link for an absolute path + position. */
+function vscodeDeepLink(
+  absolutePath: string,
+  line?: number,
+  column?: number,
+): string {
+  const base = `vscode://file/${absolutePath}`;
+  if (line == null) return base;
+  return column == null ? `${base}:${line}` : `${base}:${line}:${column}`;
+}
+
+/**
+ * Extract the *opening tag* from an element's outer HTML for an at-a-glance
+ * summary (e.g. `<main class="hero" data-x="y">`). Self-closing tags keep
+ * their `/>`. Returns `null` when no tag can be parsed.
+ *
+ * Pure — exported for tests.
+ */
+export function openingTagOf(html: string | null | undefined): string | null {
+  if (!html) return null;
+  const trimmed = html.trimStart();
+  // Match the first `<tag ...>` (greedy up to the first unquoted `>`), allowing
+  // quoted attribute values to contain `>`.
+  const match = /^<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>])*?)\/?>/.exec(
+    trimmed,
+  );
+  if (!match) return null;
+  return match[0];
+}
+
+/**
+ * Collapse long attribute values in an opening tag so the at-a-glance summary
+ * stays readable. Values longer than `max` chars are truncated with an
+ * ellipsis (the surrounding quotes are preserved).
+ *
+ * Pure — exported for tests.
+ */
+export function truncateOpeningTag(openTag: string, max = 32): string {
+  return openTag.replace(
+    /("|')((?:\\.|(?!\1)[^\\])*)\1/g,
+    (full, quote, value) => {
+      if (typeof value !== "string" || value.length <= max) return full;
+      return `${quote}${value.slice(0, max - 1)}…${quote}`;
+    },
+  );
+}
+
+function tagNameFromOpeningTag(openTag: string): string | null {
+  const match = /^<\/?\s*([a-zA-Z][\w:-]*)/.exec(openTag.trim());
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function isSelfClosingOpeningTag(openTag: string, tagName: string): boolean {
+  return /\/>\s*$/.test(openTag) || VOID_HTML_TAGS.has(tagName);
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function fallbackOpeningTag(
+  data: Pick<InspectCodeData, "tagName" | "id" | "classes">,
+) {
+  const tag = normalizedElementTagName(data.tagName);
+  const attrs: string[] = [];
+  const id = data.id?.trim();
+  const classes = data.classes?.map((item) => item.trim()).filter(Boolean);
+  if (id) attrs.push(`id="${escapeHtmlAttribute(id)}"`);
+  if (classes?.length) {
+    attrs.push(`class="${escapeHtmlAttribute(classes.join(" "))}"`);
+  }
+  return `<${tag}${attrs.length ? ` ${attrs.join(" ")}` : ""}>`;
+}
+
+export function elementHtmlPreview(
+  data: Pick<InspectCodeData, "html" | "tagName" | "id" | "classes">,
+): string | null {
+  const openingTag = openingTagOf(data.html);
+  const hasFallbackMetadata = Boolean(
+    data.tagName?.trim() ||
+    data.id?.trim() ||
+    data.classes?.some((item) => item.trim()),
+  );
+  if (!openingTag && !hasFallbackMetadata) return null;
+  const previewOpeningTag = openingTag ?? fallbackOpeningTag(data);
+  const tagName =
+    tagNameFromOpeningTag(previewOpeningTag) ??
+    normalizedElementTagName(data.tagName);
+  if (isSelfClosingOpeningTag(previewOpeningTag, tagName)) {
+    return previewOpeningTag;
+  }
+  return `${previewOpeningTag}\n  ...\n</${tagName}>`;
+}
+
+type HtmlTokenKind = "plain" | "punctuation" | "tag" | "attribute" | "value";
+
+interface HtmlToken {
+  text: string;
+  kind: HtmlTokenKind;
+}
+
+function tokenizeHtmlAttributes(source: string): HtmlToken[] {
+  const tokens: HtmlToken[] = [];
+  const attrPattern =
+    /(\s+)([^\s=/>]+)(?:\s*(=)\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g;
+  let cursor = 0;
+  for (const match of source.matchAll(attrPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      tokens.push({ text: source.slice(cursor, index), kind: "plain" });
+    }
+    tokens.push({ text: match[1] ?? "", kind: "plain" });
+    tokens.push({ text: match[2] ?? "", kind: "attribute" });
+    if (match[3]) tokens.push({ text: match[3], kind: "punctuation" });
+    if (match[4]) tokens.push({ text: match[4], kind: "value" });
+    cursor = index + match[0].length;
+  }
+  if (cursor < source.length) {
+    tokens.push({ text: source.slice(cursor), kind: "plain" });
+  }
+  return tokens;
+}
+
+function tokenizeHtmlTag(source: string): HtmlToken[] {
+  const match = /^(<\/?)([a-zA-Z][\w:-]*)([\s\S]*?)(\/?>)$/.exec(source);
+  if (!match) return [{ text: source, kind: "plain" }];
+  return [
+    { text: match[1] ?? "", kind: "punctuation" },
+    { text: match[2] ?? "", kind: "tag" },
+    ...tokenizeHtmlAttributes(match[3] ?? ""),
+    { text: match[4] ?? "", kind: "punctuation" },
+  ];
+}
+
+function tokenizeHtml(source: string): HtmlToken[] {
+  const tokens: HtmlToken[] = [];
+  const tagPattern = /<\/?[a-zA-Z][\w:-]*(?:"[^"]*"|'[^']*'|[^'">])*>/g;
+  let cursor = 0;
+  for (const match of source.matchAll(tagPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      tokens.push({ text: source.slice(cursor, index), kind: "plain" });
+    }
+    tokens.push(...tokenizeHtmlTag(match[0]));
+    cursor = index + match[0].length;
+  }
+  if (cursor < source.length) {
+    tokens.push({ text: source.slice(cursor), kind: "plain" });
+  }
+  return tokens;
+}
+
+function htmlTokenClassName(kind: HtmlTokenKind): string {
+  switch (kind) {
+    case "punctuation":
+      return "text-muted-foreground/70";
+    case "tag":
+      return "text-[var(--design-editor-accent-color)]";
+    case "attribute":
+      return "text-foreground/90";
+    case "value":
+      return "text-[var(--design-editor-measure-color)]";
+    default:
+      return "text-muted-foreground";
+  }
+}
+
+function highlightedHtml(source: string): ReactNode {
+  return tokenizeHtml(source).map((token, index) => (
+    <span
+      key={`${index}:${token.kind}`}
+      className={htmlTokenClassName(token.kind)}
+    >
+      {token.text}
+    </span>
+  ));
+}
+
+/**
+ * Parse the top-level `key: value` pairs from an Alpine `x-data` object literal
+ * (e.g. `{ variant: 'outline', size: 'lg', disabled: false }`).
+ *
+ * Best-effort: only handles a flat object of simple string / boolean / number
+ * literals — exactly the shape used for component variant + state props. Nested
+ * objects, methods, and computed expressions are ignored. Returns `null` when
+ * the value is not a recognizable flat object literal.
+ *
+ * Pure — exported for tests.
+ */
+export function parseAlpineDataObject(
+  xData: string | null | undefined,
+): Record<string, string> | null {
+  if (!xData) return null;
+  const trimmed = xData.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  const inner = trimmed.slice(1, -1).trim();
+  if (!inner) return {};
+
+  const out: Record<string, string> = {};
+  // Split on top-level commas only (no nesting / quotes inside values here).
+  const pairRe =
+    /(?:^|,)\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_$][\w$]*))\s*:\s*('[^']*'|"[^"]*"|true|false|-?\d+(?:\.\d+)?)/g;
+  let m: RegExpExecArray | null;
+  let matched = false;
+  while ((m = pairRe.exec(inner)) !== null) {
+    matched = true;
+    const key = m[1] ?? m[2] ?? m[3];
+    let raw = m[4]!;
+    // Unwrap quotes for string literals; keep booleans / numbers verbatim.
+    if (
+      (raw.startsWith("'") && raw.endsWith("'")) ||
+      (raw.startsWith('"') && raw.endsWith('"'))
+    ) {
+      raw = raw.slice(1, -1);
+    }
+    if (key) out[key] = raw;
+  }
+  // If there was content but nothing parsed, the shape is too complex to edit
+  // safely — bail so the caller falls back to attribute-based prop edits.
+  if (!matched) return null;
+  return out;
+}
+
+/**
+ * Re-serialize a flat Alpine data object back into an `x-data` literal,
+ * preserving boolean / number literals unquoted and single-quoting strings.
+ *
+ * Pure — exported for tests.
+ */
+export function serializeAlpineDataObject(obj: Record<string, string>): string {
+  const parts = Object.entries(obj).map(([key, value]) => {
+    const isBoolean = value === "true" || value === "false";
+    const isNumber = /^-?\d+(\.\d+)?$/.test(value);
+    const literal =
+      isBoolean || isNumber ? value : `'${value.replace(/'/g, "\\'")}'`;
+    return `${key}: ${literal}`;
+  });
+  return parts.length ? `{ ${parts.join(", ")} }` : "{}";
+}
+
+/**
+ * Format a single editable prop value as an `x-data` literal: bare for
+ * boolean / number values, single-quoted (with escaping) for strings.
+ *
+ * Pure — exported for tests.
+ */
+export function alpineDataValueLiteral(value: string): string {
+  const isBoolean = value === "true" || value === "false";
+  const isNumber = /^-?\d+(\.\d+)?$/.test(value);
+  return isBoolean || isNumber ? value : `'${value.replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * Surgically replace a single top-level key's value inside an Alpine `x-data`
+ * object literal, preserving everything else byte-for-byte — methods
+ * (`toggle() { … }`), nested objects, escaped strings, quoted keys, comments,
+ * and whitespace are all left untouched.
+ *
+ * Unlike a `parseAlpineDataObject` → mutate → `serializeAlpineDataObject`
+ * round-trip (which only understands a flat object of simple literals and so
+ * *drops* anything it can't model), this walks the original string, finds the
+ * `key:` token at the top level (depth 0, not inside a string/comment), and
+ * rewrites only the value literal that immediately follows it.
+ *
+ * Returns `null` when the key cannot be located surgically (e.g. the value is
+ * an expression/function/object rather than a simple string/boolean/number, or
+ * the literal isn't a `{ … }` object) so the caller can fail safe instead of
+ * persisting a lossy rewrite.
+ *
+ * Pure — exported for tests.
+ */
+export function replaceAlpineDataKeyValue(
+  xData: string | null | undefined,
+  key: string,
+  nextValue: string,
+): string | null {
+  if (!xData) return null;
+  const trimmed = xData.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+
+  const s = xData;
+  const n = s.length;
+  // Walk the whole string tracking nesting depth and skipping over strings,
+  // template literals, regex-ish slashes are not handled (Alpine x-data does
+  // not use them at the object-key level), and line / block comments. Only at
+  // object depth 1 (directly inside the outermost `{ … }`) do we look for the
+  // target `key :` token.
+  let depth = 0;
+  let i = 0;
+
+  /** Advance `i` past a quoted string starting at `i` (handles escapes). */
+  const skipString = (quote: string): void => {
+    i += 1; // opening quote
+    while (i < n) {
+      const c = s[i];
+      if (c === "\\") {
+        i += 2;
+        continue;
+      }
+      if (c === quote) {
+        i += 1;
+        return;
+      }
+      i += 1;
+    }
+  };
+
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Bare identifier key at a token boundary: `key` then optional ws then `:`.
+  const bareRe = new RegExp(`^(${escapedKey})(\\s*:\\s*)`);
+  // Quoted key: `'key'` or `"key"` then optional ws then `:`.
+  const quotedRe = new RegExp(`^(['"]${escapedKey}['"])(\\s*:\\s*)`);
+
+  while (i < n) {
+    const c = s[i];
+
+    // At the top level, a `{` / `,` (or the string start) opens a fresh value
+    // slot. Try to match the target key here *before* treating a quote as an
+    // opaque string — this is how quoted keys (`'size': …`) are recognised.
+    if (depth === 1) {
+      const prev = lastNonSpaceBefore(s, i);
+      if (prev === "{" || prev === ",") {
+        const rest = s.slice(i);
+        const m = bareRe.exec(rest) ?? quotedRe.exec(rest);
+        if (m) {
+          const valueStart = i + m[1].length + m[2].length;
+          const valueEnd = simpleValueEnd(s, valueStart);
+          if (valueEnd === null) return null; // value is not a simple literal
+          return (
+            s.slice(0, valueStart) +
+            alpineDataValueLiteral(nextValue) +
+            s.slice(valueEnd)
+          );
+        }
+      }
+    }
+
+    // Skip strings / template literals wholesale.
+    if (c === '"' || c === "'" || c === "`") {
+      skipString(c);
+      continue;
+    }
+    // Skip comments.
+    if (c === "/" && s[i + 1] === "/") {
+      i += 2;
+      while (i < n && s[i] !== "\n") i += 1;
+      continue;
+    }
+    if (c === "/" && s[i + 1] === "*") {
+      i += 2;
+      while (i < n && !(s[i] === "*" && s[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+
+    if (c === "{" || c === "[" || c === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (c === "}" || c === "]" || c === ")") {
+      depth -= 1;
+      i += 1;
+      continue;
+    }
+
+    i += 1;
+  }
+
+  return null;
+}
+
+/** Last non-whitespace char strictly before index `i` (or `""`). */
+function lastNonSpaceBefore(s: string, i: number): string {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(s[j]!)) j -= 1;
+  return j >= 0 ? s[j]! : "";
+}
+
+/**
+ * Given the start index of a value in an `x-data` literal, return the index
+ * just past a *simple* literal value (single/double-quoted string with
+ * escapes, boolean, or number). Returns `null` when the value is anything else
+ * (an expression, function, object, array, template literal, etc.) so the
+ * caller can fail safe rather than mangle it.
+ */
+function simpleValueEnd(s: string, start: number): number | null {
+  const c = s[start];
+  if (c === "'" || c === '"') {
+    let i = start + 1;
+    while (i < s.length) {
+      if (s[i] === "\\") {
+        i += 2;
+        continue;
+      }
+      if (s[i] === c) return i + 1;
+      i += 1;
+    }
+    return null; // unterminated string
+  }
+  // Boolean / number: read the bare token, then confirm it is exactly one.
+  const m = /^[A-Za-z0-9_.+-]+/.exec(s.slice(start));
+  if (!m) return null;
+  const token = m[0];
+  const isBoolean = token === "true" || token === "false";
+  const isNumber = /^-?\d+(\.\d+)?$/.test(token);
+  if (!isBoolean && !isNumber) return null;
+  return start + token.length;
+}
+
+/**
+ * True when an `x-data` literal can be rebuilt from its flat parsed map with
+ * no loss — i.e. there is nothing richer than the simple `key: literal` pairs
+ * that `serializeAlpineDataObject` already round-trips. Used as the gate for
+ * falling back to a full rebuild when a surgical single-key replace is not
+ * possible (e.g. when adding a brand-new key).
+ *
+ * Returns `true` for an empty / absent literal (nothing to lose) and for a
+ * flat object whose `parse → serialize` round-trip is semantically stable.
+ * Returns `false` when the original holds methods, nested objects, comments,
+ * or expressions that a rebuild would silently drop.
+ *
+ * Pure — exported for tests.
+ */
+export function canRebuildAlpineDataLosslessly(
+  xData: string | null | undefined,
+): boolean {
+  const trimmed = (xData ?? "").trim();
+  // No object literal at all → there is nothing richer to preserve.
+  if (!trimmed || trimmed === "{}" || trimmed === "{ }") return true;
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+
+  const parsed = parseAlpineDataObject(trimmed);
+  if (!parsed) return false;
+
+  // Re-serialize and re-parse; if the round-trip is stable AND the parsed map
+  // accounts for every top-level key actually present in the original, a
+  // rebuild loses nothing.
+  const reserialized = serializeAlpineDataObject(parsed);
+  const reparsed = parseAlpineDataObject(reserialized);
+  if (!reparsed) return false;
+  const keysA = Object.keys(parsed).sort().join(",");
+  const keysB = Object.keys(reparsed).sort().join(",");
+  if (keysA !== keysB) return false;
+
+  // Guard against dropped content the flat parser ignores (e.g. a trailing
+  // method): the number of top-level `key:` tokens in the original must match
+  // the number of parsed keys. Count top-level `:` separators conservatively.
+  return countTopLevelKeys(trimmed) === Object.keys(parsed).length;
+}
+
+/**
+ * Count top-level `key:` entries in an `x-data` object literal, skipping
+ * strings, comments, and nested braces/brackets/parens. A method like
+ * `toggle() { … }` is counted as a key too (its `:`-less form still occupies a
+ * top-level slot), so a mismatch against the flat parser's key count reveals
+ * dropped content.
+ */
+function countTopLevelKeys(xData: string): number {
+  const s = xData;
+  const n = s.length;
+  let depth = 0;
+  let i = 0;
+  let count = 0;
+  let sawTokenInSlot = false;
+
+  const skipString = (quote: string): void => {
+    i += 1;
+    while (i < n) {
+      if (s[i] === "\\") {
+        i += 2;
+        continue;
+      }
+      if (s[i] === quote) {
+        i += 1;
+        return;
+      }
+      i += 1;
+    }
+  };
+
+  while (i < n) {
+    const c = s[i]!;
+    if (c === '"' || c === "'" || c === "`") {
+      if (depth === 1) sawTokenInSlot = true;
+      skipString(c);
+      continue;
+    }
+    if (c === "/" && s[i + 1] === "/") {
+      i += 2;
+      while (i < n && s[i] !== "\n") i += 1;
+      continue;
+    }
+    if (c === "/" && s[i + 1] === "*") {
+      i += 2;
+      while (i < n && !(s[i] === "*" && s[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    if (c === "{" || c === "[" || c === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (c === "}" || c === "]" || c === ")") {
+      if (depth === 1 && c === "}" && sawTokenInSlot) {
+        count += 1;
+        sawTokenInSlot = false;
+      }
+      depth -= 1;
+      i += 1;
+      continue;
+    }
+    if (depth === 1) {
+      if (c === ",") {
+        if (sawTokenInSlot) count += 1;
+        sawTokenInSlot = false;
+      } else if (!/\s/.test(c)) {
+        sawTokenInSlot = true;
+      }
+    }
+    i += 1;
+  }
+  return count;
+}
+
+/** A boolean-ish prop value (`"true"` / `"false"`), case-insensitive. */
+export function isBooleanPropValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v === "true" || v === "false";
+}
+
+/**
+ * Popover anchored to the "Inspect code" button showing the selected node's
+ * code.  Inline/Alpine sources show the element's outer HTML with a Copy
+ * button; real-app sources additionally render an "Open in VS Code" button.
+ *
+ * TODO: replace the read-only <pre> with an inline Monaco editor for richer
+ * (editable) code inspection once the editor bundle is wired into the inspector.
+ */
+function InspectCodePopover({ data }: { data: InspectCodeData }) {
+  const [copied, setCopied] = useState(false);
+  const html = data.html ?? "";
+  const source = data.sourceLocation ?? null;
+  const snippet =
+    elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
+
+  const handleCopy = () => {
+    if (!snippet) return;
+    void navigator.clipboard
+      ?.writeText(snippet)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {
+        /* clipboard may be unavailable; ignore */
+      });
+  };
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              aria-label={
+                "Inspect code" /* i18n-ignore design inspector action */
+              }
+            >
+              <IconCode className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Inspect code" /* i18n-ignore design inspector action */}
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="w-80 space-y-2 p-2 !text-[11px]">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+            {"Inspect code" /* i18n-ignore design inspector label */}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={handleCopy}
+            disabled={!snippet}
+          >
+            {
+              copied
+                ? "Copied" /* i18n-ignore design inspector action */
+                : "Copy" /* i18n-ignore design inspector action */
+            }
+          </Button>
+        </div>
+
+        {source && (
+          <div
+            className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
+            title={source.absolutePath}
+          >
+            <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
+            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+              {source.absolutePath}
+              {source.line != null ? `:${source.line}` : ""}
+            </span>
+          </div>
+        )}
+
+        {snippet ? (
+          <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
+            <code>{highlightedHtml(snippet)}</code>
+          </pre>
+        ) : (
+          <p className="px-1 py-2 text-muted-foreground">
+            {
+              "No source available for this element." /* i18n-ignore design inspector empty */
+            }
+          </p>
+        )}
+
+        {source && (
+          <a
+            href={vscodeDeepLink(
+              source.absolutePath,
+              source.line,
+              source.column,
+            )}
+            className="block"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-full gap-1.5 !text-[11px]"
+            >
+              <IconExternalLink className="size-3.5" />
+              {"Open in VS Code" /* i18n-ignore design inspector action */}
+            </Button>
+          </a>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function elementTypeIcon(element: ElementInfo) {
-  const tag = element.tagName || "element";
+  if (elementIsComponentSelection(element)) return IconComponents;
+  const tag = normalizedElementTagName(element.tagName);
   if (TEXT_TAGS.has(tag)) return IconTypography;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
   if (tag === "svg" || tag === "path") return IconVector;
@@ -1724,35 +2878,82 @@ function elementTypeIcon(element: ElementInfo) {
   return IconFrame;
 }
 
-function SelectionHeader({ element }: { element: ElementInfo | null }) {
+function SelectionHeader({
+  element,
+  selectedCount = 0,
+  onCreateComponent,
+  createComponentOpen = false,
+  onCreateComponentOpenChange,
+  showCreateComponentAction = true,
+  defaultComponentName = "Component",
+  inspectCode,
+}: {
+  element: ElementInfo | null;
+  selectedCount?: number;
+  /** Promote the current selection into a reusable component. Omit/undefined to disable. */
+  onCreateComponent?: (name: string) => void;
+  createComponentOpen?: boolean;
+  onCreateComponentOpenChange?: (open: boolean) => void;
+  showCreateComponentAction?: boolean;
+  defaultComponentName?: string;
+  /** Data for the "Inspect code" popover. When omitted the button renders disabled. */
+  inspectCode?: InspectCodeData;
+}) {
   if (!element) return null;
 
-  const title = inspectorObjectTitle(element);
+  const title =
+    selectedCount > 1
+      ? `${selectedCount} selected`
+      : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
+  const isComponentSelection = elementIsComponentSelection(element);
 
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-      {/* M3 · Node-type label + rename/type dropdown affordance (▾) */}
-      <button
-        type="button"
-        className="flex min-w-0 items-center gap-1.5 bg-transparent text-left text-[13px] font-semibold text-foreground"
-      >
-        <TypeIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      {/* Node-type label. Rename lives in the layers panel and device sizing
+          lives elsewhere, so this is a plain non-interactive label. */}
+      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
+        <TypeIcon
+          className={cn(
+            "size-3.5 shrink-0",
+            isComponentSelection
+              ? "text-[var(--design-editor-component-color)]"
+              : "text-muted-foreground",
+          )}
+        />
         <span className="truncate">{title}</span>
-        <IconChevronDown className="size-2.5 shrink-0 text-muted-foreground" />
-      </button>
-      {/* M3 · Right-aligned quick actions: create-component + dev inspect (</>) */}
+      </div>
+      {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
       <div className="flex shrink-0 items-center gap-0.5">
-        <SectionIconButton
-          label={"Create component" /* i18n-ignore design inspector action */}
-        >
-          <IconComponents className="size-3.5" />
-        </SectionIconButton>
-        <SectionIconButton
-          label={"Inspect code" /* i18n-ignore design inspector action */}
-        >
-          <IconCode className="size-3.5" />
-        </SectionIconButton>
+        {showCreateComponentAction ? (
+          onCreateComponent && onCreateComponentOpenChange ? (
+            <CreateComponentPopover
+              open={createComponentOpen}
+              onOpenChange={onCreateComponentOpenChange}
+              defaultName={defaultComponentName}
+              onSubmit={onCreateComponent}
+            />
+          ) : (
+            <SectionIconButton
+              label={
+                "Create component" /* i18n-ignore design inspector action */
+              }
+              disabled
+            >
+              <IconComponents className="size-3.5" />
+            </SectionIconButton>
+          )
+        ) : null}
+        {inspectCode ? (
+          <InspectCodePopover data={inspectCode} />
+        ) : (
+          <SectionIconButton
+            label={"Inspect code" /* i18n-ignore design inspector action */}
+            disabled
+          >
+            <IconCode className="size-3.5" />
+          </SectionIconButton>
+        )}
       </div>
     </div>
   );
@@ -1762,15 +2963,17 @@ function InspectorTabsHeader({
   activeTab,
   onActiveTabChange,
   trailing,
+  showExtensions,
 }: {
   activeTab: InspectorTab;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
+  showExtensions?: boolean;
 }) {
   const t = useT();
 
   return (
-    <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2">
+    <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2 py-1">
       <Tabs
         value={activeTab}
         onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
@@ -1778,22 +2981,24 @@ function InspectorTabsHeader({
         <TabsList className="h-7 justify-start gap-0.5 rounded-none bg-transparent p-0">
           <TabsTrigger
             value="design"
-            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {"Design" /* i18n-ignore design inspector tab */}
           </TabsTrigger>
           <TabsTrigger
             value="tweaks"
-            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {t("designEditor.tweaks")}
           </TabsTrigger>
-          <TabsTrigger
-            value="extensions"
-            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-          >
-            {t("designEditor.extensions")}
-          </TabsTrigger>
+          {showExtensions ? (
+            <TabsTrigger
+              value="extensions"
+              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {"Extensions" /* i18n-ignore design inspector tab */}
+            </TabsTrigger>
+          ) : null}
         </TabsList>
       </Tabs>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
@@ -1805,15 +3010,19 @@ function SectionIconButton({
   label,
   onClick,
   children,
+  activateOnPointerDown = false,
   disabled = false,
   className,
 }: {
   label: string;
   onClick?: () => void;
   children: ReactNode;
+  activateOnPointerDown?: boolean;
   disabled?: boolean;
   className?: string;
 }) {
+  const pointerActivatedRef = useRef(false);
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -1822,11 +3031,26 @@ function SectionIconButton({
           variant="ghost"
           size="icon"
           className={cn(
-            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
+            "size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
             className,
           )}
           disabled={disabled}
-          onClick={onClick}
+          onPointerDown={(event) => {
+            if (!activateOnPointerDown || disabled || event.button !== 0) {
+              return;
+            }
+            pointerActivatedRef.current = true;
+            event.preventDefault();
+            event.stopPropagation();
+            onClick?.();
+          }}
+          onClick={() => {
+            if (pointerActivatedRef.current) {
+              pointerActivatedRef.current = false;
+              return;
+            }
+            onClick?.();
+          }}
           aria-label={label}
         >
           {children}
@@ -1912,9 +3136,110 @@ function InspectorIconButton({
 
 function InspectorSegment({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
+    <div className="flex w-fit max-w-full min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
       {children}
     </div>
+  );
+}
+
+function TextResizeControls({
+  resizeMode,
+  onResizeModeChange,
+}: {
+  resizeMode: TextResizeMode;
+  onResizeModeChange: (mode: TextResizeMode) => void;
+}) {
+  const t = useT();
+
+  return (
+    <InspectorSegment>
+      <InspectorIconButton
+        label={t("editPanel.textResize.autoWidth")}
+        active={resizeMode === "auto-width"}
+        onClick={() => onResizeModeChange("auto-width")}
+      >
+        <IconArrowAutofitWidth className="size-3.5" />
+      </InspectorIconButton>
+      <InspectorIconButton
+        label={t("editPanel.textResize.autoHeight")}
+        active={resizeMode === "auto-height"}
+        onClick={() => onResizeModeChange("auto-height")}
+      >
+        <IconArrowAutofitHeight className="size-3.5" />
+      </InspectorIconButton>
+      <InspectorIconButton
+        label={t("editPanel.textResize.fixed")}
+        active={resizeMode === "fixed"}
+        onClick={() => onResizeModeChange("fixed")}
+      >
+        <IconSquare className="size-3.5" />
+      </InspectorIconButton>
+    </InspectorSegment>
+  );
+}
+
+function TypographyDetailsPopover({
+  resizeMode,
+  onResizeModeChange,
+}: {
+  resizeMode: TextResizeMode;
+  onResizeModeChange: (mode: TextResizeMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={"Typography details" /* i18n-ignore design action */}
+          aria-pressed={open}
+          className={cn(
+            "h-6 min-w-6 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
+            open &&
+              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+          )}
+        >
+          <IconLayoutSettings className="size-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="left"
+        align="end"
+        sideOffset={8}
+        className="z-[100010] w-[360px] rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-2xl"
+      >
+        <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
+          <div className="flex rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
+            <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-2.5 py-1 !text-[11px] font-semibold text-foreground">
+              {"Basics" /* i18n-ignore design typography details tab */}
+            </span>
+            <span className="px-2.5 py-1 !text-[11px] font-medium text-muted-foreground">
+              {"Details" /* i18n-ignore design typography details tab */}
+            </span>
+            <span className="px-2.5 py-1 !text-[11px] font-medium text-muted-foreground">
+              {"Variable" /* i18n-ignore design typography details tab */}
+            </span>
+          </div>
+        </div>
+        <div className="space-y-3 p-4 !text-[11px]">
+          <div className="flex h-20 items-center justify-center rounded-md bg-[var(--design-editor-control-bg)] text-[18px] text-muted-foreground/80">
+            {"Preview" /* i18n-ignore design typography details preview */}
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="!text-[11px] font-medium text-muted-foreground">
+              {"Text box" /* i18n-ignore design typography details label */}
+            </span>
+            <TextResizeControls
+              resizeMode={resizeMode}
+              onResizeModeChange={onResizeModeChange}
+            />
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1927,7 +3252,6 @@ function CornerRadiusControl({
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
-  const radius = cssLengthNumber(styles.borderRadius || "0");
   const corners = {
     topLeft: cssLengthNumber(styles.borderTopLeftRadius || styles.borderRadius),
     topRight: cssLengthNumber(
@@ -1940,110 +3264,244 @@ function CornerRadiusControl({
       styles.borderBottomLeftRadius || styles.borderRadius,
     ),
   };
+  const cornersDiffer =
+    corners.topLeft !== corners.topRight ||
+    corners.topLeft !== corners.bottomRight ||
+    corners.topLeft !== corners.bottomLeft;
+  const [showIndependentCorners, setShowIndependentCorners] =
+    useState(cornersDiffer);
+  const radius = cornersDiffer
+    ? corners.topLeft
+    : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
+  const commitRadius = (value: number) => {
+    const next = `${Math.max(0, Math.round(value))}px`;
+    onStyleChange("borderRadius", next);
+    if (!showIndependentCorners) return;
+    onStyleChange("borderTopLeftRadius", next);
+    onStyleChange("borderTopRightRadius", next);
+    onStyleChange("borderBottomRightRadius", next);
+    onStyleChange("borderBottomLeftRadius", next);
+  };
+
+  useEffect(() => {
+    if (cornersDiffer) setShowIndependentCorners(true);
+  }, [cornersDiffer]);
 
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-1.5">
-      <ScrubInput
+    <>
+      <AppearanceScrubField
         label={t("editPanel.labels.cornerRadius")}
+        icon={IconBorderRadius}
         value={radius}
-        onChange={(value) =>
-          onStyleChange("borderRadius", `${Math.max(0, Math.round(value))}px`)
-        }
-        unit="px"
+        onChange={commitRadius}
         min={0}
-        precision={1}
-        labelClassName="w-24"
-        inputClassName="h-6"
+        precision={0}
       />
-      <Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]"
-                aria-label={independentCornersLabel}
-              >
-                <IconMaximize className="size-3.5" />
-              </Button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{independentCornersLabel}</TooltipContent>
-        </Tooltip>
-        <PopoverContent
-          side="left"
-          align="start"
-          sideOffset={8}
-          className="w-64 p-3"
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+              showIndependentCorners &&
+                "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-accent-color)]/20 hover:text-[var(--design-editor-accent-color)]",
+            )}
+            aria-label={independentCornersLabel}
+            aria-pressed={showIndependentCorners}
+            onClick={() => setShowIndependentCorners((value) => !value)}
+          >
+            <IconBorderCorners className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{independentCornersLabel}</TooltipContent>
+      </Tooltip>
+      {showIndependentCorners ? (
+        <>
+          <AppearanceScrubField
+            label={t("editPanel.labels.topLeft")}
+            ariaLabel="Top left"
+            icon={IconRadiusTopLeft}
+            value={corners.topLeft}
+            onChange={(value) =>
+              onStyleChange(
+                "borderTopLeftRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <AppearanceScrubField
+            label={t("editPanel.labels.topRight")}
+            ariaLabel="Top right"
+            icon={IconRadiusTopRight}
+            value={corners.topRight}
+            onChange={(value) =>
+              onStyleChange(
+                "borderTopRightRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <span aria-hidden="true" />
+          <AppearanceScrubField
+            label={t("editPanel.labels.bottomLeft")}
+            ariaLabel="Bottom left"
+            icon={IconRadiusBottomLeft}
+            value={corners.bottomLeft}
+            onChange={(value) =>
+              onStyleChange(
+                "borderBottomLeftRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <AppearanceScrubField
+            label={t("editPanel.labels.bottomRight")}
+            ariaLabel="Bottom right"
+            icon={IconRadiusBottomRight}
+            value={corners.bottomRight}
+            onChange={(value) =>
+              onStyleChange(
+                "borderBottomRightRadius",
+                `${Math.max(0, Math.round(value))}px`,
+              )
+            }
+            min={0}
+            precision={1}
+          />
+          <span aria-hidden="true" />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function AppearanceScrubField({
+  label,
+  ariaLabel,
+  icon,
+  value,
+  onChange,
+  mixed = false,
+  min,
+  max,
+  step,
+  unit,
+  precision,
+}: {
+  label: string;
+  ariaLabel?: string;
+  icon: (props: { className?: string }) => ReactNode;
+  value: number;
+  onChange: (value: number) => void;
+  mixed?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  precision?: number;
+}) {
+  return (
+    <ScrubInput
+      label={label}
+      ariaLabel={ariaLabel ?? label}
+      icon={icon}
+      value={value}
+      onChange={onChange}
+      mixed={mixed}
+      min={min}
+      max={max}
+      step={step}
+      unit={unit}
+      precision={precision}
+      className="min-w-0 gap-0"
+      labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground [&>span]:sr-only"
+      inputClassName="h-6 min-w-0 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] border-l-0 bg-[var(--design-editor-control-bg)] px-0 text-left shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+    />
+  );
+}
+
+function BlendModeMenu({
+  styles,
+  onStyleChange,
+}: {
+  styles: Record<string, string>;
+  onStyleChange: (property: string, value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const blendMode = optionValue(
+    BLEND_MODE_OPTIONS,
+    styles.mixBlendMode || "normal",
+    "normal",
+  );
+  const selectedBlendMode =
+    blendMode === "normal" && styles.isolation !== "isolate"
+      ? "pass-through"
+      : blendMode;
+  const options = [
+    {
+      value: "pass-through",
+      label: "Pass through", // i18n-ignore design blend mode label
+    },
+    ...BLEND_MODE_OPTIONS,
+  ] as const;
+  const selectBlendMode = (value: (typeof options)[number]["value"]) => {
+    if (value === "pass-through") {
+      onStyleChange("mixBlendMode", "normal");
+      onStyleChange("isolation", "auto");
+      return;
+    }
+    onStyleChange("mixBlendMode", value);
+    if (value === "normal") onStyleChange("isolation", "isolate");
+  };
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={"Blend mode" /* i18n-ignore design inspector action */}
+          aria-pressed={open}
+          className={cn(
+            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
+            open &&
+              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+          )}
         >
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-foreground">
-              {independentCornersLabel}
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <ScrubInput
-                label={t("editPanel.labels.topLeft")}
-                value={corners.topLeft}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderTopLeftRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.topRight")}
-                value={corners.topRight}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderTopRightRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.bottomLeft")}
-                value={corners.bottomLeft}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderBottomLeftRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-              <ScrubInput
-                label={t("editPanel.labels.bottomRight")}
-                value={corners.bottomRight}
-                onChange={(value) =>
-                  onStyleChange(
-                    "borderBottomRightRadius",
-                    `${Math.max(0, Math.round(value))}px`,
-                  )
-                }
-                unit="px"
-                min={0}
-                precision={1}
-                inputClassName="h-6"
-              />
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-    </div>
+          <IconDroplet className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="left"
+        align="start"
+        sideOffset={8}
+        className="z-[100010] w-48 rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[13px] text-foreground shadow-2xl"
+      >
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            className="flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-[13px] focus:bg-[var(--design-editor-control-bg)]"
+            onSelect={() => selectBlendMode(option.value)}
+          >
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              {selectedBlendMode === option.value ? (
+                <IconCheck className="size-4" />
+              ) : null}
+            </span>
+            <span>{option.label}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -2098,7 +3556,6 @@ function StrokeLayerControl({
           />
         </div>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={
             visible
               ? t("editPanel.labels.hideLayer")
@@ -2123,7 +3580,6 @@ function StrokeLayerControl({
           )}
         </SectionIconButton>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -2133,7 +3589,7 @@ function StrokeLayerControl({
       {/* design stroke geometry: position + weight side by side */}
       <div className="grid grid-cols-2 gap-1.5">
         <Select value={position} onValueChange={movePosition}>
-          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -2141,7 +3597,7 @@ function StrokeLayerControl({
               <SelectItem
                 key={option.value}
                 value={option.value}
-                className="text-[11px]"
+                className="!text-[11px]"
               >
                 {option.label}
               </SelectItem>
@@ -2163,7 +3619,7 @@ function StrokeLayerControl({
           min={0}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -2268,26 +3724,50 @@ function readBlurFilter(value: string | undefined): number {
   return match ? Math.max(0, Number(match[1])) : 0;
 }
 
+function hasBlurFilter(value: string | undefined): boolean {
+  return /blur\(/.test(value || "");
+}
+
+function setBlurFilterValue(value: string | undefined, blur: number): string {
+  const blurFn = `blur(${Math.max(0, Math.round(blur))}px)`;
+  const existing = compactCssValue(value, "");
+  return existing.includes("blur(")
+    ? existing.replace(/blur\([^)]*\)/, blurFn)
+    : blurFn;
+}
+
+function shadowColorWithOpacity(color: string, opacity: number): string {
+  const parsed = parseCssColor(color);
+  return parsed
+    ? rgbaToCss(withColorOpacity(parsed, opacity))
+    : opacity <= 0
+      ? "rgba(0, 0, 0, 0)"
+      : color;
+}
+
 function ShadowEffectRow({
   layer,
   index,
   onChange,
   onRemove,
+  onToggleVisibility,
 }: {
   layer: ShadowLayer;
   index: number;
   onChange: (patch: Partial<ShadowLayer>) => void;
   onRemove: () => void;
+  onToggleVisibility: () => void;
 }) {
   const t = useT();
+  const visible = colorHasVisibleAlpha(layer.color);
   return (
     <Popover>
-      {/* design effect row: [swatch+label+x,y,blur trigger (flex-1)] [remove] */}
+      {/* design effect row: [swatch+label+x,y,blur trigger (flex-1)] [eye] [remove] */}
       <div className="group flex items-center gap-1.5">
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+            className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
           >
             <span
               className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
@@ -2305,7 +3785,20 @@ function ShadowEffectRow({
           </button>
         </PopoverTrigger>
         <SectionIconButton
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+          label={
+            visible
+              ? t("editPanel.labels.hideLayer")
+              : t("editPanel.labels.showLayer")
+          }
+          onClick={onToggleVisibility}
+        >
+          {visible ? (
+            <IconEye className="size-3.5" />
+          ) : (
+            <IconEyeOff className="size-3.5" />
+          )}
+        </SectionIconButton>
+        <SectionIconButton
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -2326,7 +3819,7 @@ function ShadowEffectRow({
             <button
               type="button"
               className={cn(
-                "rounded border px-2 py-1 text-[11px]",
+                "rounded border px-2 py-1 !text-[11px]",
                 layer.inset
                   ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
                   : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground",
@@ -2389,20 +3882,29 @@ function ShadowEffectRow({
 function PageProperties({
   styles,
   onStyleChange,
+  onStylesChange,
 }: {
   styles: Record<string, string>;
   onStyleChange: (property: string, value: string) => void;
+  onStylesChange?: (styles: Record<string, string>) => void;
 }) {
   const t = useT();
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
+  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontFamilies.${option.key}`),
   }));
-  const fontFamily = FONT_FAMILY_OPTIONS.some(
-    (option) => option.value === styles.fontFamily,
+  const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
+  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
+    (option) => option.value === fontFamily,
   )
-    ? styles.fontFamily
-    : "sans-serif";
+    ? baseFontFamilyOptions
+    : [
+        {
+          value: fontFamily,
+          label: displayFontFamilyName(styles.fontFamily || fontFamily),
+        },
+        ...baseFontFamilyOptions,
+      ];
 
   return (
     <div>
@@ -2411,8 +3913,18 @@ function PageProperties({
           label={t("editPanel.labels.background")}
           value={styles.backgroundColor || ""}
           onChange={(v) => onStyleChange("backgroundColor", v)}
-          backgroundImage={styles.backgroundImage || ""}
+          backgroundImage={styles.backgroundImage}
+          backgroundSize={styles.backgroundSize}
+          backgroundRepeat={styles.backgroundRepeat}
+          backgroundPosition={styles.backgroundPosition}
           onBackgroundImageChange={(v) => onStyleChange("backgroundImage", v)}
+          onImageFillChange={(value) =>
+            commitStylePatch(
+              imageFillToBackgroundStyles(value),
+              onStyleChange,
+              onStylesChange,
+            )
+          }
           blendMode={styles.backgroundBlendMode || "normal"}
           onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
           supportsLayeredFills
@@ -2445,10 +3957,22 @@ function TypographyProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
+  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontFamilies.${option.key}`),
   }));
+  const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
+  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
+    (option) => option.value === fontFamily,
+  )
+    ? baseFontFamilyOptions
+    : [
+        {
+          value: fontFamily,
+          label: displayFontFamilyName(styles.fontFamily || fontFamily),
+        },
+        ...baseFontFamilyOptions,
+      ];
   const fontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontWeights.${option.key}`),
@@ -2463,7 +3987,7 @@ function TypographyProperties({
     !styles.width || styles.width === "auto" || styles.width === "max-content";
   const heightIsAuto = !styles.height || styles.height === "auto";
   const noWrap = styles.whiteSpace === "nowrap";
-  const resizeMode: "auto-width" | "auto-height" | "fixed" =
+  const resizeMode: TextResizeMode =
     widthIsAuto && noWrap
       ? "auto-width"
       : !heightIsAuto && !widthIsAuto
@@ -2471,7 +3995,7 @@ function TypographyProperties({
         : "auto-height";
   const currentWidth = styles.width && !widthIsAuto ? styles.width : "200px";
   const currentHeight = styles.height && !heightIsAuto ? styles.height : "48px";
-  const setResizeMode = (mode: "auto-width" | "auto-height" | "fixed") => {
+  const setResizeMode = (mode: TextResizeMode) => {
     if (mode === "auto-width") {
       onStyleChange("width", "auto");
       onStyleChange("height", "auto");
@@ -2521,51 +4045,36 @@ function TypographyProperties({
 
   return (
     <PanelSection title={t("editPanel.sections.typography")}>
-      {/* Row 0: text resizing (auto-width / auto-height / fixed) */}
-      <InspectorSegment>
-        <InspectorIconButton
-          label={"Auto width" /* i18n-ignore design text-resize mode */}
-          active={resizeMode === "auto-width"}
-          onClick={() => setResizeMode("auto-width")}
+      {/* Row 1: font family full-width.
+          Wrapped in a height-constrained div so the SelectTrigger button's
+          hit-target is exactly h-6 (24 px) and cannot visually or physically
+          overlap the weight/size row below (bug: trigger extended ~12 px into
+          the next row, causing clicks meant for the size input to open this
+          dropdown instead). */}
+      <div className="h-6 overflow-hidden">
+        <Select
+          value={fontFamily}
+          onValueChange={(v) => onStyleChange("fontFamily", v)}
         >
-          <IconArrowAutofitWidth className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={"Auto height" /* i18n-ignore design text-resize mode */}
-          active={resizeMode === "auto-height"}
-          onClick={() => setResizeMode("auto-height")}
-        >
-          <IconArrowAutofitHeight className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={"Fixed size" /* i18n-ignore design text-resize mode */}
-          active={resizeMode === "fixed"}
-          onClick={() => setResizeMode("fixed")}
-        >
-          <IconSquare className="size-3.5" />
-        </InspectorIconButton>
-      </InspectorSegment>
-
-      {/* Row 1: font family full-width */}
-      <Select
-        value={styles.fontFamily || "sans-serif"}
-        onValueChange={(v) => onStyleChange("fontFamily", v)}
-      >
-        <SelectTrigger className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {fontFamilyOptions.map((opt) => (
-            <SelectItem
-              key={opt.value}
-              value={opt.value}
-              className="text-[11px]"
-            >
-              {opt.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+          <SelectTrigger
+            aria-label={t("editPanel.labels.font")}
+            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {fontFamilyOptions.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                className="!text-[11px]"
+              >
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* Row 2: weight + size side by side */}
       <div className="grid grid-cols-2 gap-1.5">
@@ -2573,7 +4082,7 @@ function TypographyProperties({
           value={styles.fontWeight || "400"}
           onValueChange={(v) => onStyleChange("fontWeight", v)}
         >
-          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -2581,7 +4090,7 @@ function TypographyProperties({
               <SelectItem
                 key={opt.value}
                 value={opt.value}
-                className="text-[11px]"
+                className="!text-[11px]"
               >
                 {opt.label}
               </SelectItem>
@@ -2600,7 +4109,7 @@ function TypographyProperties({
           min={1}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -2619,7 +4128,7 @@ function TypographyProperties({
           step={0.1}
           precision={2}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
         <ScrubInput
@@ -2633,13 +4142,13 @@ function TypographyProperties({
           unit="px"
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
 
       {/* Row 4: horizontal + vertical text alignment */}
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className="flex items-center gap-1.5">
         <InspectorSegment>
           <InspectorIconButton
             label={t("editPanel.textAligns.left")}
@@ -2693,6 +4202,12 @@ function TypographyProperties({
             <IconLayoutAlignBottom className="size-3.5" />
           </InspectorIconButton>
         </InspectorSegment>
+        <div className="ml-auto shrink-0">
+          <TypographyDetailsPopover
+            resizeMode={resizeMode}
+            onResizeModeChange={setResizeMode}
+          />
+        </div>
       </div>
     </PanelSection>
   );
@@ -2716,15 +4231,39 @@ function FlexContainerControls({
   // control can show the right state (normal vs horizontal/vertical/wrap)
   // instead of an empty "add" affordance.
   const display = (styles.display || "").toLowerCase();
-  const isFlex = display.includes("flex");
+  const isFlex = element.isFlexContainer || display.includes("flex");
+  const displayMode: AutoLayoutMatrixValue["display"] = isFlex
+    ? "flex"
+    : "block";
+  const hasLayoutChildren = elementHasLayoutChildren(element);
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
+  const mainGapAxis =
+    flexDirection === "horizontal" ? "horizontal" : "vertical";
   // When the element is in normal flow (not flex yet), picking any flow option
   // must first turn it into a flex container; otherwise setting flex-direction
   // alone is a no-op against a block element.
   const ensureFlex = () => {
     if (!isFlex) onStyleChange("display", "flex");
   };
+
+  /**
+   * Handle the Flow control switching between flex and normal-flow (block).
+   *
+   * For 'flex': ensures display:flex is set (ensureFlex path).
+   * For 'block': sets display:block and leaves children unchanged — mirrors
+   * the { kind:"autoLayout", enabled:false } substrate intent exactly.
+   */
+  const handleDisplayChange = (nextDisplay: "flex" | "block") => {
+    if (nextDisplay === "flex") {
+      ensureFlex();
+      return;
+    }
+    // Turn auto-layout off: set display:block, leaving children unchanged.
+    // This is the direct equivalent of the autoLayout substrate with enabled:false.
+    onStyleChange("display", "block");
+  };
+
   const padding = {
     top: parseNumericValue(styles.paddingTop || "0"),
     right: parseNumericValue(styles.paddingRight || "0"),
@@ -2758,20 +4297,22 @@ function FlexContainerControls({
     },
     clipContent: styles.overflow === "hidden",
     resolvedSize: {
-      horizontal: element.boundingRect.width,
-      vertical: element.boundingRect.height,
+      horizontal: cssElementSize(element, "horizontal"),
+      vertical: cssElementSize(element, "vertical"),
     },
-    // Forward the raw CSS display so the matrix can render the correct Flow
-    // state (normal flow for block/grid, flex for flex/inline-flex). Added as an
-    // optional contract field consumed by AutoLayoutMatrix; harmless when the
-    // matrix ignores it.
-    ...({ display } as Partial<AutoLayoutMatrixValue>),
+    mixedSize: {
+      horizontal: isMixedValue(styles.width),
+      vertical: isMixedValue(styles.height),
+    },
+    display: displayMode,
+    spaceBetween: styles.justifyContent === "space-between",
   };
 
   return (
     <div className="space-y-2">
       <AutoLayoutMatrix
         value={autoLayoutValue}
+        onDisplayChange={handleDisplayChange}
         onDirectionChange={(direction) => {
           ensureFlex();
           onStyleChange(
@@ -2823,15 +4364,19 @@ function FlexContainerControls({
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
         }
         onDistribute={(axis) => {
-          const mainAxis =
-            autoLayoutValue.direction === "horizontal"
-              ? "horizontal"
-              : "vertical";
-          if (axis === mainAxis) {
+          if (axis === mainGapAxis) {
             onStyleChange("justifyContent", "space-between");
           } else if (autoLayoutValue.wrap === "wrap") {
             onStyleChange("alignContent", "space-between");
           }
+        }}
+        onGapModeChange={(gapMode, axis) => {
+          if (axis !== mainGapAxis) return;
+          ensureFlex();
+          onStyleChange(
+            "justifyContent",
+            gapMode === "auto" ? "space-between" : "flex-start",
+          );
         }}
         availableChildSizing={availableSizingForElement(element)}
         onChildSizingChange={(axis, sizing) => {
@@ -2843,9 +4388,13 @@ function FlexContainerControls({
             onStylesChange,
           );
         }}
+        onChildSizeChange={(axis, px) =>
+          onStyleChange(axis === "horizontal" ? "width" : "height", `${px}px`)
+        }
         onChildMinMaxChange={(axis, kind, val) =>
           commitElementMinMax(axis, kind, val, onStyleChange)
         }
+        showChildLayoutControls={hasLayoutChildren}
       />
     </div>
   );
@@ -2986,7 +4535,8 @@ function LayoutContextProperties({
             axis="W"
             sizingAxis="horizontal"
             value={inferElementSizing(element, "horizontal")}
-            resolvedSize={element.boundingRect.width}
+            resolvedSize={cssElementSize(element, "horizontal")}
+            mixed={isMixedValue(element.computedStyles.width)}
             minMax={readElementMinMax(element, "horizontal")}
             options={availableSizing.horizontal ?? ["fixed"]}
             disabled={false}
@@ -2999,6 +4549,7 @@ function LayoutContextProperties({
                 onStylesChange,
               )
             }
+            onSizeChange={(px) => onStyleChange("width", `${px}px`)}
             onMinMaxChange={(axis, kind, val) =>
               commitElementMinMax(axis, kind, val, onStyleChange)
             }
@@ -3007,7 +4558,8 @@ function LayoutContextProperties({
             axis="H"
             sizingAxis="vertical"
             value={inferElementSizing(element, "vertical")}
-            resolvedSize={element.boundingRect.height}
+            resolvedSize={cssElementSize(element, "vertical")}
+            mixed={isMixedValue(element.computedStyles.height)}
             minMax={readElementMinMax(element, "vertical")}
             options={availableSizing.vertical ?? ["fixed"]}
             disabled={false}
@@ -3020,6 +4572,7 @@ function LayoutContextProperties({
                 onStylesChange,
               )
             }
+            onSizeChange={(px) => onStyleChange("height", `${px}px`)}
             onMinMaxChange={(axis, kind, val) =>
               commitElementMinMax(axis, kind, val, onStyleChange)
             }
@@ -3114,7 +4667,7 @@ function LayoutGuideProperties({
       }
     >
       {active ? (
-        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 !text-[11px] text-muted-foreground">
           <IconLayoutGrid className="size-3.5 shrink-0" />
           <span className="min-w-0 flex-1 truncate text-foreground">
             {"Columns" /* i18n-ignore design inspector label */}
@@ -3122,7 +4675,7 @@ function LayoutGuideProperties({
           <span className="shrink-0 tabular-nums">12</span>
         </div>
       ) : (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="!text-[11px] text-muted-foreground">
           {"No layout guides" /* i18n-ignore design inspector empty state */}
         </p>
       )}
@@ -3209,6 +4762,7 @@ function PositionLayoutProperties({
               ? "center"
               : "top",
   };
+  const [constraintsExpanded, setConstraintsExpanded] = useState(false);
 
   const handleConstraintsChange = useCallback(
     (value: ConstraintsValue) => {
@@ -3369,9 +4923,11 @@ function PositionLayoutProperties({
 
       <div className="space-y-1.5">
         <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_1.75rem] gap-2">
           <ScrubStyleInput
             label="X"
+            ariaLabel="X-position"
+            tooltipLabel="X-position"
             value={styles.left || ""}
             placeholder={element.boundingRect.x}
             inputClassName="h-6"
@@ -3379,12 +4935,46 @@ function PositionLayoutProperties({
           />
           <ScrubStyleInput
             label="Y"
+            ariaLabel="Y-position"
+            tooltipLabel="Y-position"
             value={styles.top || ""}
             placeholder={element.boundingRect.y}
             inputClassName="h-6"
             onChange={(v) => onStyleChange("top", `${Math.round(v)}px`)}
           />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={
+                  "Constraints" /* i18n-ignore design inspector action */
+                }
+                aria-pressed={constraintsExpanded}
+                onClick={() => setConstraintsExpanded((expanded) => !expanded)}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md transition-colors",
+                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  constraintsExpanded
+                    ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                    : "text-muted-foreground",
+                )}
+              >
+                <ConstraintsPreview value={constraintsValue} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {"Constraints" /* i18n-ignore design inspector tooltip */}
+            </TooltipContent>
+          </Tooltip>
         </div>
+        {constraintsExpanded ? (
+          <ConstraintsWidget
+            value={constraintsValue}
+            onChange={handleConstraintsChange}
+            className="pt-1"
+          />
+        ) : null}
       </div>
 
       <div className="space-y-1.5">
@@ -3392,7 +4982,12 @@ function PositionLayoutProperties({
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <ScrubStyleInput
-              label="R"
+              label="Rotation"
+              ariaLabel={t("editPanel.labels.rotation")}
+              tooltipLabel={t("editPanel.labels.rotation")}
+              hideIcon={false}
+              icon={IconAngle}
+              labelClassName="[&>span]:sr-only"
               value={`${parseRotationValue(styles.transform)}deg`}
               unit="deg"
               inputClassName="h-6"
@@ -3426,13 +5021,6 @@ function PositionLayoutProperties({
           </InspectorSegment>
         </div>
       </div>
-
-      {constrainedPosition ? (
-        <ConstraintsWidget
-          value={constraintsValue}
-          onChange={handleConstraintsChange}
-        />
-      ) : null}
     </PanelSection>
   );
 }
@@ -3456,6 +5044,21 @@ function FillProperties({
   const backgroundLayers = isTextElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
+  const backgroundSizeLayers = isTextElement
+    ? []
+    : splitCssLayers(styles.backgroundSize || "");
+  const backgroundRepeatLayers = isTextElement
+    ? []
+    : splitCssLayers(styles.backgroundRepeat || "");
+  const backgroundPositionLayers = isTextElement
+    ? []
+    : splitCssLayers(styles.backgroundPosition || "");
+  const fillIsMixed =
+    isMixedValue(fillValue) ||
+    isMixedValue(styles.backgroundImage) ||
+    isMixedValue(styles.backgroundSize) ||
+    isMixedValue(styles.backgroundRepeat) ||
+    isMixedValue(styles.backgroundPosition);
   const hasBackgroundLayer = !isTextElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
@@ -3474,7 +5077,7 @@ function FillProperties({
     Record<string, string>
   >({});
   const stashKey = `${elementIdentityKey(element)}:${fillProperty}`;
-  const isHidden = fillValue === "transparent" || fillValue === "";
+  const isHidden = !colorHasVisibleAlpha(fillValue);
   const handleFillVisibilityToggle = () => {
     if (isHidden) {
       // Restore the stashed color, or fall back to a sensible default.
@@ -3525,6 +5128,18 @@ function FillProperties({
           <SectionIconButton
             label={t("editPanel.labels.addLayer")}
             onClick={() => {
+              if (fillIsMixed) {
+                commitStylePatch(
+                  {
+                    color: "#000000",
+                    backgroundColor: "#ffffff",
+                    backgroundImage: "none",
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                );
+                return;
+              }
               if (isTextElement) {
                 onStyleChange(
                   "color",
@@ -3555,7 +5170,13 @@ function FillProperties({
         </>
       }
     >
-      {hasVisibleFill ? (
+      {fillIsMixed ? (
+        <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
+          {
+            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+          }
+        </p>
+      ) : hasVisibleFill ? (
         <div className="space-y-1.5">
           {isTextElement || colorHasVisibleAlpha(fillValue) ? (
             /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
@@ -3587,13 +5208,13 @@ function FillProperties({
                 />
               </div>
               <SectionIconButton
-                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={
                   isHidden
                     ? t("editPanel.labels.showLayer")
                     : t("editPanel.labels.hideLayer")
                 }
                 onClick={handleFillVisibilityToggle}
+                activateOnPointerDown
               >
                 {isHidden ? (
                   <IconEyeOff className="size-3.5" />
@@ -3602,7 +5223,6 @@ function FillProperties({
                 )}
               </SectionIconButton>
               <SectionIconButton
-                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={t("editPanel.labels.removeLayer")}
                 onClick={() => {
                   if (isTextElement) {
@@ -3629,8 +5249,17 @@ function FillProperties({
                 const opacity = gradient
                   ? averageGradientOpacity(gradient.stops)
                   : 100;
+                const layerStashKey = `${elementIdentityKey(element)}:layer:${index}`;
+                const stashedLayer = hiddenLayerStash[layerStashKey];
+                const hiddenImagePlaceholder = Boolean(
+                  stashedLayer && gradient && opacity <= 0,
+                );
                 const label = gradient
-                  ? `${gradientLabel(gradient.type)} ${index + 1}`
+                  ? hiddenImagePlaceholder
+                    ? `${"Image" /* i18n-ignore design inspector paint row */} ${
+                        index + 1
+                      }`
+                    : `${gradientLabel(gradient.type)} ${index + 1}`
                   : `${"Image" /* i18n-ignore design inspector paint row */} ${
                       index + 1
                     }`;
@@ -3660,7 +5289,7 @@ function FillProperties({
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
                         >
                           <span
                             className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
@@ -3699,6 +5328,10 @@ function FillProperties({
                             );
                           }}
                           paintType={gradient?.type ?? "image"}
+                          backgroundImage={layer}
+                          backgroundSize={backgroundSizeLayers[index]}
+                          backgroundRepeat={backgroundRepeatLayers[index]}
+                          backgroundPosition={backgroundPositionLayers[index]}
                           gradientType={gradient?.type}
                           onGradientTypeChange={(type) => {
                             if (!gradient) return;
@@ -3721,17 +5354,12 @@ function FillProperties({
                       </PopoverContent>
                     </Popover>
                     <SectionIconButton
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={
                         opacity <= 0
                           ? t("editPanel.labels.showLayer")
                           : t("editPanel.labels.hideLayer")
                       }
                       onClick={() => {
-                        if (!gradient) return;
-                        const layerStashKey = `${elementIdentityKey(
-                          element,
-                        )}:layer:${index}`;
                         if (opacity <= 0) {
                           // Show: restore the exact pre-hide layer if stashed,
                           // otherwise fall back to forcing every stop opaque.
@@ -3743,7 +5371,7 @@ function FillProperties({
                               delete next[layerStashKey];
                               return next;
                             });
-                          } else {
+                          } else if (gradient) {
                             replaceLayer(
                               buildGradientLayer(
                                 gradient.type,
@@ -3755,6 +5383,29 @@ function FillProperties({
                               ),
                             );
                           }
+                          return;
+                        }
+                        if (!gradient) {
+                          setHiddenLayerStash((prev) => ({
+                            ...prev,
+                            [layerStashKey]: layer,
+                          }));
+                          replaceLayer(
+                            buildGradientLayer("linear", [
+                              {
+                                id: "stop-0",
+                                color: "rgba(0, 0, 0, 0)",
+                                position: 0,
+                                opacity: 0,
+                              },
+                              {
+                                id: "stop-1",
+                                color: "rgba(0, 0, 0, 0)",
+                                position: 100,
+                                opacity: 0,
+                              },
+                            ]),
+                          );
                         } else {
                           // Hide: stash the current layer (with its real per-stop
                           // opacities) before zeroing every stop's alpha.
@@ -3782,7 +5433,6 @@ function FillProperties({
                       )}
                     </SectionIconButton>
                     <SectionIconButton
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={t("editPanel.labels.removeLayer")}
                       onClick={removeLayer}
                     >
@@ -3814,6 +5464,15 @@ function StrokeProperties({
     styles.outlineWidth,
     styles.outlineStyle,
   );
+  const strokeIsMixed = [
+    styles.borderWidth,
+    styles.borderStyle,
+    styles.borderColor,
+    styles.outlineWidth,
+    styles.outlineStyle,
+    styles.outlineColor,
+    styles.outlineOffset,
+  ].some(isMixedValue);
   // Render the row whenever a stroke has been configured (non-zero width),
   // even when its style is "none" (hidden). This mirrors Figma's behavior where
   // hidden stroke rows remain present so the user can re-show them via the eye icon.
@@ -3827,6 +5486,20 @@ function StrokeProperties({
         <SectionIconButton
           label={t("editPanel.labels.addLayer")}
           onClick={() => {
+            if (strokeIsMixed) {
+              commitStylePatch(
+                {
+                  borderWidth: "1px",
+                  borderStyle: "solid",
+                  borderColor: "#000000",
+                  outlineWidth: "0px",
+                  outlineStyle: "none",
+                },
+                onStyleChange,
+                onStylesChange,
+              );
+              return;
+            }
             if (!borderVisible) {
               const borderColor = cssColorOrFallback(
                 styles.borderColor || styles.color,
@@ -3883,7 +5556,13 @@ function StrokeProperties({
         </SectionIconButton>
       }
     >
-      {borderExists ? (
+      {strokeIsMixed ? (
+        <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
+          {
+            "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+          }
+        </p>
+      ) : borderExists ? (
         <StrokeLayerControl
           kind="border"
           visible={borderVisible}
@@ -3939,15 +5618,6 @@ function AppearanceProperties({
       title={t("root.commandAppearance")}
       actions={
         <>
-          {/* Opacity / blend-mode affordance — matches the design editor's pill icon */}
-          <SectionIconButton
-            label={
-              "Opacity & blend mode" /* i18n-ignore design inspector action */
-            }
-          >
-            <IconSlice className="size-3.5" />
-          </SectionIconButton>
-          {/* Visibility toggle */}
           <SectionIconToggle
             label={
               hidden
@@ -3965,55 +5635,36 @@ function AppearanceProperties({
               <IconEye className="size-3.5" />
             )}
           </SectionIconToggle>
-          {/* Styles / fill library affordance — matches the design editor's droplet icon */}
-          <SectionIconButton
-            label={"Styles" /* i18n-ignore design inspector action */}
-          >
-            <IconDroplet className="size-3.5" />
-          </SectionIconButton>
+          <BlendModeMenu styles={styles} onStyleChange={onStyleChange} />
         </>
       }
     >
-      <div className="grid grid-cols-2 gap-2">
-        <ScrubInput
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5">
+        <p className="min-w-0 truncate !text-[11px] font-medium text-muted-foreground">
+          {t("editPanel.labels.opacity")}
+        </p>
+        <p className="min-w-0 truncate !text-[11px] font-medium text-muted-foreground">
+          {t("editPanel.labels.cornerRadius")}
+        </p>
+        <span aria-hidden="true" />
+        <AppearanceScrubField
           label={t("editPanel.labels.opacity")}
-          value={parseNumericValue(styles.opacity || "1") * 100}
+          icon={IconGridDots}
+          value={
+            isMixedValue(styles.opacity)
+              ? 0
+              : parseNumericValue(styles.opacity || "1") * 100
+          }
           onChange={(v) => onStyleChange("opacity", String(v / 100))}
+          mixed={isMixedValue(styles.opacity)}
           min={0}
           max={100}
           step={1}
           unit="%"
           precision={1}
-          labelClassName="w-0 overflow-hidden"
-          inputClassName="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none"
         />
-        {/* M9: blend mode compact — inline select next to opacity, no separate labeled row */}
-        <Select
-          value={optionValue(
-            BLEND_MODE_OPTIONS,
-            styles.mixBlendMode || "normal",
-            "normal",
-          )}
-          onValueChange={(value) => onStyleChange("mixBlendMode", value)}
-        >
-          <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {BLEND_MODE_OPTIONS.map((opt) => (
-              <SelectItem
-                key={opt.value}
-                value={opt.value}
-                className="text-[11px]"
-              >
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <CornerRadiusControl styles={styles} onStyleChange={onStyleChange} />
       </div>
-      {/* M7: use CornerRadiusControl (with independent-corners toggle) instead of bare ScrubInput */}
-      <CornerRadiusControl styles={styles} onStyleChange={onStyleChange} />
     </PanelSection>
   );
 }
@@ -4030,11 +5681,19 @@ function EffectsProperties({
   const t = useT();
   const styles = element.computedStyles;
   const blurValue = readBlurFilter(styles.filter);
+  const filterHasBlur = hasBlurFilter(styles.filter);
   // M5 · Background (backdrop) blur is a distinct design effect type, backed by
   // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
-  const backdropBlurValue = readBlurFilter(
-    styles.backdropFilter || styles.webkitBackdropFilter,
-  );
+  const backdropFilterValue =
+    styles.backdropFilter || styles.webkitBackdropFilter;
+  const backdropFilterHasBlur = hasBlurFilter(backdropFilterValue);
+  const backdropBlurValue = readBlurFilter(backdropFilterValue);
+  const [hiddenEffectStash, setHiddenEffectStash] = useState<
+    Record<string, string>
+  >({});
+  const effectStashKey = elementIdentityKey(element);
+  const layerBlurStashKey = `${effectStashKey}:filter:blur`;
+  const backdropBlurStashKey = `${effectStashKey}:backdrop-filter:blur`;
   const shadowLayers = parseShadowLayers(styles.boxShadow);
   const setShadowLayers = (layers: ShadowLayer[]) => {
     const boxShadow = serializeShadowLayers(layers);
@@ -4067,21 +5726,21 @@ function EffectsProperties({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-44">
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addDropShadow}
             >
               <IconShadow className="size-3.5" />
               {t("editPanel.labels.dropShadow")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addLayerBlur}
             >
               <IconBlur className="size-3.5" />
               {t("editPanel.labels.layerBlur")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="gap-2 text-[11px]"
+              className="gap-2 !text-[11px]"
               onSelect={addBackgroundBlur}
             >
               <IconBackground className="size-3.5" />
@@ -4106,6 +5765,41 @@ function EffectsProperties({
                 );
                 setShadowLayers(next);
               }}
+              onToggleVisibility={() => {
+                const visible = colorHasVisibleAlpha(layer.color);
+                const shadowStashKey = `${effectStashKey}:shadow:${layer.id}`;
+                if (visible) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [shadowStashKey]: layer.color,
+                  }));
+                  const next = shadowLayers.map((candidate) =>
+                    candidate.id === layer.id
+                      ? {
+                          ...candidate,
+                          color: shadowColorWithOpacity(candidate.color, 0),
+                        }
+                      : candidate,
+                  );
+                  setShadowLayers(next);
+                  return;
+                }
+
+                const restored =
+                  hiddenEffectStash[shadowStashKey] ??
+                  shadowColorWithOpacity(layer.color, 25);
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[shadowStashKey];
+                  return next;
+                });
+                const next = shadowLayers.map((candidate) =>
+                  candidate.id === layer.id
+                    ? { ...candidate, color: restored }
+                    : candidate,
+                );
+                setShadowLayers(next);
+              }}
               onRemove={() =>
                 setShadowLayers(
                   shadowLayers.filter((candidate) => candidate.id !== layer.id),
@@ -4115,14 +5809,14 @@ function EffectsProperties({
           ))}
         </div>
       ) : null}
-      {blurValue > 0 ? (
+      {filterHasBlur ? (
         /* design effect row for layer blur: flat row matching shadow rows */
         <Popover>
           <div className="group flex items-center gap-1.5">
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {t("editPanel.labels.layerBlur")}
@@ -4133,10 +5827,45 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
-              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              label={
+                blurValue > 0
+                  ? t("editPanel.labels.hideLayer")
+                  : t("editPanel.labels.showLayer")
+              }
+              onClick={() => {
+                if (blurValue > 0) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [layerBlurStashKey]: String(blurValue),
+                  }));
+                  onStyleChange("filter", setBlurFilterValue(styles.filter, 0));
+                  return;
+                }
+
+                const restored = Number(hiddenEffectStash[layerBlurStashKey]);
+                const nextBlur =
+                  Number.isFinite(restored) && restored > 0 ? restored : 4;
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[layerBlurStashKey];
+                  return next;
+                });
+                onStyleChange(
+                  "filter",
+                  setBlurFilterValue(styles.filter, nextBlur),
+                );
+              }}
+            >
+              {blurValue > 0 ? (
+                <IconEye className="size-3.5" />
+              ) : (
+                <IconEyeOff className="size-3.5" />
+              )}
+            </SectionIconButton>
+            <SectionIconButton
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("filter", "none")}
-              disabled={!styles.filter || styles.filter === "none"}
+              disabled={!filterHasBlur}
             >
               <IconMinus className="size-3.5" />
             </SectionIconButton>
@@ -4150,14 +5879,12 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={blurValue}
-              onChange={(value) => {
-                const blurFn = `blur(${Math.max(0, Math.round(value))}px)`;
-                const existing = styles.filter || "";
-                const next = existing.includes("blur(")
-                  ? existing.replace(/blur\([^)]*\)/, blurFn)
-                  : blurFn;
-                onStyleChange("filter", next);
-              }}
+              onChange={(value) =>
+                onStyleChange(
+                  "filter",
+                  setBlurFilterValue(styles.filter, value),
+                )
+              }
               unit="px"
               min={0}
               precision={1}
@@ -4167,14 +5894,14 @@ function EffectsProperties({
           </PopoverContent>
         </Popover>
       ) : null}
-      {backdropBlurValue > 0 ? (
+      {backdropFilterHasBlur ? (
         /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
         <Popover>
           <div className="group flex items-center gap-1.5">
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {"Background blur" /* i18n-ignore design effect type */}
@@ -4185,12 +5912,50 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
-              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              label={
+                backdropBlurValue > 0
+                  ? t("editPanel.labels.hideLayer")
+                  : t("editPanel.labels.showLayer")
+              }
+              onClick={() => {
+                if (backdropBlurValue > 0) {
+                  setHiddenEffectStash((prev) => ({
+                    ...prev,
+                    [backdropBlurStashKey]: String(backdropBlurValue),
+                  }));
+                  onStyleChange(
+                    "backdropFilter",
+                    setBlurFilterValue(backdropFilterValue, 0),
+                  );
+                  return;
+                }
+
+                const restored = Number(
+                  hiddenEffectStash[backdropBlurStashKey],
+                );
+                const nextBlur =
+                  Number.isFinite(restored) && restored > 0 ? restored : 8;
+                setHiddenEffectStash((prev) => {
+                  const next = { ...prev };
+                  delete next[backdropBlurStashKey];
+                  return next;
+                });
+                onStyleChange(
+                  "backdropFilter",
+                  setBlurFilterValue(backdropFilterValue, nextBlur),
+                );
+              }}
+            >
+              {backdropBlurValue > 0 ? (
+                <IconEye className="size-3.5" />
+              ) : (
+                <IconEyeOff className="size-3.5" />
+              )}
+            </SectionIconButton>
+            <SectionIconButton
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("backdropFilter", "none")}
-              disabled={
-                !styles.backdropFilter || styles.backdropFilter === "none"
-              }
+              disabled={!backdropFilterHasBlur}
             >
               <IconMinus className="size-3.5" />
             </SectionIconButton>
@@ -4207,7 +5972,7 @@ function EffectsProperties({
               onChange={(value) =>
                 onStyleChange(
                   "backdropFilter",
-                  `blur(${Math.max(0, Math.round(value))}px)`,
+                  setBlurFilterValue(backdropFilterValue, value),
                 )
               }
               unit="px"
@@ -4287,7 +6052,7 @@ function SelectionColorsProperties({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
                     aria-label={color.value}
                   >
                     <span
@@ -4320,7 +6085,7 @@ function SelectionColorsProperties({
       ) : (
         <button
           type="button"
-          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
+          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left !text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
           onClick={() => setExpanded(true)}
         >
           <span className="truncate">
@@ -4357,8 +6122,736 @@ const TEXT_TAGS = new Set([
   "li",
 ]);
 
+// ─── Make it real — inline upgrade card (§3, §6.6) ──────────────────────────
+
+/**
+ * Payload shape returned by `connect-builder-app`.  Only the fields used by
+ * the card UI are typed here; the action may return additional fields.
+ */
+interface ConnectBuilderAppResult {
+  connected: boolean;
+  builderEnabled: boolean;
+  connectUrl: string;
+  appHost: string;
+  branchProjectId?: string;
+  cta: {
+    kind: "connect-builder" | "configure-project";
+    label: string;
+    description: string;
+    primaryAction: string;
+    connectUrl: string;
+  } | null;
+  message: string;
+}
+
+/**
+ * Inline "Make it real" upgrade card.
+ *
+ * Rendered wherever a real-app-only control is reached on an inline design
+ * (Component source jump, token write-back, live captures, etc.).  Queries
+ * `connect-builder-app` to determine the current connection state, then
+ * offers the appropriate CTA:
+ *
+ *   - Not connected → "Connect Builder.io" button (opens connectUrl)
+ *   - Connected, no project → "Open Builder settings" (configure project ID)
+ *   - Fully enabled → "Make it real" button (calls migrate-inline-design-to-app)
+ *
+ * The card is progressively disclosed: it only mounts when a gated control is
+ * actually reached, so it never appears for users who are already on a real-app
+ * source (`localhost` / `fusion`) or whose `sourceCapabilities` already include
+ * the needed capability.
+ *
+ * Matches the design-editor panel chrome: dashed-border, accent tint, small
+ * text at 10px — same idiom as the existing `ctaRequired` block in
+ * ComponentSection.
+ */
+function MakeItRealCard({
+  designId,
+  featureLabel,
+}: {
+  /** The active design id — required to call connect-builder-app. */
+  designId: string;
+  /**
+   * Short human-readable label for the gated feature (e.g. "token write-back",
+   * "component source jump", "live captures"). Shown in the card body so the
+   * user understands exactly what they're unlocking.
+   */
+  featureLabel: string;
+}) {
+  const { data, isLoading } = useActionQuery<ConnectBuilderAppResult>(
+    "connect-builder-app",
+    { designId },
+  );
+
+  const migrateMutation = useActionMutation("migrate-inline-design-to-app");
+
+  // While fetching status, show a muted placeholder that matches the card
+  // height so the inspector doesn't jump when the data arrives.
+  if (isLoading || !data) {
+    return (
+      <div className="flex h-7 items-center rounded-[5px] bg-[var(--design-editor-control-bg)] px-2">
+        <div className="h-3 w-28 animate-pulse rounded bg-muted/40" />
+      </div>
+    );
+  }
+
+  // Determine which CTA to show.
+  const cta = data.cta;
+
+  // Already fully enabled — no CTA needed (caller should already have gated
+  // this component away, but guard here for safety).
+  if (!cta) return null;
+
+  const isPending = migrateMutation.isPending;
+  const migrateError = migrateMutation.error;
+
+  // "Make it real" primary action: open the connect URL or migrate.
+  const handlePrimary = () => {
+    if (cta.kind === "connect-builder") {
+      // Open the Builder OAuth connect flow in a new tab.  The user completes
+      // it there and comes back; the card will re-query on next render.
+      window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (cta.kind === "configure-project") {
+      window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+  };
+
+  const handleMigrate = () => {
+    migrateMutation.mutate({ designId });
+  };
+
+  // Migration result — show branch link.
+  const migrateResult = migrateMutation.data as
+    | {
+        status: "processing";
+        branchName?: string;
+        url?: string;
+        message?: string;
+      }
+    | undefined;
+
+  if (migrateResult?.status === "processing" && migrateResult.url) {
+    return (
+      <div className="flex items-center gap-2 rounded-[5px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 py-1.5">
+        <IconLoader2 className="size-3.5 shrink-0 animate-spin text-[var(--design-editor-accent-color)]" />
+        <p className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+          {migrateResult.message ??
+            `Generating ${migrateResult.branchName ?? "React app"}.`}
+        </p>
+        <a
+          href={migrateResult.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-semibold text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-panel-raised-bg)]"
+        >
+          {"Open" /* i18n-ignore make-it-real card */}
+          <IconExternalLink className="size-2.5" />
+        </a>
+      </div>
+    );
+  }
+
+  const summary =
+    cta.kind === "configure-project"
+      ? `Choose a Builder project to enable ${featureLabel}.`
+      : `Connect Builder to enable ${featureLabel}.`;
+  const primaryLabel =
+    cta.kind === "configure-project"
+      ? "Choose" /* i18n-ignore make-it-real card */
+      : "Connect"; /* i18n-ignore make-it-real card */
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 rounded-[5px] border border-dashed border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]/70 px-2 py-1.5">
+        <span
+          className="size-1.5 shrink-0 rounded-full bg-[var(--design-editor-accent-color)]"
+          aria-hidden="true"
+        />
+        <p
+          className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"
+          title={summary}
+        >
+          {summary}
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          onClick={handlePrimary}
+          title={cta.primaryAction}
+          className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-white hover:bg-[var(--design-editor-accent-hover-color)]"
+        >
+          {primaryLabel}
+          <IconArrowRight className="size-2.5" />
+        </Button>
+
+        {/* When Builder is fully connected, also offer direct migration */}
+        {data.connected && data.builderEnabled && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleMigrate}
+            disabled={isPending}
+            className="h-6 shrink-0 gap-1 rounded-md px-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+          >
+            {isPending ? (
+              <>
+                <IconLoader2 className="size-2.5 animate-spin" />
+                {"Generating" /* i18n-ignore make-it-real card */}
+              </>
+            ) : (
+              <>{"Generate" /* i18n-ignore make-it-real card */}</>
+            )}
+          </Button>
+        )}
+      </div>
+      {migrateError ? (
+        <p className="px-2 text-[10px] text-destructive">
+          {migrateError instanceof Error
+            ? migrateError.message
+            : "Migration failed. Please try again."}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// ─── Component section (§6.1) ─────────────────────────────────────────────────
+
+/**
+ * Shape returned by `get-component-details`.  Only the fields the UI needs are
+ * typed here; the action may return additional fields.
+ */
+interface ComponentDetailsResult {
+  nodeId: string;
+  name: string;
+  sourceType: string;
+  observedProps: Array<{ name: string; value: string }>;
+  persistedVariants: Record<string, string[]>;
+  sourceLocation?: { filePath: string; exportName?: string } | null;
+  /** Component instance shape, including the Alpine `x-data` expression. */
+  instance?: {
+    alpineData?: string | null;
+    nodeId?: string;
+    selector?: string;
+  } | null;
+  capabilities: {
+    canResolveToFile: boolean;
+    hasFullIndex: boolean;
+    canEditProps: boolean;
+    ctaRequired: boolean;
+    ctaMessage?: string;
+  };
+}
+
+/**
+ * Contextual COMPONENT section rendered inside the Design tab when the
+ * selected element is a component instance (carries
+ * `data-agent-native-component`).
+ *
+ * Shows: component name, source path (when capability available), observed
+ * prop values, variant/size/state controls from `get-component-details`, and
+ * an "Edit component source" action.  Real-app features are gated by the
+ * capabilities returned by the action; Alpine gets a lightweight read-only
+ * view plus a Connect-Builder CTA.
+ *
+ * Matches the workbench artboard spec in DESIGN-STUDIO-PLAN.md §6.1.
+ */
+export function ComponentSection({
+  designId,
+  fileId,
+  activeContent,
+  activeFileUpdatedAt,
+  nodeId,
+  onComponentPropApplied,
+  sourceCapabilities = [],
+}: {
+  designId: string;
+  fileId?: string;
+  activeContent?: string;
+  activeFileUpdatedAt?: string | null;
+  nodeId: string;
+  onComponentPropApplied?: (
+    fileId: string,
+    content: string,
+    updatedAt?: string,
+  ) => void;
+  /** Capability names advertised by the current source. */
+  sourceCapabilities?: string[];
+}) {
+  const queryClient = useQueryClient();
+  const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
+  const detailsKey = ["action", "get-component-details", detailsParams];
+  const latestSourceRef = useRef<{
+    content: string;
+    revision?: string | null;
+  }>({
+    content: activeContent ?? "",
+    revision: activeFileUpdatedAt ?? null,
+  });
+
+  useEffect(() => {
+    latestSourceRef.current = {
+      content: activeContent ?? "",
+      revision: activeFileUpdatedAt ?? null,
+    };
+  }, [activeContent, activeFileUpdatedAt, fileId, nodeId]);
+
+  const { data, isLoading, error, refetch } =
+    useActionQuery<ComponentDetailsResult>(
+      "get-component-details",
+      detailsParams,
+      { refetchOnMount: "always" },
+    );
+
+  const openSourceMutation = useActionMutation("open-component-source");
+  const applyPropMutation = useActionMutation("apply-component-prop-edit");
+
+  const postComponentPropPreview = useCallback(
+    (attribute: string, value: string) => {
+      if (typeof document === "undefined") return;
+
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      iframe?.contentWindow?.postMessage(
+        {
+          type: "style-change",
+          selector: data?.instance?.selector ?? "",
+          nodeId: data?.instance?.nodeId ?? nodeId,
+          attributeOverrides: { [attribute]: value },
+        },
+        "*",
+      );
+    },
+    [data?.instance?.nodeId, data?.instance?.selector, nodeId],
+  );
+
+  // Persist a single prop change through apply-component-prop-edit. Attribute
+  // props also preview immediately in the iframe so the selected component
+  // changes without waiting for the write/refetch round-trip.
+  const persistPropEdit = (
+    edit:
+      | { kind: "alpineData"; value: string }
+      | { kind: "attribute"; attribute: string; value: string },
+    optimistic: (prev: ComponentDetailsResult) => ComponentDetailsResult,
+  ) => {
+    queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
+      prev ? optimistic(prev) : prev,
+    );
+    if (edit.kind === "attribute") {
+      postComponentPropPreview(edit.attribute, edit.value);
+    }
+    const latestSource = latestSourceRef.current;
+    applyPropMutation.mutate(
+      {
+        designId,
+        nodeId,
+        ...(fileId ? { fileId } : {}),
+        edit,
+        ...(latestSource.content
+          ? {
+              source: {
+                currentContent: latestSource.content,
+                ...(latestSource.revision
+                  ? { revision: latestSource.revision }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+      {
+        onSuccess: (result) => {
+          const response = result as {
+            content?: unknown;
+            fileId?: unknown;
+            updatedAt?: unknown;
+            conflict?: unknown;
+            error?: unknown;
+          };
+          if (response.conflict) {
+            toast.error(
+              typeof response.error === "string"
+                ? response.error
+                : "This file changed since this component prop edit was prepared. Refresh and try again.",
+            );
+            return;
+          }
+          if (
+            typeof response.fileId === "string" &&
+            typeof response.content === "string"
+          ) {
+            const updatedAt =
+              typeof response.updatedAt === "string"
+                ? response.updatedAt
+                : undefined;
+            latestSourceRef.current = {
+              content: response.content,
+              revision: updatedAt ?? latestSourceRef.current.revision,
+            };
+            onComponentPropApplied?.(
+              response.fileId,
+              response.content,
+              updatedAt,
+            );
+          }
+        },
+        onSettled: () => {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
+          void queryClient.invalidateQueries({ queryKey: detailsKey });
+          void refetch();
+        },
+      },
+    );
+  };
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        (event.data as { type?: unknown } | null)?.type === "element-select"
+      ) {
+        void refetch();
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [refetch]);
+
+  // While loading, show a compact skeleton that matches the section width.
+  if (isLoading) {
+    return (
+      <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
+        <div className="flex min-h-9 items-center gap-2 px-3">
+          <div className="h-3 w-24 animate-pulse rounded bg-muted/50" />
+        </div>
+        <div className="space-y-1.5 px-3 pb-3 pt-0.5">
+          <div className="h-5 w-full animate-pulse rounded bg-muted/40" />
+          <div className="h-5 w-3/4 animate-pulse rounded bg-muted/40" />
+        </div>
+      </section>
+    );
+  }
+
+  // Hard error (node not found, no access, etc.) — collapse silently so
+  // the rest of the inspector is not disrupted.
+  if (error || !data) return null;
+
+  const {
+    name,
+    sourceType,
+    sourceLocation,
+    observedProps,
+    persistedVariants,
+    instance,
+    capabilities,
+  } = data;
+
+  // ── Editable prop model ───────────────────────────────────────────────────
+  // Inline/Alpine designs persist through apply-component-prop-edit. Two write
+  // surfaces:
+  //   • x-data keys      → kind "alpineData" (rewrites the whole object)
+  //   • data-prop-* attrs → kind "attribute"  (data-agent-native-prop-<kebab>)
+  // Real-app sources keep the deeper source-prop controls gated as-is, so for
+  // non-inline sources the controls are read-only here.
+  const isInline = sourceType === "inline";
+  const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
+  const alpineData = parseAlpineDataObject(instance?.alpineData);
+
+  // Each editable row: name + current value + how it persists + its options.
+  type PropRow = {
+    name: string;
+    value: string;
+    /** Variant/enum options when the prop is a known group. */
+    options?: string[];
+    /** Persist surface for this prop. */
+    surface: "alpineData" | "attribute";
+  };
+
+  const rows: PropRow[] = [];
+  const seen = new Set<string>();
+
+  // 1) Alpine x-data keys come first — they drive the live variant/state.
+  if (alpineData) {
+    for (const [key, value] of Object.entries(alpineData)) {
+      rows.push({
+        name: key,
+        value,
+        options: persistedVariants[key],
+        surface: "alpineData",
+      });
+      seen.add(key);
+    }
+  }
+
+  // 2) data-agent-native-prop-* attributes not already covered by x-data.
+  for (const prop of observedProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 3) persistedVariant groups with no observed value yet (default to first).
+  for (const [group, options] of Object.entries(persistedVariants)) {
+    if (seen.has(group)) continue;
+    rows.push({
+      name: group,
+      value: options[0] ?? "",
+      options,
+      surface: alpineData ? "alpineData" : "attribute",
+    });
+    seen.add(group);
+  }
+
+  const hasRows = rows.length > 0;
+
+  // Build the apply-component-prop-edit payload + optimistic cache patch for a
+  // single prop change.
+  const commitProp = (row: PropRow, nextValue: string) => {
+    if (!editingEnabled || nextValue === row.value) return;
+
+    if (row.surface === "alpineData") {
+      // Surgically replace only the edited key's value inside the original
+      // x-data string so methods, nested objects, escaped strings, quoted
+      // keys, and whitespace survive byte-for-byte. A full
+      // parse→mutate→serialize round-trip would drop anything
+      // parseAlpineDataObject can't model (e.g. `toggle() { … }`).
+      const original = instance?.alpineData ?? "";
+      const surgical = replaceAlpineDataKeyValue(original, row.name, nextValue);
+
+      let serialized: string;
+      if (surgical != null) {
+        serialized = surgical;
+      } else if (canRebuildAlpineDataLosslessly(original)) {
+        // The key isn't present yet (or there is no original literal). Rebuild
+        // from the flat map — safe here precisely because the original holds
+        // nothing richer than the flat literals serialize already preserves.
+        const nextData = { ...(alpineData ?? {}), [row.name]: nextValue };
+        serialized = serializeAlpineDataObject(nextData);
+      } else {
+        // The original carries content (methods / nested / expressions) we
+        // can't rewrite for this key without dropping it. Fail safe: skip the
+        // edit rather than persist a lossy rewrite, and tell the user why so
+        // the change doesn't silently vanish.
+        toast.error(
+          // i18n-ignore
+          "Can’t safely edit this prop inline — this component’s Alpine state is too complex. Edit the source instead.",
+        );
+        return;
+      }
+
+      const nextSerialized = serialized;
+      persistPropEdit(
+        { kind: "alpineData", value: nextSerialized },
+        (prev) => ({
+          ...prev,
+          instance: { ...(prev.instance ?? {}), alpineData: nextSerialized },
+          observedProps: prev.observedProps.map((p) =>
+            p.name === row.name ? { ...p, value: nextValue } : p,
+          ),
+        }),
+      );
+    } else {
+      persistPropEdit(
+        {
+          kind: "attribute",
+          attribute: propNameToDataAttribute(row.name),
+          value: nextValue,
+        },
+        (prev) => {
+          const exists = prev.observedProps.some((p) => p.name === row.name);
+          return {
+            ...prev,
+            observedProps: exists
+              ? prev.observedProps.map((p) =>
+                  p.name === row.name ? { ...p, value: nextValue } : p,
+                )
+              : [...prev.observedProps, { name: row.name, value: nextValue }],
+          };
+        },
+      );
+    }
+  };
+
+  // ── Capability gates ──
+  const canJumpToSource =
+    capabilities.canResolveToFile &&
+    Boolean(sourceLocation?.filePath) &&
+    sourceCapabilities.includes("resolveNodeToFile");
+
+  // ── Source chip text ──
+  const sourceChip = sourceLocation?.exportName
+    ? `${sourceLocation.exportName} — ${sourceLocation.filePath}`
+    : (sourceLocation?.filePath ?? null);
+
+  return (
+    <section
+      className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0"
+      data-testid="component-section"
+    >
+      {/* ── Section header ── */}
+      <div className="flex min-h-9 items-center gap-2 px-3">
+        {/* Accent diamond matching the workbench artboard component rows */}
+        <span
+          className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
+          aria-hidden="true"
+        />
+        <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
+          {name}
+        </h3>
+        {/* Jump-to-source action */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!canJumpToSource}
+              aria-label={
+                "Edit component source" /* i18n-ignore design inspector action */
+              }
+              onClick={() => {
+                openSourceMutation.mutate({
+                  designId,
+                  nodeId,
+                  ...(fileId ? { fileId } : {}),
+                });
+              }}
+            >
+              <IconExternalLink className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {
+              canJumpToSource
+                ? "Edit component source" /* i18n-ignore design inspector action */
+                : (capabilities.ctaMessage ??
+                  "Source jump needs a connected app") /* i18n-ignore design inspector tooltip */
+            }
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
+        {/* Source path chip */}
+        {sourceChip && (
+          <div
+            className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
+            title={sourceChip}
+          >
+            <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
+            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+              {sourceChip}
+            </span>
+          </div>
+        )}
+
+        {/* Typed prop controls. Inline/Alpine designs are editable and persist
+            through apply-component-prop-edit; real-app sources are read-only
+            until the deeper source-prop controls land. */}
+        {hasRows && (
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+              {"Props" /* i18n-ignore design inspector label */}
+            </p>
+            {rows.map((row) => {
+              const hasOptions = (row.options?.length ?? 0) > 0;
+              const isBoolean = !hasOptions && isBooleanPropValue(row.value);
+              const disabled = !editingEnabled || applyPropMutation.isPending;
+              return (
+                <div key={row.name} className="flex items-center gap-1.5">
+                  <Label className="w-[64px] shrink-0 truncate !text-[11px] font-medium capitalize text-muted-foreground">
+                    {row.name}
+                  </Label>
+                  {hasOptions ? (
+                    // Dropdown for variant / enum groups.
+                    <Select
+                      value={row.value || row.options![0] || ""}
+                      onValueChange={(v) => commitProp(row, v)}
+                      disabled={disabled}
+                    >
+                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {row.options!.map((opt) => (
+                          <SelectItem
+                            key={opt}
+                            value={opt}
+                            className="!text-[11px]"
+                          >
+                            {opt}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : isBoolean ? (
+                    // Toggle for boolean props.
+                    <div className="flex min-w-0 flex-1 items-center">
+                      <Switch
+                        checked={row.value.trim().toLowerCase() === "true"}
+                        onCheckedChange={(checked) =>
+                          commitProp(row, checked ? "true" : "false")
+                        }
+                        disabled={disabled}
+                        className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
+                        aria-label={
+                          row.name /* i18n-ignore dynamic prop name */
+                        }
+                      />
+                    </div>
+                  ) : (
+                    // Text input for string props (e.g. a label).
+                    <Input
+                      defaultValue={row.value}
+                      key={`${row.name}:${row.value}`}
+                      disabled={disabled}
+                      onBlur={(e) => commitProp(row, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Connect-Builder CTA (only when prop editing is actually gated). */}
+        {capabilities.ctaRequired && !editingEnabled && (
+          <MakeItRealCard
+            designId={designId}
+            featureLabel="component source jump and typed prop metadata"
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function EditPanel({
   selectedElement,
+  selectedElements,
   pageStyles = {},
   headerTrailing,
   width = 256,
@@ -4366,25 +6859,70 @@ export function EditPanel({
   onActiveTabChange,
   tweaks = [],
   tweakValues = {},
-  extensionContext,
   onTweakChange,
   onRequestTweaks,
+  extensionsPanel,
   onStyleChange,
   onStylesChange,
   onExport,
   exporting = false,
+  fileId,
+  activeContent,
+  activeFileUpdatedAt,
+  designId,
+  onComponentPropApplied,
+  reviewPanelProps,
+  componentNodeId,
+  sourceCapabilities = [],
+  onCreateComponent,
+  selectedElementAlreadyComponent = false,
+  defaultComponentName = "Component",
+  inspectCode,
+  aiActions,
 }: EditPanelProps) {
   const t = useT();
+  const [createComponentOpen, setCreateComponentOpen] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
     DEFAULT_EXPORT_SETTINGS,
   );
   const [showExportPreview, setShowExportPreview] = useState(false);
-  const selectedElementKey = selectedElement
-    ? elementIdentityKey(selectedElement)
+
+  const effectiveSelectedElements = useMemo(
+    () =>
+      selectedElements && selectedElements.length > 0
+        ? selectedElements
+        : selectedElement
+          ? [selectedElement]
+          : [],
+    [selectedElement, selectedElements],
+  );
+  const inspectorElement = useMemo(
+    () =>
+      effectiveSelectedElements.length > 1
+        ? mixedElementFromSelection(effectiveSelectedElements)
+        : (effectiveSelectedElements[0] ?? null),
+    [effectiveSelectedElements],
+  );
+  const selectedCount = effectiveSelectedElements.length;
+  const selectionAlreadyComponent =
+    selectedCount === 1 &&
+    (selectedElementAlreadyComponent ||
+      elementIsComponentSelection(selectedElement));
+  const canCreateComponent = Boolean(
+    onCreateComponent &&
+    selectedElement &&
+    selectedCount <= 1 &&
+    !selectionAlreadyComponent,
+  );
+  const selectedElementKey = inspectorElement
+    ? `${selectedCount}:${elementIdentityKey(inspectorElement)}`
     : "none";
-  const isTextElement = selectedElement
-    ? TEXT_TAGS.has(selectedElement.tagName)
-    : false;
+  const selectionHasTextElement = effectiveSelectedElements.some((element) =>
+    isTextElement(element),
+  );
+  const selectionHasContainerElement = effectiveSelectedElements.some(
+    (element) => isContainerElement(element),
+  );
   const handleActiveTabChange = useCallback(
     (tab: InspectorTab) => onActiveTabChange?.(tab),
     [onActiveTabChange],
@@ -4395,11 +6933,31 @@ export function EditPanel({
     },
     [onTweakChange],
   );
+  const handleRequestTweaks = useCallback(
+    (anchor: HTMLElement) => {
+      onRequestTweaks?.(anchor);
+    },
+    [onRequestTweaks],
+  );
 
   useEffect(() => {
     setExportSettings(DEFAULT_EXPORT_SETTINGS);
     setShowExportPreview(false);
   }, [selectedElementKey]);
+
+  useEffect(() => {
+    if (!canCreateComponent) setCreateComponentOpen(false);
+  }, [canCreateComponent]);
+
+  // Scroll guard: suppress the click that fires immediately after a scroll
+  // gesture ends (rubber-band or normal scroll). Using onScroll instead of
+  // onPointerDown avoids side-effects like Radix DismissableLayer detecting a
+  // "pointerdown outside" and closing open popovers — which, during an
+  // over-scroll bounce, could briefly un-shield the canvas and allow a stray
+  // pointer event to deselect the selected canvas element (R3 regression).
+  const scrolledRecentlyRef = useRef(false);
+  const userScrollIntentRef = useRef(false);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   return (
     <div
@@ -4413,63 +6971,172 @@ export function EditPanel({
         activeTab={activeTab}
         onActiveTabChange={handleActiveTabChange}
         trailing={headerTrailing}
+        showExtensions={!!extensionsPanel}
       />
 
       {activeTab === "design" ? (
         <>
-          <SelectionHeader element={selectedElement} />
+          <SelectionHeader
+            element={inspectorElement}
+            selectedCount={selectedCount}
+            onCreateComponent={
+              canCreateComponent ? onCreateComponent : undefined
+            }
+            createComponentOpen={createComponentOpen}
+            onCreateComponentOpenChange={setCreateComponentOpen}
+            showCreateComponentAction={!selectionAlreadyComponent}
+            defaultComponentName={defaultComponentName}
+            inspectCode={
+              inspectCode && selectedElement && selectedCount <= 1
+                ? inspectCode
+                : undefined
+            }
+          />
 
-          <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            {!selectedElement && (
-              <PageProperties
-                styles={pageStyles}
-                onStyleChange={onStyleChange}
+          <div
+            className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            onWheelCapture={() => {
+              userScrollIntentRef.current = true;
+            }}
+            onTouchMoveCapture={() => {
+              userScrollIntentRef.current = true;
+            }}
+            onScroll={() => {
+              if (!userScrollIntentRef.current) return;
+              // Mark that a scroll just happened so the click that some
+              // browsers fire at the end of a scroll gesture (or after an
+              // overscroll/rubber-band bounce) is suppressed. Crucially this
+              // runs on the scroll event — NOT on pointerdown — so it never
+              // triggers Radix's DismissableLayer "outside pointerdown"
+              // detection, which would close open inspector popovers and, once
+              // the shield is removed, allow a stray canvas pointer event to
+              // deselect the selected element (the R3 overscroll regression).
+              scrolledRecentlyRef.current = true;
+              if (scrollTimerRef.current !== null) {
+                clearTimeout(scrollTimerRef.current);
+              }
+              scrollTimerRef.current = setTimeout(() => {
+                scrolledRecentlyRef.current = false;
+                userScrollIntentRef.current = false;
+                scrollTimerRef.current = null;
+              }, 300);
+            }}
+            onClickCapture={(e) => {
+              // Suppress spurious clicks (e.g. color-picker opening) that
+              // fire immediately after a scroll gesture ends. The 300ms
+              // window from the last scroll event covers both the synchronous
+              // scroll-end click and the delayed synthetic click that mobile
+              // browsers generate after a touch-scroll ends.
+              if (!scrolledRecentlyRef.current) return;
+              scrolledRecentlyRef.current = false;
+              userScrollIntentRef.current = false;
+              if (scrollTimerRef.current !== null) {
+                clearTimeout(scrollTimerRef.current);
+                scrollTimerRef.current = null;
+              }
+              e.stopPropagation();
+              e.preventDefault();
+            }}
+            onKeyDown={(e) => {
+              // Trap Tab within the inspector panel so it never focuses the
+              // canvas iframe. When the canvas iframe gains focus it forwards
+              // a synthetic Tab keydown to the parent window, which is picked
+              // up by the design-editor hotkey handler as "cycle file" and
+              // causes apparent deselection / overview-mode switch (bug: Tab
+              // in a numeric field deselected the canvas element).
+              if (e.key !== "Tab") return;
+              const panel = e.currentTarget;
+              const focusable = Array.from(
+                panel.querySelectorAll<HTMLElement>(
+                  'input, button, select, textarea, [tabindex]:not([tabindex="-1"])',
+                ),
+              ).filter(
+                (el) =>
+                  !el.hasAttribute("disabled") &&
+                  el.tabIndex !== -1 &&
+                  !el.closest('[aria-hidden="true"]'),
+              );
+              if (focusable.length === 0) return;
+              e.preventDefault();
+              const current = document.activeElement as HTMLElement | null;
+              const idx = current ? focusable.indexOf(current) : -1;
+              const next = e.shiftKey
+                ? focusable[(idx - 1 + focusable.length) % focusable.length]
+                : focusable[(idx + 1) % focusable.length];
+              next?.focus();
+            }}
+          >
+            {/* §6.1 Component section — shown at the top when a component
+                instance is selected. Requires designId + componentNodeId. */}
+            {designId && componentNodeId && selectedCount <= 1 && (
+              <ComponentSection
+                designId={designId}
+                fileId={fileId}
+                activeContent={activeContent}
+                activeFileUpdatedAt={activeFileUpdatedAt}
+                nodeId={componentNodeId}
+                onComponentPropApplied={onComponentPropApplied}
+                sourceCapabilities={sourceCapabilities}
               />
             )}
 
-            {selectedElement && (
+            {aiActions ? (
+              <div className="border-b border-[var(--design-editor-control-border)] px-2 py-1.5">
+                {aiActions}
+              </div>
+            ) : null}
+
+            {!inspectorElement && (
+              <PageProperties
+                styles={pageStyles}
+                onStyleChange={onStyleChange}
+                onStylesChange={onStylesChange}
+              />
+            )}
+
+            {inspectorElement && (
               <>
                 <PositionLayoutProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
                 <LayoutContextProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <AppearanceProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
-                {isTextElement ? (
+                {selectionHasTextElement ? (
                   <TypographyProperties
-                    element={selectedElement}
+                    element={inspectorElement}
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
                 <FillProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <StrokeProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <EffectsProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                 />
                 <SelectionColorsProperties
-                  element={selectedElement}
+                  element={inspectorElement}
                   onStyleChange={onStyleChange}
                 />
-                {isContainerElement(selectedElement) ? (
+                {selectionHasContainerElement ? (
                   <LayoutGuideProperties
-                    element={selectedElement}
+                    element={inspectorElement}
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
@@ -4503,8 +7170,51 @@ export function EditPanel({
                   onExport={onExport}
                 />
                 {showExportPreview ? (
-                  <ExportPreview element={selectedElement} />
+                  <ExportPreview element={inspectorElement} />
                 ) : null}
+              </PanelSection>
+            ) : null}
+
+            {/* §6.5 Review — contextual section in Design tab.
+                Collapsed by default. Renders when reviewPanelProps is provided,
+                no designId check needed since ReviewPanel is statically fed. */}
+            {reviewPanelProps ? (
+              <PanelSection
+                title={"Review" /* i18n-ignore design inspector section */}
+                defaultCollapsed
+                actions={
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                        disabled={reviewPanelProps.auditLoading}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          reviewPanelProps.onRunAudit?.();
+                        }}
+                        aria-label={
+                          "Run audit" /* i18n-ignore design inspector action */
+                        }
+                      >
+                        <IconRefresh
+                          className={cn(
+                            "size-3.5",
+                            reviewPanelProps.auditLoading && "animate-spin",
+                          )}
+                        />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {"Run audit" /* i18n-ignore design inspector action */}
+                    </TooltipContent>
+                  </Tooltip>
+                }
+              >
+                {/* ReviewPanel manages its own scroll; no extra wrapper needed. */}
+                <ReviewPanel {...reviewPanelProps} />
               </PanelSection>
             ) : null}
           </div>
@@ -4524,7 +7234,9 @@ export function EditPanel({
                     size="icon"
                     className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
                     aria-label={t("designEditor.addTweaks")}
-                    onClick={(event) => onRequestTweaks(event.currentTarget)}
+                    onClick={(event) =>
+                      handleRequestTweaks(event.currentTarget)
+                    }
                   >
                     <IconPlus className="size-3.5" />
                   </Button>
@@ -4533,18 +7245,21 @@ export function EditPanel({
               </Tooltip>
             ) : null}
           </div>
+
           <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <TweaksPanelContent
               tweaks={tweaks}
               values={tweakValues}
               onChange={handleTweakChange}
-              onRequestTweaks={onRequestTweaks}
+              onRequestTweaks={handleRequestTweaks}
               className="px-3 py-3"
             />
           </div>
         </div>
-      ) : extensionContext ? (
-        <DesignExtensionsPanel context={extensionContext} />
+      ) : activeTab === "extensions" && extensionsPanel ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {extensionsPanel}
+        </div>
       ) : null}
     </div>
   );

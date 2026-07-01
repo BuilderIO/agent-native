@@ -97,14 +97,20 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright Chromium for browser-backed unit tests
+        run: pnpm exec playwright install --only-shell chromium
+
       - name: Run tests
         run: pnpm test
+
+      - name: Run deterministic Content parity checks
+        run: pnpm test:content-parity
 
   brain-evals:
     name: Brain evals
     runs-on: ubuntu-latest
-    # Brain evals call live LLM endpoints; keep a tight cap so a stalled eval
-    # doesn't pin the runner indefinitely.
+    # Brain evals are offline action/fixture retrieval checks; live LLM evals
+    # belong in the gated eval workflow.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

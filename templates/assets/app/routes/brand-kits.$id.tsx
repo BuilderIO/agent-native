@@ -1151,12 +1151,6 @@ export function BrandKitDetailRoute({
           <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
           {t("library.newFolder")}
         </DropdownMenuItem>
-        <ShareButton
-          resourceType="asset-library"
-          resourceId={library.id}
-          resourceTitle={library.title}
-          triggerClassName="w-full justify-start border-0 bg-transparent px-2 py-1.5 text-sm font-normal shadow-none hover:bg-accent hover:text-accent-foreground"
-        />
         <DropdownMenuSeparator />
         <DropdownMenuItem
           disabled={duplicateLibrary.isPending}
@@ -1183,15 +1177,31 @@ export function BrandKitDetailRoute({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+  const shareAction = (
+    <ShareButton
+      trigger="label-icon"
+      resourceType="asset-library"
+      resourceId={library.id}
+      resourceTitle={library.title}
+      triggerClassName="h-10 gap-2 px-4 border-input bg-background hover:bg-accent hover:text-accent-foreground"
+    />
+  );
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap lg:shrink-0">
       {uploadAction}
+      {shareAction}
       {moreActions}
     </div>
   );
   const headerPrimaryActionsPortal =
     headerMode === "actions" && headerPrimaryActionsTarget
-      ? createPortal(uploadAction, headerPrimaryActionsTarget)
+      ? createPortal(
+          <>
+            {uploadAction}
+            {shareAction}
+          </>,
+          headerPrimaryActionsTarget,
+        )
       : null;
   const headerMoreActionsPortal =
     headerMode === "actions" && headerMoreActionsTarget
@@ -1495,7 +1505,7 @@ export function BrandKitDetailRoute({
           </TabsContent>
 
           <TabsContent value="settings">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="assets-brand-kit-settings-grid grid gap-4">
               <div className="space-y-4 rounded-lg border border-border p-4">
                 <Label>{t("brandKitDetail.styleDescription")}</Label>
                 <Textarea
@@ -2036,6 +2046,7 @@ function GenerationPresetsPanel({
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [promptTemplate, setPromptTemplate] = useState("");
   const [textPolicy, setTextPolicy] = useState(t("library.defaultTextPolicy"));
+  const [includeLogo, setIncludeLogo] = useState(false);
 
   function reset() {
     setTitle("");
@@ -2043,6 +2054,7 @@ function GenerationPresetsPanel({
     setAspectRatio("1:1");
     setPromptTemplate("");
     setTextPolicy(t("library.defaultTextPolicy"));
+    setIncludeLogo(false);
   }
 
   function submit() {
@@ -2058,6 +2070,7 @@ function GenerationPresetsPanel({
         promptTemplate: promptTemplate.trim() || undefined,
         textPolicy,
         referencePolicy: "auto",
+        includeLogo,
       },
       {
         onSuccess: () => {
@@ -2101,6 +2114,9 @@ function GenerationPresetsPanel({
                   {preset.title}
                 </span>
                 <Badge variant="outline">{preset.aspectRatio}</Badge>
+                {preset.includeLogo ? (
+                  <Badge variant="secondary">{t("brandKitDetail.logo")}</Badge>
+                ) : null}
               </div>
               <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                 {preset.textPolicy || preset.description || preset.category}
@@ -2251,6 +2267,25 @@ function GenerationPresetsPanel({
                 onChange={(event) => setTextPolicy(event.target.value)}
               />
             </div>
+            <label
+              htmlFor="preset-include-logo"
+              className="flex items-start gap-3 rounded-md border border-border p-3"
+            >
+              <Checkbox
+                id="preset-include-logo"
+                checked={includeLogo}
+                onCheckedChange={(checked) => setIncludeLogo(checked === true)}
+                className="mt-0.5"
+              />
+              <span className="grid gap-1">
+                <span className="text-sm font-medium leading-none">
+                  {t("brandKitDetail.compositeCanonicalLogo")}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("brandKitDetail.compositeCanonicalLogoHint")}
+                </span>
+              </span>
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
@@ -3190,7 +3225,7 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+    <div className="assets-brand-kit-item-grid grid gap-3">
       {items.map((item) => {
         const copied = copiedItemId === item.id;
         const secondary =
@@ -3338,7 +3373,7 @@ function SwimLane({
 
   return (
     <section className="overflow-hidden rounded-lg border border-border/80 bg-background">
-      <div className="grid min-h-[360px] xl:grid-cols-[minmax(0,1fr)_284px]">
+      <div className="assets-brand-kit-preview-grid grid min-h-[360px]">
         <div className="flex min-w-0 flex-col bg-muted/10">
           {hasContent ? (
             <>
@@ -4250,7 +4285,7 @@ export function LiveCandidatesStage({
             />
           </div>
         </div>
-        <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+        <div className="assets-live-candidates-grid grid min-w-0">
           <div className="min-w-0 bg-muted/10 p-2.5 sm:p-3">
             <div
               className={[

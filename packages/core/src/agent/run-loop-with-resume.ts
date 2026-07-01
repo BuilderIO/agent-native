@@ -79,6 +79,24 @@ async function appendToolCallJournalNote(
   }
 }
 
+async function hasCompletedSideEffectToolCallInCurrentTurn(
+  threadId: string | undefined,
+): Promise<boolean> {
+  if (!threadId) return false;
+  try {
+    const events = await getCurrentTurnEventsForThread(threadId);
+    if (events.length === 0) return false;
+    return events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.completedSideEffect === true &&
+        event.isError !== true,
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Cap on continuation iterations inside a single
  * `runAgentLoopDirectWithSoftTimeout` invocation. The host's hard function
@@ -102,12 +120,12 @@ export const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
  * exhausts its in-invocation continuation budget without finishing. Generic and
  * framework-level (not app-specific). Mirrors the `reliable-mutations` skill's
  * "fail loud, retry as a single bulk action" guidance so the user understands
- * the turn stopped before finishing and was not partially saved by the run
- * itself. */
+ * the turn stopped before finishing without implying that earlier completed
+ * tool calls did not persist. */
 export const RUN_BUDGET_EXHAUSTED_MESSAGE =
-  "I ran out of time before finishing this step (hosted runs have a ~40s budget). " +
-  "I stopped rather than leave things half-done — nothing was partially saved by me here. " +
-  "Please retry, ideally as a single bulk action.";
+  "I ran out of time before finishing this step. " +
+  "I stopped rather than keep retrying silently. " +
+  "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 
 /**
  * Internal entry point used by the agent-chat plugin's run handler. Wraps
@@ -189,7 +207,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         // Clear partial text the client received before the abort so the
         // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
-        opts.send({ type: "clear" });
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))
+        ) {
+          opts.send({ type: "clear" });
+        }
         appendAgentLoopContinuation(opts.messages, "run_timeout");
         await appendToolCallJournalNote(opts.messages, opts.threadId);
         continue;
@@ -209,7 +231,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
       // the in-memory messages array, so the next attempt re-emits it).
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
-        opts.send({ type: "clear" });
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))
+        ) {
+          opts.send({ type: "clear" });
+        }
         appendAgentLoopContinuation(
           opts.messages,
           continuationReasonForResumableError(err),
@@ -234,7 +260,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
   if (!upstreamSignal.aborted && lastAttemptWasUnfinishedContinuation) {
     // Discard any partial text already streamed for the unfinished attempt so
     // the terminal message stands alone instead of trailing a half sentence.
-    opts.send({ type: "clear" });
+    // Preserve completed tool cards: they are the user's only durable proof
+    // that a side effect landed before the final assistant note timed out.
+    if (!(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))) {
+      opts.send({ type: "clear" });
+    }
     opts.send({
       type: "error",
       error: RUN_BUDGET_EXHAUSTED_MESSAGE,

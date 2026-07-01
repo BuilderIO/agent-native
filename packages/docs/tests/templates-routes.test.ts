@@ -174,9 +174,9 @@ describe("template routes", () => {
     expect(docsAlternateLinksForPath("/templates")).toEqual([]);
   });
 
-  it("keeps docs sidebar template links aligned with the featured catalog", () => {
+  it("keeps docs sidebar app links aligned with the featured catalog", () => {
     const navTemplateSection = NAV_SECTIONS.find(
-      (section) => section.title === "Templates",
+      (section) => section.title === "Apps",
     );
     expect(navTemplateSection).toBeDefined();
 
@@ -198,13 +198,13 @@ describe("template routes", () => {
       expect(sidebarDocPaths).toContain(catalogPath);
     }
 
-    // Every sidebar link in the Templates section must resolve to a real docs
-    // page (never a /templates/ marketing route). Group children may be plain
+    // Every sidebar link in the Apps section must resolve to a real docs
+    // page (never an /apps/ marketing route). Group children may be plain
     // docs pages (e.g. pr-visual-recap), so don't require the template- prefix.
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
     for (const sidebarPath of sidebarDocPaths) {
       expect(sidebarPath).toMatch(/^\/docs\/[a-z0-9-]+$/);
-      expect(sidebarPath).not.toMatch(/^\/templates\//);
+      expect(sidebarPath).not.toMatch(/^\/apps\//);
 
       const slug = sidebarPath.replace("/docs/", "");
       expect(docsSourceExists(docsDir, slug)).toBe(true);
@@ -226,7 +226,7 @@ describe("template routes", () => {
     }
   });
 
-  it("includes every public docs page and template page in the sitemap", () => {
+  it("includes every public docs page and app page in the sitemap", () => {
     const paths = buildSitemapPaths(docsRoot);
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
     const docPaths = listDocSlugs(docsDir).map((slug) =>
@@ -234,7 +234,7 @@ describe("template routes", () => {
     );
 
     expect(paths).toContain("/");
-    expect(paths).toContain("/templates");
+    expect(paths).toContain("/apps");
     expect(paths).toContain("/download");
     expect(paths).toContain("/privacy");
     expect(paths).toContain("/terms");
@@ -244,7 +244,7 @@ describe("template routes", () => {
     }
 
     for (const template of templates) {
-      expect(paths).toContain(`/templates/${template.slug}`);
+      expect(paths).toContain(`/apps/${template.slug}`);
     }
 
     expect(paths).toContain("/zh-CN/docs/internationalization");
@@ -252,7 +252,7 @@ describe("template routes", () => {
     expect(paths).not.toContain("/docs/zh-CN/internationalization");
 
     expect(paths).not.toContain("/docs/resources");
-    expect(paths).not.toContain("/templates/starter");
-    expect(paths).not.toContain("/templates/videos");
+    expect(paths).not.toContain("/apps/starter");
+    expect(paths).not.toContain("/apps/videos");
   }, 60000);
 });
