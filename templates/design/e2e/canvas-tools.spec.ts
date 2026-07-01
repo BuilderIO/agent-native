@@ -7,7 +7,7 @@ import {
 } from "@playwright/test";
 
 import { FIXTURE_HTML } from "./global-setup";
-import { bridgeMessages, gotoEditor, installBridge } from "./helpers";
+import { gotoEditor, installBridge } from "./helpers";
 
 let designId: string;
 let baseURLForActions: string;
@@ -312,6 +312,27 @@ async function dragInEmptyCanvasLeftOf(
   };
   await dragBetween(page, start, {
     x: start.x - width,
+    y: start.y + height,
+  });
+}
+
+async function dragInEmptyCanvasRightOf(
+  page: Page,
+  shellName: string,
+  options?: { width?: number; height?: number; topOffset?: number },
+): Promise<void> {
+  const card = screenShell(page, shellName).locator("[data-screen-card]");
+  const cardBox = await card.boundingBox();
+  if (!cardBox) throw new Error(`no ${shellName} screen card box`);
+
+  const width = options?.width ?? 96;
+  const height = options?.height ?? 96;
+  const start = {
+    x: cardBox.x + cardBox.width + 24,
+    y: cardBox.y + (options?.topOffset ?? 120),
+  };
+  await dragBetween(page, start, {
+    x: start.x + width,
     y: start.y + height,
   });
 }
@@ -1149,7 +1170,7 @@ test("dragging a board rectangle into another board rectangle reparents it", asy
     "aria-pressed",
     "true",
   );
-  await dragInEmptyCanvasLeftOf(page, "Home", {
+  await dragInEmptyCanvasRightOf(page, "Home", {
     width: 180,
     height: 130,
     topOffset: 220,
@@ -1174,7 +1195,7 @@ test("dragging a board rectangle into another board rectangle reparents it", asy
     "aria-pressed",
     "true",
   );
-  await dragInEmptyCanvasLeftOf(page, "Home", {
+  await dragInEmptyCanvasRightOf(page, "Home", {
     width: 72,
     height: 54,
     topOffset: 420,
@@ -1204,8 +1225,6 @@ test("dragging a board rectangle into another board rectangle reparents it", asy
     "__board__.html",
     childId,
   );
-  // eslint-disable-next-line no-console
-  console.log("board reparent boxes", JSON.stringify({ parentBox, childBox }));
 
   await dragBetween(
     page,
@@ -1219,27 +1238,6 @@ test("dragging a board rectangle into another board rectangle reparents it", asy
     },
   );
 
-  // eslint-disable-next-line no-console
-  console.log(
-    "bridge messages after board reparent drag",
-    JSON.stringify(
-      (await bridgeMessages(page)).map((message) => ({
-        type: message.type,
-        placement: message.placement,
-        dropMode: message.dropMode,
-        sourceId: message.sourceId,
-        anchorSourceId: message.anchorSourceId,
-      })),
-    ),
-  );
-
-  await expect
-    .poll(async () =>
-      (await bridgeMessages(page)).filter(
-        (message) => message.type === "visual-structure-change",
-      ),
-    )
-    .toHaveLength(1);
   await expect
     .poll(
       () => isPrimitiveNestedUnder(page, "__board__.html", parentId, childId),
