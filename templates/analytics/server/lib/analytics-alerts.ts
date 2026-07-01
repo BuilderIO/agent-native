@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { notify } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
-import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -21,7 +21,12 @@ export interface AnalyticsAlertFilter {
 
 export type AnalyticsAlertThresholdMode = "event_count" | "distinct_count";
 export type AnalyticsAlertSeverity = "warning" | "critical";
-export type AnalyticsAlertStatus = "ok" | "triggered" | "cooldown" | "error";
+export type AnalyticsAlertStatus =
+  | "ok"
+  | "triggered"
+  | "cooldown"
+  | "error"
+  | "running";
 
 export interface AnalyticsAlertRuleInput {
   id?: string;
@@ -107,6 +112,8 @@ export interface RunRuleResult extends AnalyticsAlertEvaluation {
 function nowIso(): string {
   return new Date().toISOString();
 }
+
+const ALERT_RULE_RUNNING_STALE_MS = 15 * 60 * 1000;
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (typeof raw !== "string" || !raw.trim()) return fallback;
@@ -372,6 +379,7 @@ export async function listEnabledAnalyticsAlertRules(options: {
       options.orgId ? eq(table.orgId, options.orgId) : isNull(table.orgId),
     );
   }
+  clauses.push(alertRuleNotRunningWhere(new Date()));
   const rows = await db
     .select()
     .from(table)
@@ -383,6 +391,52 @@ export async function listEnabledAnalyticsAlertRules(options: {
     )
     .limit(clampInt(options.limit, 1, 500));
   return rows.map(rowToRule);
+}
+
+function alertRuleNotRunningWhere(now: Date) {
+  const table = schema.analyticsAlertRules;
+  const staleRunningBefore = new Date(
+    now.getTime() - ALERT_RULE_RUNNING_STALE_MS,
+  ).toISOString();
+  return or(
+    isNull(table.lastStatus),
+    sql`${table.lastStatus} <> 'running'`,
+    isNull(table.lastEvaluatedAt),
+    lte(table.lastEvaluatedAt, staleRunningBefore),
+  );
+}
+
+function alertRulePreviousEvaluationWhere(rule: AnalyticsAlertRule) {
+  const table = schema.analyticsAlertRules;
+  return rule.lastEvaluatedAt
+    ? eq(table.lastEvaluatedAt, rule.lastEvaluatedAt)
+    : isNull(table.lastEvaluatedAt);
+}
+
+export async function claimAnalyticsAlertRuleEvaluation(
+  rule: AnalyticsAlertRule,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const db = getDb() as any;
+  const table = schema.analyticsAlertRules;
+  const claimedAt = now.toISOString();
+  const rows = await db
+    .update(table)
+    .set({
+      lastEvaluatedAt: claimedAt,
+      lastStatus: "running",
+      lastError: null,
+    })
+    .where(
+      and(
+        eq(table.id, rule.id),
+        eq(table.enabled, true),
+        alertRuleNotRunningWhere(now),
+        alertRulePreviousEvaluationWhere(rule),
+      ),
+    )
+    .returning({ id: table.id });
+  return rows.length > 0;
 }
 
 export async function evaluateAndNotifyAnalyticsAlertRule(
@@ -416,12 +470,13 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
   }
 
   const body = alertBody(rule, evaluation);
+  const channels = ensureInboxNotificationChannel(rule.channels);
   const stored = await notify(
     {
       severity: rule.severity,
       title: `Analytics alert: ${rule.name}`,
       body,
-      channels: rule.channels,
+      channels,
       metadata: {
         kind: "analytics_alert",
         ruleId: rule.id,
@@ -438,13 +493,23 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
         filters: rule.filters,
         sampleEvents: evaluation.sampleEvents,
         emailRecipients: rule.emailRecipients,
+        requestedChannels: rule.channels,
       },
     },
     { owner: rule.ownerEmail },
   );
+  if (!stored?.id) {
+    await markRuleStatus(rule.id, {
+      lastEvaluatedAt: evaluatedAt,
+      lastStatus: "error",
+      lastError:
+        "Analytics alert notification was not delivered; no inbox notification was stored.",
+    });
+    return { ruleId: rule.id, status: "error", ...evaluation };
+  }
 
   await recordIncident(rule, {
-    notificationId: stored?.id,
+    notificationId: stored.id,
     triggeredAt: evaluatedAt,
     windowStart,
     windowEnd,
@@ -459,9 +524,14 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
   return {
     ruleId: rule.id,
     status: "triggered",
-    notificationId: stored?.id,
+    notificationId: stored.id,
     ...evaluation,
   };
+}
+
+function ensureInboxNotificationChannel(channels: string[]): string[] {
+  const normalized = channels.map((channel) => channel.trim()).filter(Boolean);
+  return normalized.includes("inbox") ? normalized : ["inbox", ...normalized];
 }
 
 export async function markAnalyticsAlertRuleError(

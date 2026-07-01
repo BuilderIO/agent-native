@@ -207,7 +207,7 @@ export const analyticsAlertRules = table("analytics_alert_rules", {
   lastEvaluatedAt: text("last_evaluated_at"),
   lastTriggeredAt: text("last_triggered_at"),
   lastStatus: text("last_status", {
-    enum: ["ok", "triggered", "cooldown", "error"],
+    enum: ["ok", "triggered", "cooldown", "error", "running"],
   }),
   lastError: text("last_error"),
   createdAt: text("created_at").notNull().default(now()),
