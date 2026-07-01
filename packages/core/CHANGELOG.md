@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.84.14
+
+### Patch Changes
+
+- bbc0a56: Persist terminal reasons for agent runs and classify recoverable run-timeout continuations separately in traces.
+- bbc0a56: Improve agent run diagnostics by recording terminal continuation reasons and adding safe run context to copied recovery debug details.
+- bbc0a56: Keep visual plan and recap diagram labels wrapped inside their boxes instead of overflowing authored diagram shapes.
+
 ## 0.84.13
 
 ### Patch Changes
