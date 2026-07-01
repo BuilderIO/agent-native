@@ -492,6 +492,27 @@ export default runMigrations(
       version: 71,
       sql: `CREATE INDEX IF NOT EXISTS session_replay_ingests_recording_idx ON session_replay_ingests (recording_id)`,
     },
+    {
+      version: 72,
+      sql: {
+        postgres: `UPDATE analytics_events SET timestamp = COALESCE(NULLIF(received_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), event_date = substr(COALESCE(NULLIF(received_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), 1, 10) WHERE COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) > to_char(CURRENT_DATE, 'YYYY-MM-DD')`,
+        sqlite: `UPDATE analytics_events SET timestamp = COALESCE(NULLIF(received_at, ''), datetime('now')), event_date = substr(COALESCE(NULLIF(received_at, ''), date('now')), 1, 10) WHERE COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) > date('now')`,
+      },
+    },
+    {
+      version: 73,
+      sql: {
+        postgres: `UPDATE session_recordings SET started_at = CASE WHEN substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(last_ingested_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(last_ingested_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE ended_at END WHERE (owner_email IS NOT NULL OR org_id IS NOT NULL) AND (substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD')))`,
+        sqlite: `UPDATE session_recordings SET started_at = CASE WHEN substr(started_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(last_ingested_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(last_ingested_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE ended_at END WHERE (owner_email IS NOT NULL OR org_id IS NOT NULL) AND (substr(started_at, 1, 10) > date('now') OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now')))`,
+      },
+    },
+    {
+      version: 74,
+      sql: {
+        postgres: `UPDATE session_replay_chunks SET started_at = CASE WHEN started_at IS NOT NULL AND substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE ended_at END WHERE (started_at IS NOT NULL AND substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD')) OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD'))`,
+        sqlite: `UPDATE session_replay_chunks SET started_at = CASE WHEN started_at IS NOT NULL AND substr(started_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE ended_at END WHERE (started_at IS NOT NULL AND substr(started_at, 1, 10) > date('now')) OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now'))`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -54,6 +54,7 @@ import { computeProtectedSegmentIds } from "./context-xray/segments.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   backgroundRuntimeDiagnosticDetail,
+  dispatchPathTargetsNetlifyBackgroundFunction,
   isAgentChatDurableBackgroundEnabled,
   resolveAgentChatProcessRunDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
@@ -5017,7 +5018,7 @@ export function createProductionAgentHandler(
       let dispatched = false;
       const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
       const expectsNetlifyBackgroundFunction =
-        backgroundDispatchPath.startsWith("/.netlify/functions/");
+        dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
       try {
         await fireInternalDispatch({
           event,
@@ -5313,6 +5314,12 @@ export function createProductionAgentHandler(
                 // its seq log starts clean; same turnId folds the assistant
                 // message across chunks.
                 const nextRunId = generateRunId();
+                const continuationDispatchPath =
+                  resolveAgentChatProcessRunDispatchPath();
+                const continuationExpectsNetlifyBackgroundFunction =
+                  dispatchPathTargetsNetlifyBackgroundFunction(
+                    continuationDispatchPath,
+                  );
                 try {
                   await fireInternalDispatch({
                     event,
@@ -5322,7 +5329,7 @@ export function createProductionAgentHandler(
                     // background:true; never shadowed because /.netlify/* is
                     // excluded from the /* catch-all) so each chunk keeps the
                     // 15-min budget; off-Netlify the in-process framework route.
-                    path: resolveAgentChatProcessRunDispatchPath(),
+                    path: continuationDispatchPath,
                     taskId: nextRunId,
                     body: {
                       ...body,
@@ -5332,7 +5339,7 @@ export function createProductionAgentHandler(
                         turnId: effectiveTurnId,
                         continuationCount: backgroundContinuationCount + 1,
                         backgroundFunctionRuntimeExpected:
-                          runsInBackgroundFunction,
+                          continuationExpectsNetlifyBackgroundFunction,
                       },
                     },
                   });

@@ -205,6 +205,7 @@ describe("compose-dashboard", () => {
       expect(panel.sql).toContain("event_date");
       expect(panel.sql).not.toContain("substr(timestamp, 1, 10)");
       expect(panel.sql).toContain("CURRENT_DATE");
+      expect(panel.sql).toContain("<= to_char(CURRENT_DATE, 'YYYY-MM-DD')");
       expect(panel.sql).not.toContain("AT TIME ZONE");
       expect(panel.sql).not.toContain("now() AT TIME ZONE");
     }

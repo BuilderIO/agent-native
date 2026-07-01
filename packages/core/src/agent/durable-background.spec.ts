@@ -8,6 +8,7 @@ import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   backgroundRuntimeDiagnosticDetail,
   backgroundRunMarkerExpectsBackgroundRuntime,
+  dispatchPathTargetsNetlifyBackgroundFunction,
   extractProcessRunId,
   isAgentChatDurableBackgroundEnabled,
   isHostedRuntimeForDurableBackground,
@@ -196,6 +197,19 @@ describe("isInBackgroundFunctionRuntime (real -background function guard)", () =
 });
 
 describe("background runtime marker fallback", () => {
+  it("derives marker expectation from the concrete dispatch path", () => {
+    expect(
+      dispatchPathTargetsNetlifyBackgroundFunction(
+        "/.netlify/functions/design-agent-background",
+      ),
+    ).toBe(true);
+    expect(
+      dispatchPathTargetsNetlifyBackgroundFunction(
+        "/_agent-native/agent-chat/_process-run",
+      ),
+    ).toBe(false);
+  });
+
   it("uses the long background timeout when the authenticated dispatch marker proves the Netlify background function URL was targeted", () => {
     const marker = { backgroundFunctionRuntimeExpected: true };
 
