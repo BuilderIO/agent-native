@@ -245,9 +245,9 @@ describe("waitForThreadRunToClear", () => {
     expect(reconnectSource).toContain(
       "reconnectTailOnlyRef.current = afterSeq > 0",
     );
-    expect(stopSource).toContain(
-      "!reconnectTailOnlyRef.current && reconnectContent.length > 0",
-    );
+    expect(stopSource).toContain("!reconnectTailOnlyRef.current");
+    expect(stopSource).toContain("reconnectCanMaterializeRef.current");
+    expect(stopSource).toContain("reconnectContent.length > 0");
     expect(stopSource).toContain("reconnectTailOnlyRef.current = false");
   });
 
@@ -321,6 +321,98 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("reconnectContent.length > 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
     expect(renderSource).not.toContain("reconnectAfterSeq");
+  });
+
+  it("keeps tail-resume reconnect content display-only on normal completion", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("setReconnectFrozen(afterSeq === 0)");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const completionSource = source.slice(start, end);
+    const materializeStart = source.indexOf(
+      "const materializeFrozenReconnectContent = useCallback",
+    );
+    const materializeEnd = source.indexOf(
+      "// Abort the active server run",
+      materializeStart,
+    );
+    const materializeSource = source.slice(materializeStart, materializeEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(materializeStart).toBeGreaterThan(-1);
+    expect(materializeEnd).toBeGreaterThan(materializeStart);
+    expect(source).toContain(
+      "reconnectCanMaterializeRef.current = afterSeq === 0",
+    );
+    expect(completionSource).toContain("setReconnectFrozen(afterSeq === 0)");
+    expect(completionSource).toContain("if (afterSeq > 0)");
+    expect(completionSource).toContain("setReconnectContent([])");
+    expect(completionSource).toContain("setReconnectFrozen(false)");
+    expect(completionSource).toContain(
+      "if (loaded || afterSeq > 0 || latestContent.length === 0)",
+    );
+    expect(completionSource).toContain(
+      "afterSeq > 0 || repoHasAssistantMessage(repo)",
+    );
+    expect(completionSource).not.toContain("setReconnectFrozen(true)");
+    expect(materializeSource).toContain("!reconnectCanMaterializeRef.current");
+    expect(materializeSource).toContain("setReconnectContent([])");
+    expect(materializeSource).toContain("return;");
+  });
+
+  it("keeps stopped fresh reconnect content materializable", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const stopStart = source.indexOf("const stopActiveRun = useCallback");
+    const stopEnd = source.indexOf(
+      "// Keep the ref current so addToQueue can call it",
+      stopStart,
+    );
+    const stopSource = source.slice(stopStart, stopEnd);
+    const freezeStart = stopSource.indexOf("if (shouldFreezeReconnectContent)");
+    const elseStart = stopSource.indexOf("} else {", freezeStart);
+    const freezeBranch = stopSource.slice(freezeStart, elseStart);
+
+    expect(stopStart).toBeGreaterThan(-1);
+    expect(stopEnd).toBeGreaterThan(stopStart);
+    expect(stopSource).toContain("!reconnectTailOnlyRef.current");
+    expect(stopSource).toContain("reconnectCanMaterializeRef.current");
+    expect(stopSource).toContain("reconnectContent.length > 0");
+    expect(freezeStart).toBeGreaterThan(-1);
+    expect(elseStart).toBeGreaterThan(freezeStart);
+    expect(freezeBranch).toContain("setReconnectFrozen(true)");
+    expect(freezeBranch).not.toContain(
+      "reconnectCanMaterializeRef.current = false",
+    );
+  });
+
+  it("keeps no-progress fresh reconnect content materializable", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf(
+      "if (noProgressDuringReconnect && reconnectRunIdRef.current === runId)",
+    );
+    const end = source.indexOf("setReconnectFrozen(afterSeq === 0)", start);
+    const noProgressSource = source.slice(start, end);
+    const tailStart = noProgressSource.indexOf("if (afterSeq > 0)");
+    const freshStart = noProgressSource.indexOf("} else {", tailStart);
+    const freshEnd = noProgressSource.indexOf("setRunErrorInfo", freshStart);
+    const freshBranch = noProgressSource.slice(freshStart, freshEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(tailStart).toBeGreaterThan(-1);
+    expect(freshStart).toBeGreaterThan(tailStart);
+    expect(freshBranch).toContain(
+      "reconnectCanMaterializeRef.current = latestContent.length > 0",
+    );
+    expect(noProgressSource).toContain(
+      "if (afterSeq > 0) {\n            reconnectCanMaterializeRef.current = false;\n          }",
+    );
   });
 });
 

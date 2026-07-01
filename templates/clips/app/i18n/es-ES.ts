@@ -427,6 +427,9 @@ const messages = {
     embed: "Insertar",
     shareLink: "Enlace para compartir",
     shareWithAgents: "Compartir con agentes",
+    copyAgentPrompt: "Copiar indicación para agente",
+    agentPrompt:
+      "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
     agentTokenDescription:
       "Este agente URL utiliza un token de corta duración, por lo que los agentes pueden leer el clip sin exponer la contraseña.",
     gifPreview: "vista previa de GIF",

@@ -324,6 +324,9 @@ function LinkTab({
     ? tokenizedAgentContextUrl
     : publicAgentContextUrl;
   const agentShareDisabled = isPending || !isPublic || !agentContextUrl;
+  const agentPrompt = agentContextUrl
+    ? t("shareDialog.agentPrompt", { agentContextUrl })
+    : "";
 
   return (
     <div className="space-y-4">
@@ -348,6 +351,12 @@ function LinkTab({
       <CopyField
         label={t("shareDialog.shareWithAgents")}
         value={agentContextUrl}
+        disabled={agentShareDisabled}
+      />
+
+      <CopyField
+        label={t("shareDialog.copyAgentPrompt")}
+        value={agentPrompt}
         disabled={agentShareDisabled}
       />
 
