@@ -438,6 +438,7 @@ const messages = {
     askOwnerPublic: "Peça ao proprietário para torná-lo público.",
     responsive: "Responsivo (16:9)",
     fixedSize: "Tamanho fixo",
+    embedIframeTitle: "Video do Clips",
     width: "Largura",
     height: "Altura",
     autoplay: "Reprodução automática",

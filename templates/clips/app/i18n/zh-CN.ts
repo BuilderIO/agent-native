@@ -412,6 +412,7 @@ const messages = {
     askOwnerPublic: "请楼主公开一下。",
     responsive: "反应灵敏 (16:9)",
     fixedSize: "固定尺寸",
+    embedIframeTitle: "Clips 视频",
     width: "宽度",
     height: "高度",
     autoplay: "自动播放",

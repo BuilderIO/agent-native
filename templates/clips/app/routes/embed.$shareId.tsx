@@ -78,6 +78,34 @@ export default function EmbedRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const previous = {
+      htmlOverflow: html.style.overflow,
+      htmlHeight: html.style.height,
+      bodyOverflow: body.style.overflow,
+      bodyHeight: body.style.height,
+      bodyBackground: body.style.background,
+    };
+
+    html.style.overflow = "hidden";
+    html.style.height = "100%";
+    body.style.overflow = "hidden";
+    body.style.height = "100%";
+    body.style.background = "#000";
+
+    return () => {
+      html.style.overflow = previous.htmlOverflow;
+      html.style.height = previous.htmlHeight;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.height = previous.bodyHeight;
+      body.style.background = previous.bodyBackground;
+    };
+  }, []);
+
   const dataQ = useQuery({
     queryKey: ["public-recording", shareId, password],
     queryFn: async () => {
@@ -135,7 +163,7 @@ export default function EmbedRoute() {
 
   if (dataQ.isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen w-full bg-black">
+      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black">
         <Spinner className="h-8 w-8 text-white/70" />
       </div>
     );
@@ -153,14 +181,14 @@ export default function EmbedRoute() {
 
   if (!recording) {
     return (
-      <div className="flex items-center justify-center h-screen w-full bg-black text-white">
+      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black text-white">
         <p className="text-sm">{t("embedRoute.unavailable")}</p>
       </div>
     );
   }
 
   return (
-    <div className="h-screen w-screen bg-black overflow-hidden">
+    <div className="fixed inset-0 h-dvh w-dvw overflow-hidden bg-black">
       <VideoPlayer
         ref={playerRef}
         recordingId={recording.id}

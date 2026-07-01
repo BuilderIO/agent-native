@@ -425,6 +425,7 @@ const messages = {
     askOwnerPublic: "मालिक से इसे सार्वजनिक करने के लिए कहें.",
     responsive: "प्रतिक्रियाशील (16:9)",
     fixedSize: "निश्चित आकार",
+    embedIframeTitle: "Clips वीडियो",
     width: "चौड़ाई",
     height: "ऊंचाई",
     autoplay: "स्वत: प्ले",

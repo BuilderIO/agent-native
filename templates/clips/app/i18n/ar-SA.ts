@@ -428,6 +428,7 @@ const messages = {
     askOwnerPublic: "اطلب من المالك نشره.",
     responsive: "مستجيب (16:9)",
     fixedSize: "حجم ثابت",
+    embedIframeTitle: "فيديو Clips",
     width: "عرض",
     height: "ارتفاع",
     autoplay: "التشغيل التلقائي",

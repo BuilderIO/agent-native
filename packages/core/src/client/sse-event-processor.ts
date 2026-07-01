@@ -27,6 +27,7 @@ export type ContentPart =
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
       activity?: boolean;
+      repeatCount?: number;
       /**
        * Set when the server emitted an `approval_required` event for this tool
        * call (opt-in `needsApproval` actions). The action did NOT run; the UI
@@ -182,6 +183,10 @@ function isPreparingActionActivity(ev: SSEEvent): boolean {
   if (ev.type !== "activity") return false;
   const label = (ev.label ?? "").trim().toLowerCase();
   return label.startsWith("preparing ") && label.includes(" action");
+}
+
+function isProgressEvent(ev: SSEEvent): boolean {
+  return ev.type !== "stream_keepalive";
 }
 
 function baseActivityLabel(ev: SSEEvent, tool?: string): string {
@@ -460,6 +465,81 @@ function pendingToolNames(content: ContentPart[]): {
   return { activity: [...activity], running: [...running] };
 }
 
+function contentSnapshot(content: ContentPart[]): ContentPart[] {
+  return content.map((part) => {
+    if (part.type === "text") return { ...part };
+    return {
+      ...part,
+      args: { ...part.args },
+      ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+      ...(part.chatUI ? { chatUI: { ...part.chatUI } } : {}),
+      ...(part.approval ? { approval: { ...part.approval } } : {}),
+      ...(part.structuredMeta
+        ? { structuredMeta: { ...part.structuredMeta } }
+        : {}),
+    };
+  });
+}
+
+function repeatSignatureValue(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+function completedToolRepeatSignature(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+): string | null {
+  if (
+    part.result === undefined ||
+    part.activity === true ||
+    part.approval ||
+    part.mcpApp ||
+    part.chatUI ||
+    part.structuredMeta
+  ) {
+    return null;
+  }
+  return [
+    part.toolName,
+    part.argsText,
+    repeatSignatureValue(part.args),
+    part.result,
+    part.isError === true ? "error" : "",
+    part.completedSideEffect === true ? "side-effect" : "",
+  ].join("\u0000");
+}
+
+function coalesceCompletedToolRepeat(
+  content: ContentPart[],
+  completedIndex: number,
+): void {
+  const current = content[completedIndex];
+  const previous = content[completedIndex - 1];
+  if (
+    !current ||
+    !previous ||
+    current.type !== "tool-call" ||
+    previous.type !== "tool-call"
+  ) {
+    return;
+  }
+
+  const currentSignature = completedToolRepeatSignature(current);
+  if (
+    !currentSignature ||
+    currentSignature !== completedToolRepeatSignature(previous)
+  ) {
+    return;
+  }
+
+  previous.repeatCount =
+    (previous.repeatCount ?? 1) + (current.repeatCount ?? 1);
+  content.splice(completedIndex, 1);
+}
+
 function formatToolNames(tools: string[]): string {
   const names = tools.map(humanizeToolName);
   if (names.length === 0) return "the promised action";
@@ -578,7 +658,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -615,7 +695,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -672,7 +752,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -694,7 +774,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -730,11 +810,12 @@ export function processEvent(
         if (part.activity !== true && part.isError !== true) {
           markCompletedToolAfterAssistantText(state, part.toolName);
         }
+        coalesceCompletedToolRepeat(content, doneIdx);
       }
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -764,7 +845,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -784,7 +865,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -826,7 +907,7 @@ export function processEvent(
     return {
       action: "missing_api_key",
       result: {
-        content: [...content],
+        content: contentSnapshot(content),
         status: { type: "incomplete" as const, reason: "error" as const },
         metadata: { custom: { runError } },
       } as ChatModelRunResult,
@@ -938,7 +1019,7 @@ export function processEvent(
     return {
       action: "error",
       result: {
-        content: [...content],
+        content: contentSnapshot(content),
         status: { type: "incomplete" as const, reason: "error" as const },
         metadata: { custom: { runError } },
       } as ChatModelRunResult,
@@ -974,7 +1055,7 @@ export function processEvent(
       return {
         action: "error",
         result: {
-          content: [...content],
+          content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
         } as ChatModelRunResult,
@@ -993,7 +1074,7 @@ export function processEvent(
       return {
         action: "done",
         result: {
-          content: [...content],
+          content: contentSnapshot(content),
           status: { type: "complete" as const, reason: "stop" as const },
           metadata: {
             custom: {
@@ -1009,7 +1090,7 @@ export function processEvent(
     }
     return {
       action: "done",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -1075,16 +1156,30 @@ export async function* readSSEStream(
 
   try {
     while (true) {
-      const { done, value } = await readChunkWithProgressTimeout(
-        reader,
-        lastMeaningfulEventAt,
-      );
+      let readResult: ReadableStreamReadResult<Uint8Array>;
+      try {
+        readResult = await readChunkWithProgressTimeout(
+          reader,
+          lastMeaningfulEventAt,
+        );
+      } catch (err) {
+        if (err instanceof AgentAutoContinueSignal) {
+          throw new AgentAutoContinueSignal({
+            reason: err.reason,
+            maxIterations: err.maxIterations,
+            activityTrail: [...activityTrail],
+            errorInfo: err.errorInfo,
+          });
+        }
+        throw err;
+      }
+      const { done, value } = readResult;
       if (done) break;
 
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
-      let sawDataEvent = false;
+      let sawProgressEvent = false;
 
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
@@ -1097,9 +1192,11 @@ export async function* readSSEStream(
         } catch {
           continue;
         }
-        sawDataEvent = true;
         const now = Date.now();
-        lastMeaningfulEventAt = now;
+        if (isProgressEvent(ev)) {
+          sawProgressEvent = true;
+          lastMeaningfulEventAt = now;
+        }
         updatePreparingActionState(preparingActionState, ev, now);
 
         // Track sequence number for reconnection
@@ -1162,10 +1259,13 @@ export async function* readSSEStream(
       }
 
       if (
-        !sawDataEvent &&
+        !sawProgressEvent &&
         Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
       ) {
-        throw new AgentAutoContinueSignal({ reason: "no_progress" });
+        throw new AgentAutoContinueSignal({
+          reason: "no_progress",
+          activityTrail: [...activityTrail],
+        });
       }
     }
   } finally {
@@ -1218,18 +1318,31 @@ export async function readSSEStreamRaw(
 
   try {
     while (true) {
-      const { done, value } = await readChunkWithProgressTimeout(
-        reader,
-        lastMeaningfulEventAt,
-      );
+      let readResult: ReadableStreamReadResult<Uint8Array>;
+      try {
+        readResult = await readChunkWithProgressTimeout(
+          reader,
+          lastMeaningfulEventAt,
+        );
+      } catch (err) {
+        if (err instanceof AgentAutoContinueSignal) {
+          throw new AgentAutoContinueSignal({
+            reason: err.reason,
+            maxIterations: err.maxIterations,
+            activityTrail: [...activityTrail],
+            errorInfo: err.errorInfo,
+          });
+        }
+        throw err;
+      }
+      const { done, value } = readResult;
       if (done) break;
 
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
 
-      let updated = false;
-      let sawDataEvent = false;
+      let sawProgressEvent = false;
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
         const raw = line.slice(6).trim();
@@ -1241,9 +1354,11 @@ export async function readSSEStreamRaw(
         } catch {
           continue;
         }
-        sawDataEvent = true;
         const now = Date.now();
-        lastMeaningfulEventAt = now;
+        if (isProgressEvent(ev)) {
+          sawProgressEvent = true;
+          lastMeaningfulEventAt = now;
+        }
         updatePreparingActionState(preparingActionState, ev, now);
 
         if (ev.seq !== undefined && onSeq) {
@@ -1287,10 +1402,12 @@ export async function readSSEStreamRaw(
           action === "error" ||
           action === "missing_api_key"
         ) {
-          updated = true;
+          onUpdate(contentSnapshot(content));
+          emittedLatestContent = true;
         }
         if (action === "auto_continue") {
-          onUpdate([...content]);
+          onUpdate(contentSnapshot(content));
+          emittedLatestContent = true;
           throw new AgentAutoContinueSignal(
             autoContinue
               ? { ...autoContinue, activityTrail: [...activityTrail] }
@@ -1298,7 +1415,7 @@ export async function readSSEStreamRaw(
           );
         }
         if (hasStalledPreparingAction(preparingActionState, Date.now())) {
-          onUpdate([...content]);
+          onUpdate(contentSnapshot(content));
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
@@ -1309,20 +1426,18 @@ export async function readSSEStreamRaw(
           action === "error" ||
           action === "missing_api_key"
         ) {
-          onUpdate([...content]);
           return;
         }
       }
 
-      if (updated) {
-        onUpdate([...content]);
-        emittedLatestContent = true;
-      }
       if (
-        !sawDataEvent &&
+        !sawProgressEvent &&
         Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
       ) {
-        throw new AgentAutoContinueSignal({ reason: "no_progress" });
+        throw new AgentAutoContinueSignal({
+          reason: "no_progress",
+          activityTrail: [...activityTrail],
+        });
       }
     }
   } finally {
@@ -1332,6 +1447,8 @@ export async function readSSEStreamRaw(
       // See readSSEStream: cancellation may race lock release in browsers.
     }
   }
-  if (content.length > 0 && !emittedLatestContent) onUpdate([...content]);
+  if (content.length > 0 && !emittedLatestContent) {
+    onUpdate(contentSnapshot(content));
+  }
   throw new AgentAutoContinueSignal({ reason: "stream_ended" });
 }

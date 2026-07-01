@@ -430,6 +430,7 @@ const messages = {
     askOwnerPublic: "소유자에게 공개하도록 요청하세요.",
     responsive: "반응형(16:9)",
     fixedSize: "고정 크기",
+    embedIframeTitle: "Clips 동영상",
     width: "너비",
     height: "키",
     autoplay: "자동재생",

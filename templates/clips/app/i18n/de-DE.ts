@@ -445,6 +445,7 @@ const messages = {
     askOwnerPublic: "Bitten Sie den Eigentümer, es öffentlich zu machen.",
     responsive: "Responsiv (16:9)",
     fixedSize: "Feste Größe",
+    embedIframeTitle: "Clips-Video",
     width: "Breite",
     height: "Höhe",
     autoplay: "Übersetzt: Autoplay",

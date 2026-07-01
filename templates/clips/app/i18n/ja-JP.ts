@@ -437,6 +437,7 @@ const messages = {
     askOwnerPublic: "所有者に公開するよう依頼してください。",
     responsive: "レスポンシブ (16:9)",
     fixedSize: "固定サイズ",
+    embedIframeTitle: "Clips動画",
     width: "幅",
     height: "身長",
     autoplay: "自動再生",

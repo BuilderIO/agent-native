@@ -440,6 +440,7 @@ const messages = {
     askOwnerPublic: "Demandez au propriétaire de le rendre public.",
     responsive: "Réactif (16:9)",
     fixedSize: "Taille fixe",
+    embedIframeTitle: "Video Clips",
     width: "Largeur",
     height: "Hauteur",
     autoplay: "Lecture automatique",
