@@ -253,6 +253,25 @@ describe("run store", () => {
     expect(JSON.parse(eventJson)).toEqual(STALE_RUN_ERROR_EVENT);
   });
 
+  it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
+    await reapIfStale("run-progressing");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs[\s\S]*SET status = 'errored'[\s\S]*WHERE id = \?/i.test(
+        call.sql,
+      ),
+    );
+    // The stale predicate must key off the MOST RECENT of heartbeat_at (process
+    // timer) and last_progress_at (real work — a long tool's activity every 8s),
+    // not heartbeat_at alone. Otherwise a run that is demonstrably generating is
+    // reaped when the process-liveness write lags, aborting the in-flight tool
+    // ("Run aborted").
+    expect(update?.sql).toContain("last_progress_at");
+    expect(update?.sql).toMatch(
+      /CASE WHEN COALESCE\(last_progress_at, started_at\) > COALESCE\(heartbeat_at, started_at\)/,
+    );
+  });
+
   it("cleanupOldRuns SELECTs both heartbeat-stale AND age-stale rows for terminal-event append", async () => {
     staleSelectRows = [{ id: "old-but-heartbeating-run" }];
 
@@ -264,13 +283,16 @@ describe("run store", () => {
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs/i.test(call.sql) &&
-        // The heartbeat predicate now uses the background-aware cutoff fragment
-        // `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN
-        // ... END)` so a slow background cold-start isn't reaped early. Still one
-        // query, still covering both predicates.
-        /COALESCE\(heartbeat_at, started_at\) < \(CAST\(\? AS BIGINT\) -/.test(
+        // The heartbeat predicate keys on the liveness basis (most recent of
+        // heartbeat_at and last_progress_at) against the background-aware cutoff
+        // fragment `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE
+        // 'background%' THEN ... END)`, so a progressing run isn't reaped and a
+        // slow background cold-start isn't reaped early. Still one query, still
+        // covering both predicates.
+        /CASE WHEN COALESCE\(last_progress_at, started_at\) > COALESCE\(heartbeat_at, started_at\)/.test(
           call.sql,
         ) &&
+        /< \(CAST\(\? AS BIGINT\) -/.test(call.sql) &&
         /dispatch_mode LIKE 'background%'/.test(call.sql) &&
         /OR started_at < \?/.test(call.sql),
     );

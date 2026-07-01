@@ -383,7 +383,10 @@ const messages = {
     videoPromptPlaceholder: "8 秒產品展示，慢速推近鏡頭",
     imagePromptPlaceholder: "關於冷啟動延遲文章的部落格頭圖",
     variants: "{{count}} 個變體",
+    logo: "徽標",
     compositeCanonicalLogo: "合成規範徽標",
+    compositeCanonicalLogoHint:
+      "為使用此預設產生的每張圖片合成此套件的規範徽標。需要已設定規範徽標。",
     openChat: "開啟聊天",
     defaultTextPolicy: "盡量不要嵌入文字。如需文字，請保持簡短且易讀。",
     generationPresetCreated: "生成預設已建立。",

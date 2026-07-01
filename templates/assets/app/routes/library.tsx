@@ -2439,7 +2439,8 @@ export function AssetPickerSurface() {
           presetTitle: selectedPreset?.title ?? null,
           tier: hostConfig.tier,
           styleStrength: hostConfig.styleStrength ?? "balanced",
-          includeLogo: hostConfig.includeLogo ?? false,
+          // Omit when unset so the selected preset's logo setting drives it.
+          includeLogo: hostConfig.includeLogo,
         }),
         submit: true,
         openSidebar: true,
@@ -2463,7 +2464,8 @@ export function AssetPickerSurface() {
       })),
       tier: hostConfig.tier,
       styleStrength: hostConfig.styleStrength ?? "balanced",
-      includeLogo: hostConfig.includeLogo ?? false,
+      // Omit when unset so the selected preset's logo setting drives it.
+      includeLogo: hostConfig.includeLogo,
       source: "ui",
       callerAppId: hostConfig.callerAppId,
     } as any);
