@@ -260,6 +260,9 @@ async function createA2AClientForAskApp(origin: string): Promise<{
   return {
     client: new A2AClient(origin, auth.apiKey, {
       requestTimeoutMs: ASK_APP_A2A_REQUEST_TIMEOUT_MS,
+      ...(auth.apiKeyFallbacks
+        ? { fallbackApiKeys: auth.apiKeyFallbacks }
+        : {}),
     }),
     metadata,
   };

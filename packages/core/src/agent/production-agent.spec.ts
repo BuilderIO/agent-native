@@ -830,6 +830,8 @@ describe("runAgentLoop", () => {
 
   it("emits activity while a tool input is being assembled", async () => {
     let streamCalls = 0;
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -850,6 +852,7 @@ describe("runAgentLoop", () => {
             id: "tool-create",
             name: "create-document",
           };
+          now += 2_000;
           yield {
             type: "tool-input-delta",
             id: "tool-create",
@@ -879,23 +882,33 @@ describe("runAgentLoop", () => {
     };
     const events: any[] = [];
 
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "create-document": actionEntry({ readOnly: false }),
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-    });
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "create-document": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
 
     expect(events).toContainEqual({
       type: "activity",
       label: "Preparing create-document action",
       tool: "create-document",
+    });
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing create-document action",
+      tool: "create-document",
+      progressBytes: 8,
     });
     expect(events).toContainEqual(
       expect.objectContaining({

@@ -544,6 +544,7 @@ describe("runShot — playwright not available", () => {
       goto: vi.fn(async (nextUrl: string) => {
         gotoUrls.push(nextUrl);
       }),
+      waitForLoadState: vi.fn(async () => {}),
       waitForSelector: vi.fn(async () => {}),
       waitForTimeout: vi.fn(async () => {}),
       evaluate: vi.fn(async (fn: unknown) => {

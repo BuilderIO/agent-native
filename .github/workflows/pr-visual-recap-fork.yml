@@ -128,12 +128,12 @@ jobs:
             }
             const usesRepoSkill = skillSource === 'repo';
 
-            // Self-modifying guard: skip if the PR touches the workflow,
-            // repo-pinned skill instructions, or any agent config the runner
-            // loads. Evaluated from the trusted gate using the GitHub API — no
-            // fork code runs here. With the default bundled skill source, visual
-            // skill files are reviewed content, not instructions loaded by the runner.
-            if (pr) {
+            // Self-modifying guard: skip untrusted fork PRs if they touch the
+            // workflow, repo-pinned skill instructions, or any root agent config
+            // the runner loads. Evaluated from the trusted gate using the GitHub
+            // API — no fork code runs here. Trusted write actors may edit these
+            // files as reviewable content, and recapping them is useful signal.
+            if (pr && !isTrustedAuthor) {
               try {
                 const files = await github.paginate(github.rest.pulls.listFiles, {
                   owner: context.repo.owner,
@@ -145,10 +145,10 @@ jobs:
                   p === '.github/workflows/pr-visual-recap.yml' ||
                   p === '.github/workflows/pr-visual-recap-fork.yml' ||
                   (usesRepoSkill && /(^|\/)skills\/visual-(recap|plan|plans)\//.test(p)) ||
-                  /(^|\/)\.claude\//.test(p) ||
-                  /(^|\/)CLAUDE\.md$/.test(p) ||
-                  /(^|\/)AGENTS\.md$/.test(p) ||
-                  /(^|\/)\.mcp\.json$/.test(p);
+                  p.startsWith('.claude/') ||
+                  p === 'CLAUDE.md' ||
+                  p === 'AGENTS.md' ||
+                  p === '.mcp.json';
                 const hits = files.map((f) => f.filename).filter(isSensitive);
                 if (hits.length) {
                   reasons.push(`PR modifies recap-control files (${hits.slice(0, 3).join(', ')}${hits.length > 3 ? ', …' : ''}) — skipping so untrusted PR diff never runs with secrets`);
@@ -192,24 +192,22 @@ jobs:
                 )[0] || reasons[0] || 'skipped';
                 const skipLine = `_Recap skipped for ${shaRef}: ${primaryReason}._`;
                 const baseBody = `${MARKER}\n### Visual recap — skipped\n\nThe visual recap job did not run for this pull request. This is informational only and does **not** block the PR.`;
-                const withoutPrev = (existing && existing.body ? existing.body : baseBody)
-                  .split('\n')
-                  .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
-                  .join('\n')
-                  .trimEnd();
+                const planIdMatch = (existing && existing.body ? existing.body : '').match(/<!--\s*plan-id:\s*([A-Za-z0-9_-]{1,64})\s*-->/);
+                const planIdMarker = planIdMatch ? `\n\n<!-- plan-id: ${planIdMatch[1]} -->` : '';
+                const updatedBody = `${baseBody}${planIdMarker}\n\n${skipLine}`;
                 if (existing) {
                   await github.rest.issues.updateComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     comment_id: existing.id,
-                    body: `${withoutPrev}\n\n${skipLine}`,
+                    body: updatedBody,
                   });
                 } else {
                   await github.rest.issues.createComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     issue_number: pr.number,
-                    body: `${withoutPrev}\n\n${skipLine}`,
+                    body: updatedBody,
                   });
                 }
               } catch (e) {

@@ -1,0 +1,249 @@
+name: Cancel superseded Netlify main deploys
+
+# When many PRs merge to main in quick succession (or the auto-merged
+# "Version Packages" release PR lands), Netlify enqueues a separate production
+# deploy per site per commit. Older queued deploys are wasted work — only the
+# latest main commit needs to ship. This coalesces the production queue: on each
+# push to main it cancels every still-queued production deploy for an OLDER
+# commit, per site, and leaves the just-pushed deploy (and anything already
+# building/uploading/processing) alone. That matches "skip older main deploys,
+# only do the latest, unless it's already partway through a build."
+#
+# Preview (deploy-preview) deploys are handled separately by
+# cancel-stale-netlify-previews.yml.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Serialize cancellers so a burst of merges doesn't fan out into many parallel
+# API sweeps; never skip a run (each new commit must get a chance to supersede
+# the prior queue).
+concurrency:
+  group: cancel-stale-netlify-main-deploys
+  cancel-in-progress: false
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: |
+            scripts/netlify-sites.json
+            package.json
+            packages/*/package.json
+            templates/*/package.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          CURRENT_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const SITES = Object.entries(
+              JSON.parse(fs.readFileSync('scripts/netlify-sites.json', 'utf8'))
+            );
+            const repoRoot = process.cwd();
+            const globalPaths = [
+              '.nvmrc',
+              'package.json',
+              'pnpm-lock.yaml',
+              'pnpm-workspace.yaml',
+              'scripts/netlify-ignore-build.mjs',
+            ];
+
+            const token = process.env.NETLIFY_TOKEN;
+            if (!token) {
+              core.info('NETLIFY_AUTH_TOKEN secret not set; skipping stale main-deploy cleanup.');
+              return;
+            }
+
+            const currentSha = process.env.CURRENT_SHA;
+            const headers = { Authorization: `Bearer ${token}` };
+
+            // Early queue states are safe to cancel; anything already in flight
+            // (building/uploading/preparing/processing) is left to finish so we
+            // never kill a deploy that's "partway through".
+            const CANCELABLE_STATES = new Set(['new', 'enqueued']);
+
+            async function commitSubject(ref) {
+              try {
+                const response = await github.rest.repos.getCommit({
+                  ...context.repo,
+                  ref,
+                });
+                return response.data.commit.message.split('\n')[0] ?? '';
+              } catch (err) {
+                core.info(`Could not read commit subject for ${ref.slice(0, 7)}: ${err?.message || err}`);
+                return '';
+              }
+            }
+
+            const currentCommitSubject = await commitSubject(currentSha);
+            const currentCommitBuildsSites = !/^chore:\s*version packages\b/i.test(currentCommitSubject);
+            if (!currentCommitBuildsSites) {
+              core.info(`Current commit ${currentSha.slice(0, 7)} is a version-packages release that Netlify sites intentionally skip; keeping older queued deploys.`);
+            }
+
+            function readJson(filePath) {
+              return JSON.parse(fs.readFileSync(path.join(repoRoot, filePath), 'utf8'));
+            }
+
+            function packageDirsUnder(parentDir) {
+              const absParent = path.join(repoRoot, parentDir);
+              if (!fs.existsSync(absParent)) return [];
+              return fs.readdirSync(absParent, { withFileTypes: true })
+                .filter(entry => entry.isDirectory())
+                .map(entry => `${parentDir}/${entry.name}`)
+                .filter(dir => fs.existsSync(path.join(repoRoot, dir, 'package.json')));
+            }
+
+            function workspacePackages() {
+              const packages = new Map();
+              for (const dir of [
+                ...packageDirsUnder('packages'),
+                ...packageDirsUnder('templates'),
+              ]) {
+                const pkg = readJson(`${dir}/package.json`);
+                if (pkg.name) packages.set(pkg.name, { dir, pkg });
+              }
+              return packages;
+            }
+
+            function dependencyNames(pkg) {
+              return [
+                pkg.dependencies,
+                pkg.devDependencies,
+                pkg.peerDependencies,
+                pkg.optionalDependencies,
+              ].flatMap(deps => deps ? Object.keys(deps) : []);
+            }
+
+            function targetPackage(packages, targetName) {
+              if (packages.has(targetName)) return packages.get(targetName);
+              const templateDir = `templates/${targetName}`;
+              return [...packages.values()].find(({ dir }) => dir === templateDir) ?? null;
+            }
+
+            function watchedPathsForTarget(packages, target) {
+              const watched = new Set(globalPaths);
+              const queue = [target];
+              const seen = new Set();
+              while (queue.length) {
+                const current = queue.shift();
+                if (!current || seen.has(current.pkg.name)) continue;
+                seen.add(current.pkg.name);
+                watched.add(current.dir);
+                for (const dependencyName of dependencyNames(current.pkg)) {
+                  const dependency = packages.get(dependencyName);
+                  if (dependency && !seen.has(dependency.pkg.name)) queue.push(dependency);
+                }
+              }
+              return [...watched].sort();
+            }
+
+            function pathMatches(filePath, watchedPath) {
+              return filePath === watchedPath || filePath.startsWith(`${watchedPath}/`);
+            }
+
+            const packages = workspacePackages();
+            const watchedPathsBySite = new Map();
+            for (const [name] of SITES) {
+              const target = targetPackage(packages, name);
+              if (!target) {
+                core.warning(`[${name}] no matching package; keeping queued deploys.`);
+                continue;
+              }
+              watchedPathsBySite.set(name, watchedPathsForTarget(packages, target));
+            }
+
+            async function supersedingChangeAffectsSite(name, commitRef) {
+              if (!currentCommitBuildsSites) return false;
+              const watchedPaths = watchedPathsBySite.get(name);
+              if (!watchedPaths) return false;
+              try {
+                const comparison = await github.rest.repos.compareCommitsWithBasehead({
+                  ...context.repo,
+                  basehead: `${commitRef}...${currentSha}`,
+                });
+                if (comparison.data.status !== 'ahead') {
+                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; compare status=${comparison.data.status}`);
+                  return false;
+                }
+                const matchedFile = (comparison.data.files ?? [])
+                  .map(file => file.filename)
+                  .find(file => watchedPaths.some(watchedPath => pathMatches(file, watchedPath)));
+                if (!matchedFile) {
+                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; newer main commit does not change this site.`);
+                  return false;
+                }
+                return true;
+              } catch (err) {
+                core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; could not prove replacement changes this site: ${err?.message || err}`);
+                return false;
+              }
+            }
+
+            const results = await Promise.all(SITES.map(async ([name, id]) => {
+              const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
+              let r;
+              try {
+                r = await fetch(url, { headers });
+              } catch (err) {
+                return { name, error: `list fetch failed: ${err?.message || err}` };
+              }
+              if (!r.ok) return { name, error: `list ${r.status}` };
+              let deploys;
+              try {
+                deploys = await r.json();
+              } catch (err) {
+                return { name, error: `list json failed: ${err?.message || err}` };
+              }
+
+              // Superseded == queued production deploy for a commit GitHub
+              // proves is an ancestor of the one we just pushed AND whose site
+              // is also touched by the newer commit range. The second condition
+              // keeps us from canceling the only deploy that would ship a site
+              // changed by an earlier main commit.
+              const stale = [];
+              for (const d of deploys) {
+                if (
+                  d.context === 'production' &&
+                  CANCELABLE_STATES.has(d.state) &&
+                  d.commit_ref &&
+                  d.commit_ref !== currentSha &&
+                  await supersedingChangeAffectsSite(name, d.commit_ref)
+                ) {
+                  stale.push(d);
+                }
+              }
+
+              const cancelled = await Promise.all(stale.map(async d => {
+                try {
+                  const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
+                  return { id: d.id, ok: c.ok, status: c.status, sha: (d.commit_ref || '').slice(0, 7), state: d.state };
+                } catch (err) {
+                  return { id: d.id, ok: false, status: err?.message || 'fetch failed', sha: (d.commit_ref || '').slice(0, 7), state: d.state };
+                }
+              }));
+              return { name, total: stale.length, cancelled };
+            }));
+
+            let total = 0;
+            for (const r of results) {
+              if (r.error) { core.warning(`[${r.name}] ${r.error}`); continue; }
+              if (!r.total) continue;
+              total += r.total;
+              core.info(`[${r.name}] cancelled ${r.cancelled.filter(x => x.ok).length}/${r.total}`);
+              for (const c of r.cancelled) {
+                core.info(`  ${c.ok ? 'OK' : 'FAIL'} ${c.id} ${c.sha} (${c.state})`);
+              }
+            }
+            core.info(`Total superseded main deploys cancelled: ${total} (current=${currentSha.slice(0, 7)})`);

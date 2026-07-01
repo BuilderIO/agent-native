@@ -26,6 +26,15 @@ describe("finalize upload recovery", () => {
     ).toBe("https://clips.example.com/base/api/uploads/rec-1/status");
   });
 
+  it("derives relative status URLs for same-origin web uploads", () => {
+    expect(publicRecordingStatusUrl("/api/uploads/rec-1/chunk", "rec-1")).toBe(
+      "/api/public-recording?id=rec-1",
+    );
+    expect(
+      authenticatedRecordingStatusUrl("/app/api/uploads/rec-1/chunk", "rec-1"),
+    ).toBe("/app/api/uploads/rec-1/status");
+  });
+
   it("recognizes ready public recording payloads", () => {
     const probe = readyRecordingFromPublicPayload(
       {
@@ -137,6 +146,50 @@ describe("finalize upload recovery", () => {
       {
         url: "https://clips.example.com/api/uploads/rec-private/status",
         authorization: "Bearer owner-token",
+      },
+    ]);
+  });
+
+  it("polls the authenticated owner status endpoint without a bearer token for same-origin web requests", async () => {
+    const calls: Array<{ url: string; authorization?: string }> = [];
+    const fetchImpl = async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        authorization: (init?.headers as Record<string, string> | undefined)
+          ?.Authorization,
+      });
+      return new Response(
+        JSON.stringify({
+          recording: {
+            id: "rec-private",
+            status: "ready",
+            videoUrl: "/api/video/rec-private",
+          },
+        }),
+        { status: 200 },
+      );
+    };
+
+    await expect(
+      waitForReadyRecordingAfterFinalizeError({
+        uploadUrl: "/api/uploads/rec-private/chunk",
+        recordingId: "rec-private",
+        preferAuthenticated: true,
+        fetchImpl,
+        sleepImpl: async () => undefined,
+        timeoutMs: 1,
+        intervalMs: 1,
+      }),
+    ).resolves.toMatchObject({
+      id: "rec-private",
+      status: "ready",
+      videoUrl: "/api/video/rec-private",
+    });
+
+    expect(calls).toEqual([
+      {
+        url: "/api/uploads/rec-private/status",
+        authorization: undefined,
       },
     ]);
   });

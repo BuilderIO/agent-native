@@ -1,9 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  fetchSessionReplayPlayback,
+  replayPayloadEvents,
   replayViewportDimensions,
   sanitizeReplayEvents,
 } from "./SessionDetailPage";
+
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
+});
 
 describe("session replay sanitization", () => {
   it("strips live-loading resource attributes from replay snapshots", () => {
@@ -183,4 +192,136 @@ describe("session replay sanitization", () => {
       ]),
     ).toBeNull();
   });
+
+  it("normalizes scoped chunk route payloads into replay event arrays", () => {
+    const events = [{ type: 4, timestamp: 1000 }];
+
+    expect(replayPayloadEvents(events)).toEqual(events);
+    expect(replayPayloadEvents({ events })).toEqual(events);
+    expect(replayPayloadEvents(null)).toEqual([]);
+    expect(replayPayloadEvents({ type: 5, timestamp: 2000 })).toEqual([
+      { type: 5, timestamp: 2000 },
+    ]);
+  });
 });
+
+describe("session replay chunk loading", () => {
+  it("keeps explicitly unavailable chunks as partial replay segments", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) {
+        return jsonResponse({
+          recording: recordingSummary(),
+          chunks: [
+            replayChunkManifest(
+              1,
+              "/api/session-replay/recordings/sr_1/chunks/1",
+            ),
+            replayChunkManifest(
+              2,
+              "/api/session-replay/recordings/sr_1/chunks/2",
+            ),
+          ],
+        });
+      }
+      if (url.includes("/chunks/1")) {
+        return jsonResponse({ events: [{ type: 4, timestamp: 1000 }] });
+      }
+      if (url.includes("/chunks/2")) {
+        return jsonResponse(
+          { error: "Session replay chunk is unavailable" },
+          { status: 404 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const playback = await fetchSessionReplayPlayback("sr_1");
+
+    expect(playback.eventCount).toBe(1);
+    expect(playback.unavailableChunks).toBe(1);
+    expect(playback.chunks[0].events).toEqual([{ type: 4, timestamp: 1000 }]);
+    expect(playback.chunks[1]).toMatchObject({
+      seq: 2,
+      events: [],
+      unavailable: true,
+    });
+  });
+
+  it.each([
+    [403, "Forbidden"],
+    [500, "Replay storage failed"],
+  ])("rejects chunk fetch failures with HTTP %s", async (status, message) => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) {
+        return jsonResponse({
+          recording: recordingSummary(),
+          chunks: [
+            replayChunkManifest(
+              1,
+              "/api/session-replay/recordings/sr_1/chunks/1",
+            ),
+          ],
+        });
+      }
+      if (url.includes("/chunks/1")) {
+        return jsonResponse({ error: message }, { status });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(fetchSessionReplayPlayback("sr_1")).rejects.toThrow(message);
+  });
+});
+
+function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
+  return new Response(JSON.stringify(payload), {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+}
+
+function recordingSummary() {
+  return {
+    id: "sr_1",
+    clientRecordingId: "client_sr_1",
+    sessionId: "sess_1",
+    userId: "user_1",
+    anonymousId: null,
+    userKey: "user@example.test",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: "2026-01-01T00:01:00.000Z",
+    durationMs: 60_000,
+    chunkCount: 2,
+    eventCount: 1,
+    totalBytes: 100,
+    pageCount: 1,
+    errorCount: 0,
+    rageClickCount: 0,
+    privacyMode: "default",
+    firstUrl: "https://example.test/",
+    lastUrl: "https://example.test/",
+    path: "/",
+    hostname: "example.test",
+    referrer: null,
+    app: "Analytics",
+    template: "analytics",
+    status: "completed",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:01:00.000Z",
+    lastIngestedAt: "2026-01-01T00:01:00.000Z",
+  };
+}
+
+function replayChunkManifest(seq: number, bytesPath: string) {
+  return {
+    seq,
+    checksum: `checksum_${seq}`,
+    byteLength: 50,
+    eventCount: 1,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: "2026-01-01T00:00:10.000Z",
+    bytesPath,
+  };
+}

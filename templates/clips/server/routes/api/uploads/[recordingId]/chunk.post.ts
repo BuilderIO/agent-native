@@ -46,6 +46,7 @@ import {
   setResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -174,6 +175,11 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Resumable streaming path — forward chunks directly to the provider.
     const resumableSession = await getResumableSession(recordingId);
+    if (resumableSession && isStreamingUploadDisabled()) {
+      console.warn(
+        `[chunk] streaming uploads are disabled, but preserving existing resumable session for in-flight recording: ${recordingId}`,
+      );
+    }
     if (resumableSession) {
       return handleResumableChunk(
         event,
@@ -574,6 +580,13 @@ async function handleResumableChunk(
   }
 
   if (isFinal && bytes.byteLength === 0) {
+    if (session.bytesUploaded <= 0) {
+      setResponseStatus(event, 400);
+      return {
+        ok: false,
+        error: "Cannot finalize an empty resumable upload",
+      };
+    }
     // 0-byte sentinel from the recorder after stop(). All data chunks have
     // already been PUT to the provider; send Content-Range: bytes */<total>
     // to close the session before handing off to finalize-recording.
@@ -582,7 +595,7 @@ async function handleResumableChunk(
       `bytes */${session.bytesUploaded}`,
       new Uint8Array(0),
     );
-    if (!closeRes.ok) {
+    if (!closeRes.ok || closeRes.status === 308) {
       console.error(
         `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
       );

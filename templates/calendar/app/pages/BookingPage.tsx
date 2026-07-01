@@ -1,6 +1,7 @@
 import {
   OpenSourceBadge,
   PoweredByBadge,
+  LanguagePicker,
   StarfieldBackground,
   useT,
 } from "@agent-native/core/client";
@@ -53,13 +54,23 @@ function BookingPageShell({
   return (
     <div
       className={cn(
-        "relative min-h-screen overflow-x-hidden bg-background p-4",
+        "relative min-h-screen bg-background dark:bg-black",
         className,
       )}
     >
       <StarfieldBackground className="fixed inset-0 opacity-25 dark:opacity-60" />
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,hsl(var(--background)/0.88)_72%)]" />
-      <div className="relative z-10 flow-root">{children}</div>
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,hsl(var(--background)/0.88)_72%)] dark:bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,#000000_100%)]" />
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
+        <LanguagePicker variant="ghost-icon" />
+        <ThemeToggle />
+      </div>
+      <div className="fixed bottom-[21px] left-4 z-50 flex flex-col items-start gap-2 max-sm:static max-sm:mx-auto max-sm:mt-8">
+        <PoweredByBadge variant="plain" embedded />
+        <OpenSourceBadge embedded />
+      </div>
+      <div className="relative z-10 min-h-screen overflow-x-hidden p-4">
+        {children}
+      </div>
     </div>
   );
 }
@@ -281,9 +292,6 @@ export default function BookingPage() {
 
   return (
     <BookingPageShell className="pb-20">
-      <div className="absolute top-4 right-4 z-20">
-        <ThemeToggle />
-      </div>
       <div className="mx-auto mt-[7.5vh] w-full max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">
@@ -509,8 +517,6 @@ export default function BookingPage() {
           )}
         </div>
       </div>
-      <OpenSourceBadge />
-      <PoweredByBadge />
     </BookingPageShell>
   );
 }

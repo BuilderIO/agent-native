@@ -2791,9 +2791,11 @@ export async function runAgentLoop(opts: {
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();
+        const toolInputBytes = new Map<string, number>();
         let lastToolInputActivityAt = 0;
         const sendToolInputActivity = (
           toolName: string | undefined,
+          progressBytes?: number,
           force = false,
         ) => {
           const now = Date.now();
@@ -2808,6 +2810,7 @@ export async function runAgentLoop(opts: {
             type: "activity",
             label: toolInputActivityLabel(toolName),
             ...(toolName ? { tool: toolName } : {}),
+            ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
 
@@ -2842,13 +2845,22 @@ export async function runAgentLoop(opts: {
           } else if (event.type === "tool-input-start") {
             if (event.id && event.name) {
               toolInputNames.set(event.id, event.name);
+              toolInputBytes.set(event.id, 0);
             }
-            sendToolInputActivity(event.name, true);
+            sendToolInputActivity(event.name, undefined, true);
           } else if (event.type === "tool-input-delta") {
             const toolName =
               event.name ??
               (event.id ? toolInputNames.get(event.id) : undefined);
-            sendToolInputActivity(toolName);
+            let progressBytes: number | undefined;
+            if (event.id) {
+              const previous = toolInputBytes.get(event.id) ?? 0;
+              progressBytes =
+                previous +
+                new TextEncoder().encode(event.text ?? "").byteLength;
+              toolInputBytes.set(event.id, progressBytes);
+            }
+            sendToolInputActivity(toolName, progressBytes);
           } else if (event.type === "gateway-heartbeat") {
             send({ type: "stream_keepalive" });
           } else if (event.type === "tool-call") {
@@ -5607,7 +5619,11 @@ export function createProductionAgentHandler(
                 const callerAuth = await resolveA2ACallerAuth({
                   includeGoogleToken: true,
                 });
-                const a2aClient = new A2AClient(ref.path, callerAuth.apiKey);
+                const a2aClient = new A2AClient(ref.path, callerAuth.apiKey, {
+                  ...(callerAuth.apiKeyFallbacks
+                    ? { fallbackApiKeys: callerAuth.apiKeyFallbacks }
+                    : {}),
+                });
                 const a2aMetadata = callerAuth.metadata;
 
                 let responseText = "";

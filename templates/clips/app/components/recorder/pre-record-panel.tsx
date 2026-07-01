@@ -58,6 +58,8 @@ import {
 import {
   NO_CAMERA_DEVICE_ID,
   NO_MIC_DEVICE_ID,
+  normalizeDisplaySurfaceForRuntime,
+  supportsBrowserTabCapture,
   type DisplaySurface,
   type RecordingMode,
 } from "./recorder-engine";
@@ -157,14 +159,20 @@ export function PreRecordPanel({
   const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loomInputRef = useRef<HTMLInputElement>(null);
+  const browserTabCaptureSupported = useMemo(
+    () => supportsBrowserTabCapture(),
+    [],
+  );
   // Saved selections from the last visit. A `?mode=`/`?surface=` deep link
   // (initialMode/initialDisplaySurface) still takes precedence over them.
   const savedPrefs = useMemo(() => loadRecorderPreferences(), []);
   const [mode, setMode] = useState<RecordingMode>(
     () => initialMode ?? savedPrefs.mode ?? "screen+camera",
   );
-  const [displaySurface, setDisplaySurface] = useState<DisplaySurface>(
-    () => initialDisplaySurface ?? savedPrefs.displaySurface ?? "window",
+  const [displaySurface, setDisplaySurface] = useState<DisplaySurface>(() =>
+    normalizeDisplaySurfaceForRuntime(
+      initialDisplaySurface ?? savedPrefs.displaySurface ?? "window",
+    ),
   );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
@@ -223,8 +231,8 @@ export function PreRecordPanel({
     [isMobile, modeOptions],
   );
 
-  const surfaceOptions = useMemo<SurfaceOption[]>(
-    () => [
+  const surfaceOptions = useMemo<SurfaceOption[]>(() => {
+    const options: SurfaceOption[] = [
       {
         value: "window",
         label: t("preRecord.surfaceWindow"),
@@ -243,9 +251,11 @@ export function PreRecordPanel({
         icon: IconDeviceScreen,
         sub: t("preRecord.surfaceScreenDescription"),
       },
-    ],
-    [t],
-  );
+    ];
+    return browserTabCaptureSupported
+      ? options
+      : options.filter((option) => option.value !== "browser");
+  }, [browserTabCaptureSupported, t]);
 
   useEffect(() => {
     if (isMobile) {
@@ -258,8 +268,18 @@ export function PreRecordPanel({
   }, [initialMode, isMobile]);
 
   useEffect(() => {
-    if (initialDisplaySurface) setDisplaySurface(initialDisplaySurface);
+    if (initialDisplaySurface) {
+      setDisplaySurface(
+        normalizeDisplaySurfaceForRuntime(initialDisplaySurface),
+      );
+    }
   }, [initialDisplaySurface]);
+
+  useEffect(() => {
+    if (displaySurface !== "browser" || browserTabCaptureSupported) return;
+    setDisplaySurface("window");
+    saveRecorderPreferences({ displaySurface: "window" });
+  }, [browserTabCaptureSupported, displaySurface]);
 
   const enumerateDevices = useCallback(async () => {
     try {
@@ -350,8 +370,9 @@ export function PreRecordPanel({
     saveRecorderPreferences({ mode: value });
   }, []);
   const chooseDisplaySurface = useCallback((value: DisplaySurface) => {
-    setDisplaySurface(value);
-    saveRecorderPreferences({ displaySurface: value });
+    const next = normalizeDisplaySurfaceForRuntime(value);
+    setDisplaySurface(next);
+    saveRecorderPreferences({ displaySurface: next });
   }, []);
   const chooseMic = useCallback((value: string) => {
     setMicId(value);
@@ -676,7 +697,12 @@ export function PreRecordPanel({
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="grid grid-cols-3 gap-2 px-6 pb-5">
+            <div
+              className={cn(
+                "grid gap-2 px-6 pb-5",
+                surfaceOptions.length === 2 ? "grid-cols-2" : "grid-cols-3",
+              )}
+            >
               {surfaceOptions.map((opt) => {
                 const Icon = opt.icon;
                 const active = opt.value === displaySurface;
@@ -913,7 +939,8 @@ export function PreRecordPanel({
                 // to acquire a webcam stream.
                 mode:
                   mode === "screen+camera" && !needsCamera ? "screen" : mode,
-                displaySurface,
+                displaySurface:
+                  normalizeDisplaySurfaceForRuntime(displaySurface),
                 micDeviceId: micId === "default" ? null : micId,
                 cameraDeviceId:
                   needsCamera && cameraId !== "default" ? cameraId : null,

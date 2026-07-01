@@ -13,6 +13,7 @@ function jsonResponse(body: unknown, init?: { status?: number }): Response {
     ok: (init?.status ?? 200) < 400,
     status: init?.status ?? 200,
     statusText: "OK",
+    headers: new Headers(),
     json: async () => body,
     text: async () => JSON.stringify(body),
   } as unknown as Response;
@@ -91,16 +92,112 @@ describe("builderFileUploadProvider", () => {
     expect(init.headers.Authorization).toBe("Bearer bpk-secret");
   });
 
-  it("strips media-type parameters from the Content-Type header", async () => {
+  it("strips media-type parameters from the legacy upload Content-Type header", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ url: "https://cdn/x" }));
 
     await builderFileUploadProvider.upload({
       data: new Uint8Array([1]),
-      mimeType: "video/webm;codecs=avc1,opus",
+      mimeType: "image/png;charset=utf-8",
     });
 
     const [, init] = fetchMock.mock.calls[0];
-    expect(init.headers["Content-Type"]).toBe("video/webm");
+    expect(init.headers["Content-Type"]).toBe("image/png");
+  });
+
+  it("passes skipCompressionWait through the legacy upload path when requested", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ url: "https://cdn/x" }));
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1]),
+      mimeType: "image/png",
+      skipCompressionWait: true,
+    });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(
+      new URL(url.toString()).searchParams.get("skipCompressionWait"),
+    ).toBe("true");
+  });
+
+  it("routes video uploads through the signed URL path even when small", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/upload",
+          assetId: "asset-1",
+          requiredHeaders: {
+            "Content-Type": "video/webm",
+            "x-goog-content-length-range": "0,3",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({}, { status: 200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+      );
+
+    const result = await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "clip.webm",
+      mimeType: "video/webm;codecs=vp8,opus",
+    });
+
+    expect(result).toEqual({
+      url: "https://cdn.builder.io/video",
+      id: "asset-1",
+      provider: "builder",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [signedUrl, signedInit] = fetchMock.mock.calls[0];
+    expect(new URL(signedUrl.toString()).pathname).toBe(
+      "/api/v1/upload/signed-url",
+    );
+    expect(JSON.parse(String(signedInit.body))).toMatchObject({
+      fileName: "clip.webm",
+      contentType: "video/webm",
+      size: 3,
+    });
+    const [putUrl, putInit] = fetchMock.mock.calls[1];
+    expect(putUrl).toBe("https://storage.example.com/upload");
+    expect(putInit.method).toBe("PUT");
+    expect(putInit.headers).toEqual({
+      "Content-Type": "video/webm",
+      "x-goog-content-length-range": "0,3",
+    });
+    expect(
+      new URL(fetchMock.mock.calls[2][0].toString()).searchParams.has(
+        "skipCompressionWait",
+      ),
+    ).toBe(false);
+  });
+
+  it("passes skipCompressionWait through signed URL completion when requested", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/upload",
+          assetId: "asset-1",
+          requiredHeaders: {
+            "Content-Type": "video/webm",
+            "x-goog-content-length-range": "0,3",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({}, { status: 200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+      );
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "clip.webm",
+      mimeType: "video/webm",
+      skipCompressionWait: true,
+    });
+
+    const completeUrl = new URL(fetchMock.mock.calls[2][0].toString());
+    expect(completeUrl.pathname).toBe("/api/v1/upload/complete");
+    expect(completeUrl.searchParams.get("skipCompressionWait")).toBe("true");
   });
 
   it("defaults Content-Type to application/octet-stream when no mime given", async () => {
@@ -181,5 +278,25 @@ describe("builderFileUploadProvider", () => {
     await expect(
       builderFileUploadProvider.upload({ data: new Uint8Array([1]) }),
     ).rejects.toThrow(/returned no URL/);
+  });
+
+  it("passes skipCompressionWait through resumable completion options", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+    );
+
+    const url = await builderFileUploadProvider.resumable!.completeSession(
+      {
+        sessionId: "https://storage.example.com/session",
+        meta: { assetId: "asset-1" },
+      },
+      "clip.webm",
+      { skipCompressionWait: true },
+    );
+
+    expect(url).toBe("https://cdn.builder.io/video");
+    const completeUrl = new URL(fetchMock.mock.calls[0][0].toString());
+    expect(completeUrl.pathname).toBe("/api/v1/upload/complete");
+    expect(completeUrl.searchParams.get("skipCompressionWait")).toBe("true");
   });
 });

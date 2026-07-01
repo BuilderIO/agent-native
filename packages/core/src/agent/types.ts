@@ -212,7 +212,7 @@ export type AgentToolInput = Record<string, unknown>;
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
-  | { type: "activity"; label: string; tool?: string }
+  | { type: "activity"; label: string; tool?: string; progressBytes?: number }
   | { type: "stream_keepalive" }
   | { type: "tool_start"; tool: string; input: AgentToolInput }
   | {

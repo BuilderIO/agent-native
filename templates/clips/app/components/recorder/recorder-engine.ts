@@ -7,6 +7,7 @@
  * and `onError`.
  */
 import { appBasePath, captureClientException } from "@agent-native/core/client";
+import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chunkUploadUrl,
   pickMimeType,
@@ -39,6 +40,25 @@ export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
 export const NO_MIC_DEVICE_ID = "__clips_no_microphone__";
 export const NO_CAMERA_DEVICE_ID = "__clips_no_camera__";
+
+export function supportsBrowserTabCapture(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const userAgent = navigator.userAgent || "";
+  if (/AgentNativeDesktop|Electron|Tauri|WKWebView|WebView/i.test(userAgent)) {
+    return false;
+  }
+  const isChromium =
+    /Chrome|Chromium|CriOS|Edg|OPR/i.test(userAgent) &&
+    !/Firefox|FxiOS/i.test(userAgent);
+  return isChromium;
+}
+
+export function normalizeDisplaySurfaceForRuntime(
+  surface: DisplaySurface,
+): DisplaySurface {
+  if (surface === "browser" && !supportsBrowserTabCapture()) return "window";
+  return surface;
+}
 
 type ExtendedDisplayMediaOptions = DisplayMediaStreamOptions & {
   video: MediaTrackConstraints & { displaySurface?: DisplaySurface };
@@ -626,7 +646,9 @@ export class RecorderEngine {
       // directly anchored to the user's click. Camera/mic prompts do not need
       // that transient activation, and launching them in parallel with the
       // screen picker can make Chrome/macOS report a false permission failure.
-      const displaySurface = this.opts.displaySurface ?? "window";
+      const displaySurface = normalizeDisplaySurfaceForRuntime(
+        this.opts.displaySurface ?? "window",
+      );
       const displayOptions: ExtendedDisplayMediaOptions = {
         video: {
           frameRate: {
@@ -1699,6 +1721,7 @@ export class RecorderEngine {
 
     const body = await blob.arrayBuffer();
     let res: Response | null = null;
+    let triedFinalUploadRecovery = false;
     for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt++) {
       try {
         res = await fetch(url, {
@@ -1718,6 +1741,13 @@ export class RecorderEngine {
           attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS ||
           (err as { name?: string } | null)?.name === "AbortError"
         ) {
+          if (
+            extra.isFinal &&
+            (err as { name?: string } | null)?.name !== "AbortError"
+          ) {
+            const recovered = await this.recoverReadyAfterFinalUploadError();
+            if (recovered) return recovered;
+          }
           throw err;
         }
         await waitForRetry(retryDelayMs(attempt), extra.signal);
@@ -1729,6 +1759,13 @@ export class RecorderEngine {
         attempt < CHUNK_UPLOAD_MAX_ATTEMPTS &&
         isRetryableChunkUploadStatus(res.status)
       ) {
+        if (extra.isFinal && res.status === 504) {
+          triedFinalUploadRecovery = true;
+          await res.text().catch(() => "");
+          const recovered = await this.recoverReadyAfterFinalUploadError();
+          if (recovered) return recovered;
+          break;
+        }
         await res.text().catch(() => "");
         await waitForRetry(retryDelayMs(attempt), extra.signal);
         continue;
@@ -1746,6 +1783,14 @@ export class RecorderEngine {
       const err = new Error(
         `Chunk ${index} upload failed (${res.status}): ${text || res.statusText}`,
       );
+      if (
+        extra.isFinal &&
+        !triedFinalUploadRecovery &&
+        this.isFinalUploadRecoveryCandidate(res.status, err)
+      ) {
+        const recovered = await this.recoverReadyAfterFinalUploadError();
+        if (recovered) return recovered;
+      }
       // Capture rich context to Sentry BEFORE throwing — when this hits
       // production we want enough breadcrumbs in the event to debug a
       // "Builder.io upload failed (500)" without re-running the upload.
@@ -1797,6 +1842,25 @@ export class RecorderEngine {
     } catch {
       return undefined;
     }
+  }
+
+  private isFinalUploadRecoveryCandidate(
+    status: number,
+    error: Error,
+  ): boolean {
+    if (status === 413) return false;
+    return !/too large|exceeds.*limit|chunk too large/i.test(error.message);
+  }
+
+  private async recoverReadyAfterFinalUploadError(): Promise<Record<
+    string,
+    unknown
+  > | null> {
+    return waitForReadyRecordingAfterFinalizeError({
+      uploadUrl: this.opts.uploadUrl,
+      recordingId: this.opts.recordingId,
+      preferAuthenticated: true,
+    });
   }
 
   private readDimensions(): { width: number; height: number } {

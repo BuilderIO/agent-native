@@ -2387,6 +2387,86 @@ describe("createAgentChatAdapter", () => {
     expect(secondBody.message).not.toContain("compact working v1");
   });
 
+  it("nudges stalled edit-design preparation toward smaller payloads", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([
+              {
+                type: "activity",
+                label: "Preparing edit-design action",
+                tool: "edit-design",
+              },
+              { type: "auto_continue", reason: "no_progress" },
+            ])
+          : sseResponse([
+              { type: "text", text: "saved smaller search/replace edits" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-edit-design-prep-timeout",
+      threadId: "thread-edit-design-prep-timeout",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Expand the selected Design variant into a full todo app",
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    expect(postCount).toBe(2);
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    const secondBody = JSON.parse(chatPosts[1][1].body);
+    expect(secondBody.message).toContain(
+      "preparing the `edit-design` action input",
+    );
+    expect(secondBody.message).toContain("smaller `edit-design` payload");
+    expect(secondBody.message).toContain("exact search/replace edits");
+    expect(secondBody.message).toContain("avoid `replacementContent`");
+    expect(secondBody.message).toContain("save once");
+  });
+
   it("does not treat completed tool activity as unfinished action preparation", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });

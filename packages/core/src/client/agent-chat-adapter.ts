@@ -944,6 +944,8 @@ function incrementalActionGuidance(tool: string): string | undefined {
     case "generate-design":
     case "update-design":
       return 'if an existing design file or snapshot is already in history, especially after a Design variant pick, stop retrying `generate-design`: call `get-design-snapshot` for the selected file, then call `edit-design` once on that same `fileId` (`mode: "replace-file"` for a compact full-file replacement, or search/replace for smaller edits). Use `generate-design` only for a brand-new compact first file when no target file exists yet';
+    case "edit-design":
+      return "retry with a smaller `edit-design` payload: prefer a handful of exact search/replace edits against the already-snapshotted file, and avoid `replacementContent` for a huge full-file rewrite. If a selected variant needs expansion, upgrade the highest-value visible sections first, save once, and summarize any remaining refinements";
     case "present-design-variants":
       return 'call `present-design-variants` with concise labels, descriptions, accent colors, and feature bullets; omit large `content` HTML when needed so the action can render compact representative screens. After the user picks a direction, delete unchosen screens, snapshot the selected `fileId`, and refine that same file with `edit-design` (`mode: "replace-file"` for placeholder expansion). Do not call `generate-design` after the variant pick';
     case "create-visual-plan":
@@ -980,7 +982,9 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
   // toward a compact first version it can actually finish in a single run, then
   // incremental refinements — never re-streaming the same oversized payload.
   const cutoffPreparingAction =
-    signal.reason === "run_timeout" || signal.reason === "stream_ended";
+    signal.reason === "run_timeout" ||
+    signal.reason === "stream_ended" ||
+    signal.reason === "no_progress";
   let actionInputNote = "";
   if (cutoffPreparingAction && tool) {
     const guidance = incrementalActionGuidance(tool);
