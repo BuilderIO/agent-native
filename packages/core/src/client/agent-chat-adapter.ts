@@ -703,7 +703,26 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
   );
 }
 
-function lastCompletedSideEffectTool(
+const COMPLETED_TOOL_TIMEOUT_NAME_RE =
+  /^(add|apply|archive|capture|create|delete|deploy|duplicate|edit|generate|grant|insert|migrate|move|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
+const COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST = new Set([
+  "connect-assets-mcp",
+  "import-design-tokens",
+]);
+
+function isCompletedToolTimeoutCandidate(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+): boolean {
+  if (part.completedSideEffect === false) return false;
+  if (part.completedSideEffect === true) return true;
+  const toolName = part.toolName.toLowerCase();
+  return (
+    COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST.has(toolName) ||
+    COMPLETED_TOOL_TIMEOUT_NAME_RE.test(toolName)
+  );
+}
+
+function lastCompletedTimeoutCandidateTool(
   content: ContentPart[],
 ): Extract<ContentPart, { type: "tool-call" }> | undefined {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -713,7 +732,7 @@ function lastCompletedSideEffectTool(
       part.activity !== true &&
       part.result !== undefined &&
       part.isError !== true &&
-      part.completedSideEffect === true
+      isCompletedToolTimeoutCandidate(part)
     ) {
       return part;
     }
@@ -1866,7 +1885,7 @@ export function createAgentChatAdapter(
           // before tool_start; treating it as progress caused silent retry
           // loops when the LLM timed out while assembling a large tool input.
           const hasInFlightTool = hasInFlightToolCall(visibleContent);
-          const completedSideEffectTool = lastCompletedSideEffectTool(content);
+          const completedTool = lastCompletedTimeoutCandidateTool(content);
           // Either real output or an actively-running tool counts as progress
           // for the stalled/empty caps.
           const madeProgress = madeContentProgress || hasInFlightTool;
@@ -1963,22 +1982,23 @@ export function createAgentChatAdapter(
             emptyTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
-            // If a mutating action already completed, do not turn a missing
-            // closing sentence into a scary connection failure. Give the model
-            // one continuation opportunity (the completed tool itself counts
-            // as progress on the first timeout); if the follow-up produces no
-            // new content, stop locally with a clear "saved, final note timed
-            // out" message.
+            // If a tool already completed, do not turn a missing closing
+            // sentence into a scary connection failure. Give the model one
+            // continuation opportunity (the completed tool itself counts as
+            // progress on the first timeout); if the follow-up produces no new
+            // content, stop locally with a clear completed-tool warning.
             if (
-              completedSideEffectTool &&
+              signal.reason === "run_timeout" &&
+              completedTool &&
               !hasInFlightToolCall(content) &&
+              !currentPreparingToolName &&
               !madeContentProgress &&
               !hasInFlightTool
             ) {
               return {
                 ok: false,
                 resetVisibleContent: false,
-                completedToolName: completedSideEffectTool.toolName,
+                completedToolName: completedTool.toolName,
               };
             }
             // Bail when the same write tool is stuck in-flight across too many

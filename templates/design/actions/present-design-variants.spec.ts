@@ -203,7 +203,7 @@ describe("present-design-variants", () => {
       "guided-questions",
       expect.objectContaining({
         title: "Pick a calmer mobile direction",
-        submitMessage: "Use this design direction.",
+        submitMessage: expect.stringContaining("get-design-snapshot"),
         questions: [
           expect.objectContaining({
             id: "variant",
@@ -217,6 +217,25 @@ describe("present-design-variants", () => {
           }),
         ],
       }),
+    );
+    const guidedQuestions = mocks.writeAppStateForCurrentTab.mock
+      .calls[0]?.[1] as {
+      submitMessage: string;
+      questions: Array<{
+        options: Array<{ label: string; value: string }>;
+      }>;
+    };
+    expect(guidedQuestions.submitMessage).toContain("bounded single-file pass");
+    expect(guidedQuestions.submitMessage).toContain("fileId");
+    expect(guidedQuestions.submitMessage).toContain(
+      "Do not generate a full multi-screen rewrite",
+    );
+    const firstOption = guidedQuestions.questions[0]?.options[0];
+    expect(firstOption?.value).toContain("get-design-snapshot");
+    expect(firstOption?.value).toContain("fileId file-a");
+    expect(firstOption?.value).toContain("bounded single-file pass");
+    expect(firstOption?.value).toContain(
+      "Stop after the first successful save",
     );
     expect(mocks.deleteAppState).toHaveBeenCalledWith("design-variants");
 
@@ -251,6 +270,9 @@ describe("present-design-variants", () => {
         }),
       ]),
     });
+    expect(result.nextRequiredAction).toContain("get-design-snapshot");
+    expect(result.nextRequiredAction).toContain("fileId");
+    expect(result.nextRequiredAction).toContain("bounded pass");
   });
 
   it("keeps an existing screen intact when a generated filename collides", async () => {
