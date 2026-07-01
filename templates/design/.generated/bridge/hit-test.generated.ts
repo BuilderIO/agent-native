@@ -136,28 +136,31 @@ export const hitTestBridgeScript: string = `"use strict";
       return cs.position === "absolute" || cs.position === "fixed";
     }
     function absolutePrimitiveContainerTargetForPoint(clientX, clientY) {
-      var candidates = Array.prototype.slice.call(
-        document.querySelectorAll(
-          '[data-an-primitive="rectangle"],[data-an-primitive="rect"],[data-agent-native-primitive="rectangle"],[data-agent-native-primitive="rect"]'
-        )
-      );
-      var best = null;
-      candidates.forEach(function(candidate) {
-        if (!isAbsolutePrimitiveContainer(candidate)) return;
+      var hits = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
+      var seen = [];
+      for (var i = 0; i < hits.length; i += 1) {
+        var cursor = hits[i];
+        var candidate = null;
+        while (cursor && cursor !== document.body) {
+          if (isAbsolutePrimitiveContainer(cursor)) {
+            candidate = cursor;
+            break;
+          }
+          cursor = cursor.parentElement;
+        }
+        if (!candidate || seen.indexOf(candidate) !== -1) continue;
+        seen.push(candidate);
         if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
-          return;
+          continue;
         }
-        var rect = candidate.getBoundingClientRect();
-        if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
-          best = candidate;
-        }
-      });
-      return best ? {
-        anchor: best,
-        placement: "inside",
-        axis: "y",
-        dropMode: "absolute-container"
-      } : null;
+        return {
+          anchor: candidate,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container"
+        };
+      }
+      return null;
     }
     function edgePlacementForRect(rect, axis, clientX, clientY) {
       var size = axis === "x" ? rect.width : rect.height;

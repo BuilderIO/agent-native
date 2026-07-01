@@ -333,6 +333,61 @@ async function waitForBridgeHealth(
   return false;
 }
 
+function isDesignConnectManifest(
+  value: unknown,
+): value is DesignConnectManifest {
+  if (!value || typeof value !== "object") return false;
+  const manifest = value as Partial<DesignConnectManifest>;
+  return (
+    manifest.version === 1 &&
+    manifest.source === "agent-native-design-connect" &&
+    manifest.sourceType === "localhost" &&
+    manifest.localOnly === true &&
+    typeof manifest.devServerUrl === "string" &&
+    typeof manifest.bridgeUrl === "string" &&
+    typeof manifest.rootPath === "string"
+  );
+}
+
+async function fetchRunningBridgeManifest(
+  bridgeUrl: string,
+): Promise<DesignConnectManifest | null> {
+  const manifestUrl = new URL("/manifest.json", bridgeUrl).toString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 800);
+  try {
+    const response = await fetch(manifestUrl, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as unknown;
+    return isDesignConnectManifest(body) ? body : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function designConnectManifestsTargetSameApp(
+  running: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
+  requested: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
+): boolean {
+  let runningUrl = running.devServerUrl;
+  let requestedUrl = requested.devServerUrl;
+  try {
+    runningUrl = normalizeHttpUrl(runningUrl);
+    requestedUrl = normalizeHttpUrl(requestedUrl);
+  } catch {
+    // Fall through to direct string comparison for malformed legacy manifests.
+  }
+  return (
+    runningUrl === requestedUrl &&
+    path.resolve(running.rootPath) === path.resolve(requested.rootPath)
+  );
+}
+
 async function resolveDevServerUrl(url?: string): Promise<string> {
   if (url) return normalizeHttpUrl(url);
   for (const candidate of DEFAULT_DEV_SERVER_CANDIDATES) {
@@ -1034,11 +1089,31 @@ async function startDetachedDesignBridge(
   manifest: DesignConnectManifest,
 ): Promise<number> {
   if (await waitForBridgeHealth(manifest.bridgeUrl, 800)) {
-    console.error(
-      `Design localhost bridge already running at ${manifest.bridgeUrl}`,
+    const runningManifest = await fetchRunningBridgeManifest(
+      manifest.bridgeUrl,
     );
-    console.log(JSON.stringify(manifest, null, 2));
-    return 0;
+    if (
+      runningManifest &&
+      designConnectManifestsTargetSameApp(runningManifest, manifest)
+    ) {
+      console.error(
+        `Design localhost bridge already running at ${manifest.bridgeUrl}`,
+      );
+      console.log(JSON.stringify(runningManifest, null, 2));
+      return 0;
+    }
+
+    console.error(
+      [
+        `Design localhost bridge already running at ${manifest.bridgeUrl} for a different app.`,
+        runningManifest
+          ? `Running app: ${runningManifest.devServerUrl} (${runningManifest.rootPath})`
+          : "Running bridge did not expose a compatible manifest.",
+        `Requested app: ${manifest.devServerUrl} (${manifest.rootPath})`,
+        "Stop the existing bridge or choose a different --port.",
+      ].join("\n"),
+    );
+    return 1;
   }
 
   const invocation = resolveCurrentCliInvocation(argv);

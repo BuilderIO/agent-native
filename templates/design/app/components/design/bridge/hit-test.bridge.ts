@@ -208,35 +208,33 @@
     axis: string;
     dropMode: string;
   } | null {
-    var candidates = Array.prototype.slice.call(
-      document.querySelectorAll(
-        '[data-an-primitive="rectangle"],[data-an-primitive="rect"],[data-agent-native-primitive="rectangle"],[data-agent-native-primitive="rect"]',
-      ),
-    );
-    var best: Element | null = null;
-    candidates.forEach(function (candidate) {
-      if (!isAbsolutePrimitiveContainer(candidate)) return;
-      if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
-        return;
-      }
-      var rect = candidate.getBoundingClientRect();
-      if (
-        clientX >= rect.left &&
-        clientX <= rect.right &&
-        clientY >= rect.top &&
-        clientY <= rect.bottom
-      ) {
-        best = candidate;
-      }
-    });
-    return best
-      ? {
-          anchor: best,
-          placement: "inside",
-          axis: "y",
-          dropMode: "absolute-container",
+    var hits: Element[] = document.elementsFromPoint
+      ? document.elementsFromPoint(clientX, clientY)
+      : ([document.elementFromPoint(clientX, clientY)] as Element[]);
+    var seen: Element[] = [];
+    for (var i = 0; i < hits.length; i += 1) {
+      var cursor: Element | null = hits[i];
+      var candidate: Element | null = null;
+      while (cursor && cursor !== document.body) {
+        if (isAbsolutePrimitiveContainer(cursor)) {
+          candidate = cursor;
+          break;
         }
-      : null;
+        cursor = cursor.parentElement;
+      }
+      if (!candidate || seen.indexOf(candidate) !== -1) continue;
+      seen.push(candidate);
+      if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
+        continue;
+      }
+      return {
+        anchor: candidate,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container",
+      };
+    }
+    return null;
   }
 
   // keep in sync with editor-chrome.bridge.ts edgePlacementForRect

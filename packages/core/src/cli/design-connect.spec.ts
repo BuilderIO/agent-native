@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   discoverDesignRoutes,
+  designConnectManifestsTargetSameApp,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
   registerConnectionWithServer,
@@ -187,6 +188,45 @@ describe("design connect CLI", () => {
     expect(() =>
       parseDesignConnectArgs(["connect", "--daemon", "--json"]),
     ).toThrow(/--daemon cannot be combined/);
+  });
+
+  it("validates daemon bridge reuse against the requested app", () => {
+    expect(
+      designConnectManifestsTargetSameApp(
+        {
+          devServerUrl: "http://localhost:5173/",
+          rootPath: "/tmp/project",
+        },
+        {
+          devServerUrl: "localhost:5173",
+          rootPath: "/tmp/project/.",
+        },
+      ),
+    ).toBe(true);
+    expect(
+      designConnectManifestsTargetSameApp(
+        {
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/project",
+        },
+        {
+          devServerUrl: "http://localhost:5174",
+          rootPath: "/tmp/project",
+        },
+      ),
+    ).toBe(false);
+    expect(
+      designConnectManifestsTargetSameApp(
+        {
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/project",
+        },
+        {
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/other-project",
+        },
+      ),
+    ).toBe(false);
   });
 
   it("resolves standard app URL env vars for self-registration", () => {

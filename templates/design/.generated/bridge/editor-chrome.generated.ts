@@ -2759,31 +2759,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       return cs.position === "absolute" || cs.position === "fixed";
     }
     function absolutePrimitiveContainerTargetForPoint(el, clientX, clientY) {
-      var candidates = Array.prototype.slice.call(
-        document.querySelectorAll(
-          '[data-an-primitive="rectangle"],[data-an-primitive="rect"],[data-agent-native-primitive="rectangle"],[data-agent-native-primitive="rect"]'
-        )
-      );
-      var best = null;
-      candidates.forEach(function(candidate) {
-        if (!isAbsolutePrimitiveContainer(candidate)) return;
-        if (candidate === el) return;
-        if (el && el.contains && el.contains(candidate)) return;
-        if (el && candidate.contains && candidate.contains(el)) return;
+      var hits = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
+      var seen = [];
+      for (var i = 0; i < hits.length; i += 1) {
+        var cursor = hits[i];
+        var candidate = null;
+        while (cursor && cursor !== document.body) {
+          if (isAbsolutePrimitiveContainer(cursor)) {
+            candidate = cursor;
+            break;
+          }
+          cursor = cursor.parentElement;
+        }
+        if (!candidate || seen.indexOf(candidate) !== -1) continue;
+        seen.push(candidate);
+        if (candidate === el) continue;
+        if (el && el.contains && el.contains(candidate)) continue;
+        if (el && candidate.contains && candidate.contains(el)) continue;
         if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
-          return;
+          continue;
         }
-        var rect = candidate.getBoundingClientRect();
-        if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
-          best = candidate;
-        }
-      });
-      return best ? {
-        anchor: best,
-        placement: "inside",
-        axis: "y",
-        dropMode: "absolute-container"
-      } : null;
+        return {
+          anchor: candidate,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container"
+        };
+      }
+      return null;
     }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;

@@ -322,6 +322,7 @@ class BuilderEngine implements AgentEngine {
       }
 
       yield* parseJsonlStream(reader, opts.model, {
+        abortSignal: gatewayAbort.signal,
         didGatewayTimeout: gatewayAbort.didTimeout,
         gatewayTimeoutMs,
         gatewayUrl,
@@ -437,11 +438,12 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
 // a complete line and the client must still process it.
 async function* readJsonlLines(
   reader: ReadableStreamDefaultReader<Uint8Array>,
+  abortSignal?: AbortSignal,
 ): AsyncIterable<string> {
   const decoder = new TextDecoder();
   let buffer = "";
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readStreamChunk(reader, abortSignal);
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let newlineIdx = buffer.indexOf("\n");
@@ -464,6 +466,7 @@ async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   model: string,
   captureContext: {
+    abortSignal?: AbortSignal;
     didGatewayTimeout?: () => boolean;
     gatewayTimeoutMs?: number;
     gatewayUrl?: URL;
@@ -494,7 +497,10 @@ async function* parseJsonlStream(
   };
 
   try {
-    for await (const line of readJsonlLines(reader)) {
+    for await (const line of readJsonlLines(
+      reader,
+      captureContext.abortSignal,
+    )) {
       let event: any;
       try {
         event = JSON.parse(line);
@@ -727,6 +733,32 @@ async function* parseJsonlStream(
       // Already cancelled or closed
     }
   }
+}
+
+function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  abortSignal?: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!abortSignal) return reader.read();
+  if (abortSignal.aborted) {
+    return Promise.reject(abortSignal.reason ?? new Error("Stream aborted"));
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      reject(abortSignal.reason ?? new Error("Stream aborted"));
+    };
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+    reader.read().then(
+      (value) => {
+        abortSignal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        abortSignal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 function normalizeGatewayErrorText(raw: string, status: number): string {

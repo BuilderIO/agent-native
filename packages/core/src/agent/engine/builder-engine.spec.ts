@@ -721,6 +721,47 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
+  it("times out keepalive streams that do not honor fetch abort", async () => {
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "25");
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(() => {
+      let interval: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          interval = setInterval(() => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ type: "heartbeat" })}\n`,
+              ),
+            );
+          }, 5);
+        },
+        cancel() {
+          if (interval) clearInterval(interval);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(30);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.type === "gateway-heartbeat")).toBe(true);
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("Builder gateway timed out");
+  });
+
   it("uses the long local timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
