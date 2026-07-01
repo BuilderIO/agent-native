@@ -14,12 +14,17 @@ const calendarPatchEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const runWithRequestContextMock = vi.hoisted(() => vi.fn());
+const resolveGoogleProviderCredentialsMock = vi.hoisted(() => vi.fn());
+const resolveGoogleLegacyProviderCredentialsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
   isOAuthConnected: vi.fn(),
   resolveSecret: resolveSecretMock,
   runWithRequestContext: runWithRequestContextMock,
+  resolveGoogleProviderCredentials: resolveGoogleProviderCredentialsMock,
+  resolveGoogleLegacyProviderCredentials:
+    resolveGoogleLegacyProviderCredentialsMock,
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -68,6 +73,23 @@ describe("calendar Google auth status", () => {
       const value = process.env[key];
       return typeof value === "string" && value.length > 0 ? value : null;
     });
+    resolveGoogleProviderCredentialsMock.mockImplementation(() =>
+      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : null,
+    );
+    resolveGoogleLegacyProviderCredentialsMock.mockImplementation(() =>
+      process.env.GOOGLE_LEGACY_CLIENT_ID &&
+      process.env.GOOGLE_LEGACY_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_LEGACY_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_LEGACY_CLIENT_SECRET,
+          }
+        : null,
+    );
     runWithRequestContextMock.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );

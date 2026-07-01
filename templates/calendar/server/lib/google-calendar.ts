@@ -9,6 +9,8 @@ import {
   getOAuthAccounts,
   resolveSecret,
   runWithRequestContext,
+  resolveGoogleProviderCredentials,
+  resolveGoogleLegacyProviderCredentials,
 } from "@agent-native/core/server";
 
 import type {
@@ -91,8 +93,20 @@ async function readCredentialPair(
     resolveSecret(clientIdKey),
     resolveSecret(clientSecretKey),
   ]);
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
+  if (clientId && clientSecret) return { clientId, clientSecret };
+  if (
+    clientIdKey === "GOOGLE_CLIENT_ID" &&
+    clientSecretKey === "GOOGLE_CLIENT_SECRET"
+  ) {
+    return resolveGoogleProviderCredentials();
+  }
+  if (
+    clientIdKey === "GOOGLE_LEGACY_CLIENT_ID" &&
+    clientSecretKey === "GOOGLE_LEGACY_CLIENT_SECRET"
+  ) {
+    return resolveGoogleLegacyProviderCredentials();
+  }
+  return null;
 }
 
 async function resolveGoogleProviderCredentialCandidates(
