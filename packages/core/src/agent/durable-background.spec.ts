@@ -242,6 +242,17 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     );
   });
 
+  it("dispatches to the function's DEFAULT url in deployed Netlify Lambda runtime even when NETLIFY is absent", () => {
+    // Production Functions do not always preserve the build-time NETLIFY env
+    // flag, but they do expose AWS_LAMBDA_FUNCTION_NAME. The durable dispatcher
+    // must still target the emitted Netlify background function so the marker
+    // unlocks the 15-minute worker budget.
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_BACKGROUND_FUNCTION_URL_PATH,
+    );
+  });
+
   it("dispatches to the PER-APP default url on hosted Netlify (workspace)", () => {
     // Workspace deploy emits one background fn per app named <app>-agent-background
     // reachable at its default url. The foreground reads the workspace app id from
@@ -250,6 +261,15 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "plan";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       "/.netlify/functions/plan-agent-background",
+    );
+    Reflect.deleteProperty(process.env, "AGENT_NATIVE_WORKSPACE_APP_ID");
+  });
+
+  it("dispatches to the PER-APP default url in workspace Lambda runtime even when NETLIFY is absent", () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-workspace-design";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "design";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      "/.netlify/functions/design-agent-background",
     );
     Reflect.deleteProperty(process.env, "AGENT_NATIVE_WORKSPACE_APP_ID");
   });
@@ -275,6 +295,7 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     // `netlify dev` runs in-process; the same in-process catch-all handles it.
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_CHAT_PROCESS_RUN_PATH,
     );
@@ -282,6 +303,7 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
 
   it("returns the framework path when NETLIFY is explicitly false", () => {
     process.env.NETLIFY = "false";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_CHAT_PROCESS_RUN_PATH,
     );

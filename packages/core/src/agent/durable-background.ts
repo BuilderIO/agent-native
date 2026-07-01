@@ -97,6 +97,17 @@ function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
   return `/.netlify/functions/${candidate}-agent-background`;
 }
 
+function isNetlifyHostedRuntimeForDispatch(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
+  if (process.env.NETLIFY === "false") return false;
+  if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
+  // Netlify sets AWS Lambda runtime env on deployed Functions, but the build-time
+  // NETLIFY flag is not always present in the runtime isolate. Treat Lambda as
+  // Netlify here unless Netlify was explicitly disabled above; non-Netlify AWS
+  // falls back inline if the /.netlify/functions dispatch fast-fails.
+  return Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 /**
  * Resolve the path the foreground POST should self-dispatch the chat background
  * worker to.
@@ -129,11 +140,7 @@ function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
  * to shadow because `/.netlify/*` is already excluded from the `server` catch-all.
  */
 export function resolveAgentChatProcessRunDispatchPath(): string {
-  if (
-    process.env.NETLIFY &&
-    process.env.NETLIFY !== "false" &&
-    process.env.NETLIFY_LOCAL !== "true"
-  ) {
+  if (isNetlifyHostedRuntimeForDispatch()) {
     return (
       resolveWorkspaceBackgroundFunctionUrlPath() ??
       AGENT_BACKGROUND_FUNCTION_URL_PATH

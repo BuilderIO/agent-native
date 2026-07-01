@@ -24,6 +24,7 @@ interface RunRow {
   completed_at: number | null;
   error_code: string | null;
   error_detail: string | null;
+  terminal_reason: string | null;
   diag_stage: string | null;
 }
 
@@ -85,6 +86,7 @@ const mockDb = {
         completed_at: null,
         error_code: null,
         error_detail: null,
+        terminal_reason: null,
         diag_stage: null,
       });
       return { rows: [], rowsAffected: 1 };
@@ -109,8 +111,8 @@ const mockDb = {
       /WHERE id = \?/i.test(sql)
     ) {
       const completedAt = args[0] as number;
-      const id = args[3] as string;
-      const cutoff = args[4] as number;
+      const id = args[4] as string;
+      const cutoff = args[5] as number;
       const row = rows.find(
         (r) =>
           r.id === id &&
@@ -123,6 +125,7 @@ const mockDb = {
         row.completed_at = completedAt;
         row.error_code = args[1] as string;
         row.error_detail = args[2] as string;
+        row.terminal_reason = args[3] as string;
         return { rows: [], rowsAffected: 1 };
       }
       return { rows: [], rowsAffected: 0 };
@@ -152,8 +155,8 @@ const mockDb = {
       /WHERE id = \?/i.test(sql)
     ) {
       const completedAt = args[0] as number;
-      const id = args[3] as string;
-      const lastBound = args[4] as number;
+      const id = args[4] as string;
+      const lastBound = args[5] as number;
       // Default path inlines the background-aware CASE and binds `now`; the
       // explicit-maxStaleMs path inlines a plain `?` and binds a pre-computed
       // cutoff. Distinguish by the SQL fragment, not the arg type.
@@ -169,6 +172,7 @@ const mockDb = {
         row.completed_at = completedAt;
         row.error_code = args[1] as string;
         row.error_detail = args[2] as string;
+        row.terminal_reason = args[3] as string;
         return { rows: [], rowsAffected: 1 };
       }
       return { rows: [], rowsAffected: 0 };

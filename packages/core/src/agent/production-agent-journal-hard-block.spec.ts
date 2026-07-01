@@ -32,6 +32,7 @@ vi.mock("./run-store.js", () => ({
   bumpRunProgress: vi.fn(),
   ensureTerminalRunEvent: vi.fn(),
   setRunError: vi.fn(),
+  setRunTerminalReason: vi.fn(),
 }));
 
 // Keep OM out of the way. It's gated on ownerEmail anyway, but mock it so the

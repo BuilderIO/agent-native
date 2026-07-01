@@ -176,7 +176,8 @@ describe("run store", () => {
       /UPDATE agent_runs SET status = 'aborted'/i.test(call.sql),
     );
     expect(update?.args[0]).toBe("user");
-    expect(update?.args[2]).toBe("run-abort");
+    expect(update?.args[2]).toBe("aborted:user");
+    expect(update?.args[3]).toBe("run-abort");
 
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
@@ -241,9 +242,11 @@ describe("run store", () => {
     );
     expect(update?.sql).toContain("error_code = ?");
     expect(update?.sql).toContain("error_detail = ?");
+    expect(update?.sql).toContain("terminal_reason = ?");
     expect(update?.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
     expect(update?.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
-    expect(update?.args[3]).toBe("run-stale");
+    expect(update?.args[3]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+    expect(update?.args[4]).toBe("run-stale");
 
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
@@ -316,12 +319,14 @@ describe("run store", () => {
         /UPDATE agent_runs/i.test(call.sql) &&
         /SET status = 'errored'/i.test(call.sql) &&
         /error_code = \?/i.test(call.sql) &&
-        /error_detail = \?/i.test(call.sql),
+        /error_detail = \?/i.test(call.sql) &&
+        /terminal_reason = \?/i.test(call.sql),
     );
     expect(staleUpdates.length).toBeGreaterThanOrEqual(3);
     for (const update of staleUpdates) {
       expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
       expect(update.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
+      expect(update.args[3]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
     }
   });
 

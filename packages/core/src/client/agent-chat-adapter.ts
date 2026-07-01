@@ -1461,8 +1461,29 @@ export function createAgentChatAdapter(
       const nextContinuationToolCallId = () =>
         `continuation_tc_${++continuationToolCallCounter}`;
 
+      const runDebugContextDetails = (): string => {
+        const pageOrigin =
+          typeof window !== "undefined" && window.location?.origin
+            ? window.location.origin
+            : "";
+        return [
+          `api_url: ${apiUrl}`,
+          pageOrigin ? `page_origin: ${pageOrigin}` : "",
+          tabId ? `tab_id: ${tabId}` : "",
+          threadId ? `thread_id: ${threadId}` : "",
+          `turn_id: ${turnId}`,
+          runId ? `current_run: ${runId}` : "",
+          attemptedRunIds.length > 0
+            ? `attempted_runs: ${attemptedRunIds.join(", ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      };
+
       const connectionRecoveryDetails = (): string => {
         return [
+          runDebugContextDetails(),
           lastAutoContinueReason
             ? `last_auto_continue_reason: ${lastAutoContinueReason}`
             : "",
@@ -1488,9 +1509,6 @@ export function createAgentChatAdapter(
             ? `activity_trail: ${formatActivityTrail(lastActivityTrail)}`
             : "",
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
-          attemptedRunIds.length > 0
-            ? `attempted_runs: ${attemptedRunIds.join(", ")}`
-            : "",
         ]
           .filter(Boolean)
           .join("\n");
