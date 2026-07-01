@@ -735,12 +735,14 @@ describe("run manager soft timeout", () => {
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
+          id: "call-a",
           progressBytes: 0,
         });
         send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
+          id: "call-a",
           progressBytes: 64,
         });
         vi.setSystemTime(12_000);
@@ -748,6 +750,7 @@ describe("run manager soft timeout", () => {
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
+          id: "call-a",
           progressBytes: 64,
         });
         vi.setSystemTime(14_000);
@@ -755,6 +758,7 @@ describe("run manager soft timeout", () => {
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
+          id: "call-a",
           progressBytes: 96,
         });
         await new Promise<void>((resolve) => {
@@ -776,6 +780,92 @@ describe("run manager soft timeout", () => {
     );
 
     expect(abortRun("run-streaming-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("keys durable action-preparation progress by activity id", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-parallel-prep-progress",
+      "thread-parallel-prep-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 128,
+        });
+        vi.setSystemTime(12_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 64,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-parallel-prep-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-parallel-prep-progress",
+    );
+
+    expect(abortRun("run-parallel-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("treats no-id positive preparation bytes as durable progress", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-no-id-prep-progress",
+      "thread-no-id-prep-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 128,
+        });
+        vi.setSystemTime(12_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 64,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-no-id-prep-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-no-id-prep-progress",
+    );
+
+    expect(abortRun("run-no-id-prep-progress")).toBe(true);
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
   });
 

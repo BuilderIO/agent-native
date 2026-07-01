@@ -2795,6 +2795,7 @@ export async function runAgentLoop(opts: {
         let lastToolInputActivityAt = 0;
         const sendToolInputActivity = (
           toolName: string | undefined,
+          toolInputId?: string,
           progressBytes?: number,
           force = false,
         ) => {
@@ -2810,6 +2811,7 @@ export async function runAgentLoop(opts: {
             type: "activity",
             label: toolInputActivityLabel(toolName),
             ...(toolName ? { tool: toolName } : {}),
+            ...(toolInputId ? { id: toolInputId } : {}),
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
@@ -2848,7 +2850,7 @@ export async function runAgentLoop(opts: {
               toolInputNames.set(key, event.name);
               toolInputBytes.set(key, 0);
             }
-            sendToolInputActivity(event.name, undefined, true);
+            sendToolInputActivity(event.name, key, undefined, true);
           } else if (event.type === "tool-input-delta") {
             const key = event.id ?? event.name;
             const toolName =
@@ -2862,7 +2864,7 @@ export async function runAgentLoop(opts: {
                 new TextEncoder().encode(event.text ?? "").byteLength;
               toolInputBytes.set(key, progressBytes);
             }
-            sendToolInputActivity(toolName, progressBytes);
+            sendToolInputActivity(toolName, key, progressBytes);
           } else if (event.type === "gateway-heartbeat") {
             send({ type: "stream_keepalive" });
           } else if (event.type === "tool-call") {
