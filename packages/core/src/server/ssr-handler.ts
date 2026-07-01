@@ -279,9 +279,11 @@ type CspDirective = {
 
 const CSP_DIRECTIVES_WITH_VALUE_TOKENS = new Set([
   "base-uri",
+  "block-all-mixed-content",
   "child-src",
   "connect-src",
   "default-src",
+  "fenced-frame-src",
   "font-src",
   "form-action",
   "frame-ancestors",
@@ -289,8 +291,14 @@ const CSP_DIRECTIVES_WITH_VALUE_TOKENS = new Set([
   "img-src",
   "manifest-src",
   "media-src",
+  "navigate-to",
   "object-src",
+  "plugin-types",
   "prefetch-src",
+  "referrer",
+  "reflected-xss",
+  "require-sri-for",
+  "require-trusted-types-for",
   "report-to",
   "report-uri",
   "sandbox",
@@ -300,7 +308,9 @@ const CSP_DIRECTIVES_WITH_VALUE_TOKENS = new Set([
   "style-src",
   "style-src-attr",
   "style-src-elem",
+  "trusted-types",
   "upgrade-insecure-requests",
+  "webrtc",
   "worker-src",
 ]);
 
@@ -398,14 +408,6 @@ function hasStrictNonceScriptPolicy(tokens: readonly string[]): boolean {
   );
 }
 
-function hasStrictNonceScriptDirective(
-  directives: CspDirective[],
-  name: string,
-): boolean {
-  const existing = findCspDirective(directives, name);
-  return existing ? hasStrictNonceScriptPolicy(existing.tokens) : false;
-}
-
 function appendToScriptCspDirective(
   directives: CspDirective[],
   name: string,
@@ -429,15 +431,18 @@ function appendToScriptCspDirective(
   return true;
 }
 
-function appendToExistingScriptCspDirective(
+function appendToEffectiveScriptElementCspDirective(
   directives: CspDirective[],
-  name: string,
   additions: readonly string[],
 ): boolean {
-  const existing = findCspDirective(directives, name);
-  if (!existing || hasStrictNonceScriptPolicy(existing.tokens)) return false;
-  existing.tokens = appendCspTokens(existing.tokens, additions);
-  return true;
+  const scriptSrcElem = findCspDirective(directives, "script-src-elem");
+  if (scriptSrcElem) {
+    if (hasStrictNonceScriptPolicy(scriptSrcElem.tokens)) return false;
+    scriptSrcElem.tokens = appendCspTokens(scriptSrcElem.tokens, additions);
+    return true;
+  }
+
+  return appendToScriptCspDirective(directives, "script-src", additions);
 }
 
 function augmentExistingEnforcedCspForFrameworkScripts(
@@ -457,21 +462,11 @@ function augmentExistingEnforcedCspForFrameworkScripts(
   if (!directives.length) return policy;
 
   if (options.gaEnabled) {
-    const addedScriptSrc = appendToScriptCspDirective(
+    const addedScriptElement = appendToEffectiveScriptElementCspDirective(
       directives,
-      "script-src",
       options.gaScriptSrcTokens,
     );
-    let addedScriptSrcElem = false;
-    if (!hasStrictNonceScriptDirective(directives, "script-src")) {
-      // `script-src-elem` overrides `script-src` for script tags when present.
-      addedScriptSrcElem = appendToExistingScriptCspDirective(
-        directives,
-        "script-src-elem",
-        options.gaScriptSrcTokens,
-      );
-    }
-    if (addedScriptSrc || addedScriptSrcElem) {
+    if (addedScriptElement) {
       appendToExistingOrDefaultCspDirective(
         directives,
         "connect-src",
