@@ -24,6 +24,7 @@ vi.mock("./run-store.js", () => ({
   bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
   reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
+  reconcileTerminalRunFromEvents: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   setRunError: vi.fn(() => Promise.resolve()),
   setRunTerminalReason: vi.fn(() => Promise.resolve()),
@@ -74,6 +75,7 @@ import {
   setRunTerminalReason,
   reapIfStale,
   reapUnclaimedBackgroundRun,
+  reconcileTerminalRunFromEvents,
 } from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
@@ -158,6 +160,8 @@ describe("run manager soft timeout", () => {
     vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValue(false);
     vi.mocked(reapIfStale).mockReset();
     vi.mocked(reapIfStale).mockResolvedValue(null as any);
+    vi.mocked(reconcileTerminalRunFromEvents).mockReset();
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -808,6 +812,34 @@ describe("run manager soft timeout", () => {
         "run-insert-race",
         "completed",
       ),
+    );
+  });
+
+  it("reconciles from the terminal event when the final status write misses", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+      new Error("transient status write failure"),
+    );
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
+
+    const run = startRun(
+      "run-terminal-reconcile-fallback",
+      "thread-terminal-reconcile-fallback",
+      async (send) => {
+        send({ type: "text", text: "fast answer" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(run.status).toBe("completed"));
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-terminal-reconcile-fallback",
+        "completed",
+      ),
+    );
+    expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
+      "run-terminal-reconcile-fallback",
     );
   });
 

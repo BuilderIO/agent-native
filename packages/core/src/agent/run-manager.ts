@@ -16,6 +16,7 @@ import {
   bumpRunProgress,
   reapIfStale,
   reapUnclaimedBackgroundRun,
+  reconcileTerminalRunFromEvents,
   ensureTerminalRunEvent,
   setRunError,
   setRunTerminalReason,
@@ -779,12 +780,16 @@ export function startRun(
       try {
         await insertRunPromise;
         if (!terminalPersistenceError) {
-          const statusUpdated = await updateRunStatusIfRunning(
-            runId,
-            finalStatus,
-          );
+          let statusUpdated = false;
+          try {
+            statusUpdated = await updateRunStatusIfRunning(runId, finalStatus);
+          } catch {
+            statusUpdated = false;
+          }
           if (statusUpdated) {
             await setRunTerminalReason(runId, terminalReason);
+          } else {
+            await reconcileTerminalRunFromEvents(runId).catch(() => false);
           }
         }
       } catch {
