@@ -954,9 +954,83 @@ describe("createH3SSRHandler", () => {
         expect(scriptSrc).not.toContain("googletagmanager.com");
         expect(scriptSrc).not.toMatch(/'sha256-[A-Za-z0-9+/]+=*'/);
         expect(csp).toContain("connect-src 'self'");
-        expect(csp).toContain("https://analytics.google.com");
+        expect(csp).not.toContain("https://analytics.google.com");
         expect(csp).toContain("img-src 'self'");
-        expect(csp).toContain("https://stats.g.doubleclick.net");
+        expect(csp).not.toContain("https://stats.g.doubleclick.net");
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+        if (previousGa === undefined) {
+          delete process.env.GA_MEASUREMENT_ID;
+        } else {
+          process.env.GA_MEASUREMENT_ID = previousGa;
+        }
+      }
+    });
+
+    it("does not rewrite comma-combined enforced CSP policies", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      const previousGa = process.env.GA_MEASUREMENT_ID;
+      process.env.NODE_ENV = "production";
+      process.env.GA_MEASUREMENT_ID = "G-CSPTEST123";
+      try {
+        const originalCsp =
+          "script-src 'self', script-src https://cdn.example.com";
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy": originalCsp,
+            },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/"));
+
+        expect(response.headers.get("content-security-policy")).toBe(
+          originalCsp,
+        );
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+        if (previousGa === undefined) {
+          delete process.env.GA_MEASUREMENT_ID;
+        } else {
+          process.env.GA_MEASUREMENT_ID = previousGa;
+        }
+      }
+    });
+
+    it("keeps valid comma URLs while augmenting a single enforced CSP policy", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      const previousGa = process.env.GA_MEASUREMENT_ID;
+      process.env.NODE_ENV = "production";
+      process.env.GA_MEASUREMENT_ID = "G-CSPTEST123";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy":
+                "default-src 'self'; script-src 'self'; report-uri https://reports.example.test/a,b",
+            },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/"));
+
+        const csp = response.headers.get("content-security-policy") ?? "";
+        expect(csp).toContain("report-uri https://reports.example.test/a,b");
+        expect(csp).toContain("https://www.googletagmanager.com");
+        expect(csp).toContain("https://www.google-analytics.com");
       } finally {
         if (previousNodeEnv === undefined) {
           delete process.env.NODE_ENV;

@@ -277,6 +277,49 @@ type CspDirective = {
   tokens: string[];
 };
 
+const CSP_DIRECTIVES_WITH_VALUE_TOKENS = new Set([
+  "base-uri",
+  "child-src",
+  "connect-src",
+  "default-src",
+  "font-src",
+  "form-action",
+  "frame-ancestors",
+  "frame-src",
+  "img-src",
+  "manifest-src",
+  "media-src",
+  "object-src",
+  "prefetch-src",
+  "report-to",
+  "report-uri",
+  "sandbox",
+  "script-src",
+  "script-src-attr",
+  "script-src-elem",
+  "style-src",
+  "style-src-attr",
+  "style-src-elem",
+  "upgrade-insecure-requests",
+  "worker-src",
+]);
+
+function hasCommaJoinedCspPolicies(policy: string): boolean {
+  let commaIndex = policy.indexOf(",");
+  while (commaIndex !== -1) {
+    const afterComma = policy.slice(commaIndex + 1);
+    const directive = /^\s+([a-z][a-z0-9-]*)(?=\s|;|$)/i.exec(afterComma)?.[1];
+    if (
+      directive &&
+      CSP_DIRECTIVES_WITH_VALUE_TOKENS.has(directive.toLowerCase())
+    ) {
+      return true;
+    }
+    commaIndex = policy.indexOf(",", commaIndex + 1);
+  }
+  return false;
+}
+
 function parseCsp(policy: string): CspDirective[] {
   return policy
     .split(";")
@@ -355,34 +398,46 @@ function hasStrictNonceScriptPolicy(tokens: readonly string[]): boolean {
   );
 }
 
+function hasStrictNonceScriptDirective(
+  directives: CspDirective[],
+  name: string,
+): boolean {
+  const existing = findCspDirective(directives, name);
+  return existing ? hasStrictNonceScriptPolicy(existing.tokens) : false;
+}
+
 function appendToScriptCspDirective(
   directives: CspDirective[],
   name: string,
   additions: readonly string[],
-): void {
+): boolean {
   const existing = findCspDirective(directives, name);
   if (existing) {
-    if (hasStrictNonceScriptPolicy(existing.tokens)) return;
+    if (hasStrictNonceScriptPolicy(existing.tokens)) return false;
     existing.tokens = appendCspTokens(existing.tokens, additions);
-    return;
+    return true;
   }
 
   const defaultSrc = findCspDirective(directives, "default-src");
-  if (!defaultSrc || hasStrictNonceScriptPolicy(defaultSrc.tokens)) return;
+  if (!defaultSrc || hasStrictNonceScriptPolicy(defaultSrc.tokens)) {
+    return false;
+  }
   directives.push({
     name,
     tokens: appendCspTokens([...defaultSrc.tokens], additions),
   });
+  return true;
 }
 
 function appendToExistingScriptCspDirective(
   directives: CspDirective[],
   name: string,
   additions: readonly string[],
-): void {
+): boolean {
   const existing = findCspDirective(directives, name);
-  if (!existing || hasStrictNonceScriptPolicy(existing.tokens)) return;
+  if (!existing || hasStrictNonceScriptPolicy(existing.tokens)) return false;
   existing.tokens = appendCspTokens(existing.tokens, additions);
+  return true;
 }
 
 function augmentExistingEnforcedCspForFrameworkScripts(
@@ -392,31 +447,42 @@ function augmentExistingEnforcedCspForFrameworkScripts(
     gaEnabled: boolean;
   },
 ): string {
+  // Multiple CSP headers are surfaced by Headers.get() as one comma-joined
+  // string. CSP is not a comma-list header, so serializing a parsed combined
+  // value would turn two policies into one invalid policy. Leave those headers
+  // app-owned; a comma inside a source/report URL is still safe to parse.
+  if (hasCommaJoinedCspPolicies(policy)) return policy;
+
   const directives = parseCsp(policy);
   if (!directives.length) return policy;
 
   if (options.gaEnabled) {
-    appendToScriptCspDirective(
+    const addedScriptSrc = appendToScriptCspDirective(
       directives,
       "script-src",
       options.gaScriptSrcTokens,
     );
-    // `script-src-elem` overrides `script-src` for script tags when present.
-    appendToExistingScriptCspDirective(
-      directives,
-      "script-src-elem",
-      options.gaScriptSrcTokens,
-    );
-    appendToExistingOrDefaultCspDirective(
-      directives,
-      "connect-src",
-      GA_CSP_CONNECT_HOSTS,
-    );
-    appendToExistingOrDefaultCspDirective(
-      directives,
-      "img-src",
-      GA_CSP_IMG_HOSTS,
-    );
+    let addedScriptSrcElem = false;
+    if (!hasStrictNonceScriptDirective(directives, "script-src")) {
+      // `script-src-elem` overrides `script-src` for script tags when present.
+      addedScriptSrcElem = appendToExistingScriptCspDirective(
+        directives,
+        "script-src-elem",
+        options.gaScriptSrcTokens,
+      );
+    }
+    if (addedScriptSrc || addedScriptSrcElem) {
+      appendToExistingOrDefaultCspDirective(
+        directives,
+        "connect-src",
+        GA_CSP_CONNECT_HOSTS,
+      );
+      appendToExistingOrDefaultCspDirective(
+        directives,
+        "img-src",
+        GA_CSP_IMG_HOSTS,
+      );
+    }
   }
 
   return serializeCsp(directives);
@@ -429,6 +495,8 @@ function augmentExistingReportOnlyCspForFrameworkScripts(
     gaEnabled: boolean;
   },
 ): string {
+  if (hasCommaJoinedCspPolicies(policy)) return policy;
+
   const directives = parseCsp(policy);
   if (!directives.length) return policy;
 
