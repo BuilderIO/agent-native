@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.4
+
+### Patch Changes
+
+- 61715b4: Pin Nitro's `nf3` tracer dependency to a Node 22-compatible release so downstream package updates continue to build hosted apps.
+
 ## 0.84.3
 
 ### Patch Changes
