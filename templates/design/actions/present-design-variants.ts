@@ -471,7 +471,7 @@ export default defineAction({
         providedContent ||
         fallbackVariantContent(variant, index, prompt, initialSize);
       const { width, height } = providedContent
-        ? inferVariantSize({ ...variant, content }, prompt)
+        ? inferVariantSize({ ...variant, content })
         : initialSize;
 
       await db.insert(schema.designFiles).values({

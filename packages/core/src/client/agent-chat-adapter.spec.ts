@@ -2629,6 +2629,111 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("resets action preparation stalls after durable tool progress", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        if (postCount <= 3) {
+          return sseResponse([
+            {
+              type: "activity",
+              label: "Preparing present-design-variants action",
+              tool: "present-design-variants",
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ]);
+        }
+        if (postCount === 4) {
+          return sseResponse([
+            {
+              type: "tool_start",
+              tool: "inspect-design-state",
+              input: { designId: "design_1" },
+            },
+            {
+              type: "tool_done",
+              tool: "inspect-design-state",
+              result: '{"screenCount":1}',
+            },
+            {
+              type: "activity",
+              label: "Preparing present-design-variants action",
+              tool: "present-design-variants",
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ]);
+        }
+        if (postCount === 5) {
+          return sseResponse([
+            {
+              type: "activity",
+              label: "Preparing present-design-variants action",
+              tool: "present-design-variants",
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ]);
+        }
+        return sseResponse([
+          { type: "text", text: "saved variants after inspecting state" },
+          { type: "done" },
+        ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-repeated-prep-reset",
+      threadId: "thread-repeated-prep-reset",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Generate three todo variants" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(6);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toBeUndefined();
+    expect(last.content.at(-1).text).toBe(
+      "saved variants after inspecting state",
+    );
+  });
+
   it("surfaces a startup timeout when the POST never becomes an SSE stream", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();

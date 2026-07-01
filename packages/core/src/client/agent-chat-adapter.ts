@@ -1933,8 +1933,13 @@ export function createAgentChatAdapter(
               repeatedActionPreparationCount = 0;
               lastPreparingToolName = currentPreparingToolName;
             }
-          } else if (!currentPreparingToolName) {
+          } else if (
+            !currentPreparingToolName ||
+            hasInFlightTool ||
+            madeDurableToolProgress
+          ) {
             repeatedActionPreparationCount = 0;
+            lastPreparingToolName = undefined;
           }
 
           // Degenerate repetition guard. When the model gets stuck re-streaming

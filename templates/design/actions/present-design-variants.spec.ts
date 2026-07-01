@@ -227,7 +227,7 @@ describe("present-design-variants", () => {
     expect(data.canvasFrames).toMatchObject({
       "file-a": { x: 0, y: 0, width: 390, height: 844 },
       "file-b": { x: 486, y: 0, width: 390, height: 844 },
-      "file-c": { x: 972, y: 0, width: 390, height: 844 },
+      "file-c": { x: 972, y: 0, width: 1280, height: 900 },
     });
     expect(data.screenMetadata["file-a"]).toMatchObject({
       title: "Pure White",
@@ -410,6 +410,37 @@ describe("present-design-variants", () => {
         expect.objectContaining({ width: 390, height: 844 }),
       ]),
     );
+  });
+
+  it("does not let prompt text resize provided desktop HTML variants", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt:
+        "Mobile analytics companion with a compact summary view and push alerts",
+      variants: [
+        {
+          id: "desktop-command",
+          label: "Desktop Command Center",
+          content:
+            "<!doctype html><style>.app{width:1280px;min-height:900px}</style><div class='app'>Desktop analytics</div>",
+        },
+        {
+          id: "mobile-summary",
+          label: "Mobile Summary",
+          description: "Phone-first glanceable KPI cards.",
+          features: ["KPI cards", "Push alerts"],
+        },
+      ],
+    });
+
+    expect(
+      result.screens.find(
+        (screen) => screen.label === "Desktop Command Center",
+      ),
+    ).toMatchObject({ width: 1280, height: 900 });
+    expect(
+      result.screens.find((screen) => screen.label === "Mobile Summary"),
+    ).toMatchObject({ width: 390, height: 844 });
   });
 
   it("deep-links external hosts into overview mode", () => {
