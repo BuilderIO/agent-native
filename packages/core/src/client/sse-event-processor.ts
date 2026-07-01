@@ -186,10 +186,6 @@ function isPreparingActionActivity(ev: SSEEvent): boolean {
   return label.startsWith("preparing ") && label.includes(" action");
 }
 
-function isProgressEvent(ev: SSEEvent): boolean {
-  return ev.type !== "stream_keepalive";
-}
-
 function isMeaningfulProgressEvent(
   ev: SSEEvent,
   actionPreparationProgress?: boolean,
