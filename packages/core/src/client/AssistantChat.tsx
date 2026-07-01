@@ -553,6 +553,23 @@ function reconnectContentFollowKey(content: ContentPart[]): string {
   return content.map(contentPartFollowKey).join("|");
 }
 
+export function reconnectActivityFallbackContent(
+  toolName: string | null | undefined,
+): ContentPart[] {
+  const tool = toolName?.trim();
+  if (!tool) return [];
+  return [
+    {
+      type: "tool-call",
+      toolCallId: `reconnect-activity:${tool}`,
+      toolName: tool,
+      argsText: "",
+      args: {},
+      activity: true,
+    },
+  ];
+}
+
 const RECOVERY_USER_MESSAGE_PREFIXES = [
   "Continue from where you left off",
   "Continue from where you stopped",
@@ -1395,6 +1412,9 @@ const AssistantChatInner = forwardRef<
   const [runningActivityLabel, setRunningActivityLabel] = useState<
     string | null
   >(null);
+  const [runningActivityTool, setRunningActivityTool] = useState<string | null>(
+    null,
+  );
   // Delayed-reveal state for the activity label (see ACTIVITY_LABEL_REVEAL_DELAY_MS).
   // `latest` holds the most recent activity label; `surfaced` flips true once the
   // reveal timer fires; `timer` is the pending one-shot reveal.
@@ -1409,6 +1429,7 @@ const AssistantChatInner = forwardRef<
     latestActivityLabelRef.current = null;
     activityLabelSurfacedRef.current = false;
     setRunningActivityLabel(null);
+    setRunningActivityTool(null);
   }, []);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
@@ -1445,6 +1466,18 @@ const AssistantChatInner = forwardRef<
       : isReconnecting && reconnectContent.length > 0
         ? "Reconnecting"
         : "Thinking";
+  const reconnectActivityContent = useMemo(
+    () =>
+      (isReconnecting || reconnectFrozen) && reconnectContent.length === 0
+        ? reconnectActivityFallbackContent(runningActivityTool)
+        : [],
+    [
+      isReconnecting,
+      reconnectFrozen,
+      reconnectContent.length,
+      runningActivityTool,
+    ],
+  );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
   // Stable ref to the "stop active run" action so addToQueue can abort
@@ -2407,7 +2440,9 @@ const AssistantChatInner = forwardRef<
       const label =
         typeof detail?.label === "string" ? detail.label.trim() : "";
       if (!label) return;
+      const tool = typeof detail?.tool === "string" ? detail.tool.trim() : "";
       setIsAutoResuming(false);
+      setRunningActivityTool(tool || null);
       latestActivityLabelRef.current = label;
       // Already past the delay → keep the visible label current.
       if (activityLabelSurfacedRef.current) {
@@ -3548,6 +3583,13 @@ const AssistantChatInner = forwardRef<
                         reconnectAfterSeq === 0 &&
                         reconnectContent.length > 0 && (
                           <ReconnectStreamMessage content={reconnectContent} />
+                        )}
+                      {(isReconnecting || reconnectFrozen) &&
+                        reconnectAfterSeq > 0 &&
+                        reconnectActivityContent.length > 0 && (
+                          <ReconnectStreamMessage
+                            content={reconnectActivityContent}
+                          />
                         )}
                       {showRunningInUI && (
                         <RunningActivityStatus label={runningStatusLabel} />

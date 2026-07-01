@@ -26,6 +26,7 @@ import {
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
   latestNonRecoveryUserMessageText,
+  reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
   resolveAssistantChatSubmitIntent,
@@ -182,6 +183,19 @@ describe("waitForThreadRunToClear", () => {
     // perpetual "Working" — that label was removed.
     expect(labelSource).not.toContain('"Working"');
     expect(labelSource).toContain('"Thinking"');
+  });
+
+  it("builds a running tool card for tail-reconnect activity", () => {
+    expect(reconnectActivityFallbackContent(" generate-design ")).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        argsText: "",
+        args: {},
+        activity: true,
+      }),
+    ]);
+    expect(reconnectActivityFallbackContent("")).toEqual([]);
   });
 });
 

@@ -129,6 +129,7 @@ type ActiveRecording = {
   sourceStreams: MediaStream[];
   audioContext: AudioContext | null;
   chunkIndex: number;
+  uploadChain: Promise<void>;
   uploadPromises: Promise<unknown>[];
   uploadFailure: Error | null;
   // Local safety buffer: every recorded blob is kept here (browser-managed,
@@ -795,6 +796,7 @@ async function begin(message: BeginMessage): Promise<{
     ],
     audioContext: mixedAudio.audioContext,
     chunkIndex: 0,
+    uploadChain: Promise.resolve(),
     uploadPromises: [],
     uploadFailure: null,
     recordedBlobs: [],
@@ -837,30 +839,35 @@ async function begin(message: BeginMessage): Promise<{
     // rejected promise that surfaces as an "Uncaught (in promise)" error (bad
     // look in a Chrome Web Store review). finalizeStop reads recording.upload-
     // Failure and surfaces it through the normal error path instead.
-    const upload = (
-      recording.uploadMode === "streaming"
-        ? uploadStreamingBlob(recording, event.data)
-        : uploadBlobInSlices(recording, event.data)
-    ).catch((err) => {
-      recording.uploadFailure =
-        err instanceof Error ? err : new Error(String(err));
-      captureExtensionError(recording.uploadFailure, {
-        tags: {
-          surface: "offscreen",
-          recordingStep: "dataavailable-upload",
-        },
-        extra: {
-          recordingId: recording.recordingId,
-          blobBytes: event.data.size,
-          chunkIndex: recording.chunkIndex,
-          mimeType: event.data.type || recording.mimeType,
-        },
+    const upload = recording.uploadChain
+      .then(() =>
+        recording.cancelled || recording.uploadFailure
+          ? undefined
+          : recording.uploadMode === "streaming"
+            ? uploadStreamingBlob(recording, event.data)
+            : uploadBlobInSlices(recording, event.data),
+      )
+      .catch((err) => {
+        recording.uploadFailure =
+          err instanceof Error ? err : new Error(String(err));
+        captureExtensionError(recording.uploadFailure, {
+          tags: {
+            surface: "offscreen",
+            recordingStep: "dataavailable-upload",
+          },
+          extra: {
+            recordingId: recording.recordingId,
+            blobBytes: event.data.size,
+            chunkIndex: recording.chunkIndex,
+            mimeType: event.data.type || recording.mimeType,
+          },
+        });
+        reportStatus(recording.sessionId, "error", {
+          error: recording.uploadFailure.message,
+        });
+        if (recorder.state !== "inactive") recorder.stop();
       });
-      reportStatus(recording.sessionId, "error", {
-        error: recording.uploadFailure.message,
-      });
-      if (recorder.state !== "inactive") recorder.stop();
-    });
+    recording.uploadChain = upload.then(() => undefined);
     recording.uploadPromises.push(upload);
   });
 

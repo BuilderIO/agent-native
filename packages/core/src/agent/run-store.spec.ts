@@ -256,6 +256,31 @@ describe("run store", () => {
     expect(JSON.parse(eventJson)).toEqual(STALE_RUN_ERROR_EVENT);
   });
 
+  it("reconciles a persisted terminal event instead of stale-reaping the run", async () => {
+    latestEventRows = [
+      { seq: 9, event_data: JSON.stringify({ type: "done" }) },
+    ];
+
+    const reaped = await reapIfStale("run-done-event");
+
+    expect(reaped).toBe(false);
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("completed");
+    expect(repair?.args[6]).toBe("done");
+    expect(repair?.args[7]).toBe("run-done-event");
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs[\s\S]*SET status = 'errored'/i.test(call.sql) &&
+          call.args.includes("run-done-event"),
+      ),
+    ).toBe(false);
+  });
+
   it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
     await reapIfStale("run-progressing");
 
