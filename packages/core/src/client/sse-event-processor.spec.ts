@@ -36,12 +36,62 @@ function silentStream(): ReadableStream<Uint8Array> {
   });
 }
 
-function keepaliveThenDoneStream(
+function keepaliveThenDelayedDoneStream(
+  keepaliveAtMs: number,
+  doneAtMs: number,
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      timers.push(
+        setTimeout(() => {
+          try {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
+              ),
+            );
+          } catch {
+            // The watchdog may have cancelled the stream first.
+          }
+        }, keepaliveAtMs),
+      );
+      timers.push(
+        setTimeout(() => {
+          try {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify({ type: "done" })}\n\n`,
+              ),
+            );
+            controller.close();
+          } catch {
+            // The watchdog may have cancelled the stream first.
+          }
+        }, doneAtMs),
+      );
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+    },
+  });
+}
+
+function activityThenKeepaliveStream(
   keepaliveAtMs: number,
 ): ReadableStream<Uint8Array> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return new ReadableStream<Uint8Array>({
     start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: "Still generating image",
+            tool: "generate-image",
+          })}\n\n`,
+        ),
+      );
       timer = setTimeout(() => {
         try {
           controller.enqueue(
@@ -49,12 +99,6 @@ function keepaliveThenDoneStream(
               `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
             ),
           );
-          controller.enqueue(
-            new TextEncoder().encode(
-              `data: ${JSON.stringify({ type: "done" })}\n\n`,
-            ),
-          );
-          controller.close();
         } catch {
           // The watchdog may have cancelled the stream first.
         }
@@ -244,22 +288,64 @@ describe("SSE event processor no-progress recovery", () => {
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
   });
 
-  it("stream_keepalive events reset the no-progress watchdog", async () => {
+  it("stream_keepalive events do not reset the no-progress watchdog", async () => {
     vi.useFakeTimers();
 
-    const donePromise = drain(
-      readSSEStream(
-        keepaliveThenDoneStream(SSE_NO_PROGRESS_TIMEOUT_MS - 5_000),
-        [],
-        { value: 0 },
-        undefined,
-      ),
-    );
+    const errPromise = (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          keepaliveThenDelayedDoneStream(
+            SSE_NO_PROGRESS_TIMEOUT_MS - 5_000,
+            SSE_NO_PROGRESS_TIMEOUT_MS + 5_000,
+          ),
+          [],
+          { value: 0 },
+          undefined,
+        )) {
+          // no-op
+        }
+      } catch (err) {
+        return err;
+      }
+    })();
 
     await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS - 5_000);
     await vi.advanceTimersByTimeAsync(10_000);
+    const err = await errPromise;
 
-    await expect(donePromise).resolves.toBeDefined();
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+  });
+
+  it("preserves activity trail when keepalive-only streams hit no-progress recovery", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          activityThenKeepaliveStream(SSE_NO_PROGRESS_TIMEOUT_MS),
+          [],
+          { value: 0 },
+          undefined,
+        )) {
+          // no-op
+        }
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS);
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Still generating image",
+        tool: "generate-image",
+      },
+    ]);
   });
 
   it("does not let keepalives hide a stalled action preparation", async () => {
@@ -358,6 +444,34 @@ describe("SSE event processor no-progress recovery", () => {
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
     expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it("preserves raw activity trail when keepalive-only streams hit no-progress recovery", async () => {
+    vi.useFakeTimers();
+    const onUpdate = vi.fn();
+
+    const errPromise = readSSEStreamRaw(
+      activityThenKeepaliveStream(SSE_NO_PROGRESS_TIMEOUT_MS),
+      [],
+      { value: 0 },
+      undefined,
+      onUpdate,
+    ).then(
+      () => undefined,
+      (err) => err,
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS);
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Still generating image",
+        tool: "generate-image",
+      },
+    ]);
   });
 
   it("turns raw streams that close without a terminal event into a recovery signal", async () => {
@@ -1076,6 +1190,57 @@ describe("SSE event processor error classification", () => {
         result: '{"saved":true}',
       }),
     ]);
+  });
+
+  it("coalesces adjacent duplicate completed tool calls", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "update-dashboard",
+            id: "call-1",
+            input: { dashboardId: "dash-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "update-dashboard",
+            id: "call-1",
+            result: '{"saved":true}',
+          },
+          {
+            type: "tool_start",
+            tool: "update-dashboard",
+            id: "call-2",
+            input: { dashboardId: "dash-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "update-dashboard",
+            id: "call-2",
+            result: '{"saved":true}',
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-repeat",
+      ),
+    );
+
+    const finalContent = results.at(-1)?.content ?? [];
+    const toolCalls = finalContent.filter(
+      (part): part is Extract<ContentPart, { type: "tool-call" }> =>
+        part.type === "tool-call",
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toEqual(
+      expect.objectContaining({
+        toolName: "update-dashboard",
+        result: '{"saved":true}',
+        repeatCount: 2,
+      }),
+    );
   });
 
   it("adds a visible warning when a run completes after tools but sends no final text", async () => {

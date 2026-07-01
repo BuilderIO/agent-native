@@ -418,6 +418,7 @@ export function ToolCallDisplay({
   isRunning,
   structuredMeta,
   approval,
+  repeatCount,
 }: {
   toolName: string;
   argsText?: string;
@@ -428,6 +429,7 @@ export function ToolCallDisplay({
   isRunning: boolean;
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
 }) {
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
@@ -474,6 +476,7 @@ export function ToolCallDisplay({
       chatUI={chatUI}
       isRunning={isRunning}
       approval={approval}
+      repeatCount={repeatCount}
     />
   );
 }
@@ -487,6 +490,7 @@ function ToolCallDisplayGeneric({
   chatUI,
   isRunning,
   approval,
+  repeatCount,
 }: {
   toolName: string;
   argsText?: string;
@@ -496,6 +500,7 @@ function ToolCallDisplayGeneric({
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
 }) {
   const streamRef = useRef<HTMLDivElement>(null);
 
@@ -640,6 +645,14 @@ function ToolCallDisplayGeneric({
         <span className="truncate min-w-0">
           <span className="font-medium">{displayName}</span>
         </span>
+        {repeatCount && repeatCount > 1 && (
+          <span
+            className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
+            title={`Repeated ${repeatCount} times`}
+          >
+            {repeatCount}x
+          </span>
+        )}
         {canExpand && (
           <IconChevronDown
             className={cn(
@@ -694,6 +707,7 @@ export function ToolCallFallback({
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const isRunning =
@@ -715,6 +729,7 @@ export function ToolCallFallback({
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
       approval={rest.approval}
+      repeatCount={rest.repeatCount}
     />
   );
 }
@@ -764,6 +779,7 @@ export function ReconnectStreamMessage({
                   (chatRunning || part.activity === true)
                 }
                 approval={part.approval}
+                repeatCount={part.repeatCount}
               />
             );
           }

@@ -240,6 +240,48 @@ describe("waitForThreadRunToClear", () => {
     );
     expect(helperSource).toContain("activityTool: storedActivityTool");
   });
+
+  it("clears stored active-run state when reconnect or stop unwinds the run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const reconnectStart = source.indexOf(
+      "const startReconnectToRun = useCallback",
+    );
+    const reconnectEnd = source.indexOf("const reconnectActiveRunForThread");
+    const reconnectSource = source.slice(reconnectStart, reconnectEnd);
+    const stopStart = source.indexOf("const stopActiveRun = useCallback");
+    const stopEnd = source.indexOf(
+      "// Keep the ref current so addToQueue can call it",
+    );
+    const stopSource = source.slice(stopStart, stopEnd);
+
+    expect(reconnectStart).toBeGreaterThan(-1);
+    expect(reconnectEnd).toBeGreaterThan(reconnectStart);
+    expect(stopStart).toBeGreaterThan(-1);
+    expect(stopEnd).toBeGreaterThan(stopStart);
+    expect(reconnectSource).toContain(
+      "clearActiveRunIfMatches(threadId, runId)",
+    );
+    expect(stopSource).toContain(
+      "clearActiveRunIfMatches(threadId, runIdToAbort)",
+    );
+  });
+
+  it("renders tail-resume reconnect content instead of hiding it behind the fallback", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("{(isReconnecting || reconnectFrozen) &&");
+    const end = source.indexOf("{showRunningInUI &&", start);
+    const renderSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(renderSource).toContain("reconnectContent.length > 0");
+    expect(renderSource).toContain("reconnectContent.length === 0");
+    expect(renderSource).not.toContain("reconnectAfterSeq");
+  });
 });
 
 describe("reconnectProgressTimedOut", () => {

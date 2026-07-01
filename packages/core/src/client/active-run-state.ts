@@ -82,6 +82,12 @@ export function clearActiveRun(): void {
   notifyActiveRunStateChanged(null);
 }
 
+export function clearActiveRunIfMatches(threadId: string, runId: string): void {
+  const state = getActiveRun();
+  if (state?.threadId !== threadId || state.runId !== runId) return;
+  clearActiveRun();
+}
+
 /** Resume reconnect SSE after the last seen event (0 = replay from the start). */
 export function resolveReconnectAfterSeq(
   threadId: string,

@@ -38,6 +38,7 @@ import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-erro
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   ACTIVE_RUN_STATE_EVENT,
+  clearActiveRunIfMatches,
   getActiveRunActivityTool,
   getActiveRun,
   resolveReconnectAfterSeq,
@@ -1455,7 +1456,6 @@ const AssistantChatInner = forwardRef<
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
-  const [reconnectAfterSeq, setReconnectAfterSeq] = useState(0);
   const reconnectAbortRef = useRef<AbortController | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
   // lets new submissions go through immediately — prevents the "stuck
@@ -1776,7 +1776,6 @@ const AssistantChatInner = forwardRef<
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
       const storedActivityTool = getActiveRunActivityTool(threadId, runId);
       setRunningActivityTool(storedActivityTool);
-      setReconnectAfterSeq(afterSeq);
       setActiveRun({
         threadId,
         runId,
@@ -1953,10 +1952,10 @@ const AssistantChatInner = forwardRef<
             runId,
           });
           setDismissedRunErrorKey(null);
+          clearActiveRunIfMatches(threadId, runId);
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
-          setReconnectAfterSeq(0);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -1980,10 +1979,10 @@ const AssistantChatInner = forwardRef<
         }
 
         if (reconnectRunIdRef.current === runId) {
+          clearActiveRunIfMatches(threadId, runId);
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
-          setReconnectAfterSeq(0);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -2783,6 +2782,7 @@ const AssistantChatInner = forwardRef<
     setRunErrorInfo(null);
     setDismissedRunErrorKey(null);
     if (runIdToAbort) {
+      if (threadId) clearActiveRunIfMatches(threadId, runIdToAbort);
       fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
         method: "POST",
       }).catch(() => {});
@@ -2791,7 +2791,6 @@ const AssistantChatInner = forwardRef<
       reconnectAbortRef.current?.abort();
       reconnectAbortRef.current = null;
       reconnectRunIdRef.current = null;
-      setReconnectAfterSeq(0);
       setIsReconnecting(false);
       setReconnectFrozen(reconnectContent.length > 0);
     }
@@ -3645,12 +3644,11 @@ const AssistantChatInner = forwardRef<
                         />
                       )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectAfterSeq === 0 &&
                         reconnectContent.length > 0 && (
                           <ReconnectStreamMessage content={reconnectContent} />
                         )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectAfterSeq > 0 &&
+                        reconnectContent.length === 0 &&
                         reconnectActivityContent.length > 0 && (
                           <ReconnectStreamMessage
                             content={reconnectActivityContent}

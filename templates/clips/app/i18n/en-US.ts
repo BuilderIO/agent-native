@@ -428,11 +428,11 @@ const messages = {
     askOwnerPublic: "Ask the owner to make it public.",
     responsive: "Responsive (16:9)",
     fixedSize: "Fixed size",
+    embedIframeTitle: "Clips video",
     width: "Width",
     height: "Height",
     autoplay: "Autoplay",
     startAt: "Start at (seconds)",
-    iframeTitle: "Clips video",
     embedCode: "Embed code",
   },
   shareUi: {

@@ -8,6 +8,7 @@ import {
   getActiveRun,
   getActiveRunActivityTool,
   resolveReconnectAfterSeq,
+  clearActiveRunIfMatches,
   setActiveRun,
   updateActiveRunActivity,
   updateActiveRunSeq,
@@ -102,5 +103,19 @@ describe("resolveReconnectAfterSeq", () => {
       { threadId: "thread-1", runId: "run-1", lastSeq: 1 },
       null,
     ]);
+  });
+
+  it("only clears active run state when the thread and run match", () => {
+    setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 7 });
+
+    clearActiveRunIfMatches("thread-1", "run-2");
+    expect(getActiveRun()).toMatchObject({
+      threadId: "thread-1",
+      runId: "run-1",
+      lastSeq: 7,
+    });
+
+    clearActiveRunIfMatches("thread-1", "run-1");
+    expect(getActiveRun()).toBeNull();
   });
 });
