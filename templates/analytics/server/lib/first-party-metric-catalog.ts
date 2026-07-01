@@ -128,6 +128,10 @@ function daysAgoSql(days: number): string {
   return `to_char(CURRENT_DATE - INTERVAL '${days} ${unit}', 'YYYY-MM-DD')`;
 }
 
+function todaySql(): string {
+  return "to_char(CURRENT_DATE, 'YYYY-MM-DD')";
+}
+
 function windowStartFilter(days: number): string {
   return `${EVENT_DATE_SQL} >= ${daysAgoSql(days)}`;
 }
@@ -140,14 +144,14 @@ function rollingWindowStartSql(
 }
 
 function dashboardTimeRangeFilter(dateExpr = EVENT_DATE_FILTER_SQL): string {
-  return `('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND ${dateExpr} >= ${daysAgoSql(7)}) OR ('{{timeRange}}' = '30d' AND ${dateExpr} >= ${daysAgoSql(30)}) OR ('{{timeRange}}' = '90d' AND ${dateExpr} >= ${daysAgoSql(90)}) OR ('{{timeRange}}' = '180d' AND ${dateExpr} >= ${daysAgoSql(180)}) OR ('{{timeRange}}' = '365d' AND ${dateExpr} >= ${daysAgoSql(365)}))`;
+  return `(${dateExpr} <= ${todaySql()} AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND ${dateExpr} >= ${daysAgoSql(7)}) OR ('{{timeRange}}' = '30d' AND ${dateExpr} >= ${daysAgoSql(30)}) OR ('{{timeRange}}' = '90d' AND ${dateExpr} >= ${daysAgoSql(90)}) OR ('{{timeRange}}' = '180d' AND ${dateExpr} >= ${daysAgoSql(180)}) OR ('{{timeRange}}' = '365d' AND ${dateExpr} >= ${daysAgoSql(365)})))`;
 }
 
 function dashboardLookbackTimeRangeFilter(
   dateExpr = EVENT_DATE_FILTER_SQL,
   lookbackDays = 0,
 ): string {
-  return `('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND ${dateExpr} >= ${daysAgoSql(7 + lookbackDays)}) OR ('{{timeRange}}' = '30d' AND ${dateExpr} >= ${daysAgoSql(30 + lookbackDays)}) OR ('{{timeRange}}' = '90d' AND ${dateExpr} >= ${daysAgoSql(90 + lookbackDays)}) OR ('{{timeRange}}' = '180d' AND ${dateExpr} >= ${daysAgoSql(180 + lookbackDays)}) OR ('{{timeRange}}' = '365d' AND ${dateExpr} >= ${daysAgoSql(365 + lookbackDays)}))`;
+  return `(${dateExpr} <= ${todaySql()} AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND ${dateExpr} >= ${daysAgoSql(7 + lookbackDays)}) OR ('{{timeRange}}' = '30d' AND ${dateExpr} >= ${daysAgoSql(30 + lookbackDays)}) OR ('{{timeRange}}' = '90d' AND ${dateExpr} >= ${daysAgoSql(90 + lookbackDays)}) OR ('{{timeRange}}' = '180d' AND ${dateExpr} >= ${daysAgoSql(180 + lookbackDays)}) OR ('{{timeRange}}' = '365d' AND ${dateExpr} >= ${daysAgoSql(365 + lookbackDays)})))`;
 }
 
 const DASHBOARD_TIME_RANGE_FILTER = dashboardTimeRangeFilter();

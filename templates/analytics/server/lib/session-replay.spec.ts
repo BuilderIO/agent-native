@@ -679,6 +679,43 @@ describe("session replay ingest parsing", () => {
     });
   }
 
+  it("clamps future replay recording times before inserting rows", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
+    getDbMock.mockReturnValue(db);
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      sequence: 0,
+      timestamp: "2026-07-05T12:00:00.000Z",
+      events: [{ type: 4, timestamp: Date.parse("2026-07-05T12:00:01.000Z") }],
+    });
+
+    try {
+      await recordSessionReplayChunks(input, {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+        now: new Date("2026-07-01T13:00:00.000Z"),
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { clientRecordingId?: unknown })
+          ?.clientRecordingId === "string",
+    );
+    expect((recordingInsert?.values as { startedAt: string }).startedAt).toBe(
+      "2026-07-01T13:00:00.000Z",
+    );
+  });
+
   it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
     // The ingest endpoint is anonymous + cross-origin (no session). Without the
     // runWithRequestContext wrap, resolveBuilderPrivateKey()/S3 scoped-secret

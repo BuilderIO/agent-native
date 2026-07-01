@@ -149,6 +149,12 @@ export function resolveAgentChatProcessRunDispatchPath(): string {
   return AGENT_CHAT_PROCESS_RUN_PATH;
 }
 
+export function dispatchPathTargetsNetlifyBackgroundFunction(
+  dispatchPath: string,
+): boolean {
+  return dispatchPath.startsWith("/.netlify/functions/");
+}
+
 /**
  * Env flag for durable background runs. DEFAULT-OFF (opt-in): unset means
  * disabled; an app opts IN with an explicit truthy value (`true`/`1`/`yes`/`on`).
