@@ -91,6 +91,7 @@ import {
   getRepoMessage,
   shouldImportServerThreadData,
   dedupeRepoMessagesById,
+  dropEmptyAssistantMessages,
 } from "./chat/repo-helpers.js";
 import {
   BuilderSetupCard,
@@ -885,7 +886,7 @@ function ensureMessageMetadata(repo: any): any {
   // throws "performOp/link: A message with the same id already exists in the
   // parent tree" (Sentry AGENT-NATIVE-BROWSER-2Q) when fed repeated ids. No-op
   // for the normal no-duplicate case. See dedupeRepoMessagesById.
-  repo = dedupeRepoMessagesById(repo);
+  repo = dropEmptyAssistantMessages(dedupeRepoMessagesById(repo));
   if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
   for (const entry of repo.messages) {
     // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
@@ -1347,6 +1348,7 @@ const AssistantChatInner = forwardRef<
   // True during the 250ms continuation window and startup of the next chunk
   // (adapter's auto-continue delay before POSTing the next chunk).
   const [isAutoResuming, setIsAutoResuming] = useState(false);
+  const [optimisticRunning, setOptimisticRunning] = useState(false);
   const [runningActivityLabel, setRunningActivityLabel] = useState<
     string | null
   >(null);
@@ -1379,7 +1381,8 @@ const AssistantChatInner = forwardRef<
   // Real running state — drives submission/queue gating. Treat reconnecting
   // to an active run the same as running, UNLESS the user has explicitly
   // clicked stop (forceStopped).
-  const isRunning = !forceStopped && (isRuntimeRunning || isReconnecting);
+  const isRunning =
+    !forceStopped && (isRuntimeRunning || isReconnecting || optimisticRunning);
   const textStreaming = isRunning || externalStreaming;
   // UI-only running state — drives the stop button and thinking indicator.
   const showRunningInUI = isRunning;
@@ -1402,6 +1405,16 @@ const AssistantChatInner = forwardRef<
   // a running turn without adding many unstable closure deps to its dep list.
   const stopActiveRunRef = useRef<() => void>(() => {});
 
+  const markOptimisticRunning = useCallback(() => {
+    setOptimisticRunning(true);
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: { isRunning: true, tabId: tabId || threadId },
+      }),
+    );
+  }, [tabId, threadId]);
+
   useEffect(() => {
     if (lastBroadcastRunningRef.current === isRunning) return;
     lastBroadcastRunningRef.current = isRunning;
@@ -1411,6 +1424,20 @@ const AssistantChatInner = forwardRef<
       }),
     );
   }, [isRunning, tabId, threadId]);
+
+  useEffect(() => {
+    if (!optimisticRunning) return;
+    if (!forceStopped && !isRuntimeRunning && !isReconnecting) return;
+    setOptimisticRunning(false);
+  }, [forceStopped, isReconnecting, isRuntimeRunning, optimisticRunning]);
+
+  useEffect(() => {
+    if (!optimisticRunning) return;
+    const timer = window.setTimeout(() => {
+      setOptimisticRunning(false);
+    }, 15_000);
+    return () => window.clearTimeout(timer);
+  }, [optimisticRunning]);
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
@@ -1468,6 +1495,7 @@ const AssistantChatInner = forwardRef<
       // re-evaluates against the runtime exactly as before instead of
       // short-circuiting to the rejected repo.
       let settled = true;
+      let settledRepo = repo;
       if (repo?.messages?.length > 0) {
         let shouldImport = true;
         try {
@@ -1482,7 +1510,9 @@ const AssistantChatInner = forwardRef<
           if (options?.markTitleGenerated) {
             titleGeneratedRef.current = true;
           }
-          threadRuntime.import(ensureMessageMetadata(repo));
+          const importRepo = ensureMessageMetadata(repo);
+          threadRuntime.import(importRepo);
+          settledRepo = importRepo;
         } else {
           settled = false;
         }
@@ -1503,7 +1533,7 @@ const AssistantChatInner = forwardRef<
       }
       if (settled && signature !== null) {
         lastImportedSignatureRef.current = signature;
-        lastImportedRepoRef.current = repo;
+        lastImportedRepoRef.current = settledRepo;
       }
       return repo;
     },
