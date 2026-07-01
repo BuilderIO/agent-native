@@ -5619,7 +5619,11 @@ export function createProductionAgentHandler(
                 const callerAuth = await resolveA2ACallerAuth({
                   includeGoogleToken: true,
                 });
-                const a2aClient = new A2AClient(ref.path, callerAuth.apiKey);
+                const a2aClient = new A2AClient(ref.path, callerAuth.apiKey, {
+                  ...(callerAuth.apiKeyFallbacks
+                    ? { fallbackApiKeys: callerAuth.apiKeyFallbacks }
+                    : {}),
+                });
                 const a2aMetadata = callerAuth.metadata;
 
                 let responseText = "";

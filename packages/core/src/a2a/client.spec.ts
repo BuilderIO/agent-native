@@ -336,6 +336,46 @@ describe("A2AClient", () => {
     });
   });
 
+  it("retries direct client requests with configured fallback bearer tokens", async () => {
+    const bearerTokens: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        bearerTokens.push(
+          String(new Headers(init.headers).get("authorization") ?? "").replace(
+            /^Bearer\s+/i,
+            "",
+          ),
+        );
+        const body = JSON.parse(String(init.body));
+        if (bearerTokens.length === 1) {
+          return new Response("Invalid or expired A2A token", { status: 401 });
+        }
+        return completedResponse(body, "retried with fallback bearer");
+      }),
+    );
+
+    const client = new A2AClient("https://agent.test", "shared-token", {
+      fallbackApiKeys: ["org-token"],
+    });
+    await expect(
+      client.send({
+        role: "user",
+        parts: [{ type: "text", text: "hello" }],
+      }),
+    ).resolves.toMatchObject({
+      status: {
+        message: {
+          parts: [{ text: "retried with fallback bearer", type: "text" }],
+        },
+      },
+    });
+
+    expect(bearerTokens).toEqual(["shared-token", "org-token"]);
+  });
+
   it("blocks private/internal A2A targets before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

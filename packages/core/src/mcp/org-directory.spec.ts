@@ -152,6 +152,49 @@ describe("fetchOrgApps", () => {
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
   });
 
+  it("retries the org directory with fallback bearer tokens on auth rejection", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const mod = await import("../a2a/caller-auth.js");
+    vi.mocked(mod.resolveA2ACallerAuth).mockResolvedValueOnce({
+      apiKey: "shared-signed-jwt",
+      apiKeyFallbacks: ["org-signed-jwt"],
+      userEmail: "caller@acme.com",
+      orgId: "org-a",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const authHeaders: string[] = [];
+    const fetchSpy = vi
+      .fn()
+      .mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+        authHeaders.push(
+          String((init?.headers as Record<string, string>).Authorization),
+        );
+        return new Response("Invalid or expired A2A token", { status: 401 });
+      })
+      .mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+        authHeaders.push(
+          String((init?.headers as Record<string, string>).Authorization),
+        );
+        return new Response(
+          JSON.stringify({
+            apps: [{ id: "calendar", name: "Cal", url: "https://c.acme.com" }],
+          }),
+          { status: 200 },
+        );
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([
+      expect.objectContaining({ id: "calendar" }),
+    ]);
+    expect(authHeaders).toEqual([
+      "Bearer shared-signed-jwt",
+      "Bearer org-signed-jwt",
+    ]);
+  });
+
   it("returns [] silently when the directory is unreachable (no throw)", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     vi.stubGlobal(

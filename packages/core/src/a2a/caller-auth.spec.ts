@@ -89,6 +89,18 @@ describe("resolveA2ACallerAuth", () => {
             new TextEncoder().encode("org-a2a-secret"),
           ),
         ).rejects.toThrow();
+        expect(auth.apiKeyFallbacks).toHaveLength(1);
+        await expect(
+          jose.jwtVerify(
+            auth.apiKeyFallbacks![0],
+            new TextEncoder().encode("org-a2a-secret"),
+          ),
+        ).resolves.toMatchObject({
+          payload: {
+            sub: "alice+qa@agent-native.test",
+            org_domain: "builder.io",
+          },
+        });
       },
     );
   });

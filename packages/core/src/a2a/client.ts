@@ -93,6 +93,7 @@ export function shouldPreferGlobalA2ASecret(orgSecret?: string): boolean {
 export class A2AClient {
   private baseUrl: string;
   private apiKey?: string;
+  private apiKeyAttempts: Array<string | undefined>;
   private endpointCandidates: string[] = [];
   private endpointResolved = false;
   private requestTimeoutMs?: number;
@@ -100,7 +101,7 @@ export class A2AClient {
   constructor(
     baseUrl: string,
     apiKey?: string,
-    options?: { requestTimeoutMs?: number },
+    options?: { requestTimeoutMs?: number; fallbackApiKeys?: string[] },
   ) {
     const normalized = baseUrl.replace(/\/$/, "");
     const explicitEndpoint = splitExplicitA2AEndpoint(normalized);
@@ -110,6 +111,10 @@ export class A2AClient {
       this.endpointResolved = true;
     }
     this.apiKey = apiKey;
+    this.apiKeyAttempts = uniqueAuthTokens([
+      apiKey,
+      ...(options?.fallbackApiKeys ?? []),
+    ]);
     this.requestTimeoutMs = options?.requestTimeoutMs;
   }
 
@@ -142,12 +147,20 @@ export class A2AClient {
     }
   }
 
-  private headers(): Record<string, string> {
+  private headers(apiKey = this.apiKey): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.apiKey) {
-      h["Authorization"] = `Bearer ${this.apiKey}`;
+    if (apiKey) {
+      h["Authorization"] = `Bearer ${apiKey}`;
     }
     return h;
+  }
+
+  private markApiKeySucceeded(apiKey: string | undefined) {
+    this.apiKey = apiKey;
+    this.apiKeyAttempts = uniqueAuthTokens([
+      apiKey,
+      ...this.apiKeyAttempts.filter((token) => token !== apiKey),
+    ]);
   }
 
   private async rpc(
@@ -165,22 +178,32 @@ export class A2AClient {
     let lastError: Error | null = null;
 
     for (const url of this.endpointCandidates) {
-      console.log(`[A2A Client] POST ${url} method=${method}`);
-      const startTime = Date.now();
-      const res = await this.postJson(url, body);
-      console.log(
-        `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
-      );
+      for (let i = 0; i < this.apiKeyAttempts.length; i++) {
+        console.log(`[A2A Client] POST ${url} method=${method}`);
+        const startTime = Date.now();
+        const res = await this.postJson(url, body, this.apiKeyAttempts[i]);
+        console.log(
+          `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
+        );
 
-      if (res.ok) {
-        this.endpointCandidates = [url];
-        return res.json() as Promise<JsonRpcResponse>;
-      }
+        if (res.ok) {
+          this.endpointCandidates = [url];
+          this.markApiKeySucceeded(this.apiKeyAttempts[i]);
+          return res.json() as Promise<JsonRpcResponse>;
+        }
 
-      const text = await res.text();
-      lastError = new Error(`A2A request failed (${res.status}): ${text}`);
-      if (!shouldTryNextEndpoint(res.status)) {
-        throw lastError;
+        const text = await res.text();
+        lastError = new Error(`A2A request failed (${res.status}): ${text}`);
+        if (
+          i < this.apiKeyAttempts.length - 1 &&
+          isA2AAuthRejectionResponse(res.status, text)
+        ) {
+          continue;
+        }
+        if (!shouldTryNextEndpoint(res.status)) {
+          throw lastError;
+        }
+        break;
       }
     }
 
@@ -313,14 +336,25 @@ export class A2AClient {
     let res: Response | null = null;
     let lastError: Error | null = null;
     for (const candidate of this.endpointCandidates) {
-      res = await this.postJson(candidate, body);
-      if (res.ok) {
-        this.endpointCandidates = [candidate];
+      for (let i = 0; i < this.apiKeyAttempts.length; i++) {
+        res = await this.postJson(candidate, body, this.apiKeyAttempts[i]);
+        if (res.ok) {
+          this.endpointCandidates = [candidate];
+          this.markApiKeySucceeded(this.apiKeyAttempts[i]);
+          break;
+        }
+        const text = await res.text();
+        lastError = new Error(`A2A stream failed (${res.status}): ${text}`);
+        if (
+          i < this.apiKeyAttempts.length - 1 &&
+          isA2AAuthRejectionResponse(res.status, text)
+        ) {
+          continue;
+        }
+        if (!shouldTryNextEndpoint(res.status)) throw lastError;
         break;
       }
-      const text = await res.text();
-      lastError = new Error(`A2A stream failed (${res.status}): ${text}`);
-      if (!shouldTryNextEndpoint(res.status)) throw lastError;
+      if (res?.ok) break;
     }
     if (!res?.ok) {
       throw lastError ?? new Error("No A2A endpoint candidates available");
@@ -383,7 +417,11 @@ export class A2AClient {
     this.endpointCandidates = unique(candidates);
   }
 
-  private async postJson(url: string, body: JsonRpcRequest): Promise<Response> {
+  private async postJson(
+    url: string,
+    body: JsonRpcRequest,
+    apiKey = this.apiKey,
+  ): Promise<Response> {
     const controller = this.requestTimeoutMs
       ? new AbortController()
       : undefined;
@@ -396,7 +434,7 @@ export class A2AClient {
         url,
         {
           method: "POST",
-          headers: this.headers(),
+          headers: this.headers(apiKey),
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
@@ -463,6 +501,27 @@ function shouldTryNextEndpoint(status: number): boolean {
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values));
+}
+
+function uniqueAuthTokens(
+  values: Array<string | undefined>,
+): Array<string | undefined> {
+  const result: Array<string | undefined> = [];
+  for (const value of values) {
+    if (result.includes(value)) continue;
+    result.push(value);
+  }
+  if (result.length === 0) result.push(undefined);
+  return result;
+}
+
+function isA2AAuthRejectionResponse(status: number, text: string): boolean {
+  return (
+    status === 401 ||
+    /A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
+      text,
+    )
+  );
 }
 
 /**

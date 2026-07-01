@@ -146,6 +146,15 @@ function scopedCacheKey(
   ].join("|");
 }
 
+function authTokenAttempts(auth: {
+  apiKey?: string;
+  apiKeyFallbacks?: string[];
+}): string[] {
+  return [auth.apiKey, ...(auth.apiKeyFallbacks ?? [])].filter(
+    (token): token is string => typeof token === "string" && token.length > 0,
+  );
+}
+
 function serviceScopedCacheKey(origin: string, orgId: string): string {
   return [origin, `service-org:${orgId}`].join("|");
 }
@@ -200,7 +209,8 @@ export async function fetchOrgApps(opts?: {
     const auth = serviceOrgId
       ? await resolveOrgDirectoryServiceAuth(serviceOrgId)
       : await resolveOrgDirectoryCallerAuth();
-    if (!auth.apiKey) {
+    const attempts = authTokenAttempts(auth);
+    if (attempts.length === 0) {
       // No signed token available (no A2A secret / no caller identity) — the
       // directory requires the org bearer, so degrade silently to local-only.
       return [];
@@ -215,19 +225,23 @@ export async function fetchOrgApps(opts?: {
       }
     }
 
-    const res = await fetch(`${origin}/_agent-native/org/apps`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${auth.apiKey}`,
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (res.ok) {
-      const json = (await res.json()) as { apps?: unknown };
-      const list = Array.isArray(json?.apps) ? json.apps : [];
-      apps = list.map(normalizeApp).filter((a): a is OrgApp => a !== null);
-      ttl = SUCCESS_TTL_MS;
+    for (let i = 0; i < attempts.length; i++) {
+      const res = await fetch(`${origin}/_agent-native/org/apps`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${attempts[i]}`,
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { apps?: unknown };
+        const list = Array.isArray(json?.apps) ? json.apps : [];
+        apps = list.map(normalizeApp).filter((a): a is OrgApp => a !== null);
+        ttl = SUCCESS_TTL_MS;
+        break;
+      }
+      if (res.status !== 401 || i >= attempts.length - 1) break;
     }
     // Non-2xx ⇒ leave apps=[] with the short EMPTY_TTL (silent degrade).
   } catch {
@@ -252,6 +266,7 @@ export function _resetOrgDirectoryCache(): void {
 
 async function resolveOrgDirectoryCallerAuth(): Promise<{
   apiKey?: string;
+  apiKeyFallbacks?: string[];
   userEmail?: string;
   orgId?: string;
   orgDomain?: string;

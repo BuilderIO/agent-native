@@ -76,16 +76,37 @@ jobs:
                 return { name, error: `list json failed: ${err?.message || err}` };
               }
 
-              // Superseded == queued production deploy for a commit other than
-              // the one we just pushed. Filtering by SHA (not queue position) is
-              // race-safe: even if our own deploy isn't listed yet, we only ever
-              // cancel strictly older queued production builds.
-              const stale = deploys.filter(d =>
-                d.context === 'production' &&
-                CANCELABLE_STATES.has(d.state) &&
-                d.commit_ref &&
-                d.commit_ref !== currentSha
-              );
+              const isStrictlyOlderCommit = async (commitRef) => {
+                if (!commitRef || commitRef === currentSha) return false;
+                try {
+                  const comparison = await github.rest.repos.compareCommitsWithBasehead({
+                    ...context.repo,
+                    basehead: `${commitRef}...${currentSha}`,
+                  });
+                  if (comparison.data.status === 'ahead') return true;
+                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; compare status=${comparison.data.status}`);
+                  return false;
+                } catch (err) {
+                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; could not prove it is older: ${err?.message || err}`);
+                  return false;
+                }
+              };
+
+              // Superseded == queued production deploy for a commit GitHub
+              // proves is an ancestor of the one we just pushed. Filtering by
+              // ancestry (not merely "different SHA" or queue position) avoids
+              // a slower cleanup run canceling a newer main deploy that landed
+              // after this workflow started.
+              const stale = [];
+              for (const d of deploys) {
+                if (
+                  d.context === 'production' &&
+                  CANCELABLE_STATES.has(d.state) &&
+                  await isStrictlyOlderCommit(d.commit_ref)
+                ) {
+                  stale.push(d);
+                }
+              }
 
               const cancelled = await Promise.all(stale.map(async d => {
                 try {

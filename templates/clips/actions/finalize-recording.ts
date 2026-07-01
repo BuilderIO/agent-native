@@ -344,15 +344,10 @@ export default defineAction({
       const resumableSession = await getResumableSession(id);
       if (resumableSession && isStreamingUploadDisabled()) {
         console.warn(
-          `[finalize] ignoring stale resumable session because streaming uploads are disabled: ${id}`,
+          `[finalize] streaming uploads are disabled, but completing existing resumable session for in-flight recording: ${id}`,
         );
-        await deleteResumableSession(id).catch((err) =>
-          console.warn("[finalize] failed to delete stale resumable session:", {
-            id,
-            err: err instanceof Error ? err.message : String(err),
-          }),
-        );
-      } else if (resumableSession) {
+      }
+      if (resumableSession) {
         debugLog("[finalize] resumable session found, completing upload", {
           id,
           providerId: resumableSession.providerId,
