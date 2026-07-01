@@ -136,24 +136,25 @@ describe("analytics alert evaluation", () => {
     );
   });
 
-  it("keeps triggered rules retryable when no notification was delivered", () => {
+  it("keeps triggered rules retryable only when no notification channel delivered", () => {
     const source = readFileSync(
       new URL("./analytics-alerts.ts", import.meta.url),
       "utf8",
     );
-    const noDeliveryIndex = source.indexOf("if (!stored?.id)");
+    const noDeliveryIndex = source.indexOf(
+      "if (delivery.deliveredChannels.length === 0)",
+    );
     const incidentIndex = source.indexOf("recordIncident(rule");
 
+    expect(source).toContain("notifyWithDelivery");
     expect(source).toContain("ensureInboxNotificationChannel(rule.channels)");
-    expect(source).toContain("if (!stored?.id)");
-    expect(source).toContain(
-      "Analytics alert notification was not delivered; no inbox notification was stored.",
-    );
+    expect(source).toContain("delivery.deliveredChannels.length === 0");
+    expect(source).toContain("Analytics alert notification was not delivered.");
     expect(source).toContain('lastStatus: "error"');
     expect(noDeliveryIndex).toBeGreaterThan(-1);
     expect(noDeliveryIndex).toBeLessThan(incidentIndex);
-    expect(source).toContain("notificationId: stored.id");
-    expect(source).not.toContain("notificationId: stored?.id");
+    expect(source).toContain("notificationId: delivery.notification?.id");
+    expect(source).not.toContain("if (!stored?.id)");
   });
 
   it("requires Netlify scheduled invocation payload before forwarding alert cron token", () => {
