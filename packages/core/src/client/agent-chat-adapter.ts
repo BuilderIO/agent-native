@@ -1980,6 +1980,7 @@ export function createAgentChatAdapter(
             // progress on the first timeout); if the follow-up produces no new
             // content, stop locally with a clear completed-tool warning.
             if (
+              signal.reason === "run_timeout" &&
               completedTool &&
               !hasInFlightToolCall(content) &&
               !currentPreparingToolName &&

@@ -4520,6 +4520,83 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("does not synthesize a completed-tool finish for non-timeout transport failures", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return sseResponse([
+        { type: "text", text: "Saving the design." },
+        {
+          type: "tool_start",
+          tool: "generate-design",
+          input: { designId: "design_1" },
+        },
+        {
+          type: "tool_done",
+          tool: "generate-design",
+          result: '{"designId":"design_1","urlPath":"/design/design_1"}',
+        },
+        {
+          type: "error",
+          error: "The connection dropped after the tool completed.",
+          errorCode: "connection_error",
+          recoverable: true,
+        },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-completed-tool-transport-failure",
+      threadId: "thread-completed-tool-transport-failure",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "create a dark todo app" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata?.custom?.runWarning?.errorCode).not.toBe(
+      "final_response_timeout_after_tool",
+    );
+  });
+
   it("does not use the completed-tool note for read-only-looking tools without side-effect metadata", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();

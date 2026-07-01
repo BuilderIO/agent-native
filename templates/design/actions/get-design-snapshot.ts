@@ -83,6 +83,13 @@ export default defineAction({
       err.statusCode = 404;
       throw err;
     }
+    if (!requestedFileId && requestedFilename && files.length > 1) {
+      const err = new Error(
+        "Multiple design files match filename; pass fileId instead",
+      ) as Error & { statusCode: number };
+      err.statusCode = 409;
+      throw err;
+    }
 
     return {
       designId,

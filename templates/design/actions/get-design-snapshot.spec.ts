@@ -99,6 +99,41 @@ describe("get-design-snapshot", () => {
     });
   });
 
+  it("fails loudly when filename fallback matches multiple files", async () => {
+    mocks.buildDesignSnapshot.mockResolvedValue({
+      designId: "design_123",
+      files: [
+        {
+          id: "file-a",
+          filename: "duplicate.html",
+          fileType: "html",
+          content: "<html>A</html>",
+          source: "stored",
+        },
+        {
+          id: "file-b",
+          filename: "duplicate.html",
+          fileType: "html",
+          content: "<html>B</html>",
+          source: "stored",
+        },
+      ],
+      tweaks: [],
+      appliedTweaks: {},
+      resolvedCssVars: {},
+    });
+
+    await expect(
+      action.run({
+        designId: "design_123",
+        filename: "duplicate.html",
+      }),
+    ).rejects.toMatchObject({
+      message: "Multiple design files match filename; pass fileId instead",
+      statusCode: 409,
+    });
+  });
+
   it("fails loudly when a requested file is missing", async () => {
     await expect(
       action.run({
