@@ -98,6 +98,32 @@ describe("RequireSession", () => {
     expect(href).toContain(encodeURIComponent("/inbox?label=important"));
   });
 
+  it("never redirects when already on the sign-in page (no infinite loop)", () => {
+    // Simulates the base-path deploy case where the app shell is served at the
+    // sign-in path. Redirecting here would nest the sign-in URL as a fresh
+    // `?return=` and loop forever — the gate must not redirect to itself.
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        pathname: "/_agent-native/sign-in",
+        search: "?return=%2Finbox",
+        hash: "",
+        origin: "https://mail.example.com",
+        href: "https://mail.example.com/_agent-native/sign-in?return=%2Finbox",
+        replace: replaceMock,
+        assign: vi.fn(),
+      },
+    });
+    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    render(
+      <RequireSession>
+        <Child />
+      </RequireSession>,
+    );
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="protected"]')).toBeNull();
+  });
+
   it("does not redirect twice across re-renders", () => {
     useSessionMock.mockReturnValue({ session: null, isLoading: false });
     render(

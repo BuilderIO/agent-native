@@ -542,6 +542,12 @@ export function safeReturnPath(raw: string | null | undefined): string {
   try {
     const parsed = new URL(raw, "http://safe-base.invalid");
     if (parsed.origin !== "http://safe-base.invalid") return "/";
+    // Never return to the sign-in entry point itself. A `return` that resolves
+    // back to `…/_agent-native/sign-in` re-enters the redirect loop — each hop
+    // nests the prior sign-in URL as a fresh `?return=`. Collapse it to "/" so
+    // the post-sign-in 302 lands on the app, not another sign-in page. Matches
+    // with or without an app base-path prefix (`/<app>/_agent-native/sign-in`).
+    if (parsed.pathname.endsWith("/_agent-native/sign-in")) return "/";
     return parsed.pathname + parsed.search + parsed.hash;
   } catch {
     return "/";
