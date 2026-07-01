@@ -209,7 +209,9 @@ const mockDb = {
     }
 
     // append-terminal-event read / insert paths used by safeAppendTerminalRunEvent
-    if (/SELECT seq, event_data FROM agent_run_events/i.test(sql)) {
+    if (
+      /SELECT seq, event_data(?:, event_at)? FROM agent_run_events/i.test(sql)
+    ) {
       return { rows: [], rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(sql)) {

@@ -128,6 +128,7 @@ async function ensureRunTables(): Promise<void> {
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
           seq ${intType()} NOT NULL,
+          event_at ${intType()},
           event_data TEXT NOT NULL,
           PRIMARY KEY (run_id, seq)
         )
@@ -203,6 +204,11 @@ async function ensureRunTables(): Promise<void> {
           );
         }
         await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+        await ensureColumnExists(
+          "agent_run_events",
+          "event_at",
+          `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at ${intType()}`,
+        );
         await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
@@ -216,6 +222,7 @@ async function ensureRunTables(): Promise<void> {
           "heartbeat_at",
           "last_progress_at",
         ]);
+        await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
         await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
         return;
       }
@@ -281,6 +288,13 @@ async function ensureRunTables(): Promise<void> {
         }
       }
       await client.execute(agentRunEventsCreateSql);
+      try {
+        await client.execute(
+          `ALTER TABLE agent_run_events ADD COLUMN event_at ${intType()}`,
+        );
+      } catch {
+        // Column already exists — ignore
+      }
       await client.execute(agentToolLedgerCreateSql);
       // Widen millisecond-timestamp columns that older deployments created as
       // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
@@ -294,6 +308,7 @@ async function ensureRunTables(): Promise<void> {
         "heartbeat_at",
         "last_progress_at",
       ]);
+      await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
       await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
@@ -689,18 +704,29 @@ function terminalReasonForEvent(event: AgentChatEvent): string | null {
   return null;
 }
 
-async function getLatestRunEvent(
-  runId: string,
-): Promise<AgentChatEvent | null> {
+async function getLatestRunEvent(runId: string): Promise<{
+  event: AgentChatEvent;
+  eventAt: number | null;
+} | null> {
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+    sql: `SELECT seq, event_data, event_at FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
     args: [runId],
   });
-  const raw = (rows[0] as { event_data?: string } | undefined)?.event_data;
+  const row = rows[0] as
+    | {
+        event_at?: number | string | null;
+        event_data?: string;
+      }
+    | undefined;
+  const raw = row?.event_data;
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AgentChatEvent;
+    const eventAt = row.event_at == null ? NaN : Number(row.event_at);
+    return {
+      event: JSON.parse(raw) as AgentChatEvent,
+      eventAt: Number.isFinite(eventAt) && eventAt > 0 ? eventAt : null,
+    };
   } catch {
     return null;
   }
@@ -719,23 +745,24 @@ export async function reconcileTerminalRunFromEvents(
   runId: string,
 ): Promise<boolean> {
   await ensureRunTables();
-  const event = await getLatestRunEvent(runId);
-  if (!event) return false;
-  const status = terminalStatusForEvent(event);
-  const terminalReason = terminalReasonForEvent(event);
+  const latest = await getLatestRunEvent(runId);
+  if (!latest) return false;
+  const status = terminalStatusForEvent(latest.event);
+  const terminalReason = terminalReasonForEvent(latest.event);
   if (!status || !terminalReason) return false;
 
   const client = getDbExec();
-  const completedAt = Date.now();
-  const errorCode = event.type === "error" ? (event.errorCode ?? null) : null;
+  const errorCode =
+    latest.event.type === "error" ? (latest.event.errorCode ?? null) : null;
   const errorDetail =
-    event.type === "error"
-      ? (event.details || event.error || "").slice(0, 2000) || null
+    latest.event.type === "error"
+      ? (latest.event.details || latest.event.error || "").slice(0, 2000) ||
+        null
       : null;
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = ?,
-              completed_at = COALESCE(completed_at, ?),
+              completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
               error_code = CASE WHEN ? IS NOT NULL THEN ? ELSE error_code END,
               error_detail = CASE WHEN ? IS NOT NULL THEN ? ELSE error_detail END,
               terminal_reason = COALESCE(terminal_reason, ?)
@@ -746,7 +773,7 @@ export async function reconcileTerminalRunFromEvents(
             )`,
     args: [
       status,
-      completedAt,
+      latest.eventAt,
       errorCode,
       errorCode,
       errorDetail,
@@ -1089,8 +1116,8 @@ export async function insertRunEvent(
   // run aborts at the same time the producer emits its final event.
   // Treat the second write as a no-op so the run completes cleanly.
   await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, seq, eventData],
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+    args: [runId, seq, Date.now(), eventData],
   });
 }
 
@@ -1633,7 +1660,7 @@ async function appendTerminalRunEvent(
   }
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
   await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, nextSeq, JSON.stringify(event)],
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+    args: [runId, nextSeq, Date.now(), JSON.stringify(event)],
   });
 }
