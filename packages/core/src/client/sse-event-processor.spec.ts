@@ -804,6 +804,171 @@ describe("SSE event processor error classification", () => {
     ]);
   });
 
+  it("adds a visible warning when a run stops after a tool even if it sent text before the tool", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "text",
+            text: "I'll generate the full app now.",
+          },
+          {
+            type: "tool_start",
+            tool: "generate-design",
+            input: { designId: "design-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "generate-design",
+            result: '{"saved":true}',
+            completedSideEffect: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-text-before-tool",
+        undefined,
+        "run-text-before-tool",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          runId: "run-text-before-tool",
+          runWarning: {
+            errorCode: "final_response_missing_after_tool",
+            recoverable: true,
+          },
+        },
+      },
+    });
+    expect(last.content).toEqual([
+      {
+        type: "text",
+        text: "I'll generate the full app now.",
+      },
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        result: '{"saved":true}',
+        completedSideEffect: true,
+      }),
+      {
+        type: "text",
+        text: "The agent completed the generate design action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
+      },
+    ]);
+  });
+
+  it("adds a visible warning when a tool returns after the final assistant text", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "generate-design",
+            input: { designId: "design-1" },
+          },
+          {
+            type: "text",
+            text: "I'm generating the full app now.",
+          },
+          {
+            type: "tool_done",
+            tool: "generate-design",
+            result: '{"saved":true}',
+            completedSideEffect: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-result-after-text",
+        undefined,
+        "run-tool-result-after-text",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          runId: "run-tool-result-after-text",
+          runWarning: {
+            errorCode: "final_response_missing_after_tool",
+            recoverable: true,
+          },
+        },
+      },
+    });
+    expect(last.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        result: '{"saved":true}',
+        completedSideEffect: true,
+      }),
+      {
+        type: "text",
+        text: "I'm generating the full app now.",
+      },
+      {
+        type: "text",
+        text: "The agent completed the generate design action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
+      },
+    ]);
+  });
+
+  it("does not add a missing-final warning when text arrives after the last completed tool", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "generate-design",
+            input: { designId: "design-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "generate-design",
+            result: '{"saved":true}',
+            completedSideEffect: true,
+          },
+          {
+            type: "text",
+            text: "Done — the app is ready.",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-text-after-tool",
+        undefined,
+        "run-text-after-tool",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
+    expect(last.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        result: '{"saved":true}',
+        completedSideEffect: true,
+      }),
+      {
+        type: "text",
+        text: "Done — the app is ready.",
+      },
+    ]);
+  });
+
   it("errors when a terminal stream leaves a started tool unresolved", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
