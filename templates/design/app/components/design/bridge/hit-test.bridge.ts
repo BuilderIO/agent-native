@@ -199,6 +199,46 @@
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
+  function absolutePrimitiveContainerTargetForPoint(
+    clientX: number,
+    clientY: number,
+  ): {
+    anchor: Element;
+    placement: string;
+    axis: string;
+    dropMode: string;
+  } | null {
+    var candidates = Array.prototype.slice.call(
+      document.querySelectorAll(
+        '[data-an-primitive="rectangle"],[data-an-primitive="rect"],[data-agent-native-primitive="rectangle"],[data-agent-native-primitive="rect"]',
+      ),
+    );
+    var best: Element | null = null;
+    candidates.forEach(function (candidate) {
+      if (!isAbsolutePrimitiveContainer(candidate)) return;
+      if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
+        return;
+      }
+      var rect = candidate.getBoundingClientRect();
+      if (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      ) {
+        best = candidate;
+      }
+    });
+    return best
+      ? {
+          anchor: best,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container",
+        }
+      : null;
+  }
+
   // keep in sync with editor-chrome.bridge.ts edgePlacementForRect
   function edgePlacementForRect(
     rect: DOMRect,
@@ -311,7 +351,7 @@
       cursor = parent;
     }
 
-    return null;
+    return absolutePrimitiveContainerTargetForPoint(clientX, clientY);
   }
 
   function showInsertionGuideFor(

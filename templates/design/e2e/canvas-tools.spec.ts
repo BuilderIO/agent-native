@@ -256,22 +256,17 @@ async function isPrimitiveNestedUnder(
   childNodeId: string,
 ): Promise<boolean> {
   const content = await fileContent(page, filename);
-  return page.evaluate(
-    ({ html, parentId, childId }) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const nodes = Array.from(
-        doc.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
-      );
-      const parent = nodes.find(
-        (node) => node.dataset.agentNativeNodeId === parentId,
-      );
-      const child = nodes.find(
-        (node) => node.dataset.agentNativeNodeId === childId,
-      );
-      return !!parent && !!child && parent !== child && parent.contains(child);
-    },
-    { html: content, parentId: parentNodeId, childId: childNodeId },
+  const parentIndex = content.indexOf(
+    `data-agent-native-node-id="${parentNodeId}"`,
   );
+  const childIndex = content.indexOf(
+    `data-agent-native-node-id="${childNodeId}"`,
+  );
+  if (parentIndex < 0 || childIndex < 0 || childIndex <= parentIndex) {
+    return false;
+  }
+  const parentCloseIndex = content.indexOf("</div>", parentIndex);
+  return parentCloseIndex > childIndex;
 }
 
 async function primitiveLeftPositions(
@@ -295,6 +290,22 @@ async function primitiveLeftPositions(
   );
 }
 
+async function primitiveStyleForNode(
+  page: Page,
+  filename: string,
+  nodeId: string,
+): Promise<string> {
+  const content = await fileContent(page, filename);
+  const marker = `data-agent-native-node-id="${nodeId}"`;
+  const index = content.indexOf(marker);
+  if (index < 0) return "";
+  const tagStart = content.lastIndexOf("<", index);
+  const tagEnd = content.indexOf(">", index);
+  if (tagStart < 0 || tagEnd < 0) return "";
+  const tag = content.slice(tagStart, tagEnd + 1);
+  return tag.match(/\sstyle="([^"]*)"/)?.[1] ?? "";
+}
+
 async function dragInEmptyCanvasLeftOf(
   page: Page,
   shellName: string,
@@ -312,27 +323,6 @@ async function dragInEmptyCanvasLeftOf(
   };
   await dragBetween(page, start, {
     x: start.x - width,
-    y: start.y + height,
-  });
-}
-
-async function dragInEmptyCanvasRightOf(
-  page: Page,
-  shellName: string,
-  options?: { width?: number; height?: number; topOffset?: number },
-): Promise<void> {
-  const card = screenShell(page, shellName).locator("[data-screen-card]");
-  const cardBox = await card.boundingBox();
-  if (!cardBox) throw new Error(`no ${shellName} screen card box`);
-
-  const width = options?.width ?? 96;
-  const height = options?.height ?? 96;
-  const start = {
-    x: cardBox.x + cardBox.width + 24,
-    y: cardBox.y + (options?.topOffset ?? 120),
-  };
-  await dragBetween(page, start, {
-    x: start.x + width,
     y: start.y + height,
   });
 }
@@ -945,6 +935,8 @@ test("dragging a rectangle between screens moves it across files", async ({
   await expect(screenShell(page, "About")).toBeVisible();
   await installBridge(page);
   await page.evaluate(() => ((window as any).__bridge = []));
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
 
   const homeShell = screenShell(page, "Home");
   const aboutShell = screenShell(page, "About");
@@ -1170,8 +1162,8 @@ test("dragging a board rectangle into another board rectangle reparents it", asy
     "aria-pressed",
     "true",
   );
-  await dragInEmptyCanvasRightOf(page, "Home", {
-    width: 180,
+  await dragInEmptyCanvasLeftOf(page, "Home", {
+    width: 48,
     height: 130,
     topOffset: 220,
   });
@@ -1195,8 +1187,8 @@ test("dragging a board rectangle into another board rectangle reparents it", asy
     "aria-pressed",
     "true",
   );
-  await dragInEmptyCanvasRightOf(page, "Home", {
-    width: 72,
+  await dragInEmptyCanvasLeftOf(page, "Home", {
+    width: 24,
     height: 54,
     topOffset: 420,
   });
@@ -1225,6 +1217,11 @@ test("dragging a board rectangle into another board rectangle reparents it", asy
     "__board__.html",
     childId,
   );
+  const childStyleBeforeDrag = await primitiveStyleForNode(
+    page,
+    "__board__.html",
+    childId,
+  );
 
   await dragBetween(
     page,
@@ -1236,6 +1233,16 @@ test("dragging a board rectangle into another board rectangle reparents it", asy
       x: parentBox.x + parentBox.width / 2,
       y: parentBox.y + parentBox.height / 2,
     },
+  );
+  const childStyleAfterDrag = await primitiveStyleForNode(
+    page,
+    "__board__.html",
+    childId,
+  );
+  // eslint-disable-next-line no-console
+  console.log(
+    "board child style before/after",
+    JSON.stringify({ childStyleBeforeDrag, childStyleAfterDrag }),
   );
 
   await expect

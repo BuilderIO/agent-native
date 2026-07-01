@@ -2758,6 +2758,33 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
     }
+    function absolutePrimitiveContainerTargetForPoint(el, clientX, clientY) {
+      var candidates = Array.prototype.slice.call(
+        document.querySelectorAll(
+          '[data-an-primitive="rectangle"],[data-an-primitive="rect"],[data-agent-native-primitive="rectangle"],[data-agent-native-primitive="rect"]'
+        )
+      );
+      var best = null;
+      candidates.forEach(function(candidate) {
+        if (!isAbsolutePrimitiveContainer(candidate)) return;
+        if (candidate === el) return;
+        if (el && el.contains && el.contains(candidate)) return;
+        if (el && candidate.contains && candidate.contains(el)) return;
+        if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
+          return;
+        }
+        var rect = candidate.getBoundingClientRect();
+        if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+          best = candidate;
+        }
+      });
+      return best ? {
+        anchor: best,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container"
+      } : null;
+    }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
@@ -3013,7 +3040,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         cursor = parent;
       }
-      return null;
+      return absolutePrimitiveContainerTargetForPoint(el, clientX, clientY);
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {
@@ -3355,7 +3382,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           restoreSourceDragPosition();
           return;
         }
-        if (ev && !duplicatedForDrag && !outsideOnDrop && moved) {
+        if (ev && !duplicatedForDrag && !outsideOnDrop) {
           var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,

@@ -12617,20 +12617,20 @@ export default function DesignEditor() {
   const handleApplyPendingVisualStylesWithAgent = useCallback(() => {
     if (pendingVisualStyleEdits.length === 0) return;
     sendToDesignAgentChat({
-      message: "Apply the pending visual style edits to the source.",
+      message: t("designEditor.pendingVisualStyles.agentMessage"),
       context: pendingVisualStylePrompt,
       submit: true,
       openSidebar: true,
     });
     setPendingVisualStyleEdits([]);
     setActiveLeftPanel("agent");
-    toast.success("Style edits sent to the Design agent");
-  }, [pendingVisualStyleEdits.length, pendingVisualStylePrompt]);
+    toast.success(t("designEditor.pendingVisualStyles.sentToast"));
+  }, [pendingVisualStyleEdits.length, pendingVisualStylePrompt, t]);
   const handleCopyPendingVisualStylePrompt = useCallback(async () => {
     if (pendingVisualStyleEdits.length === 0) return;
     try {
       await navigator.clipboard.writeText(pendingVisualStylePrompt);
-      toast.success("Style prompt copied");
+      toast.success(t("designEditor.pendingVisualStyles.copiedToast"));
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
@@ -16202,10 +16202,12 @@ ${serializedHtml}
                         <DropdownMenuTrigger asChild>
                           <Button
                             className="pointer-events-auto h-11 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(37,99,235,0.9)] hover:bg-blue-400 focus-visible:ring-blue-400"
-                            aria-label="Apply pending visual style edits"
+                            aria-label={t(
+                              "designEditor.pendingVisualStyles.applyAria",
+                            )}
                           >
                             <IconBrush className="h-4 w-4" />
-                            Apply styles
+                            {t("designEditor.pendingVisualStyles.applyButton")}
                             <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
                               {pendingVisualStylePropertyCount}
                             </span>
@@ -16217,19 +16219,21 @@ ${serializedHtml}
                           className="design-editor-app-menu-content w-64"
                         >
                           <DropdownMenuLabel className="text-xs text-muted-foreground">
-                            Pending visual preview
+                            {t("designEditor.pendingVisualStyles.previewLabel")}
                           </DropdownMenuLabel>
                           <DropdownMenuItem
                             onClick={handleApplyPendingVisualStylesWithAgent}
                           >
                             <IconMessage className="mr-2 h-4 w-4" />
-                            Apply with Design agent
+                            {t(
+                              "designEditor.pendingVisualStyles.applyWithAgent",
+                            )}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={handleCopyPendingVisualStylePrompt}
                           >
                             <IconClipboard className="mr-2 h-4 w-4" />
-                            Copy prompt to your agent
+                            {t("designEditor.pendingVisualStyles.copyPrompt")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -16976,25 +16980,29 @@ ${serializedHtml}
       <AlertDialog open={pendingVisualStyleWarningOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Apply styles before leaving?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("designEditor.pendingVisualStyles.leaveTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              You have {pendingVisualStylePropertyCount} pending visual style{" "}
-              {pendingVisualStylePropertyCount === 1 ? "edit" : "edits"} in the
-              live preview. Leaving now will discard those unapplied style
-              changes.
+              {t(
+                pendingVisualStylePropertyCount === 1
+                  ? "designEditor.pendingVisualStyles.leaveDescriptionOne"
+                  : "designEditor.pendingVisualStyles.leaveDescriptionOther",
+                { count: pendingVisualStylePropertyCount },
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
               onClick={handleStayOnPendingVisualStyleNavigation}
             >
-              Stay here
+              {t("designEditor.pendingVisualStyles.stay")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={handleDiscardPendingVisualStylesAndNavigate}
             >
-              Leave without applying
+              {t("designEditor.pendingVisualStyles.leave")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -135,6 +135,30 @@ export const hitTestBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
     }
+    function absolutePrimitiveContainerTargetForPoint(clientX, clientY) {
+      var candidates = Array.prototype.slice.call(
+        document.querySelectorAll(
+          '[data-an-primitive="rectangle"],[data-an-primitive="rect"],[data-agent-native-primitive="rectangle"],[data-agent-native-primitive="rect"]'
+        )
+      );
+      var best = null;
+      candidates.forEach(function(candidate) {
+        if (!isAbsolutePrimitiveContainer(candidate)) return;
+        if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
+          return;
+        }
+        var rect = candidate.getBoundingClientRect();
+        if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+          best = candidate;
+        }
+      });
+      return best ? {
+        anchor: best,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container"
+      } : null;
+    }
     function edgePlacementForRect(rect, axis, clientX, clientY) {
       var size = axis === "x" ? rect.width : rect.height;
       if (!size) return null;
@@ -205,7 +229,7 @@ export const hitTestBridgeScript: string = `"use strict";
         }
         cursor = parent;
       }
-      return null;
+      return absolutePrimitiveContainerTargetForPoint(clientX, clientY);
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {

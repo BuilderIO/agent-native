@@ -423,6 +423,23 @@ const enUS = {
         rolledBack: "Rolled back",
       },
     },
+    pendingVisualStyles: {
+      applyAria: "Apply pending visual style edits",
+      applyButton: "Apply styles",
+      previewLabel: "Pending visual preview",
+      applyWithAgent: "Apply with Design agent",
+      copyPrompt: "Copy prompt to your agent",
+      agentMessage: "Apply the pending visual style edits to the source.",
+      sentToast: "Style edits sent to the Design agent",
+      copiedToast: "Style prompt copied",
+      leaveTitle: "Apply styles before leaving?",
+      leaveDescriptionOne:
+        "You have {{count}} pending visual style edit in the live preview. Leaving now will discard that unapplied style change.",
+      leaveDescriptionOther:
+        "You have {{count}} pending visual style edits in the live preview. Leaving now will discard those unapplied style changes.",
+      stay: "Stay here",
+      leave: "Leave without applying",
+    },
     capabilities: {
       "deterministic-style-edit": "Safe style edit",
       "deterministic-class-edit": "Safe class edit",
@@ -9500,6 +9517,224 @@ const designLocalSourceEditOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
+const designPendingVisualStyleOverrides = {
+  "zh-TW": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "套用待處理的視覺樣式編輯",
+        applyButton: "套用樣式",
+        previewLabel: "待處理的視覺預覽",
+        applyWithAgent: "用 Design 代理套用",
+        copyPrompt: "將提示複製給您的代理",
+        agentMessage: "將待處理的視覺樣式編輯套用到來源。",
+        sentToast: "樣式編輯已傳送給 Design 代理",
+        copiedToast: "樣式提示已複製",
+        leaveTitle: "離開前要套用樣式嗎？",
+        leaveDescriptionOne:
+          "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+        leaveDescriptionOther:
+          "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+        stay: "留在這裡",
+        leave: "不套用並離開",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "应用待处理的视觉样式编辑",
+        applyButton: "应用样式",
+        previewLabel: "待处理的视觉预览",
+        applyWithAgent: "用 Design 代理应用",
+        copyPrompt: "将提示复制给你的代理",
+        agentMessage: "将待处理的视觉样式编辑应用到源文件。",
+        sentToast: "样式编辑已发送给 Design 代理",
+        copiedToast: "样式提示已复制",
+        leaveTitle: "离开前应用样式？",
+        leaveDescriptionOne:
+          "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这个未应用的样式更改。",
+        leaveDescriptionOther:
+          "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这些未应用的样式更改。",
+        stay: "留在这里",
+        leave: "不应用并离开",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "Aplicar ediciones visuales de estilo pendientes",
+        applyButton: "Aplicar estilos",
+        previewLabel: "Vista previa visual pendiente",
+        applyWithAgent: "Aplicar con el agente de Design",
+        copyPrompt: "Copiar prompt a tu agente",
+        agentMessage:
+          "Aplica las ediciones visuales de estilo pendientes al código fuente.",
+        sentToast: "Ediciones de estilo enviadas al agente de Design",
+        copiedToast: "Prompt de estilo copiado",
+        leaveTitle: "¿Aplicar estilos antes de salir?",
+        leaveDescriptionOne:
+          "Tienes {{count}} edición visual de estilo pendiente en la vista previa en vivo. Si sales ahora, se descartará ese cambio de estilo sin aplicar.",
+        leaveDescriptionOther:
+          "Tienes {{count}} ediciones visuales de estilo pendientes en la vista previa en vivo. Si sales ahora, se descartarán esos cambios de estilo sin aplicar.",
+        stay: "Quedarse aquí",
+        leave: "Salir sin aplicar",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "Appliquer les modifications visuelles de style en attente",
+        applyButton: "Appliquer les styles",
+        previewLabel: "Aperçu visuel en attente",
+        applyWithAgent: "Appliquer avec l’agent Design",
+        copyPrompt: "Copier le prompt vers votre agent",
+        agentMessage:
+          "Appliquez les modifications visuelles de style en attente à la source.",
+        sentToast: "Modifications de style envoyées à l’agent Design",
+        copiedToast: "Prompt de style copié",
+        leaveTitle: "Appliquer les styles avant de quitter ?",
+        leaveDescriptionOne:
+          "Vous avez {{count}} modification visuelle de style en attente dans l’aperçu en direct. Quitter maintenant supprimera cette modification non appliquée.",
+        leaveDescriptionOther:
+          "Vous avez {{count}} modifications visuelles de style en attente dans l’aperçu en direct. Quitter maintenant supprimera ces modifications non appliquées.",
+        stay: "Rester ici",
+        leave: "Quitter sans appliquer",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "Ausstehende visuelle Stiländerungen anwenden",
+        applyButton: "Stile anwenden",
+        previewLabel: "Ausstehende visuelle Vorschau",
+        applyWithAgent: "Mit Design-Agent anwenden",
+        copyPrompt: "Prompt an deinen Agent kopieren",
+        agentMessage:
+          "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
+        sentToast: "Stiländerungen an den Design-Agent gesendet",
+        copiedToast: "Stil-Prompt kopiert",
+        leaveTitle: "Stile vor dem Verlassen anwenden?",
+        leaveDescriptionOne:
+          "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerung. Wenn du jetzt gehst, wird diese nicht angewendete Stiländerung verworfen.",
+        leaveDescriptionOther:
+          "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerungen. Wenn du jetzt gehst, werden diese nicht angewendeten Stiländerungen verworfen.",
+        stay: "Hier bleiben",
+        leave: "Ohne Anwenden verlassen",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "保留中のビジュアルスタイル編集を適用",
+        applyButton: "スタイルを適用",
+        previewLabel: "保留中のビジュアルプレビュー",
+        applyWithAgent: "Design エージェントで適用",
+        copyPrompt: "エージェントにプロンプトをコピー",
+        agentMessage:
+          "保留中のビジュアルスタイル編集をソースに適用してください。",
+        sentToast: "スタイル編集を Design エージェントに送信しました",
+        copiedToast: "スタイルプロンプトをコピーしました",
+        leaveTitle: "離れる前にスタイルを適用しますか？",
+        leaveDescriptionOne:
+          "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
+        leaveDescriptionOther:
+          "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
+        stay: "ここに留まる",
+        leave: "適用せずに離れる",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "보류 중인 시각 스타일 편집 적용",
+        applyButton: "스타일 적용",
+        previewLabel: "보류 중인 시각 미리보기",
+        applyWithAgent: "Design 에이전트로 적용",
+        copyPrompt: "에이전트에 프롬프트 복사",
+        agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
+        sentToast: "스타일 편집을 Design 에이전트로 보냈습니다",
+        copiedToast: "스타일 프롬프트가 복사되었습니다",
+        leaveTitle: "나가기 전에 스타일을 적용할까요?",
+        leaveDescriptionOne:
+          "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
+        leaveDescriptionOther:
+          "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
+        stay: "여기에 머물기",
+        leave: "적용하지 않고 나가기",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "Aplicar edições visuais de estilo pendentes",
+        applyButton: "Aplicar estilos",
+        previewLabel: "Prévia visual pendente",
+        applyWithAgent: "Aplicar com o agente Design",
+        copyPrompt: "Copiar prompt para seu agente",
+        agentMessage:
+          "Aplique as edições visuais de estilo pendentes à origem.",
+        sentToast: "Edições de estilo enviadas ao agente Design",
+        copiedToast: "Prompt de estilo copiado",
+        leaveTitle: "Aplicar estilos antes de sair?",
+        leaveDescriptionOne:
+          "Você tem {{count}} edição visual de estilo pendente na prévia ao vivo. Sair agora descartará essa alteração de estilo não aplicada.",
+        leaveDescriptionOther:
+          "Você tem {{count}} edições visuais de estilo pendentes na prévia ao vivo. Sair agora descartará essas alterações de estilo não aplicadas.",
+        stay: "Ficar aqui",
+        leave: "Sair sem aplicar",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "लंबित visual style edits लागू करें",
+        applyButton: "Styles लागू करें",
+        previewLabel: "लंबित visual preview",
+        applyWithAgent: "Design agent से लागू करें",
+        copyPrompt: "Prompt अपने agent को कॉपी करें",
+        agentMessage: "लंबित visual style edits को source पर लागू करें।",
+        sentToast: "Style edits Design agent को भेजे गए",
+        copiedToast: "Style prompt कॉपी हुआ",
+        leaveTitle: "छोड़ने से पहले styles लागू करें?",
+        leaveDescriptionOne:
+          "Live preview में {{count}} लंबित visual style edit है। अभी छोड़ने पर वह unapplied style change हट जाएगा।",
+        leaveDescriptionOther:
+          "Live preview में {{count}} लंबित visual style edits हैं। अभी छोड़ने पर वे unapplied style changes हट जाएंगे।",
+        stay: "यहीं रहें",
+        leave: "बिना लागू किए छोड़ें",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      pendingVisualStyles: {
+        applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
+        applyButton: "تطبيق الأنماط",
+        previewLabel: "معاينة مرئية معلقة",
+        applyWithAgent: "تطبيق عبر وكيل Design",
+        copyPrompt: "نسخ الموجه إلى وكيلك",
+        agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
+        sentToast: "تم إرسال تعديلات النمط إلى وكيل Design",
+        copiedToast: "تم نسخ موجه النمط",
+        leaveTitle: "تطبيق الأنماط قبل المغادرة؟",
+        leaveDescriptionOne:
+          "لديك {{count}} تعديل نمط مرئي معلق في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغيير النمط غير المطبق.",
+        leaveDescriptionOther:
+          "لديك {{count}} تعديلات نمط مرئية معلقة في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغييرات النمط غير المطبقة.",
+        stay: "البقاء هنا",
+        leave: "المغادرة دون تطبيق",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 const designLeftRailOverrides = {
   "zh-TW": {
     designEditor: {
@@ -9818,6 +10053,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["zh-TW"],
       designVisualEditOverrides["zh-TW"],
       designLocalSourceEditOverrides["zh-TW"],
+      designPendingVisualStyleOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -9833,6 +10069,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["zh-CN"],
       designVisualEditOverrides["zh-CN"],
       designLocalSourceEditOverrides["zh-CN"],
+      designPendingVisualStyleOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -9887,6 +10124,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["es-ES"],
       designVisualEditOverrides["es-ES"],
       designLocalSourceEditOverrides["es-ES"],
+      designPendingVisualStyleOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -9941,6 +10179,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["fr-FR"],
       designVisualEditOverrides["fr-FR"],
       designLocalSourceEditOverrides["fr-FR"],
+      designPendingVisualStyleOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -9995,6 +10234,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["de-DE"],
       designVisualEditOverrides["de-DE"],
       designLocalSourceEditOverrides["de-DE"],
+      designPendingVisualStyleOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -10049,6 +10289,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["ja-JP"],
       designVisualEditOverrides["ja-JP"],
       designLocalSourceEditOverrides["ja-JP"],
+      designPendingVisualStyleOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -10104,6 +10345,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["ko-KR"],
       designVisualEditOverrides["ko-KR"],
       designLocalSourceEditOverrides["ko-KR"],
+      designPendingVisualStyleOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -10157,6 +10399,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["pt-BR"],
       designVisualEditOverrides["pt-BR"],
       designLocalSourceEditOverrides["pt-BR"],
+      designPendingVisualStyleOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -10211,6 +10454,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["hi-IN"],
       designVisualEditOverrides["hi-IN"],
       designLocalSourceEditOverrides["hi-IN"],
+      designPendingVisualStyleOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -10265,6 +10509,7 @@ export const messagesByLocale = {
       designPublicShareOverrides["ar-SA"],
       designVisualEditOverrides["ar-SA"],
       designLocalSourceEditOverrides["ar-SA"],
+      designPendingVisualStyleOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",
