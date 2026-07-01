@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.27
+
+### Patch Changes
+
+- 6fb954b: Require admin access for shareable resource visibility changes.
+
 ## 0.84.26
 
 ### Patch Changes
