@@ -376,7 +376,11 @@ export async function listEnabledAnalyticsAlertRules(options: {
     .select()
     .from(table)
     .where(and(...clauses))
-    .orderBy(desc(table.updatedAt))
+    .orderBy(
+      sql`case when ${table.lastEvaluatedAt} is null then 0 else 1 end`,
+      asc(table.lastEvaluatedAt),
+      asc(table.createdAt),
+    )
     .limit(clampInt(options.limit, 1, 500));
   return rows.map(rowToRule);
 }
@@ -548,7 +552,7 @@ async function markRuleStatus(
   const db = getDb() as any;
   await db
     .update(schema.analyticsAlertRules)
-    .set({ ...patch, updatedAt: nowIso() })
+    .set(patch)
     .where(eq(schema.analyticsAlertRules.id, id));
 }
 

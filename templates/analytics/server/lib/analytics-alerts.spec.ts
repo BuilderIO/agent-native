@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -76,5 +78,21 @@ describe("analytics alert evaluation", () => {
     expect(result.triggered).toBe(true);
     expect(result.observedValue).toBe(2);
     expect(result.eventCount).toBe(3);
+  });
+
+  it("keeps sweep ordering fair instead of cycling only recently evaluated rules", () => {
+    const source = readFileSync(
+      new URL("./analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "case when ${table.lastEvaluatedAt} is null then 0 else 1 end",
+    );
+    expect(source).toContain("asc(table.lastEvaluatedAt)");
+    expect(source).toContain("asc(table.createdAt)");
+    expect(source).not.toContain(".orderBy(desc(table.updatedAt))");
+    expect(source).toContain(".set(patch)");
+    expect(source).not.toContain(".set({ ...patch, updatedAt: nowIso() })");
   });
 });
