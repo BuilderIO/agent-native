@@ -4825,7 +4825,11 @@ export function MultiScreenCanvas({
       className="relative h-full w-full select-none overflow-hidden outline-none"
       onMouseDownCapture={handleMouseDown}
       onMouseMove={handleMouseMove}
-      style={{ cursor: surfaceCursor, touchAction: "none" }}
+      style={{
+        cursor: surfaceCursor,
+        overscrollBehavior: "none",
+        touchAction: "none",
+      }}
     >
       {showPixelGrid ? (
         <div
@@ -5769,6 +5773,7 @@ const Screen = memo(function Screen({
           onMouseEnter={() => updateDirectHover(true)}
           onMouseLeave={() => updateDirectHover(false)}
           style={{
+            width: labelInfoMaxWidth,
             maxWidth: labelInfoMaxWidth,
             transform: `translateY(-50%) scale(${chromeScale})`,
             transformOrigin: "left center",
@@ -5784,7 +5789,7 @@ const Screen = memo(function Screen({
           <span
             data-frame-title
             className={cn(
-              "min-w-0 truncate !text-[11px] font-medium",
+              "min-w-0 flex-1 truncate !text-[11px] font-medium",
               emphasized
                 ? "text-[var(--design-editor-accent-color)]"
                 : activeOrEmphasized

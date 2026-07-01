@@ -189,6 +189,13 @@ export default function Index() {
     });
   }, [filtered]);
 
+  const handleSearchChange = useCallback((query: string) => {
+    setSearch(query);
+    setSelectedDesignIds((current) =>
+      current.size === 0 ? current : new Set(),
+    );
+  }, []);
+
   const clearSelection = useCallback(() => {
     setSelectedDesignIds(new Set());
   }, []);
@@ -359,14 +366,18 @@ export default function Index() {
     setRenameId(null);
     if (!next) return;
 
-    queryClient.setQueryData(
-      ["action", "list-designs", { includePreview: "true" }],
-      (old: any) => ({
-        count: old?.count ?? 0,
-        designs: (old?.designs ?? []).map((d: Design) =>
-          d.id === id ? { ...d, title: next } : d,
-        ),
-      }),
+    queryClient.setQueriesData(
+      { queryKey: ["action", "list-designs"] },
+      (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return {
+          ...old,
+          count: old.count ?? (old.designs ?? []).length,
+          designs: (old.designs ?? []).map((d: Design) =>
+            d.id === id ? { ...d, title: next } : d,
+          ),
+        };
+      },
     );
 
     updateMutation.mutate({ id, title: next } as any, {
@@ -397,7 +408,7 @@ export default function Index() {
           <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder={t("home.searchPlaceholder")}
             className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />

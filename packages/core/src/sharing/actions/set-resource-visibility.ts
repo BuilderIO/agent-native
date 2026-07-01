@@ -16,9 +16,9 @@ import {
 
 export default defineAction({
   description:
-    "Change the coarse visibility of a shareable resource: 'private' keeps it owner-only, 'org' shares it with all members of the owner's organization, 'public' makes it accessible to anyone with the link. Owner or admin role required.",
-  // (audit H5) Visibility changes are admin-tier and can flip a private
-  // resource org-wide or public. Refuse from the tools iframe bridge.
+    "Change the coarse visibility of a shareable resource: 'private' keeps it owner-only, 'org' shares it with all members of the owner's organization, 'public' makes it accessible to anyone with the link. Visibility changes require owner or admin role.",
+  // (audit H5) Visibility changes can flip a private resource org-wide or
+  // public. Refuse from the tools iframe bridge.
   toolCallable: false,
   mcpApp: {
     compactCatalog: true,

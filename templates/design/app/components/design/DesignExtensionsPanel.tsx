@@ -108,6 +108,12 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
     content: string,
     updatedAt?: string,
   ) => void;
+  onAssetInserted?: (selection: {
+    fileId?: string;
+    nodeId?: string;
+    selector?: string;
+    title?: string;
+  }) => void;
 }
 
 interface DesignExtensionsPanelProps {
@@ -301,6 +307,7 @@ interface FirstPartyRowProps {
 
 function FirstPartyExtRow({
   label,
+  description,
   icon,
   badge,
   isOpen,
@@ -321,14 +328,14 @@ function FirstPartyExtRow({
           <span className="block truncate text-sm font-medium leading-tight text-foreground">
             {label}
           </span>
-          <span className="mt-0.5 block truncate text-xs leading-none text-muted-foreground">
-            <span className="truncate">Built-in</span>
+          <span className="mt-0.5 line-clamp-1 text-xs leading-snug text-muted-foreground">
+            {description}
           </span>
         </span>
         {badge}
       </button>
       {isOpen && (
-        <div className="mb-2 ml-[3.75rem] overflow-hidden rounded-md border border-border/70 bg-background/70">
+        <div className="mb-2 mt-1 overflow-hidden rounded-md border border-border/70 bg-background/70">
           {children}
         </div>
       )}
@@ -348,6 +355,12 @@ function ToolFilterMenu<T extends string>({
   onChange: (value: T) => void;
 }) {
   const selected = options.find((option) => option.value === value);
+  const triggerLabel =
+    value === "all"
+      ? label === "Category"
+        ? "All categories"
+        : `All ${label.toLowerCase()}s`
+      : (selected?.label ?? label);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -358,7 +371,7 @@ function ToolFilterMenu<T extends string>({
           className="h-8 cursor-pointer gap-1.5 rounded-md bg-transparent px-2.5 text-sm font-medium"
         >
           <IconAdjustmentsHorizontal className="size-4 text-muted-foreground" />
-          <span>{selected?.label ?? label}</span>
+          <span>{triggerLabel}</span>
           <IconChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
@@ -463,6 +476,25 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
       : undefined,
     { enabled: Boolean(figmaRequest) },
   );
+  const notifyAssetInserted = useCallback(
+    (result: unknown, title: string) => {
+      if (!result || typeof result !== "object") return;
+      const row = result as Record<string, unknown>;
+      context.onAssetInserted?.({
+        fileId: typeof row.fileId === "string" ? row.fileId : undefined,
+        nodeId:
+          typeof row.insertedNodeId === "string"
+            ? row.insertedNodeId
+            : undefined,
+        selector:
+          typeof row.insertedSelector === "string"
+            ? row.insertedSelector
+            : undefined,
+        title,
+      });
+    },
+    [context],
+  );
 
   const handleReady = useCallback(
     (_payload: unknown, _event: MessageEvent, ref: EmbeddedAppRef) => {
@@ -508,7 +540,8 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
           fileId: context.activeFileId || undefined,
         },
         {
-          onSuccess: () => {
+          onSuccess: (result) => {
+            notifyAssetInserted(result, title ?? altText ?? "Asset");
             toast.success("Asset inserted into design.");
           },
           onError: () => {
@@ -517,7 +550,7 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
         },
       );
     },
-    [context.designId, context.activeFileId, insertAsset],
+    [context.designId, context.activeFileId, insertAsset, notifyAssetInserted],
   );
 
   const handleInsertNativeAsset = (asset: DesignNativeAsset) => {
@@ -528,7 +561,8 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
         fileId: context.activeFileId || undefined,
       },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
+          notifyAssetInserted(result, asset.title);
           toast.success(`${asset.title} inserted into design.`);
         },
         onError: (error) => {
@@ -566,7 +600,8 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
         fileId: context.activeFileId || undefined,
       },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
+          notifyAssetInserted(result, asset.name);
           toast.success("Figma asset inserted into design.");
         },
         onError: (error) => {
@@ -1267,6 +1302,11 @@ export function DesignExtensionsPanel({
     visibleFirstPartyRows.length > 0 ||
     visibleInstalls.length > 0 ||
     visibleInstallable.length > 0;
+  const showPluginsEmptyState =
+    !hasAnyVisibleTool &&
+    categoryFilter === "plugins" &&
+    !normalizedSearch &&
+    sourceFilter !== "built-in";
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
@@ -1412,10 +1452,14 @@ export function DesignExtensionsPanel({
                   <IconSearch className="size-4 text-muted-foreground" />
                 </div>
                 <p className="text-sm font-medium text-foreground">
-                  No tools found
+                  {showPluginsEmptyState
+                    ? "No plugins installed"
+                    : "No tools found"}
                 </p>
                 <p className="mx-auto mt-1 max-w-52 text-xs leading-5 text-muted-foreground">
-                  Try another search or clear the filters.
+                  {showPluginsEmptyState
+                    ? "Create a plugin or clear the Category filter to browse built-in tools."
+                    : "Try another search or clear the filters."}
                 </p>
               </div>
             ) : null}
