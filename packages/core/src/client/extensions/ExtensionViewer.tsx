@@ -389,13 +389,10 @@ function SourceCodeDialog({
       </Tooltip>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col gap-0 overflow-hidden p-0">
-          <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+          <div className="flex shrink-0 items-center border-b border-border px-5 py-3 pr-12">
             <DialogTitle className="truncate text-sm font-medium">
               {extension.name} — source
             </DialogTitle>
-            <span className="text-xs text-muted-foreground">
-              Alpine.js / HTML
-            </span>
           </div>
           <textarea
             className="flex-1 resize-none bg-muted/40 px-5 py-4 font-mono text-xs leading-relaxed text-foreground focus:outline-none"
@@ -408,7 +405,7 @@ function SourceCodeDialog({
               <p className="text-xs text-destructive">{error}</p>
             ) : (
               <span className="text-xs text-muted-foreground">
-                {code.length.toLocaleString()} chars
+                Alpine.js / HTML &middot; {code.length.toLocaleString()} chars
               </span>
             )}
             <div className="flex items-center gap-2">
