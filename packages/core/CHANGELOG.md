@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.28
+
+### Patch Changes
+
+- ffd5b99: Make agent chat thread handoffs robust when opening the panel from external UI controls.
+
 ## 0.84.27
 
 ### Patch Changes
