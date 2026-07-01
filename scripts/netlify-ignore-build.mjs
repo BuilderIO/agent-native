@@ -40,6 +40,16 @@ if (retiredTargets.has(targetName)) {
 }
 
 const commitRef = process.env.COMMIT_REF;
+if (commitExists(commitRef) && isSupersededProductionMainCommit(commitRef)) {
+  console.log(
+    `[netlify-ignore] Skipping ${targetName}: production commit ${commitRef.slice(
+      0,
+      8,
+    )} has been superseded by origin/main.`,
+  );
+  process.exit(0);
+}
+
 if (commitExists(commitRef) && isVersionPackagesRelease(commitRef)) {
   console.log(
     `[netlify-ignore] Skipping ${targetName}: version-packages release commit ${commitRef.slice(
@@ -181,16 +191,45 @@ function commitSubject(ref) {
   }
 }
 
-// The changeset "Version Packages" PR is squash-merged to main with the PR
-// title `chore: version packages (#NNNN)` (see auto-publish.yml and
+// The changeset "Version Packages" PR is squash-merged to main with a title
+// like `chore: version packages (#NNNN)` (see auto-publish.yml and
 // auto-merge-version-packages.yml). Those commits only bump package versions,
-// regenerate pnpm-lock.yaml, rewrite CHANGELOGs, and delete .changeset/*.md —
-// none of which changes any deployed site's built output. But pnpm-lock.yaml
-// and package.json are in `globalPaths`, so today every release commit enqueues
-// a production deploy for the entire fleet and backs up the Netlify queue. Skip
-// production builds for these commits across every site.
+// regenerate pnpm-lock.yaml, rewrite CHANGELOGs, and delete .changeset/*.md.
+// But pnpm-lock.yaml and package.json are in `globalPaths`, so every release
+// commit otherwise enqueues a build for the whole fleet.
 function isVersionPackagesRelease(ref) {
   return /^chore:\s*version packages\b/i.test(commitSubject(ref));
+}
+
+function isProductionBuild() {
+  const context = process.env.CONTEXT || process.env.NETLIFY_CONTEXT || "";
+
+  if (context) {
+    return context === "production";
+  }
+
+  return process.env.PULL_REQUEST !== "true" && process.env.BRANCH === "main";
+}
+
+function remoteMainRef() {
+  try {
+    return git(["rev-parse", "origin/main^{commit}"]);
+  } catch {
+    return null;
+  }
+}
+
+function isSupersededProductionMainCommit(ref) {
+  if (!isProductionBuild()) {
+    return false;
+  }
+
+  const latestMain = remoteMainRef();
+  if (!latestMain || latestMain === ref) {
+    return false;
+  }
+
+  return isAncestor(ref, latestMain);
 }
 
 function changedFiles() {

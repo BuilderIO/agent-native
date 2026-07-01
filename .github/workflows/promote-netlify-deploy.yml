@@ -3,10 +3,11 @@ name: Promote Netlify deploy
 # Netlify has no native "jump the queue" primitive: production builds share a
 # per-account concurrency pool, so when one site is busted it can sit behind a
 # backlog of other sites' queued builds. This manual workflow prioritizes a
-# single site by (a) cancelling OTHER sites' queued-but-not-yet-started
-# production deploys to free build slots, and (b) triggering a fresh production
-# build of the target site so the latest main ships immediately. In-progress
-# deploys are never cancelled.
+# single site by (a) cancelling queued-but-not-yet-started production deploys
+# for the target site, (b) optionally cancelling OTHER sites' queued production
+# deploys to free build slots, and (c) triggering a fresh production build of
+# the target site so the latest main ships immediately. In-progress deploys are
+# never cancelled.
 
 on:
   workflow_dispatch:
@@ -17,6 +18,7 @@ on:
         type: choice
         options:
           - assets
+          - brain
           - design
           - clips
           - videos
@@ -87,49 +89,53 @@ jobs:
             const headers = { Authorization: `Bearer ${token}` };
             const CANCELABLE_STATES = new Set(['new', 'enqueued']);
 
+            async function cancelQueuedProductionDeploys(name, id) {
+              const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
+              let r;
+              try {
+                r = await fetch(url, { headers });
+              } catch (err) {
+                core.warning(`[${name}] list fetch failed: ${err?.message || err}`);
+                return 0;
+              }
+              if (!r.ok) { core.warning(`[${name}] list ${r.status}`); return 0; }
+              let deploys;
+              try {
+                deploys = await r.json();
+              } catch (err) {
+                core.warning(`[${name}] list json failed: ${err?.message || err}`);
+                return 0;
+              }
+              const queued = deploys.filter(d =>
+                d.context === 'production' && CANCELABLE_STATES.has(d.state)
+              );
+              let ok = 0;
+              for (const d of queued) {
+                try {
+                  const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
+                  if (c.ok) ok++;
+                } catch (err) {
+                  core.warning(`[${name}] cancel ${d.id} failed: ${err?.message || err}`);
+                }
+              }
+              if (queued.length) {
+                core.info(`[${name}] freed ${ok}/${queued.length} queued production deploys`);
+              }
+              return ok;
+            }
+
             if (clearOthers) {
               const others = Object.entries(sites).filter(([name]) => name !== target);
               let freed = 0;
               await Promise.all(others.map(async ([name, id]) => {
-                const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
-                let r;
-                try {
-                  r = await fetch(url, { headers });
-                } catch (err) {
-                  core.warning(`[${name}] list fetch failed: ${err?.message || err}`);
-                  return;
-                }
-                if (!r.ok) { core.warning(`[${name}] list ${r.status}`); return; }
-                let deploys;
-                try {
-                  deploys = await r.json();
-                } catch (err) {
-                  core.warning(`[${name}] list json failed: ${err?.message || err}`);
-                  return;
-                }
-                // Only cancel other sites' queued production builds — leave their
-                // in-progress builds and PR previews untouched.
-                const stale = deploys.filter(d =>
-                  d.context === 'production' && CANCELABLE_STATES.has(d.state)
-                );
-                let ok = 0;
-                for (const d of stale) {
-                  try {
-                    const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
-                    if (c.ok) ok++;
-                  } catch (err) {
-                    core.warning(`[${name}] cancel ${d.id} failed: ${err?.message || err}`);
-                  }
-                }
-                if (stale.length) {
-                  freed += ok;
-                  core.info(`[${name}] freed ${ok}/${stale.length} queued production deploys`);
-                }
+                freed += await cancelQueuedProductionDeploys(name, id);
               }));
               core.info(`Cleared ${freed} queued production deploys across other sites.`);
             }
 
             if (rebuild) {
+              const freedTarget = await cancelQueuedProductionDeploys(target, targetId);
+              core.info(`[${target}] cleared ${freedTarget} queued deploys before rebuild.`);
               const r = await fetch(`https://api.netlify.com/api/v1/sites/${targetId}/builds`, { method: 'POST', headers });
               if (r.ok) {
                 core.info(`[${target}] triggered a fresh production build.`);

@@ -40,23 +40,13 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 
-const TEMPLATE_SITES: TemplateSite[] = [
-  { name: "analytics", siteId: "ba983662-dac4-478d-a481-5079e67e4d33" },
-  { name: "assets", siteId: "5868670b-649a-4a45-9e34-45ef3e75f3fd" },
-  { name: "brain", siteId: "af978d13-aa58-44f3-9b5c-f12568467079" },
-  { name: "calendar", siteId: "954fe53b-052e-4401-aac2-2e973e498af8" },
-  { name: "clips", siteId: "7e3f4fee-258d-4d16-9aaf-154a714e87e2" },
-  { name: "content", siteId: "5c2198f5-bee4-41c3-8a6d-4869f400eec2" },
-  { name: "design", siteId: "1e6bd63d-2972-4272-86bd-7b33f493606d" },
-  { name: "dispatch", siteId: "1171ef84-ed50-418b-bced-e19470475e49" },
-  { name: "forms", siteId: "aa0b2020-9983-4d6c-8fb0-65462f960fc4" },
-  { name: "macros", siteId: "0700a8ac-6a9f-4834-80dd-734102228132" },
-  { name: "mail", siteId: "dee98bb0-6143-4205-8c04-afe7bf83d5b5" },
-  { name: "plan", siteId: "9d0d7a73-385d-4da1-ba10-1581ffc4d413" },
-  { name: "slides", siteId: "fd5deb5b-5539-47e1-830c-e5fb5e105efd" },
-  { name: "chat", siteId: "864ab6ba-0889-4265-99c0-7a18d1888585" },
-  { name: "videos", siteId: "3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac" },
-];
+const NETLIFY_SITES = JSON.parse(
+  readFileSync(path.join(REPO_ROOT, "scripts/netlify-sites.json"), "utf8"),
+) as Record<string, string>;
+
+const TEMPLATE_SITES: TemplateSite[] = Object.entries(NETLIFY_SITES)
+  .filter(([name]) => name !== "fw")
+  .map(([name, siteId]) => ({ name, siteId }));
 
 const SITE_BY_NAME = new Map(TEMPLATE_SITES.map((site) => [site.name, site]));
 const DEFAULT_SOURCES = [".env", ".env.local"];
