@@ -231,6 +231,14 @@ Codes de sortie :
 | `1`  | Au moins une évaluation a obtenu un score inférieur au seuil, ou la suite a commis une erreur.      |
 | `2`  | Mauvais arguments (par exemple `--threshold` en dehors de `[0, 1]`).                                |
 
+### Ignorer les évaluations gated {#skipping}
+
+Utilisez `skipReason` lorsqu'une suite d'évaluations est volontairement réservée
+à une exécution manuelle, nocturne ou dépendante de secrets. Les évaluations
+ignorées n'exécutent ni l'agent ni les scorers, ne font pas échouer la suite, et
+apparaissent dans la sortie JSON avec `status: "skipped"` et `skipReason`.
+Gardez la couverture déterministe peu coûteuse dans le CI normal des PR.
+
 ### En tant que porte de déploiement CI {#ci}
 
 Ajoutez-le au pipeline qui s'exécute avant un déploiement :

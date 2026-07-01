@@ -78,6 +78,20 @@ export async function scoreEval(
   const threshold =
     opts.thresholdOverride ?? evalCase.threshold ?? DEFAULT_EVAL_THRESHOLD;
 
+  if (evalCase.skipReason) {
+    return {
+      eval: evalCase.name,
+      threshold,
+      scores: [],
+      status: "skipped",
+      skipReason: evalCase.skipReason,
+      // Keep the legacy boolean gate friendly: skipped rows do not fail CI.
+      passed: true,
+      avgScore: 0,
+      durationMs: 0,
+    };
+  }
+
   let run: AgentRunOutput;
   if (evalCase.run) {
     run = await evalCase.run({
@@ -104,6 +118,7 @@ export async function scoreEval(
     scores,
     // A run that errored, or any sub-threshold scorer, fails the case.
     passed: run.ok && scores.every((s) => s.passed),
+    status: run.ok && scores.every((s) => s.passed) ? "passed" : "failed",
     avgScore,
     durationMs: run.durationMs,
     error: run.ok ? undefined : run.error,
@@ -120,14 +135,18 @@ export async function runEvals(
   for (const evalCase of evals) {
     const row = await scoreEval(evalCase, runner, opts);
     results.push(row);
-    if (opts.persist) await persistEvalRow(row).catch(() => {});
+    if (opts.persist && row.status !== "skipped") {
+      await persistEvalRow(row).catch(() => {});
+    }
   }
 
   const passed = results.filter((r) => r.passed).length;
+  const skipped = results.filter((r) => r.status === "skipped").length;
   return {
     total: results.length,
     passed,
-    failed: results.length - passed,
+    failed: results.filter((r) => r.status !== "skipped" && !r.passed).length,
+    skipped,
     results,
   };
 }
@@ -301,12 +320,15 @@ export async function runEvalSuite(
     evals = loaded.evals;
   }
 
+  const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
   const runner =
     opts.runner ??
-    (await createAgentRunner({
-      actions: opts.actions ?? (await discoverActions(cwd)),
-      systemPrompt: opts.systemPrompt,
-    }));
+    (needsRunner
+      ? await createAgentRunner({
+          actions: opts.actions ?? (await discoverActions(cwd)),
+          systemPrompt: opts.systemPrompt,
+        })
+      : createInertRunner());
 
   const report = await runEvals(evals, runner, {
     thresholdOverride: opts.thresholdOverride,
@@ -331,4 +353,17 @@ async function discoverActions(
   } catch {
     return {};
   }
+}
+
+function createInertRunner(): AgentRunner {
+  return {
+    engine: {} as AgentRunner["engine"],
+    model: "inert",
+    async runAgent() {
+      throw new Error("Eval unexpectedly requested the agent runner");
+    },
+    analyzeContext() {
+      throw new Error("Eval unexpectedly requested analyze context");
+    },
+  };
 }

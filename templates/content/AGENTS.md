@@ -121,7 +121,9 @@ cd templates/content && pnpm action <name> [args]
 | `validate-builder-source-execution`         | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--idempotencyKey <key>]`                                                                         | Validate/replay a prepared Builder execution gate locally as a dry run; never calls Builder                                             |
 | `execute-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--idempotencyKey <key>] [--pushModeConfirmation autosave\|draft\|publish]`                       | Execute a guarded live Builder write only when approved, validated, enabled, idempotent, and targeting `agent-native-blog-article-test` |
 | `add-database-item`                         | `--databaseId <id> [--title <text>] [--propertyValues <json>]`                                                                                                 | Add a page row to a database, optionally seeding property values                                                                        |
-| `duplicate-database-item`                   | `--itemId <id>` or `--documentId <id> [--title <text>]`                                                                                                        | Duplicate a database row page and its stored property values                                                                            |
+| `duplicate-database-item`                   | `--itemId <id>` or `--documentId <id> [--title <text>]`                                                                                                        | Duplicate exactly one database row page and its stored property values; for two or more rows, use `duplicate-database-items` once       |
+| `duplicate-database-items`                  | `--databaseId <id>` or `--documentId <databaseDocumentId> --itemIds <json-array>` or `--documentIds <json-array>`                                              | Preferred multi-row duplicate action; duplicate multiple database row pages atomically and return ordered duplicate item/document IDs   |
+| `delete-database-items`                     | `--databaseId <id>` or `--documentId <databaseDocumentId> --itemIds <json-array>` or `--documentIds <json-array>`                                              | Preferred multi-row delete action; delete multiple database row pages atomically while preserving `delete-document` admin semantics     |
 | `move-database-item`                        | `--itemId <id>` or `--documentId <id> --position <number>`                                                                                                     | Move a database row page to a new zero-based table position                                                                             |
 | `update-content-database-view`              | `--databaseId <id> --viewConfig <json>`                                                                                                                        | Persist database views, sorts, filters, hidden properties, and view settings                                                            |
 | `list-document-properties`                  | `--documentId <id> [--format json]`                                                                                                                            | List Notion-style property definitions and values for a document                                                                        |
@@ -568,11 +570,16 @@ multi-select, users can add a new board group from the board itself; this
 appends a new option to the grouped property definition.
 Use
 `create-content-database`, `get-content-database`,
-`add-database-item`, `duplicate-database-item`, `move-database-item`,
+`add-database-item`, `duplicate-database-item`, `duplicate-database-items`,
+`delete-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
+When targeting more than one database row, call `duplicate-database-items` or
+`delete-database-items` once with a native JSON array of `itemIds` or
+`documentIds`. Do not loop `duplicate-database-item` or `delete-document` for
+multi-row duplicate/delete requests.
 
 ## UI Components
 

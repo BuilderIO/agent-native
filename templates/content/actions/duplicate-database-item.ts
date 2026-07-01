@@ -11,7 +11,7 @@ import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Duplicate a page row in a content database, including stored property values.",
+    "Duplicate exactly one page row in a content database, including stored property values. For two or more rows, use duplicate-database-items once instead of looping this action.",
   schema: z.object({
     itemId: z.string().optional().describe("Database item ID"),
     documentId: z.string().optional().describe("Database row document ID"),

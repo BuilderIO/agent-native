@@ -229,6 +229,13 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 | `1`  | 至少有一项评估得分低于阈值，或者套件出错。            |
 | `2`  | 错误的参数（例如 `--threshold` 位于 `[0, 1]` 之外）。 |
 
+### 跳过受控评估 {#skipping}
+
+当某个评估套件只应在手动、夜间或具备密钥的环境中运行时，请使用
+`skipReason`。被跳过的评估不会运行代理或 scorer，不会让套件失败，并会
+在 JSON 输出中显示 `status: "skipped"` 和 `skipReason`。廉价的确定性覆
+盖应保留在普通 PR CI 中。
+
 ### 作为 CI 部署门 {#ci}
 
 将其添加到部署之前运行的管道：

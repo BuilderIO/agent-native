@@ -134,6 +134,12 @@ export interface Eval {
   name: string;
   input: EvalInput;
   /**
+   * Skip this case without running the agent or scorers. Use for opt-in
+   * suites that need secrets, live provider credentials, or manual/nightly
+   * gates. Skipped rows are reported distinctly and do not fail the suite.
+   */
+  skipReason?: string;
+  /**
    * Optional override for how the agent is run for this case. Defaults to the
    * runner's headless `runAgent`. Use this to do custom setup (seed data,
    * multi-turn) before/after the agent call.
@@ -159,6 +165,10 @@ export interface EvalResultRow {
   eval: string;
   threshold: number;
   scores: ScorerResult[];
+  /** Explicit row status for reports. Older consumers can still read `passed`. */
+  status?: "passed" | "failed" | "skipped";
+  /** Human-readable reason when `status` is `skipped`. */
+  skipReason?: string;
   /** True only when every scorer passed. */
   passed: boolean;
   /** Mean of the scorer scores, for at-a-glance ranking. */
@@ -173,5 +183,6 @@ export interface EvalRunReport {
   total: number;
   passed: number;
   failed: number;
+  skipped?: number;
   results: EvalResultRow[];
 }

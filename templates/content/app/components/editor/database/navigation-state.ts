@@ -250,11 +250,17 @@ export function databaseBulkScalarInputState(
 
 export function databaseDuplicatedItemFromResponse(
   response: Pick<ContentDatabaseResponse, "items"> &
-    Pick<Partial<ContentDatabaseResponse>, "duplicatedItemId">,
+    Pick<
+      Partial<ContentDatabaseResponse>,
+      "duplicatedItemId" | "duplicatedItemIds"
+    >,
 ) {
-  return (
-    response.items.find((item) => item.id === response.duplicatedItemId) ?? null
-  );
+  const duplicatedItemIds = response.duplicatedItemIds ?? [];
+  const duplicatedItemId =
+    duplicatedItemIds.length > 0
+      ? duplicatedItemIds[duplicatedItemIds.length - 1]
+      : response.duplicatedItemId;
+  return response.items.find((item) => item.id === duplicatedItemId) ?? null;
 }
 
 export function toggleDatabaseRowSelection(

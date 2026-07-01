@@ -231,6 +231,14 @@ Códigos de salida:
 | `1`    | Al menos una evaluación obtuvo una puntuación inferior al umbral o la suite tuvo un error.                |
 | `2`    | Malos argumentos (por ejemplo, `--threshold` fuera de `[0, 1]`).                                          |
 
+### Omitir evaluaciones gated {#skipping}
+
+Use `skipReason` cuando una suite de evaluaciones esté reservada
+intencionalmente para ejecución manual, nocturna o con secretos. Las
+evaluaciones omitidas no ejecutan el agente ni los scorers, no hacen fallar la
+suite y aparecen en JSON con `status: "skipped"` y `skipReason`. Mantenga la
+cobertura determinista barata en el CI normal de PR.
+
 ### Como puerta de implementación de CI {#ci}
 
 Agréguelo al proceso que se ejecuta antes de una implementación:

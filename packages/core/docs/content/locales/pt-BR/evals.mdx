@@ -231,6 +231,14 @@ Códigos de saída:
 | `1`    | Pelo menos uma avaliação com pontuação abaixo do limite ou o conjunto apresentou erro.                     |
 | `2`    | Argumentos incorretos (por exemplo, `--threshold` fora de `[0, 1]`).                                       |
 
+### Ignorar evals gated {#skipping}
+
+Use `skipReason` quando uma suíte de evals for intencionalmente reservada para
+execução manual, noturna ou dependente de secrets. Evals ignorados não executam
+o agente nem os scorers, não fazem a suíte falhar e aparecem no JSON com
+`status: "skipped"` e `skipReason`. Mantenha cobertura determinística barata no
+CI normal de PR.
+
 ### Como porta de implantação de CI {#ci}
 
 Adicione-o ao pipeline executado antes da implantação:
