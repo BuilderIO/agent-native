@@ -33,4 +33,19 @@ describe("import design file helpers", () => {
       "<head>\n  <!-- Imported into Design from upload. -->",
     );
   });
+
+  it("strips executable HTML before persistence", () => {
+    const html = normalizeImportedHtmlDocument(
+      `<main onclick="alert(1)">
+        <script>alert(1)</script>
+        <a href="javascript:alert(1)">bad</a>
+        <iframe srcdoc="<script>alert(1)</script>"></iframe>
+      </main>`,
+      "upload",
+    );
+
+    expect(html).toContain("<main>");
+    expect(html).toContain("<a>bad</a>");
+    expect(html).not.toMatch(/script|onclick|javascript:|iframe|srcdoc/i);
+  });
 });

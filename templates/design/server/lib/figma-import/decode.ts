@@ -13,6 +13,7 @@ import * as pako from "pako";
 import type { DecodedFig, DecodedFigImage } from "./types.js";
 
 const MAX_DECOMPRESSED_BYTES = 512 * 1024 * 1024;
+const MAX_TOTAL_DECOMPRESSED_BYTES = 512 * 1024 * 1024;
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 const FIG_KIWI_MAGIC = Buffer.from("fig-kiwi", "utf8");
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
@@ -33,6 +34,19 @@ interface ZipEntry {
 
 function sha1(buf: Buffer): string {
   return crypto.createHash("sha1").update(buf).digest("hex");
+}
+
+function assertWithinTotalBudget(
+  currentBytes: number,
+  additionalBytes: number,
+): number {
+  const nextBytes = currentBytes + additionalBytes;
+  if (nextBytes > MAX_TOTAL_DECOMPRESSED_BYTES) {
+    throw new Error(
+      `Total decompressed Figma data exceeds size limit (${nextBytes} > ${MAX_TOTAL_DECOMPRESSED_BYTES})`,
+    );
+  }
+  return nextBytes;
 }
 
 export function isFigKiwiBuffer(file: Buffer): boolean {
@@ -62,46 +76,62 @@ function detectImageExt(buf: Buffer): DecodedFigImage["ext"] | null {
   return null;
 }
 
-function checkDecompressedSize(buf: Buffer): Buffer {
-  if (buf.length > MAX_DECOMPRESSED_BYTES) {
+function checkDecompressedSize(
+  buf: Buffer,
+  maxBytes = MAX_DECOMPRESSED_BYTES,
+): Buffer {
+  if (buf.length > maxBytes) {
     throw new Error(
-      `Decompressed chunk exceeds size limit (${buf.length} > ${MAX_DECOMPRESSED_BYTES})`,
+      `Decompressed chunk exceeds size limit (${buf.length} > ${maxBytes})`,
     );
   }
   return buf;
 }
 
-function decompressChunk(buf: Buffer): Buffer {
+function decompressChunk(buf: Buffer, remainingBytes: number): Buffer {
+  const maxOutputLength = Math.min(MAX_DECOMPRESSED_BYTES, remainingBytes);
+  if (maxOutputLength <= 0) {
+    throw new Error("Total decompressed Figma data exceeds size limit");
+  }
   if (buf.length >= 4 && buf.subarray(0, 4).equals(ZSTD_MAGIC)) {
     try {
-      return checkDecompressedSize(Buffer.from(zstdDecompress(buf)));
+      return checkDecompressedSize(
+        Buffer.from(zstdDecompress(buf)),
+        maxOutputLength,
+      );
     } catch {
       // Some historical files carry misleading chunk headers; try zlib below.
     }
   }
   try {
     return zlib.inflateRawSync(buf, {
-      maxOutputLength: MAX_DECOMPRESSED_BYTES,
+      maxOutputLength,
     });
   } catch (error) {
     if (error instanceof RangeError) throw error;
   }
   try {
-    return zlib.inflateSync(buf, { maxOutputLength: MAX_DECOMPRESSED_BYTES });
+    return zlib.inflateSync(buf, { maxOutputLength });
   } catch (error) {
     if (error instanceof RangeError) throw error;
   }
   try {
-    return checkDecompressedSize(Buffer.from(pako.inflateRaw(buf)));
+    return checkDecompressedSize(
+      Buffer.from(pako.inflateRaw(buf)),
+      maxOutputLength,
+    );
   } catch {
     // Fall through.
   }
   try {
-    return checkDecompressedSize(Buffer.from(pako.inflate(buf)));
+    return checkDecompressedSize(
+      Buffer.from(pako.inflate(buf)),
+      maxOutputLength,
+    );
   } catch {
     // Fall through.
   }
-  return Buffer.from(buf);
+  return checkDecompressedSize(Buffer.from(buf), maxOutputLength);
 }
 
 export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {
@@ -115,6 +145,7 @@ export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {
   }
   const version = file.readUInt32LE(8);
   let offset = 12;
+  let totalDecompressedBytes = 0;
   const chunks: Buffer[] = [];
   while (offset < file.length) {
     if (offset + 4 > file.length) {
@@ -129,7 +160,15 @@ export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {
     }
     const compressed = file.subarray(offset, offset + length);
     offset += length;
-    chunks.push(decompressChunk(compressed));
+    const chunk = decompressChunk(
+      compressed,
+      MAX_TOTAL_DECOMPRESSED_BYTES - totalDecompressedBytes,
+    );
+    totalDecompressedBytes = assertWithinTotalBudget(
+      totalDecompressedBytes,
+      chunk.length,
+    );
+    chunks.push(chunk);
   }
   if (chunks.length < 2) {
     throw new Error(
@@ -163,6 +202,7 @@ function readZip(file: Buffer): ZipEntry[] {
   }
 
   const entries: ZipEntry[] = [];
+  let totalDecompressedBytes = 0;
   let cursor = cdOffset;
   for (let i = 0; i < totalEntries; i += 1) {
     if (cursor + 46 > file.length) {
@@ -200,11 +240,22 @@ function readZip(file: Buffer): ZipEntry[] {
 
     let data: Buffer;
     if (compressionMethod === 0) {
+      totalDecompressedBytes = assertWithinTotalBudget(
+        totalDecompressedBytes,
+        compressed.length,
+      );
       data = Buffer.from(compressed);
     } else if (compressionMethod === 8) {
       data = zlib.inflateRawSync(compressed, {
-        maxOutputLength: MAX_DECOMPRESSED_BYTES,
+        maxOutputLength: Math.min(
+          MAX_DECOMPRESSED_BYTES,
+          MAX_TOTAL_DECOMPRESSED_BYTES - totalDecompressedBytes,
+        ),
       });
+      totalDecompressedBytes = assertWithinTotalBudget(
+        totalDecompressedBytes,
+        data.length,
+      );
     } else {
       throw new Error(
         `Unsupported zip compression method ${compressionMethod} for entry "${name}"`,

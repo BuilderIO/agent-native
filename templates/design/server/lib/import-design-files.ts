@@ -126,13 +126,40 @@ function positiveDimension(value: unknown, fallback: number): number {
     : fallback;
 }
 
+function sanitizeImportedHtml(content: string): string {
+  return content
+    .replace(/<\s*script\b[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, "")
+    .replace(/<\s*script\b[^>]*\/?\s*>/gi, "")
+    .replace(/<\s*(iframe|object|embed)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<\s*(iframe|object|embed)\b[^>]*\/?\s*>/gi, "")
+    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(
+      /\s+(href|src|xlink:href|action|formaction)\s*=\s*"[\s]*(?:javascript|vbscript):[^"]*"/gi,
+      "",
+    )
+    .replace(
+      /\s+(href|src|xlink:href|action|formaction)\s*=\s*'[\s]*(?:javascript|vbscript):[^']*'/gi,
+      "",
+    )
+    .replace(
+      /\s+(href|src|xlink:href|action|formaction)\s*=\s*(?:javascript|vbscript):[^\s>]*/gi,
+      "",
+    )
+    .replace(
+      /\s+style\s*=\s*(["'])(?:(?!\1).)*(?:expression\s*\(|javascript:)(?:(?!\1).)*\1/gi,
+      "",
+    );
+}
+
 export function normalizeImportedHtmlDocument(
   content: string,
   sourceLabel: string,
 ): string {
-  const normalized = content.replace(/\0/g, "").trim();
+  const normalized = sanitizeImportedHtml(content.replace(/\0/g, "")).trim();
   if (!normalized) throw new Error("HTML import content is empty.");
-  const comment = `<!-- Imported into Design from ${sourceLabel}. -->`;
+  const safeSourceLabel = sourceLabel.replace(/--+/g, "-").replace(/[<>]/g, "");
+  const comment = `<!-- Imported into Design from ${safeSourceLabel}. -->`;
   if (/<html[\s>]/i.test(normalized)) {
     return normalized.replace(
       /<head(\s[^>]*)?>/i,
@@ -161,106 +188,122 @@ export async function saveImportedDesignFiles(
   await assertAccess("design", designId, "editor");
 
   const db = getDb();
-  const [design] = await db
-    .select()
-    .from(schema.designs)
-    .where(eq(schema.designs.id, designId))
-    .limit(1);
-  if (!design) throw new Error(`Design ${designId} was not found.`);
-
-  const existingFiles = await db
-    .select()
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, designId));
-  const usedFilenames = new Set(existingFiles.map((file) => file.filename));
   const now = new Date().toISOString();
-  const prevData = parseJson(design.data);
-  const previousMetadata = isRecord(prevData.screenMetadata)
-    ? { ...prevData.screenMetadata }
-    : {};
-  const placements: CanvasFramePlacement[] = [];
   const savedFiles: SavedImportedDesignFile[] = [];
+  const seedRecords: Array<{ id: string; content: string }> = [];
+  let placedFrames:
+    | Array<{
+        fileId: string;
+        filename?: string;
+        frame: CanvasFramePlacement;
+      }>
+    | undefined;
 
-  for (let index = 0; index < input.files.length; index += 1) {
-    const file = input.files[index]!;
-    const filename = uniqueFilename(
-      ensureExtension(sanitizeImportedFilename(file.filename), file.fileType),
-      usedFilenames,
-    );
-    const fileId = nanoid();
-    await db.insert(schema.designFiles).values({
-      id: fileId,
-      designId,
-      filename,
-      fileType: file.fileType,
-      content: file.content,
-      createdAt: now,
-      updatedAt: now,
-    });
-    if (await hasCollabState(fileId)) {
-      await applyText(fileId, file.content, "content", "agent");
-    } else {
-      await seedFromText(fileId, file.content);
+  await db.transaction(async (tx) => {
+    const [design] = await tx
+      .select()
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId))
+      .limit(1);
+    if (!design) throw new Error(`Design ${designId} was not found.`);
+
+    const existingFiles = await tx
+      .select()
+      .from(schema.designFiles)
+      .where(eq(schema.designFiles.designId, designId));
+    const usedFilenames = new Set(existingFiles.map((file) => file.filename));
+    const prevData = parseJson(design.data);
+    const previousMetadata = isRecord(prevData.screenMetadata)
+      ? { ...prevData.screenMetadata }
+      : {};
+    const placements: CanvasFramePlacement[] = [];
+
+    for (let index = 0; index < input.files.length; index += 1) {
+      const file = input.files[index]!;
+      const filename = uniqueFilename(
+        ensureExtension(sanitizeImportedFilename(file.filename), file.fileType),
+        usedFilenames,
+      );
+      const fileId = nanoid();
+      await tx.insert(schema.designFiles).values({
+        id: fileId,
+        designId,
+        filename,
+        fileType: file.fileType,
+        content: file.content,
+        createdAt: now,
+        updatedAt: now,
+      });
+      seedRecords.push({ id: fileId, content: file.content });
+
+      const width = positiveDimension(
+        file.preferredFrame?.width,
+        DEFAULT_FRAME_WIDTH,
+      );
+      const height = positiveDimension(
+        file.preferredFrame?.height,
+        DEFAULT_FRAME_HEIGHT,
+      );
+      placements.push({
+        fileId,
+        filename,
+        x: file.preferredFrame?.x ?? index * (DEFAULT_FRAME_WIDTH + FRAME_GAP),
+        y: file.preferredFrame?.y ?? 0,
+        width,
+        height,
+        z: index,
+      });
+      const source = {
+        sourceType: input.sourceType,
+        previewState: "static",
+        title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
+        width,
+        height,
+        ...file.source,
+      };
+      previousMetadata[fileId] = source;
+      savedFiles.push({
+        id: fileId,
+        filename,
+        fileType: file.fileType,
+        source,
+      });
     }
 
-    const width = positiveDimension(
-      file.preferredFrame?.width,
-      DEFAULT_FRAME_WIDTH,
-    );
-    const height = positiveDimension(
-      file.preferredFrame?.height,
-      DEFAULT_FRAME_HEIGHT,
-    );
-    placements.push({
-      fileId,
-      filename,
-      x: file.preferredFrame?.x ?? index * (DEFAULT_FRAME_WIDTH + FRAME_GAP),
-      y: file.preferredFrame?.y ?? 0,
-      width,
-      height,
-      z: index,
+    const mergedFrames = mergeCanvasFramePlacements({
+      existing: prevData.canvasFrames,
+      placements,
+      resolveFileId: (placement) => placement.fileId,
     });
-    const source = {
-      sourceType: input.sourceType,
-      previewState: "static",
-      title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
-      width,
-      height,
-      ...file.source,
-    };
-    previousMetadata[fileId] = source;
-    savedFiles.push({
-      id: fileId,
-      filename,
-      fileType: file.fileType,
-      source,
-    });
-  }
-
-  const mergedFrames = mergeCanvasFramePlacements({
-    existing: prevData.canvasFrames,
-    placements,
-    resolveFileId: (placement) => placement.fileId,
-  });
-  await db
-    .update(schema.designs)
-    .set({
-      data: JSON.stringify({
-        ...prevData,
-        sourceMode: "import",
-        canvasFrames: mergedFrames.canvasFrames,
-        screenMetadata: previousMetadata,
+    placedFrames = mergedFrames.placedFrames;
+    await tx
+      .update(schema.designs)
+      .set({
+        data: JSON.stringify({
+          ...prevData,
+          sourceMode: "import",
+          canvasFrames: mergedFrames.canvasFrames,
+          screenMetadata: previousMetadata,
+          updatedAt: now,
+        }),
         updatedAt: now,
-      }),
-      updatedAt: now,
-    })
-    .where(eq(schema.designs.id, designId));
+      })
+      .where(eq(schema.designs.id, designId));
+  });
+
+  for (const record of seedRecords) {
+    if (await hasCollabState(record.id)) {
+      await applyText(record.id, record.content, "content", "agent");
+    } else {
+      await seedFromText(record.id, record.content);
+    }
+  }
 
   return {
     designId,
     files: savedFiles,
     warnings: input.warnings ?? [],
-    placedFrames: mergedFrames.placedFrames,
+    placedFrames: placedFrames ?? [],
     overview: true,
     urlPath: `/design/${designId}`,
   };

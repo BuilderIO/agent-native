@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { getSession } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
 import {
   defineEventHandler,
   getRequestHeader,
@@ -69,6 +70,8 @@ export const importDesignFile = defineEventHandler(async (event) => {
   const data = Buffer.from(filePart.data);
 
   try {
+    await assertAccess("design", designId, "editor");
+
     if (ext === ".html" || ext === ".htm") {
       if (data.length > MAX_HTML_BYTES) {
         throw new Error("HTML file is too large (max 2 MB).");
