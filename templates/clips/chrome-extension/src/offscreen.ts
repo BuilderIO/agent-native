@@ -17,7 +17,11 @@
 // app recorder via @shared/recording-core so the server contract can't drift.
 
 import { scheduleReadyChime } from "@shared/recording-audio";
-import { chunkUploadUrl, pickMimeType } from "@shared/recording-core";
+import {
+  chunkUploadUrl,
+  pickMimeType,
+  type UploadMode,
+} from "@shared/recording-core";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
 import { waitForReadyRecordingAfterFinalizeError } from "./finalize-recovery";
@@ -63,6 +67,7 @@ type BeginMessage = {
   sessionId: string;
   recordingId: string;
   uploadUrl: string;
+  uploadMode?: UploadMode;
   hasCamera?: boolean;
   // Pre-roll countdown delay, owned here in the offscreen document (a reliable
   // context) rather than the service worker (which can suspend and drop timers).
@@ -114,6 +119,7 @@ type ActiveRecording = {
   sessionId: string;
   recordingId: string;
   uploadUrl: string;
+  uploadMode: UploadMode;
   authToken: string | null;
   mode: CaptureMode;
   startedAtMs: number;
@@ -134,6 +140,8 @@ type ActiveRecording = {
   // Set if the recording grew past the buffer ceiling and we stopped retaining
   // — at that point a local save can't be guaranteed, so we don't promise one.
   localBufferOverflow: boolean;
+  pendingStreamBlobs: Blob[];
+  pendingStreamBytes: number;
   cancelled: boolean;
   // Set when the recorder is being torn down to start over on the same source
   // streams, so the stop handler skips the usual track cleanup.
@@ -155,6 +163,8 @@ type ActiveRecording = {
   rejectStopped: (error: Error) => void;
 };
 
+const GCS_CHUNK_ALIGN_BYTES = 256 * 1024;
+const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
 const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
 
 // Don't retain more than the upload ceiling — past it the server rejects the
@@ -578,6 +588,32 @@ async function uploadBlobInSlices(
   }
 }
 
+async function uploadStreamingBlob(
+  recording: ActiveRecording,
+  blob: Blob,
+): Promise<void> {
+  if (blob.size === 0) return;
+  recording.pendingStreamBlobs.push(blob);
+  recording.pendingStreamBytes += blob.size;
+
+  while (recording.pendingStreamBytes >= STREAM_CHUNK_BYTES) {
+    if (recording.cancelled || recording.uploadFailure) return;
+    const combined = new Blob(recording.pendingStreamBlobs, {
+      type: recording.mimeType,
+    });
+    const head = combined.slice(0, STREAM_CHUNK_BYTES, recording.mimeType);
+    const tail = combined.slice(
+      STREAM_CHUNK_BYTES,
+      undefined,
+      recording.mimeType,
+    );
+    recording.pendingStreamBlobs = tail.size > 0 ? [tail] : [];
+    recording.pendingStreamBytes = tail.size;
+    const index = recording.chunkIndex++;
+    await uploadChunk(recording, head, index);
+  }
+}
+
 function stopStreams(streams: (MediaStream | null)[]): void {
   for (const stream of streams) {
     if (!stream) continue;
@@ -744,6 +780,7 @@ async function begin(message: BeginMessage): Promise<{
     sessionId: ready.sessionId,
     recordingId: message.recordingId,
     uploadUrl: message.uploadUrl,
+    uploadMode: message.uploadMode ?? "buffered",
     authToken: message.authToken ?? null,
     mode: ready.mode,
     startedAtMs: 0,
@@ -763,6 +800,8 @@ async function begin(message: BeginMessage): Promise<{
     recordedBlobs: [],
     recordedBytes: 0,
     localBufferOverflow: false,
+    pendingStreamBlobs: [],
+    pendingStreamBytes: 0,
     cancelled: false,
     restarting: false,
     startTimer: null,
@@ -798,7 +837,11 @@ async function begin(message: BeginMessage): Promise<{
     // rejected promise that surfaces as an "Uncaught (in promise)" error (bad
     // look in a Chrome Web Store review). finalizeStop reads recording.upload-
     // Failure and surfaces it through the normal error path instead.
-    const upload = uploadBlobInSlices(recording, event.data).catch((err) => {
+    const upload = (
+      recording.uploadMode === "streaming"
+        ? uploadStreamingBlob(recording, event.data)
+        : uploadBlobInSlices(recording, event.data)
+    ).catch((err) => {
       recording.uploadFailure =
         err instanceof Error ? err : new Error(String(err));
       captureExtensionError(recording.uploadFailure, {
@@ -1001,20 +1044,22 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     }
     let result: UploadResult;
     try {
-      result = await uploadChunk(
-        recording,
-        new Blob([], { type: recording.mimeType }),
-        recording.chunkIndex,
-        {
-          isFinal: true,
-          total: recording.chunkIndex,
-          durationMs,
-          width: recording.dimensions.width,
-          height: recording.dimensions.height,
-          hasAudio: recording.hasAudio,
-          hasCamera: recording.hasCamera,
-        },
-      );
+      const finalBlob =
+        recording.uploadMode === "streaming"
+          ? new Blob(recording.pendingStreamBlobs, { type: recording.mimeType })
+          : new Blob([], { type: recording.mimeType });
+      recording.pendingStreamBlobs = [];
+      recording.pendingStreamBytes = 0;
+      const finalIndex = recording.chunkIndex;
+      result = await uploadChunk(recording, finalBlob, finalIndex, {
+        isFinal: true,
+        total: finalIndex + (finalBlob.size > 0 ? 1 : 0),
+        durationMs,
+        width: recording.dimensions.width,
+        height: recording.dimensions.height,
+        hasAudio: recording.hasAudio,
+        hasCamera: recording.hasCamera,
+      });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       (error as { finalUpload?: boolean }).finalUpload = true;

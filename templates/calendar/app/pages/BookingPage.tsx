@@ -5,7 +5,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import type { Booking } from "@shared/api";
-import { IconCalendar } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";
 import {
   addMinutes,
   endOfMonth,
@@ -122,23 +122,26 @@ export default function BookingPage() {
     availability?.slotDurationMinutes ??
     settings?.defaultEventDuration ??
     30;
-  const { data: slots = [], isLoading: slotsLoading } = useAvailableSlots(
-    dateStr,
-    duration,
-    slug,
-  );
+  const {
+    data: slots = [],
+    isLoading: slotsLoading,
+    error: slotsError,
+  } = useAvailableSlots(dateStr, duration, slug);
   const monthStart = format(startOfMonth(viewMonth), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(viewMonth), "yyyy-MM-dd");
-  const { data: availableDates = [], isLoading: availableDatesLoading } =
-    useAvailableDays(
-      monthStart,
-      monthEnd,
-      duration,
-      slug,
-      step === "date" &&
-        !!availability &&
-        (!hasDurationChoice || selectedDuration !== null),
-    );
+  const {
+    data: availableDates = [],
+    isLoading: availableDatesLoading,
+    error: availableDatesError,
+  } = useAvailableDays(
+    monthStart,
+    monthEnd,
+    duration,
+    slug,
+    step === "date" &&
+      !!availability &&
+      (!hasDurationChoice || selectedDuration !== null),
+  );
   const createBooking = useCreateBooking();
   const selectedSlotRange = selectedSlot
     ? {
@@ -236,6 +239,7 @@ export default function BookingPage() {
   const pageTitle = bookingLink?.title || title;
   const pageDescription = bookingLink?.description || description;
   const requiredHostCount = (bookingLink?.hosts?.length ?? 0) + 1;
+  const availabilityErrorMessage = t("bookingLinks.availabilityUnavailable");
 
   useEffect(() => {
     if (hasDurationChoice && step === "date" && selectedDuration === null) {
@@ -404,17 +408,26 @@ export default function BookingPage() {
               <h3 className="mb-4 text-sm font-medium text-center">
                 {t("bookingLinks.selectDate")}
               </h3>
-              <div className="flex justify-center">
-                <DatePicker
-                  selectedDate={selectedDate}
-                  onSelect={handleDateSelect}
-                  availability={availability}
-                  availableDates={availableDates}
-                  availabilityLoading={availableDatesLoading}
-                  viewMonth={viewMonth}
-                  onViewMonthChange={setViewMonth}
-                />
-              </div>
+              {availableDatesError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-3 py-3 text-sm text-destructive">
+                  <div className="flex items-start gap-2">
+                    <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>{availabilityErrorMessage}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center">
+                  <DatePicker
+                    selectedDate={selectedDate}
+                    onSelect={handleDateSelect}
+                    availability={availability}
+                    availableDates={availableDates}
+                    availabilityLoading={availableDatesLoading}
+                    viewMonth={viewMonth}
+                    onViewMonthChange={setViewMonth}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -443,6 +456,7 @@ export default function BookingPage() {
                 selectedSlot={selectedSlot}
                 onSelect={handleSlotSelect}
                 loading={slotsLoading}
+                errorMessage={slotsError ? availabilityErrorMessage : undefined}
               />
             </div>
           )}

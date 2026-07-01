@@ -186,7 +186,11 @@ interface MultiScreenCanvasProps {
     screenId: string,
     primitive: CanvasPrimitiveInsert,
   ) => boolean | string;
-  onPrimitiveCreated?: (screenId: string, nodeId: string) => void;
+  onPrimitiveCreated?: (
+    screenId: string,
+    nodeId: string,
+    options?: { nextTool?: "move" | "pen" },
+  ) => void;
   onPrimitiveReparent?: (args: {
     sourceNodeId: string;
     sourceScreenId: string;
@@ -1505,7 +1509,7 @@ export function MultiScreenCanvas({
     setTransformBadge(null);
   }, [clearSelectionRequest, updateSelectedDraftIds, updateSelectedIds]);
 
-  // Center the lineup on first mount so the user sees screens, not whitespace.
+  // Center the lineup when the screen footprint changes so new frames stay reachable.
   useEffect(() => {
     if (!surfaceRef.current || screens.length === 0) return;
     const rect = surfaceRef.current.getBoundingClientRect();
@@ -1529,11 +1533,26 @@ export function MultiScreenCanvas({
     );
     const totalWidth = bounds?.width ?? SCREEN_WIDTH;
     const totalHeight = bounds?.height ?? SCREEN_CARD_HEIGHT;
-    const visualLeft = Math.max(24, (rect.width - totalWidth * scale) / 2);
-    const visualTop = Math.max(24, (rect.height - totalHeight * scale) / 2);
+    // Leave a Figma-like board gutter beside the last frame for quick drops/draws,
+    // and fit tall single frames so lower canvas interactions remain reachable.
+    const widthFitScale =
+      screens.length > 1 && totalWidth > 0
+        ? Math.max(0.1, (rect.width - 180) / totalWidth)
+        : scale;
+    const heightFitScale =
+      totalHeight > 0 ? Math.max(0.1, (rect.height - 96) / totalHeight) : scale;
+    const nextScale = Math.min(scale, widthFitScale, heightFitScale);
+    if (nextScale < scale) {
+      const nextZoom = nextScale * 100;
+      zoomRef.current = nextZoom;
+      setCanvasZoom(nextZoom);
+      onZoomChange?.(nextZoom);
+    }
+    const visualLeft = Math.max(24, (rect.width - totalWidth * nextScale) / 2);
+    const visualTop = Math.max(24, (rect.height - totalHeight * nextScale) / 2);
     const nextPan = {
-      x: visualLeft - SURFACE_PADDING * scale,
-      y: visualTop - SURFACE_PADDING * scale,
+      x: visualLeft - SURFACE_PADDING * nextScale,
+      y: visualTop - SURFACE_PADDING * nextScale,
     };
     panRef.current = nextPan;
     setPan(nextPan);
@@ -2517,9 +2536,11 @@ export function MultiScreenCanvas({
         updateSelectedIds(() => state.baseSelectedIds);
         updateSelectedDraftIds(() => state.baseSelectedDraftIds);
       } else if (state.type === "pen-node") {
-        setActivePenPath(
-          state.pathBefore ? clonePenPath(state.pathBefore) : null,
-        );
+        const restoredPath = state.pathBefore
+          ? clonePenPath(state.pathBefore)
+          : null;
+        activePenPathRef.current = restoredPath;
+        setActivePenPath(restoredPath);
         setPenGesturePreview(null);
         setPenPointer(null);
         setPenCloseHover(false);
@@ -2792,10 +2813,10 @@ export function MultiScreenCanvas({
           });
           const persisted = handler(boardPrimitive);
           if (!persisted) return null;
-          // Return a sentinel PersistedDraftPrimitive so the caller can remove
-          // the draft. The sentinel frameId "__board__" is detected downstream.
+          // Return the board file id so the caller can run the same selection
+          // and text-edit activation path used by regular screen primitives.
           return {
-            frameId: "__board__",
+            frameId: boardFileId ?? "__board__",
             nodeId:
               (typeof persisted === "string"
                 ? persisted
@@ -2836,6 +2857,7 @@ export function MultiScreenCanvas({
       };
     },
     [
+      boardFileId,
       getScreenMetadata,
       getTargetFrameForDraft,
       metadataById,
@@ -2845,7 +2867,11 @@ export function MultiScreenCanvas({
   );
 
   const commitDraftPrimitive = useCallback(
-    (nextDraft: DraftPrimitive, preferredFrameId?: string) => {
+    (
+      nextDraft: DraftPrimitive,
+      preferredFrameId?: string,
+      options?: { nextTool?: "move" | "pen" },
+    ) => {
       const persisted = persistDraftPrimitive(nextDraft, preferredFrameId);
       if (persisted) {
         updateDraftPrimitives((current) =>
@@ -2853,9 +2879,9 @@ export function MultiScreenCanvas({
         );
         updateSelectedDraftIds(() => []);
         updateSelectedIds(() => []);
-        if (persisted.frameId !== "__board__") {
-          onPrimitiveCreated?.(persisted.frameId, persisted.nodeId);
-        }
+        onPrimitiveCreated?.(persisted.frameId, persisted.nodeId, {
+          nextTool: options?.nextTool,
+        });
         return;
       }
 
@@ -2937,9 +2963,10 @@ export function MultiScreenCanvas({
           stroke: toolProps?.stroke,
           strokeWidth: toolProps?.strokeWidth,
         }),
+        undefined,
+        { nextTool: "pen" },
       );
       clearActivePenPath();
-      onActiveToolChange?.("pen");
     },
     [clearActivePenPath, commitDraftPrimitive, onActiveToolChange, toolProps],
   );
@@ -3041,9 +3068,10 @@ export function MultiScreenCanvas({
         pathBefore: pathSnapshot,
         hasMoved: false,
       };
-      setPenGesturePreview(
-        appendPenNode(pathSnapshot, createCornerNode(anchor)),
-      );
+      const initialPath = appendPenNode(pathSnapshot, createCornerNode(anchor));
+      activePenPathRef.current = initialPath;
+      setActivePenPath(initialPath);
+      setPenGesturePreview(initialPath);
       setPenPointer(null);
       setPenCloseHover(false);
       setIsDragging(true);
@@ -3071,7 +3099,10 @@ export function MultiScreenCanvas({
                 : handlePoint,
             )
           : createCornerNode(state.anchor);
-        setPenGesturePreview(appendPenNode(state.pathBefore, node));
+        const nextPath = appendPenNode(state.pathBefore, node);
+        activePenPathRef.current = nextPath;
+        setActivePenPath(nextPath);
+        setPenGesturePreview(nextPath);
       };
 
       const handleMouseUp = (ev: MouseEvent) => {
@@ -3090,7 +3121,9 @@ export function MultiScreenCanvas({
                 : handlePoint,
             )
           : createCornerNode(state.anchor);
-        setActivePenPath(appendPenNode(state.pathBefore, node));
+        const nextPath = appendPenNode(state.pathBefore, node);
+        activePenPathRef.current = nextPath;
+        setActivePenPath(nextPath);
         setPenGesturePreview(null);
         setPenPointer(null);
         setPenCloseHover(false);
@@ -3101,6 +3134,7 @@ export function MultiScreenCanvas({
       const cancelPenGesture = () => {
         const state = dragState.current;
         if (state?.type === "pen-node") {
+          activePenPathRef.current = state.pathBefore;
           setActivePenPath(state.pathBefore);
         }
         setPenGesturePreview(null);
@@ -4730,6 +4764,20 @@ export function MultiScreenCanvas({
         frameGeometry[screen.id] ?? getInitialFrameGeometry(index, metadata),
     };
   });
+  const topScreenId =
+    selectedIds.find((id) =>
+      canvasFrames.some(({ screen }) => screen.id === id),
+    ) ??
+    (activeId && canvasFrames.some(({ screen }) => screen.id === activeId)
+      ? activeId
+      : canvasFrames[0]?.screen.id);
+  const renderCanvasFrames =
+    topScreenId && canvasFrames.some(({ screen }) => screen.id === topScreenId)
+      ? [
+          ...canvasFrames.filter(({ screen }) => screen.id !== topScreenId),
+          ...canvasFrames.filter(({ screen }) => screen.id === topScreenId),
+        ]
+      : canvasFrames;
   const screenContentById = useMemo(() => {
     if (!renderScreenContent) return new Map<string, ReactNode>();
     return new Map(
@@ -4910,7 +4958,7 @@ export function MultiScreenCanvas({
             );
           })()}
 
-        {canvasFrames.map(({ screen, metadata, geometry }) => {
+        {renderCanvasFrames.map(({ screen, metadata, geometry }) => {
           return (
             <Screen
               key={screen.id}
@@ -7031,13 +7079,6 @@ function draftPrimitiveToInsert(
     x: Math.round((point.x - frameGeometry.x) * scaleX),
     y: Math.round((point.y - frameGeometry.y) * scaleY),
   });
-  const localGeometry = {
-    ...draft.geometry,
-    x: Math.round((draft.geometry.x - frameGeometry.x) * scaleX),
-    y: Math.round((draft.geometry.y - frameGeometry.y) * scaleY),
-    width: Math.max(1, Math.round(draft.geometry.width * scaleX)),
-    height: Math.max(1, Math.round(draft.geometry.height * scaleY)),
-  };
   const scaledPenPath = draft.penPath
     ? scalePenPathToGeometry(draft.penPath, frameGeometry, {
         x: 0,
@@ -7046,6 +7087,15 @@ function draftPrimitiveToInsert(
         height: metadata?.height ?? frameGeometry.height,
       })
     : undefined;
+  const localGeometry = scaledPenPath
+    ? getPenPathGeometry(scaledPenPath)
+    : {
+        ...draft.geometry,
+        x: Math.round((draft.geometry.x - frameGeometry.x) * scaleX),
+        y: Math.round((draft.geometry.y - frameGeometry.y) * scaleY),
+        width: Math.max(1, Math.round(draft.geometry.width * scaleX)),
+        height: Math.max(1, Math.round(draft.geometry.height * scaleY)),
+      };
   return {
     kind: draft.kind,
     nodeId: draft.id,

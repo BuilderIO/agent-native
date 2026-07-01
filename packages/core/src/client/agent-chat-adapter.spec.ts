@@ -2377,7 +2377,13 @@ describe("createAgentChatAdapter", () => {
       "preparing the `generate-design` action input",
     );
     // Design gets its own incremental counterpart, not the extension wording.
+    expect(secondBody.message).toContain("existing design file or snapshot");
     expect(secondBody.message).toContain("edit-design");
+    expect(secondBody.message).toContain("same `fileId`");
+    expect(secondBody.message).toContain('mode: "replace-file"');
+    expect(secondBody.message).toContain(
+      "Use `generate-design` only for a brand-new compact first file",
+    );
     expect(secondBody.message).not.toContain("compact working v1");
   });
 
@@ -2534,9 +2540,228 @@ describe("createAgentChatAdapter", () => {
       "preparing the `present-design-variants` action input",
     );
     expect(secondBody.message).toContain(
-      "compact but complete variant screens",
+      "concise labels, descriptions, accent colors",
+    );
+    expect(secondBody.message).toContain(
+      "render compact representative screens",
     );
     expect(secondBody.message).toContain("edit-design");
+    expect(secondBody.message).toContain("selected `fileId`");
+    expect(secondBody.message).toContain("Do not call `generate-design`");
+  });
+
+  it("stops when the same action input preparation repeats without starting the tool", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const messages = [
+      "I will generate all 3 directions now.",
+      "Generating all variants as compact screens.",
+      "Let me build the 3 variants now.",
+      "Presenting 3 distinct directions now.",
+      "Still preparing the variant set.",
+    ];
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        const text = messages[postCount] ?? "Continuing";
+        postCount += 1;
+        return sseResponse([
+          { type: "text", text },
+          {
+            type: "activity",
+            label: "Preparing present-design-variants action",
+            tool: "present-design-variants",
+          },
+          { type: "auto_continue", reason: "run_timeout" },
+        ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-repeated-prep",
+      threadId: "thread-repeated-prep",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Generate three todo variants" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(5);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+          message: expect.stringContaining(
+            "got stuck preparing the present design variants action input",
+          ),
+          details: expect.stringContaining(
+            "repeated_action_preparation_stalls: 4",
+          ),
+        }),
+      }),
+    );
+    const dispatchedRunError = dispatchEvent.mock.calls.find(
+      ([event]) => event?.type === "agent-chat:run-error",
+    )?.[0] as CustomEvent<{ details?: string }> | undefined;
+    expect(dispatchedRunError?.detail.details).toContain(
+      "api_url: /_agent-native/agent-chat",
+    );
+    expect(dispatchedRunError?.detail.details).toContain(
+      "tab_id: chat-repeated-prep",
+    );
+    expect(dispatchedRunError?.detail.details).toContain(
+      "thread_id: thread-repeated-prep",
+    );
+    expect(dispatchedRunError?.detail.details).toContain("current_run: run-qa");
+    expect(dispatchedRunError?.detail.details).toContain(
+      "attempted_runs: run-qa",
+    );
+    expect(dispatchedRunError?.detail.details).toContain(
+      "last_preparing_tool: present-design-variants",
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError.details).toContain(
+      "last_preparing_tool: present-design-variants",
+    );
+    expect(last.content.at(-1).text).toContain(
+      "got stuck preparing the present design variants action input",
+    );
+  });
+
+  it("resets action preparation stalls after durable tool progress", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        if (postCount <= 3) {
+          return sseResponse([
+            {
+              type: "activity",
+              label: "Preparing present-design-variants action",
+              tool: "present-design-variants",
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ]);
+        }
+        if (postCount === 4) {
+          return sseResponse([
+            {
+              type: "tool_start",
+              tool: "inspect-design-state",
+              input: { designId: "design_1" },
+            },
+            {
+              type: "tool_done",
+              tool: "inspect-design-state",
+              result: '{"screenCount":1}',
+            },
+            {
+              type: "activity",
+              label: "Preparing present-design-variants action",
+              tool: "present-design-variants",
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ]);
+        }
+        if (postCount === 5) {
+          return sseResponse([
+            {
+              type: "activity",
+              label: "Preparing present-design-variants action",
+              tool: "present-design-variants",
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ]);
+        }
+        return sseResponse([
+          { type: "text", text: "saved variants after inspecting state" },
+          { type: "done" },
+        ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-repeated-prep-reset",
+      threadId: "thread-repeated-prep-reset",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Generate three todo variants" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(6);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toBeUndefined();
+    expect(last.content.at(-1).text).toBe(
+      "saved variants after inspecting state",
+    );
   });
 
   it("surfaces a startup timeout when the POST never becomes an SSE stream", async () => {
@@ -4170,6 +4395,322 @@ describe("createAgentChatAdapter", () => {
     });
     expect(last.content.at(-1).text).toContain("The design was saved");
   });
+
+  it("finishes with a completed-tool note when final text times out after a successful tool without side-effect metadata", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return postCount === 1
+        ? sseResponse([
+            { type: "text", text: "Building it now!" },
+            {
+              type: "tool_start",
+              tool: "generate-design",
+              input: { designId: "design_1" },
+            },
+            {
+              type: "tool_done",
+              tool: "generate-design",
+              result: '{"designId":"design_1","urlPath":"/design/design_1"}',
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ])
+        : sseResponse([{ type: "auto_continue", reason: "run_timeout" }]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-completed-tool-no-metadata",
+      threadId: "thread-completed-tool-no-metadata",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "create a dark todo app" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+    expect(last.metadata.custom.runWarning).toMatchObject({
+      errorCode: "final_response_timeout_after_tool",
+      recoverable: true,
+    });
+    expect(last.content.at(-1).text).toContain("The design was saved");
+  });
+
+  it.each(["import-design-tokens", "connect-assets-mcp"])(
+    "finishes with a completed-tool note for allowlisted mutating tool %s",
+    async (toolName) => {
+      vi.useFakeTimers();
+      const dispatchEvent = vi.fn();
+      vi.stubGlobal("window", { dispatchEvent });
+      vi.stubGlobal(
+        "CustomEvent",
+        class CustomEvent {
+          type: string;
+          detail: unknown;
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+      );
+
+      let postCount = 0;
+      const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return jsonResponse({ active: false, status: "idle" });
+        }
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([
+              { type: "text", text: "Importing the tokens now." },
+              {
+                type: "tool_start",
+                tool: toolName,
+                input: { designId: "design_1" },
+              },
+              {
+                type: "tool_done",
+                tool: toolName,
+                result: '{"designId":"design_1","tokenCount":12}',
+              },
+              { type: "auto_continue", reason: "run_timeout" },
+            ])
+          : sseResponse([{ type: "auto_continue", reason: "run_timeout" }]);
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const adapter = createAgentChatAdapter({
+        apiUrl: "/_agent-native/agent-chat",
+        tabId: "chat-completed-import-tool-no-metadata",
+        threadId: "thread-completed-import-tool-no-metadata",
+      });
+      const promise = drain(
+        adapter.run({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "import these design tokens" }],
+            },
+          ],
+          abortSignal: new AbortController().signal,
+        } as any),
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      const results = await promise;
+
+      expect(postCount).toBe(2);
+      expect(dispatchEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent-chat:run-error",
+        }),
+      );
+      const last = results.at(-1) as any;
+      expect(last.status).toEqual({ type: "complete", reason: "stop" });
+      expect(last.metadata.custom.runWarning).toMatchObject({
+        errorCode: "final_response_timeout_after_tool",
+        recoverable: true,
+      });
+      expect(last.content.at(-1).text).toContain("action completed");
+    },
+  );
+
+  it("does not synthesize a completed-tool finish for non-timeout transport failures", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return sseResponse([
+        { type: "text", text: "Saving the design." },
+        {
+          type: "tool_start",
+          tool: "generate-design",
+          input: { designId: "design_1" },
+        },
+        {
+          type: "tool_done",
+          tool: "generate-design",
+          result: '{"designId":"design_1","urlPath":"/design/design_1"}',
+        },
+        {
+          type: "error",
+          error: "The connection dropped after the tool completed.",
+          errorCode: "connection_error",
+          recoverable: true,
+        },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-completed-tool-transport-failure",
+      threadId: "thread-completed-tool-transport-failure",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "create a dark todo app" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata?.custom?.runWarning?.errorCode).not.toBe(
+      "final_response_timeout_after_tool",
+    );
+  });
+
+  it.each([
+    "connect-google-calendar",
+    "import-calendar-events",
+    "index-components",
+  ])(
+    "does not use the completed-tool note for ambiguous/read-only tool %s without side-effect metadata",
+    async (toolName) => {
+      vi.useFakeTimers();
+      const dispatchEvent = vi.fn();
+      vi.stubGlobal("window", { dispatchEvent });
+      vi.stubGlobal(
+        "CustomEvent",
+        class CustomEvent {
+          type: string;
+          detail: unknown;
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+      );
+
+      let postCount = 0;
+      const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return jsonResponse({ active: false, status: "idle" });
+        }
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([
+              { type: "text", text: "Indexing what is on the screen." },
+              {
+                type: "tool_start",
+                tool: toolName,
+                input: { designId: "design_1" },
+              },
+              {
+                type: "tool_done",
+                tool: toolName,
+                result: '{"components":["Button"]}',
+              },
+              { type: "auto_continue", reason: "run_timeout" },
+            ])
+          : sseResponse([{ type: "auto_continue", reason: "run_timeout" }]);
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const adapter = createAgentChatAdapter({
+        apiUrl: "/_agent-native/agent-chat",
+        tabId: "chat-readonly-tool-no-metadata",
+        threadId: "thread-readonly-tool-no-metadata",
+      });
+      const promise = drain(
+        adapter.run({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "inspect the components" }],
+            },
+          ],
+          abortSignal: new AbortController().signal,
+        } as any),
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      const results = await promise;
+
+      expect(postCount).toBeGreaterThan(2);
+      expect(dispatchEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent-chat:run-error",
+          detail: expect.objectContaining({
+            errorCode: "connection_error",
+          }),
+        }),
+      );
+      const last = results.at(-1) as any;
+      expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+      expect(last.metadata?.custom?.runWarning?.errorCode).not.toBe(
+        "final_response_timeout_after_tool",
+      );
+    },
+  );
 
   it("reconnects to a newer background continuation after run_timeout before self-posting", async () => {
     vi.useFakeTimers();

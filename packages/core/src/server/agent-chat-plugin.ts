@@ -34,8 +34,9 @@ import {
 } from "../agent/app-model-defaults.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
-  extractProcessRunId,
+  backgroundRunMarkerExpectsBackgroundRuntime,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
@@ -69,6 +70,7 @@ import {
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
   setRunError,
+  setRunTerminalReason,
   updateRunStatusIfRunning,
 } from "../agent/run-store.js";
 import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
@@ -3876,6 +3878,7 @@ type AgentChatProcessRunFailureDeps = {
   readBackgroundRunClaim?: typeof readBackgroundRunClaim;
   recordRunDiagnostic?: typeof recordRunDiagnostic;
   setRunError?: typeof setRunError;
+  setRunTerminalReason?: typeof setRunTerminalReason;
   updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
   ensureTerminalRunEvent?: typeof ensureTerminalRunEvent;
 };
@@ -3888,6 +3891,7 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
   const readClaim = deps.readBackgroundRunClaim ?? readBackgroundRunClaim;
   const record = deps.recordRunDiagnostic ?? recordRunDiagnostic;
   const setError = deps.setRunError ?? setRunError;
+  const setTerminalReason = deps.setRunTerminalReason ?? setRunTerminalReason;
   const updateStatus =
     deps.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
   const ensureTerminal = deps.ensureTerminalRunEvent ?? ensureTerminalRunEvent;
@@ -3908,7 +3912,13 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
     CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
     `${CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.details} setupError=${message}`,
   ).catch(() => {});
-  await updateStatus(runId, "errored").catch(() => {});
+  const statusUpdated = await updateStatus(runId, "errored").catch(() => false);
+  if (statusUpdated) {
+    await setTerminalReason(
+      runId,
+      CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
+    ).catch(() => {});
+  }
   await ensureTerminal(
     runId,
     CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
@@ -7400,6 +7410,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // unreadable Netlify background-function logs — read
               // `/runs/active?threadId=...` and inspect `diagStage`.
               dispatchMode: run.dispatchMode ?? null,
+              terminalReason: run.terminalReason ?? null,
               diagStage: run.diagStage ?? null,
               workerStage: workerClaim?.workerStage ?? null,
               // Server clock so the client computes "stuck" elapsed time
@@ -7694,6 +7705,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextTitle,
                   nextPreview,
                   newMessageCount,
+                  { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for both "detach" (scope: null) and "retag" flows.
@@ -7982,18 +7994,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          // DIAGNOSTIC: load the run-store diagnostic recorder. Each stage we
-          // reach is written onto the run row (diag_stage) so a silent failure
-          // INSIDE the Netlify background function — whose logs we cannot read —
-          // is still diagnosable from the client via /runs/active. Best-effort:
-          // the import + every record call is wrapped so diagnostics can never
-          // break the worker path.
-          const diag = await import("../agent/run-store.js")
-            .then((m) => ({
-              record: m.recordRunDiagnostic,
-              stages: m.RUN_DIAG_STAGE,
-            }))
-            .catch(() => null);
 
           // Consume the body ONCE (h3 v2's web Request stream is single-use).
           let processBody: any;
@@ -8002,18 +8002,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           } catch {
             setResponseStatus(event, 400);
             return { error: "Invalid request body" };
-          }
-
-          // Record "the route handler was entered" against the run BEFORE auth
-          // runs. This is the proof the bg-fn invocation actually reached Nitro
-          // (vs. dying at the function entry / never being invoked). The runId
-          // is parsed without authenticating so we can attach it even on a
-          // subsequent auth failure.
-          const diagRunId = extractProcessRunId(processBody);
-          if (diag && diagRunId) {
-            await diag
-              .record(diagRunId, diag.stages.routeEntered)
-              .catch(() => {});
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the
@@ -8030,6 +8018,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // bypassing session auth) inside the unreadable bg function would
             // leave the run to time out with NO clue. The detail carries the
             // status + whether A2A_SECRET is even present in this isolate.
+            const diag = await import("../agent/run-store.js")
+              .then((m) => ({
+                record: m.recordRunDiagnostic,
+                stages: m.RUN_DIAG_STAGE,
+              }))
+              .catch(() => null);
             if (diag && prepared.runId) {
               const a2aPresent = Boolean(
                 process.env.A2A_SECRET && process.env.A2A_SECRET.length > 0,
@@ -8046,27 +8040,58 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: prepared.error };
           }
 
-          // DIAGNOSTIC: auth + body validation passed. Reaching here proves the
-          // request was authenticated and we are about to invoke the worker.
-          if (diag) {
-            await diag
-              .record(prepared.runId, diag.stages.authPassed)
-              .catch(() => {});
+          const preparedMarker = (prepared.body as Record<string, unknown>)[
+            AGENT_CHAT_BACKGROUND_RUN_FIELD
+          ];
+          const expectsBackgroundRuntime =
+            backgroundRunMarkerExpectsBackgroundRuntime(preparedMarker);
+          const runtimeGlobals = globalThis as Record<string, unknown>;
+          const hadExpectedRuntimeMarker = Object.prototype.hasOwnProperty.call(
+            runtimeGlobals,
+            "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
+          );
+          const previousExpectedRuntimeMarker =
+            runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__;
+          if (expectsBackgroundRuntime) {
+            runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
           }
 
-          // Stash the verified+augmented body for the handler — the body stream
-          // is already consumed, so the handler reads this instead.
-          (event as any).context = (event as any).context ?? {};
-          (event as any).context.__agentChatBackgroundBody = prepared.body;
-
-          // Durable owner context: this self-dispatch is cookieless (HMAC-only).
-          // Resolve the owner from the persisted run row, never the request body,
-          // then invoke the normal handler. The shared agent-run context helper
-          // expands that owner into the same user/org AsyncLocalStorage context the
-          // foreground request uses, so credential and data scoping stay aligned.
-          await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
-
           try {
+            // DIAGNOSTIC: load the run-store diagnostic recorder only after the
+            // authenticated marker has been mirrored into globalThis. run-store
+            // can initialize the DB pool; the pool must see the same background
+            // proof as the agent timeout logic before that happens.
+            const diag = await import("../agent/run-store.js")
+              .then((m) => ({
+                record: m.recordRunDiagnostic,
+                stages: m.RUN_DIAG_STAGE,
+              }))
+              .catch(() => null);
+
+            // Record "the route handler was entered" against the run after auth
+            // succeeds. This is the proof the bg-fn invocation actually reached
+            // Nitro (vs. dying at the function entry / never being invoked).
+            if (diag) {
+              await diag
+                .record(prepared.runId, diag.stages.routeEntered)
+                .catch(() => {});
+              await diag
+                .record(prepared.runId, diag.stages.authPassed)
+                .catch(() => {});
+            }
+
+            // Stash the verified+augmented body for the handler — the body stream
+            // is already consumed, so the handler reads this instead.
+            (event as any).context = (event as any).context ?? {};
+            (event as any).context.__agentChatBackgroundBody = prepared.body;
+
+            // Durable owner context: this self-dispatch is cookieless (HMAC-only).
+            // Resolve the owner from the persisted run row, never the request
+            // body, then invoke the normal handler. The shared agent-run context
+            // helper expands that owner into the same user/org AsyncLocalStorage
+            // context the foreground request uses, so credential and data scoping
+            // stay aligned.
+            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
             return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
@@ -8088,6 +8113,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
+          } finally {
+            if (expectsBackgroundRuntime) {
+              if (hadExpectedRuntimeMarker) {
+                runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ =
+                  previousExpectedRuntimeMarker;
+              } else {
+                Reflect.deleteProperty(
+                  runtimeGlobals,
+                  "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
+                );
+              }
+            }
           }
         }),
       );

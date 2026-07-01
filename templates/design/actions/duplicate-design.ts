@@ -63,6 +63,7 @@ export default defineAction({
     }
 
     // Copy the design with remapped canvasFrames
+    const orgId = getRequestOrgId() || null;
     await db.insert(schema.designs).values({
       id: newId,
       title: newTitle,
@@ -75,7 +76,8 @@ export default defineAction({
         if (!e) throw new Error("no authenticated user");
         return e;
       })(),
-      orgId: getRequestOrgId() || null,
+      orgId,
+      visibility: orgId ? "org" : "private",
       createdAt: now,
       updatedAt: now,
     });

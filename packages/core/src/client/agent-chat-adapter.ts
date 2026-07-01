@@ -93,6 +93,12 @@ const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3;
 // round re-sending any large pasted payload) before bailing. Catching the
 // repeat ends it in a few rounds with a clear, actionable message instead.
 const MAX_REPEATED_TRANSIENT_CONTINUATIONS = 3;
+// How many consecutive continuations that only reach the SAME "preparing
+// action" activity card we tolerate before giving up. This catches runs that
+// keep timing out while assembling a large tool payload: they are not empty,
+// and the narration may vary enough to bypass the text-repeat guard, but the
+// real tool never starts.
+const MAX_REPEATED_ACTION_PREPARATION_CONTINUATIONS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
@@ -697,7 +703,26 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
   );
 }
 
-function lastCompletedSideEffectTool(
+const COMPLETED_TOOL_TIMEOUT_NAME_RE =
+  /^(add|apply|archive|capture|create|delete|deploy|duplicate|edit|generate|grant|insert|migrate|move|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
+const COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST = new Set([
+  "connect-assets-mcp",
+  "import-design-tokens",
+]);
+
+function isCompletedToolTimeoutCandidate(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+): boolean {
+  if (part.completedSideEffect === false) return false;
+  if (part.completedSideEffect === true) return true;
+  const toolName = part.toolName.toLowerCase();
+  return (
+    COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST.has(toolName) ||
+    COMPLETED_TOOL_TIMEOUT_NAME_RE.test(toolName)
+  );
+}
+
+function lastCompletedTimeoutCandidateTool(
   content: ContentPart[],
 ): Extract<ContentPart, { type: "tool-call" }> | undefined {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -707,7 +732,7 @@ function lastCompletedSideEffectTool(
       part.activity !== true &&
       part.result !== undefined &&
       part.isError !== true &&
-      part.completedSideEffect === true
+      isCompletedToolTimeoutCandidate(part)
     ) {
       return part;
     }
@@ -778,6 +803,37 @@ function lastActivityTool(
   for (let i = trail.length - 1; i >= 0; i--) {
     const tool = trail[i]?.tool?.trim();
     if (tool) return tool;
+  }
+  return undefined;
+}
+
+function formatActivityTrail(
+  trail: readonly AgentActivityTrailEntry[],
+): string | undefined {
+  const items = trail
+    .slice(-8)
+    .map((entry) => {
+      const label = entry.label.replace(/\s+/g, " ").trim();
+      const tool = entry.tool?.replace(/\s+/g, " ").trim();
+      if (label && tool && label !== tool) return `${label} (${tool})`;
+      return label || tool || "";
+    })
+    .filter(Boolean);
+  return items.length > 0 ? items.join(" > ") : undefined;
+}
+
+function lastUnresolvedToolActivity(
+  content: ContentPart[],
+): string | undefined {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.activity === true &&
+      part.result === undefined
+    ) {
+      return part.toolName;
+    }
   }
   return undefined;
 }
@@ -887,9 +943,9 @@ function incrementalActionGuidance(tool: string): string | undefined {
       return "create a compact working v1 with `create-extension`, then use focused `update-extension` edits for refinements";
     case "generate-design":
     case "update-design":
-      return "persist a minimal first version (fewer files) with `generate-design`, then refine individual files with `edit-design` search/replace instead of resending everything";
+      return 'if an existing design file or snapshot is already in history, especially after a Design variant pick, stop retrying `generate-design`: call `get-design-snapshot` for the selected file, then call `edit-design` once on that same `fileId` (`mode: "replace-file"` for a compact full-file replacement, or search/replace for smaller edits). Use `generate-design` only for a brand-new compact first file when no target file exists yet';
     case "present-design-variants":
-      return "save compact but complete variant screens with `present-design-variants` first, keeping each HTML direction focused enough to finish, then refine the chosen direction with `generate-design` or `edit-design`";
+      return 'call `present-design-variants` with concise labels, descriptions, accent colors, and feature bullets; omit large `content` HTML when needed so the action can render compact representative screens. After the user picks a direction, delete unchosen screens, snapshot the selected `fileId`, and refine that same file with `edit-design` (`mode: "replace-file"` for placeholder expansion). Do not call `generate-design` after the variant pick';
     case "create-visual-plan":
     case "create-ui-plan":
     case "create-plan-design":
@@ -1390,19 +1446,44 @@ export function createAgentChatAdapter(
       let repeatedInFlightToolCount = 0;
       let recoveryGaveUpOnInFlightTool = false;
       const MAX_REPEATED_INFLIGHT_TOOL_STALLS = 3;
+      let lastPreparingToolName: string | undefined;
+      let repeatedActionPreparationCount = 0;
+      let recoveryGaveUpOnActionPreparation = false;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
       let lastAutoContinueReason: string | null = null;
       let lastRecoverableRunError: AgentAutoContinueErrorInfo | null = null;
+      let lastActivityTrail: AgentActivityTrailEntry[] = [];
       const attemptedRunIds: string[] = [];
       let authRecoveryAttempted = false;
       let continuationToolCallCounter = 0;
       const nextContinuationToolCallId = () =>
         `continuation_tc_${++continuationToolCallCounter}`;
 
+      const runDebugContextDetails = (): string => {
+        const pageOrigin =
+          typeof window !== "undefined" && window.location?.origin
+            ? window.location.origin
+            : "";
+        return [
+          `api_url: ${apiUrl}`,
+          pageOrigin ? `page_origin: ${pageOrigin}` : "",
+          tabId ? `tab_id: ${tabId}` : "",
+          threadId ? `thread_id: ${threadId}` : "",
+          `turn_id: ${turnId}`,
+          runId ? `current_run: ${runId}` : "",
+          attemptedRunIds.length > 0
+            ? `attempted_runs: ${attemptedRunIds.join(", ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      };
+
       const connectionRecoveryDetails = (): string => {
         return [
+          runDebugContextDetails(),
           lastAutoContinueReason
             ? `last_auto_continue_reason: ${lastAutoContinueReason}`
             : "",
@@ -1420,10 +1501,14 @@ export function createAgentChatAdapter(
           lastInFlightToolName
             ? `last_inflight_tool: ${lastInFlightToolName}`
             : "",
-          `total_transient_continuations: ${totalTransientContinuationAttempts}`,
-          attemptedRunIds.length > 0
-            ? `attempted_runs: ${attemptedRunIds.join(", ")}`
+          `repeated_action_preparation_stalls: ${repeatedActionPreparationCount}`,
+          lastPreparingToolName
+            ? `last_preparing_tool: ${lastPreparingToolName}`
             : "",
+          formatActivityTrail(lastActivityTrail)
+            ? `activity_trail: ${formatActivityTrail(lastActivityTrail)}`
+            : "",
+          `total_transient_continuations: ${totalTransientContinuationAttempts}`,
         ]
           .filter(Boolean)
           .join("\n");
@@ -1435,6 +1520,12 @@ export function createAgentChatAdapter(
         }
         if (recoveryGaveUpOnRepetition) {
           return "The agent got stuck repeating the same response without finishing, so I stopped the automatic retries. This often happens when it tries to re-type a large pasted file into one action — starting a new chat, or asking for a smaller first step, usually gets it unstuck.";
+        }
+        if (recoveryGaveUpOnActionPreparation) {
+          const tool = lastPreparingToolName
+            ? ` the ${humanizeActionName(lastPreparingToolName)} action`
+            : " the same action";
+          return `The agent got stuck preparing${tool} input and never started the tool, so I stopped the automatic retries. Try a smaller first step or a more compact version of the request.`;
         }
         if (
           content.length === 0 &&
@@ -1505,6 +1596,7 @@ export function createAgentChatAdapter(
             lastSeq,
             contentParts: content.length,
             attemptedRunIds: [...attemptedRunIds],
+            activityTrail: [...lastActivityTrail],
             startupRecoveryAttempts,
             staleRunContinuationAttempts,
             stalledTransientContinuationAttempts,
@@ -1512,6 +1604,8 @@ export function createAgentChatAdapter(
             repeatedTransientContinuationAttempts,
             repeatedInFlightToolCount,
             lastInFlightToolName,
+            repeatedActionPreparationCount,
+            lastPreparingToolName,
             totalTransientContinuationAttempts,
             ...extra,
           },
@@ -1529,6 +1623,8 @@ export function createAgentChatAdapter(
               repeatedTransientContinuationAttempts,
               repeatedInFlightToolCount,
               lastInFlightToolName,
+              repeatedActionPreparationCount,
+              lastPreparingToolName,
               totalTransientContinuationAttempts,
             },
           },
@@ -1809,6 +1905,7 @@ export function createAgentChatAdapter(
           completedToolName?: string;
         } => {
           lastAutoContinueReason = signal.reason;
+          lastActivityTrail = [...signal.activityTrail];
           if (signal.errorInfo) {
             lastRecoverableRunError = signal.errorInfo;
           }
@@ -1827,13 +1924,18 @@ export function createAgentChatAdapter(
           // before tool_start; treating it as progress caused silent retry
           // loops when the LLM timed out while assembling a large tool input.
           const hasInFlightTool = hasInFlightToolCall(visibleContent);
-          const completedSideEffectTool = lastCompletedSideEffectTool(content);
+          const completedTool = lastCompletedTimeoutCandidateTool(content);
           // Either real output or an actively-running tool counts as progress
           // for the stalled/empty caps.
           const madeProgress = madeContentProgress || hasInFlightTool;
           const madeDurableToolProgress = visibleContent.some(
-            (part) => part.type === "tool-call" && part.result !== undefined,
+            (part) =>
+              part.type === "tool-call" &&
+              part.activity !== true &&
+              part.result !== undefined,
           );
+          const currentPreparingToolName =
+            lastUnresolvedToolActivity(visibleContent);
           // In-flight tool stall guard. When the same write tool is stuck
           // in-flight because the connection keeps dropping (stream_ended),
           // hasInFlightTool=true keeps madeProgress=true and completely
@@ -1877,6 +1979,27 @@ export function createAgentChatAdapter(
             repeatedInFlightToolCount = 0;
           }
 
+          const isRepeatedActionPreparationCandidate =
+            signal.reason !== "loop_limit" &&
+            currentPreparingToolName !== undefined &&
+            !hasInFlightTool &&
+            !madeDurableToolProgress;
+          if (isRepeatedActionPreparationCandidate) {
+            if (currentPreparingToolName === lastPreparingToolName) {
+              repeatedActionPreparationCount += 1;
+            } else {
+              repeatedActionPreparationCount = 0;
+              lastPreparingToolName = currentPreparingToolName;
+            }
+          } else if (
+            !currentPreparingToolName ||
+            hasInFlightTool ||
+            madeDurableToolProgress
+          ) {
+            repeatedActionPreparationCount = 0;
+            lastPreparingToolName = undefined;
+          }
+
           // Degenerate repetition guard. When the model gets stuck re-streaming
           // the SAME narration every continuation without ever starting or
           // finishing a tool, each round is "new" text — so madeProgress stays
@@ -1898,22 +2021,23 @@ export function createAgentChatAdapter(
             emptyTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
-            // If a mutating action already completed, do not turn a missing
-            // closing sentence into a scary connection failure. Give the model
-            // one continuation opportunity (the completed tool itself counts
-            // as progress on the first timeout); if the follow-up produces no
-            // new content, stop locally with a clear "saved, final note timed
-            // out" message.
+            // If a tool already completed, do not turn a missing closing
+            // sentence into a scary connection failure. Give the model one
+            // continuation opportunity (the completed tool itself counts as
+            // progress on the first timeout); if the follow-up produces no new
+            // content, stop locally with a clear completed-tool warning.
             if (
-              completedSideEffectTool &&
+              signal.reason === "run_timeout" &&
+              completedTool &&
               !hasInFlightToolCall(content) &&
+              !currentPreparingToolName &&
               !madeContentProgress &&
               !hasInFlightTool
             ) {
               return {
                 ok: false,
                 resetVisibleContent: false,
-                completedToolName: completedSideEffectTool.toolName,
+                completedToolName: completedTool.toolName,
               };
             }
             // Bail when the same write tool is stuck in-flight across too many
@@ -1923,6 +2047,13 @@ export function createAgentChatAdapter(
               repeatedInFlightToolCount >= MAX_REPEATED_INFLIGHT_TOOL_STALLS
             ) {
               recoveryGaveUpOnInFlightTool = true;
+              return { ok: false, resetVisibleContent: false };
+            }
+            if (
+              repeatedActionPreparationCount >
+              MAX_REPEATED_ACTION_PREPARATION_CONTINUATIONS
+            ) {
+              recoveryGaveUpOnActionPreparation = true;
               return { ok: false, resetVisibleContent: false };
             }
             // Bail fast on a non-advancing repetition loop, well before the

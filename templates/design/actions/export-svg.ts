@@ -10,6 +10,7 @@ import {
   exportFilename,
   trySaveExportFile,
 } from "../server/lib/design-export.js";
+import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -45,8 +46,9 @@ export default defineAction({
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
+    const exportFiles = files.filter((file) => !isBoardFile(file.filename));
 
-    const html = buildStandaloneHtml({ title: row.title, files });
+    const html = buildStandaloneHtml({ title: row.title, files: exportFiles });
     const svg = buildSvgForeignObject({
       html,
       width,
@@ -56,6 +58,6 @@ export default defineAction({
     const filename = exportFilename(row.title, "svg");
     const saveResult = await trySaveExportFile(filename, svg);
 
-    return { svg, filename, ...saveResult, fileCount: files.length };
+    return { svg, filename, ...saveResult, fileCount: exportFiles.length };
   },
 });

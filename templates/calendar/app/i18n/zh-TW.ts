@@ -375,6 +375,9 @@ const messages = {
     googleWarningAfterUnsafe: "完成連線。",
     accountConnectedElsewhere: "該帳戶已連線到另一個登入帳戶",
     googleConnectionFailed: "Google 連線失敗",
+    managedCredentialsUnavailable: "Google Calendar 暫時無法使用",
+    managedCredentialsUnavailableDescription:
+      "此部署尚未設定 Calendar 的 Google 連線。請稍後再試。",
     thatGoogleAccount: "那個 Google 帳戶",
     signOutThenSignIn: "登出，然後使用 {{account}} 登入。",
     signOut: "登出",
@@ -427,6 +430,7 @@ const messages = {
     availabilityDescription: "設定你的預約可用時間。",
     availabilitySaved: "已儲存可用性",
     availabilitySaveFailed: "無法儲存可用性",
+    availabilityUnavailable: "目前無法檢查此主辦人的行事曆可用性。請稍後再試。",
     availableTimes: "可用時間",
     allCount: "全部（{{count}}）",
     back: "返回",

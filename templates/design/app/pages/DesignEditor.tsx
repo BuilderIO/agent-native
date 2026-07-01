@@ -166,6 +166,7 @@ import {
   type InspectorTab,
 } from "@/components/design/EditPanel";
 import type { ExportSettingsValue } from "@/components/design/inspector";
+import { InspectorAiActions } from "@/components/design/inspector/InspectorAiActions";
 import {
   LayersPanel,
   type LayersPanelFile,
@@ -814,6 +815,134 @@ function sanitizeHtml2CanvasClone(
   });
 }
 
+/**
+ * Editor-chrome overlays that editor-chrome.bridge.ts appends inside the preview
+ * iframe (the selection outline + resize handles, hover highlight, marquee,
+ * spacing/measurement guides, and badges). They live in the iframe DOM, so image
+ * exports must strip them from the clone — otherwise a download captures the
+ * editor's selection outline instead of just the design. Keep this in sync with
+ * the data-agent-native-* markers set in editor-chrome.bridge.ts.
+ */
+export const EDITOR_CHROME_OVERLAY_SELECTOR = [
+  "[data-agent-native-edit-overlay]",
+  "[data-agent-native-edit-handle]",
+  "[data-agent-native-edge-handle]",
+  "[data-agent-native-rotate-handle]",
+  "[data-agent-native-transform-badge]",
+  "[data-agent-native-spacing-badge]",
+  "[data-agent-native-spacing-overlay]",
+  "[data-agent-native-spacing-line]",
+  "[data-agent-native-spacing-region]",
+  "[data-agent-native-insertion-guide]",
+  "[data-agent-native-measurement-overlay]",
+].join(",");
+
+/**
+ * Remove editor-chrome overlays from a cloned document/element before it is
+ * rasterized (PNG) or serialized (SVG) for export.
+ */
+function removeEditorChromeOverlays(root: ParentNode): void {
+  root
+    .querySelectorAll(EDITOR_CHROME_OVERLAY_SELECTOR)
+    .forEach((element) => element.remove());
+}
+
+/**
+ * Resolve the document-space rect of the currently selected element inside the
+ * preview iframe so image exports (PNG/SVG) can crop to just that frame instead
+ * of the whole screen. Returns null — meaning "export the whole screen" — when
+ * there is no element selection, when the selection is the screen root
+ * (BODY/HTML, which is the whole screen anyway), or when the element can no
+ * longer be resolved in the live document.
+ */
+function resolveExportCropRect(
+  doc: Document,
+  selected: ElementInfo | null | undefined,
+): { x: number; y: number; width: number; height: number } | null {
+  if (!selected || isScreenRootElementInfo(selected)) return null;
+  const view = doc.defaultView;
+  if (!view) return null;
+  let element: Element | null = null;
+  if (selected.sourceId) {
+    try {
+      element = doc.querySelector(
+        `[data-agent-native-node-id="${CSS.escape(selected.sourceId)}"]`,
+      );
+    } catch {
+      element = null;
+    }
+  }
+  if (!element && selected.selector) {
+    try {
+      element = doc.querySelector(selected.selector);
+    } catch {
+      element = null;
+    }
+  }
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  // getBoundingClientRect is viewport-relative; add the iframe scroll offset so
+  // coordinates match the full-document render (which starts at the page top).
+  return {
+    x: rect.left + (view.scrollX ?? 0),
+    y: rect.top + (view.scrollY ?? 0),
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+/**
+ * Map a document-space rect onto pixel coordinates within a rendered canvas of
+ * the given size, clamped to stay inside the canvas. `scale` must match the
+ * scale passed to html2canvas. Returns null when the crop would be empty or
+ * lands fully outside the canvas, so callers can fall back to the full render.
+ */
+export function computeExportCropBox(
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: { x: number; y: number; width: number; height: number },
+  scale: number,
+): { sx: number; sy: number; sw: number; sh: number } | null {
+  const sx = Math.max(0, Math.round(rect.x * scale));
+  const sy = Math.max(0, Math.round(rect.y * scale));
+  const sw = Math.min(sourceWidth - sx, Math.round(rect.width * scale));
+  const sh = Math.min(sourceHeight - sy, Math.round(rect.height * scale));
+  if (sw <= 0 || sh <= 0) return null;
+  return { sx, sy, sw, sh };
+}
+
+/**
+ * Crop a rendered html2canvas canvas down to a document-space rect so image
+ * exports capture just the selected frame. Returns null when the crop is empty,
+ * so callers can fall back to the full render.
+ */
+function cropCanvasToRect(
+  source: HTMLCanvasElement,
+  rect: { x: number; y: number; width: number; height: number },
+  scale: number,
+): HTMLCanvasElement | null {
+  const box = computeExportCropBox(source.width, source.height, rect, scale);
+  if (!box) return null;
+  const cropped = document.createElement("canvas");
+  cropped.width = box.sw;
+  cropped.height = box.sh;
+  const context = cropped.getContext("2d");
+  if (!context) return null;
+  context.drawImage(
+    source,
+    box.sx,
+    box.sy,
+    box.sw,
+    box.sh,
+    0,
+    0,
+    box.sw,
+    box.sh,
+  );
+  return cropped;
+}
+
 function byteLength(value: string): number {
   if (typeof TextEncoder === "undefined") return value.length;
   return new TextEncoder().encode(value).length;
@@ -1108,6 +1237,120 @@ export function hydrateMotionDockTracks(
   }));
 }
 
+const MOTION_KEYFRAME_TIME_EPSILON = 0.002;
+
+function motionCssPropertyName(property: string): string | null {
+  const trimmed = property.trim();
+  if (!trimmed || trimmed.startsWith("--")) return null;
+  const cssName = trimmed
+    .replace(/^css/, "")
+    .replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
+    .toLowerCase();
+  return /^-?[a-z][a-z0-9-]*$/i.test(cssName) ? cssName : null;
+}
+
+function camelStyleProperty(property: string): string {
+  return property.replace(/-([a-z])/g, (_, letter: string) =>
+    letter.toUpperCase(),
+  );
+}
+
+function computedMotionStyleValue(
+  computedStyles: Record<string, string> | undefined,
+  property: string,
+): string | undefined {
+  if (!computedStyles) return undefined;
+  return (
+    computedStyles[property] ??
+    computedStyles[camelStyleProperty(property)] ??
+    computedStyles[
+      property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
+    ]
+  );
+}
+
+function defaultMotionBaseValue(property: string, nextValue: string): string {
+  if (property === "opacity") return "1";
+  if (property === "transform" || property === "filter") return "none";
+  return nextValue;
+}
+
+export function upsertMotionStyleKeyframes(args: {
+  tracks: MotionDockTrack[];
+  targetNodeId: string;
+  label: string;
+  styles: Record<string, string>;
+  computedStyles?: Record<string, string>;
+  playhead: number;
+  defaultEase?: string;
+}): MotionDockTrack[] {
+  const t = Math.max(0, Math.min(1, args.playhead));
+  const ease = args.defaultEase ?? "ease";
+  let nextTracks = args.tracks;
+
+  for (const [rawProperty, rawValue] of Object.entries(args.styles)) {
+    if (rawValue === undefined) continue;
+    const value = String(rawValue).trim();
+    if (!value) continue;
+    const property = motionCssPropertyName(rawProperty);
+    if (!property) continue;
+
+    const existingIndex = nextTracks.findIndex(
+      (track) =>
+        track.targetNodeId === args.targetNodeId && track.property === property,
+    );
+
+    if (existingIndex >= 0) {
+      nextTracks = nextTracks.map((track, index) => {
+        if (index !== existingIndex) return track;
+        const withoutCurrentTime = track.keyframes.filter(
+          (keyframe) => Math.abs(keyframe.t - t) > MOTION_KEYFRAME_TIME_EPSILON,
+        );
+        return {
+          ...track,
+          label: track.label || args.label,
+          keyframes: [...withoutCurrentTime, { t, value, ease }].sort(
+            (a, b) => a.t - b.t,
+          ),
+        };
+      });
+      continue;
+    }
+
+    const baseValue =
+      computedMotionStyleValue(args.computedStyles, property) ??
+      computedMotionStyleValue(args.computedStyles, rawProperty) ??
+      defaultMotionBaseValue(property, value);
+    const keyframes =
+      t <= MOTION_KEYFRAME_TIME_EPSILON
+        ? [
+            { t: 0, value, ease },
+            { t: 1, value: baseValue, ease },
+          ]
+        : t >= 1 - MOTION_KEYFRAME_TIME_EPSILON
+          ? [
+              { t: 0, value: baseValue, ease },
+              { t: 1, value, ease },
+            ]
+          : [
+              { t: 0, value: baseValue, ease },
+              { t, value, ease },
+              { t: 1, value: baseValue, ease },
+            ];
+    nextTracks = [
+      ...nextTracks,
+      {
+        targetNodeId: args.targetNodeId,
+        property,
+        keyframes,
+        label: args.label,
+      },
+    ];
+  }
+
+  return nextTracks;
+}
+
 export function motionTimelineFingerprint(
   fileId: string,
   timeline: MotionTimelineRow | null | undefined,
@@ -1129,6 +1372,8 @@ function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
   if (typeof window === "undefined") return base;
 
   const returnUrl = new URL(window.location.href);
+  returnUrl.search = "";
+  returnUrl.hash = "";
   returnUrl.searchParams.set("intent", intent);
   const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
   return `${base}?return=${encodeURIComponent(ret)}`;
@@ -1189,8 +1434,11 @@ export function getAvailableContentHistoryChanges(
   activeFileId?: string | null,
 ): ContentHistoryChange[] {
   const fileIds = new Set(availableFileIds);
+  const activeFileIsAvailable = !!activeFileId && fileIds.has(activeFileId);
   return getContentHistoryChanges(entry).filter(
-    (change) => change.fileId === activeFileId || fileIds.has(change.fileId),
+    (change) =>
+      fileIds.has(change.fileId) ||
+      (activeFileIsAvailable && change.fileId === activeFileId),
   );
 }
 
@@ -1302,6 +1550,33 @@ function designIntakeQuestionDirectives(
   ];
 }
 
+function promptRequestsVariantExploration(prompt: string): boolean {
+  const normalized = prompt.toLowerCase();
+  const asksForVariants =
+    /\b(variant|variants|variation|variations|direction|directions|option|options|concept|concepts|exploration|explorations)\b/.test(
+      normalized,
+    );
+  if (!asksForVariants) return false;
+  return (
+    /\b(2|3|4|5|two|three|four|five|multiple|several|distinct|different|choose|compare|side[-\s]?by[-\s]?side)\b/.test(
+      normalized,
+    ) || /\bto choose from\b/.test(normalized)
+  );
+}
+
+function designVariantGenerationDirectives(
+  designId: string,
+  designSystemId?: string | null,
+): string[] {
+  return [
+    `Use the \`present-design-variants --designId="${designId}"\` action first. The design already exists - DO NOT call create-design.`,
+    ...designSystemGenerationDirectives(designSystemId),
+    "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
+    "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens.",
+    'Wait for the user\'s chat pick, delete the unchosen variant screens, call `get-design-snapshot` with `fileId` for the kept screen, then call `edit-design` on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into the full chosen direction. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.',
+  ];
+}
+
 function designGenerationDirectives(
   designId: string,
   designSystemId?: string | null,
@@ -1309,7 +1584,7 @@ function designGenerationDirectives(
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
-    "If the user asked to explore variations, call `present-design-variants` with 2-5 compact, complete HTML directions: one representative screen per direction, not a full app per variant. Wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen. Otherwise generate one polished first direction.",
+    'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete the unchosen variant screens, call `get-design-snapshot` with `fileId` for the kept screen, then call `edit-design` on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into the full chosen direction. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, stop and summarize what was created.",
   ];
@@ -1886,6 +2161,14 @@ function appendCanvasPrimitiveToHtml(
       const explicitPathData = primitive.pathData?.trim()
         ? primitive.pathData
         : null;
+      const pathViewBoxLeft = options?.preserveNegativePosition
+        ? geometry.x
+        : Math.max(0, geometry.x);
+      const pathViewBoxTop = options?.preserveNegativePosition
+        ? geometry.y
+        : Math.max(0, geometry.y);
+      const pathViewBoxWidth = Math.max(1, geometry.width);
+      const pathViewBoxHeight = Math.max(1, geometry.height);
       const points = primitive.points?.length
         ? primitive.points
         : [
@@ -1950,7 +2233,7 @@ function appendCanvasPrimitiveToHtml(
       svg.setAttribute(
         "viewBox",
         explicitPathData
-          ? `${left} ${top} ${width} ${height}`
+          ? `${pathViewBoxLeft} ${pathViewBoxTop} ${pathViewBoxWidth} ${pathViewBoxHeight}`
           : `0 0 ${width} ${height}`,
       );
       svg.setAttribute(
@@ -2355,7 +2638,7 @@ function extractLayerPosition(
 function postBeginTextEditToPreviewIframes(
   screenId: string | null,
   nodeId: string,
-): boolean {
+): "active" | "done" | false {
   if (typeof document === "undefined" || !nodeId) return false;
   const iframes = Array.from(
     document.querySelectorAll<HTMLIFrameElement>(
@@ -2367,16 +2650,18 @@ function postBeginTextEditToPreviewIframes(
   );
   const orderedIframes = targetIframes.length > 0 ? targetIframes : iframes;
   const selector = `[data-agent-native-node-id="${nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"][data-agent-native-text-editing]`;
-  if (
-    orderedIframes.some((iframe) => {
-      try {
-        return iframe.contentDocument?.querySelector(selector);
-      } catch {
-        return false;
-      }
-    })
-  ) {
-    return true;
+  for (const iframe of orderedIframes) {
+    try {
+      const doc = iframe.contentDocument;
+      const node = doc?.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`,
+      );
+      const editing = doc?.querySelector(selector);
+      if (editing && doc?.activeElement === editing) return "active";
+      if (node && (node.textContent ?? "").trim().length > 0) return "done";
+    } catch {
+      // Keep retrying other iframes.
+    }
   }
   orderedIframes.forEach((iframe) => {
     iframe.contentWindow?.postMessage(
@@ -2392,13 +2677,29 @@ function scheduleBeginTextEditForScreen(
   nodeId: string,
 ) {
   if (typeof window === "undefined") return;
-  let sawEditing = false;
-  [50, 150, 300, 600, 900, 1200, 1800, 2400, 3200, 4200].forEach((delay) => {
+  let finished = false;
+  [180, 300, 600, 900, 1200, 1800, 2400, 3200, 4200].forEach((delay) => {
     window.setTimeout(() => {
-      if (sawEditing) return;
-      sawEditing = postBeginTextEditToPreviewIframes(screenId, nodeId);
+      if (finished) return;
+      finished = postBeginTextEditToPreviewIframes(screenId, nodeId) === "done";
     }, delay);
   });
+}
+
+function postShaderFillPreviewClearToPreviewIframes() {
+  if (typeof document === "undefined") return;
+  document
+    .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+    .forEach((iframe) => {
+      try {
+        iframe.contentWindow?.postMessage(
+          { type: "shader-fill-preview-clear" },
+          "*",
+        );
+      } catch {
+        // Ignore inaccessible iframe windows; same-origin previews handle this.
+      }
+    });
 }
 
 function removeElementFromHtml(
@@ -4350,6 +4651,9 @@ export default function DesignEditor() {
   const [motionTimelineId, setMotionTimelineId] = useState<string | null>(null);
   const [motionTracks, setMotionTracks] = useState<MotionDockTrack[]>([]);
   const [motionDurationMs, setMotionDurationMs] = useState(1000);
+  const [motionPlayhead, setMotionPlayhead] = useState(0);
+  const [motionAutoKeyframeEnabled, setMotionAutoKeyframeEnabled] =
+    useState(false);
   const [motionTracksDirty, setMotionTracksDirty] = useState(false);
   const [motionAutosaveRevision, setMotionAutosaveRevision] = useState(0);
   const [motionHydrationFingerprint, setMotionHydrationFingerprint] = useState<
@@ -4417,6 +4721,10 @@ export default function DesignEditor() {
     nodeId?: string;
     css: string;
   } | null>(null);
+  const clearShaderFillPreview = useCallback(() => {
+    setShaderFillPreview(null);
+    postShaderFillPreviewClearToPreviewIframes();
+  }, []);
 
   // ── Breakpoint preview state (§6.4) ─────────────────────────────────────────
   // Active breakpoint width for the current design (pixels). Controls which
@@ -5669,9 +5977,14 @@ export default function DesignEditor() {
         : undefined;
 
     // Exclude the board file — it is rendered by its own DesignCanvas instance
-    // in MultiScreenCanvas and must not appear as a screen frame.
+    // in MultiScreenCanvas and must not appear as a screen frame.  Support files
+    // such as CSS are editable files, not visual screens.
     return files
-      .filter((file) => !isBoardFile(file.filename))
+      .filter(
+        (file) =>
+          normalizedDesignFileType(file.fileType) === "html" &&
+          !isBoardFile(file.filename),
+      )
       .map((file) => {
         const metadata = getDesignDataRecord(metadataByFileId, file.id);
         const stringValue = (key: string) =>
@@ -5955,7 +6268,9 @@ export default function DesignEditor() {
       return;
     }
 
-    const shouldSkipQuestions = pending.skipQuestions === true;
+    const shouldExploreVariants = promptRequestsVariantExploration(prompt);
+    const shouldSkipQuestions =
+      pending.skipQuestions === true || shouldExploreVariants;
     const context = [
       sourceContext,
       `Design id: "${id}"`,
@@ -5966,9 +6281,11 @@ export default function DesignEditor() {
         : "",
       fileContext,
       "",
-      ...(shouldSkipQuestions
-        ? designGenerationDirectives(id, pendingDesignSystemId)
-        : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
+      ...(shouldExploreVariants
+        ? designVariantGenerationDirectives(id, pendingDesignSystemId)
+        : shouldSkipQuestions
+          ? designGenerationDirectives(id, pendingDesignSystemId)
+          : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
     ].join("\n");
 
     clearGenerationCompleteTimer();
@@ -6012,14 +6329,29 @@ export default function DesignEditor() {
     };
   }, []);
 
-  // Set active file to first file when data loads
-  useEffect(() => {
-    if (files.length > 0 && !activeFileId) {
-      setActiveFileId(files[0].id);
-    }
-  }, [files, activeFileId]);
+  const defaultActiveFile =
+    files.find(
+      (file) =>
+        normalizedDesignFileType(file.fileType) === "html" &&
+        !isBoardFile(file.filename) &&
+        file.filename.toLowerCase() === "index.html",
+    ) ??
+    files.find(
+      (file) =>
+        normalizedDesignFileType(file.fileType) === "html" &&
+        !isBoardFile(file.filename),
+    ) ??
+    files[0];
 
-  const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+  // Set active file to the primary screen when data loads.
+  useEffect(() => {
+    if (defaultActiveFile && !activeFileId) {
+      setActiveFileId(defaultActiveFile.id);
+    }
+  }, [activeFileId, defaultActiveFile]);
+
+  const activeFile =
+    files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
   activeFileIdForUndoRef.current = activeFile?.id ?? null;
   const motionTimelineQueryParams =
     id && activeFile?.id
@@ -6165,9 +6497,13 @@ export default function DesignEditor() {
       if (target && !targetFile) return false;
 
       const inspectorTab =
-        command.inspectorTab === "design" || command.inspectorTab === "tweaks"
+        command.inspectorTab === "design" ||
+        command.inspectorTab === "tweaks" ||
+        command.inspectorTab === "extensions"
           ? command.inspectorTab
-          : command.inspector === "design" || command.inspector === "tweaks"
+          : command.inspector === "design" ||
+              command.inspector === "tweaks" ||
+              command.inspector === "extensions"
             ? command.inspector
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
@@ -6995,12 +7331,22 @@ export default function DesignEditor() {
   const canvasIframeRef = useMemo<React.RefObject<HTMLIFrameElement | null>>(
     () => ({
       get current() {
-        return document.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
+        const iframes = Array.from(
+          document.querySelectorAll<HTMLIFrameElement>(
+            "iframe[data-design-preview-iframe]",
+          ),
+        );
+        if (!activeFile?.id) return iframes[0] ?? null;
+        return (
+          iframes.find(
+            (iframe) => iframe.dataset.screenIframeId === activeFile.id,
+          ) ??
+          iframes[0] ??
+          null
         );
       },
     }),
-    [],
+    [activeFile?.id],
   );
 
   const handleEditorDragStateChange = useCallback((active: boolean) => {
@@ -7392,6 +7738,8 @@ export default function DesignEditor() {
     setMotionTimelineId(null);
     setMotionTracks([]);
     setMotionDurationMs(1000);
+    setMotionPlayhead(0);
+    setMotionAutoKeyframeEnabled(false);
     setMotionTracksDirty(false);
     setMotionAutosaveRevision(0);
     setMotionHydrationFingerprint(null);
@@ -7533,8 +7881,36 @@ export default function DesignEditor() {
   }, [selectedCodeLayerNode, selectedElement]);
 
   useEffect(() => {
-    setShaderFillPreview(null);
-  }, [activeFile?.id, selectedElement?.selector, selectedElement?.sourceId]);
+    clearShaderFillPreview();
+  }, [
+    activeFile?.id,
+    clearShaderFillPreview,
+    selectedElement?.selector,
+    selectedElement?.sourceId,
+  ]);
+  useEffect(() => {
+    const urlParams = new URLSearchParams(location.search);
+    const urlKeepsExtensionsInspector =
+      urlParams.get("inspector") === "extensions" ||
+      urlParams.get("inspectorTab") === "extensions";
+    if (activeInspectorTab === "extensions" && urlKeepsExtensionsInspector) {
+      return;
+    }
+    clearShaderFillPreview();
+  }, [
+    activeInspectorTab,
+    clearShaderFillPreview,
+    location.pathname,
+    location.search,
+  ]);
+  useEffect(() => {
+    window.addEventListener("pagehide", clearShaderFillPreview);
+    window.addEventListener("beforeunload", clearShaderFillPreview);
+    return () => {
+      window.removeEventListener("pagehide", clearShaderFillPreview);
+      window.removeEventListener("beforeunload", clearShaderFillPreview);
+    };
+  }, [clearShaderFillPreview]);
 
   // A friendly default name for the create-component dialog, derived from the
   // selected element's layer name / tag.
@@ -7611,6 +7987,56 @@ export default function DesignEditor() {
     if (!motionDockOpen || motionTracks.length === 0) return [];
     return motionTracks.map(({ label: _label, ...track }) => track);
   }, [motionDockOpen, motionTracks]);
+
+  const upsertMotionKeyframesFromStyles = useCallback(
+    (
+      styles: Record<string, string>,
+      elementInfo?: ElementInfo,
+      selector?: string,
+    ) => {
+      if (!motionDockOpen || !motionAutoKeyframeEnabled) return;
+      const info = elementInfo ?? selectedElement ?? undefined;
+      const targetNode = info
+        ? resolveCodeLayerNodeFromElementInfo(activeCodeLayerProjection, info)
+        : selector
+          ? resolveCodeLayerNodeFromBridge(activeCodeLayerProjection, selector)
+          : selectedCodeLayerNode;
+      const targetNodeId =
+        targetNode?.dataAttributes["data-agent-native-node-id"]?.trim() ??
+        info?.sourceId ??
+        selectedCodeLayerNode?.dataAttributes[
+          "data-agent-native-node-id"
+        ]?.trim();
+      if (!targetNodeId) return;
+
+      const label =
+        targetNode?.layerName ||
+        selectedCodeLayerNode?.layerName ||
+        info?.tagName ||
+        "Selected element";
+      setMotionTracks((current) => {
+        return upsertMotionStyleKeyframes({
+          tracks: current,
+          targetNodeId,
+          label,
+          styles,
+          computedStyles:
+            info?.computedStyles ?? selectedElement?.computedStyles,
+          playhead: motionPlayhead,
+        });
+      });
+      markMotionTracksDirty();
+    },
+    [
+      activeCodeLayerProjection,
+      markMotionTracksDirty,
+      motionAutoKeyframeEnabled,
+      motionDockOpen,
+      motionPlayhead,
+      selectedCodeLayerNode,
+      selectedElement,
+    ],
+  );
 
   const inspectCodeData = useMemo<InspectCodeData | undefined>(() => {
     if (!selectedElement) return undefined;
@@ -8280,7 +8706,11 @@ export default function DesignEditor() {
   );
 
   const handlePrimitiveCreated = useCallback(
-    (screenId: string, nodeId: string, options?: { selectFrame?: boolean }) => {
+    (
+      screenId: string,
+      nodeId: string,
+      options?: { selectFrame?: boolean; nextTool?: "move" | "pen" },
+    ) => {
       // B2/B4 fix: stay in overview mode after drawing a primitive.  The user
       // drew a shape on the board — they should remain on the board with the
       // new primitive selected, matching Figma behaviour.  We activate the
@@ -8299,7 +8729,7 @@ export default function DesignEditor() {
         setOverviewSelectedScreenIds(
           options?.selectFrame === false ? [] : [screenId],
         );
-        setActiveTool("move");
+        setActiveTool(options?.nextTool ?? "move");
         setMode("edit");
       });
       // viewMode stays at "overview" — no setViewMode("single") call here.
@@ -8309,7 +8739,7 @@ export default function DesignEditor() {
       // inserted HTML over separate renders, so post directly to the target
       // iframe with a few short retries instead of relying on a single global
       // bridge callback.
-      const textNodeId = pendingTextEditNodeIdRef.current ?? nodeId;
+      const textNodeId = pendingTextEditNodeIdRef.current;
       pendingTextEditNodeIdRef.current = null;
       if (textNodeId) {
         scheduleBeginTextEditForScreen(screenId, textNodeId);
@@ -8766,6 +9196,11 @@ export default function DesignEditor() {
       title: shortLabel,
       context: contextLines.join("\n"),
       openSidebar: false,
+      // Mirror the selection into chat context without stealing focus: this
+      // effect re-fires on every selection change and on each get-design poll
+      // during an agent run, and focusing the composer here would blur (and
+      // tear down) an in-progress inline text edit on the canvas.
+      focus: false,
     });
   }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
 
@@ -8797,7 +9232,7 @@ export default function DesignEditor() {
           css,
         });
       },
-      onShaderFillPreviewClear: () => setShaderFillPreview(null),
+      onShaderFillPreviewClear: clearShaderFillPreview,
       onShaderFillApplied: (fileId, content, updatedAt) => {
         applyFileContentUpdate(fileId, content, {
           refreshPreview: fileId === activeFile?.id,
@@ -8814,6 +9249,7 @@ export default function DesignEditor() {
       activeFile?.updatedAt,
       activeTool,
       applyFileContentUpdate,
+      clearShaderFillPreview,
       design?.title,
       files,
       id,
@@ -9119,6 +9555,7 @@ export default function DesignEditor() {
         ([, value]) => value !== undefined,
       );
       if (entries.length === 0) return;
+      upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
       // Base every patch off the freshest known content, not the closed-over
       // render value. Handlers that fire several onStyleChange calls in one
       // synchronous user action (e.g. fixed-size text → width+height+whiteSpace,
@@ -9435,6 +9872,7 @@ export default function DesignEditor() {
       selectedElement,
       t,
       updateLiveScreenSnapshotContent,
+      upsertMotionKeyframesFromStyles,
       ydoc,
       isSynced,
     ],
@@ -9621,8 +10059,13 @@ export default function DesignEditor() {
         styles,
         elementInfo,
       );
+      upsertMotionKeyframesFromStyles(styles, elementInfo, selector);
     },
-    [activeFile?.id, recordPendingVisualStyleEdit],
+    [
+      activeFile?.id,
+      recordPendingVisualStyleEdit,
+      upsertMotionKeyframesFromStyles,
+    ],
   );
 
   const handleVisualStructureChange = useCallback(
@@ -9940,8 +10383,15 @@ export default function DesignEditor() {
       elementInfo?: ElementInfo,
     ) => {
       recordPendingVisualStyleEdit(screenId, selector, styles, elementInfo);
+      if (screenId === activeFile?.id) {
+        upsertMotionKeyframesFromStyles(styles, elementInfo, selector);
+      }
     },
-    [recordPendingVisualStyleEdit],
+    [
+      activeFile?.id,
+      recordPendingVisualStyleEdit,
+      upsertMotionKeyframesFromStyles,
+    ],
   );
 
   const handleScreenVisualStructureChange = useCallback(
@@ -10440,16 +10890,15 @@ export default function DesignEditor() {
           ? boardFileId
           : activeFile?.id;
       if (!targetFileId || !canEditDesign || entries.length === 0) return;
-      const targetIsBoard = targetFileId === boardFileId;
       const baseContent =
         targetFileId === activeFile?.id
           ? getFreshActiveContent()
           : (getScreenContent(targetFileId) ?? "");
       if (!baseContent && targetFileId !== boardFileId) return;
       const layerHtmls = entries.map((entry) => entry.html);
-      const styleSnapshots = targetIsBoard
-        ? entries.map((entry) => entry.portableStyleSnapshot)
-        : undefined;
+      const styleSnapshots = entries.map(
+        (entry) => entry.portableStyleSnapshot,
+      );
       const applyPasteContentUpdate = (nextContent: string) => {
         if (targetFileId === activeFile?.id) {
           applyLocalContentUpdate(nextContent, {
@@ -10468,7 +10917,11 @@ export default function DesignEditor() {
       // in normal document flow instead of being an absolutely-positioned body
       // child.  Fall back to the old position-based clone when nothing is
       // selected or a "Paste here" position is provided.
-      if (!position && !targetIsBoard && selectedElement?.selector) {
+      if (
+        !position &&
+        targetFileId !== boardFileId &&
+        selectedElement?.selector
+      ) {
         const selector = selectedCanvasSelector ?? selectedElement.selector;
         const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
           targetSelectors: [selector],
@@ -10555,7 +11008,6 @@ export default function DesignEditor() {
     const baseContent = getFreshActiveContent();
     if (selectedElement?.boundingRect) {
       const { x, y } = selectedElement.boundingRect;
-      const targetIsBoard = activeFile.id === boardFileId;
       const result = insertClonedHtmlLayers(
         baseContent,
         entries.map((entry) => entry.html),
@@ -10564,9 +11016,7 @@ export default function DesignEditor() {
             x: x + index * 16,
             y: y + index * 16,
           })),
-          styleSnapshots: targetIsBoard
-            ? entries.map((entry) => entry.portableStyleSnapshot)
-            : undefined,
+          styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
         },
       );
       if (!result) return;
@@ -11209,14 +11659,11 @@ export default function DesignEditor() {
       // there is no anchor, preserve absolute mode and rebase left/top to the
       // release point so screen↔board moves behave like Figma absolute layers.
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
-      const stylePreservedDest =
-        targetScreenId === boardFileId
-          ? applyPortableStyleSnapshotToHtml(
-              result.destHtml,
-              destNodeAttrId,
-              styleSnapshot,
-            )
-          : result.destHtml;
+      const stylePreservedDest = applyPortableStyleSnapshotToHtml(
+        result.destHtml,
+        destNodeAttrId,
+        styleSnapshot,
+      );
       const nextDestContent = targetAnchorAttrId
         ? targetDropMode === "absolute-container"
           ? targetLocalPoint && targetAnchorRect
@@ -11367,6 +11814,59 @@ export default function DesignEditor() {
         removedGeometryRedoEntries,
       );
 
+      const nextContentUndoStack: ContentHistoryEntry[] = [];
+      let removedContentUndoEntries = 0;
+      contentUndoStackRef.current.forEach((entry) => {
+        const remainingChanges = getContentHistoryChanges(entry).filter(
+          (change) => !deleteIds.has(change.fileId),
+        );
+        if (remainingChanges.length === 0) {
+          removedContentUndoEntries += 1;
+          return;
+        }
+        nextContentUndoStack.push(
+          remainingChanges.length === 1
+            ? remainingChanges[0]
+            : { changes: remainingChanges },
+        );
+      });
+      contentUndoStackRef.current = nextContentUndoStack;
+      historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+        historyOrderRef.current,
+        "file-content",
+        removedContentUndoEntries,
+      );
+      const nextContentRedoStack: ContentHistoryEntry[] = [];
+      let removedContentRedoEntries = 0;
+      contentRedoStackRef.current.forEach((entry) => {
+        const remainingChanges = getContentHistoryChanges(entry).filter(
+          (change) => !deleteIds.has(change.fileId),
+        );
+        if (remainingChanges.length === 0) {
+          removedContentRedoEntries += 1;
+          return;
+        }
+        nextContentRedoStack.push(
+          remainingChanges.length === 1
+            ? remainingChanges[0]
+            : { changes: remainingChanges },
+        );
+      });
+      contentRedoStackRef.current = nextContentRedoStack;
+      redoOrderRef.current = removeRecentUndoRedoOrderKinds(
+        redoOrderRef.current,
+        "file-content",
+        removedContentRedoEntries,
+      );
+      localContentUndoStackRef.current =
+        localContentUndoStackRef.current.filter(
+          (change) => !deleteIds.has(change.fileId),
+        );
+      localContentRedoStackRef.current =
+        localContentRedoStackRef.current.filter(
+          (change) => !deleteIds.has(change.fileId),
+        );
+
       writeFrameGeometrySnapshot(nextGeometry);
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
         if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
@@ -11510,7 +12010,7 @@ export default function DesignEditor() {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
-    let prunedUndoHistory = false;
+    let prunedUndoHistory = 0;
     const undoContent = (scope: "any" | "local" | "global" = "any") => {
       if (scope !== "global" && um?.canUndo()) {
         um.undo();
@@ -11592,7 +12092,7 @@ export default function DesignEditor() {
       );
       if (changes.length === 0) {
         contentUndoStackRef.current.pop();
-        prunedUndoHistory = true;
+        prunedUndoHistory += 1;
         return false;
       }
       contentUndoStackRef.current.pop();
@@ -11660,14 +12160,24 @@ export default function DesignEditor() {
       return true;
     };
 
-    const undoByOrder = (preferred?: UndoRedoOrderKind) =>
-      preferred === "geometry"
-        ? undoGeometry() || undoContent()
-        : preferred === "file-content"
-          ? undoContent("global") || undoGeometry()
-          : preferred === "content"
-            ? undoContent("local") || undoContent("global") || undoGeometry()
-            : undoContent() || undoGeometry();
+    const undoByOrder = (preferred?: UndoRedoOrderKind) => {
+      if (preferred === "geometry") return undoGeometry() || undoContent();
+      if (preferred === "file-content") {
+        const prunedBefore = prunedUndoHistory;
+        if (undoContent("global")) return true;
+        if (prunedUndoHistory > prunedBefore) return false;
+        return undoGeometry();
+      }
+      if (preferred === "content") {
+        const prunedBefore = prunedUndoHistory;
+        return (
+          undoContent("local") ||
+          undoContent("global") ||
+          (prunedUndoHistory > prunedBefore ? false : undoGeometry())
+        );
+      }
+      return undoContent() || undoGeometry();
+    };
     let didUndo = false;
     if (canUseOverviewHistory) {
       while (!didUndo) {
@@ -11678,7 +12188,7 @@ export default function DesignEditor() {
     } else {
       didUndo = undoContent("local");
     }
-    if (didUndo || prunedUndoHistory) {
+    if (didUndo || prunedUndoHistory > 0) {
       syncUndoRedoState();
     }
   }, [
@@ -11700,7 +12210,7 @@ export default function DesignEditor() {
     if (!canEditDesign) return;
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
-    let prunedRedoHistory = false;
+    let prunedRedoHistory = 0;
     const redoContent = (scope: "any" | "local" | "global" = "any") => {
       if (scope !== "global" && um?.canRedo()) {
         um.redo();
@@ -11782,7 +12292,7 @@ export default function DesignEditor() {
       );
       if (changes.length === 0) {
         contentRedoStackRef.current.pop();
-        prunedRedoHistory = true;
+        prunedRedoHistory += 1;
         return false;
       }
       contentRedoStackRef.current.pop();
@@ -11850,14 +12360,24 @@ export default function DesignEditor() {
       return true;
     };
 
-    const redoByOrder = (preferred?: UndoRedoOrderKind) =>
-      preferred === "geometry"
-        ? redoGeometry() || redoContent()
-        : preferred === "file-content"
-          ? redoContent("global") || redoGeometry()
-          : preferred === "content"
-            ? redoContent("local") || redoContent("global") || redoGeometry()
-            : redoContent() || redoGeometry();
+    const redoByOrder = (preferred?: UndoRedoOrderKind) => {
+      if (preferred === "geometry") return redoGeometry() || redoContent();
+      if (preferred === "file-content") {
+        const prunedBefore = prunedRedoHistory;
+        if (redoContent("global")) return true;
+        if (prunedRedoHistory > prunedBefore) return false;
+        return redoGeometry();
+      }
+      if (preferred === "content") {
+        const prunedBefore = prunedRedoHistory;
+        return (
+          redoContent("local") ||
+          redoContent("global") ||
+          (prunedRedoHistory > prunedBefore ? false : redoGeometry())
+        );
+      }
+      return redoContent() || redoGeometry();
+    };
     let didRedo = false;
     if (canUseOverviewHistory) {
       while (!didRedo) {
@@ -11868,7 +12388,7 @@ export default function DesignEditor() {
     } else {
       didRedo = redoContent("local");
     }
-    if (didRedo || prunedRedoHistory) {
+    if (didRedo || prunedRedoHistory > 0) {
       syncUndoRedoState();
     }
   }, [
@@ -12787,26 +13307,38 @@ export default function DesignEditor() {
           doc.body?.scrollHeight ?? 0,
           iframe?.clientHeight ?? 0,
         );
+        const exportScale = Math.max(
+          0.1,
+          Math.min(
+            4,
+            settings?.scale ?? Math.min(2, window.devicePixelRatio || 1),
+          ),
+        );
+        // When an element is selected, crop the export to just that frame.
+        const cropRect = resolveExportCropRect(doc, selectedElement);
         const canvas = await html2canvas(doc.documentElement, {
           width,
           height,
           windowWidth: width,
           windowHeight: height,
-          scale: Math.max(
-            0.1,
-            Math.min(
-              4,
-              settings?.scale ?? Math.min(2, window.devicePixelRatio || 1),
-            ),
-          ),
+          scale: exportScale,
           useCORS: true,
           foreignObjectRendering: true,
           backgroundColor: null,
-          onclone: (clonedDocument) =>
-            sanitizeHtml2CanvasClone(doc, clonedDocument),
+          onclone: (clonedDocument) => {
+            // Sanitize colors first: it aligns source/clone elements by index,
+            // so remove the editor-chrome overlays only afterwards.
+            sanitizeHtml2CanvasClone(doc, clonedDocument);
+            removeEditorChromeOverlays(clonedDocument);
+          },
         });
+        // Render the whole page first, then crop, so ancestor backgrounds show
+        // through the selected frame exactly as they do on screen.
+        const outputCanvas = cropRect
+          ? (cropCanvasToRect(canvas, cropRect, exportScale) ?? canvas)
+          : canvas;
         await new Promise<void>((resolve) => {
-          canvas.toBlob((blob) => {
+          outputCanvas.toBlob((blob) => {
             try {
               if (!blob) {
                 toast.error(t("designEditor.toasts.pngCreateError"));
@@ -12848,7 +13380,7 @@ export default function DesignEditor() {
         setPngExporting(false);
       }
     },
-    [fallbackExportName, t, triggerBlobDownload],
+    [fallbackExportName, selectedElement, t, triggerBlobDownload],
   );
 
   const handleDownloadSvg = useCallback(
@@ -12910,6 +13442,9 @@ export default function DesignEditor() {
           clonedStylesheetLinks[index]?.replaceWith(style);
         });
         clone.querySelectorAll("script").forEach((node) => node.remove());
+        // Strip the editor's selection outline / handles so the SVG shows only
+        // the design, not the editor chrome.
+        removeEditorChromeOverlays(clone);
         clone.style.width = `${width}px`;
         clone.style.minHeight = `${height}px`;
 
@@ -12928,8 +13463,17 @@ export default function DesignEditor() {
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;") || t("designEditor.designExport");
         const exportScale = Math.max(0.1, Math.min(4, settings?.scale ?? 1));
+        // When an element is selected, crop to just that frame by narrowing the
+        // SVG viewBox to its document-space rect. The foreignObject still holds
+        // the full document so layout and inherited styles stay intact; the
+        // viewBox clips the visible region to the selection.
+        const cropRect = resolveExportCropRect(doc, selectedElement);
+        const viewX = cropRect?.x ?? 0;
+        const viewY = cropRect?.y ?? 0;
+        const viewWidth = cropRect?.width ?? width;
+        const viewHeight = cropRect?.height ?? height;
         const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width * exportScale}" height="${height * exportScale}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${safeTitle}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${viewWidth * exportScale}" height="${viewHeight * exportScale}" viewBox="${viewX} ${viewY} ${viewWidth} ${viewHeight}" role="img" aria-label="${safeTitle}">
   <title>${safeTitle}</title>
   <foreignObject width="${width}" height="${height}">
 ${serializedHtml}
@@ -12952,7 +13496,13 @@ ${serializedHtml}
         setSvgExporting(false);
       }
     },
-    [design?.title, fallbackExportName, t, triggerBlobDownload],
+    [
+      design?.title,
+      fallbackExportName,
+      selectedElement,
+      t,
+      triggerBlobDownload,
+    ],
   );
 
   const handleInspectorExport = useCallback(
@@ -13203,7 +13753,7 @@ ${serializedHtml}
   };
 
   useEffect(() => {
-    if (viewMode === "overview") return;
+    if (viewMode === "overview" && !motionDockOpen) return;
     if (!activeFile || !activeContent.trim()) return;
     const stamped = ensureCodeLayerNodeIdsInHtml(activeContent, {
       source: {
@@ -13215,7 +13765,14 @@ ${serializedHtml}
     });
     if (!stamped.changed || stamped.content === activeContent) return;
     applyLocalContentUpdate(stamped.content, { recordHistory: false });
-  }, [activeContent, activeFile, applyLocalContentUpdate, id, viewMode]);
+  }, [
+    activeContent,
+    activeFile,
+    applyLocalContentUpdate,
+    id,
+    motionDockOpen,
+    viewMode,
+  ]);
   const activeCodeLayerTree = useMemo(
     () => buildCodeLayerTree(activeCodeLayerProjection),
     [activeCodeLayerProjection],
@@ -14007,9 +14564,7 @@ ${serializedHtml}
 
   // Detect if the active screen is a localhost/local source so we can show a banner.
   const activeScreenIsLocalSource =
-    viewMode === "single" &&
-    Boolean(activeFile) &&
-    activeOverviewScreen?.sourceType === "localhost";
+    Boolean(activeFile) && activeOverviewScreen?.sourceType === "localhost";
   const activeScreenRouteSourceFile = activeScreenIsLocalSource
     ? getLocalhostRouteSourceFile({
         sourceFile: activeOverviewScreen?.sourceFile,
@@ -15326,12 +15881,8 @@ ${serializedHtml}
             className="h-8 cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] px-3 text-sm shadow-none"
             aria-label={t("designEditor.signUpToSave")}
           >
-            <a
-              href={signInToSaveHref}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <span>{t("home.save")}</span>
+            <a href={signInToSaveHref} role="button">
+              <span>{t("designEditor.signUpToSave")}</span>
             </a>
           </Button>
         </TooltipTrigger>
@@ -15344,13 +15895,9 @@ ${serializedHtml}
             variant="default"
             size="sm"
             className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
-            aria-label={t("designEditor.signUpToShare")}
+            aria-label={t("designEditor.share")}
           >
-            <a
-              href={signInToShareHref}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <a href={signInToShareHref} role="button">
               <span>{t("designEditor.share")}</span>
             </a>
           </Button>
@@ -15993,20 +16540,22 @@ ${serializedHtml}
                   activeLeftPanel === "agent" ? "flex" : "hidden",
                 )}
               >
-                <AgentChatSurface
-                  mode="panel"
-                  className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
-                  storageKey={DESIGN_CHAT_STORAGE_KEY}
-                  emptyStateText={t("chat.emptyState")}
-                  suggestions={[
-                    t("chat.suggestionLandingPage"),
-                    t("chat.suggestionBrandMatch"),
-                    t("chat.suggestionMobile"),
-                  ]}
-                  scope={designChatScope}
-                  showScopeBadge={false}
-                  browserTabId={browserTabId}
-                />
+                {canEditDesign ? (
+                  <AgentChatSurface
+                    mode="panel"
+                    className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
+                    storageKey={DESIGN_CHAT_STORAGE_KEY}
+                    emptyStateText={t("chat.emptyState")}
+                    suggestions={[
+                      t("chat.suggestionLandingPage"),
+                      t("chat.suggestionBrandMatch"),
+                      t("chat.suggestionMobile"),
+                    ]}
+                    scope={designChatScope}
+                    showScopeBadge={false}
+                    browserTabId={browserTabId}
+                  />
+                ) : null}
               </div>
               <div
                 className={cn(
@@ -16550,6 +17099,9 @@ ${serializedHtml}
                             }
                             fusionUrl={designFusionUrl}
                             onComponentSourceJump={handleComponentSourceJump}
+                            motionTracks={
+                              screenIsActive ? motionTracksWire : []
+                            }
                             embeddedFrame={{
                               viewportWidth: Math.max(
                                 1,
@@ -16931,6 +17483,13 @@ ${serializedHtml}
                     })
                   }
                   onRequestTweaks={handleRequestTweaks}
+                  extensionsPanel={
+                    <DesignExtensionsPanel
+                      context={designExtensionContext}
+                      hideAssetLibrary
+                      title={t("designEditor.extensions")}
+                    />
+                  }
                   onStyleChange={handleStyleChange}
                   onStylesChange={handleStylesChange}
                   onExport={handleInspectorExport}
@@ -16949,6 +17508,21 @@ ${serializedHtml}
                   }
                   defaultComponentName={defaultComponentName}
                   inspectCode={inspectCodeData}
+                  aiActions={
+                    selectedElement && selectedInspectorElements.length <= 1 ? (
+                      <InspectorAiActions
+                        selector={
+                          selectedCanvasSelector ?? selectedElement.selector
+                        }
+                        sourceId={selectedElement.sourceId}
+                        fileId={activeFile?.id}
+                        filename={activeFile?.filename}
+                        routeSourceFile={activeScreenRouteSourceFile}
+                        designId={id}
+                        canEdit={canEditDesign}
+                      />
+                    ) : undefined
+                  }
                   statesPanelProps={
                     id
                       ? {
@@ -17051,6 +17625,10 @@ ${serializedHtml}
           onTracksChange={handleMotionTracksChange}
           onDurationChange={handleMotionDurationChange}
           canvasIframeRef={canvasIframeRef}
+          autoKeyframe={motionAutoKeyframeEnabled}
+          onAutoKeyframeChange={setMotionAutoKeyframeEnabled}
+          playhead={motionPlayhead}
+          onPlayheadChange={setMotionPlayhead}
           selectedTarget={motionSelectedTarget}
           applying={motionAutosavePending}
         />
@@ -17082,13 +17660,20 @@ ${serializedHtml}
           persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
           const images = imageAttachmentsFromUploadedFiles(files);
+          const shouldExploreVariants =
+            promptRequestsVariantExploration(prompt);
+          const shouldSkipQuestions = shouldExploreVariants;
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
             designSystemId ? `Design system id: "${designSystemId}"` : "",
             fileContext,
             "",
-            ...designIntakeQuestionDirectives(id, designSystemId),
+            ...(shouldExploreVariants
+              ? designVariantGenerationDirectives(id, designSystemId)
+              : shouldSkipQuestions
+                ? designGenerationDirectives(id, designSystemId)
+                : designIntakeQuestionDirectives(id, designSystemId)),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
@@ -17104,7 +17689,9 @@ ${serializedHtml}
           });
           setHasPendingGeneration(true);
           const runTabId = agentSubmit(
-            `Prepare design questions for "${design.title}": ${prompt}`,
+            shouldSkipQuestions
+              ? `Generate design for "${design.title}": ${prompt}`
+              : `Prepare design questions for "${design.title}": ${prompt}`,
             context,
             { ...options, newTab: true, images },
           );

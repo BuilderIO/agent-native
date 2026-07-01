@@ -102,6 +102,11 @@ interface VoiceSession {
   // Accumulated final transcript from interim webkit results, in case
   // the recognition session ends before we ask it to stop.
   browserTranscript: string;
+  // Native / Whisper engines can emit one final segment per pause. Keep
+  // committed segments separate from the current partial so long dictations
+  // survive natural pauses.
+  finalTranscriptParts: string[];
+  interimTranscript: string;
   // browser-only: monotonic timestamp of the most recent
   // recognition.onresult event. stop() reads this to decide whether
   // the user was actively speaking up to Fn release (worth a tail-
@@ -227,6 +232,73 @@ async function pickBuiltInMicId(): Promise<string | null> {
 
 function setFlowState(state: FlowState): void {
   emit("voice:state-change", { state }).catch(() => {});
+}
+
+let lastStartPingAt = 0;
+
+function playStartPing(): void {
+  const now = Date.now();
+  if (now - lastStartPingAt < 250) return;
+  lastStartPingAt = now;
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = ctx.currentTime;
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, start);
+    osc.frequency.exponentialRampToValueAtTime(1174.66, start + 0.08);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.08, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + 0.14);
+    window.setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 250);
+  } catch {
+    // Sound feedback is best-effort; the moving bars remain the visual cue.
+  }
+}
+
+function enterRecordingState(): void {
+  setFlowState("recording");
+  playStartPing();
+}
+
+function joinedTranscript(parts: string[], interim: string): string {
+  return [...parts, interim].filter(Boolean).join(" ").trim();
+}
+
+function appendFinalTranscript(session: VoiceSession, text: string): void {
+  const clean = text.trim();
+  if (!clean) return;
+  const committed = joinedTranscript(session.finalTranscriptParts, "");
+  if (!committed) {
+    session.finalTranscriptParts = [clean];
+  } else if (clean === committed || clean.startsWith(`${committed} `)) {
+    // Some recognizers send the whole dictation as their final result.
+    session.finalTranscriptParts = [clean];
+  } else if (session.finalTranscriptParts.at(-1) !== clean) {
+    session.finalTranscriptParts.push(clean);
+  }
+  session.interimTranscript = "";
+  session.browserTranscript = joinedTranscript(
+    session.finalTranscriptParts,
+    "",
+  );
+}
+
+function setInterimTranscript(session: VoiceSession, text: string): void {
+  session.interimTranscript = text.trim();
+  session.browserTranscript = joinedTranscript(
+    session.finalTranscriptParts,
+    session.interimTranscript,
+  );
 }
 
 function stopMeter(session: VoiceSession): void {
@@ -698,7 +770,6 @@ export function installDesktopVoiceDictation(
     } catch (err) {
       console.warn("[voice-dictation] vocab learn-monitor failed:", err);
     }
-    emit("voice:partial-transcript", { text }).catch(() => {});
     if (target.cleanupProvider) setFlowState("idle");
     return text;
   };
@@ -808,7 +879,7 @@ export function installDesktopVoiceDictation(
         abortPendingStart();
         return;
       }
-      setFlowState("recording");
+      enterRecordingState();
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, { mimeType });
       const next: VoiceSession = {
@@ -822,6 +893,8 @@ export function installDesktopVoiceDictation(
         mimeType: recorder.mimeType || mimeType,
         recognition: null,
         browserTranscript: "",
+        finalTranscriptParts: [],
+        interimTranscript: "",
         lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
@@ -948,7 +1021,7 @@ export function installDesktopVoiceDictation(
         abortPendingStart();
         return;
       }
-      setFlowState("recording");
+      enterRecordingState();
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const next: VoiceSession = {
@@ -962,6 +1035,8 @@ export function installDesktopVoiceDictation(
         mimeType: "",
         recognition: null,
         browserTranscript: "",
+        finalTranscriptParts: [],
+        interimTranscript: "",
         lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
@@ -1043,7 +1118,7 @@ export function installDesktopVoiceDictation(
         abortPendingStart();
         return;
       }
-      setFlowState("recording");
+      enterRecordingState();
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const next: VoiceSession = {
         kind: "whisper",
@@ -1056,6 +1131,8 @@ export function installDesktopVoiceDictation(
         mimeType: "",
         recognition: null,
         browserTranscript: "",
+        finalTranscriptParts: [],
+        interimTranscript: "",
         lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
@@ -1112,7 +1189,7 @@ export function installDesktopVoiceDictation(
         abortPendingStart();
         return;
       }
-      setFlowState("recording");
+      enterRecordingState();
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const recognition = new Ctor();
@@ -1131,6 +1208,8 @@ export function installDesktopVoiceDictation(
         mimeType: "",
         recognition,
         browserTranscript: "",
+        finalTranscriptParts: [],
+        interimTranscript: "",
         lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
@@ -1203,10 +1282,6 @@ export function installDesktopVoiceDictation(
         // the tail because Web Speech only marks a segment as `isFinal`
         // after a confidence-threshold pass.
         next.browserTranscript = (finalSoFar + interim).trim();
-        // Stream the live transcript to the flow-bar.
-        emit("voice:partial-transcript", {
-          text: next.browserTranscript,
-        }).catch(() => {});
       };
       recognition.onerror = (ev) => {
         if (ev.error !== "no-speech" && ev.error !== "aborted") {
@@ -1732,31 +1807,28 @@ export function installDesktopVoiceDictation(
     if (!current || (current.kind !== "native" && current.kind !== "whisper"))
       return;
     if (current.cancelled || current.stopping) return;
-    current.browserTranscript = text.trim();
+    setInterimTranscript(current, text);
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
   onFinalTranscript(({ text }) => {
-    // Final transcripts are ONLY emitted by Rust after `endAudio()`,
-    // which we call in stop(). At that point the session has been
-    // moved from `session` to `lingeringSession`, so route there
-    // exclusively. Do NOT fall back to the active `session`: a
-    // late-arriving final from the previous session would otherwise
-    // overwrite the new session's transcript with stale text.
-    const current =
-      lingeringSession &&
-      (lingeringSession.kind === "native" ||
-        lingeringSession.kind === "whisper")
-        ? lingeringSession
+    // Whisper emits final segments throughout a long dictation whenever the
+    // speaker pauses. Native speech emits its final after stop, when the
+    // stopped session is parked in lingeringSession. Native final events do not
+    // carry a session id, so never fall back to an active native session here:
+    // a late final from the previous stop could otherwise be appended to a new
+    // dictation.
+    const current = lingeringSession
+      ? lingeringSession
+      : session && session.kind === "whisper" && !session.stopping
+        ? session
         : null;
     if (!current) return;
     if (current.cancelled) return;
-    // Final beats partial — overwrite so a `complete_voice_dictation`
-    // from a late stop() picks up the better text.
-    current.browserTranscript = text.trim();
-    // If stop() is waiting on this event before lingering, trigger the
-    // finalize sequence now (paste → 1s linger → dismiss).
-    current.onNativeFinalize?.();
+    appendFinalTranscript(current, text);
+    if (current === lingeringSession) {
+      current.onNativeFinalize?.();
+    }
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});

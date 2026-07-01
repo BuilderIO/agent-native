@@ -29,6 +29,7 @@ vi.mock("./run-store.js", () => ({
   bumpRunProgress: vi.fn(),
   ensureTerminalRunEvent: vi.fn(),
   setRunError: vi.fn(),
+  setRunTerminalReason: vi.fn(),
 }));
 
 // Mock the OM module: assert producer + drive the consumer.

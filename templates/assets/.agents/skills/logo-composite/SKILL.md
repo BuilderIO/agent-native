@@ -10,16 +10,17 @@ LLMs — including Gemini Pro — degrade complex logos. They smear gradients, d
 ## How it works
 
 1. The library has a `canonicalLogoUrl` (set via `set-canonical-logo --libraryId --assetId`). The asset's role is `logo_reference`.
-2. When `generate-image --includeLogo=true` runs, the prompt envelope adds:
+2. **Logo compositing is a preset option.** A generation preset carries `includeLogo` (stored in the preset `settings` and surfaced as a first-class field). When a generation resolves to a preset with `includeLogo: true`, `generate-image` composites the logo. A generate call's own `includeLogo` arg, when passed, overrides the preset for that run; when omitted, the preset's value wins.
+3. When logo compositing is on, the prompt envelope adds:
    > Leave a clean uncluttered area in the upper-right for the real brand logo; do not draw or approximate the logo yourself.
-3. Gemini returns an image with empty space in that corner.
-4. `compositeLogo()` from `server/lib/image-processing.ts` (Sharp) loads the canonical logo PNG / SVG, resizes it to ~16% of the image width with reasonable inset, and composites it onto the generated image.
-5. Output: the image with the actual logo, pixel-perfect, vector-quality if the source is SVG.
+4. Gemini returns an image with empty space in that corner.
+5. `compositeLogo()` from `server/lib/image-processing.ts` (Sharp) loads the canonical logo PNG / SVG, resizes it to ~16% of the image width with reasonable inset, and composites it onto the generated image.
+6. Output: the image with the actual logo, pixel-perfect, vector-quality if the source is SVG.
 
 ## When to use it
 
-- The user explicitly toggled "Use logo" in the Generate popover.
-- The agent infers the user wants the logo (e.g. "make a hero with our brand logo").
+- The user turned on "Composite canonical logo" when creating a generation preset (the preset then stamps the logo on every image made with it).
+- The agent infers the user wants the logo for a one-off (e.g. "make a hero with our brand logo") — pass `includeLogo: true` on that single generate call to override the preset.
 - The image will appear in a customer-facing context where logo accuracy matters.
 
 ## When NOT to use it

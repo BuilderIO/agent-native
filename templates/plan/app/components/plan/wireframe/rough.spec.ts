@@ -31,4 +31,21 @@ describe("HTML wireframe rough overlay defaults", () => {
     expect(hideRule).not.toContain(".wf-card");
     expect(hideRule).not.toContain(".wf-box");
   });
+
+  it("keeps diagram primitive text contained inside boxes", () => {
+    const css = readFileSync(
+      join(process.cwd(), "app/components/plan/wireframe/html-artboard.css"),
+      "utf8",
+    );
+
+    expect(css).toMatch(
+      /\.plan-diagram-frame\s+:is\(\s*\.diagram-panel,[^}]*\[class\*="box"\]\s*\)\s*{[^}]*overflow-wrap:\s*anywhere !important;[^}]*white-space:\s*normal !important;/s,
+    );
+    expect(css).toMatch(
+      /\.plan-diagram-frame\s+:is\(\s*\.diagram-panel,[^}]*\)\s+:is\(h1,\s*h2,\s*h3,\s*p,\s*small,\s*strong,\s*span,\s*li\)\s*{[^}]*overflow-wrap:\s*anywhere !important;[^}]*white-space:\s*normal !important;/s,
+    );
+    expect(css).toMatch(
+      /\.plan-diagram-frame\s+:is\(\.diagram-pill,[^}]*\)\s*{[^}]*flex-wrap:\s*wrap;[^}]*white-space:\s*normal !important;/s,
+    );
+  });
 });

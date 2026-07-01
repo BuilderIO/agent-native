@@ -121,6 +121,12 @@ export default defineAction({
       submitLabel: submitLabel ?? "Continue",
       questions: normalizedQuestions,
     });
+    await writeAppState("navigate", {
+      view: "editor",
+      designId,
+      editorView: "overview",
+      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+    });
 
     return {
       designId,

@@ -193,9 +193,13 @@ class BuilderEngine implements AgentEngine {
     // content block so the entire conversation prefix is cached.
     let cachedMessages = messages;
     if (cacheEnabled && messages.length > 0) {
-      const lastUserIdx = [...messages].findLastIndex(
-        (m: any) => m.role === "user",
-      );
+      let lastUserIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if ((messages[i] as any).role === "user") {
+          lastUserIdx = i;
+          break;
+        }
+      }
       if (lastUserIdx >= 0) {
         cachedMessages = [...messages];
         const lastMsg = { ...cachedMessages[lastUserIdx] } as any;

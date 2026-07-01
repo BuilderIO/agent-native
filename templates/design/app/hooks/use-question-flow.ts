@@ -41,7 +41,7 @@ export function useQuestionFlow(
         formattedAnswers,
         "",
         designId
-          ? "Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 compact, complete HTML directions - one representative screen per direction, not a full app per variant - wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen; otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing."
+          ? 'Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions using label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens - wait for their chat pick, delete the unchosen variant screens, call get-design-snapshot with fileId for the kept screen, then call edit-design on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into the full chosen direction. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
           : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
       ]
         .filter(Boolean)
@@ -79,7 +79,7 @@ export function useQuestionFlow(
         formattedAnswers,
         "",
         designId
-          ? "Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 compact, complete HTML directions - one representative screen per direction, not a full app per variant - wait for their chat pick, delete the unchosen variant screens, then continue from the kept screen; otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing."
+          ? 'Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions using label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens - wait for their chat pick, delete the unchosen variant screens, call get-design-snapshot with fileId for the kept screen, then call edit-design on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into the full chosen direction. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
           : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
       ]
         .filter(Boolean)
