@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.19
+
+### Patch Changes
+
+- 92b576f: Keep durable background agent runs from being reported as stale after a terminal event was already persisted, and show tool activity during tail reconnects.
+
 ## 0.84.18
 
 ### Patch Changes
