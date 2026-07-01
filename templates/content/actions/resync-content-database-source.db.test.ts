@@ -11,6 +11,11 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+const builderReadMock = vi.hoisted(() => ({
+  mode: "full" as "full" | "paged",
+  calls: [] as Array<{ model: string; offset?: number }>,
+}));
+
 // Mock the Builder read client so resync runs "live" with deterministic entries
 // (no network). Real exports are preserved; only the two reads are overridden.
 vi.mock("./_builder-cms-read-client.js", async () => {
@@ -21,32 +26,68 @@ vi.mock("./_builder-cms-read-client.js", async () => {
     ...actual,
     readBuilderCmsModelFields: vi.fn(async () => []),
     readBuilderCmsContentEntries: vi.fn(
-      async ({ model }: { model: string }) => ({
-        state: model === "collection-a" ? "live" : "unconfigured",
-        entries:
-          model === "collection-a"
-            ? [
-                {
-                  id: "entry-a1",
-                  model: "collection-a",
-                  title: "A One",
-                  urlPath: "/a-one",
-                  updatedAt: "2026-01-01T00:00:00.000Z",
-                  sourceValues: { "data.title": "A One" },
-                },
-                {
-                  id: "entry-a2",
-                  model: "collection-a",
-                  title: "A Two",
-                  urlPath: "/a-two",
-                  updatedAt: "2026-01-01T00:00:00.000Z",
-                  sourceValues: { "data.title": "A Two" },
-                },
-              ]
-            : [],
-        fetchedAt: "2026-01-01T00:00:00.000Z",
-        message: null,
-      }),
+      async ({ model, offset }: { model: string; offset?: number }) => {
+        builderReadMock.calls.push({ model, offset });
+        if (model !== "collection-a") {
+          return {
+            state: "unconfigured",
+            entries: [],
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: 0,
+              fetchedEntryCount: 0,
+              hasMore: false,
+              partial: false,
+              readMode: "none",
+            },
+          };
+        }
+        const entries = [
+          {
+            id: "entry-a1",
+            model: "collection-a",
+            title: "A One",
+            urlPath: "/a-one",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            sourceValues: { "data.title": "A One" },
+          },
+          {
+            id: "entry-a2",
+            model: "collection-a",
+            title: "A Two",
+            urlPath: "/a-two",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            sourceValues: { "data.title": "A Two" },
+          },
+        ];
+        const startOffset =
+          builderReadMock.mode === "paged" ? (offset ?? 0) : 0;
+        const pageEntries =
+          builderReadMock.mode === "paged"
+            ? entries.slice(startOffset, startOffset + 1)
+            : entries;
+        const hasMore = startOffset + pageEntries.length < entries.length;
+        return {
+          state: "live",
+          entries: pageEntries,
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: 500,
+            pageSize: builderReadMock.mode === "paged" ? 1 : 100,
+            startOffset,
+            nextOffset: startOffset + pageEntries.length,
+            fetchedEntryCount: startOffset + pageEntries.length,
+            hasMore,
+            partial: builderReadMock.mode === "paged" && hasMore,
+            readMode: "builder-api",
+          },
+        };
+      },
     ),
   };
 });
@@ -80,6 +121,8 @@ afterAll(() => {
 });
 
 it("resync re-links only the source's own rows, never another collection's (self-heal)", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
   const db = getDb();
   const now = new Date().toISOString();
   const databaseId = "db_resync";
@@ -208,4 +251,125 @@ it("resync re-links only the source's own rows, never another collection's (self
   expect(bRows.map((r: { documentId: string }) => r.documentId)).toEqual([
     "doc-b1",
   ]);
+});
+
+it("resync advances Builder partial reads with a cursor and converges on the final page", async () => {
+  builderReadMock.mode = "paged";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_resync_partial";
+  const databaseDocId = "doc_db_resync_partial";
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "DB partial",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB partial",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "src-partial",
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-a",
+    sourceTable: "collection-a",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await db.insert(schema.documents).values({
+    id: "doc-stale",
+    ownerEmail: OWNER,
+    parentId: databaseDocId,
+    title: "Stale",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: "item_doc-stale",
+    ownerEmail: OWNER,
+    databaseId,
+    documentId: "doc-stale",
+    position: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row-stale",
+    ownerEmail: OWNER,
+    sourceId: "src-partial",
+    databaseItemId: "item_doc-stale",
+    documentId: "doc-stale",
+    sourceRowId: "entry-stale",
+    sourceQualifiedId: "q_entry-stale",
+    sourceDisplayKey: "Stale",
+    sourceValuesJson: "{}",
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  let [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "src-partial"));
+
+  await resync({ database, source, now: "2026-01-01T00:00:00.000Z" });
+  let [afterFirst] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "src-partial"));
+  let metadata = JSON.parse(afterFirst.metadataJson ?? "{}");
+  expect(afterFirst.syncState).toBe("refreshing");
+  expect(afterFirst.freshness).toBe("stale");
+  expect(metadata.lastReadNextOffset).toBe(1);
+  expect(metadata.lastReadFetchedEntryCount).toBe(1);
+  expect(metadata.lastReadPartial).toBe(true);
+  expect(metadata.sourceFetchState).toBe("fetching");
+  expect(metadata.activeReadSourceRowIds).toEqual(["entry-a1"]);
+
+  let rows = await db
+    .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-partial"));
+  expect(
+    rows.map((row: { sourceRowId: string }) => row.sourceRowId).sort(),
+  ).toEqual(["entry-a1", "entry-stale"]);
+
+  source = afterFirst;
+  await resync({ database, source, now: "2026-01-01T00:01:00.000Z" });
+  const [afterSecond] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "src-partial"));
+  metadata = JSON.parse(afterSecond.metadataJson ?? "{}");
+  expect(afterSecond.syncState).toBe("idle");
+  expect(afterSecond.freshness).toBe("fresh");
+  expect(metadata.lastReadNextOffset).toBe(2);
+  expect(metadata.lastReadFetchedEntryCount).toBe(2);
+  expect(metadata.lastReadPartial).toBe(false);
+  expect(metadata.sourceFetchState).toBe("idle");
+  expect(metadata.activeReadSourceRowIds).toBeUndefined();
+
+  rows = await db
+    .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-partial"));
+  expect(
+    rows.map((row: { sourceRowId: string }) => row.sourceRowId).sort(),
+  ).toEqual(["entry-a1", "entry-a2"]);
+  expect(builderReadMock.calls.map((call) => call.offset ?? 0)).toEqual([0, 1]);
 });

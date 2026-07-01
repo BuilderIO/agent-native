@@ -54,11 +54,23 @@ export default defineAction({
       args.sourceId,
     );
 
+    const builderProgress =
+      snapshot?.sourceType === "builder-cms" ? snapshot.metadata : null;
+    const builderFetching =
+      builderProgress?.sourceFetchState === "fetching" ||
+      snapshot?.syncState === "refreshing";
+    const builderFetched =
+      typeof builderProgress?.lastReadFetchedEntryCount === "number"
+        ? builderProgress.lastReadFetchedEntryCount
+        : undefined;
+
     return {
       database: serializeDatabase(database),
       mode: "source-backed",
       summary: snapshot
-        ? `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
+        ? builderFetching
+          ? `${snapshot.sourceName} fetched ${builderFetched ?? "some"} rows. Run refresh again to continue loading the remaining Builder rows.`
+          : `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
         : "Source metadata refreshed.",
       source: snapshot,
     };

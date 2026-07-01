@@ -4405,6 +4405,16 @@ function DatabaseSettingsSourcePanel({
                       source.freshness
                     }`
                   : source.freshness,
+                typeof source.metadata.lastReadFetchedEntryCount === "number"
+                  ? dbText("builderRowsFetched", {
+                      count: source.metadata.lastReadFetchedEntryCount,
+                    })
+                  : null,
+                builderSourceRowFetchStatus(source) === "error"
+                  ? dbText("builderRowsFetchFailed")
+                  : builderSourceRowFetchStatus(source) === "fetching"
+                    ? dbText("builderRowsFetchingMore")
+                    : null,
               ]
                 .filter(Boolean)
                 .join(" · ")
@@ -5850,6 +5860,19 @@ function formatRelativeSyncTime(value: string | null): string | null {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+export function builderSourceRowFetchStatus(
+  source: Pick<ContentDatabaseSource, "metadata">,
+): "fetching" | "error" | null {
+  if (source.metadata.sourceFetchState === "error") return "error";
+  if (
+    source.metadata.sourceFetchState === "fetching" ||
+    source.metadata.lastReadPartial
+  ) {
+    return "fetching";
+  }
+  return null;
 }
 
 function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {

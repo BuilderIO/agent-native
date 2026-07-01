@@ -587,6 +587,12 @@ export interface ContentDatabaseSource {
     liveReadConfigured?: boolean;
     lastReadEntryCount?: number;
     lastReadMatchedRowCount?: number;
+    lastReadLimit?: number;
+    lastReadFetchedEntryCount?: number;
+    lastReadPartial?: boolean;
+    lastReadHasMore?: boolean;
+    lastReadNextOffset?: number;
+    sourceFetchState?: "idle" | "fetching" | "error";
     allowDraftWrites?: boolean;
     allowPublishWrites?: boolean;
     allowedWriteModes?: ContentDatabaseSourcePushMode[];

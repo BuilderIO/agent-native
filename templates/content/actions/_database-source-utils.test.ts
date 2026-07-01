@@ -12,6 +12,7 @@ import {
   mockProposedValue,
   normalizeSourceFederation,
   normalizeSourceFreshness,
+  serializeBuilderCmsSourceReadMetadataRecord,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
   sourceChangeSetSummary,
@@ -82,6 +83,41 @@ describe("database source helpers", () => {
         },
       }),
     ).toBeUndefined();
+  });
+
+  it("serializes Builder read progress metadata for partial refreshes", () => {
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "blog-article",
+          readState: "live",
+          entryCount: 100,
+          matchedRowCount: 98,
+          progress: {
+            requestedLimit: 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 100,
+            fetchedEntryCount: 100,
+            hasMore: true,
+            partial: true,
+            readMode: "builder-api",
+          },
+          sourceFetchState: "fetching",
+        }),
+      ),
+    ).toMatchObject({
+      readMode: "builder-api",
+      liveReadConfigured: true,
+      lastReadEntryCount: 100,
+      lastReadMatchedRowCount: 98,
+      lastReadLimit: 500,
+      lastReadFetchedEntryCount: 100,
+      lastReadPartial: true,
+      lastReadHasMore: true,
+      lastReadNextOffset: 100,
+      sourceFetchState: "fetching",
+    });
   });
 
   it("creates a mock field change for text properties", () => {

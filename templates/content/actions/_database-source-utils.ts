@@ -1,5 +1,5 @@
 import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
@@ -51,6 +51,7 @@ import { sanitizeNormalizationFormula } from "../shared/properties.js";
 import {
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
+  type BuilderCmsReadProgress,
   type BuilderCmsReadState,
 } from "./_builder-cms-read-client.js";
 import {
@@ -116,6 +117,13 @@ type SourceMetadataRecord = {
   liveReadConfigured?: boolean;
   lastReadEntryCount?: number;
   lastReadMatchedRowCount?: number;
+  lastReadLimit?: number;
+  lastReadFetchedEntryCount?: number;
+  lastReadPartial?: boolean;
+  lastReadHasMore?: boolean;
+  lastReadNextOffset?: number;
+  activeReadSourceRowIds?: string[];
+  sourceFetchState?: "idle" | "fetching" | "error" | string;
   allowDraftWrites?: boolean;
   allowPublishWrites?: boolean;
   allowedWriteModes?: ContentDatabaseSourcePushMode[];
@@ -481,6 +489,7 @@ const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
 const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 8;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v4";
+const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 
 async function builderBodySnapshotForEntry(entry: BuilderCmsSourceEntry) {
   if (!entry.rawEntry) return null;
@@ -1990,6 +1999,32 @@ async function loadSourceSnapshot(
         typeof metadata.lastReadMatchedRowCount === "number"
           ? metadata.lastReadMatchedRowCount
           : undefined,
+      lastReadLimit:
+        typeof metadata.lastReadLimit === "number"
+          ? metadata.lastReadLimit
+          : undefined,
+      lastReadFetchedEntryCount:
+        typeof metadata.lastReadFetchedEntryCount === "number"
+          ? metadata.lastReadFetchedEntryCount
+          : undefined,
+      lastReadPartial:
+        typeof metadata.lastReadPartial === "boolean"
+          ? metadata.lastReadPartial
+          : undefined,
+      lastReadHasMore:
+        typeof metadata.lastReadHasMore === "boolean"
+          ? metadata.lastReadHasMore
+          : undefined,
+      lastReadNextOffset:
+        typeof metadata.lastReadNextOffset === "number"
+          ? metadata.lastReadNextOffset
+          : undefined,
+      sourceFetchState:
+        metadata.sourceFetchState === "idle" ||
+        metadata.sourceFetchState === "fetching" ||
+        metadata.sourceFetchState === "error"
+          ? metadata.sourceFetchState
+          : undefined,
       allowDraftWrites: metadata.allowDraftWrites === true,
       allowPublishWrites: metadata.allowPublishWrites === true,
       allowedWriteModes: Array.isArray(metadata.allowedWriteModes)
@@ -2117,6 +2152,9 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
   readState: BuilderCmsReadState;
   entryCount: number;
   matchedRowCount: number;
+  progress?: BuilderCmsReadProgress;
+  sourceFetchState?: "idle" | "fetching" | "error";
+  activeReadSourceRowIds?: string[];
 }) {
   return JSON.stringify({
     ...builderCmsSourceMetadata(args.sourceTable),
@@ -2124,6 +2162,19 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
     liveReadConfigured: args.readState === "live",
     lastReadEntryCount: args.entryCount,
     lastReadMatchedRowCount: args.matchedRowCount,
+    lastReadLimit: args.progress?.requestedLimit,
+    lastReadFetchedEntryCount: args.progress?.fetchedEntryCount,
+    lastReadPartial: args.progress?.partial,
+    lastReadHasMore: args.progress?.hasMore,
+    lastReadNextOffset: args.progress?.nextOffset,
+    activeReadSourceRowIds: args.activeReadSourceRowIds,
+    sourceFetchState:
+      args.sourceFetchState ??
+      (args.progress?.partial
+        ? "fetching"
+        : args.readState === "error"
+          ? "error"
+          : "idle"),
   });
 }
 
@@ -2949,12 +3000,38 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   database: ContentDatabaseRow;
   source: ContentDatabaseSourceRowDb;
   now: string;
+  runFullRefresh?: boolean;
 }) {
   let { properties, response } = await sourceSetupPayload(args.database.id);
   const db = getDb();
+  const sourceMetadata =
+    parseObject<SourceMetadataRecord>(args.source.metadataJson) ?? {};
+  const activeReadSourceRowIds =
+    Array.isArray(sourceMetadata.activeReadSourceRowIds) &&
+    sourceMetadata.activeReadSourceRowIds.every((id) => typeof id === "string")
+      ? sourceMetadata.activeReadSourceRowIds
+      : [];
+  const continueOffset =
+    !args.runFullRefresh &&
+    sourceMetadata.sourceFetchState === "fetching" &&
+    sourceMetadata.lastReadHasMore === true &&
+    activeReadSourceRowIds.length > 0 &&
+    typeof sourceMetadata.lastReadNextOffset === "number" &&
+    sourceMetadata.lastReadNextOffset > 0
+      ? sourceMetadata.lastReadNextOffset
+      : 0;
   const builderRead = await readBuilderCmsContentEntries({
     model: args.source.sourceTable,
+    maxPages: args.runFullRefresh
+      ? undefined
+      : BUILDER_CMS_REFRESH_INITIAL_PAGES,
+    offset: continueOffset,
   });
+  const incrementalRead =
+    builderRead.state === "live" &&
+    !args.runFullRefresh &&
+    (builderRead.progress?.partial === true ||
+      (builderRead.progress?.startOffset ?? 0) > 0);
   const builderEntries =
     builderRead.state === "live" ? builderRead.entries : [];
   let existingRows = await db
@@ -3003,6 +3080,101 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       },
     ]),
   );
+
+  if (incrementalRead) {
+    const currentSourceRowIds = builderEntries.map((entry) => entry.id);
+    const nextActiveReadSourceRowIds = Array.from(
+      new Set(
+        continueOffset > 0
+          ? [...activeReadSourceRowIds, ...currentSourceRowIds]
+          : currentSourceRowIds,
+      ),
+    );
+    const hasMore = builderRead.progress?.hasMore === true;
+
+    await db
+      .delete(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+    await seedMockSourceFields({
+      sourceId: args.source.id,
+      ownerEmail: args.database.ownerEmail,
+      sourceType: "builder-cms",
+      properties,
+      builderModelFields,
+      builderSampleEntries: builderEntries,
+      now: args.now,
+    });
+
+    const itemsToLink = response.items.filter((item) =>
+      builderEntriesByDocumentId.has(item.document.id),
+    );
+    const fetchedDocumentIds = itemsToLink.map((item) => item.document.id);
+    if (fetchedDocumentIds.length > 0) {
+      await db
+        .delete(schema.contentDatabaseSourceRows)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+            inArray(
+              schema.contentDatabaseSourceRows.documentId,
+              fetchedDocumentIds,
+            ),
+          ),
+        );
+      await seedMockSourceRows({
+        sourceId: args.source.id,
+        ownerEmail: args.database.ownerEmail,
+        sourceType: "builder-cms",
+        sourceTable: args.source.sourceTable,
+        items: itemsToLink,
+        now: args.now,
+        existingBuilderRows,
+        builderEntriesByDocumentId,
+      });
+      await enqueueBuilderBodyHydrationForItems({
+        sourceId: args.source.id,
+        ownerEmail: args.database.ownerEmail,
+        orgId: args.database.orgId,
+        sourceTable: args.source.sourceTable,
+        items: itemsToLink,
+        builderEntriesByDocumentId,
+        now: args.now,
+      });
+    }
+    if (!hasMore && nextActiveReadSourceRowIds.length > 0) {
+      await db
+        .delete(schema.contentDatabaseSourceRows)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+            notInArray(
+              schema.contentDatabaseSourceRows.sourceRowId,
+              nextActiveReadSourceRowIds,
+            ),
+          ),
+        );
+    }
+
+    await updateBuilderCmsSourceReadMetadata({
+      sourceId: args.source.id,
+      sourceTable: args.source.sourceTable,
+      readState: builderRead.state,
+      entryCount: builderRead.entries.length,
+      matchedRowCount: builderEntriesByDocumentId.size,
+      fetchedAt: builderRead.fetchedAt,
+      now: args.now,
+      message: builderRead.message,
+      progress: {
+        ...builderRead.progress,
+        partial: hasMore,
+      },
+      sourceFetchState: hasMore ? "fetching" : "idle",
+      syncState: hasMore ? "refreshing" : "idle",
+      activeReadSourceRowIds: hasMore ? nextActiveReadSourceRowIds : undefined,
+    });
+    return;
+  }
+
   await db
     .delete(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
@@ -3090,6 +3262,9 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     fetchedAt: builderRead.fetchedAt,
     now: args.now,
     message: builderRead.message,
+    progress: builderRead.progress,
+    sourceFetchState: builderRead.state === "error" ? "error" : "idle",
+    activeReadSourceRowIds: undefined,
     syncState: "idle",
   });
 }
@@ -3415,6 +3590,9 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   fetchedAt: string;
   now: string;
   message: string | null;
+  progress?: BuilderCmsReadProgress;
+  sourceFetchState?: "idle" | "fetching" | "error";
+  activeReadSourceRowIds?: string[];
   syncState?: ContentDatabaseSourceSyncState;
 }) {
   const db = getDb();
@@ -3436,13 +3614,19 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
       readState: args.readState,
       entryCount: args.entryCount,
       matchedRowCount: args.matchedRowCount,
+      progress: args.progress,
+      sourceFetchState: args.sourceFetchState,
+      activeReadSourceRowIds: args.activeReadSourceRowIds,
     }),
   });
   await db
     .update(schema.contentDatabaseSources)
     .set({
       syncState: args.syncState ?? "linked",
-      freshness: args.readState === "error" ? "stale" : "fresh",
+      freshness:
+        args.readState === "error" || args.progress?.partial
+          ? "stale"
+          : "fresh",
       capabilitiesJson: nextJson.capabilitiesJson,
       metadataJson: nextJson.metadataJson,
       lastRefreshedAt: args.now,
