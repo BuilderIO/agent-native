@@ -1154,8 +1154,8 @@ export async function getRunByThread(
   await ensureRunTables();
   const client = getDbExec();
   const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
+    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
+    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
   const { rows } = await client.execute({ sql, args: [threadId] });
   if (rows.length === 0) return null;
   const r = rows[0] as {
@@ -1170,8 +1170,13 @@ export async function getRunByThread(
     dispatch_mode?: string | null;
     terminal_reason?: string | null;
     diag_stage?: string | null;
+    error_code?: string | null;
   };
-  if (r.status === "running" && (await reconcileTerminalRunFromEvents(r.id))) {
+  const canReconcileFromEvents =
+    r.status === "running" ||
+    (r.status === "errored" &&
+      r.error_code === STALE_RUN_ERROR_EVENT.errorCode);
+  if (canReconcileFromEvents && (await reconcileTerminalRunFromEvents(r.id))) {
     return getRunByThread(threadId, options);
   }
   return {
@@ -1326,7 +1331,6 @@ export async function reapAllStaleRuns(): Promise<number> {
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}`,
     args: [now],
   });
@@ -1391,7 +1395,6 @@ export async function cleanupOldRuns(
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
             AND (
               ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
               OR started_at < ?
