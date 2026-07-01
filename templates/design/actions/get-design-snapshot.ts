@@ -67,13 +67,10 @@ export default defineAction({
     const snapshot = await buildDesignSnapshot(designId, design.data);
     const requestedFileId = fileId?.trim();
     const requestedFilename = filename?.trim();
-    const files =
-      requestedFileId || requestedFilename
-        ? snapshot.files.filter(
-            (file) =>
-              (!requestedFileId || file.id === requestedFileId) &&
-              (!requestedFilename || file.filename === requestedFilename),
-          )
+    const files = requestedFileId
+      ? snapshot.files.filter((file) => file.id === requestedFileId)
+      : requestedFilename
+        ? snapshot.files.filter((file) => file.filename === requestedFilename)
         : snapshot.files;
 
     if ((requestedFileId || requestedFilename) && files.length === 0) {

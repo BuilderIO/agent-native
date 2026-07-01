@@ -704,14 +704,22 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
 }
 
 const COMPLETED_TOOL_TIMEOUT_NAME_RE =
-  /^(add|apply|archive|capture|connect|create|delete|deploy|duplicate|edit|generate|grant|import|insert|migrate|move|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
+  /^(add|apply|archive|capture|create|delete|deploy|duplicate|edit|generate|grant|insert|migrate|move|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
+const COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST = new Set([
+  "connect-assets-mcp",
+  "import-design-tokens",
+]);
 
 function isCompletedToolTimeoutCandidate(
   part: Extract<ContentPart, { type: "tool-call" }>,
 ): boolean {
   if (part.completedSideEffect === false) return false;
   if (part.completedSideEffect === true) return true;
-  return COMPLETED_TOOL_TIMEOUT_NAME_RE.test(part.toolName.toLowerCase());
+  const toolName = part.toolName.toLowerCase();
+  return (
+    COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST.has(toolName) ||
+    COMPLETED_TOOL_TIMEOUT_NAME_RE.test(toolName)
+  );
 }
 
 function lastCompletedTimeoutCandidateTool(

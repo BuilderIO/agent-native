@@ -99,6 +99,20 @@ describe("get-design-snapshot", () => {
     });
   });
 
+  it("prefers fileId over filename when both are provided", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      fileId: "file-b",
+      filename: "stale-name.html",
+    });
+
+    expect(result.fileCount).toBe(1);
+    expect(result.files[0]).toMatchObject({
+      id: "file-b",
+      filename: "variant-b.html",
+    });
+  });
+
   it("fails loudly when filename fallback matches multiple files", async () => {
     mocks.buildDesignSnapshot.mockResolvedValue({
       designId: "design_123",
