@@ -24,7 +24,6 @@ import { agentNativePath, appPath } from "../api-path.js";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog.js";
@@ -404,7 +403,7 @@ function SourceCodeDialog({
           {error ? (
             <p className="shrink-0 text-xs text-destructive">{error}</p>
           ) : null}
-          <DialogFooter className="shrink-0">
+          <div className="flex shrink-0 justify-end gap-2">
             <button
               type="button"
               onClick={() => setOpen(false)}
@@ -420,7 +419,7 @@ function SourceCodeDialog({
             >
               {saving ? "Saving…" : "Save"}
             </button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </>
