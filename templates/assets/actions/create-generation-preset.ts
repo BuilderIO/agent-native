@@ -32,6 +32,12 @@ export default defineAction({
     referencePolicy: z
       .enum(GENERATION_PRESET_REFERENCE_POLICIES)
       .default("auto"),
+    includeLogo: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "When true, images generated with this preset composite the library's canonical logo (no-op if the library has no canonical logo).",
+      ),
     settings: z.record(z.string(), z.unknown()).optional(),
     sortOrder: z.coerce.number().optional(),
   }),
@@ -62,7 +68,12 @@ export default defineAction({
       model: args.model,
       textPolicy: args.textPolicy,
       referencePolicy: args.referencePolicy,
-      settings: stringifyJson(args.settings ?? {}),
+      settings: stringifyJson({
+        ...(args.settings ?? {}),
+        ...(args.includeLogo !== undefined
+          ? { includeLogo: args.includeLogo }
+          : {}),
+      }),
       sortOrder: args.sortOrder ?? 100,
       createdAt: now,
       updatedAt: now,

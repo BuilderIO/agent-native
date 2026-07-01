@@ -1,3 +1,15 @@
+export interface PortableStyleSnapshotNode {
+  sourceId?: string;
+  path: number[];
+  styles: Record<string, string>;
+}
+
+export interface PortableStyleSnapshot {
+  version: 1;
+  rootSourceId?: string;
+  nodes: PortableStyleSnapshotNode[];
+}
+
 export interface ElementInfo {
   tagName: string;
   componentName?: string;
@@ -6,6 +18,7 @@ export interface ElementInfo {
   selector?: string;
   classes: string[];
   computedStyles: Record<string, string>;
+  portableStyleSnapshot?: PortableStyleSnapshot;
   boundingRect: { x: number; y: number; width: number; height: number };
   textContent?: string;
   htmlContent?: string;

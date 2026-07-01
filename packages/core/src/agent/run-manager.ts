@@ -18,6 +18,7 @@ import {
   reapUnclaimedBackgroundRun,
   ensureTerminalRunEvent,
   setRunError,
+  setRunTerminalReason,
   STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
@@ -46,8 +47,8 @@ const CLEANUP_DELAY_MS = 5 * 60 * 1000;
  *
  * This MUST fire before the two upstream hard walls that otherwise kill a run
  * mid-turn with no chance to hand off:
- *   1. The Builder model gateway hard-caps a single model call at 45s
- *      (builder-engine.ts MAX_BUILDER_GATEWAY_TIMEOUT_MS) — not raisable.
+ *   1. The Builder model gateway keeps a 45s cap only for hosted foreground
+ *      runs; local and proven background-function runs use longer caps.
  *   2. Serverless functions are hard-killed around 60-65s (the heartbeat then
  *      reaps the row as a stale_run).
  * Production data showed every cutoff landing in the 44-70s window with ZERO
@@ -61,11 +62,12 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
 
 /**
  * Hard ceiling for the hosted soft timeout. On a hosted runtime the
- * auto_continue soft timeout can never usefully exceed this — the gateway
- * (45s) / function (~60s) walls kill the run first, so a larger configured or
- * env value just guarantees the cutoff is a hard error instead of a graceful
- * hand-off. Any resolved value above this is clamped down when hosted. Local
- * dev (non-hosted) is left alone so long-running local turns aren't chunked.
+ * foreground auto_continue soft timeout can never usefully exceed this — the
+ * synchronous function (~60s) wall kills the run first, so a larger configured
+ * or env value just guarantees the cutoff is a hard error instead of a graceful
+ * hand-off. Any resolved value above this is clamped down for hosted foreground
+ * runs. Local dev (non-hosted) is left alone so long-running local turns aren't
+ * chunked.
  *
  * IMPORTANT: this clamp is for the INTERACTIVE / foreground path and must NOT
  * be raised. The foreground POST still rides a synchronous serverless function
@@ -292,6 +294,26 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+function terminalReasonForRun(
+  finalStatus: "completed" | "errored" | "aborted",
+  terminalEvent: AgentChatEvent | null,
+  abortReason: string | undefined,
+  completionError: unknown,
+): string {
+  if (terminalEvent?.type === "auto_continue") {
+    return terminalEvent.reason || "auto_continue";
+  }
+  if (terminalEvent?.type === "loop_limit") return "loop_limit";
+  if (terminalEvent?.type === "missing_api_key") return "missing_api_key";
+  if (terminalEvent?.type === "error") {
+    return `error:${terminalEvent.errorCode || "unknown"}`;
+  }
+  if (finalStatus === "aborted") return `aborted:${abortReason ?? "user"}`;
+  if (completionError) return "completion_error";
+  if (finalStatus === "errored") return "error:unknown";
+  return "done";
+}
+
 function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   run.abortReason = reason;
   run.status = "aborted";
@@ -348,11 +370,45 @@ export function startRun(
   activeRuns.set(runId, run);
   threadToRun.set(threadId, runId);
 
+  const captureRunPersistenceError = (
+    error: unknown,
+    phase: "insert-run" | "insert-event",
+    extra: Record<string, unknown> = {},
+  ) => {
+    captureError(error, {
+      route: "/_agent-native/agent-chat",
+      tags: {
+        source: "agent-run-manager",
+        phase,
+        runStatus: run.status,
+      },
+      extra: {
+        runId,
+        threadId,
+        eventCount: run.events.length,
+        startedAt: run.startedAt,
+        ...extra,
+      },
+      contexts: {
+        agentRun: {
+          runId,
+          threadId,
+          status: run.status,
+          phase,
+          eventCount: run.events.length,
+          startedAt: run.startedAt,
+        },
+      },
+    });
+  };
+
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
   const insertRunPromise = insertRun(runId, threadId, options?.turnId).catch(
-    () => {},
+    (error) => {
+      captureRunPersistenceError(error, "insert-run");
+    },
   );
 
   // Per-run event persistence chain: events are chained so SQL inserts commit
@@ -367,6 +423,7 @@ export function startRun(
   // chunk. The stuck-detector threshold is on the order of tens of seconds,
   // so 1s resolution is plenty.
   let lastProgressBumpAt = 0;
+  let eventPersistenceErrorCaptured = false;
   const bumpProgressIfDue = () => {
     const now = Date.now();
     if (now - lastProgressBumpAt < 1000) return;
@@ -423,7 +480,7 @@ export function startRun(
             type: "auto_continue",
             reason: "run_timeout",
           });
-          abort.abort();
+          abort.abort("run_timeout");
         }, softTimeoutMs)
       : null;
   let pendingTerminalEvent: RunEvent | null = null;
@@ -493,7 +550,15 @@ export function startRun(
     const thisInsert = persistenceChain.then(() =>
       insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)),
     );
-    persistenceChain = thisInsert.catch(() => {});
+    persistenceChain = thisInsert.catch((error) => {
+      if (!eventPersistenceErrorCaptured) {
+        eventPersistenceErrorCaptured = true;
+        captureRunPersistenceError(error, "insert-event", {
+          seq: runEvent.seq,
+          eventType: runEvent.event.type,
+        });
+      }
+    });
     const persistence = thisInsert;
     if (!options?.surfacePersistenceError) {
       persistence.catch(() => {});
@@ -590,6 +655,12 @@ export function startRun(
           : run.status === "errored" || completionError
             ? "errored"
             : "completed";
+      const terminalReason = terminalReasonForRun(
+        finalStatus,
+        pendingTerminalEvent?.event ?? null,
+        run.abortReason,
+        completionError,
+      );
 
       // 3. Emit the terminal event only after thread_data is durable. Live
       //    SSE clients close on this event and usually fetch thread_data
@@ -662,7 +733,13 @@ export function startRun(
       try {
         await insertRunPromise;
         if (!terminalPersistenceError) {
-          await updateRunStatusIfRunning(runId, finalStatus);
+          const statusUpdated = await updateRunStatusIfRunning(
+            runId,
+            finalStatus,
+          );
+          if (statusUpdated) {
+            await setRunTerminalReason(runId, terminalReason);
+          }
         }
       } catch {
         // Best-effort — reapIfStale will eventually clean this up via
@@ -1033,6 +1110,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   lastProgressAt: number | null;
   /** How the run was dispatched (NULL/foreground, background, background-processing). */
   dispatchMode?: string | null;
+  /** Compact terminal classification, e.g. done, run_timeout, stale_run. */
+  terminalReason?: string | null;
   /**
    * Last reached `_process-run` worker stage as a JSON string
    * `{stage,detail?,at}`. Surfaced so a silent background-worker death is
@@ -1099,6 +1178,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
+        terminalReason: sqlRun.terminalReason,
         diagStage: sqlRun.diagStage,
       };
     }
@@ -1126,6 +1206,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
+        terminalReason: sqlRun.terminalReason,
         diagStage: sqlRun.diagStage,
       };
     }

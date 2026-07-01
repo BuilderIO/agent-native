@@ -1,6 +1,6 @@
 import {
+  appApiPath,
   PromptComposer,
-  useActionQuery,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
@@ -18,6 +18,7 @@ import {
   IconRoute,
   IconTimelineEvent,
 } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import {
   type ReactNode,
   useCallback,
@@ -42,6 +43,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 type SessionRecordingSummary = {
@@ -83,7 +85,20 @@ type ReplayChunkEvents = {
   unavailable?: boolean;
 };
 
-type SessionReplayEventsResponse = {
+type SessionReplayManifestResponse = {
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+};
+
+type SessionReplayPlaybackResponse = {
   recording: SessionRecordingSummary;
   chunks: ReplayChunkEvents[];
   eventCount: number;
@@ -122,6 +137,8 @@ const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
 const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
+const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
+const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
 
 const RRWEB_EVENT_TYPE = {
   FullSnapshot: 2,
@@ -155,12 +172,7 @@ export default function SessionDetailPage() {
   const t = useT();
   const { recordingId = "" } = useParams();
   const { codeRequiredDialog } = useSendToAgentChat();
-  const { data, isLoading, error } =
-    useActionQuery<SessionReplayEventsResponse>(
-      "get-session-replay-events",
-      { recordingId, limit: 10000 },
-      { enabled: Boolean(recordingId), staleTime: 30_000 },
-    );
+  const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
 
   return (
@@ -196,7 +208,9 @@ export default function SessionDetailPage() {
         <Card>
           <CardContent className="flex items-center gap-3 p-6 text-sm text-destructive">
             <IconExclamationCircle className="h-5 w-5" />
-            {t("sessions.loadFailed", { message: error.message })}
+            {t("sessions.loadFailed", {
+              message: error instanceof Error ? error.message : String(error),
+            })}
           </CardContent>
         </Card>
       ) : isLoading ? (
@@ -268,7 +282,7 @@ function AskSessionPopover({
 function ReplayWorkbench({
   response,
 }: {
-  response: SessionReplayEventsResponse;
+  response: SessionReplayPlaybackResponse;
 }) {
   const events = useReplayEvents(response);
   const markers = useMemo(() => buildReplayMarkers(events), [events]);
@@ -318,7 +332,7 @@ function ReplayPlayer({
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
-  response: SessionReplayEventsResponse;
+  response: SessionReplayPlaybackResponse;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
 }) {
@@ -956,8 +970,143 @@ function DetailSkeleton() {
   );
 }
 
+function useSessionReplayPlayback(recordingId: string) {
+  return useQuery({
+    queryKey: ["session-replay-playback", recordingId],
+    enabled: Boolean(recordingId),
+    staleTime: 30_000,
+    gcTime: 60_000,
+    queryFn: () => fetchSessionReplayPlayback(recordingId),
+  });
+}
+
+export async function fetchSessionReplayPlayback(
+  recordingId: string,
+): Promise<SessionReplayPlaybackResponse> {
+  const manifest = await fetchReplayManifest(recordingId);
+  const chunks = await fetchReplayChunks(manifest.chunks);
+  const unavailableChunks = chunks.filter((chunk) => chunk.unavailable).length;
+  const eventCount = chunks.reduce(
+    (sum, chunk) => sum + chunk.events.length,
+    0,
+  );
+  return {
+    recording: manifest.recording,
+    chunks,
+    eventCount,
+    truncated: false,
+    unavailableChunks,
+  };
+}
+
+async function fetchReplayManifest(
+  recordingId: string,
+): Promise<SessionReplayManifestResponse> {
+  const response = await fetchReplayApi(
+    `/api/session-replay/recordings/${encodeURIComponent(
+      recordingId,
+    )}/manifest`,
+  );
+  if (!response.ok) throw await replayFetchError(response);
+  return (await response.json()) as SessionReplayManifestResponse;
+}
+
+async function fetchReplayChunks(
+  chunks: SessionReplayManifestResponse["chunks"],
+): Promise<ReplayChunkEvents[]> {
+  const results = new Array<ReplayChunkEvents>(chunks.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < chunks.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await fetchReplayChunk(chunks[index]);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(REPLAY_CHUNK_FETCH_CONCURRENCY, chunks.length) },
+      worker,
+    ),
+  );
+  return results;
+}
+
+async function fetchReplayChunk(
+  chunk: SessionReplayManifestResponse["chunks"][number],
+): Promise<ReplayChunkEvents> {
+  const response = await fetchReplayApi(chunk.bytesPath);
+  if (!response.ok) {
+    const error = await replayFetchError(response);
+    if (isUnavailableReplayChunk(response, error)) {
+      return replayUnavailableChunk(chunk);
+    }
+    throw error;
+  }
+  const payload = await response.json();
+  return {
+    seq: chunk.seq,
+    checksum: chunk.checksum,
+    byteLength: chunk.byteLength,
+    eventCount: chunk.eventCount,
+    events: replayPayloadEvents(payload),
+  };
+}
+
+function isUnavailableReplayChunk(response: Response, error: Error): boolean {
+  return (
+    response.status === 404 &&
+    error.message === REPLAY_CHUNK_UNAVAILABLE_MESSAGE
+  );
+}
+
+function replayUnavailableChunk(
+  chunk: SessionReplayManifestResponse["chunks"][number],
+): ReplayChunkEvents {
+  return {
+    seq: chunk.seq,
+    checksum: chunk.checksum,
+    byteLength: chunk.byteLength,
+    eventCount: chunk.eventCount,
+    events: [],
+    unavailable: true,
+  };
+}
+
+async function fetchReplayApi(path: string): Promise<Response> {
+  const token = await getIdToken();
+  return fetch(appApiPath(path), {
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+async function replayFetchError(response: Response): Promise<Error> {
+  try {
+    const payload = await response.json();
+    if (isRecord(payload) && typeof payload.error === "string") {
+      return new Error(payload.error);
+    }
+  } catch {
+    // Fall through to the status text.
+  }
+  return new Error(response.statusText || `HTTP ${response.status}`);
+}
+
+export function replayPayloadEvents(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (isRecord(payload) && Array.isArray(payload.events)) {
+    return payload.events;
+  }
+  return payload ? [payload] : [];
+}
+
 function useReplayEvents(
-  response: SessionReplayEventsResponse,
+  response: SessionReplayPlaybackResponse,
 ): AnyReplayEvent[] {
   return useMemo(
     () =>

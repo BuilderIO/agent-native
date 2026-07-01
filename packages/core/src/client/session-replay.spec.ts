@@ -465,7 +465,9 @@ describe("session replay", () => {
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/analytics/replay");
-    expect(headerValue(init.headers, "content-type")).toBe("application/json");
+    expect(headerValue(init.headers, "content-type")).toBe(
+      "application/octet-stream",
+    );
     expect(headerValue(init.headers, "content-encoding")).toBe("gzip");
     expect(headerValue(init.headers, "x-agent-native-analytics-key")).toBe(
       "anpk_test",

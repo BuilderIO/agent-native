@@ -127,7 +127,10 @@ const brandKitDetailEnUS = {
     "Eight-second product reveal with slow camera push-in",
   imagePromptPlaceholder: "Blog hero for an article about cold-start latency",
   variants: "{{count}} variants",
+  logo: "Logo",
   compositeCanonicalLogo: "Composite canonical logo",
+  compositeCanonicalLogoHint:
+    "Stamps this kit's canonical logo onto every image from this preset. Requires a canonical logo.",
   openChat: "Open chat",
   defaultTextPolicy:
     "Prefer no embedded text. Keep any requested text short and readable.",
@@ -968,7 +971,10 @@ const brandKitDetailArSA = {
   clearSearch: "مسح البحث",
   clearing: "المقاصة...",
   compiledPrompt: "موجه المترجمة",
+  logo: "شعار",
   compositeCanonicalLogo: "الشعار الأساسي المركب",
+  compositeCanonicalLogoHint:
+    "يضيف الشعار الأساسي لهذه المجموعة إلى كل صورة تُنشأ بهذا الإعداد المسبق. يتطلب وجود شعار أساسي.",
   couldNotAddSelectedToReferences: "لا يمكن إضافة الأصول المحددة إلى المراجع.",
   couldNotAddToReferences: "لا يمكن إضافة الأصل إلى المراجع.",
   couldNotArchiveBrandKit: "تعذر أرشفة مجموعة العلامة التجارية.",
@@ -1137,7 +1143,10 @@ const brandKitDetailDeDE = {
   clearSearch: "Suche löschen",
   clearing: "Löschen...",
   compiledPrompt: "Kompilierte Eingabeaufforderung",
+  logo: "Logo",
   compositeCanonicalLogo: "Zusammengesetztes kanonisches Logo",
+  compositeCanonicalLogoHint:
+    "Fügt das kanonische Logo dieses Kits jedem mit dieser Vorlage erstellten Bild hinzu. Erfordert ein kanonisches Logo.",
   couldNotAddSelectedToReferences:
     "Ausgewählte Assets konnten nicht zu Referenzen hinzugefügt werden.",
   couldNotAddToReferences:
@@ -1312,7 +1321,10 @@ const brandKitDetailEsES = {
   clearSearch: "Borrar búsqueda",
   clearing: "Limpiando...",
   compiledPrompt: "Aviso compilado",
+  logo: "Logotipo",
   compositeCanonicalLogo: "Logotipo canónico compuesto",
+  compositeCanonicalLogoHint:
+    "Añade el logotipo canónico de este kit a cada imagen creada con este ajuste. Requiere un logotipo canónico.",
   couldNotAddSelectedToReferences:
     "No se pudieron agregar los recursos seleccionados a las Referencias.",
   couldNotAddToReferences: "No se pudo agregar activo a Referencias.",
@@ -1489,7 +1501,10 @@ const brandKitDetailFrFR = {
   clearSearch: "Effacer la recherche",
   clearing: "Dégagement...",
   compiledPrompt: "Invite compilée",
+  logo: "Logo",
   compositeCanonicalLogo: "Logo canonique composite",
+  compositeCanonicalLogoHint:
+    "Ajoute le logo canonique de ce kit à chaque image créée avec ce préréglage. Nécessite un logo canonique.",
   couldNotAddSelectedToReferences:
     "Impossible d'ajouter les éléments sélectionnés aux références.",
   couldNotAddToReferences: "Impossible d'ajouter un élément aux références.",
@@ -1664,7 +1679,10 @@ const brandKitDetailHiIN = {
   clearSearch: "स्पष्ट खोज",
   clearing: "समाशोधन...",
   compiledPrompt: "शीघ्र संकलित",
+  logo: "लोगो",
   compositeCanonicalLogo: "समग्र विहित लोगो",
+  compositeCanonicalLogoHint:
+    "इस प्रीसेट से बनी हर छवि पर इस किट का विहित लोगो जोड़ता है। इसके लिए विहित लोगो आवश्यक है।",
   couldNotAddSelectedToReferences:
     "चयनित परिसंपत्तियों को संदर्भों में नहीं जोड़ा जा सका.",
   couldNotAddToReferences: "संदर्भों में संपत्ति नहीं जोड़ी जा सकी.",
@@ -1832,7 +1850,10 @@ const brandKitDetailJaJP = {
   clearSearch: "検索をクリア",
   clearing: "クリア中...",
   compiledPrompt: "コンパイルされたプロンプト",
+  logo: "ロゴ",
   compositeCanonicalLogo: "複合正規ロゴ",
+  compositeCanonicalLogoHint:
+    "このプリセットで生成する各画像に、このキットの正規ロゴを合成します。正規ロゴの設定が必要です。",
   couldNotAddSelectedToReferences:
     "選択したアセットを参照に追加できませんでした。",
   couldNotAddToReferences: "アセットを参照に追加できませんでした。",
@@ -2005,7 +2026,10 @@ const brandKitDetailKoKR = {
   clearSearch: "검색 지우기",
   clearing: "지우는 중...",
   compiledPrompt: "컴파일된 프롬프트",
+  logo: "로고",
   compositeCanonicalLogo: "복합 표준 로고",
+  compositeCanonicalLogoHint:
+    "이 프리셋으로 생성되는 모든 이미지에 이 키트의 표준 로고를 합성합니다. 표준 로고가 필요합니다.",
   couldNotAddSelectedToReferences: "선택한 자산을 참조에 추가할 수 없습니다.",
   couldNotAddToReferences: "참조에 자산을 추가할 수 없습니다.",
   couldNotArchiveBrandKit: "브랜드 키트를 보관할 수 없습니다.",
@@ -2172,7 +2196,10 @@ const brandKitDetailPtBR = {
   clearSearch: "Limpar pesquisa",
   clearing: "Limpando...",
   compiledPrompt: "Prompt compilado",
+  logo: "Logotipo",
   compositeCanonicalLogo: "Logotipo canônico composto",
+  compositeCanonicalLogoHint:
+    "Adiciona o logotipo canônico deste kit a cada imagem criada com esta predefinição. Requer um logotipo canônico.",
   couldNotAddSelectedToReferences:
     "Não foi possível adicionar os ativos selecionados às referências.",
   couldNotAddToReferences: "Não foi possível adicionar recurso às referências.",
@@ -3305,7 +3332,10 @@ export const messagesByLocale = {
       videoPromptPlaceholder: "8 秒产品展示，慢速推近镜头",
       imagePromptPlaceholder: "关于冷启动延迟文章的博客头图",
       variants: "{{count}} 个变体",
+      logo: "徽标",
       compositeCanonicalLogo: "合成规范徽标",
+      compositeCanonicalLogoHint:
+        "为使用此预设生成的每张图片合成此套件的规范徽标。需要已设置规范徽标。",
       openChat: "打开聊天",
       defaultTextPolicy: "尽量不要嵌入文字。如需文字，请保持简短且易读。",
       generationPresetCreated: "生成预设已创建。",

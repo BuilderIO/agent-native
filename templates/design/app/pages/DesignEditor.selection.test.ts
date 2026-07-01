@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
+  computeExportCropBox,
+  EDITOR_CHROME_OVERLAY_SELECTOR,
   findMovedCodeLayerNodeInProjection,
   getAvailableContentHistoryChanges,
   getFreshActiveFileContent,
@@ -20,6 +22,7 @@ import {
   getOverviewEnterTarget,
   getOverviewScreenIdsFromLayerSelection,
   getOverviewZoomScale,
+  getPendingVisualStylePropertyCount,
   parseInlineStyleAttribute,
   refreshElementInfoFromContent,
   removeUndoRedoOrderKind,
@@ -31,7 +34,13 @@ import {
   shouldReplacePreviewAfterVisualStyleCommit,
   shouldLimitEditorChromeUntilContentReady,
   shouldEscapeToOverview,
+  shouldIgnoreOverviewLayerCreationEcho,
+  shouldBlockPendingVisualStyleNavigation,
+  shouldShowPendingVisualStyleApply,
   sortCodeLayerIdsByTreeOrder,
+  formatPendingVisualStylePrompt,
+  mergePendingVisualStyleEdit,
+  upsertMotionStyleKeyframes,
 } from "./DesignEditor";
 
 describe("DesignEditor overview selection state", () => {
@@ -85,7 +94,191 @@ describe("DesignEditor visual style preview replacement", () => {
   });
 });
 
+describe("DesignEditor pending visual style edits", () => {
+  it("merges repeated edits for the same screen target", () => {
+    const first = {
+      screenId: "home",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "[data-agent-native-node-id='hero']",
+      sourceId: "hero",
+      tagName: "section",
+      classes: ["hero"],
+      styles: { color: "red" },
+      updatedAt: 1,
+    };
+    const second = {
+      ...first,
+      styles: { backgroundColor: "blue" },
+      updatedAt: 2,
+    };
+
+    const edits = mergePendingVisualStyleEdit([first], second);
+
+    expect(edits).toHaveLength(1);
+    expect(edits[0].styles).toEqual({
+      color: "red",
+      backgroundColor: "blue",
+    });
+    expect(getPendingVisualStylePropertyCount(edits)).toBe(2);
+  });
+
+  it("formats a handoff prompt with screen and style details", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      designId: "design-1",
+      designTitle: "Docs homepage",
+      activeFileId: "home",
+      activeFilename: "index.html",
+      edits: [
+        {
+          screenId: "home",
+          filename: "index.html",
+          screenName: "Home",
+          selector: ".hero",
+          sourceId: "hero",
+          tagName: "section",
+          classes: ["hero"],
+          styles: { color: "rgb(37, 99, 235)" },
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    expect(prompt).toContain(
+      'Apply these pending visual style edits to "Docs homepage"',
+    );
+    expect(prompt).toContain('"screenId": "home"');
+    expect(prompt).toContain('"color": "rgb(37, 99, 235)"');
+  });
+
+  it("blocks navigation away while pending visual styles exist", () => {
+    expect(
+      shouldBlockPendingVisualStyleNavigation({
+        hasPendingVisualStyleEdits: true,
+        currentPathname: "/design/design-1",
+        nextPathname: "/",
+      }),
+    ).toBe(true);
+  });
+
+  it("allows same-route updates and clean navigation", () => {
+    expect(
+      shouldBlockPendingVisualStyleNavigation({
+        hasPendingVisualStyleEdits: true,
+        currentPathname: "/design/design-1",
+        nextPathname: "/design/design-1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldBlockPendingVisualStyleNavigation({
+        hasPendingVisualStyleEdits: false,
+        currentPathname: "/design/design-1",
+        nextPathname: "/",
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the apply styles affordance for localhost-backed visual edits", () => {
+    expect(
+      shouldShowPendingVisualStyleApply({
+        edits: [
+          {
+            screenId: "local-home",
+            filename: "localhost-home.html",
+            screenName: "Home",
+            selector: ".hero",
+            classes: [],
+            styles: { color: "rgb(37, 99, 235)" },
+            updatedAt: 1,
+          },
+        ],
+        screenSourceTypes: new Map([["local-home", "localhost"]]),
+      }),
+    ).toBe(true);
+  });
+
+  it("hides the apply styles affordance for non-localhost visual edits", () => {
+    const edits = [
+      {
+        screenId: "generated-home",
+        filename: "home.html",
+        screenName: "Home",
+        selector: ".hero",
+        classes: [],
+        styles: { color: "rgb(37, 99, 235)" },
+        updatedAt: 1,
+      },
+    ];
+
+    expect(
+      shouldShowPendingVisualStyleApply({
+        edits,
+        screenSourceTypes: new Map([["generated-home", "inline"]]),
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPendingVisualStyleApply({
+        edits,
+        screenSourceTypes: new Map([["generated-home", "fusion"]]),
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("DesignEditor overview layer selection", () => {
+  it("ignores only the root echo after creating an overview layer", () => {
+    const rootInfo = {
+      tagName: "body",
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 320, height: 640 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+    const layerInfo = {
+      ...rootInfo,
+      tagName: "div",
+    };
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "new-rect",
+        pendingScreenId: "board",
+        screenId: "board",
+        info: rootInfo,
+        event: "select",
+      }),
+    ).toBe(true);
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "new-rect",
+        pendingScreenId: "board",
+        screenId: "board",
+        info: layerInfo,
+        event: "select",
+      }),
+    ).toBe(false);
+  });
+
+  it("allows normal element selection after the creation echo has cleared", () => {
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: null,
+        pendingScreenId: null,
+        screenId: "board",
+        info: {
+          tagName: "div",
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 0, y: 0, width: 100, height: 100 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        event: "select",
+      }),
+    ).toBe(false);
+  });
+
   it("extracts selected screen ids from file layer rows", () => {
     expect(
       getOverviewScreenIdsFromLayerSelection({
@@ -221,6 +414,88 @@ describe("DesignEditor screen root hover", () => {
   });
 });
 
+describe("computeExportCropBox (selected-frame image export)", () => {
+  it("scales a document-space rect into canvas pixels", () => {
+    expect(
+      computeExportCropBox(
+        800,
+        1200,
+        { x: 100, y: 200, width: 300, height: 150 },
+        2,
+      ),
+    ).toEqual({ sx: 200, sy: 400, sw: 600, sh: 300 });
+  });
+
+  it("keeps document coordinates as-is at scale 1", () => {
+    expect(
+      computeExportCropBox(
+        400,
+        400,
+        { x: 10, y: 20, width: 30, height: 40 },
+        1,
+      ),
+    ).toEqual({ sx: 10, sy: 20, sw: 30, sh: 40 });
+  });
+
+  it("clamps a rect that overflows the canvas to the remaining area", () => {
+    expect(
+      computeExportCropBox(
+        500,
+        500,
+        { x: 400, y: 400, width: 300, height: 300 },
+        1,
+      ),
+    ).toEqual({ sx: 400, sy: 400, sw: 100, sh: 100 });
+  });
+
+  it("returns null when the rect starts past the canvas edge", () => {
+    expect(
+      computeExportCropBox(
+        500,
+        500,
+        { x: 600, y: 0, width: 100, height: 100 },
+        1,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for a zero-size selection", () => {
+    expect(
+      computeExportCropBox(500, 500, { x: 10, y: 10, width: 0, height: 50 }, 1),
+    ).toBeNull();
+  });
+});
+
+describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
+  // These markers are the editor-chrome overlays editor-chrome.bridge.ts appends
+  // inside the preview iframe; image exports must strip them.
+  it.each([
+    "data-agent-native-edit-overlay",
+    "data-agent-native-edit-handle",
+    "data-agent-native-edge-handle",
+    "data-agent-native-rotate-handle",
+    "data-agent-native-transform-badge",
+    "data-agent-native-spacing-badge",
+    "data-agent-native-spacing-overlay",
+    "data-agent-native-insertion-guide",
+    "data-agent-native-measurement-overlay",
+  ])("targets the %s overlay marker", (marker) => {
+    expect(EDITOR_CHROME_OVERLAY_SELECTOR).toContain(`[${marker}]`);
+  });
+
+  // Content markers live on the design's real DOM; stripping them would delete
+  // actual content, so they must never appear in the overlay selector.
+  it.each([
+    "data-agent-native-node-id",
+    "data-agent-native-layer-name",
+    "data-agent-native-text-editing",
+    "data-agent-native-runtime-hidden",
+    "data-agent-native-motion",
+  ])("never targets the content marker %s", (marker) => {
+    expect(EDITOR_CHROME_OVERLAY_SELECTOR).not.toContain(`[${marker}]`);
+  });
+});
+
 describe("DesignEditor motion timeline hydration", () => {
   it("labels persisted motion tracks from the active code-layer projection", () => {
     const projection = buildCodeLayerProjection(`
@@ -256,6 +531,70 @@ describe("DesignEditor motion timeline hydration", () => {
           { t: 1, value: "1" },
         ],
       },
+    ]);
+  });
+
+  it("creates style-keyframe tracks at the current playhead", () => {
+    expect(
+      upsertMotionStyleKeyframes({
+        tracks: [],
+        targetNodeId: "e2e-alpha-button",
+        label: "Alpha Button",
+        styles: { opacity: "0.25", backgroundColor: "rgb(255, 0, 0)" },
+        computedStyles: {
+          opacity: "1",
+          backgroundColor: "rgb(34, 197, 94)",
+        },
+        playhead: 0.5,
+      }),
+    ).toEqual([
+      {
+        targetNodeId: "e2e-alpha-button",
+        label: "Alpha Button",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "1", ease: "ease" },
+          { t: 0.5, value: "0.25", ease: "ease" },
+          { t: 1, value: "1", ease: "ease" },
+        ],
+      },
+      {
+        targetNodeId: "e2e-alpha-button",
+        label: "Alpha Button",
+        property: "background-color",
+        keyframes: [
+          { t: 0, value: "rgb(34, 197, 94)", ease: "ease" },
+          { t: 0.5, value: "rgb(255, 0, 0)", ease: "ease" },
+          { t: 1, value: "rgb(34, 197, 94)", ease: "ease" },
+        ],
+      },
+    ]);
+  });
+
+  it("replaces an existing keyframe at the same playhead", () => {
+    const next = upsertMotionStyleKeyframes({
+      tracks: [
+        {
+          targetNodeId: "e2e-alpha-button",
+          label: "Alpha Button",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "1" },
+            { t: 0.5, value: "0.5" },
+            { t: 1, value: "0" },
+          ],
+        },
+      ],
+      targetNodeId: "e2e-alpha-button",
+      label: "Alpha Button",
+      styles: { opacity: "0.2" },
+      playhead: 0.501,
+    });
+
+    expect(next[0]?.keyframes).toEqual([
+      { t: 0, value: "1" },
+      { t: 0.501, value: "0.2", ease: "ease" },
+      { t: 1, value: "0" },
     ]);
   });
 });
@@ -867,6 +1206,16 @@ describe("DesignEditor undo order helpers", () => {
     ).toEqual([
       { fileId: "screen-a", before: "<a>old</a>", after: "<a>new</a>" },
     ]);
+  });
+
+  it("does not treat a stale active file id as available after deletion", () => {
+    expect(
+      getAvailableContentHistoryChanges(
+        { fileId: "deleted-screen", before: "<b>old</b>", after: "<b>new</b>" },
+        ["screen-a"],
+        "deleted-screen",
+      ),
+    ).toEqual([]);
   });
 
   it("keeps active content and grouped file-content stacks distinct", () => {

@@ -8,9 +8,9 @@
  * thin, deterministic glue around that:
  *
  *   gate          The security boundary: decide whether the recap runs at all
- *                 (skipping drafts, forks, bots, missing secrets, an invalid
- *                 agent/model, and PRs that touch recap-control files) and which
- *                 normalized backend agent to use.
+ *                 (skipping drafts, forks without secret access, bots, missing
+ *                 secrets, an invalid agent/model, and untrusted PRs that touch
+ *                 recap-control files) and which normalized backend agent to use.
  *   collect-diff  Collect the bounded base...head diff (excluding lockfiles,
  *                 build output, snapshots), cap it at ~600KB, and classify the
  *                 huge/tiny flags.
@@ -2846,7 +2846,14 @@ export async function runShot(
       });
     }
     const page = await context.newPage();
-    await page.goto(captureUrl, { waitUntil: "networkidle", timeout: 45_000 });
+    await page.goto(captureUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 45_000,
+    });
+    await page.waitForLoadState("load", { timeout: 15_000 }).catch(() => {
+      // The selectors below are the real readiness signal for screenshots.
+      // Some recap pages keep long-lived/background requests open.
+    });
     const selectors = [
       "[data-plan-document]",
       "[data-plan-block]",
@@ -3104,11 +3111,11 @@ export interface RecapGateInput {
 }
 
 /**
- * Files that, if a PR touches them, would let that PR rewrite repo-pinned skill
- * instructions or agent config the trusted recap job loads. The workflow runs
- * the recap CLI from trusted base-branch source (or an installed package), so
- * normal package code such as `packages/core/**` and recap workflow YAML can be
- * recapped without executing PR-modified CLI code.
+ * Files that, if an untrusted PR touches them, would let that PR rewrite
+ * repo-pinned skill instructions or root agent config the trusted recap job
+ * loads. The workflow runs the recap CLI from trusted base-branch source (or an
+ * installed package), so normal package code, template-local AGENTS.md files,
+ * and recap workflow YAML can be recapped without executing PR-modified CLI code.
  */
 function normalizeRecapSkillSourceMode(value: string | undefined): string {
   return (value || "auto").toLowerCase();
@@ -3124,10 +3131,10 @@ export function isRecapSensitivePath(
 ): boolean {
   const skillSource = options.skillSource;
   if (
-    /(^|\/)\.claude\//.test(p) ||
-    /(^|\/)CLAUDE\.md$/.test(p) ||
-    /(^|\/)AGENTS\.md$/.test(p) ||
-    /(^|\/)\.mcp\.json$/.test(p)
+    p.startsWith(".claude/") ||
+    p === "CLAUDE.md" ||
+    p === "AGENTS.md" ||
+    p === ".mcp.json"
   ) {
     return true;
   }
@@ -3227,16 +3234,18 @@ export function evaluateRecapGate(input: RecapGateInput): {
     );
   }
 
-  // Self-modifying guard: if this PR changes the visual-recap/visual-plan skill
-  // when CI is explicitly pinned to repo-local skill instructions, or any agent
-  // config the runner would load (.claude/**, CLAUDE.md, AGENTS.md, .mcp.json),
-  // skip the ENTIRE job — not just the agent — so a PR can never rewrite what
-  // the agent loads (skill, hooks, settings) and exfiltrate the publish/API
-  // secrets. In the default auto/latest modes the recap prompt comes from the
-  // trusted bundled skill, so visual skill and recap workflow files are ordinary
-  // reviewed content and may be recapped.
+  // Self-modifying guard: if an untrusted PR changes the visual-recap/visual-plan
+  // skill when CI is explicitly pinned to repo-local skill instructions, or root
+  // agent config the runner would load (.claude/**, CLAUDE.md, AGENTS.md,
+  // .mcp.json), skip the ENTIRE job — not just the agent — so a PR can never
+  // rewrite what the agent loads (skill, hooks, settings) and exfiltrate the
+  // publish/API secrets. In the default auto/latest modes the recap prompt comes
+  // from the trusted bundled skill, so visual skill and recap workflow files are
+  // ordinary reviewed content and may be recapped. Trusted write actors may edit
+  // recap-control files as reviewable content; running the recap is useful signal
+  // for those changes.
   const shouldApplySensitivePathGuard =
-    Boolean(pr) && (isFork || (!isPrivate && !isTrustedAuthor));
+    Boolean(pr) && !isTrustedAuthor && (isFork || !isPrivate);
   const hits = shouldApplySensitivePathGuard
     ? input.changedFiles.filter((p) => isRecapSensitivePath(p, { skillSource }))
     : [];
@@ -3458,13 +3467,13 @@ export function appendGateSkipLine(
   existingBody: string,
   skipLine: string,
 ): string {
-  // Remove any previous gate-skip line (pattern: `_Recap skipped for ...._`)
-  const withoutPrev = existingBody
-    .split("\n")
-    .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
-    .join("\n")
-    .trimEnd();
-  return `${withoutPrev}\n\n${skipLine}`;
+  const planIdMatch = existingBody.match(
+    /<!--\s*plan-id:\s*([A-Za-z0-9_-]{1,64})\s*-->/,
+  );
+  const planIdMarker = planIdMatch
+    ? `\n\n<!-- plan-id: ${planIdMatch[1]} -->`
+    : "";
+  return `${buildGateSkipCommentBody()}${planIdMarker}\n\n${skipLine}`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -4095,11 +4104,11 @@ Usage:
     environment (HAS_PLAN / HAS_ANTHROPIC / HAS_OPENAI === 'true', AGENT,
     VISUAL_RECAP_MODEL), the repo from $GITHUB_REPOSITORY, and the PR's changed
     files from the GitHub REST API (paged, with GH_TOKEN/GITHUB_TOKEN). Skips
-    drafts, forks, bot authors, the missing-secret case, an invalid agent/model,
-    and any PR that touches recap-control files (repo-pinned skill instructions,
-    .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED on any
-    file-list error. Writes run=<true|false> and agent=<claude|codex> to
-    $GITHUB_OUTPUT.
+    drafts, forks without secret access, bot authors, the missing-secret case, an
+    invalid agent/model, and any untrusted PR that touches recap-control files
+    (repo-pinned skill instructions, .claude/**, root CLAUDE.md, root AGENTS.md,
+    root .mcp.json) — failing CLOSED on any file-list error. Writes
+    run=<true|false> and agent=<claude|codex> to $GITHUB_OUTPUT.
   npx @agent-native/core@latest recap agent-summary
     Read the captured Claude/Codex result file and write a sanitized one-line
     summary to stdout and $GITHUB_OUTPUT (summary). Used only when no plan URL

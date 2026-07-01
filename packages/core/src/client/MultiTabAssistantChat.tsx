@@ -929,6 +929,8 @@ export type MultiTabAssistantChatProps = Omit<
    * the composer.
    */
   scope?: ChatThreadScope | null;
+  /** Show the compact scope chip above the composer. Default: true. */
+  showScopeBadge?: boolean;
 };
 
 export function MultiTabAssistantChat({
@@ -942,6 +944,7 @@ export function MultiTabAssistantChat({
   browserTabId,
   threadUrlSync = false,
   scope = null,
+  showScopeBadge = true,
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -1115,10 +1118,14 @@ export function MultiTabAssistantChat({
   const postMessageSubmissionsDisabled = props.composerDisabled === true;
 
   const setContextInTab = useCallback(
-    (threadId: string, item: AgentChatContextItem) => {
+    (
+      threadId: string,
+      item: AgentChatContextItem,
+      options?: { focus?: boolean },
+    ) => {
       const ref = chatRefs.current.get(threadId);
       if (ref) {
-        ref.setComposerContextItem(item);
+        ref.setComposerContextItem(item, options);
         return;
       }
       const existing = pendingContextItems.current.get(threadId) ?? [];
@@ -1709,7 +1716,11 @@ export function MultiTabAssistantChat({
         if (postMessageSubmissionsDisabled) return;
         const currentTabId = activeThreadIdRef.current;
         if (!currentTabId) return;
-        setContextInTab(currentTabId, item);
+        // Focus defaults to true; a caller opts out with `focus: false` for
+        // passive context (e.g. a canvas selection) so staging never steals
+        // focus from an in-progress inline editor.
+        const focus = (event.data.data?.focus as boolean | undefined) !== false;
+        setContextInTab(currentTabId, item, { focus });
         return;
       }
       if (event.data?.type === AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE) {
@@ -2625,7 +2636,7 @@ export function MultiTabAssistantChat({
                 ? props.dynamicSuggestions
                 : false;
             const scopeComposerSlot =
-              tabId === activeThreadId && !contentHidden ? (
+              showScopeBadge && tabId === activeThreadId && !contentHidden ? (
                 tabScope && activeThreadId ? (
                   <ScopeBadge
                     scope={tabScope}

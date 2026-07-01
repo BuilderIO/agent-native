@@ -779,6 +779,7 @@ export interface TrashedContentDatabaseSummary {
   documentId: string;
   ownerDocumentId: string | null;
   deletedAt: string;
+  canPermanentlyDelete: boolean;
 }
 
 export interface ListTrashedContentDatabasesResponse {

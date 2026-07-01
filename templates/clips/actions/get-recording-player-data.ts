@@ -233,10 +233,12 @@ export default defineAction({
     //      `?password=<pw>` (legacy fallback) so old share pages keep
     //      working during rollout. (audit 11 F-07)
     //      Owners are skipped — the blob route bypasses the password gate
-    //      for them, so they don't need the token. Non-Loom provider URLs
-    //      (R2/S3/Builder) are left untouched; those are already signed.
+    //      for them, so they don't need the token. Remote provider URLs are
+    //      still proxied through same-origin media serving so CORS, range
+    //      requests, and signed URL quirks match public share playback.
     const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
       addPasswordToken: access.role !== "owner",
+      proxyRemoteMedia: true,
     });
 
     return {

@@ -50,7 +50,8 @@ interface DocumentTreeItemProps {
   expandedIds: Set<string>;
   onToggleExpanded: (id: string) => void;
   onSelect: (id: string) => void;
-  onCreateChild: (parentId: string) => void;
+  onCreateChildPage: (parentId: string) => void;
+  onCreateChildDatabase: (parentId: string) => void;
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
 }
@@ -94,7 +95,8 @@ export function DocumentTreeItem({
   expandedIds,
   onToggleExpanded,
   onSelect,
-  onCreateChild,
+  onCreateChildPage,
+  onCreateChildDatabase,
   onDelete,
   onToggleFavorite,
 }: DocumentTreeItemProps) {
@@ -262,22 +264,45 @@ export function DocumentTreeItem({
           )}
 
           {canCreateChild && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={`Add sub-page to ${node.title || "Untitled"}`}
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t("sidebar.addChildTo", {
+                        title: node.title || t("sidebar.untitled"),
+                      })}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <IconPlus size={14} />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="start" className="w-44">
+                <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
-                    onCreateChild(node.id);
+                    onCreateChildPage(node.id);
                   }}
                 >
-                  <IconPlus size={14} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("sidebar.addSubPage")}</TooltipContent>
-            </Tooltip>
+                  <IconFileText className="me-2 size-4" />
+                  {t("sidebar.page")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateChildDatabase(node.id);
+                  }}
+                >
+                  <IconDatabase className="me-2 size-4" />
+                  {t("sidebar.database")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </div>
@@ -297,7 +322,8 @@ export function DocumentTreeItem({
               expandedIds={expandedIds}
               onToggleExpanded={onToggleExpanded}
               onSelect={onSelect}
-              onCreateChild={onCreateChild}
+              onCreateChildPage={onCreateChildPage}
+              onCreateChildDatabase={onCreateChildDatabase}
               onDelete={onDelete}
               onToggleFavorite={onToggleFavorite}
             />

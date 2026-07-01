@@ -410,6 +410,23 @@ const messages = {
         rolledBack: "已回復",
       },
     },
+    pendingVisualStyles: {
+      applyAria: "套用待處理的視覺樣式編輯",
+      applyButton: "套用樣式",
+      previewLabel: "待處理的視覺預覽",
+      applyWithAgent: "用 Design 代理套用",
+      copyPrompt: "將提示複製給您的代理",
+      agentMessage: "將待處理的視覺樣式編輯套用到來源。",
+      sentToast: "樣式編輯已傳送給 Design 代理",
+      copiedToast: "樣式提示已複製",
+      leaveTitle: "離開前要套用樣式嗎？",
+      leaveDescriptionOne:
+        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+      leaveDescriptionOther:
+        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+      stay: "留在這裡",
+      leave: "不套用並離開",
+    },
     capabilities: {
       "deterministic-style-edit": "安全樣式編輯",
       "deterministic-class-edit": "安全 class 編輯",

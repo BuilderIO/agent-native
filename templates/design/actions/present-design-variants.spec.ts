@@ -203,7 +203,7 @@ describe("present-design-variants", () => {
       "guided-questions",
       expect.objectContaining({
         title: "Pick a calmer mobile direction",
-        submitMessage: "Use this design direction.",
+        submitMessage: expect.stringContaining("selected screen"),
         questions: [
           expect.objectContaining({
             id: "variant",
@@ -217,6 +217,47 @@ describe("present-design-variants", () => {
           }),
         ],
       }),
+    );
+    const guidedQuestions = mocks.writeAppStateForCurrentTab.mock
+      .calls[0]?.[1] as {
+      submitMessage: string;
+      questions: Array<{
+        options: Array<{ label: string; value: string }>;
+      }>;
+    };
+    expect(guidedQuestions.submitMessage).toContain("selected screen");
+    expect(guidedQuestions.submitMessage).toContain("same screen");
+    expect(guidedQuestions.submitMessage).toContain(
+      "clean up each other variant screen at most once",
+    );
+    expect(guidedQuestions.submitMessage).toContain(
+      "exact file ids and tool instructions in the selected answer",
+    );
+    expect(guidedQuestions.submitMessage).toContain(
+      "Do not repeat cleanup/read cycles",
+    );
+    expect(guidedQuestions.submitMessage).not.toContain("delete-file");
+    expect(guidedQuestions.submitMessage).toContain(
+      "stop after the first successful screen update",
+    );
+    const firstOption = guidedQuestions.questions[0]?.options[0];
+    expect(firstOption?.value).toContain("get-design-snapshot");
+    expect(firstOption?.value).toContain(
+      "Delete each other variant screen at most once",
+    );
+    expect(firstOption?.value).toContain("get-design-snapshot exactly once");
+    expect(firstOption?.value).toContain("fileId file-a");
+    expect(firstOption?.value).toContain("edit-design with fileId file-a");
+    expect(firstOption?.value).toContain('mode "replace-file"');
+    expect(firstOption?.value).toContain("bounded single-file pass");
+    expect(firstOption?.value).toContain(
+      "do not repeat delete/snapshot cycles",
+    );
+    expect(firstOption?.value).toContain(
+      "Do not call generate-design after this variant pick",
+    );
+    expect(firstOption?.value).toContain(
+      "Stop after the first successful edit-design save",
     );
     expect(mocks.deleteAppState).toHaveBeenCalledWith("design-variants");
 
@@ -251,6 +292,23 @@ describe("present-design-variants", () => {
         }),
       ]),
     });
+    expect(result.nextRequiredAction).toContain("get-design-snapshot");
+    expect(result.nextRequiredAction).toContain(
+      "delete each unchosen variant screen with delete-file at most once",
+    );
+    expect(result.nextRequiredAction).toContain(
+      "call get-design-snapshot exactly once",
+    );
+    expect(result.nextRequiredAction).toContain("fileId");
+    expect(result.nextRequiredAction).toContain("edit-design");
+    expect(result.nextRequiredAction).toContain('mode "replace-file"');
+    expect(result.nextRequiredAction).toContain(
+      "Do not repeat delete/snapshot cycles",
+    );
+    expect(result.nextRequiredAction).toContain(
+      "Do not call generate-design after a variant pick",
+    );
+    expect(result.nextRequiredAction).toContain("bounded pass");
   });
 
   it("keeps an existing screen intact when a generated filename collides", async () => {
@@ -319,6 +377,128 @@ describe("present-design-variants", () => {
     expect(action.schema.safeParse(withVariants(5)).success).toBe(true);
     expect(action.schema.safeParse(withVariants(1)).success).toBe(false);
     expect(action.schema.safeParse(withVariants(6)).success).toBe(false);
+  });
+
+  it("can render compact variants from direction summaries without inline HTML", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Dark todo app with board, list, calendar, and keyboard flow",
+      variants: [
+        {
+          id: "glass",
+          label: "Glass Command Center",
+          description: "Frosted panels, cyan accents, and airy kanban density.",
+          accentColor: "#06b6d4",
+          features: ["Board view", "Priority chips", "Keyboard hints"],
+        },
+        {
+          id: "terminal",
+          label: "Terminal Focus",
+          description:
+            "Dense monospace workflow with high-contrast focus cues.",
+          accentColor: "#22c55e",
+        },
+      ],
+    });
+
+    expect(mocks.insertChain.values).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        filename: "variant-glass-command-center.html",
+        content: expect.stringContaining("Glass Command Center"),
+      }),
+    );
+    expect(mocks.insertChain.values).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        filename: "variant-terminal-focus.html",
+        content: expect.stringContaining("Terminal Focus"),
+      }),
+    );
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining("Keyboard hints"),
+    );
+  });
+
+  it("renders compact fallback variants from non-todo mobile direction data", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt:
+        "Mobile recipe planner with pantry scanning, meal prep, shopping lists, and nutrition summaries",
+      variants: [
+        {
+          id: "pantry",
+          label: "Pantry Scanner",
+          description:
+            "A handheld-first recipe flow centered on scanning ingredients.",
+          width: 390,
+          height: 844,
+          features: ["Pantry scanning", "Meal prep", "Shopping lists"],
+        },
+        {
+          id: "nutrition",
+          label: "Nutrition Coach",
+          description: "A coaching direction for macros and weekly planning.",
+          width: 390,
+          height: 844,
+          features: ["Macro summary", "Weekly plan", "Grocery sync"],
+        },
+      ],
+    });
+
+    const firstContent = (
+      mocks.insertChain.values.mock.calls[0]?.[0] as {
+        content: string;
+      }
+    ).content;
+    expect(firstContent).toContain("Pantry Scanner");
+    expect(firstContent).toContain("Pantry scanning");
+    expect(firstContent).toContain("Mobile recipe planner");
+    expect(firstContent).toContain("width: 390px");
+    expect(firstContent).not.toContain("Finalize launch checklist");
+
+    const dataUpdate = mocks.txUpdateChain.set.mock.calls[0]?.[0] as {
+      data: string;
+    };
+    const data = JSON.parse(dataUpdate.data);
+    expect(Object.values(data.canvasFrames)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ width: 390, height: 844 }),
+        expect.objectContaining({ width: 390, height: 844 }),
+      ]),
+    );
+  });
+
+  it("does not let prompt text resize provided desktop HTML variants", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt:
+        "Mobile analytics companion with a compact summary view and push alerts",
+      variants: [
+        {
+          id: "desktop-command",
+          label: "Desktop Command Center",
+          content:
+            "<!doctype html><style>.app{width:1280px;min-height:900px}</style><div class='app'>Desktop analytics</div>",
+        },
+        {
+          id: "mobile-summary",
+          label: "Mobile Summary",
+          description: "Phone-first glanceable KPI cards.",
+          features: ["KPI cards", "Push alerts"],
+        },
+      ],
+    });
+
+    expect(
+      result.screens.find(
+        (screen) => screen.label === "Desktop Command Center",
+      ),
+    ).toMatchObject({ width: 1280, height: 900 });
+    expect(
+      result.screens.find((screen) => screen.label === "Mobile Summary"),
+    ).toMatchObject({ width: 390, height: 844 });
   });
 
   it("deep-links external hosts into overview mode", () => {

@@ -48,7 +48,11 @@ const schema = z.object({
     .describe("Number of image candidates to generate in the picker."),
   tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
   styleStrength: z.enum(STYLE_STRENGTHS).default("balanced"),
-  includeLogo: booleanParam.default(false),
+  includeLogo: booleanParam
+    .optional()
+    .describe(
+      "Override logo compositing for this run. When omitted, the selected preset's logo setting decides whether the library's canonical logo is composited.",
+    ),
   callerAppId: z
     .string()
     .optional()

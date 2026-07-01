@@ -117,6 +117,14 @@ export interface MotionDockProps {
   canvasIframeRef?: React.RefObject<HTMLIFrameElement | null>;
   /** Whether the parent autosave mutation is in flight. */
   applying?: boolean;
+  /** Controlled auto-keyframe state. */
+  autoKeyframe?: boolean;
+  /** Called when the auto-keyframe toggle changes. */
+  onAutoKeyframeChange?: (enabled: boolean) => void;
+  /** Controlled playhead position, normalized to [0, 1]. */
+  playhead?: number;
+  /** Called whenever the playhead moves. */
+  onPlayheadChange?: (t: number) => void;
   /**
    * The currently-selected canvas element, if any. Required to create the FIRST
    * track for a layer: the picker animates this node's
@@ -139,6 +147,10 @@ export function MotionDock({
   onDurationChange,
   canvasIframeRef,
   applying = false,
+  autoKeyframe: autoKeyframeProp,
+  onAutoKeyframeChange,
+  playhead: playheadProp,
+  onPlayheadChange,
   selectedTarget = null,
 }: MotionDockProps) {
   // Controlled / uncontrolled open state.
@@ -153,13 +165,36 @@ export function MotionDock({
   );
 
   // Playhead position: normalised [0, 1].
-  const [playhead, setPlayhead] = useState(0);
+  const [playhead, setPlayhead] = useState(playheadProp ?? 0);
   const [playing, setPlaying] = useState(false);
   const playRafRef = useRef<number | null>(null);
   const playStartRef = useRef<{ wallMs: number; startT: number } | null>(null);
+  useEffect(() => {
+    if (playheadProp === undefined) return;
+    setPlayhead(Math.max(0, Math.min(1, playheadProp)));
+  }, [playheadProp]);
 
-  // Auto-keyframe mode: clicking the canvas at a time scrubs without writing.
-  const [autoKeyframe, setAutoKeyframe] = useState(false);
+  // Auto-keyframe mode: inspector/style edits create keyframes at the playhead.
+  const [autoKeyframeInternal, setAutoKeyframeInternal] = useState(false);
+  const autoKeyframe = autoKeyframeProp ?? autoKeyframeInternal;
+  const setAutoKeyframe = useCallback(
+    (next: boolean | ((current: boolean) => boolean)) => {
+      const resolved =
+        typeof next === "function"
+          ? (next as (current: boolean) => boolean)(autoKeyframe)
+          : next;
+      setAutoKeyframeInternal(resolved);
+      onAutoKeyframeChange?.(resolved);
+    },
+    [autoKeyframe, onAutoKeyframeChange],
+  );
+  const setPlayheadValue = useCallback(
+    (next: number) => {
+      setPlayhead(next);
+      onPlayheadChange?.(next);
+    },
+    [onPlayheadChange],
+  );
 
   // Dock height (resizable via the top drag handle).
   const [dockHeight, setDockHeight] = useState(DEFAULT_DOCK_HEIGHT);
@@ -235,7 +270,7 @@ export function MotionDock({
       if (!playStartRef.current) return;
       const elapsed = now - playStartRef.current.wallMs;
       const t = Math.min(1, playStartRef.current.startT + elapsed / durationMs);
-      setPlayhead(t);
+      setPlayheadValue(t);
       sendPreview(t);
       if (t < 1) {
         playRafRef.current = requestAnimationFrame(tick);
@@ -244,7 +279,7 @@ export function MotionDock({
       }
     };
     playRafRef.current = requestAnimationFrame(tick);
-  }, [durationMs, playhead, sendPreview, stopPlayback]);
+  }, [durationMs, playhead, sendPreview, setPlayheadValue, stopPlayback]);
 
   useEffect(() => {
     return () => {
@@ -263,10 +298,10 @@ export function MotionDock({
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       const rect = trackAreaRef.current.getBoundingClientRect();
       const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      setPlayhead(t);
+      setPlayheadValue(t);
       sendPreview(t);
     },
-    [sendPreview, stopPlayback],
+    [sendPreview, setPlayheadValue, stopPlayback],
   );
 
   const handleRulerPointerMove = useCallback(
@@ -274,10 +309,10 @@ export function MotionDock({
       if (!isDraggingPlayhead.current || !trackAreaRef.current) return;
       const rect = trackAreaRef.current.getBoundingClientRect();
       const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      setPlayhead(t);
+      setPlayheadValue(t);
       sendPreview(t);
     },
-    [sendPreview],
+    [sendPreview, setPlayheadValue],
   );
 
   const handleRulerPointerUp = useCallback(() => {
@@ -449,15 +484,14 @@ export function MotionDock({
 
         {/* Dock toolbar */}
         <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border px-2">
-          {/* Collapse toggle. The label and nearby space are part of the target. */}
+          {/* Collapse toggle. The rail owns the visible Motion label. */}
           <button
             type="button"
-            className="-ml-1 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 !text-[11px] font-medium uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            className="-ml-1 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
             onClick={() => setOpen(false)}
             aria-label="Collapse motion dock"
           >
             <IconChevronDown className="size-3.5" />
-            <span>Motion</span>
           </button>
 
           <>
@@ -494,7 +528,7 @@ export function MotionDock({
                   className="size-6 shrink-0"
                   onClick={() => {
                     stopPlayback();
-                    setPlayhead(0);
+                    setPlayheadValue(0);
                     sendPreview(0);
                   }}
                   aria-label="Reset playhead"

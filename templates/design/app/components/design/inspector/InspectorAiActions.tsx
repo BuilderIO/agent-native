@@ -25,6 +25,8 @@ export interface InspectorAiActionsProps {
   fileId?: string;
   /** Active file name (e.g. "index.html"). */
   filename?: string;
+  /** Localhost-backed source file, when the selected screen comes from a local app. */
+  routeSourceFile?: string;
   /** The design id. */
   designId?: string;
   /** When false, the controls are disabled. */
@@ -43,6 +45,7 @@ export function InspectorAiActions({
   sourceId,
   fileId,
   filename,
+  routeSourceFile,
   designId,
   canEdit,
 }: InspectorAiActionsProps) {
@@ -57,6 +60,7 @@ export function InspectorAiActions({
     sourceId,
     fileId,
     filename,
+    routeSourceFile,
     designId,
   };
   const disabled = !canEdit || !request.trim();

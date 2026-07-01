@@ -50,6 +50,10 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function todayIsoDate(): string {
+  return nowIso().slice(0, 10);
+}
+
 function randomHex(bytes: number): string {
   const arr = new Uint8Array(bytes);
   if (!globalThis.crypto?.getRandomValues) {
@@ -204,17 +208,30 @@ function asString(value: unknown): string | null {
   return null;
 }
 
-function normalizeTimestamp(value: unknown): string {
-  if (value instanceof Date) return value.toISOString();
+export function normalizeAnalyticsTimestamp(
+  value: unknown,
+  receivedAt = nowIso(),
+): string {
+  const fallback = (() => {
+    const date = new Date(receivedAt);
+    return Number.isNaN(date.getTime()) ? nowIso() : date.toISOString();
+  })();
+  const fallbackTime = new Date(fallback).getTime();
+  const normalize = (date: Date) => {
+    if (Number.isNaN(date.getTime())) return fallback;
+    return date.getTime() > fallbackTime ? fallback : date.toISOString();
+  };
+
+  if (value instanceof Date) return normalize(value);
   if (typeof value === "number") {
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? nowIso() : d.toISOString();
+    return normalize(d);
   }
   if (typeof value === "string" && value.trim()) {
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? nowIso() : d.toISOString();
+    return normalize(d);
   }
-  return nowIso();
+  return fallback;
 }
 
 function eventDateFromTimestamp(timestamp: string): string {
@@ -362,7 +379,7 @@ export async function recordAnalyticsEvents(
       asString((properties as any).anonymousId) ??
       asString((properties as any).distinctId);
     const userKey = userId || anonymousId;
-    const timestamp = normalizeTimestamp(event.timestamp);
+    const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
 
     return {
       id: id("evt"),
@@ -516,9 +533,17 @@ function scopeClause(scope: AnalyticsScope): {
   };
 }
 
-function scopedAnalyticsSql(
+function freshnessClause(tableName: string): string {
+  if (tableName === "analytics_events") {
+    return "(COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= ?)";
+  }
+  return "(substr(started_at, 1, 10) <= ?)";
+}
+
+export function scopedAnalyticsSql(
   sql: string,
   scope: AnalyticsScope,
+  today = todayIsoDate(),
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
   const aliasRe =
@@ -536,8 +561,8 @@ function scopedAnalyticsSql(
           ? aliasPart
           : ` AS ${normalizedTable}`;
       const scopeDef = scopeClause(scope);
-      args.push(...scopeDef.args);
-      return `${keyword} (SELECT * FROM ${normalizedTable} WHERE ${scopeDef.sql})${usableAlias}`;
+      args.push(...scopeDef.args, today);
+      return `${keyword} (SELECT * FROM ${normalizedTable} WHERE ${scopeDef.sql} AND ${freshnessClause(normalizedTable)})${usableAlias}`;
     },
   );
   return { sql: rewritten, args };

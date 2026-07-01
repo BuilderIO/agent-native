@@ -98,8 +98,11 @@ export function Toolbar() {
     trackListen(
       listen<boolean>("clips:toolbar-enabled", (ev) => {
         setEnabled(!!ev.payload);
+        setPendingAction(null);
         if (!ev.payload) {
           setDiskSpaceLevel("ok");
+          setPaused(false);
+          setElapsed(0);
         }
       }),
     );

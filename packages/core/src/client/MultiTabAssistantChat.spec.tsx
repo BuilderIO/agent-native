@@ -320,11 +320,14 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         ([event]) => event.type === "agent-panel:open",
       ),
     ).toBe(true);
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: "selected-element",
-      title: "Selected Element",
-      context: "<button>Buy</button>",
-    });
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      {
+        key: "selected-element",
+        title: "Selected Element",
+        context: "<button>Buy</button>",
+      },
+      { focus: true },
+    );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     dispatchEventSpy.mockRestore();
@@ -354,14 +357,53 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         ([event]) => event.type === "agent-panel:open",
       ),
     ).toBe(false);
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: "selected-element",
-      title: "Selected Element",
-      context: "<button>Buy</button>",
-    });
+    // openSidebar:false keeps the sidebar closed, but focus is independent —
+    // by default staging still focuses the composer (unchanged behavior).
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      {
+        key: "selected-element",
+        title: "Selected Element",
+        context: "<button>Buy</button>",
+      },
+      { focus: true },
+    );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     dispatchEventSpy.mockRestore();
+  });
+
+  it("stages keyed context without focus when focus is false", () => {
+    // Passive context mirroring (e.g. a canvas element selection) must stage
+    // the chip without stealing focus, so an in-progress inline text editor in
+    // the design canvas iframe is not blurred and torn down.
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.setChatContext",
+            data: {
+              key: "selected-element",
+              title: "Selected Element",
+              context: "<button>Buy</button>",
+              openSidebar: false,
+              focus: false,
+            },
+          },
+          origin: window.location.origin,
+        }),
+      );
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      {
+        key: "selected-element",
+        title: "Selected Element",
+        context: "<button>Buy</button>",
+      },
+      { focus: false },
+    );
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
 
   it("removes keyed context from the active composer", () => {
@@ -525,6 +567,37 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(badges).toHaveLength(1);
     expect(badges[0]?.textContent).toContain("Using this form");
     expect(composerChildren).toEqual([hostSlot, badges[0]]);
+  });
+
+  it("can hide the scoped context composer tab", async () => {
+    threadMocks.threads = [
+      {
+        ...threadMocks.threads[0],
+        scope: { type: "design", id: "design-1" },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "design", id: "design-1" }}
+          showScopeBadge={false}
+          composerSlot={<div data-testid="host-composer-slot">Host slot</div>}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelectorAll(".agent-scope-badge-wrapper"),
+    ).toHaveLength(0);
+    expect(
+      container.querySelector("[data-testid='host-composer-slot']"),
+    ).not.toBeNull();
   });
 
   it("keeps previous scoped chats out of the empty chat state", async () => {

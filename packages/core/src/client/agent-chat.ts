@@ -113,6 +113,13 @@ export interface AgentChatContextSetOptions extends AgentChatContextItem {
    * Defaults to true so the user can see the staged context.
    */
   openSidebar?: boolean;
+  /**
+   * Whether to move keyboard focus into the composer when staging the item.
+   * Defaults to true. Pass `false` for context that mirrors ambient UI state
+   * (e.g. a canvas element selection) so staging never steals focus from an
+   * unrelated editor — such as an inline text editor in a design canvas.
+   */
+  focus?: boolean;
 }
 
 /** @deprecated Use `AgentChatContextSetOptions` instead. */
@@ -865,9 +872,17 @@ export function setAgentChatContextItem(
   publishAgentChatContextItems(
     withReplacedAgentChatContextItem(agentChatContextState.items, item),
   );
-  postAgentChatContextMessage(AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE, item, {
-    openSidebar: opts.openSidebar !== false,
-  });
+  // Forward an explicit `focus: false` so the receiving composer can stage the
+  // chip without stealing focus. Focus stays enabled by default (field omitted)
+  // for every existing caller.
+  const messageData = opts.focus === false ? { ...item, focus: false } : item;
+  postAgentChatContextMessage(
+    AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+    messageData,
+    {
+      openSidebar: opts.openSidebar !== false,
+    },
+  );
 }
 
 /** @deprecated Use `setAgentChatContextItem` instead. */

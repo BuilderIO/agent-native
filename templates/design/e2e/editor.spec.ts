@@ -11,6 +11,7 @@ import {
   cdpScreenshot,
   installBridge,
   waitForBridge,
+  bridgeMessages,
 } from "./helpers";
 
 let designId: string;
@@ -80,6 +81,28 @@ test("share dialog uses compact editor panel chrome", async ({
   expect(popoverBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
     650,
   );
+
+  await page.getByRole("tab", { name: "Share link" }).click();
+  await page.getByRole("button", { name: "General access" }).click();
+  await expect(
+    page.getByRole("option", { name: /Organization/ }),
+  ).toBeVisible();
+  await expect(shareOptions).toBeVisible();
+  const accessMenu = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: page.getByRole("option", { name: /Organization/ }) })
+    .last();
+  await expect(accessMenu).toBeVisible();
+  const sharePopoverZ = Number.parseInt(
+    (await popover.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
+    10,
+  );
+  const accessMenuZ = Number.parseInt(
+    (await accessMenu.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
+    10,
+  );
+  expect(accessMenuZ).toBeGreaterThan(sharePopoverZ);
+  await page.keyboard.press("Escape");
 
   await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
 });
@@ -318,7 +341,21 @@ test("spacing handles stay visible at rest and remain draggable", async ({
   const box = await container.boundingBox();
   if (!box) throw new Error("missing fixture container bounds");
 
-  await page.mouse.click(box.x + 12, box.y + 12);
+  const frameBox = await page
+    .locator("iframe[data-design-preview-iframe]")
+    .last()
+    .boundingBox();
+  if (!frameBox) throw new Error("missing design iframe bounds");
+  await designFrame(page)
+    .locator('[data-agent-native-edit-overlay="shield"]')
+    .first()
+    .dispatchEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientX: box.x - frameBox.x + 12,
+      clientY: box.y - frameBox.y + 12,
+      detail: 1,
+    });
   const selected = await waitForBridge(page, "element-select");
   expect(
     (selected?.payload?.tagName ?? selected?.tagName ?? "").toUpperCase(),
@@ -418,6 +455,53 @@ test("dragging an element on the canvas drives the bridge (move/reorder)", async
   // move path, not just the hover/select bridge messages.
   const fired = await dragCanvasByText(page, "Alpha Button", 0, 90);
   expect(fired).toContain("visual-structure-change");
+});
+
+test("Escape cancels an in-progress element drag on the canvas", async ({
+  page,
+}) => {
+  await enterDirectMode(page);
+  await installBridge(page);
+
+  const alpha = designFrame(page).locator(
+    '[data-agent-native-node-id="e2e-alpha-button"]',
+  );
+  await alpha.evaluate((el) => {
+    const node = el as HTMLElement;
+    node.style.position = "absolute";
+    node.style.left = "80px";
+    node.style.top = "220px";
+  });
+  await selectByText(page, "Alpha Button");
+
+  const before = await alpha.boundingBox();
+  if (!before) throw new Error("missing Alpha Button bounds before drag");
+  const cx = before.x + before.width / 2;
+  const cy = before.y + before.height / 2;
+
+  await page.evaluate(() => ((window as any).__bridge = []));
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 96, cy + 64, { steps: 8 });
+
+  const during = await alpha.boundingBox();
+  if (!during) throw new Error("missing Alpha Button bounds during drag");
+  expect(during.x).toBeGreaterThan(before.x + 20);
+
+  await page.keyboard.press("Escape");
+  await page.mouse.move(cx + 144, cy + 96, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+
+  const after = await alpha.boundingBox();
+  if (!after) throw new Error("missing Alpha Button bounds after cancel");
+  expect(Math.abs(after.x - before.x)).toBeLessThan(4);
+  expect(Math.abs(after.y - before.y)).toBeLessThan(4);
+
+  const fired = (await bridgeMessages(page)).map((message) => message.type);
+  expect(fired).not.toContain("visual-style-change");
+  expect(fired).not.toContain("visual-structure-change");
+  expect(fired).not.toContain("visual-duplicate-change");
 });
 
 test("can capture a screenshot of the editor via CDP", async ({

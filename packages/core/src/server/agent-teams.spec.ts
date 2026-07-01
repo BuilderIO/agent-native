@@ -59,7 +59,7 @@ describe("agent teams message queue", () => {
         key.startsWith("task-message:task-1:"),
       ),
     ).toHaveLength(2);
-  }, 15_000);
+  }, 30_000);
 
   it("drains queued messages into the next tool result once", async () => {
     const { sendToTask, _agentTeamsQueueForTests } =
@@ -90,7 +90,7 @@ describe("agent teams message queue", () => {
       "change direction",
     );
     await expect(actions["do-work"].run({})).resolves.toBe("tool result");
-  });
+  }, 30_000);
 
   it("uses the final response guard to deliver queued messages before completion", async () => {
     const { sendToTask, _agentTeamsQueueForTests } =

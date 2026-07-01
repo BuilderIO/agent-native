@@ -3663,55 +3663,16 @@ body[data-clips-route="recording-pill"] #root {
 
 /* Wispr Flow-style dictation pill: small capsule anchored to the bottom
    of its (transparent) overlay window. The window itself is positioned
-   bottom-center on the primary display by show_flow_bar in Rust. We
-   stack the live transcript above the pill in a column so the user sees
-   the words being recognized in real time. */
+   bottom-center on the primary display by show_flow_bar in Rust. */
 .flow-bar-root {
   position: fixed;
   inset: var(--overlay-shadow-gutter);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: flex-end;
   padding-bottom: 8px;
-  gap: 6px;
   background: transparent;
   pointer-events: none;
-}
-
-/* Live partial-transcript chip floating above the pill. Same dark glass
-   look as the pill, smaller, only there when transcript is non-empty.
-   Caps width and clips from the left so the newest words stay visible
-   when a long sentence reaches the edge of the transparent window. */
-.flow-bar-transcript {
-  max-width: 360px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: rgba(18, 18, 20, 0.92);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 12px;
-  line-height: 1.35;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* RTL on the OUTER box so overflow clips from the visual left
-     (older text), keeping the newest characters pinned to the right.
-     `unicode-bidi: plaintext` on the inner <bdi> makes the actual
-     transcript text follow its own (LTR) direction — without it,
-     bidi reordering pushes the last few Latin characters past the
-     visible right edge and they get clipped a few chars short. */
-  direction: rtl;
-  pointer-events: none;
-  animation: flow-bar-in 100ms ease-out;
-}
-
-.flow-bar-transcript > bdi {
-  unicode-bidi: plaintext;
-  direction: ltr;
 }
 
 .flow-bar {
@@ -3729,17 +3690,13 @@ body[data-clips-route="recording-pill"] #root {
   /* Subtle fade-in so the pill doesn't hard-pop on appear. */
   animation: flow-bar-in 140ms ease-out;
   /* Fade out to opacity 0 when state goes idle (after Fn release).
-     Keeping the pill in the DOM means the transcript chip above
-     doesn't reflow when the pill "goes away" — important for the
-     linger UX where the chip stays put while the pill dissolves. */
+     Keeping the pill in the DOM lets the waveform fade instead of pop. */
   transition: opacity 220ms ease-out;
 }
 
-/* When the dictation engine reports idle (e.g. mid-linger after Fn
-   release on the browser path), fade the pill out without unmounting
-   it. The canvas keeps its last-frame so the user sees the waveform
-   smoothly fade rather than pop into nothing. Pointer-events go off
-   so the now-invisible chip can't catch clicks. */
+/* When the dictation engine reports idle, fade the pill out without
+   unmounting it. Pointer-events go off so the invisible pill cannot
+   catch clicks. */
 .flow-bar-idle {
   opacity: 0;
   pointer-events: none;

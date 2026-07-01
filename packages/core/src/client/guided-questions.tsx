@@ -150,6 +150,16 @@ export function formatGuidedAnswersForAgent(
     .join("\n");
 }
 
+function defaultGuidedSubmitContext(formattedAnswers: string): string {
+  return [
+    "The user answered the guided questions.",
+    "Use the selected option values below as authoritative. If an answer includes exact ids, file names, or action instructions, follow those exact details instead of inferring them.",
+    "",
+    "Answers:",
+    formattedAnswers,
+  ].join("\n");
+}
+
 /** A single option for {@link askUserQuestion}. Mirrors the agent `ask-question`
  *  tool and Claude Code's AskUserQuestion option shape. */
 export interface AskUserQuestionOption {
@@ -1080,12 +1090,7 @@ export function useGuidedQuestionFlow({
       const resolvedSubmitMessage = payload?.submitMessage ?? submitMessage;
       const context =
         buildSubmitContext?.({ answers, formattedAnswers }) ??
-        [
-          "The user answered the pre-generation questions.",
-          "",
-          "Answers:",
-          formattedAnswers,
-        ].join("\n");
+        defaultGuidedSubmitContext(formattedAnswers);
       sendToAgentChat({
         message: resolvedSubmitMessage,
         context,

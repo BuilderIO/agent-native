@@ -1210,11 +1210,10 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    // Wider + taller than the pill alone so the live transcript chip
-    // can stack above it. Height accommodates: bottom-anchored 32px pill
-    // + 6px gap + ~28px transcript chip + transparent window margin.
-    let content_w: u32 = (420.0 * scale).round() as u32;
-    let content_h: u32 = (120.0 * scale).round() as u32;
+    // Compact Wispr-style pill window: just enough transparent canvas for
+    // the bottom-centered waveform bar and its shadow gutter.
+    let content_w: u32 = (160.0 * scale).round() as u32;
+    let content_h: u32 = (56.0 * scale).round() as u32;
     let bottom_margin: i32 = (14.0 * scale).round() as i32;
     let gutter = overlay_shadow_gutter_physical(&app);
     let w: u32 = content_w + gutter * 2;

@@ -115,8 +115,8 @@ jobs:
           publish: node scripts/changeset-publish-sequential.ts
           # When pending changesets exist, opens this PR with the version
           # bumps + changelog updates. Merging it triggers the publish run.
-          title: "chore: version packages"
-          commit: "chore: version packages"
+          title: "chore: version packages [skip netlify]"
+          commit: "chore: version packages [skip netlify]"
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           # `npm publish` (called by `changeset publish`) requests an OIDC

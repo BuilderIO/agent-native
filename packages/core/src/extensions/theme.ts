@@ -1,4 +1,43 @@
 /**
+ * Canonical set of semantic theme token names shared by the app and extension
+ * iframes. This is the single source of truth: `getThemeVars` bakes default
+ * values for these into every iframe, and the host reads the *actual* computed
+ * values for the same names to sync its live palette into embedded extensions
+ * (see EmbeddedExtension). Custom properties can't be enumerated portably from
+ * a computed style, so the names must be listed explicitly.
+ */
+export const THEME_VAR_NAMES = [
+  "--background",
+  "--foreground",
+  "--card",
+  "--card-foreground",
+  "--popover",
+  "--popover-foreground",
+  "--primary",
+  "--primary-foreground",
+  "--secondary",
+  "--secondary-foreground",
+  "--muted",
+  "--muted-foreground",
+  "--accent",
+  "--accent-foreground",
+  "--destructive",
+  "--destructive-foreground",
+  "--border",
+  "--input",
+  "--ring",
+  "--radius",
+  "--sidebar-background",
+  "--sidebar-foreground",
+  "--sidebar-primary",
+  "--sidebar-primary-foreground",
+  "--sidebar-accent",
+  "--sidebar-accent-foreground",
+  "--sidebar-border",
+  "--sidebar-ring",
+] as const;
+
+/**
  * CSS variables baked into every extension iframe. Both light and dark are
  * always emitted — the `.dark` class on the iframe's `<html>` toggles between
  * them. This means a parent theme toggle becomes a single class toggle inside

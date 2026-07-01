@@ -1,5 +1,176 @@
 # @agent-native/core
 
+## 0.84.22
+
+### Patch Changes
+
+- 72d6a3e: Add built-in Slack webhook and email notification channels, keep chat status visible through auto-continuation handoffs, and make guided-question option values authoritative in follow-up context.
+- 72d6a3e: Send both Builder upload compression-skip query params for compatibility with the production upload API rollout.
+- 72d6a3e: Make the document Report-Only script-src CSP account for the framework-injected Google Analytics / Tag Manager loader and inline gtag config script, so GA no longer triggers a CSP violation on every page load (it was Report-Only, so GA was never actually blocked) and the policy stays safe to graduate to enforcement.
+
+## 0.84.21
+
+### Patch Changes
+
+- f883173: Refresh public booking branding with a plain Agent Native logo, updated open-source copy, and a ghost icon language picker for public pages.
+- f883173: Fix PR visual recap gating and comments so nested AGENTS.md files no longer count as recap-control files, trusted write actors can recap control-file edits, stale success bodies are replaced by skipped comments, and screenshot capture no longer waits for network-idle.
+- f883173: Offer Claude Opus 4.8 in the managed Builder gateway model picker, keep action-preparation recovery progress-aware for large streamed tool inputs, retry A2A auth with org-scoped bearer fallbacks in mixed deployments, and allow Builder uploads to skip waiting on server-side compression when callers can process asynchronously.
+
+## 0.84.20
+
+### Patch Changes
+
+- 93ed23b: Use a filter icon instead of a gear icon for the Extensions sidebar section sort/filter options trigger.
+- ce62d53: Fix extension iframe theme inheritance and add source-code editor. Extensions now correctly inherit the host app's dark/light theme and CSS custom properties instead of rendering with a white background. Adds a raw HTML/Alpine.js source editor dialog to ExtensionViewer so extensions can be edited directly without going through the AI chat.
+
+## 0.84.19
+
+### Patch Changes
+
+- 92b576f: Keep durable background agent runs from being reported as stale after a terminal event was already persisted, and show tool activity during tail reconnects.
+
+## 0.84.18
+
+### Patch Changes
+
+- fb0021b: Send compressed session replay uploads as binary payloads so Netlify preserves gzip bytes.
+
+## 0.84.17
+
+### Patch Changes
+
+- a4f5303: Keep background chat continuation markers and database pool detection aligned with the actual background function dispatch path.
+
+## 0.84.16
+
+### Patch Changes
+
+- 564460a: Add an optional `focus` flag to `setAgentChatContextItem` (and thread it through to the composer). Callers that mirror ambient UI state into chat context — such as a design canvas element selection — can now pass `focus: false` to stage the context chip without moving keyboard focus into the composer. This stops passive context staging from blurring and tearing down an in-progress inline text editor in the Design canvas (which re-fires on every selection and on each get-design poll during an agent run). Focus stays enabled by default, so existing callers are unchanged.
+- 2b27c0f: Avoid unsupported array helpers in Builder engine message caching and stabilize prep-load tests.
+- a4f5303: Keep background chat continuation markers and database pool detection aligned with the actual background function dispatch path.
+
+## 0.84.15
+
+### Patch Changes
+
+- 946ff86: Fix the "No LLM provider is connected" chat banner staying visible after a
+  provider is connected. The composer now clears that error once the engine
+  status flips to configured, and the status check no longer reads a stale
+  cached "missing" response after connecting.
+
+## 0.84.14
+
+### Patch Changes
+
+- bbc0a56: Persist terminal reasons for agent runs and classify recoverable run-timeout continuations separately in traces.
+- bbc0a56: Improve agent run diagnostics by recording terminal continuation reasons and adding safe run context to copied recovery debug details.
+- bbc0a56: Keep visual plan and recap diagram labels wrapped inside their boxes instead of overflowing authored diagram shapes.
+
+## 0.84.13
+
+### Patch Changes
+
+- dd5b0a4: Honor the long Netlify background-function timeout for durable agent-chat workers and record runtime diagnostics when a background run starts.
+- dd5b0a4: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+- dd5b0a4: Double the agent chat smooth-streaming reveal speed.
+- dd5b0a4: Avoid noisy Sentry reports from expected chat auth states and best-effort client thread-save conflicts.
+- dd5b0a4: Keep activity-only tool cards and the latest assistant message visibly running during agent chat continuations, steer interrupted Design generation retries toward smaller existing-file edits, and capture run persistence failures with run IDs so missing request IDs are diagnosable.
+- dd5b0a4: Compress the Plan mode composer callout into a quieter inline status pill.
+
+## 0.84.12
+
+### Patch Changes
+
+- 9032acb: Don't reap a run that is actively making progress. The stale reapers
+  (`reapIfStale`, `reapAllStaleRuns`, and the heartbeat-stale path of
+  `cleanupOldRuns`) keyed liveness solely on `heartbeat_at` (the 1.5s
+  process-liveness timer) and ignored `last_progress_at` (bumped whenever the
+  agent emits an event, including a long-running tool's periodic activity
+  heartbeats — e.g. image generation streaming activity every 8s). When the
+  heartbeat write lagged while a multi-minute tool was in flight, the run was
+  flipped to `errored`, and the producing isolate's SQL-abort check then
+  self-aborted the in-flight tool with "Run aborted" — looping on the
+  durable-background self-chaining path and interrupting once inline. The reapers
+  now use the most recent of `heartbeat_at` and `last_progress_at` (falling back to
+  `started_at`) as their liveness basis, so a demonstrably-progressing run is never
+  reaped mid-tool. Portable across SQLite and Postgres; can only make reaping more
+  conservative (a dead producer emits neither signal).
+- 9032acb: Add a `trigger="label-icon"` option to `ShareButton` that renders a leading
+  share glyph alongside the "Share" label, so the trigger matches adjacent
+  icon+label buttons (e.g. an Upload button). The default `"label"` trigger stays
+  text-only and `"icon"` stays icon-only.
+- 351ee93: Fix an infinite sign-in redirect loop under base-path deploys. When the
+  authenticated app shell (wrapped in `RequireSession`) was served at the sign-in
+  path — e.g. `/<app>/_agent-native/sign-in` on a path-prefixed deploy — the gate
+  redirected to the sign-in page from the sign-in page, nesting and re-encoding the
+  current URL as a fresh `?return=` on every hop (`…sign-in?return=%252F…sign-in%253Freturn…`).
+  `RequireSession` now refuses to redirect when already on the sign-in entry point
+  (new exported `isOnSignInPage` helper), and `safeReturnPath` collapses any
+  `return` that resolves back to `…/_agent-native/sign-in` to `/`.
+
+## 0.84.11
+
+### Patch Changes
+
+- a2ce30e: Improve local SQLite collab write robustness for Design editor workflows.
+
+## 0.84.10
+
+### Patch Changes
+
+- 720b8b0: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+
+## 0.84.9
+
+### Patch Changes
+
+- 8cfc0ee: Show a visible warning when an agent stops after its final completed tool action, even if it sent text before that tool finished.
+
+## 0.84.8
+
+### Patch Changes
+
+- b5cc580: Show a visible warning when an agent run completes tools but stops before sending any final assistant text.
+
+## 0.84.7
+
+### Patch Changes
+
+- ab1e410: Stop repeated agent-chat action-preparation loops with a clear terminal warning, and let Design agents present compact variant directions without streaming large HTML payloads.
+
+## 0.84.6
+
+### Patch Changes
+
+- 126ccac: Claim durable background agent-chat runs before expensive worker setup so hosted apps stay on the 15-minute background-function path instead of falling back to 40-second inline chunks.
+
+## 0.84.5
+
+### Patch Changes
+
+- 1a8400a: Surface an explicit chat error when an agent stops before a displayed tool action starts or returns a result, and keep Design variant generation prompts compact enough to finish.
+
+## 0.84.4
+
+### Patch Changes
+
+- 61715b4: Pin Nitro's `nf3` tracer dependency to a Node 22-compatible release so downstream package updates continue to build hosted apps.
+
+## 0.84.3
+
+### Patch Changes
+
+- af049a8: Improve agent-chat timeout recovery so completed tool actions end with a clear saved-result note instead of a generic connection failure, and bound repeated no-progress tool stalls.
+- af049a8: Allow share panels to hide copyable link fields, omit the bottom Done action, and render compact host-provided footer actions.
+- af049a8: Stack nested share popover menus above their parent panel so users can change visibility.
+
+## 0.84.2
+
+### Patch Changes
+
+- 3ff4f55: Extend Builder gateway timeouts for local and background agent-chat runs, and surface recoverable gateway timeout failures instead of silently retrying activity-only tool preparation loops.
+- 3ff4f55: Allow scoped chat surfaces to hide the composer scope badge while keeping thread context attached.
+
 ## 0.84.1
 
 ### Patch Changes

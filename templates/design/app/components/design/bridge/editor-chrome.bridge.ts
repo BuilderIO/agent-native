@@ -58,6 +58,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
     chromeTransitionStyle.textContent =
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
+      '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
+      "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
       "[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}" +
       "[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}" +
@@ -361,6 +363,191 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     };
   }
 
+  var PORTABLE_STYLE_PROPERTIES = [
+    "alignContent",
+    "alignItems",
+    "alignSelf",
+    "aspectRatio",
+    "background",
+    "backgroundAttachment",
+    "backgroundClip",
+    "backgroundColor",
+    "backgroundImage",
+    "backgroundOrigin",
+    "backgroundPosition",
+    "backgroundRepeat",
+    "backgroundSize",
+    "border",
+    "borderBottom",
+    "borderBottomColor",
+    "borderBottomLeftRadius",
+    "borderBottomRightRadius",
+    "borderBottomStyle",
+    "borderBottomWidth",
+    "borderColor",
+    "borderLeft",
+    "borderLeftColor",
+    "borderLeftStyle",
+    "borderLeftWidth",
+    "borderRadius",
+    "borderRight",
+    "borderRightColor",
+    "borderRightStyle",
+    "borderRightWidth",
+    "borderStyle",
+    "borderTop",
+    "borderTopColor",
+    "borderTopLeftRadius",
+    "borderTopRightRadius",
+    "borderTopStyle",
+    "borderTopWidth",
+    "borderWidth",
+    "boxShadow",
+    "boxSizing",
+    "color",
+    "columnGap",
+    "display",
+    "filter",
+    "flex",
+    "flexBasis",
+    "flexDirection",
+    "flexGrow",
+    "flexShrink",
+    "flexWrap",
+    "font",
+    "fontFamily",
+    "fontSize",
+    "fontStyle",
+    "fontWeight",
+    "gap",
+    "gridAutoColumns",
+    "gridAutoFlow",
+    "gridAutoRows",
+    "gridColumn",
+    "gridColumnEnd",
+    "gridColumnStart",
+    "gridRow",
+    "gridRowEnd",
+    "gridRowStart",
+    "gridTemplateColumns",
+    "gridTemplateRows",
+    "height",
+    "justifyContent",
+    "justifyItems",
+    "justifySelf",
+    "letterSpacing",
+    "lineHeight",
+    "margin",
+    "marginBottom",
+    "marginLeft",
+    "marginRight",
+    "marginTop",
+    "maxHeight",
+    "maxWidth",
+    "minHeight",
+    "minWidth",
+    "mixBlendMode",
+    "objectFit",
+    "objectPosition",
+    "opacity",
+    "order",
+    "outline",
+    "outlineColor",
+    "outlineOffset",
+    "outlineStyle",
+    "outlineWidth",
+    "overflow",
+    "overflowX",
+    "overflowY",
+    "padding",
+    "paddingBottom",
+    "paddingLeft",
+    "paddingRight",
+    "paddingTop",
+    "placeContent",
+    "placeItems",
+    "placeSelf",
+    "position",
+    "rowGap",
+    "textAlign",
+    "textDecoration",
+    "textDecorationColor",
+    "textDecorationLine",
+    "textDecorationStyle",
+    "textShadow",
+    "textTransform",
+    "transform",
+    "transformOrigin",
+    "verticalAlign",
+    "whiteSpace",
+    "width",
+    "wordBreak",
+    "zIndex",
+  ];
+
+  function elementPathFromRoot(root: Element, node: Element): number[] {
+    var path = [];
+    var current: Element | null = node;
+    while (current && current !== root && current.parentElement) {
+      var siblings = Array.prototype.slice.call(current.parentElement.children);
+      path.unshift(Math.max(0, siblings.indexOf(current)));
+      current = current.parentElement;
+    }
+    return path;
+  }
+
+  function collectPortableComputedStyles(
+    el: Element | null,
+  ): Record<string, string> {
+    if (!el) return {};
+    var cs = window.getComputedStyle(el);
+    var styles: Record<string, string> = {};
+    PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      var value = cs[property] || cs.getPropertyValue(property);
+      if (typeof value === "string" && value.trim()) {
+        styles[property] = value;
+      }
+    });
+    for (var index = 0; index < cs.length; index += 1) {
+      var name = cs.item(index);
+      if (name && name.indexOf("--") === 0) {
+        var customValue = cs.getPropertyValue(name);
+        if (customValue && customValue.trim()) {
+          styles[name] = customValue.trim();
+        }
+      }
+    }
+    return styles;
+  }
+
+  function collectPortableStyleSnapshot(root: Element | null) {
+    if (!root || isDocumentRootElement(root)) return undefined;
+    var nodes = [];
+    var maxNodes = 80;
+    function pushNode(node: Element) {
+      if (nodes.length >= maxNodes) return;
+      nodes.push({
+        sourceId: getSourceId(node) || undefined,
+        path: elementPathFromRoot(root, node),
+        styles: collectPortableComputedStyles(node),
+      });
+    }
+    pushNode(root);
+    var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
+    for (
+      var index = 0;
+      index < descendants.length && nodes.length < maxNodes;
+      index += 1
+    ) {
+      pushNode(descendants[index]);
+    }
+    return {
+      version: 1,
+      rootSourceId: getSourceId(root) || undefined,
+      nodes: nodes,
+    };
+  }
+
   function chromeColorForElement(el: Element | null): string {
     return elementLooksLikeComponent(el)
       ? "var(--design-editor-component-color)"
@@ -562,6 +749,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         mixBlendMode: cs.mixBlendMode,
         zIndex: cs.zIndex,
       },
+      portableStyleSnapshot: collectPortableStyleSnapshot(el),
       boundingRect: {
         x: rect.x + (window.scrollX || window.pageXOffset || 0),
         y: rect.y + (window.scrollY || window.pageYOffset || 0),
@@ -992,6 +1180,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   var spacingHandleStateByKey: Record<string, { value: number }> = {};
   var spacingHandleNodesByKey: Record<string, Element> = {};
   var spacingOverlayRenderKey = "";
+  var activeDragCancel: (() => boolean) | null = null;
+  var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var spacingDrag: {
     key: string;
     groupKey: string;
@@ -1024,6 +1214,33 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     clearActiveMarqueeSelection();
     hideSpacingOverlay();
     hideMeasurements();
+  }
+
+  function postEditorDragState(active: boolean): void {
+    (window.parent as Window).postMessage(
+      { type: "agent-native:editor-drag-state", active },
+      "*",
+    );
+  }
+
+  function setActiveDragCancel(cancel: () => boolean): void {
+    activeDragCancel = cancel;
+    postEditorDragState(true);
+  }
+
+  function clearActiveDragCancel(cancel?: () => boolean): void {
+    if (cancel && activeDragCancel !== cancel) return;
+    if (!activeDragCancel) return;
+    activeDragCancel = null;
+    postEditorDragState(false);
+  }
+
+  function cancelActiveBridgeDrag(): boolean {
+    var cancel = activeDragCancel;
+    if (!cancel) return false;
+    activeDragCancel = null;
+    postEditorDragState(false);
+    return cancel();
   }
 
   function removePassiveSelectionOverlays(): void {
@@ -1779,13 +1996,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       region: { x: number; y: number; width: number; height: number };
       line: { x: number; y: number; width: number; height: number } | undefined;
     } | null,
-    activeGroupKey: string,
+    activeGroupKeys: Record<string, boolean>,
   ): void {
     if (!handle) return;
     spacingHandleStateByKey[handle.key] = handle;
-    var highlighted = Boolean(
-      activeGroupKey && handle.groupKey === activeGroupKey,
-    );
+    var highlighted = Boolean(activeGroupKeys[handle.groupKey]);
     var lineNode = document.createElement("span");
     lineNode.setAttribute("data-agent-native-spacing-line", handle.kind);
     lineNode.style.position = "absolute";
@@ -1845,17 +2060,16 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       key: string;
       groupKey: string;
       kind: string;
+      property?: string;
       orientation: string;
     } | null)[],
-    activeGroupKey: string,
+    activeGroupKeys: Record<string, boolean>,
   ): void {
     handles.forEach(function (handle) {
       if (!handle) return;
       var regionNode = spacingHandleNodesByKey[handle.key];
       if (!regionNode) return;
-      var highlighted = Boolean(
-        activeGroupKey && handle.groupKey === activeGroupKey,
-      );
+      var highlighted = Boolean(activeGroupKeys[handle.groupKey]);
       (regionNode as HTMLElement).style.background = highlighted
         ? spacingFill(handle.kind, handle.orientation)
         : "transparent";
@@ -1863,6 +2077,37 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         ? "1px solid " + spacingColor(handle.kind)
         : "0";
     });
+  }
+
+  function activeSpacingGroupKeys(
+    handles: ({
+      groupKey: string;
+      kind: string;
+      property: string;
+    } | null)[],
+    activeHandle: {
+      groupKey: string;
+      kind: string;
+      oppositeProperty: string;
+    } | null,
+  ): Record<string, boolean> {
+    var activeGroupKeys: Record<string, boolean> = {};
+    if (!activeHandle) return activeGroupKeys;
+    activeGroupKeys[activeHandle.groupKey] = true;
+    if (
+      spacingDrag &&
+      spacingDrag.mirrorOpposite &&
+      activeHandle.kind === "padding" &&
+      activeHandle.oppositeProperty
+    ) {
+      handles.forEach(function (handle) {
+        if (!handle) return;
+        if (handle.property === activeHandle.oppositeProperty) {
+          activeGroupKeys[handle.groupKey] = true;
+        }
+      });
+    }
+    return activeGroupKeys;
   }
 
   function updateSpacingOverlay(el: Element | null): void {
@@ -1880,7 +2125,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       return;
     }
     var activeHandle = spacingDrag ? spacingDrag.handle : null;
-    var activeGroupKey = activeHandle ? activeHandle.groupKey : "";
+    var activeGroupKeys = activeSpacingGroupKeys(handles, activeHandle);
     var nextRenderKey = handles
       .map(function (handle) {
         return [
@@ -1901,7 +2146,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       spacingOverlay.style.display === "block" &&
       spacingOverlayRenderKey === nextRenderKey
     ) {
-      updateSpacingHandleHighlights(handles, activeGroupKey);
+      updateSpacingHandleHighlights(handles, activeGroupKeys);
       if (activeHandle) {
         showSpacingBadgeForHandle(
           activeHandle,
@@ -1918,7 +2163,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     spacingHandleStateByKey = {};
     spacingHandleNodesByKey = {};
     handles.forEach(function (handle) {
-      renderSpacingHandle(handle, activeGroupKey);
+      renderSpacingHandle(handle, activeGroupKeys);
     });
     if (activeHandle) {
       showSpacingBadgeForHandle(
@@ -1940,10 +2185,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       : "";
   }
 
+  function setHoverToSelectedElementFromSpacingSurface(): void {
+    if (!selectedEl || !document.documentElement.contains(selectedEl)) return;
+    var changed = hoveredEl !== selectedEl;
+    hoveredEl = selectedEl;
+    highlightOverlay.style.display = "none";
+    hideMeasurements();
+    if (changed) {
+      (window.parent as Window).postMessage(
+        { type: "element-hover", payload: getElementInfo(selectedEl) },
+        "*",
+      );
+    }
+  }
+
   function activateSpacingHandle(spacingKey: string): void {
     if (!spacingKey) return;
     clearSpacingHoverTimer();
     selectedSpacingHovered = true;
+    setHoverToSelectedElementFromSpacingSurface();
     if (
       hoveredSpacingHandleKey !== spacingKey ||
       spacingOverlay.style.display !== "block"
@@ -1992,6 +2252,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         ? region.getAttribute("data-spacing-key")
         : "";
       if (spacingKey) activateSpacingHandle(spacingKey);
+      setHoverToSelectedElementFromSpacingSurface();
       return true;
     }
     var hit = elementFromEditorPoint(clientX, clientY);
@@ -2143,12 +2404,24 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   }
 
   function refreshOverlays(): void {
+    var textEditingEl =
+      activeTextEditEl ||
+      (document.querySelector(
+        "[data-agent-native-text-editing]",
+      ) as HTMLElement | null);
     if (hoveredEl && hoveredEl !== selectedEl) {
       positionOverlay(highlightOverlay, hoveredEl);
     } else {
       highlightOverlay.style.display = "none";
     }
-    if (selectedEl) {
+    if (textEditingEl) {
+      if (activeTextEditEl === textEditingEl) {
+        updateTextEditingChrome(textEditingEl, "", "");
+      }
+      if (!hasTextCharacters(textEditingEl)) {
+        hideSelectionOverlay();
+      }
+    } else if (selectedEl) {
       positionOverlay(selectionOverlay, selectedEl);
     } else {
       hideParentAutoLayoutOverlay();
@@ -2560,9 +2833,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     originalMinWidth: string,
     originalMinHeight: string,
   ): void {
-    target.style.outline = "";
-    target.style.outlineOffset = "";
+    target.style.outline = "none";
+    target.style.outlineStyle = "none";
+    target.style.outlineWidth = "0px";
+    target.style.outlineColor = "transparent";
+    target.style.outlineOffset = "0px";
     if (hasTextCharacters(target)) {
+      document.documentElement.removeAttribute(
+        "data-agent-native-empty-text-editing",
+      );
       target.style.minWidth = originalMinWidth;
       target.style.minHeight = originalMinHeight;
       positionOverlay(selectionOverlay, target);
@@ -2571,6 +2850,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     target.style.minWidth = originalMinWidth || "1px";
     target.style.minHeight = originalMinHeight || "1em";
+    document.documentElement.setAttribute(
+      "data-agent-native-empty-text-editing",
+      "true",
+    );
     hideSelectionOverlay();
     setSelectionOverlayResizeChromeVisible(false);
   }
@@ -3103,6 +3386,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var events = dragEventNames(e);
     var dragEl = selectedEl;
     var originValue = handle.value;
+    var originInlineValue = (dragEl as HTMLElement).style[handle.property];
+    var originInlineOppositeValue = handle.oppositeProperty
+      ? (dragEl as HTMLElement).style[handle.oppositeProperty]
+      : "";
     var startX = e.clientX;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
@@ -3114,6 +3401,56 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       mirrorOpposite: !!e.altKey,
     };
     showSpacingBadgeForHandle(handle, originValue);
+
+    function updateSpacingDragMirrorState(mirrorOpposite: boolean) {
+      if (!spacingDrag) return;
+      if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+      spacingDrag = {
+        handle: handle,
+        currentValue: spacingDrag.currentValue,
+        mirrorOpposite: mirrorOpposite,
+      };
+      positionOverlay(selectionOverlay, dragEl);
+      showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
+    }
+
+    function cleanupSpacingDrag() {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("keyup", onKey, true);
+      clearActiveDragCancel(cancelSpacingDrag);
+    }
+
+    function restoreSpacingDragValue() {
+      if (dragEl && document.documentElement.contains(dragEl)) {
+        (dragEl as HTMLElement).style[handle.property] = originInlineValue;
+        if (handle.oppositeProperty) {
+          (dragEl as HTMLElement).style[handle.oppositeProperty] =
+            originInlineOppositeValue;
+        }
+        selectedEl = dragEl;
+        positionOverlay(selectionOverlay, dragEl);
+      }
+      spacingDrag = null;
+      spacingBadge.style.display = "none";
+    }
+
+    function cancelSpacingDrag() {
+      cleanupSpacingDrag();
+      restoreSpacingDragValue();
+      return true;
+    }
+
+    function onKey(ev) {
+      if (ev.key === "Escape") {
+        stopNativeInteraction(ev);
+        cancelSpacingDrag();
+        return;
+      }
+      if (ev.key !== "Alt") return;
+      updateSpacingDragMirrorState(!!ev.altKey);
+    }
 
     function onMove(ev) {
       if (!dragEl || !document.documentElement.contains(dragEl)) return;
@@ -3137,10 +3474,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
 
     function onUp(ev) {
-      document.removeEventListener(events.move, onMove, true);
-      document.removeEventListener(events.up, onUp, true);
+      cleanupSpacingDrag();
       if (!dragEl || !document.documentElement.contains(dragEl)) {
         spacingDrag = null;
+        spacingBadge.style.display = "none";
         return;
       }
       var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
@@ -3165,6 +3502,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("keyup", onKey, true);
+    setActiveDragCancel(cancelSpacingDrag);
   }
 
   function postTextContentChange(el, value, html) {
@@ -3342,6 +3682,55 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
   }
 
+  function isAbsolutePrimitiveContainer(el: Element | null): boolean {
+    if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+    var primitive = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (primitive !== "rectangle" && primitive !== "rect") return false;
+    var cs = window.getComputedStyle(el);
+    return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  function absolutePrimitiveContainerTargetForPoint(
+    el: Element | null,
+    clientX: number,
+    clientY: number,
+  ) {
+    var hits: Element[] = document.elementsFromPoint
+      ? document.elementsFromPoint(clientX, clientY)
+      : ([document.elementFromPoint(clientX, clientY)] as Element[]);
+    var seen: Element[] = [];
+    for (var i = 0; i < hits.length; i += 1) {
+      var cursor: Element | null = hits[i];
+      var candidate: Element | null = null;
+      while (cursor && cursor !== document.body) {
+        if (isAbsolutePrimitiveContainer(cursor)) {
+          candidate = cursor;
+          break;
+        }
+        cursor = cursor.parentElement;
+      }
+      if (!candidate || seen.indexOf(candidate) !== -1) continue;
+      seen.push(candidate);
+      if (candidate === el) continue;
+      if (el && el.contains && el.contains(candidate)) continue;
+      if (el && candidate.contains && candidate.contains(el)) continue;
+      if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
+        continue;
+      }
+      return {
+        anchor: candidate,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container",
+      };
+    }
+    return null;
+  }
+
   function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
     return (
       clientX < 0 ||
@@ -3357,11 +3746,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     ev?: { clientX?: number; clientY?: number } | null,
   ): void {
     if (phase === "cancel") {
+      activeCrossScreenStyleSnapshot = undefined;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
         "*",
       );
       return;
+    }
+    if (phase === "start") {
+      activeCrossScreenStyleSnapshot = collectPortableStyleSnapshot(el ?? null);
     }
     var rect = el ? el.getBoundingClientRect() : null;
     var pointerOffset =
@@ -3392,9 +3785,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
             }
           : undefined,
         pointerOffset,
+        styleSnapshot: activeCrossScreenStyleSnapshot,
       },
       "*",
     );
+    if (phase === "end") {
+      activeCrossScreenStyleSnapshot = undefined;
+    }
   }
 
   // keep in sync with EditPanel.tsx CONTAINER_TAGS/LEAF_TAGS (~line 1679)
@@ -3533,9 +3930,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
             anchor: hit,
             placement: "inside",
             axis: parentFlowAxis(hit),
+            dropMode: isAbsolutePrimitiveContainer(hit)
+              ? "absolute-container"
+              : "flow-insert",
           };
         }
-        return { anchor: hit, placement: edgePlacement, axis: edgeAxis };
+        return {
+          anchor: hit,
+          placement: edgePlacement,
+          axis: edgeAxis,
+          dropMode: "flow-insert",
+        };
       }
       var hitParent = hit.parentElement;
       if (hitParent) {
@@ -3550,6 +3955,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           anchor: hit,
           placement: hitPointer < hitCenter ? "before" : "after",
           axis: hitAxis,
+          dropMode: "flow-insert",
         };
       }
     }
@@ -3572,7 +3978,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     var anchor = beforeTarget || siblings[siblings.length - 1];
     var placement = beforeTarget ? "before" : "after";
-    return { anchor: anchor, placement: placement, axis: axis };
+    return {
+      anchor: anchor,
+      placement: placement,
+      axis: axis,
+      dropMode: "flow-insert",
+    };
   }
 
   function elementFromEditorPointIgnoring(
@@ -3621,6 +4032,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           anchor: cursor,
           placement: childPointer < childCenter ? "before" : "after",
           axis: parentAxis,
+          dropMode: "flow-insert",
         };
       }
       if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
@@ -3628,11 +4040,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           anchor: cursor,
           placement: "inside",
           axis: parentFlowAxis(cursor),
+          dropMode: "flow-insert",
+        };
+      }
+      if (isAbsolutePrimitiveContainer(cursor)) {
+        return {
+          anchor: cursor,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container",
         };
       }
       cursor = parent;
     }
-    return null;
+    return absolutePrimitiveContainerTargetForPoint(el, clientX, clientY);
   }
 
   function showInsertionGuideFor(target) {
@@ -3709,6 +4130,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         anchorSelector: getSelector(target.anchor),
         anchorSourceId: getSourceId(target.anchor),
         placement: target.placement,
+        dropMode: target.dropMode || "flow-insert",
+        sourceRect: rectInfoForElement(el),
+        anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
       },
       "*",
@@ -3772,6 +4196,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var pointerOutsideIframe = false;
       var reorderSelector = getSelector(reorderEl);
       var reorderSourceId = getSourceId(reorderEl);
+      var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
+      var reorderRect = reorderEl.getBoundingClientRect();
+      var reorderPointerOffset = {
+        x: e.clientX - reorderRect.left,
+        y: e.clientY - reorderRect.top,
+      };
       function onReorderMove(ev) {
         var vw = window.innerWidth;
         var vh = window.innerHeight;
@@ -3791,6 +4221,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
             iframeY: cy,
             viewportW: vw,
             viewportH: vh,
+            pointerOffset: reorderPointerOffset,
+            styleSnapshot: reorderStyleSnapshot,
           },
           "*",
         );
@@ -3806,10 +4238,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
         }
       }
-      function onReorderEscape() {
+      function cleanupReorderDrag() {
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
         document.removeEventListener("keydown", onReorderKeyDown, true);
+        clearActiveDragCancel(onReorderEscape);
+      }
+      function onReorderEscape() {
+        cleanupReorderDrag();
         hideTransformBadge();
         hideInsertionGuide();
         (window.parent as Window).postMessage(
@@ -3828,19 +4264,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
         }
+        suppressNextShieldClickBriefly();
+        return true;
       }
       function onReorderKeyDown(ev) {
         if (ev.key === "Escape") {
-          ev.preventDefault();
-          ev.stopPropagation();
-          if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+          stopNativeInteraction(ev);
           onReorderEscape();
         }
       }
       function onReorderUp(ev) {
-        document.removeEventListener(events.move, onReorderMove, true);
-        document.removeEventListener(events.up, onReorderUp, true);
-        document.removeEventListener("keydown", onReorderKeyDown, true);
+        cleanupReorderDrag();
         hideTransformBadge();
         hideInsertionGuide();
         var vw = window.innerWidth;
@@ -3859,6 +4293,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
             iframeY: cy,
             viewportW: vw,
             viewportH: vh,
+            pointerOffset: reorderPointerOffset,
+            styleSnapshot: reorderStyleSnapshot,
           },
           "*",
         );
@@ -3911,14 +4347,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
       document.addEventListener("keydown", onReorderKeyDown, true);
+      setActiveDragCancel(onReorderEscape);
       return;
     }
-    ensurePositionable(selectedEl);
-    var cs = window.getComputedStyle(selectedEl);
     var originalInlinePosition = (selectedEl as HTMLElement).style.position;
     var originalInlineLeft = (selectedEl as HTMLElement).style.left;
     var originalInlineTop = (selectedEl as HTMLElement).style.top;
     var originalInlineOpacity = (selectedEl as HTMLElement).style.opacity;
+    ensurePositionable(selectedEl);
+    var cs = window.getComputedStyle(selectedEl);
     var originLeft = readPx((selectedEl as HTMLElement).style.left || cs.left);
     var originTop = readPx(selectedEl.style.top || cs.top);
     var startX = e.clientX;
@@ -3981,9 +4418,39 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       selectedEl = originalSelectedEl;
       positionOverlay(selectionOverlay, selectedEl);
     }
-    function onUp(ev) {
+    function cleanupMoveDrag() {
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onMoveKeyDown, true);
+      clearActiveDragCancel(cancelMoveDrag);
+    }
+    function cancelMoveDrag() {
+      cleanupMoveDrag();
+      hideTransformBadge();
+      hideInsertionGuide();
+      currentAutoLayoutTarget = null;
+      if (duplicatedForDrag) {
+        if (dragEl && dragEl.parentElement) {
+          dragEl.parentElement.removeChild(dragEl);
+        }
+        selectedEl = originalSelectedEl;
+        positionOverlay(selectionOverlay, selectedEl);
+        postElementSelect(selectedEl);
+      } else if (dragEl && document.documentElement.contains(dragEl)) {
+        restoreSourceDragPosition();
+        postCrossScreenDrag("cancel");
+      }
+      suppressNextShieldClickBriefly();
+      refreshOverlays();
+      return true;
+    }
+    function onMoveKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelMoveDrag();
+    }
+    function onUp(ev) {
+      cleanupMoveDrag();
       hideTransformBadge();
       hideInsertionGuide();
       if (!dragEl) return;
@@ -4000,6 +4467,16 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (ev && !duplicatedForDrag && outsideOnDrop) {
         restoreSourceDragPosition();
         return;
+      }
+      if (ev && !duplicatedForDrag && !outsideOnDrop) {
+        var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
+          dragEl,
+          ev.clientX,
+          ev.clientY,
+        );
+        if (finalAutoLayoutTarget) {
+          currentAutoLayoutTarget = finalAutoLayoutTarget;
+        }
       }
       if (duplicatedForDrag && !moved) {
         // Alt-click with no real drag — remove the premature clone and restore the original selection.
@@ -4040,6 +4517,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onMoveKeyDown, true);
+    setActiveDragCancel(cancelMoveDrag);
   }
 
   function startResize(handle, e) {
@@ -4048,25 +4527,30 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     e.preventDefault();
     e.stopPropagation();
     var events = dragEventNames(e);
-    ensurePositionable(selectedEl);
-    var cs = window.getComputedStyle(selectedEl);
+    // Snapshot the element so a concurrent clear-selection postMessage cannot
+    // cause a null-deref in onMove/onUp.
+    var resizeEl = selectedEl;
+    var originalInlinePosition = resizeEl.style.position;
+    var originalInlineLeft = resizeEl.style.left;
+    var originalInlineTop = resizeEl.style.top;
+    var originalInlineWidth = resizeEl.style.width;
+    var originalInlineHeight = resizeEl.style.height;
+    ensurePositionable(resizeEl);
+    var cs = window.getComputedStyle(resizeEl);
     // Bug fix: use CSS width/height (not getBoundingClientRect) for the resize
     // origin dimensions so that rotated elements don't use the inflated
     // axis-aligned bounding box as the starting size.
-    var originW = readPx(selectedEl.style.width || cs.width);
-    var originH = readPx(selectedEl.style.height || cs.height);
+    var originW = readPx(resizeEl.style.width || cs.width);
+    var originH = readPx(resizeEl.style.height || cs.height);
     var origin = {
-      left: readPx(selectedEl.style.left || cs.left),
-      top: readPx(selectedEl.style.top || cs.top),
+      left: readPx(resizeEl.style.left || cs.left),
+      top: readPx(resizeEl.style.top || cs.top),
       width: originW,
       height: originH,
       ratio: originW / Math.max(1, originH),
     };
     var startX = e.clientX;
     var startY = e.clientY;
-    // Snapshot the element so a concurrent clear-selection postMessage cannot
-    // cause a null-deref in onMove/onUp.
-    var resizeEl = selectedEl;
     // Capture the element rotation once at drag-start so per-move projection is
     // cheap and consistent even if the transform changes during the drag.
     var resizeTheta = (currentRotation(resizeEl) * Math.PI) / 180;
@@ -4163,9 +4647,35 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       );
       refreshOverlays();
     }
-    function onUp() {
+    function cleanupResizeDrag() {
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onResizeKeyDown, true);
+      clearActiveDragCancel(cancelResizeDrag);
+    }
+    function cancelResizeDrag() {
+      cleanupResizeDrag();
+      hideTransformBadge();
+      if (resizeEl && document.documentElement.contains(resizeEl)) {
+        resizeEl.style.position = originalInlinePosition;
+        resizeEl.style.left = originalInlineLeft;
+        resizeEl.style.top = originalInlineTop;
+        resizeEl.style.width = originalInlineWidth;
+        resizeEl.style.height = originalInlineHeight;
+        selectedEl = resizeEl;
+        positionOverlay(selectionOverlay, selectedEl);
+      }
+      suppressNextShieldClickBriefly();
+      refreshOverlays();
+      return true;
+    }
+    function onResizeKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelResizeDrag();
+    }
+    function onUp() {
+      cleanupResizeDrag();
       hideTransformBadge();
       if (!resizeEl) return;
       (window.parent as Window).postMessage(
@@ -4186,6 +4696,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onResizeKeyDown, true);
+    setActiveDragCancel(cancelResizeDrag);
   }
 
   function startRotate(e) {
@@ -4207,6 +4719,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // Snapshot so a concurrent clear-selection postMessage cannot cause a
     // null-deref in onMove/onUp.
     var rotateEl = selectedEl;
+    var originalInlineTransform = rotateEl.style.transform;
     function onMove(ev) {
       if (!rotateEl) return;
       var pointerAngle =
@@ -4219,9 +4732,31 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       showTransformBadge(next + "deg", ev.clientX, ev.clientY);
       refreshOverlays();
     }
-    function onUp() {
+    function cleanupRotateDrag() {
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onRotateKeyDown, true);
+      clearActiveDragCancel(cancelRotateDrag);
+    }
+    function cancelRotateDrag() {
+      cleanupRotateDrag();
+      hideTransformBadge();
+      if (rotateEl && document.documentElement.contains(rotateEl)) {
+        rotateEl.style.transform = originalInlineTransform;
+        selectedEl = rotateEl;
+        positionOverlay(selectionOverlay, selectedEl);
+      }
+      suppressNextShieldClickBriefly();
+      refreshOverlays();
+      return true;
+    }
+    function onRotateKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelRotateDrag();
+    }
+    function onUp() {
+      cleanupRotateDrag();
       hideTransformBadge();
       if (!rotateEl) return;
       (window.parent as Window).postMessage(
@@ -4236,6 +4771,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onRotateKeyDown, true);
+    setActiveDragCancel(cancelRotateDrag);
   }
 
   function clearPendingShieldDrag() {
@@ -4432,6 +4969,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     "keydown",
     function (e) {
       if (!shouldForwardDesignHotkey(e)) return;
+      if (e.key === "Escape" && cancelActiveBridgeDrag()) {
+        stopNativeInteraction(e);
+        return;
+      }
       stopNativeInteraction(e);
       if (e.key === "Escape") clearRuntimeSelection();
       (window.parent as Window).postMessage(
@@ -4504,24 +5045,37 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // code-layer node rather than a runtime-only descendant (which would emit a
     // brittle body > div:nth-of-type(...) selector that never resolves).
     selectedEl = selectionTargetForHit(target) || target;
+    var programmaticTextEdit =
+      !!e &&
+      (e as unknown as { agentNativeProgrammaticTextEdit?: boolean })
+        .agentNativeProgrammaticTextEdit === true;
     var originalText = target.textContent || "";
     var originalHtml = target.innerHTML || "";
     var originalMinWidth = target.style.minWidth;
     var originalMinHeight = target.style.minHeight;
     var originalBorderColor = target.style.borderColor;
+    var originalOutline = target.style.outline;
+    var originalOutlineOffset = target.style.outlineOffset;
     var committed = false;
     activeTextEditEl = target;
     target.setAttribute("contenteditable", "true");
     target.setAttribute("data-agent-native-text-editing", "true");
     target.style.cursor = "text";
     target.style.borderColor = "transparent";
+    target.style.outline = "none";
+    target.style.outlineStyle = "none";
+    target.style.outlineWidth = "0px";
+    target.style.outlineColor = "transparent";
+    target.style.outlineOffset = "0px";
     setTextEditingPointerPassthrough(true);
     updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-    postElementSelect(target, e);
-    (window.parent as Window).postMessage(
-      { type: "element-dblclick-text", payload: getElementInfo(target) },
-      "*",
-    );
+    if (!programmaticTextEdit) {
+      postElementSelect(target, e);
+      (window.parent as Window).postMessage(
+        { type: "element-dblclick-text", payload: getElementInfo(target) },
+        "*",
+      );
+    }
     postTextEditingState(target, true);
 
     function finish(commit) {
@@ -4536,9 +5090,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       document.removeEventListener("selectionchange", onSelectionChange);
       target.removeAttribute("contenteditable");
       target.removeAttribute("data-agent-native-text-editing");
+      document.documentElement.removeAttribute(
+        "data-agent-native-empty-text-editing",
+      );
       target.style.cursor = "";
-      target.style.outline = "";
-      target.style.outlineOffset = "";
+      target.style.outline = originalOutline;
+      target.style.outlineOffset = originalOutlineOffset;
       target.style.minWidth = originalMinWidth;
       target.style.minHeight = originalMinHeight;
       target.style.borderColor = originalBorderColor;
@@ -4560,6 +5117,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
 
     function onBlur() {
+      if (programmaticTextEdit && !(target.textContent || "").trim()) {
+        window.setTimeout(function () {
+          if (committed || (target.textContent || "").trim()) return;
+          target.focus();
+          updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
+          postTextEditingState(target, true);
+        }, 0);
+        return;
+      }
       finish(true);
     }
 
@@ -4785,6 +5351,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           clientX: bteCenterX,
           clientY: bteCenterY,
           target: textTarget,
+          agentNativeProgrammaticTextEdit: true,
           preventDefault: function () {},
           stopPropagation: function () {},
           stopImmediatePropagation: function () {},
@@ -4807,6 +5374,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     if (e.data.type === "scale-tool-mode") {
       scaleToolEnabled = !!e.data.enabled;
+      return;
+    }
+    if (e.data.type === "agent-native:cancel-active-drag") {
+      cancelActiveBridgeDrag();
       return;
     }
     if (e.data.type === "clear-selection") {

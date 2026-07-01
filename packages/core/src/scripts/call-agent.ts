@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 
-import { A2ATaskTimeoutError, callAgent, signA2AToken } from "../a2a/client.js";
+import {
+  A2ATaskTimeoutError,
+  callAgent,
+  shouldPreferGlobalA2ASecret,
+  signA2AToken,
+} from "../a2a/client.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
@@ -162,7 +167,7 @@ export async function run(
             callerOrgSecret,
             {
               expiresIn: INTEGRATION_A2A_TOKEN_TTL,
-              preferGlobalSecret: !callerOrgSecret,
+              preferGlobalSecret: shouldPreferGlobalA2ASecret(callerOrgSecret),
             },
           );
         } catch {}

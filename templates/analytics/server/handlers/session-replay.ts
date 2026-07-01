@@ -82,11 +82,36 @@ function statusError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
 
+function looksLikeDecodedJson(bytes: Buffer): boolean {
+  const first = bytes.toString("utf8").trimStart()[0];
+  return first === "{" || first === "[";
+}
+
+function tryGunzip(bytes: Buffer): Buffer | null {
+  try {
+    return gunzipSync(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function decodeTextWrappedGzip(
+  bytes: Buffer,
+): { decoded: Buffer; requestBytes: number } | null {
+  const text = bytes.toString("utf8");
+  const binaryStringBytes = Buffer.from(text, "latin1");
+  if (binaryStringBytes.equals(bytes)) return null;
+  const decoded = tryGunzip(binaryStringBytes);
+  return decoded
+    ? { decoded, requestBytes: binaryStringBytes.byteLength }
+    : null;
+}
+
 export function decodeSessionReplayRequestBody(
   rawBody: Buffer | Uint8Array | string | undefined,
   contentEncoding?: string | null,
 ): { body: unknown; requestBytes: number } {
-  const requestBytes =
+  let requestBytes =
     typeof rawBody === "string"
       ? Buffer.byteLength(rawBody, "utf8")
       : (rawBody?.byteLength ?? 0);
@@ -99,10 +124,26 @@ export function decodeSessionReplayRequestBody(
   let decoded = bytes;
 
   if (encoding === "gzip" || encoding === "x-gzip") {
-    try {
-      decoded = gunzipSync(bytes);
-    } catch {
-      throw statusError("Invalid gzip-compressed replay body", 400);
+    const gunzipped = tryGunzip(bytes);
+    if (gunzipped) {
+      decoded = gunzipped;
+    } else {
+      // Netlify may hand Nitro an already-decoded body while preserving the
+      // original browser Content-Encoding header.
+      if (looksLikeDecodedJson(bytes)) {
+        decoded = bytes;
+      } else {
+        // Some Netlify paths wrap binary request bodies in a JS string before
+        // Nitro reads them back as UTF-8. Reinterpret that text as one-byte
+        // binary data so real browser CompressionStream uploads survive.
+        const textWrappedGzip = decodeTextWrappedGzip(bytes);
+        if (textWrappedGzip) {
+          decoded = textWrappedGzip.decoded;
+          requestBytes = textWrappedGzip.requestBytes;
+        } else {
+          throw statusError("Invalid gzip-compressed replay body", 400);
+        }
+      }
     }
   } else if (encoding && encoding !== "identity") {
     throw statusError(
@@ -314,12 +355,15 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
         });
+        // Serve decompressed JSON and let the platform negotiate wire
+        // compression. Manually returning a pre-gzipped body with a
+        // `Content-Encoding: gzip` header corrupted replay downloads on
+        // serverless hosts and left playback blank in production.
         setResponseHeader(event, "Content-Type", "application/json");
-        setResponseHeader(event, "Content-Encoding", "gzip");
         setResponseHeader(event, "Cache-Control", "no-store");
         setResponseHeader(event, "X-Session-Replay-Seq", String(result.seq));
         setResponseHeader(event, "X-Session-Replay-Checksum", result.checksum);
-        return result.data;
+        return result.json;
       } catch (error: any) {
         setResponseStatus(event, statusFromError(error));
         return { error: messageFromError(error) };

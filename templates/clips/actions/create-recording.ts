@@ -23,6 +23,7 @@ import {
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { setResumableSession } from "../server/lib/resumable-session.js";
+import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
@@ -86,7 +87,11 @@ export default defineAction({
     // init fails.
     let uploadMode: UploadMode = "buffered";
     const uploadProvider = await getActiveFileUploadProviderForRequest();
-    if (args.requestStreaming && uploadProvider?.resumable) {
+    if (
+      args.requestStreaming &&
+      !isStreamingUploadDisabled() &&
+      uploadProvider?.resumable
+    ) {
       try {
         const recordingMimeType =
           args.mimeType?.split(";")[0]?.trim() || "video/webm";
@@ -103,7 +108,7 @@ export default defineAction({
         await setResumableSession(id, {
           providerId: uploadProvider.id,
           sessionId: session.sessionId,
-          meta: session.meta,
+          meta: { ...session.meta, skipCompressionWait: true },
           bytesUploaded: 0,
           lastCommittedIndex: -1,
         });

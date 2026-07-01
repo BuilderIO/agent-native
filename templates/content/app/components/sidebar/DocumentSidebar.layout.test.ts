@@ -111,6 +111,70 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("if (activeAncestorIds.has(id)) return");
   });
 
+  it("keeps sidebar create actions split between pages and databases", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
+    const messages = readSidebarSource("../../i18n-data.ts");
+
+    expect(sidebar).toContain("useCreateContentDatabase(null)");
+    expect(sidebar).toContain("const handleCreateDatabase = useCallback");
+    expect(sidebar).toContain("parentId: parentId ?? null");
+    expect(sidebar).toContain("navigateToDocument(result.database.documentId)");
+    expect(sidebar).toContain("const renderNewButton = () => (");
+    expect(sidebar).toContain("const renderCollapsedNewButton = () => (");
+    expect(sidebar).toContain('t("sidebar.new")');
+    expect(sidebar).toContain('t("sidebar.page")');
+    expect(sidebar).toContain('t("sidebar.database")');
+    expect(sidebar).not.toContain("const renderNewPageButton = () => (");
+
+    expect(treeItem).toContain("onCreateChildPage");
+    expect(treeItem).toContain("onCreateChildDatabase");
+    expect(treeItem).toContain('t("sidebar.addChild")');
+    expect(treeItem).toContain('t("sidebar.page")');
+    expect(treeItem).toContain('t("sidebar.database")');
+    expect(treeItem).not.toContain("onCreateChild: (parentId: string)");
+
+    expect(messages).toContain('new: "New"');
+    expect(messages).toContain('page: "Page"');
+    expect(messages).toContain('database: "Database"');
+    expect(messages).toContain(
+      'failedCreateDatabase: "Failed to create database"',
+    );
+  });
+
+  it("keeps the trashed inline database lifecycle visible in the sidebar", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const messages = readSidebarSource("../../i18n-data.ts");
+
+    expect(sidebar).toContain("useTrashedContentDatabases");
+    expect(sidebar).toContain("useRestoreContentDatabase");
+    expect(sidebar).toContain("const trashItems =");
+    expect(sidebar).toContain("const handleRestoreDatabase = useCallback");
+    expect(sidebar).toContain(
+      "const handlePermanentDeleteDatabase = useCallback",
+    );
+    expect(sidebar).toContain("const renderTrashSection = () =>");
+    expect(sidebar).toContain(
+      'renderSectionHeader("trash", t("sidebar.trash"))',
+    );
+    expect(sidebar).toContain("handleRestoreDatabase(database.databaseId)");
+    expect(sidebar).toContain("handlePermanentDeleteDatabase");
+    expect(sidebar).toContain("database.documentId");
+    expect(sidebar).toContain("database.canPermanentlyDelete");
+    expect(sidebar).toContain('t("sidebar.restoreDatabase")');
+    expect(sidebar).toContain('t("sidebar.deletePermanently")');
+    expect(sidebar).toContain("{renderTrashSection()}");
+
+    expect(messages).toContain('trash: "Trash"');
+    expect(messages).toContain('restoreDatabase: "Restore"');
+    expect(messages).toContain(
+      'deleteDatabasePermanentlyQuestion: "Delete database permanently?"',
+    );
+    expect(messages).toContain(
+      'failedRestoreDatabase: "Failed to restore database"',
+    );
+  });
+
   it("keeps local files above extensions and gates the dev database link to Code mode", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 

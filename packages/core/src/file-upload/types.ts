@@ -16,6 +16,8 @@ export interface FileUploadInput {
   mimeType?: string;
   /** Optional owner email for per-user scoping in fallback storage. */
   ownerEmail?: string;
+  /** Builder.io upload hint: return after asset registration instead of waiting for server-side compression. */
+  skipCompressionWait?: boolean;
 }
 
 export interface FileUploadResult {
@@ -77,6 +79,7 @@ export interface FileUploadProvider {
     completeSession(
       session: ResumableUploadSession,
       filename: string,
+      options?: { skipCompressionWait?: boolean },
     ): Promise<string>;
   };
 }

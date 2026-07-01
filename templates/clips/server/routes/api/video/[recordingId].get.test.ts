@@ -178,6 +178,79 @@ describe("/api/video/:recordingId route", () => {
     expect(result).toEqual({ error: "Recording media fetch timed out." });
   });
 
+  it("tries the compressed Builder media URL before the original asset URL", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl:
+          "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-ready?apiKey=org-probe&token=asset-ready&alt=media",
+      },
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("compressed media", {
+        status: 206,
+        headers: { "content-type": "video/webm" },
+      }),
+    );
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [requestUrl] = vi.mocked(fetch).mock.calls[0];
+    const url = new URL(requestUrl.toString());
+    expect(url.pathname).toBe(
+      "/o/assets%2Forg-probe%2Fasset-ready%2Fcompressed",
+    );
+    expect(url.searchParams.get("apiKey")).toBe("org-probe");
+    expect(url.searchParams.get("token")).toBe("asset-ready");
+    expect(url.searchParams.get("optimized")).toBe("true");
+  });
+
+  it("briefly suppresses repeated compressed Builder probes after a miss", async () => {
+    const originalUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-missing?apiKey=org-probe&token=asset-missing&alt=media";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: originalUrl,
+      },
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response("original media", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("original media again", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      );
+
+    const firstResult = await handler(makeEvent() as any);
+    const secondResult = await handler(makeEvent() as any);
+
+    expect(firstResult).toBeInstanceOf(Response);
+    expect(secondResult).toBeInstanceOf(Response);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(new URL(vi.mocked(fetch).mock.calls[0][0].toString()).pathname).toBe(
+      "/o/assets%2Forg-probe%2Fasset-missing%2Fcompressed",
+    );
+    expect(vi.mocked(fetch).mock.calls[1][0].toString()).toBe(originalUrl);
+    expect(vi.mocked(fetch).mock.calls[2][0].toString()).toBe(originalUrl);
+  });
+
   it("accepts a protected media cookie when the query token is expired", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",

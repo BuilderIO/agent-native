@@ -24,12 +24,18 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
+import { isStaleRecordingUpload } from "@/lib/recording-status";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
+
+import type { BulkMoveTarget } from "./bulk-action-toolbar";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -58,7 +64,9 @@ interface RecordingCardProps {
   selectionMode?: boolean;
   onToggleSelect?: (id: string) => void;
   onShare?: (rec: RecordingSummary) => void;
-  onMove?: (rec: RecordingSummary) => void;
+  onMove?: (rec: RecordingSummary, folderId: string | null) => void;
+  moveTargets?: BulkMoveTarget[];
+  isMovePending?: boolean;
   onRename?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
@@ -72,6 +80,8 @@ export function RecordingCard({
   onToggleSelect,
   onShare,
   onMove,
+  moveTargets = [],
+  isMovePending = false,
   onRename,
   onArchive,
   onTrash,
@@ -100,11 +110,18 @@ export function RecordingCard({
   const waitingForStorage = isStorageSetupFailureReason(
     recording.failureReason,
   );
+  const staleUpload = isStaleRecordingUpload(recording);
+  const displayFailed = recording.status === "failed" || staleUpload;
+  const failureReason = staleUpload
+    ? (recording.failureReason ??
+      t("recordingPage.processingStuck", { status: recording.status }))
+    : (recording.failureReason ?? t("clipsFinalRaw.removeFailedClip"));
   const nativeUploadPaused =
     recording.status === "failed" &&
     /native recording|native fullscreen|screencapture|avconvert/i.test(
       recording.failureReason ?? "",
     );
+  const canMove = Boolean(onMove && moveTargets.length > 0);
 
   const displayThumbnail = useMemo(() => {
     if (hovered && recording.animatedThumbnailUrl)
@@ -221,11 +238,15 @@ export function RecordingCard({
         {/* Status pill for non-ready recordings */}
         {recording.status !== "ready" && (
           <div className="absolute top-2 end-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
-            {waitingForStorage ? "storage" : recording.status}
+            {waitingForStorage
+              ? "storage"
+              : staleUpload
+                ? "failed"
+                : recording.status}
           </div>
         )}
 
-        {(recording.status === "failed" || waitingForStorage) && (
+        {(displayFailed || waitingForStorage) && (
           <div
             className={cn(
               "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-start shadow-sm backdrop-blur",
@@ -252,8 +273,7 @@ export function RecordingCard({
                     ? t("clipsFinalRaw.connectStorageToFinish")
                     : nativeUploadPaused
                       ? t("clipsFinalRaw.retryFromClipsMenu")
-                      : (recording.failureReason ??
-                        t("clipsFinalRaw.removeFailedClip"))}
+                      : failureReason}
                 </div>
               </div>
               {!waitingForStorage && (
@@ -322,10 +342,37 @@ export function RecordingCard({
                 <IconShare className="h-4 w-4 me-2" />{" "}
                 {t("recordingPage.share")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onMove?.(recording)}>
-                <IconFolder className="h-4 w-4 me-2" />{" "}
-                {t("clipsFinalRaw.moveToFolder")}
-              </DropdownMenuItem>
+              {canMove ? (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <IconFolder className="h-4 w-4 me-2" />{" "}
+                    {t("clipsFinalRaw.moveToFolder")}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-64">
+                    {moveTargets.map((target, index) => (
+                      <DropdownMenuItem
+                        key={target.id ?? `root-${index}`}
+                        disabled={target.disabled || isMovePending}
+                        onSelect={() => onMove?.(recording, target.id)}
+                      >
+                        <span
+                          className="truncate"
+                          style={{
+                            paddingInlineStart: (target.depth ?? 0) * 12,
+                          }}
+                        >
+                          {target.name}
+                        </span>
+                        {target.disabled && (
+                          <span className="ms-auto text-xs text-muted-foreground">
+                            {t("clipsFinalRaw.current")}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ) : null}
               {onRename ? (
                 <>
                   <DropdownMenuSeparator />

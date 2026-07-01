@@ -6,7 +6,11 @@ interface ExecCall {
 }
 
 const execCalls: ExecCall[] = [];
-let latestEventRows: Array<{ seq: number; event_data: string }> = [];
+let latestEventRows: Array<{
+  seq: number;
+  event_at?: number | null;
+  event_data: string;
+}> = [];
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let runStatusRows: Array<{ status: string }> = [];
@@ -26,7 +30,11 @@ const mockDb = {
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
     execCalls.push({ sql: rawSql, args });
 
-    if (/SELECT seq, event_data FROM agent_run_events/i.test(rawSql)) {
+    if (
+      /SELECT seq, event_data(?:, event_at)? FROM agent_run_events/i.test(
+        rawSql,
+      )
+    ) {
       return { rows: latestEventRows, rowsAffected: 0 };
     }
     // tryClaimRunSlot: SELECT id FROM agent_runs WHERE thread_id = ? AND ...
@@ -176,12 +184,16 @@ describe("run store", () => {
       /UPDATE agent_runs SET status = 'aborted'/i.test(call.sql),
     );
     expect(update?.args[0]).toBe("user");
-    expect(update?.args[2]).toBe("run-abort");
+    expect(update?.args[2]).toBe("aborted:user");
+    expect(update?.args[3]).toBe("run-abort");
 
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
-    expect(insert?.args).toEqual(["run-abort", 0, '{"type":"done"}']);
+    expect(insert?.args[0]).toBe("run-abort");
+    expect(insert?.args[1]).toBe(0);
+    expect(typeof insert?.args[2]).toBe("number");
+    expect(insert?.args[3]).toBe('{"type":"done"}');
   });
 
   it("does not append another terminal event after auto_continue", async () => {
@@ -241,16 +253,87 @@ describe("run store", () => {
     );
     expect(update?.sql).toContain("error_code = ?");
     expect(update?.sql).toContain("error_detail = ?");
+    expect(update?.sql).toContain("terminal_reason = ?");
     expect(update?.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
     expect(update?.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
-    expect(update?.args[3]).toBe("run-stale");
+    expect(update?.args[3]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+    expect(update?.args[4]).toBe("run-stale");
 
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
     expect(insert?.args[0]).toBe("run-stale");
-    const eventJson = insert?.args[2] as string;
+    expect(typeof insert?.args[2]).toBe("number");
+    const eventJson = insert?.args[3] as string;
     expect(JSON.parse(eventJson)).toEqual(STALE_RUN_ERROR_EVENT);
+  });
+
+  it("reconciles a persisted terminal event instead of stale-reaping the run", async () => {
+    latestEventRows = [
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+
+    const reaped = await reapIfStale("run-done-event");
+
+    expect(reaped).toBe(false);
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("completed");
+    expect(repair?.args[1]).toBe(123_456);
+    expect(repair?.args[6]).toBe("done");
+    expect(repair?.args[7]).toBe("run-done-event");
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs[\s\S]*SET status = 'errored'/i.test(call.sql) &&
+          call.args.includes("run-done-event"),
+      ),
+    ).toBe(false);
+  });
+
+  it("reconciles legacy terminal events without stamping repair time", async () => {
+    latestEventRows = [
+      { seq: 9, event_data: JSON.stringify({ type: "done" }) },
+    ];
+
+    await reapIfStale("run-legacy-done-event");
+
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.sql).toContain("completed_at = COALESCE");
+    expect(repair?.sql).toContain("last_progress_at");
+    expect(repair?.sql).toContain("heartbeat_at");
+    expect(repair?.args[0]).toBe("completed");
+    expect(repair?.args[1]).toBeNull();
+  });
+
+  it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
+    await reapIfStale("run-progressing");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs[\s\S]*SET status = 'errored'[\s\S]*WHERE id = \?/i.test(
+        call.sql,
+      ),
+    );
+    // The stale predicate must key off the MOST RECENT of heartbeat_at (process
+    // timer) and last_progress_at (real work — a long tool's activity every 8s),
+    // not heartbeat_at alone. Otherwise a run that is demonstrably generating is
+    // reaped when the process-liveness write lags, aborting the in-flight tool
+    // ("Run aborted").
+    expect(update?.sql).toContain("last_progress_at");
+    expect(update?.sql).toMatch(
+      /CASE WHEN COALESCE\(last_progress_at, started_at\) > COALESCE\(heartbeat_at, started_at\)/,
+    );
   });
 
   it("cleanupOldRuns SELECTs both heartbeat-stale AND age-stale rows for terminal-event append", async () => {
@@ -264,13 +347,16 @@ describe("run store", () => {
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs/i.test(call.sql) &&
-        // The heartbeat predicate now uses the background-aware cutoff fragment
-        // `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN
-        // ... END)` so a slow background cold-start isn't reaped early. Still one
-        // query, still covering both predicates.
-        /COALESCE\(heartbeat_at, started_at\) < \(CAST\(\? AS BIGINT\) -/.test(
+        // The heartbeat predicate keys on the liveness basis (most recent of
+        // heartbeat_at and last_progress_at) against the background-aware cutoff
+        // fragment `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE
+        // 'background%' THEN ... END)`, so a progressing run isn't reaped and a
+        // slow background cold-start isn't reaped early. Still one query, still
+        // covering both predicates.
+        /CASE WHEN COALESCE\(last_progress_at, started_at\) > COALESCE\(heartbeat_at, started_at\)/.test(
           call.sql,
         ) &&
+        /< \(CAST\(\? AS BIGINT\) -/.test(call.sql) &&
         /dispatch_mode LIKE 'background%'/.test(call.sql) &&
         /OR started_at < \?/.test(call.sql),
     );
@@ -280,7 +366,7 @@ describe("run store", () => {
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
     expect(insert?.args[0]).toBe("old-but-heartbeating-run");
-    expect(insert?.args[2] as string).toContain('"errorCode":"stale_run"');
+    expect(insert?.args[3] as string).toContain('"errorCode":"stale_run"');
   });
 
   it("persists stale error diagnostics for all stale-run reap paths", async () => {
@@ -294,12 +380,14 @@ describe("run store", () => {
         /UPDATE agent_runs/i.test(call.sql) &&
         /SET status = 'errored'/i.test(call.sql) &&
         /error_code = \?/i.test(call.sql) &&
-        /error_detail = \?/i.test(call.sql),
+        /error_detail = \?/i.test(call.sql) &&
+        /terminal_reason = \?/i.test(call.sql),
     );
     expect(staleUpdates.length).toBeGreaterThanOrEqual(3);
     for (const update of staleUpdates) {
       expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
       expect(update.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
+      expect(update.args[3]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
     }
   });
 

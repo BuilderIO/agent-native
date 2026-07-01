@@ -213,7 +213,14 @@ export default defineAction({
         "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam or cursorBodyPath set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file; use scratch/... for temporary staging.",
       ),
   }),
-  http: false,
+  // Mounted over HTTP (POST) so the agent and frontend (`useActionMutation`)
+  // can reach it, consistent with provider-api-catalog / provider-api-docs.
+  // toolCallable: false blocks the extension iframe bridge — this action
+  // accepts arbitrary methods (PUT/DELETE/etc.) against provider APIs, so
+  // allowing shared extensions to call it would let malicious extension authors
+  // mutate provider data under the opener's credentials.
+  http: { method: "POST" },
+  toolCallable: false,
   run: async (args) => {
     if (args.stageAs) {
       const ctx = requireRequestCredentialContext("provider-api staging");
