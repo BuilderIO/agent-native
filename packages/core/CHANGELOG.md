@@ -6,6 +6,7 @@
 
 - 564460a: Add an optional `focus` flag to `setAgentChatContextItem` (and thread it through to the composer). Callers that mirror ambient UI state into chat context — such as a design canvas element selection — can now pass `focus: false` to stage the context chip without moving keyboard focus into the composer. This stops passive context staging from blurring and tearing down an in-progress inline text editor in the Design canvas (which re-fires on every selection and on each get-design poll during an agent run). Focus stays enabled by default, so existing callers are unchanged.
 - 2b27c0f: Avoid unsupported array helpers in Builder engine message caching and stabilize prep-load tests.
+- a4f5303: Keep background chat continuation markers and database pool detection aligned with the actual background function dispatch path.
 
 ## 0.84.15
 

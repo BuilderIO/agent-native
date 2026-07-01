@@ -6,6 +6,7 @@
 
 - Updated dependencies [564460a]
 - Updated dependencies [2b27c0f]
+- Updated dependencies [a4f5303]
   - @agent-native/core@0.84.16
 
 ## 0.2.189
