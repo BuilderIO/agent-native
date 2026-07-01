@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.84.13
+
+### Patch Changes
+
+- dd5b0a4: Honor the long Netlify background-function timeout for durable agent-chat workers and record runtime diagnostics when a background run starts.
+- dd5b0a4: Make agent chat recovery surface completed-tool timeouts more reliably and keep Design variant follow-ups bounded to the selected screen.
+- dd5b0a4: Double the agent chat smooth-streaming reveal speed.
+- dd5b0a4: Avoid noisy Sentry reports from expected chat auth states and best-effort client thread-save conflicts.
+- dd5b0a4: Keep activity-only tool cards and the latest assistant message visibly running during agent chat continuations, steer interrupted Design generation retries toward smaller existing-file edits, and capture run persistence failures with run IDs so missing request IDs are diagnosable.
+- dd5b0a4: Compress the Plan mode composer callout into a quieter inline status pill.
+
 ## 0.84.12
 
 ### Patch Changes
