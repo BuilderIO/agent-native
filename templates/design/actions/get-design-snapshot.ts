@@ -23,9 +23,22 @@ export default defineAction({
     "edited live, otherwise the stored content), the design's tweak " +
     "definitions, the user's applied tweak selections, and the resolved CSS " +
     "custom-property values so the agent sees the *tuned* design, not the " +
-    "original generated tokens. Read-only.",
+    "original generated tokens. Pass fileId or filename when continuing from " +
+    "one selected screen so large multi-file designs stay bounded. Read-only.",
   schema: z.object({
     designId: z.string().describe("Design project ID to snapshot"),
+    fileId: z
+      .string()
+      .optional()
+      .describe(
+        "Optional design file ID to return. Use this after a variant pick to snapshot only the kept screen.",
+      ),
+    filename: z
+      .string()
+      .optional()
+      .describe(
+        "Optional design filename to return when fileId is unavailable.",
+      ),
   }),
   readOnly: true,
   http: { method: "GET" },
@@ -40,7 +53,7 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({ designId }) => {
+  run: async ({ designId, fileId, filename }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
       const err = new Error("Design not found") as Error & {
@@ -52,6 +65,24 @@ export default defineAction({
     const design = access.resource as typeof schema.designs.$inferSelect;
 
     const snapshot = await buildDesignSnapshot(designId, design.data);
+    const requestedFileId = fileId?.trim();
+    const requestedFilename = filename?.trim();
+    const files =
+      requestedFileId || requestedFilename
+        ? snapshot.files.filter(
+            (file) =>
+              (!requestedFileId || file.id === requestedFileId) &&
+              (!requestedFilename || file.filename === requestedFilename),
+          )
+        : snapshot.files;
+
+    if ((requestedFileId || requestedFilename) && files.length === 0) {
+      const err = new Error("Design file not found") as Error & {
+        statusCode: number;
+      };
+      err.statusCode = 404;
+      throw err;
+    }
 
     return {
       designId,
@@ -60,13 +91,15 @@ export default defineAction({
       projectType: design.projectType,
       designSystemId: design.designSystemId ?? null,
       updatedAt: design.updatedAt,
-      files: snapshot.files.map((f) => ({
+      files: files.map((f) => ({
+        id: f.id,
         filename: f.filename,
         fileType: f.fileType,
         content: f.content,
         source: f.source,
       })),
-      fileCount: snapshot.files.length,
+      fileCount: files.length,
+      totalFileCount: snapshot.files.length,
       tweaks: snapshot.tweaks,
       appliedTweaks: snapshot.appliedTweaks,
       resolvedCssVars: snapshot.resolvedCssVars,

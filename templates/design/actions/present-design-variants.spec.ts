@@ -226,11 +226,13 @@ describe("present-design-variants", () => {
       }>;
     };
     expect(guidedQuestions.submitMessage).toContain("bounded single-file pass");
+    expect(guidedQuestions.submitMessage).toContain("fileId");
     expect(guidedQuestions.submitMessage).toContain(
       "Do not generate a full multi-screen rewrite",
     );
     const firstOption = guidedQuestions.questions[0]?.options[0];
     expect(firstOption?.value).toContain("get-design-snapshot");
+    expect(firstOption?.value).toContain("fileId file-a");
     expect(firstOption?.value).toContain("bounded single-file pass");
     expect(firstOption?.value).toContain(
       "Stop after the first successful save",
@@ -269,6 +271,7 @@ describe("present-design-variants", () => {
       ]),
     });
     expect(result.nextRequiredAction).toContain("get-design-snapshot");
+    expect(result.nextRequiredAction).toContain("fileId");
     expect(result.nextRequiredAction).toContain("bounded pass");
   });
 

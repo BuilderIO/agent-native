@@ -328,8 +328,8 @@ iteration, or a human-in-the-loop choice among design directions.
   full app per variant. Design saves every option as a normal screen on the
   overview board and renders an inline chat choice with one button per screen
   name. After the user picks, delete the unchosen variant screens and continue
-  from the kept screen by first calling \`get-design-snapshot\`, then making a
-  bounded single-file pass.
+  from the kept screen by first calling \`get-design-snapshot\` with that
+  screen's \`fileId\`, then making a bounded single-file pass.
 - If the chat choice buttons are not available in the host, ask the user to
   tell you the screen name they prefer. The variants are already real screens
   on the board, so do not ask them to paste HTML or copy a generated handoff
@@ -352,10 +352,10 @@ iteration, or a human-in-the-loop choice among design directions.
    and realistic controls over decorative mockups.
 5. After \`present-design-variants\`, wait for the user's pick before
    generating the next version. Keep the chosen screen, delete the other
-   variant screens, call \`get-design-snapshot\` for the kept screen, then
-   continue from that single file in a bounded pass. Prefer \`edit-design\`; if
-   \`generate-design\` is needed, update only the kept file compactly and stop
-   after the first successful save.
+   variant screens, call \`get-design-snapshot\` with \`fileId\` for the kept
+   screen, then continue from that single file in a bounded pass. Prefer
+   \`edit-design\`; if \`generate-design\` is needed, update only the kept file
+   compactly and stop after the first successful save.
 
 ## Design Quality Bar
 
