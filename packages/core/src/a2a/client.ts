@@ -533,9 +533,7 @@ export async function callAgent(
       const responseMessage = task.status.message;
       if (responseMessage) {
         const textParts = responseMessage.parts
-          .filter(
-            (p): p is { type: "text"; text: string } => p.type === "text",
-          )
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
           .map((p) => p.text);
         return textParts.join("\n");
       }
