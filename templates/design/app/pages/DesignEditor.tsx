@@ -347,6 +347,18 @@ function getContentSignature(content: string): string {
   return `${content.length}:${hash.toString(36)}`;
 }
 
+export function getOverviewScreenRuntimeReplacementKey({
+  screenId,
+  updatedAt,
+  content,
+}: {
+  screenId: string;
+  updatedAt?: string | null;
+  content: string;
+}) {
+  return [screenId, updatedAt ?? "", getContentSignature(content)].join(":");
+}
+
 function dedupeStringIds(ids: string[]): string[] {
   return Array.from(new Set(ids.filter(Boolean)));
 }
@@ -17244,12 +17256,20 @@ ${serializedHtml}
                         const screenBridgeUrl = screen.bridgeUrl;
                         const screenSnapshot =
                           liveScreenSnapshotsById[screen.id]?.html;
+                        const screenContentSignature =
+                          getContentSignature(screenContent);
+                        const runtimeReplacementKey =
+                          getOverviewScreenRuntimeReplacementKey({
+                            screenId: screen.id,
+                            updatedAt: screen.updatedAt,
+                            content: screenContent,
+                          });
                         const screenContentKey = screenIsActive
                           ? [screen.id, contentRenderRevision].join(":")
                           : [
                               screen.id,
                               screen.updatedAt ?? "",
-                              getContentSignature(screenContent),
+                              screenContentSignature,
                               0,
                             ].join(":");
 
@@ -17257,6 +17277,8 @@ ${serializedHtml}
                           <DesignCanvas
                             content={screenContent}
                             contentKey={screenContentKey}
+                            runtimeReplacementContent={screenContent}
+                            runtimeReplacementKey={runtimeReplacementKey}
                             screenId={screen.id}
                             zoom={100}
                             deviceFrame="none"
