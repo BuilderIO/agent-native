@@ -380,6 +380,48 @@ describe("SSE event processor no-progress recovery", () => {
     expect(onUpdate).toHaveBeenCalledWith([{ type: "text", text: "partial" }]);
   });
 
+  it("updates raw stream consumers after each meaningful event in the same chunk", async () => {
+    const onUpdate = vi.fn();
+
+    await readSSEStreamRaw(
+      eventStream([
+        { type: "tool_start", id: "call-1", tool: "hubspot-deals", input: {} },
+        {
+          type: "tool_done",
+          id: "call-1",
+          tool: "hubspot-deals",
+          result: "ok",
+        },
+        { type: "text", text: "Done." },
+        { type: "done" },
+      ]),
+      [],
+      { value: 0 },
+      undefined,
+      onUpdate,
+    );
+
+    expect(onUpdate).toHaveBeenCalledTimes(4);
+    expect(onUpdate.mock.calls[0][0]).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "hubspot-deals",
+      }),
+    ]);
+    expect(onUpdate.mock.calls[0][0][0].result).toBeUndefined();
+    expect(onUpdate.mock.calls[1][0]).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "hubspot-deals",
+        result: "ok",
+      }),
+    ]);
+    expect(onUpdate.mock.calls[2][0]).toEqual([
+      expect.objectContaining({ type: "tool-call" }),
+      { type: "text", text: "Done." },
+    ]);
+  });
+
   it("turns raw keepalive-only action preparation into a recovery signal", async () => {
     vi.useFakeTimers();
     const onUpdate = vi.fn();

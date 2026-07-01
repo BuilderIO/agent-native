@@ -807,6 +807,7 @@ export function shouldShowAssistantMessageFooter({
   hasUnresolvedTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
+  if (chatRunning) return false;
   if (!isLast) return true;
   if (hasUnresolvedTool) return false;
   return !chatRunning && statusIsTerminal;
@@ -909,7 +910,7 @@ export function AssistantMessage() {
       className="group relative"
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground">
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,

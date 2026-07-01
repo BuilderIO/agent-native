@@ -429,6 +429,7 @@ const messages = {
     height: "ऊंचाई",
     autoplay: "स्वत: प्ले",
     startAt: "प्रारंभ करें (सेकंड)",
+    iframeTitle: "Clips वीडियो",
     embedCode: "एम्बेड कोड",
     sharePlainTitle: "{{title}} साझा करें",
   },

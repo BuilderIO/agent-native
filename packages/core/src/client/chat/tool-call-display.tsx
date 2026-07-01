@@ -614,7 +614,7 @@ function ToolCallDisplayGeneric({
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
   return (
-    <div className="my-1 overflow-hidden">
+    <div className="my-1 w-full overflow-hidden">
       {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
       <button
         onClick={() => canExpand && setExpanded(!isExpanded)}
@@ -734,7 +734,7 @@ export function ReconnectStreamMessage({
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
         {content.map((part, i) => {
           if (part.type === "text") {
             const partStreaming = chatRunning && i === streamingTextPartIndex;

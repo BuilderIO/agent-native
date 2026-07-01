@@ -348,6 +348,12 @@ function ToolFilterMenu<T extends string>({
   onChange: (value: T) => void;
 }) {
   const selected = options.find((option) => option.value === value);
+  const triggerLabel =
+    value === "all"
+      ? label === "Category"
+        ? "All categories"
+        : `All ${label.toLowerCase()}s`
+      : (selected?.label ?? label);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -358,7 +364,7 @@ function ToolFilterMenu<T extends string>({
           className="h-8 cursor-pointer gap-1.5 rounded-md bg-transparent px-2.5 text-sm font-medium"
         >
           <IconAdjustmentsHorizontal className="size-4 text-muted-foreground" />
-          <span>{selected?.label ?? label}</span>
+          <span>{triggerLabel}</span>
           <IconChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
@@ -1267,6 +1273,11 @@ export function DesignExtensionsPanel({
     visibleFirstPartyRows.length > 0 ||
     visibleInstalls.length > 0 ||
     visibleInstallable.length > 0;
+  const showPluginsEmptyState =
+    !hasAnyVisibleTool &&
+    categoryFilter === "plugins" &&
+    !normalizedSearch &&
+    sourceFilter !== "built-in";
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
@@ -1412,10 +1423,14 @@ export function DesignExtensionsPanel({
                   <IconSearch className="size-4 text-muted-foreground" />
                 </div>
                 <p className="text-sm font-medium text-foreground">
-                  No tools found
+                  {showPluginsEmptyState
+                    ? "No plugins installed"
+                    : "No tools found"}
                 </p>
                 <p className="mx-auto mt-1 max-w-52 text-xs leading-5 text-muted-foreground">
-                  Try another search or clear the filters.
+                  {showPluginsEmptyState
+                    ? "Create a plugin or clear the Category filter to browse built-in tools."
+                    : "Try another search or clear the filters."}
                 </p>
               </div>
             ) : null}

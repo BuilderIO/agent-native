@@ -118,6 +118,7 @@ import {
   IconCircleCheck,
   IconTerminal2,
   IconLink,
+  IconLock,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -855,6 +856,16 @@ function removeEditorChromeOverlays(root: ParentNode): void {
   root
     .querySelectorAll(EDITOR_CHROME_OVERLAY_SELECTOR)
     .forEach((element) => element.remove());
+}
+
+function sanitizeSerializedXmlForSvg(value: string): string {
+  // SVG opened as XML only knows the five predefined entities. HTML serializers
+  // can leave named entities or bare ampersands in foreignObject content; escape
+  // those so the downloaded SVG parses cleanly in browsers and editors.
+  return value.replace(
+    /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g,
+    "&amp;",
+  );
 }
 
 /**
@@ -3766,6 +3777,26 @@ function DesignCollaboratorsMenu({
   );
 }
 
+function ReadOnlyEditorPanel({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center">
+      <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <IconLock className="size-5" />
+      </div>
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
+        {description}
+      </p>
+    </div>
+  );
+}
+
 function externalPreviewUrlForContent(content: string): string | null {
   const trimmed = content.trim();
   if (!/^https?:\/\//i.test(trimmed)) return null;
@@ -5825,8 +5856,8 @@ export default function DesignEditor() {
       if (!old || typeof old !== "object") return old;
       return { ...old, title: next };
     });
-    queryClient.setQueryData(
-      ["action", "list-designs", undefined],
+    queryClient.setQueriesData(
+      { queryKey: ["action", "list-designs"] },
       (old: any) => {
         if (!old) return old;
         return {
@@ -13326,22 +13357,44 @@ export default function DesignEditor() {
         );
         // When an element is selected, crop the export to just that frame.
         const cropRect = resolveExportCropRect(doc, selectedElement);
-        const canvas = await html2canvas(doc.documentElement, {
-          width,
-          height,
-          windowWidth: width,
-          windowHeight: height,
-          scale: exportScale,
-          useCORS: true,
-          foreignObjectRendering: true,
-          backgroundColor: null,
-          onclone: (clonedDocument) => {
-            // Sanitize colors first: it aligns source/clone elements by index,
-            // so remove the editor-chrome overlays only afterwards.
-            sanitizeHtml2CanvasClone(doc, clonedDocument);
-            removeEditorChromeOverlays(clonedDocument);
-          },
-        });
+        let canvas: HTMLCanvasElement;
+        try {
+          canvas = await html2canvas(doc.documentElement, {
+            width,
+            height,
+            windowWidth: width,
+            windowHeight: height,
+            scale: exportScale,
+            useCORS: true,
+            foreignObjectRendering: true,
+            backgroundColor: null,
+            onclone: (clonedDocument) => {
+              // Sanitize colors first: it aligns source/clone elements by index,
+              // so remove the editor-chrome overlays only afterwards.
+              sanitizeHtml2CanvasClone(doc, clonedDocument);
+              removeEditorChromeOverlays(clonedDocument);
+            },
+          });
+        } catch (primaryError) {
+          console.warn(
+            "PNG export failed with foreignObjectRendering; retrying canvas renderer:",
+            primaryError,
+          );
+          canvas = await html2canvas(doc.documentElement, {
+            width,
+            height,
+            windowWidth: width,
+            windowHeight: height,
+            scale: exportScale,
+            useCORS: true,
+            foreignObjectRendering: false,
+            backgroundColor: null,
+            onclone: (clonedDocument) => {
+              sanitizeHtml2CanvasClone(doc, clonedDocument);
+              removeEditorChromeOverlays(clonedDocument);
+            },
+          });
+        }
         // Render the whole page first, then crop, so ancestor backgrounds show
         // through the selected frame exactly as they do on screen.
         const outputCanvas = cropRect
@@ -13465,7 +13518,9 @@ export default function DesignEditor() {
           body.style.minHeight = `${height}px`;
         }
 
-        const serializedHtml = new XMLSerializer().serializeToString(clone);
+        const serializedHtml = sanitizeSerializedXmlForSvg(
+          new XMLSerializer().serializeToString(clone),
+        );
         const safeTitle =
           design?.title
             ?.replace(/&/g, "&amp;")
@@ -13661,7 +13716,7 @@ ${serializedHtml}
           type="button"
           onClick={selectedShareExportOption.onDownload}
           disabled={selectedShareExportOption.disabled}
-          className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
+          className="h-8 gap-1.5 rounded-md bg-[var(--design-editor-accent-color)] px-3 text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] disabled:bg-muted disabled:text-muted-foreground"
         >
           <IconDownload className="size-3.5" />
           {"Download" /* i18n-ignore share export action */}
@@ -16565,7 +16620,16 @@ ${serializedHtml}
                     showScopeBadge={false}
                     browserTabId={browserTabId}
                   />
-                ) : null}
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={
+                      "Agent chat requires editor access" /* i18n-ignore */
+                    }
+                    description={
+                      "Ask an owner for edit access before using the agent to change this design." /* i18n-ignore */
+                    }
+                  />
+                )}
               </div>
               <div
                 className={cn(
@@ -16578,7 +16642,16 @@ ${serializedHtml}
                     {t("designEditor.leftRail.assets")}
                   </h3>
                 </div>
-                <AssetLibraryPanel context={designExtensionContext} />
+                {canEditDesign ? (
+                  <AssetLibraryPanel context={designExtensionContext} />
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={"Assets require editor access" /* i18n-ignore */}
+                    description={
+                      "Ask an owner for edit access before inserting assets into this design." /* i18n-ignore */
+                    }
+                  />
+                )}
               </div>
               <div
                 className={cn(
@@ -16586,11 +16659,20 @@ ${serializedHtml}
                   activeLeftPanel === "tools" ? "flex" : "hidden",
                 )}
               >
-                <DesignExtensionsPanel
-                  context={designExtensionContext}
-                  hideAssetLibrary
-                  title={t("designEditor.leftRail.tools")}
-                />
+                {canEditDesign ? (
+                  <DesignExtensionsPanel
+                    context={designExtensionContext}
+                    hideAssetLibrary
+                    title={t("designEditor.leftRail.tools")}
+                  />
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={"Tools require editor access" /* i18n-ignore */}
+                    description={
+                      "Ask an owner for edit access before running tools or creating extensions for this design." /* i18n-ignore */
+                    }
+                  />
+                )}
               </div>
               <div
                 className={cn(
@@ -16598,7 +16680,7 @@ ${serializedHtml}
                   activeLeftPanel === "tokens" ? "flex" : "hidden",
                 )}
               >
-                {id ? (
+                {id && canEditDesign ? (
                   <>
                     <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
                       <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
@@ -16612,7 +16694,14 @@ ${serializedHtml}
                       />
                     </div>
                   </>
-                ) : null}
+                ) : (
+                  <ReadOnlyEditorPanel
+                    title={"Tokens require editor access" /* i18n-ignore */}
+                    description={
+                      "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
+                    }
+                  />
+                )}
               </div>
             </div>
             <div

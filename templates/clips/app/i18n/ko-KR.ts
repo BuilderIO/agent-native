@@ -434,6 +434,7 @@ const messages = {
     height: "키",
     autoplay: "자동재생",
     startAt: "(초)에 시작",
+    iframeTitle: "Clips 동영상",
     embedCode: "임베드 코드",
     sharePlainTitle: "{{title}} 공유",
   },

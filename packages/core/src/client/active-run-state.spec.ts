@@ -1,6 +1,9 @@
+// @vitest-environment happy-dom
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ACTIVE_RUN_STATE_EVENT,
   clearActiveRun,
   getActiveRun,
   getActiveRunActivityTool,
@@ -81,5 +84,23 @@ describe("resolveReconnectAfterSeq", () => {
       lastSeq: 12,
     });
     expect(getActiveRun()?.activityTool).toBeUndefined();
+  });
+
+  it("notifies listeners when the active run changes", () => {
+    const events: Array<unknown> = [];
+    const listener = (event: Event) => {
+      events.push((event as CustomEvent).detail?.state ?? null);
+    };
+    window.addEventListener(ACTIVE_RUN_STATE_EVENT, listener);
+
+    setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 1 });
+    clearActiveRun();
+
+    window.removeEventListener(ACTIVE_RUN_STATE_EVENT, listener);
+
+    expect(events).toEqual([
+      { threadId: "thread-1", runId: "run-1", lastSeq: 1 },
+      null,
+    ]);
   });
 });

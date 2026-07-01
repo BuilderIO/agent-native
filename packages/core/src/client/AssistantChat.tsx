@@ -37,10 +37,12 @@ import React, {
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
+  ACTIVE_RUN_STATE_EVENT,
   getActiveRunActivityTool,
   getActiveRun,
   resolveReconnectAfterSeq,
   setActiveRun,
+  type ActiveRunState,
   updateActiveRunActivity,
   updateActiveRunSeq,
 } from "./active-run-state.js";
@@ -280,6 +282,13 @@ export function reconnectProgressTimedOut(args: {
 }): boolean {
   const threshold = args.thresholdMs ?? ACTIVE_RUN_STUCK_THRESHOLD_MS;
   return args.now - args.lastProgressAt >= threshold;
+}
+
+function activeRunMatchesThread(
+  state: ActiveRunState | null,
+  threadId: string | undefined,
+): boolean {
+  return Boolean(threadId && state?.threadId === threadId && state.runId);
 }
 
 function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
@@ -627,15 +636,21 @@ export function resolveAssistantChatRunningState({
   isReconnecting,
   optimisticRunning,
   isAutoResuming,
+  hasActiveServerRun,
 }: {
   forceStopped: boolean;
   isRuntimeRunning: boolean;
   isReconnecting: boolean;
   optimisticRunning: boolean;
   isAutoResuming: boolean;
+  hasActiveServerRun?: boolean;
 }): { isRunning: boolean; showRunningInUI: boolean } {
   const isRunning =
-    !forceStopped && (isRuntimeRunning || isReconnecting || optimisticRunning);
+    !forceStopped &&
+    (isRuntimeRunning ||
+      isReconnecting ||
+      optimisticRunning ||
+      Boolean(hasActiveServerRun));
   return {
     isRunning,
     // During auto-continuation, assistant-ui can briefly mark the message done
@@ -1447,6 +1462,27 @@ const AssistantChatInner = forwardRef<
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
   // wedged (e.g. after a tab refresh + stop during reconnect).
   const [forceStopped, setForceStopped] = useState(false);
+  const [hasActiveServerRun, setHasActiveServerRun] = useState(() =>
+    activeRunMatchesThread(getActiveRun(), threadId),
+  );
+  useEffect(() => {
+    const syncActiveRun = (state = getActiveRun()) => {
+      setHasActiveServerRun(activeRunMatchesThread(state, threadId));
+    };
+    syncActiveRun();
+    const handler = (event: Event) => {
+      const state = (event as CustomEvent<{ state?: ActiveRunState | null }>)
+        .detail?.state;
+      syncActiveRun(state ?? null);
+    };
+    const storageHandler = () => syncActiveRun();
+    window.addEventListener(ACTIVE_RUN_STATE_EVENT, handler);
+    window.addEventListener("storage", storageHandler);
+    return () => {
+      window.removeEventListener(ACTIVE_RUN_STATE_EVENT, handler);
+      window.removeEventListener("storage", storageHandler);
+    };
+  }, [threadId]);
   // Real running state drives submission/queue gating; UI running also covers
   // short auto-continuation gaps so the latest assistant message does not flash
   // into a done state while the agent is still working.
@@ -1456,14 +1492,14 @@ const AssistantChatInner = forwardRef<
     isReconnecting,
     optimisticRunning,
     isAutoResuming,
+    hasActiveServerRun,
   });
   const textStreaming = showRunningInUI || externalStreaming;
   // A revealed activity label wins; otherwise stay a steady "Thinking" by
   // default. We only surface "Reconnecting" while we are actively replaying
   // recovered content (reconnectContent populated). A bare reconnect with no
-  // replayed content — e.g. a tail-resume after the serverless wall, where
-  // `scheduleUpdate` intentionally leaves reconnectContent empty — is normal
-  // ongoing work, so it must read as "Thinking", never a perpetual "Working".
+  // replayed content is normal ongoing work, so it must read as "Thinking",
+  // never a perpetual "Working".
   const runningStatusLabel = runningActivityLabel
     ? runningActivityLabel
     : isAutoResuming
@@ -1830,7 +1866,6 @@ const AssistantChatInner = forwardRef<
             let rafPending = false;
             let latestSnapshot: ContentPart[] = [];
             const scheduleUpdate = (snapshot: ContentPart[]) => {
-              if (afterSeq > 0) return;
               latestSnapshot = snapshot;
               if (rafPending) return;
               rafPending = true;

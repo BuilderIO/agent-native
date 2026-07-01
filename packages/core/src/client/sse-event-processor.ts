@@ -460,6 +460,22 @@ function pendingToolNames(content: ContentPart[]): {
   return { activity: [...activity], running: [...running] };
 }
 
+function contentSnapshot(content: ContentPart[]): ContentPart[] {
+  return content.map((part) => {
+    if (part.type === "text") return { ...part };
+    return {
+      ...part,
+      args: { ...part.args },
+      ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+      ...(part.chatUI ? { chatUI: { ...part.chatUI } } : {}),
+      ...(part.approval ? { approval: { ...part.approval } } : {}),
+      ...(part.structuredMeta
+        ? { structuredMeta: { ...part.structuredMeta } }
+        : {}),
+    };
+  });
+}
+
 function formatToolNames(tools: string[]): string {
   const names = tools.map(humanizeToolName);
   if (names.length === 0) return "the promised action";
@@ -578,7 +594,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -615,7 +631,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -672,7 +688,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -694,7 +710,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -734,7 +750,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -764,7 +780,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -784,7 +800,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -826,7 +842,7 @@ export function processEvent(
     return {
       action: "missing_api_key",
       result: {
-        content: [...content],
+        content: contentSnapshot(content),
         status: { type: "incomplete" as const, reason: "error" as const },
         metadata: { custom: { runError } },
       } as ChatModelRunResult,
@@ -938,7 +954,7 @@ export function processEvent(
     return {
       action: "error",
       result: {
-        content: [...content],
+        content: contentSnapshot(content),
         status: { type: "incomplete" as const, reason: "error" as const },
         metadata: { custom: { runError } },
       } as ChatModelRunResult,
@@ -974,7 +990,7 @@ export function processEvent(
       return {
         action: "error",
         result: {
-          content: [...content],
+          content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
         } as ChatModelRunResult,
@@ -993,7 +1009,7 @@ export function processEvent(
       return {
         action: "done",
         result: {
-          content: [...content],
+          content: contentSnapshot(content),
           status: { type: "complete" as const, reason: "stop" as const },
           metadata: {
             custom: {
@@ -1009,7 +1025,7 @@ export function processEvent(
     }
     return {
       action: "done",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -1228,7 +1244,6 @@ export async function readSSEStreamRaw(
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
 
-      let updated = false;
       let sawDataEvent = false;
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
@@ -1287,10 +1302,12 @@ export async function readSSEStreamRaw(
           action === "error" ||
           action === "missing_api_key"
         ) {
-          updated = true;
+          onUpdate(contentSnapshot(content));
+          emittedLatestContent = true;
         }
         if (action === "auto_continue") {
-          onUpdate([...content]);
+          onUpdate(contentSnapshot(content));
+          emittedLatestContent = true;
           throw new AgentAutoContinueSignal(
             autoContinue
               ? { ...autoContinue, activityTrail: [...activityTrail] }
@@ -1298,7 +1315,7 @@ export async function readSSEStreamRaw(
           );
         }
         if (hasStalledPreparingAction(preparingActionState, Date.now())) {
-          onUpdate([...content]);
+          onUpdate(contentSnapshot(content));
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
@@ -1309,15 +1326,10 @@ export async function readSSEStreamRaw(
           action === "error" ||
           action === "missing_api_key"
         ) {
-          onUpdate([...content]);
           return;
         }
       }
 
-      if (updated) {
-        onUpdate([...content]);
-        emittedLatestContent = true;
-      }
       if (
         !sawDataEvent &&
         Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
@@ -1332,6 +1344,8 @@ export async function readSSEStreamRaw(
       // See readSSEStream: cancellation may race lock release in browsers.
     }
   }
-  if (content.length > 0 && !emittedLatestContent) onUpdate([...content]);
+  if (content.length > 0 && !emittedLatestContent) {
+    onUpdate(contentSnapshot(content));
+  }
   throw new AgentAutoContinueSignal({ reason: "stream_ended" });
 }

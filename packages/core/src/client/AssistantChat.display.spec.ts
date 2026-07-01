@@ -117,6 +117,19 @@ describe("resolveAssistantChatRunningState", () => {
     ).toEqual({ isRunning: false, showRunningInUI: true });
   });
 
+  it("keeps the chat visibly running while the server still has an active run", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: false,
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        optimisticRunning: false,
+        isAutoResuming: false,
+        hasActiveServerRun: true,
+      }),
+    ).toEqual({ isRunning: true, showRunningInUI: true });
+  });
+
   it("keeps auto-resume visible through the between-chunk idle gap", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",

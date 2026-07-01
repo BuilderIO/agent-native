@@ -432,6 +432,7 @@ const messages = {
     height: "ارتفاع",
     autoplay: "التشغيل التلقائي",
     startAt: "البدء عند (ثواني)",
+    iframeTitle: "فيديو Clips",
     embedCode: "كود التضمين",
     sharePlainTitle: "مشاركة {{title}}",
   },

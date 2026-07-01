@@ -449,6 +449,7 @@ const messages = {
     height: "Höhe",
     autoplay: "Übersetzt: Autoplay",
     startAt: "Beginnen bei (Sekunden)",
+    iframeTitle: "Clips-Video",
     embedCode: "Einbettungscode",
     sharePlainTitle: "Teilen {{title}}",
   },

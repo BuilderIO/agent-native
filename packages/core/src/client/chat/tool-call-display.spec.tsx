@@ -164,6 +164,22 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
+  it("lets generic tool rows fill the assistant message column", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="hubspot-deals"
+          args={{ query: "recent deals" }}
+          isRunning={true}
+        />,
+      );
+    });
+
+    const row = container.querySelector("button")?.parentElement;
+    expect(row?.className).toContain("w-full");
+    expect(container.querySelector("button")?.className).toContain("w-full");
+  });
+
   it("shows reconnect activity cards as running without global chat state", () => {
     const content: ContentPart[] = [
       {

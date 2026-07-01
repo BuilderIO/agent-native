@@ -441,6 +441,7 @@ const messages = {
     height: "身長",
     autoplay: "自動再生",
     startAt: "(秒)から開始",
+    iframeTitle: "Clips動画",
     embedCode: "埋め込みコード",
     sharePlainTitle: "{{title}}を共有する",
   },

@@ -416,6 +416,7 @@ const messages = {
     height: "高度",
     autoplay: "自動播放",
     startAt: "開始時間（秒）",
+    iframeTitle: "Clips 影片",
     embedCode: "嵌入程式碼",
     sharePlainTitle: "分享 {{title}}",
   },

@@ -444,6 +444,7 @@ const messages = {
     height: "Altura",
     autoplay: "Reproducción automática",
     startAt: "Empezar en (segundos)",
+    iframeTitle: "Video de Clips",
     embedCode: "Código de inserción",
     sharePlainTitle: "Compartir {{title}}",
   },
