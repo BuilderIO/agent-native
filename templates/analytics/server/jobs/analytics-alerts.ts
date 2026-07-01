@@ -1,4 +1,5 @@
 import {
+  claimAnalyticsAlertRuleEvaluation,
   evaluateAndNotifyAnalyticsAlertRule,
   listEnabledAnalyticsAlertRules,
   markAnalyticsAlertRuleError,
@@ -50,8 +51,10 @@ export async function runAnalyticsAlertsOnce(
     remaining = rules.length >= sweepLimit ? 1 : 0;
 
     for (const rule of rules) {
-      processed++;
       try {
+        const claimed = await claimAnalyticsAlertRuleEvaluation(rule);
+        if (!claimed) continue;
+        processed++;
         const result = await evaluateAndNotifyAnalyticsAlertRule(rule);
         if (result.status === "triggered") triggered++;
       } catch (err) {

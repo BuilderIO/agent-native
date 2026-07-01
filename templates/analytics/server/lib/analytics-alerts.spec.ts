@@ -110,4 +110,75 @@ describe("analytics alert evaluation", () => {
     expect(source).not.toContain(".limit(maxCandidateEventsPerRule())");
     expect(source).not.toContain("function maxCandidateEventsPerRule");
   });
+
+  it("claims alert rules before evaluating so parallel sweeps cannot double-send", () => {
+    const source = readFileSync(
+      new URL("./analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+    const jobSource = readFileSync(
+      new URL("../jobs/analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "export async function claimAnalyticsAlertRuleEvaluation",
+    );
+    expect(source).toContain('lastStatus: "running"');
+    expect(source).toContain("alertRuleNotRunningWhere(now)");
+    expect(source).toContain("alertRulePreviousEvaluationWhere(rule)");
+    expect(source).toContain(".returning({ id: table.id })");
+    expect(jobSource).toContain("claimAnalyticsAlertRuleEvaluation(rule)");
+    expect(
+      jobSource.indexOf("claimAnalyticsAlertRuleEvaluation(rule)"),
+    ).toBeLessThan(
+      jobSource.indexOf("evaluateAndNotifyAnalyticsAlertRule(rule)"),
+    );
+  });
+
+  it("keeps triggered rules retryable when no notification was delivered", () => {
+    const source = readFileSync(
+      new URL("./analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+    const noDeliveryIndex = source.indexOf("if (!stored?.id)");
+    const incidentIndex = source.indexOf("recordIncident(rule");
+
+    expect(source).toContain("ensureInboxNotificationChannel(rule.channels)");
+    expect(source).toContain("if (!stored?.id)");
+    expect(source).toContain(
+      "Analytics alert notification was not delivered; no inbox notification was stored.",
+    );
+    expect(source).toContain('lastStatus: "error"');
+    expect(noDeliveryIndex).toBeGreaterThan(-1);
+    expect(noDeliveryIndex).toBeLessThan(incidentIndex);
+    expect(source).toContain("notificationId: stored.id");
+    expect(source).not.toContain("notificationId: stored?.id");
+  });
+
+  it("requires Netlify scheduled invocation payload before forwarding alert cron token", () => {
+    const source = readFileSync(
+      new URL(
+        "../../scripts/emit-netlify-dashboard-report-cron.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const alertTriggerIndex = source.indexOf(
+      "function emitAlertScheduledTrigger",
+    );
+    const alertSource = source.slice(alertTriggerIndex);
+
+    expect(alertSource).toContain("async function readScheduledInvocation");
+    expect(alertSource).toContain('request.method !== "POST"');
+    expect(alertSource).toContain("body?.next_run");
+    expect(alertSource).toContain(
+      'if (!scheduled) return new Response("Not Found", { status: 404 });',
+    );
+    expect(
+      alertSource.indexOf("readScheduledInvocation(request)"),
+    ).toBeLessThan(
+      alertSource.indexOf('"x-agent-native-analytics-alert-cron": CRON_TOKEN'),
+    );
+  });
 });
