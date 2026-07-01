@@ -184,7 +184,7 @@
     "build": "tsgo && tsgo -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsgo --watch",
     "typecheck": "tsgo --noEmit",
-    "test": "vitest --run src",
+    "test": "vitest --run src --maxWorkers=25%",
     "prepack": "tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build"
   },
