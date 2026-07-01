@@ -815,6 +815,134 @@ function sanitizeHtml2CanvasClone(
   });
 }
 
+/**
+ * Editor-chrome overlays that editor-chrome.bridge.ts appends inside the preview
+ * iframe (the selection outline + resize handles, hover highlight, marquee,
+ * spacing/measurement guides, and badges). They live in the iframe DOM, so image
+ * exports must strip them from the clone — otherwise a download captures the
+ * editor's selection outline instead of just the design. Keep this in sync with
+ * the data-agent-native-* markers set in editor-chrome.bridge.ts.
+ */
+export const EDITOR_CHROME_OVERLAY_SELECTOR = [
+  "[data-agent-native-edit-overlay]",
+  "[data-agent-native-edit-handle]",
+  "[data-agent-native-edge-handle]",
+  "[data-agent-native-rotate-handle]",
+  "[data-agent-native-transform-badge]",
+  "[data-agent-native-spacing-badge]",
+  "[data-agent-native-spacing-overlay]",
+  "[data-agent-native-spacing-line]",
+  "[data-agent-native-spacing-region]",
+  "[data-agent-native-insertion-guide]",
+  "[data-agent-native-measurement-overlay]",
+].join(",");
+
+/**
+ * Remove editor-chrome overlays from a cloned document/element before it is
+ * rasterized (PNG) or serialized (SVG) for export.
+ */
+function removeEditorChromeOverlays(root: ParentNode): void {
+  root
+    .querySelectorAll(EDITOR_CHROME_OVERLAY_SELECTOR)
+    .forEach((element) => element.remove());
+}
+
+/**
+ * Resolve the document-space rect of the currently selected element inside the
+ * preview iframe so image exports (PNG/SVG) can crop to just that frame instead
+ * of the whole screen. Returns null — meaning "export the whole screen" — when
+ * there is no element selection, when the selection is the screen root
+ * (BODY/HTML, which is the whole screen anyway), or when the element can no
+ * longer be resolved in the live document.
+ */
+function resolveExportCropRect(
+  doc: Document,
+  selected: ElementInfo | null | undefined,
+): { x: number; y: number; width: number; height: number } | null {
+  if (!selected || isScreenRootElementInfo(selected)) return null;
+  const view = doc.defaultView;
+  if (!view) return null;
+  let element: Element | null = null;
+  if (selected.sourceId) {
+    try {
+      element = doc.querySelector(
+        `[data-agent-native-node-id="${CSS.escape(selected.sourceId)}"]`,
+      );
+    } catch {
+      element = null;
+    }
+  }
+  if (!element && selected.selector) {
+    try {
+      element = doc.querySelector(selected.selector);
+    } catch {
+      element = null;
+    }
+  }
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  // getBoundingClientRect is viewport-relative; add the iframe scroll offset so
+  // coordinates match the full-document render (which starts at the page top).
+  return {
+    x: rect.left + (view.scrollX ?? 0),
+    y: rect.top + (view.scrollY ?? 0),
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+/**
+ * Map a document-space rect onto pixel coordinates within a rendered canvas of
+ * the given size, clamped to stay inside the canvas. `scale` must match the
+ * scale passed to html2canvas. Returns null when the crop would be empty or
+ * lands fully outside the canvas, so callers can fall back to the full render.
+ */
+export function computeExportCropBox(
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: { x: number; y: number; width: number; height: number },
+  scale: number,
+): { sx: number; sy: number; sw: number; sh: number } | null {
+  const sx = Math.max(0, Math.round(rect.x * scale));
+  const sy = Math.max(0, Math.round(rect.y * scale));
+  const sw = Math.min(sourceWidth - sx, Math.round(rect.width * scale));
+  const sh = Math.min(sourceHeight - sy, Math.round(rect.height * scale));
+  if (sw <= 0 || sh <= 0) return null;
+  return { sx, sy, sw, sh };
+}
+
+/**
+ * Crop a rendered html2canvas canvas down to a document-space rect so image
+ * exports capture just the selected frame. Returns null when the crop is empty,
+ * so callers can fall back to the full render.
+ */
+function cropCanvasToRect(
+  source: HTMLCanvasElement,
+  rect: { x: number; y: number; width: number; height: number },
+  scale: number,
+): HTMLCanvasElement | null {
+  const box = computeExportCropBox(source.width, source.height, rect, scale);
+  if (!box) return null;
+  const cropped = document.createElement("canvas");
+  cropped.width = box.sw;
+  cropped.height = box.sh;
+  const context = cropped.getContext("2d");
+  if (!context) return null;
+  context.drawImage(
+    source,
+    box.sx,
+    box.sy,
+    box.sw,
+    box.sh,
+    0,
+    0,
+    box.sw,
+    box.sh,
+  );
+  return cropped;
+}
+
 function byteLength(value: string): number {
   if (typeof TextEncoder === "undefined") return value.length;
   return new TextEncoder().encode(value).length;
@@ -13179,26 +13307,38 @@ export default function DesignEditor() {
           doc.body?.scrollHeight ?? 0,
           iframe?.clientHeight ?? 0,
         );
+        const exportScale = Math.max(
+          0.1,
+          Math.min(
+            4,
+            settings?.scale ?? Math.min(2, window.devicePixelRatio || 1),
+          ),
+        );
+        // When an element is selected, crop the export to just that frame.
+        const cropRect = resolveExportCropRect(doc, selectedElement);
         const canvas = await html2canvas(doc.documentElement, {
           width,
           height,
           windowWidth: width,
           windowHeight: height,
-          scale: Math.max(
-            0.1,
-            Math.min(
-              4,
-              settings?.scale ?? Math.min(2, window.devicePixelRatio || 1),
-            ),
-          ),
+          scale: exportScale,
           useCORS: true,
           foreignObjectRendering: true,
           backgroundColor: null,
-          onclone: (clonedDocument) =>
-            sanitizeHtml2CanvasClone(doc, clonedDocument),
+          onclone: (clonedDocument) => {
+            // Sanitize colors first: it aligns source/clone elements by index,
+            // so remove the editor-chrome overlays only afterwards.
+            sanitizeHtml2CanvasClone(doc, clonedDocument);
+            removeEditorChromeOverlays(clonedDocument);
+          },
         });
+        // Render the whole page first, then crop, so ancestor backgrounds show
+        // through the selected frame exactly as they do on screen.
+        const outputCanvas = cropRect
+          ? (cropCanvasToRect(canvas, cropRect, exportScale) ?? canvas)
+          : canvas;
         await new Promise<void>((resolve) => {
-          canvas.toBlob((blob) => {
+          outputCanvas.toBlob((blob) => {
             try {
               if (!blob) {
                 toast.error(t("designEditor.toasts.pngCreateError"));
@@ -13240,7 +13380,7 @@ export default function DesignEditor() {
         setPngExporting(false);
       }
     },
-    [fallbackExportName, t, triggerBlobDownload],
+    [fallbackExportName, selectedElement, t, triggerBlobDownload],
   );
 
   const handleDownloadSvg = useCallback(
@@ -13302,6 +13442,9 @@ export default function DesignEditor() {
           clonedStylesheetLinks[index]?.replaceWith(style);
         });
         clone.querySelectorAll("script").forEach((node) => node.remove());
+        // Strip the editor's selection outline / handles so the SVG shows only
+        // the design, not the editor chrome.
+        removeEditorChromeOverlays(clone);
         clone.style.width = `${width}px`;
         clone.style.minHeight = `${height}px`;
 
@@ -13320,8 +13463,17 @@ export default function DesignEditor() {
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;") || t("designEditor.designExport");
         const exportScale = Math.max(0.1, Math.min(4, settings?.scale ?? 1));
+        // When an element is selected, crop to just that frame by narrowing the
+        // SVG viewBox to its document-space rect. The foreignObject still holds
+        // the full document so layout and inherited styles stay intact; the
+        // viewBox clips the visible region to the selection.
+        const cropRect = resolveExportCropRect(doc, selectedElement);
+        const viewX = cropRect?.x ?? 0;
+        const viewY = cropRect?.y ?? 0;
+        const viewWidth = cropRect?.width ?? width;
+        const viewHeight = cropRect?.height ?? height;
         const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width * exportScale}" height="${height * exportScale}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${safeTitle}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${viewWidth * exportScale}" height="${viewHeight * exportScale}" viewBox="${viewX} ${viewY} ${viewWidth} ${viewHeight}" role="img" aria-label="${safeTitle}">
   <title>${safeTitle}</title>
   <foreignObject width="${width}" height="${height}">
 ${serializedHtml}
@@ -13344,7 +13496,13 @@ ${serializedHtml}
         setSvgExporting(false);
       }
     },
-    [design?.title, fallbackExportName, t, triggerBlobDownload],
+    [
+      design?.title,
+      fallbackExportName,
+      selectedElement,
+      t,
+      triggerBlobDownload,
+    ],
   );
 
   const handleInspectorExport = useCallback(

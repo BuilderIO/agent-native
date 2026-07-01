@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
+  computeExportCropBox,
+  EDITOR_CHROME_OVERLAY_SELECTOR,
   findMovedCodeLayerNodeInProjection,
   getAvailableContentHistoryChanges,
   getFreshActiveFileContent,
@@ -409,6 +411,88 @@ describe("DesignEditor screen root hover", () => {
         isFlexContainer: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("computeExportCropBox (selected-frame image export)", () => {
+  it("scales a document-space rect into canvas pixels", () => {
+    expect(
+      computeExportCropBox(
+        800,
+        1200,
+        { x: 100, y: 200, width: 300, height: 150 },
+        2,
+      ),
+    ).toEqual({ sx: 200, sy: 400, sw: 600, sh: 300 });
+  });
+
+  it("keeps document coordinates as-is at scale 1", () => {
+    expect(
+      computeExportCropBox(
+        400,
+        400,
+        { x: 10, y: 20, width: 30, height: 40 },
+        1,
+      ),
+    ).toEqual({ sx: 10, sy: 20, sw: 30, sh: 40 });
+  });
+
+  it("clamps a rect that overflows the canvas to the remaining area", () => {
+    expect(
+      computeExportCropBox(
+        500,
+        500,
+        { x: 400, y: 400, width: 300, height: 300 },
+        1,
+      ),
+    ).toEqual({ sx: 400, sy: 400, sw: 100, sh: 100 });
+  });
+
+  it("returns null when the rect starts past the canvas edge", () => {
+    expect(
+      computeExportCropBox(
+        500,
+        500,
+        { x: 600, y: 0, width: 100, height: 100 },
+        1,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for a zero-size selection", () => {
+    expect(
+      computeExportCropBox(500, 500, { x: 10, y: 10, width: 0, height: 50 }, 1),
+    ).toBeNull();
+  });
+});
+
+describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
+  // These markers are the editor-chrome overlays editor-chrome.bridge.ts appends
+  // inside the preview iframe; image exports must strip them.
+  it.each([
+    "data-agent-native-edit-overlay",
+    "data-agent-native-edit-handle",
+    "data-agent-native-edge-handle",
+    "data-agent-native-rotate-handle",
+    "data-agent-native-transform-badge",
+    "data-agent-native-spacing-badge",
+    "data-agent-native-spacing-overlay",
+    "data-agent-native-insertion-guide",
+    "data-agent-native-measurement-overlay",
+  ])("targets the %s overlay marker", (marker) => {
+    expect(EDITOR_CHROME_OVERLAY_SELECTOR).toContain(`[${marker}]`);
+  });
+
+  // Content markers live on the design's real DOM; stripping them would delete
+  // actual content, so they must never appear in the overlay selector.
+  it.each([
+    "data-agent-native-node-id",
+    "data-agent-native-layer-name",
+    "data-agent-native-text-editing",
+    "data-agent-native-runtime-hidden",
+    "data-agent-native-motion",
+  ])("never targets the content marker %s", (marker) => {
+    expect(EDITOR_CHROME_OVERLAY_SELECTOR).not.toContain(`[${marker}]`);
   });
 });
 
