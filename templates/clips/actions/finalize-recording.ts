@@ -569,6 +569,7 @@ export default defineAction({
           filename: `${id}.${videoFormat}`,
           mimeType,
           ownerEmail,
+          skipCompressionWait: true,
         });
       } catch (err) {
         // Capture structured context so a "Builder.io upload failed (500)" can

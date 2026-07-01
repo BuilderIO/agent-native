@@ -95,6 +95,7 @@ async function uploadLargeFileViaSignedUrl(
     privateKey,
     assetId,
     input.filename,
+    { skipCompressionWait: input.skipCompressionWait },
   );
   console.log(`[builder-upload] done [${assetId}]: ${url}`);
   return { url, id, provider: "builder" };
@@ -148,19 +149,21 @@ async function completeBuilderUpload(
   privateKey: string,
   assetId: string,
   filename: string | undefined,
+  options?: { skipCompressionWait?: boolean },
 ): Promise<{ url: string; id?: string }> {
   const host = builderUploadHost();
-  const res = await fetchWithTimeout(
-    new URL("/api/v1/upload/complete", host).toString(),
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${privateKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ assetId, name: filename }),
+  const url = new URL("/api/v1/upload/complete", host);
+  if (options?.skipCompressionWait) {
+    url.searchParams.set("skipCompressionWait", "true");
+  }
+  const res = await fetchWithTimeout(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${privateKey}`,
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify({ assetId, name: filename }),
+  });
   await assertOk(res, "Builder.io upload complete failed");
   const json = (await res.json()) as { url?: string; id?: string };
   if (!json.url) throw new Error("Builder.io upload/complete returned no URL");
@@ -213,7 +216,8 @@ export const builderFileUploadProvider: FileUploadProvider = {
   id: "builder",
   name: "Builder.io",
   isConfigured: () => !!process.env.BUILDER_PRIVATE_KEY,
-  upload: async ({ data, filename, mimeType }: FileUploadInput) => {
+  upload: async (input: FileUploadInput) => {
+    const { data, filename, mimeType } = input;
     const { resolveBuilderPrivateKey } =
       await import("../server/credential-provider.js");
     const privateKey = await resolveBuilderPrivateKey();
@@ -237,7 +241,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
     if (shouldUseSignedUrlUpload(bytes, bareMimeType)) {
       return uploadLargeFileViaSignedUrl(
-        { data, filename, mimeType },
+        input,
         privateKey,
         bareMimeType,
         bytes,
@@ -387,6 +391,9 @@ export const builderFileUploadProvider: FileUploadProvider = {
         privateKey,
         assetId,
         filename,
+        {
+          skipCompressionWait: session.meta.skipCompressionWait === true,
+        },
       );
       console.log(`[builder-resumable] upload complete: ${url}`);
       return url;

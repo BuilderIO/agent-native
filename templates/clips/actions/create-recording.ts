@@ -108,7 +108,7 @@ export default defineAction({
         await setResumableSession(id, {
           providerId: uploadProvider.id,
           sessionId: session.sessionId,
-          meta: session.meta,
+          meta: { ...session.meta, skipCompressionWait: true },
           bytesUploaded: 0,
           lastCommittedIndex: -1,
         });

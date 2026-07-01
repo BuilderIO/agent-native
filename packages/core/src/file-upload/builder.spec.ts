@@ -149,6 +149,40 @@ describe("builderFileUploadProvider", () => {
       "Content-Type": "video/webm",
       "x-goog-content-length-range": "0,3",
     });
+    expect(
+      new URL(fetchMock.mock.calls[2][0].toString()).searchParams.has(
+        "skipCompressionWait",
+      ),
+    ).toBe(false);
+  });
+
+  it("passes skipCompressionWait through signed URL completion when requested", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/upload",
+          assetId: "asset-1",
+          requiredHeaders: {
+            "Content-Type": "video/webm",
+            "x-goog-content-length-range": "0,3",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({}, { status: 200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+      );
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "clip.webm",
+      mimeType: "video/webm",
+      skipCompressionWait: true,
+    });
+
+    const completeUrl = new URL(fetchMock.mock.calls[2][0].toString());
+    expect(completeUrl.pathname).toBe("/api/v1/upload/complete");
+    expect(completeUrl.searchParams.get("skipCompressionWait")).toBe("true");
   });
 
   it("defaults Content-Type to application/octet-stream when no mime given", async () => {
@@ -229,5 +263,24 @@ describe("builderFileUploadProvider", () => {
     await expect(
       builderFileUploadProvider.upload({ data: new Uint8Array([1]) }),
     ).rejects.toThrow(/returned no URL/);
+  });
+
+  it("passes skipCompressionWait through resumable completion metadata", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+    );
+
+    const url = await builderFileUploadProvider.resumable!.completeSession(
+      {
+        sessionId: "https://storage.example.com/session",
+        meta: { assetId: "asset-1", skipCompressionWait: true },
+      },
+      "clip.webm",
+    );
+
+    expect(url).toBe("https://cdn.builder.io/video");
+    const completeUrl = new URL(fetchMock.mock.calls[0][0].toString());
+    expect(completeUrl.pathname).toBe("/api/v1/upload/complete");
+    expect(completeUrl.searchParams.get("skipCompressionWait")).toBe("true");
   });
 });
