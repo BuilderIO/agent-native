@@ -7,12 +7,7 @@ import {
 } from "@playwright/test";
 
 import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
-import {
-  designFrame,
-  enterDirectMode,
-  gotoEditor,
-  selectByText,
-} from "./helpers";
+import { designFrame, gotoEditor, selectByText } from "./helpers";
 
 let designId: string;
 let baseURLForActions: string;
@@ -132,15 +127,6 @@ async function editTokenValue(
   await waitForAction(page, "apply-design-token-edit", async () => {
     await input.press("Enter");
   });
-}
-
-async function previewIframeWidth(page: Page): Promise<number> {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .evaluate((el) =>
-      Math.round((el as HTMLIFrameElement).getBoundingClientRect().width),
-    );
 }
 
 test("inline component prop dropdown persists on the selected component", async ({
@@ -380,32 +366,6 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
       designFrame(page).locator("style[data-agent-native-motion]").count(),
     )
     .toBe(1);
-});
-
-test("breakpoint default buttons set the active preview width", async ({
-  page,
-}) => {
-  await enterDirectMode(page);
-
-  const statesToggle = page.getByRole("button", {
-    name: "States",
-    exact: true,
-  });
-  await statesToggle.scrollIntoViewIfNeeded();
-  await statesToggle.click();
-
-  const breakpoints = page.locator('section[aria-label="Breakpoints"]');
-  const mobileButton = breakpoints.getByRole("button", { name: /Mobile/ });
-  await expect(mobileButton).toBeVisible();
-  await mobileButton.click();
-
-  await expect(mobileButton).toHaveAttribute("aria-pressed", "true");
-  await expect
-    .poll(() =>
-      page.evaluate(() => (window as any).__designSelection?.breakpoint),
-    )
-    .toBe("mobile");
-  await expect.poll(() => previewIframeWidth(page)).toBe(390);
 });
 
 test("shader fill preview opens when the paint surface is reachable", async ({

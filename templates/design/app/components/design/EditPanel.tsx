@@ -30,7 +30,6 @@ import {
   IconCheck,
   IconCode,
   IconComponents,
-  IconDeviceDesktop,
   IconExternalLink,
   IconDroplet,
   IconEye,
@@ -135,7 +134,6 @@ import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
-import { StatesPanel } from "./StatesPanel";
 import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
@@ -6853,7 +6851,6 @@ export function EditPanel({
   activeFileUpdatedAt,
   designId,
   onComponentPropApplied,
-  statesPanelProps,
   reviewPanelProps,
   componentNodeId,
   sourceCapabilities = [],
@@ -7147,51 +7144,6 @@ export function EditPanel({
                 {showExportPreview ? (
                   <ExportPreview element={inspectorElement} />
                 ) : null}
-              </PanelSection>
-            ) : null}
-
-            {/* §6.4 States & Responsive — contextual section in Design tab.
-                Collapsed by default so existing Design content is not buried.
-                Only mounts when designId is provided so there is something to
-                load; without it the panel would fire an action with no id. */}
-            {designId && statesPanelProps ? (
-              <PanelSection
-                title={"States" /* i18n-ignore design inspector section */}
-                defaultCollapsed
-                actions={
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-6 rounded-md text-muted-foreground hover:text-foreground"
-                        aria-label={
-                          "Breakpoints & states" /* i18n-ignore design inspector action */
-                        }
-                      >
-                        <IconDeviceDesktop className="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {
-                        "Breakpoints & states" /* i18n-ignore design inspector action */
-                      }
-                    </TooltipContent>
-                  </Tooltip>
-                }
-              >
-                <StatesPanel designId={designId} {...statesPanelProps} />
-                {/* §6.4 / §6.6 — live captures (real running-app data, route
-                    props, API responses) are a real-app capability. When
-                    canCapture is false (inline source) surface a compact
-                    "Make it real" CTA so the user knows it's one step away. */}
-                {!statesPanelProps.canCapture && (
-                  <MakeItRealCard
-                    designId={designId}
-                    featureLabel="live data captures and real-app states"
-                  />
-                )}
               </PanelSection>
             ) : null}
 

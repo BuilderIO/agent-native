@@ -436,7 +436,7 @@ export function BuilderSetupCard({
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
         fullWidth
-          ? "w-full pb-2"
+          ? "w-full px-3 pb-2"
           : sidebarLayout
             ? "mx-auto w-full max-w-[42rem] px-3 pb-2"
             : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit",

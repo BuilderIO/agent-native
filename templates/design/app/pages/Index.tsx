@@ -394,8 +394,8 @@ export default function Index() {
   useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    <div className="flex items-center gap-3">
-      {designs.length > 0 ? (
+    designs.length > 0 ? (
+      <div className="flex items-center gap-3">
         <div className="relative">
           <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
@@ -405,23 +405,23 @@ export default function Index() {
             className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />
         </div>
-      ) : null}
-      <Button
-        size="sm"
-        onClick={openNewDesign}
-        disabled={newDesignHandoffPending}
-        className="cursor-pointer"
-      >
-        {newDesignHandoffPending ? (
-          <Spinner className="w-3.5 h-3.5" />
-        ) : (
-          <IconPlus className="w-3.5 h-3.5" />
-        )}
-        {newDesignHandoffPending
-          ? t("home.openingDesign")
-          : t("home.newDesign")}
-      </Button>
-    </div>,
+        <Button
+          size="sm"
+          onClick={openNewDesign}
+          disabled={newDesignHandoffPending}
+          className="cursor-pointer"
+        >
+          {newDesignHandoffPending ? (
+            <Spinner className="w-3.5 h-3.5" />
+          ) : (
+            <IconPlus className="w-3.5 h-3.5" />
+          )}
+          {newDesignHandoffPending
+            ? t("home.openingDesign")
+            : t("home.newDesign")}
+        </Button>
+      </div>
+    ) : null,
   );
 
   return (
@@ -921,11 +921,10 @@ function EmptyState({
         ))}
       </div>
       <Button
-        variant="outline"
         onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
           onCreateDesign(e as React.MouseEvent<HTMLElement>)
         }
-        className="cursor-pointer"
+        className="cursor-pointer dark:bg-white dark:text-black dark:hover:bg-white/90"
       >
         <IconPlus className="w-4 h-4" />
         {t("home.newDesign")}

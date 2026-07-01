@@ -34,6 +34,7 @@ const enUS = {
     presentBackToEditor: "Back to editor",
     presentExitHint: "Press Esc to exit",
     notFoundDescription: "The page you are looking for does not exist.",
+    notFoundSignIn: "Sign in",
     notFoundBackToDesigns: "Back to designs",
     teamCreateOrgDescription:
       "Set up a team to share designs with your colleagues.",
@@ -5667,6 +5668,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "按 Esc 退出",
       notFoundDescription: "您要查找的页面不存在。",
+      notFoundSignIn: "登录",
       notFoundBackToDesigns: "返回设计",
     },
     designSystemSetup: {
@@ -5740,6 +5742,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Pulsa Esc para salir",
       notFoundDescription: "La página que buscas no existe.",
+      notFoundSignIn: "Iniciar sesión",
       notFoundBackToDesigns: "Volver a diseños",
     },
     designSystemSetup: {
@@ -5815,6 +5818,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Appuyez sur Esc pour quitter",
       notFoundDescription: "La page que vous recherchez n’existe pas.",
+      notFoundSignIn: "Se connecter",
       notFoundBackToDesigns: "Retour aux designs",
     },
     designSystemSetup: {
@@ -5891,6 +5895,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Esc drücken, um zu beenden",
       notFoundDescription: "Die gesuchte Seite existiert nicht.",
+      notFoundSignIn: "Anmelden",
       notFoundBackToDesigns: "Zurück zu Designs",
     },
     designSystemSetup: {
@@ -5967,6 +5972,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Esc を押して終了",
       notFoundDescription: "お探しのページは存在しません。",
+      notFoundSignIn: "ログイン",
       notFoundBackToDesigns: "デザインに戻る",
     },
     designSystemSetup: {
@@ -6043,6 +6049,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Esc 키를 눌러 종료",
       notFoundDescription: "찾고 있는 페이지가 없습니다.",
+      notFoundSignIn: "로그인",
       notFoundBackToDesigns: "디자인으로 돌아가기",
     },
     designSystemSetup: {
@@ -6118,6 +6125,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "Pressione Esc para sair",
       notFoundDescription: "A página que você procura não existe.",
+      notFoundSignIn: "Entrar",
       notFoundBackToDesigns: "Voltar aos designs",
     },
     designSystemSetup: {
@@ -6193,6 +6201,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "बाहर निकलने के लिए Esc दबाएँ",
       notFoundDescription: "आप जिस पृष्ठ को ढूँढ रहे हैं वह मौजूद नहीं है।",
+      notFoundSignIn: "साइन इन करें",
       notFoundBackToDesigns: "डिज़ाइन पर वापस जाएँ",
     },
     designSystemSetup: {
@@ -6267,6 +6276,7 @@ const designExactEnglishOverrides = {
     pages: {
       presentExitHint: "اضغط على Esc للخروج",
       notFoundDescription: "الصفحة التي تبحث عنها غير موجودة.",
+      notFoundSignIn: "تسجيل الدخول",
       notFoundBackToDesigns: "العودة إلى التصاميم",
     },
     designSystemSetup: {

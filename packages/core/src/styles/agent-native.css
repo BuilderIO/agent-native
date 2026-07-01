@@ -630,7 +630,7 @@
 
   .agent-builder-setup-card__builder-cta {
     align-items: stretch;
-    flex: 1 1 11rem;
+    flex: 0 1 auto;
   }
 
   .agent-builder-setup-card__builder-button {

@@ -848,6 +848,16 @@ function proxyHeaders(
   };
 }
 
+function appDatabaseEnv(app: TemplateApp): NodeJS.ProcessEnv {
+  const appEnvName = app.id.toUpperCase().replace(/-/g, "_");
+  const databaseUrlKey = `${appEnvName}_DATABASE_URL`;
+  if (process.env[databaseUrlKey]) return {};
+
+  return {
+    [databaseUrlKey]: `file:${path.join(app.dir, "data", "app.db")}`,
+  };
+}
+
 function startApp(app: TemplateApp): void {
   if (app.process && !app.process.killed) return;
   if (app.restartTimer) return;
@@ -874,6 +884,7 @@ function startApp(app: TemplateApp): void {
       detached: process.platform !== "win32",
       env: devWatcherEnv({
         ...process.env,
+        ...appDatabaseEnv(app),
         // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
         // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
         // stdout is a TTY, so ANSI codes pass straight through to the user.

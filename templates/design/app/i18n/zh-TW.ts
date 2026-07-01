@@ -30,6 +30,7 @@ const messages = {
     presentBackToEditor: "返回編輯器",
     presentExitHint: "按 Esc 退出",
     notFoundDescription: "您要尋找的頁面不存在。",
+    notFoundSignIn: "登入",
     notFoundBackToDesigns: "返回設計",
     teamCreateOrgDescription: "設定團隊，與同事共用設計。",
   },
