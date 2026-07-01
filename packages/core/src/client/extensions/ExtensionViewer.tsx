@@ -339,10 +339,11 @@ function SourceCodeDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync in only when the dialog opens.
+  // Sync in when the dialog opens, or when the viewed extension changes
+  // while the dialog stays mounted (e.g. re-parented to a different id).
   useEffect(() => {
     if (open) setCode(extension.content ?? "");
-  }, [open]);
+  }, [open, extension.id]);
 
   const isDirty = code !== (extension.content ?? "");
 
@@ -376,6 +377,9 @@ function SourceCodeDialog({
         throw new Error(body?.error ?? `Save failed (${res.status})`);
       }
       setOpen(false);
+      queryClient.setQueryData<Extension>(["extension", extension.id], (old) =>
+        old ? { ...old, content: code } : old,
+      );
       queryClient.invalidateQueries({
         queryKey: ["extension", extension.id],
       });
