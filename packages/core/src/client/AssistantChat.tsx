@@ -1456,6 +1456,7 @@ const AssistantChatInner = forwardRef<
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
+  const reconnectCanMaterializeRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
   // lets new submissions go through immediately — prevents the "stuck
@@ -1774,6 +1775,7 @@ const AssistantChatInner = forwardRef<
 
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
+      reconnectCanMaterializeRef.current = afterSeq === 0;
       const storedActivityTool = getActiveRunActivityTool(threadId, runId);
       setRunningActivityTool(storedActivityTool);
       setActiveRun({
@@ -1956,6 +1958,7 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
+          reconnectCanMaterializeRef.current = false;
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -1987,6 +1990,7 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
+          reconnectCanMaterializeRef.current = false;
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -2712,6 +2716,11 @@ const AssistantChatInner = forwardRef<
 
   const materializeFrozenReconnectContent = useCallback(() => {
     if (!reconnectFrozen || reconnectContent.length === 0) return;
+    if (!reconnectCanMaterializeRef.current) {
+      setReconnectFrozen(false);
+      setReconnectContent([]);
+      return;
+    }
     try {
       const frozenContent = cloneContentParts(reconnectContent);
       settleInterruptedToolCalls(frozenContent);
@@ -2800,7 +2809,13 @@ const AssistantChatInner = forwardRef<
       reconnectAbortRef.current = null;
       reconnectRunIdRef.current = null;
       setIsReconnecting(false);
-      setReconnectFrozen(reconnectContent.length > 0);
+      if (reconnectCanMaterializeRef.current) {
+        setReconnectFrozen(reconnectContent.length > 0);
+      } else {
+        setReconnectFrozen(false);
+        setReconnectContent([]);
+      }
+      reconnectCanMaterializeRef.current = false;
     }
     threadRuntime.cancelRun();
     if (typeof window !== "undefined") {
