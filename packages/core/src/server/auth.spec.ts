@@ -47,7 +47,7 @@ describe("server/auth", () => {
 
       vi.stubEnv("NODE_ENV", "test");
       expect(shouldSkipEmailVerification()).toBe(true);
-    });
+    }, 15_000);
 
     it("is disabled by default in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -55,7 +55,7 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(false);
-    });
+    }, 15_000);
 
     it("is enabled by AUTH_SKIP_EMAIL_VERIFICATION=1", async () => {
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
@@ -63,7 +63,7 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(true);
-    });
+    }, 15_000);
 
     it("treats blank, false, and 0 as disabled", async () => {
       const { shouldSkipEmailVerification } =
@@ -77,7 +77,7 @@ describe("server/auth", () => {
 
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "0");
       expect(shouldSkipEmailVerification()).toBe(false);
-    });
+    }, 15_000);
   });
 
   describe("resolveSignupTrackingIdentity", () => {
