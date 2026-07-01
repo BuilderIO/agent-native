@@ -343,6 +343,39 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     )
     .toContain("e2e-alpha-button");
 
+  const overviewMotionButton = page.getByRole("button", {
+    name: "Motion",
+    exact: true,
+  });
+  await expect(overviewMotionButton).toBeVisible();
+  await overviewMotionButton.click();
+  await expect(
+    motionDock.getByRole("button", { name: "Alpha Button" }),
+  ).toBeVisible();
+
+  const durationInput = motionDock.getByLabel("Duration in ms");
+  await durationInput.fill("4000");
+  await durationInput.press("Tab");
+  await motionDock.getByRole("button", { name: "Play", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        designFrame(page)
+          .locator('[data-agent-native-node-id="e2e-alpha-button"]')
+          .evaluate((el) =>
+            Number.parseFloat(window.getComputedStyle(el).opacity),
+          ),
+      { timeout: 2_000, intervals: [50, 100, 150, 250, 500] },
+    )
+    .toBeLessThan(0.95);
+  await motionDock
+    .getByRole("button", { name: "Reset playhead", exact: true })
+    .click();
+  await motionDock
+    .getByRole("button", { name: "Collapse motion dock", exact: true })
+    .click();
+  await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
+
   const reopenMotionDockButton = page.getByRole("button", {
     name: "Motion",
     exact: true,

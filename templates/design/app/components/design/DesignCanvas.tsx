@@ -1811,14 +1811,15 @@ export function DesignCanvas({
             : "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         }
         data-design-preview-iframe
-        data-screen-iframe-id={screenId ?? undefined}
+        data-screen-iframe-id={
+          boardSurface ? undefined : (screenId ?? undefined)
+        }
         data-design-source-type={
           sourceType ??
           (externalPreviewUrl
             ? "localhost" // inferred — content is a URL
             : "inline")
         }
-        allowTransparency={transparentBackground || undefined}
         className="block h-full w-full border-0 bg-transparent"
         style={{
           background: iframeBackgroundColor,

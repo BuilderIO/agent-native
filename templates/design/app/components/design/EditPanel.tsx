@@ -138,7 +138,7 @@ import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
-export type InspectorTab = "design" | "tweaks";
+export type InspectorTab = "design" | "tweaks" | "extensions";
 
 const MIXED_VALUE = "Mixed";
 
@@ -216,6 +216,7 @@ interface EditPanelProps {
   tweakValues?: Record<string, string | number | boolean>;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
   onRequestTweaks?: (anchor: HTMLElement) => void;
+  extensionsPanel?: ReactNode;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
@@ -283,6 +284,8 @@ interface EditPanelProps {
   defaultComponentName?: string;
   /** Code-inspection data for the "Inspect code" popover. */
   inspectCode?: InspectCodeData;
+  /** Optional compact AI edit controls for selected/local source elements. */
+  aiActions?: ReactNode;
 }
 
 /**
@@ -2960,10 +2963,12 @@ function InspectorTabsHeader({
   activeTab,
   onActiveTabChange,
   trailing,
+  showExtensions,
 }: {
   activeTab: InspectorTab;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
+  showExtensions?: boolean;
 }) {
   const t = useT();
 
@@ -2986,6 +2991,14 @@ function InspectorTabsHeader({
           >
             {t("designEditor.tweaks")}
           </TabsTrigger>
+          {showExtensions ? (
+            <TabsTrigger
+              value="extensions"
+              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {"Extensions" /* i18n-ignore design inspector tab */}
+            </TabsTrigger>
+          ) : null}
         </TabsList>
       </Tabs>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
@@ -3282,7 +3295,7 @@ function CornerRadiusControl({
         value={radius}
         onChange={commitRadius}
         min={0}
-        precision={1}
+        precision={0}
       />
       <Tooltip>
         <TooltipTrigger asChild>
@@ -3308,6 +3321,7 @@ function CornerRadiusControl({
         <>
           <AppearanceScrubField
             label={t("editPanel.labels.topLeft")}
+            ariaLabel="Top left"
             icon={IconRadiusTopLeft}
             value={corners.topLeft}
             onChange={(value) =>
@@ -3321,6 +3335,7 @@ function CornerRadiusControl({
           />
           <AppearanceScrubField
             label={t("editPanel.labels.topRight")}
+            ariaLabel="Top right"
             icon={IconRadiusTopRight}
             value={corners.topRight}
             onChange={(value) =>
@@ -3335,6 +3350,7 @@ function CornerRadiusControl({
           <span aria-hidden="true" />
           <AppearanceScrubField
             label={t("editPanel.labels.bottomLeft")}
+            ariaLabel="Bottom left"
             icon={IconRadiusBottomLeft}
             value={corners.bottomLeft}
             onChange={(value) =>
@@ -3348,6 +3364,7 @@ function CornerRadiusControl({
           />
           <AppearanceScrubField
             label={t("editPanel.labels.bottomRight")}
+            ariaLabel="Bottom right"
             icon={IconRadiusBottomRight}
             value={corners.bottomRight}
             onChange={(value) =>
@@ -3368,6 +3385,7 @@ function CornerRadiusControl({
 
 function AppearanceScrubField({
   label,
+  ariaLabel,
   icon,
   value,
   onChange,
@@ -3379,6 +3397,7 @@ function AppearanceScrubField({
   precision,
 }: {
   label: string;
+  ariaLabel?: string;
   icon: (props: { className?: string }) => ReactNode;
   value: number;
   onChange: (value: number) => void;
@@ -3392,7 +3411,7 @@ function AppearanceScrubField({
   return (
     <ScrubInput
       label={label}
-      ariaLabel={label}
+      ariaLabel={ariaLabel ?? label}
       icon={icon}
       value={value}
       onChange={onChange}
@@ -6842,6 +6861,7 @@ export function EditPanel({
   tweakValues = {},
   onTweakChange,
   onRequestTweaks,
+  extensionsPanel,
   onStyleChange,
   onStylesChange,
   onExport,
@@ -6858,6 +6878,7 @@ export function EditPanel({
   selectedElementAlreadyComponent = false,
   defaultComponentName = "Component",
   inspectCode,
+  aiActions,
 }: EditPanelProps) {
   const t = useT();
   const [createComponentOpen, setCreateComponentOpen] = useState(false);
@@ -6950,6 +6971,7 @@ export function EditPanel({
         activeTab={activeTab}
         onActiveTabChange={handleActiveTabChange}
         trailing={headerTrailing}
+        showExtensions={!!extensionsPanel}
       />
 
       {activeTab === "design" ? (
@@ -7057,6 +7079,12 @@ export function EditPanel({
                 sourceCapabilities={sourceCapabilities}
               />
             )}
+
+            {aiActions ? (
+              <div className="border-b border-[var(--design-editor-control-border)] px-2 py-1.5">
+                {aiActions}
+              </div>
+            ) : null}
 
             {!inspectorElement && (
               <PageProperties
@@ -7227,6 +7255,10 @@ export function EditPanel({
               className="px-3 py-3"
             />
           </div>
+        </div>
+      ) : activeTab === "extensions" && extensionsPanel ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {extensionsPanel}
         </div>
       ) : null}
     </div>
