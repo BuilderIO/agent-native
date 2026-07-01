@@ -82,6 +82,7 @@ function inlinePreloadChunksPlugin(): Plugin {
   return {
     name: "agent-native:inline-preload-chunks",
     generateBundle(_options, bundle) {
+      // Sandboxed Electron preloads need to be self-contained inside app.asar.
       const preloadBundle = bundle as PreloadOutputBundle;
       const sharedChunks = Object.entries(preloadBundle).flatMap(
         ([fileName, output]) =>
