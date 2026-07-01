@@ -1258,6 +1258,11 @@ function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
       if (style.trim()) next[key] = style;
       continue;
     }
+    if (normalized === "_csstext") {
+      const cssText = sanitizeCssText(String(value));
+      if (cssText.trim()) next[key] = cssText;
+      continue;
+    }
     next[key] = value;
   }
   return next;

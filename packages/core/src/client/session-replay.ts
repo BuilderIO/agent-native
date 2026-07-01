@@ -19,6 +19,7 @@ interface RrwebRecordOptions {
   emit: (event: ReplayEvent) => void;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet?: boolean;
   blockClass?: string | RegExp;
   blockSelector?: string;
   ignoreClass?: string | RegExp;
@@ -82,6 +83,7 @@ export interface SessionReplayOptions {
   maxBatchBytes?: number;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet?: boolean;
   blockSelector?: string;
   ignoreSelector?: string;
   maskTextClass?: string | RegExp;
@@ -135,6 +137,7 @@ interface NormalizedSessionReplayOptions {
   maxBatchBytes: number;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet: boolean;
   blockSelector: string;
   ignoreSelector: string;
   maskTextClass: string | RegExp;
@@ -509,6 +512,7 @@ function normalizeOptions(
     ),
     checkoutEveryNth: options.checkoutEveryNth,
     checkoutEveryNms: options.checkoutEveryNms,
+    inlineStylesheet: options.inlineStylesheet ?? true,
     blockSelector: options.blockSelector || DEFAULT_BLOCK_SELECTOR,
     ignoreSelector: options.ignoreSelector || DEFAULT_IGNORE_SELECTOR,
     maskTextClass: options.maskTextClass || DEFAULT_MASK_TEXT_CLASS,
@@ -1010,6 +1014,7 @@ async function startSessionReplayRecorder(
       sampling: normalized.eventSampling,
       checkoutEveryNth: normalized.checkoutEveryNth,
       checkoutEveryNms: normalized.checkoutEveryNms,
+      inlineStylesheet: normalized.inlineStylesheet,
       blockSelector: normalized.blockSelector,
       ignoreSelector: normalized.ignoreSelector,
       maskTextClass: normalized.maskTextClass,

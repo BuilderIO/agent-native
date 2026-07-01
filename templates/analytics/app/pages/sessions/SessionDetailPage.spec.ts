@@ -157,6 +157,68 @@ describe("session replay sanitization", () => {
     expect(styleNode.childNodes[0].textContent).not.toMatch(/@import|url\(/i);
   });
 
+  it("keeps rrweb inlined stylesheet text without live resource loads", () => {
+    const [fullSnapshot, mutation] = sanitizeReplayEvents([
+      {
+        type: 2,
+        timestamp: 1000,
+        data: {
+          node: {
+            type: 2,
+            tagName: "html",
+            attributes: {},
+            childNodes: [
+              {
+                type: 2,
+                tagName: "head",
+                attributes: {},
+                childNodes: [
+                  {
+                    type: 2,
+                    tagName: "link",
+                    attributes: {
+                      rel: "stylesheet",
+                      href: "https://cdn.example.test/app.css",
+                      _cssText:
+                        '@import "https://cdn.example.test/fonts.css"; body { background: url(https://cdn.example.test/bg.png); color: red; }',
+                    },
+                    childNodes: [],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        type: 3,
+        timestamp: 1100,
+        data: {
+          source: 0,
+          attributes: [
+            {
+              id: 10,
+              attributes: {
+                _cssText:
+                  '.loaded { background-image: url("https://cdn.example.test/loaded.png"); color: blue; }',
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const linkAttributes =
+      fullSnapshot?.data.node.childNodes[0].childNodes[0].attributes;
+    expect(linkAttributes).toEqual({
+      rel: "stylesheet",
+      _cssText: " body { background: none; color: red; }",
+    });
+    expect(mutation?.data.attributes[0].attributes).toEqual({
+      _cssText: ".loaded { background-image: none; color: blue; }",
+    });
+  });
+
   it("strips replay text mutations that can inject stylesheet fetches", () => {
     const [event] = sanitizeReplayEvents([
       {

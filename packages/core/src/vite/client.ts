@@ -2086,6 +2086,9 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
+      "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
+        process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
       // Framework route warmup controls how SSR `.data` routes are fetched:
       // ordinary fetches keep them CDN-cacheable, while native prefetch headers
       // can be refused before the CDN/origin sees the request. Keep this value
