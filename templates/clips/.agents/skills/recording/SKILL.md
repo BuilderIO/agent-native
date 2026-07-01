@@ -31,8 +31,37 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 4. **Record.** Start a `MediaRecorder` with `mimeType: "video/webm;codecs=vp9,opus"` (fallback to vp8, then browser default). Use `timeslice: 2000` so chunks arrive every 2s.
 5. **Upload each chunk.** `ondataavailable` POSTs the chunk bytes to `/api/uploads/chunk` with headers `X-Recording-Id` and `X-Chunk-Index`. Don't retry inline — buffer failed chunks in `IndexedDB` and let a background worker re-send.
 6. **Live transcription.** Alongside the MediaRecorder, `useLiveTranscription` runs the Web Speech API to accumulate transcript text in real time. On stop, the client calls `save-browser-transcript` to persist the result immediately — no API key needed. Desktop recordings use local Whisper/macOS speech first when available, and fall back to Web Speech in the webview on non-mac before relying on upload transcription.
-7. **Finalize.** On stop, send the final chunk to `/api/uploads/:id/chunk?isFinal=1`. The route calls `finalize-recording`, which stitches chunks, uploads the finished media when storage is configured, transitions `status` to `ready`, then kicks off `request-transcript` for higher-quality output (see `ai-video-tools`).
+7. **Finalize.** On stop, send the final chunk to `/api/uploads/:id/chunk?isFinal=1`. The route calls `finalize-recording`, which stitches chunks, makes the media seekable (see below), uploads the finished media when storage is configured, transitions `status` to `ready`, then kicks off `request-transcript` for higher-quality output (see `ai-video-tools`).
 8. **Navigate.** Once the row is `ready` the UI navigates to `/r/:id`.
+
+## Seekable playback (don't ship raw MediaRecorder output)
+
+Raw `MediaRecorder` files are not friendly to progressive HTTP playback, which
+shows up as "clip takes minutes to load" and "re-buffers every time I seek"
+even though the file downloads fine:
+
+- **MP4** is written with the `moov` metadata atom *after* `mdat`, so a player
+  must fetch the whole file before it can start or seek.
+- **WebM** is a live stream with no Cues (seek index) and an unknown Segment
+  duration, so Chrome won't honor `currentTime = X` and has to scan/download.
+
+`finalize-recording` fixes this before upload: MP4 gets pure-TS faststart
+(`server/lib/faststart.ts`), WebM gets a lossless `ffmpeg -c copy` remux that
+writes a SeekHead + Cues + real duration (`server/lib/video-remux.ts`). Both are
+best-effort — on failure we upload the original, never block finalize. Recordings
+above `CLIPS_INLINE_REMUX_MAX_BYTES` (default 200 MB) skip the inline pass and
+are repaired in the background.
+
+The **streaming/resumable** upload path forwards raw bytes straight to the
+provider and cannot rewrite them inline, so `finalize-recording` schedules a
+background `ensureRecordingSeekable` pass for those.
+
+To repair clips uploaded before this existed (or via streaming), call the
+`reprocess-recording` action: `--id`, `--ids='[...]'`, or `--all --limit=N`. It
+re-fetches provider media, rewrites it, re-uploads, and repoints the row. It's
+idempotent (already-seekable clips are skipped unless `--force`) and only touches
+provider-hosted clips owned by the caller. This is the right tool when a user
+reports a specific slow/buffering clip.
 
 ## Loom import
 

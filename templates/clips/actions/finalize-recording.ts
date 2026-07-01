@@ -40,11 +40,26 @@ import {
   getResumableSession,
 } from "../server/lib/resumable-session.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
+import { remuxWebmToSeekable } from "../server/lib/video-remux.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import {
+  ensureRecordingSeekable,
+  markRecordingSeekable,
+} from "./lib/ensure-seekable-video.js";
 import requestTranscript from "./request-transcript.js";
+
+// Recordings up to this size get their seekable rewrite applied inline during
+// finalize (we already hold the assembled bytes). Larger recordings are handed
+// off to the background/reprocess path so we don't stretch the finalize
+// request or exhaust serverless /tmp. Override with CLIPS_INLINE_REMUX_MAX_BYTES.
+function inlineRemuxMaxBytes(): number {
+  const raw = Number(process.env.CLIPS_INLINE_REMUX_MAX_BYTES ?? "");
+  if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
+  return 200 * 1024 * 1024;
+}
 
 /**
  * Decode a base64 string back into a Uint8Array.
@@ -118,6 +133,10 @@ async function markRecordingReady(params: {
   finalHasAudio: boolean;
   finalHasCamera: boolean;
   existingTitle: string;
+  // Whether a seekable rewrite (MP4 faststart / WebM Cues remux) was already
+  // applied to the uploaded bytes. When false, a best-effort background repair
+  // is triggered so streamed/raw uploads still become seekable.
+  seekableApplied: boolean;
 }) {
   const {
     id,
@@ -131,6 +150,7 @@ async function markRecordingReady(params: {
     finalHasAudio,
     finalHasCamera,
     existingTitle,
+    seekableApplied,
   } = params;
   const db = getDb();
   const now = new Date().toISOString();
@@ -180,6 +200,30 @@ async function markRecordingReady(params: {
     finishedAt: now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
+
+  if (seekableApplied) {
+    // Uploaded bytes are already start-playable and seekable — remember it so
+    // later reprocess sweeps skip this clip.
+    await markRecordingSeekable(id, videoUrl).catch((err) => {
+      console.warn("[finalize] failed to write seekable marker", {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  } else {
+    // Streaming/resumable (or oversized) uploads shipped raw MediaRecorder
+    // bytes with no seekable rewrite: an MP4 with a trailing moov or a WebM
+    // without a Cues index buffers on load and re-buffers on every seek. Fix
+    // it in the background so playback is smooth without blocking finalize.
+    void Promise.resolve(
+      ensureRecordingSeekable({ recordingId: id, ownerEmail }),
+    ).catch((err: unknown) => {
+      console.warn("[finalize] background seekable remux failed", {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 
   // Kick off transcription in the background — fire-and-forget so the chunk
   // endpoint gets a quick response. The request context (user email via
@@ -375,6 +419,10 @@ export default defineAction({
             ...readyParams,
             videoUrl,
             videoSizeBytes: resumableSession.bytesUploaded,
+            // Streaming path forwards raw MediaRecorder bytes straight to the
+            // provider — no faststart/Cues rewrite happened. Repair in the
+            // background.
+            seekableApplied: false,
           });
           // Delete only after durable state is written — so a retry before
           // this point can still find the session and re-enter this path.
@@ -521,9 +569,14 @@ export default defineAction({
       // recordings.
       parts.length = 0;
 
-      // Apply faststart to MP4 files — moves the moov atom before mdat so
-      // browsers can begin playback immediately via HTTP range requests.
+      // Make the assembled recording seekable before upload — we already hold
+      // the full bytes, so a viewer never has to wait through a non-seekable
+      // first play. MP4: relocate moov ahead of mdat (pure TS). WebM: remux to
+      // add a Cues index + real duration (ffmpeg -c copy). When neither runs
+      // (unknown format, oversized, or ffmpeg unavailable) `seekableApplied`
+      // stays false and markRecordingReady schedules a background repair.
       let uploadData = assembled;
+      let seekableApplied = false;
       if (videoFormat === "mp4") {
         try {
           uploadData = applyFaststart(assembled);
@@ -560,6 +613,32 @@ export default defineAction({
             // Sentry must never mask the real validation error.
           }
           throw err;
+        }
+        // moov is present and validated — the MP4 is start-playable/seekable.
+        seekableApplied = true;
+      } else if (videoFormat === "webm") {
+        // MediaRecorder WebM has no Cues index and an unknown duration, so
+        // Chrome buffers on load and re-buffers on every seek. A lossless
+        // `ffmpeg -c copy` remux rewrites it with a SeekHead + Cues + real
+        // duration. Bounded by size so finalize stays fast; larger clips get a
+        // background pass. Best-effort: on any failure we upload the original.
+        if (assembled.byteLength <= inlineRemuxMaxBytes()) {
+          try {
+            const seekable = await remuxWebmToSeekable(uploadData);
+            if (seekable.changed) {
+              uploadData = seekable.bytes;
+              seekableApplied = true;
+              debugLog("[finalize] webm remux applied", {
+                id,
+                bytes: uploadData.byteLength,
+              });
+            }
+          } catch (err) {
+            console.warn("[finalize] webm remux failed, uploading as-is", {
+              id,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       }
 
@@ -721,12 +800,13 @@ export default defineAction({
       debugLog("[finalize] done", {
         id,
         videoUrl: upload.url,
-        bytes: assembled.byteLength,
+        bytes: uploadData.byteLength,
       });
       return markRecordingReady({
         ...readyParams,
         videoUrl: upload.url,
-        videoSizeBytes: assembled.byteLength,
+        videoSizeBytes: uploadData.byteLength,
+        seekableApplied,
       });
     } finally {
       // Unconditional chunk scratch-space cleanup. Runs on success AND on

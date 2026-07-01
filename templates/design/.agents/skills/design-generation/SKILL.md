@@ -18,22 +18,62 @@ Every generated design uses:
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
 - **CSS Custom Properties** — for theming and tweaks panel integration
 
-## Aesthetic Quality Bar — avoid generic "AI slop"
+## Why the workflow exists — it is the anti-slop engine
 
-The single biggest lever on quality is refusing the defaults the model reaches
-for. Before generating, commit to a specific, opinionated direction. Banned by
-default (use only if the user explicitly asks):
+Generic output ("AI slop") is a *workflow* failure, not a lack of talent. When one
+prompt has to set the taste, explore the options, and emit final code all at once,
+the safest answer is the statistical average of the training data: Inter, an
+indigo→violet gradient, a centered hero, three rounded icon cards. Design beats
+this by splitting those jobs across the tools — use them in order, don't collapse
+them:
 
-- **Fonts:** Inter, Roboto, Arial, system-ui, or other safe defaults. Always
-  pick a distinctive Google Font pairing (see the table below).
-- **The purple/indigo gradient on white** and other one-click hero clichés.
-- **Default shadcn/Tailwind grays** as the whole palette; flat indigo/blue
-  accents; the recurring "fingerprint" combo (teal accent + blinking status dot
-  + left accent bars + three-column hero).
-- **Predictable, evenly-weighted layouts** with no focal point.
+1. **Direction** — `show-design-questions` (or a stated thesis) sets taste on purpose.
+2. **Exploration** — `present-design-variants` compares genuinely different directions
+   before committing to one. **This step kills sameness; never skip it for open-ended work.**
+3. **Spec** — a linked design system and the `:root` token block capture the chosen look as reusable rules.
+4. **Code** — `generate-design` / `edit-design` execute a decision already made instead of guessing.
 
-Do not converge even within your own "creative" picks — vary deliberately across
-generations so two designs never share the same fingerprint.
+Jumping straight to code is how you get slop. Let the phases (below) do the work.
+
+## Aesthetic quality bar — beat distributional convergence
+
+You sample toward the "on-distribution" center by default; refuse it. **Every
+"don't" here carries a "do"** — a banned default plus where to go instead —
+because banning Inter alone just makes you reach for Roboto next. Use a banned
+item only if the user explicitly asks.
+
+- **Fonts.** Don't: Inter, Roboto, Arial, Open Sans, system-ui. Do: a distinctive
+  Google Font pairing matched to the chosen aesthetic (see the table) — editorial
+  serif, grotesk display + mono, or one variable font pushed across weight extremes.
+- **Color.** Don't: the indigo/violet slop palette (`#6366F1`, `#8B5CF6`,
+  `#A855F7`), a purple gradient on white, or everything in default grays. Do:
+  anchor on one non-default family — clay/ochre/terracotta, ink/bone/mustard,
+  charcoal/lime, oxblood/cream, navy/copper, warm paper (`#FBF7F0`) over pure
+  white — with one decisive accent used sparingly for hierarchy, not decoration.
+- **Layout.** Don't: centered hero + one CTA + a row of three icon cards,
+  rounded-everything, `0.1`-opacity drop shadows, blanket glassmorphism, or the
+  badge-above-headline cliché. Do: asymmetric 60/40 or 70/30 splits, uneven
+  visual weight, one clear focal point, and flat confident surfaces.
+- **Background.** Don't: a single flat fill. Do: layered gradients, a geometric
+  pattern, grain, or a contextual texture that matches the theme.
+- **Copy & voice.** Don't: lorem ipsum or buzzword filler ("empower", "seamless",
+  "leverage", "revolutionize", "in today's fast-paced world"). Do: realistic
+  domain content in a specific voice — copy is design material.
+
+**Second-order convergence is real.** Even your "creative" picks converge (Space
+Grotesk everywhere; teal accent + blinking dot + left accent bars). Vary
+deliberately across generations so two designs never share a fingerprint.
+
+**Principles to quote back while building:** color creates hierarchy, not
+decoration · density over decoration · earn every animation · commit to one point
+of view. **Match code to the vision** — maximalist themes want elaborate motion
+and effects; minimal themes want restraint and precise spacing. Elegance is
+executing one vision fully.
+
+**References beat adjectives, but only with a reason.** "Linear: the quiet
+confidence of its spacing" or "Stripe: dense but never crowded" points somewhere
+specific; "Linear" alone collapses back to the average, and replying to your own
+output with "make it cleaner / more premium" means you're negotiating with vibes.
 
 ## Prompt the design in four layers
 
@@ -69,6 +109,23 @@ Pick a preset by `projectType`:
 - **Token grounding is non-negotiable:** every color/font/radius references a
   `:root` CSS variable. Never hardcode `text-white` / `bg-black` / hex literals
   in the markup — that's what keeps brand + multi-screen consistency automatic.
+
+## Building on existing code, screens, or a design system
+
+When a design system, tokens, current screens, or a connected codebase already
+exist, the slop risk flips: the failure is ignoring the brand and reverting to
+defaults. The banned-defaults list above still applies, plus:
+
+- **Inspect before inventing.** Read the linked design system, the current
+  `:root` tokens, and existing screens (or the connected localhost/repo) first.
+  Derive the type scale, palette, radius, density, and component language from
+  what is actually there — don't restate a generic direction.
+- **Treat every reversion as a missing spec entry.** If output drifts to a
+  default (Inter, pill buttons, a stock radius) despite the brand, don't just
+  re-prompt — pin the explicit value into `:root` so it can't drift again.
+- **Consistency is not sameness.** Tokens alone make every screen "the same in
+  your colors". Keep structure and layout genuinely varied per screen while the
+  palette, type, and components stay on-brand.
 
 ## Generation Workflow — the canonical 4-phase flow
 
@@ -502,9 +559,8 @@ regeneration is slow, expensive, and regresses unrelated parts.
 
 ## What NOT to Do
 
-- Never use safe/generic fonts (Inter, Roboto, Arial, system-ui) or the
-  purple-on-white gradient, default shadcn grays, or the teal-accent +
-  blinking-dot + three-column-hero cliché — see the Aesthetic Quality Bar.
+- For aesthetics (fonts, palette, layout, backgrounds, copy), see the Aesthetic
+  quality bar above — every banned default there is out unless the user asks.
 - Never link prototype screens with real/relative URLs — use Alpine state,
   `data-screen`, or `#` anchors (see Multi-screen prototypes & navigation).
 - Never hardcode colors — always reference CSS custom properties (no raw

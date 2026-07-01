@@ -37,6 +37,7 @@ import {
   shouldIgnoreOverviewLayerCreationEcho,
   shouldBlockPendingVisualStyleNavigation,
   shouldShowPendingVisualStyleApply,
+  shouldMirrorSelectedElementToAgentChat,
   sortCodeLayerIdsByTreeOrder,
   formatPendingVisualStylePrompt,
   mergePendingVisualStyleEdit,
@@ -62,6 +63,36 @@ describe("DesignEditor overview selection state", () => {
         viewMode: "single",
       }),
     ).toEqual(["screen-active"]);
+  });
+});
+
+describe("DesignEditor agent chat selection context", () => {
+  it("skips empty-state selections", () => {
+    expect(
+      shouldMirrorSelectedElementToAgentChat({
+        tagName: "div",
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 0, y: 0, width: 320, height: 180 },
+        textContent: "* Nothing here yet Add your first screen",
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps regular selected element context", () => {
+    expect(
+      shouldMirrorSelectedElementToAgentChat({
+        tagName: "button",
+        classes: ["primary"],
+        computedStyles: {},
+        boundingRect: { x: 0, y: 0, width: 120, height: 36 },
+        textContent: "Start trial",
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+    ).toBe(true);
   });
 });
 

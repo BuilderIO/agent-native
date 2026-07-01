@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { notify } from "@agent-native/core/notifications";
+import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
 import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 
@@ -471,7 +471,7 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
 
   const body = alertBody(rule, evaluation);
   const channels = ensureInboxNotificationChannel(rule.channels);
-  const stored = await notify(
+  const delivery = await notifyWithDelivery(
     {
       severity: rule.severity,
       title: `Analytics alert: ${rule.name}`,
@@ -498,18 +498,17 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
     },
     { owner: rule.ownerEmail },
   );
-  if (!stored?.id) {
+  if (delivery.deliveredChannels.length === 0) {
     await markRuleStatus(rule.id, {
       lastEvaluatedAt: evaluatedAt,
       lastStatus: "error",
-      lastError:
-        "Analytics alert notification was not delivered; no inbox notification was stored.",
+      lastError: "Analytics alert notification was not delivered.",
     });
     return { ruleId: rule.id, status: "error", ...evaluation };
   }
 
   await recordIncident(rule, {
-    notificationId: stored.id,
+    notificationId: delivery.notification?.id,
     triggeredAt: evaluatedAt,
     windowStart,
     windowEnd,
@@ -524,7 +523,7 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
   return {
     ruleId: rule.id,
     status: "triggered",
-    notificationId: stored.id,
+    notificationId: delivery.notification?.id,
     ...evaluation,
   };
 }

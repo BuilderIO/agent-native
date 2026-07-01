@@ -363,14 +363,28 @@ iteration, or a human-in-the-loop choice among design directions.
 
 ## Design Quality Bar
 
+Generic "AI slop" comes from letting one prompt set taste, explore, and emit code
+at once — so the model returns the training-average (Inter, an indigo/violet
+gradient, a centered hero, three rounded cards). The variant flow above exists to
+separate those jobs; use it, and hold this bar:
+
 - Before generating, name the concrete audience, the screen's primary job, and
   the visual thesis. If the brief is vague, make a reasonable choice and state
   it instead of producing a generic dashboard/landing-page default.
-- For existing products, inspect the current screen, design system, tokens,
-  component language, or codebase context before inventing a new direction.
+- Refuse the defaults, and pair every "don't" with a "do" (banning Inter alone
+  just makes you reach for Roboto). Avoid Inter/Roboto/system fonts, the
+  indigo/violet slop palette (\`#6366F1\`/\`#8B5CF6\`/\`#A855F7\`) and purple-on-white
+  gradients, and centered-hero + three-icon-card layouts; instead pick a
+  distinctive font pairing, one non-default palette family with a single decisive
+  accent, and an asymmetric layout with a clear focal point.
 - Make each direction distinct in structure and behavior, not just palette.
   Give every variant one memorable signature choice, then keep the surrounding
-  chrome disciplined.
+  chrome disciplined. Even your creative picks converge (Space Grotesk
+  everywhere) — vary deliberately so two directions never share a fingerprint.
+- For existing products, inspect the current screen, design system, tokens, and
+  component language before inventing a new direction. Treat any drift back to a
+  default as a missing token to pin, and vary layout per screen so on-brand does
+  not become same-in-your-colors.
 - Treat copy, data, and imagery as design material. Use realistic domain
   content and first-party/generated assets when images matter; avoid lorem
   ipsum, vague SaaS filler, and decorative placeholder boxes.

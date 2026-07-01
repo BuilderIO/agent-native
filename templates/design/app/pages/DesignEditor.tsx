@@ -360,6 +360,16 @@ export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   return tagName === "BODY" || tagName === "HTML";
 }
 
+export function shouldMirrorSelectedElementToAgentChat(
+  info: ElementInfo | null | undefined,
+): info is ElementInfo {
+  if (!info || isScreenRootElementInfo(info)) return false;
+  const text = info.textContent?.replace(/\s+/g, " ").trim();
+  if (!text) return true;
+  const labelText = text.replace(/^[^A-Za-z0-9]+/, "").toLowerCase();
+  return !labelText.startsWith("nothing here yet");
+}
+
 export function shouldIgnoreOverviewLayerCreationEcho(args: {
   pendingLayerId: string | null | undefined;
   pendingScreenId: string | null | undefined;
@@ -9162,7 +9172,7 @@ export default function DesignEditor() {
 
   useEffect(() => {
     const key = "design:selected-element";
-    if (!id || !selectedElement) {
+    if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
       removeAgentChatContextItem(key);
       return;
     }
