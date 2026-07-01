@@ -7,7 +7,11 @@ import {
 } from "../agent/engine/credential-errors.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
-import { humanizeToolLabelText, runningToolLabel } from "./tool-display.js";
+import {
+  humanizeToolLabelText,
+  humanizeToolName,
+  runningToolLabel,
+} from "./tool-display.js";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -339,6 +343,42 @@ function dispatchActivityClear(tabId: string | undefined) {
       detail: { tabId },
     }),
   );
+}
+
+function pendingToolNames(content: ContentPart[]): {
+  activity: string[];
+  running: string[];
+} {
+  const activity = new Set<string>();
+  const running = new Set<string>();
+  for (const part of content) {
+    if (part.type === "tool-call" && part.result === undefined) {
+      if (part.activity === true) {
+        activity.add(part.toolName);
+      } else {
+        running.add(part.toolName);
+      }
+    }
+  }
+  return { activity: [...activity], running: [...running] };
+}
+
+function formatToolNames(tools: string[]): string {
+  const names = tools.map(humanizeToolName);
+  if (names.length === 0) return "the promised action";
+  if (names.length === 1) return `the ${names[0]} action`;
+  return `these actions: ${names.join(", ")}`;
+}
+
+function interruptedToolMessage(pending: {
+  activity: string[];
+  running: string[];
+}): string {
+  if (pending.running.length > 0) {
+    return `The agent stopped before ${formatToolNames(pending.running)} returned a result. The requested changes may not have been made.`;
+  }
+  const actionLabel = formatToolNames(pending.activity);
+  return `The agent stopped before starting ${actionLabel}. No tool result was returned, so the requested changes were not made.`;
 }
 
 /**
@@ -751,6 +791,40 @@ export function processEvent(
   }
 
   if (ev.type === "done") {
+    const interruptedTools = pendingToolNames(content);
+    const allInterruptedTools = [
+      ...interruptedTools.running,
+      ...interruptedTools.activity,
+    ];
+    if (allInterruptedTools.length > 0) {
+      settleInterruptedToolCalls(content, undefined, { includeActivity: true });
+      const message = interruptedToolMessage(interruptedTools);
+      const runError = {
+        message,
+        details: `interrupted_actions: ${allInterruptedTools.join(", ")}`,
+        errorCode: "action_not_started",
+        recoverable: true,
+      };
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:run-error", {
+            detail: { ...runError, tabId },
+          }),
+        );
+      }
+      content.push({
+        type: "text",
+        text: formatChatErrorText(message, undefined, runError.errorCode),
+      });
+      return {
+        action: "error",
+        result: {
+          content: [...content],
+          status: { type: "incomplete" as const, reason: "error" as const },
+          metadata: { custom: { runError } },
+        } as ChatModelRunResult,
+      };
+    }
     return {
       action: "done",
       result: { content: [...content] } as ChatModelRunResult,
