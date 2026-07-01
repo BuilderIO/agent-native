@@ -237,6 +237,7 @@ export interface GenerationPresetSummary {
   model: ImageModel | VideoModel;
   textPolicy: string;
   referencePolicy: GenerationPresetReferencePolicy;
+  includeLogo: boolean;
   settings: Record<string, unknown>;
   sortOrder: number;
   createdAt?: string;

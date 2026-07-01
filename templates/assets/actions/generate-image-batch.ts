@@ -86,7 +86,12 @@ export default defineAction({
     tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
     intent: z.enum(GENERATION_INTENTS).default("generate"),
     styleStrength: z.enum(STYLE_STRENGTHS).default("balanced"),
-    includeLogo: z.coerce.boolean().default(false),
+    includeLogo: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "Composite the library's canonical logo onto every slot. When omitted, the selected preset's logo setting is used; pass an explicit value to override it. No-op if the library has no canonical logo.",
+      ),
     groundingMode: z.enum(["auto", "off", "google-search"]).default("auto"),
     source: z.enum(["chat", "ui", "a2a"]).default("chat"),
     callerAppId: z

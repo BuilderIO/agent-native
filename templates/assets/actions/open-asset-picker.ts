@@ -72,8 +72,10 @@ const schema = z.object({
     .default("balanced")
     .describe("How strongly to follow the library style during generation."),
   includeLogo: booleanParam
-    .default(false)
-    .describe("Whether auto-generation should include the library logo."),
+    .optional()
+    .describe(
+      "Override logo compositing for auto-generation. When omitted, the selected preset's logo setting decides whether the library's canonical logo is composited.",
+    ),
   callerAppId: z
     .string()
     .optional()
