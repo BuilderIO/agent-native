@@ -1,5 +1,7 @@
 import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import type { CreateInlineDatabaseResponse } from "@shared/api";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
+import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
   IconTypography,
   IconH1,
@@ -33,7 +35,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useCreateContentDatabase } from "@/hooks/use-content-database";
+import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
@@ -144,6 +146,36 @@ export function shouldOpenGenerateOnSpace(editor: Editor) {
 
 export function parseSlashCommandQuery(textBeforeCursor: string) {
   return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
+}
+
+export function inlineDatabaseBlockContent(
+  block: CreateInlineDatabaseResponse["block"],
+) {
+  return {
+    type: "registryBlock",
+    attrs: {
+      blockType: "inline-database",
+      blockId: block.ownerBlockId,
+      title: null,
+      summary: null,
+      __raw: serializeRegistryBlockToMdx("inline-database", {
+        id: block.ownerBlockId,
+        data: block,
+      }),
+    },
+  };
+}
+
+export function insertInlineDatabaseBlock(
+  editor: Editor,
+  block: CreateInlineDatabaseResponse["block"],
+  position?: number | { from: number; to: number } | null,
+) {
+  const content = inlineDatabaseBlockContent(block);
+  const chain = editor.chain().focus();
+  return position != null
+    ? chain.insertContentAt(position, content).run()
+    : chain.insertContent(content).run();
 }
 
 const commands: CommandTemplate[] = [
@@ -407,7 +439,9 @@ export function SlashCommandMenu({
   const { send } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
-  const createDatabase = useCreateContentDatabase(documentId ?? null);
+  const createInlineDatabase = useCreateInlineContentDatabase(
+    documentId ?? null,
+  );
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -609,18 +643,36 @@ export function SlashCommandMenu({
     title: t("editor.slash.database"),
     description: t("editor.slash.databaseDescription"),
     icon: IconDatabase,
-    action: async () => {
+    preserveSlashRange: true,
+    action: async (editor, { slashRange }) => {
       if (!documentId) {
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
+      if (slashRange) {
+        editor.chain().focus().deleteRange(slashRange).run();
+      }
       const toastId = toast.loading(t("editor.creatingDatabase"));
       try {
-        const result = await createDatabase.mutateAsync({
-          parentId: documentId,
+        const result = await createInlineDatabase.mutateAsync({
+          hostDocumentId: documentId,
           title: t("editor.untitledDatabase"),
         });
-        navigate(`/page/${result.database.documentId}`, { flushSync: true });
+        const inserted = insertInlineDatabaseBlock(editor, result.block);
+        if (!inserted) throw new Error(t("empty.genericError"));
+        await waitForEditorUpdateFrame();
+        const content = collapseExactRepeatedNfm(
+          docToNfm(editor.getJSON() as any),
+          {
+            requiredText: result.block.ownerBlockId,
+          },
+        );
+        if (onDraftPersisted) {
+          const persisted = await onDraftPersisted(content);
+          if (!persisted) throw new Error(t("empty.genericError"));
+        } else {
+          await onDraftCommitted?.();
+        }
         toast.success(t("editor.databaseCreated"), { id: toastId });
       } catch (error) {
         toast.error(t("editor.failedToCreateDatabase"), {
