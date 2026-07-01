@@ -3330,7 +3330,10 @@ export async function runAgentLoop(opts: {
       }
 
       const DEFAULT_TOOL_RESULT_CHARS = 50_000;
-      const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+      // Default action tools should not undercut durable/background runs. The
+      // run-manager still aborts foreground hosted runs around 40s, while
+      // background runs get nearly the full 15-minute function budget.
+      const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
       const toolTimeoutMs =
         actionEntry.timeoutMs ??
         opts.toolLimits?.timeoutMs ??
@@ -3798,7 +3801,11 @@ export async function runAgentLoop(opts: {
         input: toolCall.input as Record<string, unknown>,
         result,
         ...(isError ? { isError: true } : {}),
-        ...(isError ? { completedSideEffect: false } : {}),
+        ...(isError
+          ? { completedSideEffect: false }
+          : actionEntry.readOnly !== true
+            ? { completedSideEffect: true }
+            : {}),
         ...(mcpApp ? { mcpApp } : {}),
         ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
       });

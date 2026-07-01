@@ -18,6 +18,8 @@ interface ContentPart {
   argsText?: string;
   args?: Record<string, string>;
   result?: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
 }
@@ -159,6 +161,10 @@ export function buildAssistantMessage(
           part.result === undefined
         ) {
           part.result = event.result ?? "";
+          if (event.isError !== undefined) part.isError = event.isError;
+          if (event.completedSideEffect !== undefined) {
+            part.completedSideEffect = event.completedSideEffect;
+          }
           if (event.mcpApp) part.mcpApp = event.mcpApp;
           if (event.chatUI) part.chatUI = event.chatUI;
           break;

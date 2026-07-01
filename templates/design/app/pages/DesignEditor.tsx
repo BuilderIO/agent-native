@@ -117,6 +117,7 @@ import {
   IconExternalLink,
   IconCircleCheck,
   IconTerminal2,
+  IconLink,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -214,7 +215,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -245,7 +245,6 @@ import {
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -994,6 +993,22 @@ export function formatPendingVisualStylePrompt(args: {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+export function shouldShowPendingVisualStyleApply(args: {
+  edits: readonly PendingVisualStyleEdit[];
+  screenSourceTypes: ReadonlyMap<string, unknown>;
+  fallbackSourceType?: unknown;
+}): boolean {
+  return (
+    args.edits.length > 0 &&
+    args.edits.every(
+      (edit) =>
+        normalizeDesignSourceType(
+          args.screenSourceTypes.get(edit.screenId) ?? args.fallbackSourceType,
+        ) === "localhost",
+    )
+  );
 }
 
 interface DesignData {
@@ -5155,8 +5170,8 @@ export default function DesignEditor() {
     null,
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
-  const [downloadZipInstead, setDownloadZipInstead] = useState(false);
-  const [codingHandoffDetail, setCodingHandoffDetail] = useState("");
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const shareLinkCopiedResetRef = useRef<number | null>(null);
   const [, setPatchProof] = useState<PatchProofState | null>(null);
   const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
     {},
@@ -5351,6 +5366,13 @@ export default function DesignEditor() {
     if (!id || typeof window === "undefined") return undefined;
     return getDesignEditorShareUrl(id, window.location.origin, appBasePath());
   }, [id]);
+  useEffect(() => {
+    return () => {
+      if (shareLinkCopiedResetRef.current !== null) {
+        window.clearTimeout(shareLinkCopiedResetRef.current);
+      }
+    };
+  }, []);
   const {
     designSystems,
     defaultSystem,
@@ -12530,17 +12552,13 @@ export default function DesignEditor() {
 
   const getCodingHandoffClipboardText = useCallback(
     (result: CodingHandoffResult | null) => {
-      const base =
-        typeof result?.clipboardText === "string"
-          ? result.clipboardText
-          : typeof result?.prompt === "string"
-            ? result.prompt
-            : "";
-      const detail = codingHandoffDetail.trim();
-      if (!base || !detail) return base;
-      return `${base}\n\nAdditional implementation detail:\n${detail}`;
+      return typeof result?.clipboardText === "string"
+        ? result.clipboardText
+        : typeof result?.prompt === "string"
+          ? result.prompt
+          : "";
     },
-    [codingHandoffDetail],
+    [],
   );
 
   const handleCopyCodingHandoff = useCallback(async () => {
@@ -12557,6 +12575,24 @@ export default function DesignEditor() {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
   }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+
+  const handleCopyShareLink = useCallback(async () => {
+    if (!editorShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(editorShareUrl);
+      setShareLinkCopied(true);
+      if (shareLinkCopiedResetRef.current !== null) {
+        window.clearTimeout(shareLinkCopiedResetRef.current);
+      }
+      shareLinkCopiedResetRef.current = window.setTimeout(() => {
+        setShareLinkCopied(false);
+        shareLinkCopiedResetRef.current = null;
+      }, 1400);
+      toast.success("Share link copied" /* i18n-ignore share copy toast */);
+    } catch {
+      toast.error(t("designEditor.toasts.clipboardBlocked"));
+    }
+  }, [editorShareUrl, t]);
 
   const hasPendingVisualStyleEdits = pendingVisualStyleEdits.length > 0;
   useBeforeUnload(
@@ -12596,6 +12632,29 @@ export default function DesignEditor() {
   const pendingVisualStylePropertyCount = useMemo(
     () => getPendingVisualStylePropertyCount(pendingVisualStyleEdits),
     [pendingVisualStyleEdits],
+  );
+  const pendingVisualStyleScreenSourceTypes = useMemo(
+    () =>
+      new Map<string, unknown>(
+        overviewScreens.map((screen) => [
+          screen.id,
+          screen.sourceType ?? designSourceType,
+        ]),
+      ),
+    [designSourceType, overviewScreens],
+  );
+  const showPendingVisualStyleApply = useMemo(
+    () =>
+      shouldShowPendingVisualStyleApply({
+        edits: pendingVisualStyleEdits,
+        screenSourceTypes: pendingVisualStyleScreenSourceTypes,
+        fallbackSourceType: designSourceType,
+      }),
+    [
+      designSourceType,
+      pendingVisualStyleEdits,
+      pendingVisualStyleScreenSourceTypes,
+    ],
   );
   const pendingVisualStylePrompt = useMemo(
     () =>
@@ -12702,22 +12761,6 @@ export default function DesignEditor() {
       },
     });
   }, [exportZipMutation, fallbackExportName, id, t, triggerBlobDownload]);
-
-  const handleDownloadHandoffZip = useCallback(async () => {
-    const result = await ensureCodingHandoff();
-    if (!result?.zipUrl) {
-      toast.error(t("designEditor.toasts.zipCreateError"));
-      return;
-    }
-    const a = document.createElement("a");
-    a.href = result.zipUrl;
-    a.download = fallbackExportName("zip", "agent-handoff");
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    toast.success(t("designEditor.toasts.zipDownloaded"));
-  }, [ensureCodingHandoff, fallbackExportName, t]);
 
   const handleDownloadPng = useCallback(
     async (settings?: Partial<ExportSettingsValue>) => {
@@ -12925,14 +12968,6 @@ ${serializedHtml}
     [handleDownloadPng, handleDownloadSvg],
   );
 
-  const handleSendToPrimaryAction = useCallback(() => {
-    if (downloadZipInstead) {
-      void handleDownloadHandoffZip();
-      return;
-    }
-    void handleCopyCodingHandoff();
-  }, [downloadZipInstead, handleCopyCodingHandoff, handleDownloadHandoffZip]);
-
   const shareExportOptions: Array<{
     value: ShareExportFormat;
     title: string;
@@ -13096,84 +13131,72 @@ ${serializedHtml}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
-          onClick={handleSendToPrimaryAction}
-          disabled={
-            downloadZipInstead
-              ? !activeFile || codingHandoffLoading
-              : codingHandoffLoading
-          }
+          onClick={() => void handleCopyCodingHandoff()}
+          disabled={codingHandoffLoading}
           className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
         >
-          {downloadZipInstead ? (
-            <IconArchive className="size-3.5" />
-          ) : (
-            <IconClipboard className="size-3.5" />
-          )}
-          {
-            downloadZipInstead
-              ? t("designEditor.downloadZip")
-              : "Copy agent prompt" /* i18n-ignore share send action */
-          }
+          <IconClipboard className="size-3.5" />
+          {"Copy agent prompt" /* i18n-ignore share send action */}
         </Button>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-start gap-2.5">
-          <Checkbox
-            checked={downloadZipInstead}
-            onCheckedChange={(checked) =>
-              setDownloadZipInstead(checked === true)
-            }
-            className="mt-0.5"
-          />
-          <div className="min-w-0">
-            <div className="text-[12px] font-medium text-foreground">
-              {"Download zip instead" /* i18n-ignore share send option */}
-            </div>
-            <div className="mt-0.5 !text-[11px] leading-4 text-muted-foreground">
-              {
-                "For agents without the Design connector, drop the bundle into your agent's chat manually." /* i18n-ignore share send option description */
-              }
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-[12px] font-medium text-foreground">
-            {
-              "Give the agent more detail on what to implement" /* i18n-ignore share send detail label */
-            }{" "}
-            <span className="font-normal text-muted-foreground">
-              {"(optional)" /* i18n-ignore optional label */}
-            </span>
-          </label>
-          <Textarea
-            value={codingHandoffDetail}
-            onChange={(event) => setCodingHandoffDetail(event.target.value)}
-            placeholder={activeFile?.filename ?? "Add implementation notes..."}
-            className="min-h-20 resize-none rounded-md bg-[var(--design-editor-control-bg)] text-[12px]"
-          />
-        </div>
       </div>
     </div>
   );
+  const shareLinkFooter = (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
+      <Button
+        type="button"
+        onClick={() => void handleCopyShareLink()}
+        disabled={!editorShareUrl}
+        className="h-8 min-w-[8.75rem] gap-1.5 rounded-md px-3 text-[12px]"
+      >
+        {shareLinkCopied ? (
+          <IconCheck className="size-3.5" />
+        ) : (
+          <IconClipboard className="size-3.5" />
+        )}
+        {
+          shareLinkCopied
+            ? "Copied" /* i18n-ignore share copy action copied */
+            : "Copy share link" /* i18n-ignore share copy action */
+        }
+      </Button>
+    </div>
+  );
+  const designShareTabLabelClassName =
+    "inline-flex items-center justify-center gap-1.5";
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
-    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-0.5 [&_[role=tablist]]:rounded-none [&_[role=tablist]]:bg-transparent [&_[role=tablist]]:p-0 " +
-    "[&_[role=tab]]:!h-6 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-2 [&_[role=tab]]:!text-[11px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
-    "[&_[role=tab]:hover]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab]:hover]:text-foreground [&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:ring-0";
+    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
+    "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
+    "[&_[role=tab]:hover]:bg-white/70 dark:[&_[role=tab]:hover]:bg-[var(--design-editor-control-bg)] [&_[role=tab]:hover]:text-foreground " +
+    "[&_[role=tab][aria-selected=true]]:bg-white dark:[&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-control-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:shadow-sm [&_[role=tab][aria-selected=true]]:ring-1 [&_[role=tab][aria-selected=true]]:ring-[var(--design-editor-control-border)]";
   const designShareTabs = {
-    shareLabel: "Share link" /* i18n-ignore share tab label */,
+    shareLabel: (
+      <span className={designShareTabLabelClassName}>
+        <IconLink className="size-3.5" />
+        {"Share link" /* i18n-ignore share tab label */}
+      </span>
+    ),
     defaultValue: "share",
     tabs: [
       {
         value: "export",
-        label: t("designEditor.export"),
+        label: (
+          <span className={designShareTabLabelClassName}>
+            <IconFileExport className="size-3.5" />
+            {t("designEditor.export")}
+          </span>
+        ),
         content: shareExportTab,
       },
       {
         value: "send",
-        label: "Send to agent" /* i18n-ignore share tab label */,
+        label: (
+          <span className={designShareTabLabelClassName}>
+            <IconTerminal2 className="size-3.5" />
+            {"Send to agent" /* i18n-ignore share tab label */}
+          </span>
+        ),
         content: shareSendToTab,
       },
     ],
@@ -15480,6 +15503,9 @@ ${serializedHtml}
               shareUrl={editorShareUrl}
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+              showShareLinks={false}
+              showDoneButton={false}
+              shareFooterContent={shareLinkFooter}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}
               triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
@@ -15879,6 +15905,9 @@ ${serializedHtml}
                 shareUrlDescription={t(
                   "designEditor.shareEditorLinkDescription",
                 )}
+                showShareLinks={false}
+                showDoneButton={false}
+                shareFooterContent={shareLinkFooter}
                 shareTabs={designShareTabs}
                 popoverClassName={designSharePopoverClassName}
                 triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
@@ -16196,7 +16225,7 @@ ${serializedHtml}
                       }}
                     />
                   )}
-                  {pendingVisualStyleEdits.length > 0 ? (
+                  {showPendingVisualStyleApply ? (
                     <div className="pointer-events-none absolute bottom-5 right-5 z-[70] flex items-end">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

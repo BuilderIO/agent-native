@@ -34,6 +34,7 @@ import {
   shouldEscapeToOverview,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldBlockPendingVisualStyleNavigation,
+  shouldShowPendingVisualStyleApply,
   sortCodeLayerIdsByTreeOrder,
   formatPendingVisualStylePrompt,
   mergePendingVisualStyleEdit,
@@ -170,6 +171,52 @@ describe("DesignEditor pending visual style edits", () => {
         hasPendingVisualStyleEdits: false,
         currentPathname: "/design/design-1",
         nextPathname: "/",
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the apply styles affordance for localhost-backed visual edits", () => {
+    expect(
+      shouldShowPendingVisualStyleApply({
+        edits: [
+          {
+            screenId: "local-home",
+            filename: "localhost-home.html",
+            screenName: "Home",
+            selector: ".hero",
+            classes: [],
+            styles: { color: "rgb(37, 99, 235)" },
+            updatedAt: 1,
+          },
+        ],
+        screenSourceTypes: new Map([["local-home", "localhost"]]),
+      }),
+    ).toBe(true);
+  });
+
+  it("hides the apply styles affordance for non-localhost visual edits", () => {
+    const edits = [
+      {
+        screenId: "generated-home",
+        filename: "home.html",
+        screenName: "Home",
+        selector: ".hero",
+        classes: [],
+        styles: { color: "rgb(37, 99, 235)" },
+        updatedAt: 1,
+      },
+    ];
+
+    expect(
+      shouldShowPendingVisualStyleApply({
+        edits,
+        screenSourceTypes: new Map([["generated-home", "inline"]]),
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPendingVisualStyleApply({
+        edits,
+        screenSourceTypes: new Map([["generated-home", "fusion"]]),
       }),
     ).toBe(false);
   });

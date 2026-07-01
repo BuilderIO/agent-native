@@ -82,6 +82,28 @@ test("share dialog uses compact editor panel chrome", async ({
     650,
   );
 
+  await page.getByRole("tab", { name: "Share link" }).click();
+  await page.getByRole("button", { name: "General access" }).click();
+  await expect(
+    page.getByRole("option", { name: /Organization/ }),
+  ).toBeVisible();
+  await expect(shareOptions).toBeVisible();
+  const accessMenu = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: page.getByRole("option", { name: /Organization/ }) })
+    .last();
+  await expect(accessMenu).toBeVisible();
+  const sharePopoverZ = Number.parseInt(
+    (await popover.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
+    10,
+  );
+  const accessMenuZ = Number.parseInt(
+    (await accessMenu.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
+    10,
+  );
+  expect(accessMenuZ).toBeGreaterThan(sharePopoverZ);
+  await page.keyboard.press("Escape");
+
   await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
 });
 
