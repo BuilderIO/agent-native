@@ -381,15 +381,21 @@ function interruptedToolMessage(pending: {
   return `The agent stopped before starting ${actionLabel}. No tool result was returned, so the requested changes were not made.`;
 }
 
-function hasAssistantText(content: ContentPart[]): boolean {
-  return content.some(
-    (part) => part.type === "text" && part.text.trim().length > 0,
-  );
+function lastAssistantTextIndex(content: ContentPart[]): number {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (part.type === "text" && part.text.trim().length > 0) return i;
+  }
+  return -1;
 }
 
-function completedToolNames(content: ContentPart[]): string[] {
+function completedToolNamesAfterLastAssistantText(
+  content: ContentPart[],
+): string[] {
+  const lastTextIndex = lastAssistantTextIndex(content);
   const names = new Set<string>();
-  for (const part of content) {
+  for (let i = lastTextIndex + 1; i < content.length; i++) {
+    const part = content[i];
     if (
       part.type === "tool-call" &&
       part.activity !== true &&
@@ -408,6 +414,25 @@ function completedToolOnlyMessage(toolNames: string[]): string | null {
   return `The agent completed ${label}, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.`;
 }
 
+interface ProcessEventState {
+  completedToolsAfterLastAssistantText: Set<string>;
+}
+
+function markAssistantText(state: ProcessEventState | undefined) {
+  state?.completedToolsAfterLastAssistantText.clear();
+}
+
+function markCompletedToolAfterAssistantText(
+  state: ProcessEventState | undefined,
+  toolName: string,
+) {
+  state?.completedToolsAfterLastAssistantText.add(toolName);
+}
+
+function resetProcessEventState(state: ProcessEventState | undefined) {
+  state?.completedToolsAfterLastAssistantText.clear();
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -417,6 +442,7 @@ export function processEvent(
   content: ContentPart[],
   toolCallCounter: { value: number },
   tabId: string | undefined,
+  state?: ProcessEventState,
 ): {
   action:
     | "continue"
@@ -435,6 +461,7 @@ export function processEvent(
   if (ev.type === "clear") {
     // Server is retrying — discard partial text/tool output from the failed attempt
     content.length = 0;
+    resetProcessEventState(state);
     dispatchActivityClear(tabId);
     return { action: "continue" };
   }
@@ -445,6 +472,7 @@ export function processEvent(
     // image" doesn't linger beside streamed text. Idempotent (clears once, then
     // no-ops) so per-token text deltas stay cheap.
     if (ev.text) dispatchActivityClear(tabId);
+    if (ev.text?.trim()) markAssistantText(state);
     const lastPart = content[content.length - 1];
     if (lastPart && lastPart.type === "text") {
       lastPart.text += ev.text ?? "";
@@ -602,6 +630,9 @@ export function processEvent(
         }
         if (ev.mcpApp) part.mcpApp = ev.mcpApp;
         if (ev.chatUI) part.chatUI = ev.chatUI;
+        if (part.activity !== true && part.isError !== true) {
+          markCompletedToolAfterAssistantText(state, part.toolName);
+        }
       }
     }
     return {
@@ -852,9 +883,11 @@ export function processEvent(
         } as ChatModelRunResult,
       };
     }
-    const toolOnlyMessage = hasAssistantText(content)
-      ? null
-      : completedToolOnlyMessage(completedToolNames(content));
+    const toolOnlyMessage = completedToolOnlyMessage(
+      state
+        ? [...state.completedToolsAfterLastAssistantText]
+        : completedToolNamesAfterLastAssistantText(content),
+    );
     if (toolOnlyMessage) {
       content.push({
         type: "text",
@@ -908,6 +941,9 @@ export async function* readSSEStream(
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
   const activityTrail: ActivityTrailEntry[] = [];
+  const processEventState: ProcessEventState = {
+    completedToolsAfterLastAssistantText: new Set(),
+  };
 
   const withStreamMetadata = (r: ChatModelRunResult): ChatModelRunResult => {
     if (!runId && activityTrail.length === 0) return r;
@@ -999,6 +1035,7 @@ export async function* readSSEStream(
           content,
           toolCallCounter,
           tabId,
+          processEventState,
         );
 
         if (result) yield withStreamMetadata(result);
@@ -1062,6 +1099,9 @@ export async function readSSEStreamRaw(
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  const processEventState: ProcessEventState = {
+    completedToolsAfterLastAssistantText: new Set(),
+  };
   // Tracks whether the most recent content state was already pushed via
   // onUpdate inside the loop, so the post-loop flush below doesn't emit the
   // identical content a second time when the stream closes without a terminal
@@ -1105,6 +1145,7 @@ export async function readSSEStreamRaw(
           content,
           toolCallCounter,
           tabId,
+          processEventState,
         );
 
         if (
