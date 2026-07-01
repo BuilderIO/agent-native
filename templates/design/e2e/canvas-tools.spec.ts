@@ -642,27 +642,6 @@ async function primitiveViewportBox(
   return box;
 }
 
-async function primitiveViewportBoxInFile(
-  page: Page,
-  filename: string,
-  nodeId: string,
-): Promise<{ x: number; y: number; width: number; height: number }> {
-  const file = (await designFiles(page)).find(
-    (candidate) => candidate.filename === filename,
-  );
-  if (!file) throw new Error(`File not found: ${filename}`);
-  const iframe = page
-    .locator(`iframe[data-screen-iframe-id="${file.id}"]`)
-    .first();
-  await expect(iframe).toBeVisible();
-  const box = await iframe
-    .contentFrame()
-    .locator(`[data-agent-native-node-id="${nodeId}"]`)
-    .boundingBox();
-  if (!box) throw new Error(`primitive not found in ${filename}: ${nodeId}`);
-  return box;
-}
-
 function expectCloseToFrameSize(
   viewport: { width: number; height: number },
   frame: { width: number; height: number },
