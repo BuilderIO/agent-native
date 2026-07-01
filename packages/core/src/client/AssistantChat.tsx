@@ -1180,6 +1180,17 @@ const AssistantChatInner = forwardRef<
   );
   const missingApiKey = agentEngineConfigured.missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
+  // Once a provider connects, `useAgentEngineConfigured` flips to "configured"
+  // off the `agent-engine:configured-changed` event. The composer banner is a
+  // separate piece of state that would otherwise only clear on manual dismiss
+  // or the next successful send, so drop the stale "no LLM provider" message
+  // here to match the resolved connection.
+  useEffect(() => {
+    if (agentEngineConfigured.state !== "configured") return;
+    setComposerError((current) =>
+      current === LLM_MISSING_CREDENTIALS_MESSAGE ? null : current,
+    );
+  }, [agentEngineConfigured.state]);
   const missingApiKeySetupAboveComposer =
     missingApiKeySetupLayout === "sidebar";
   // Increments each time the user tries to chat while no LLM is connected.
