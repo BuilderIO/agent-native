@@ -24,7 +24,6 @@ import { agentNativePath, appPath } from "../api-path.js";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog.js";
 import {
