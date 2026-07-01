@@ -60,6 +60,7 @@ const assistantMessage = {
 describe("chat thread store", () => {
   let row: ChatThreadRow | null;
   let conflictOnce: (() => void) | null;
+  let conflictEveryThreadDataUpdate: boolean;
 
   beforeEach(() => {
     row = {
@@ -73,6 +74,7 @@ describe("chat thread store", () => {
       updated_at: 1,
     };
     conflictOnce = null;
+    conflictEveryThreadDataUpdate = false;
     executeMock.mockReset();
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
@@ -103,6 +105,10 @@ describe("chat thread store", () => {
           const applyConflict = conflictOnce;
           conflictOnce = null;
           applyConflict();
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (conflictEveryThreadDataUpdate) {
+          if (row) row = { ...row, updated_at: row.updated_at + 1 };
           return { rows: [], rowsAffected: 0 };
         }
         if (!row || row.id !== args[5] || row.updated_at !== args[6]) {
@@ -172,6 +178,40 @@ describe("chat thread store", () => {
     ]);
     expect(row!.message_count).toBe(2);
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("throws after exhausted thread-data conflicts by default", async () => {
+    conflictEveryThreadDataUpdate = true;
+
+    await expect(
+      updateThreadData(
+        "thread-1",
+        JSON.stringify({ messages: [userMessage] }),
+        "Thread",
+        "make this slide better",
+        1,
+        { maxAttempts: 1 },
+      ),
+    ).rejects.toThrow(
+      "Failed to update chat thread thread-1 after concurrent write conflicts.",
+    );
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("can ignore exhausted conflicts for best-effort client saves", async () => {
+    conflictEveryThreadDataUpdate = true;
+
+    await expect(
+      updateThreadData(
+        "thread-1",
+        JSON.stringify({ messages: [userMessage] }),
+        "Thread",
+        "make this slide better",
+        1,
+        { maxAttempts: 1, ignoreConflicts: true },
+      ),
+    ).resolves.toBeUndefined();
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
   it("does not retain empty assistant placeholders when saving the real answer", async () => {

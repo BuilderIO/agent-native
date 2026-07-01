@@ -10,6 +10,7 @@ import {
   ChatRunningContext,
   ReconnectStreamMessage,
   ToolCallDisplay,
+  ToolCallFallback,
 } from "./tool-call-display.js";
 import {
   clearReservedToolRenderersForTests,
@@ -143,6 +144,48 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("Asked forms");
     expect(container.textContent).not.toContain("Recent rows");
+  });
+
+  it("shows activity tool cards as running even between continuation posts", () => {
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ToolCallFallback
+            toolName="generate-design"
+            args={{}}
+            argsText=""
+            activity
+          />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("generate design");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  it("shows reconnect activity cards as running without global chat state", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "activity-1",
+        toolName: "generate-design",
+        argsText: "",
+        args: {},
+        activity: true,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("generate design");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
   it("renders explicit native widgets ahead of MCP Apps metadata", () => {

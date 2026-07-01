@@ -2377,7 +2377,13 @@ describe("createAgentChatAdapter", () => {
       "preparing the `generate-design` action input",
     );
     // Design gets its own incremental counterpart, not the extension wording.
+    expect(secondBody.message).toContain("existing design file or snapshot");
     expect(secondBody.message).toContain("edit-design");
+    expect(secondBody.message).toContain("same `fileId`");
+    expect(secondBody.message).toContain('mode: "replace-file"');
+    expect(secondBody.message).toContain(
+      "Use `generate-design` only for a brand-new compact first file",
+    );
     expect(secondBody.message).not.toContain("compact working v1");
   });
 
@@ -2540,6 +2546,8 @@ describe("createAgentChatAdapter", () => {
       "render compact representative screens",
     );
     expect(secondBody.message).toContain("edit-design");
+    expect(secondBody.message).toContain("selected `fileId`");
+    expect(secondBody.message).toContain("Do not call `generate-design`");
   });
 
   it("stops when the same action input preparation repeats without starting the tool", async () => {
@@ -2622,8 +2630,17 @@ describe("createAgentChatAdapter", () => {
         }),
       }),
     );
+    const dispatchedRunError = dispatchEvent.mock.calls.find(
+      ([event]) => event?.type === "agent-chat:run-error",
+    )?.[0] as CustomEvent<{ details?: string }> | undefined;
+    expect(dispatchedRunError?.detail.details).toContain(
+      "last_preparing_tool: present-design-variants",
+    );
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError.details).toContain(
+      "last_preparing_tool: present-design-variants",
+    );
     expect(last.content.at(-1).text).toContain(
       "got stuck preparing the present design variants action input",
     );

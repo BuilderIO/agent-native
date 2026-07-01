@@ -260,6 +260,15 @@ ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS org_id TEXT;
 ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private';
 CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timeline (owner_email, org_id, updated_at)`,
     },
+    // v18: intentionally no-op. New org-scoped designs now default to
+    // org-visible at creation time, but existing private org rows may have
+    // been intentionally private. There is no durable marker that separates
+    // old default-private rows from explicit private rows, so do not widen
+    // historical access in a migration.
+    {
+      version: 18,
+      sql: {},
+    },
   ],
   { table: "design_migrations" },
 );

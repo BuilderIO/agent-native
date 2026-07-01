@@ -85,6 +85,7 @@ export default defineAction({
       data: "{}",
       ownerEmail,
       orgId,
+      visibility: orgId ? "org" : "private",
       createdAt: now,
       updatedAt: now,
     });

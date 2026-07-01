@@ -24,15 +24,18 @@ iteration, or a human-in-the-loop choice among design directions.
   overview board and renders an inline chat choice with one button per screen
   name. After the user picks, delete the unchosen variant screens and continue
   from the kept screen by first calling `get-design-snapshot` with that
-  screen's `fileId`, then making a bounded single-file pass.
+  screen's `fileId`, then calling `edit-design` on that same `fileId` in a
+  bounded single-file pass. Use `mode: "replace-file"` when expanding the
+  representative placeholder into the full chosen direction. Do not call
+  `generate-design` after a variant pick.
 - If the chat choice buttons are not available in the host, ask the user to
   tell you the screen name they prefer. The variants are already real screens
   on the board, so do not ask them to paste HTML or copy a generated handoff
   summary.
 - For direct refinements to an already chosen direction, call
   `get-design-snapshot`, edit from the current tuned HTML, and use
-  `edit-design` for surgical changes. Use `generate-design` for new files
-  or larger structural rewrites.
+  `edit-design` for surgical changes or `mode: "replace-file"` for a bounded
+  selected-file replacement. Use `generate-design` for new files only.
 - Use `export-coding-handoff` when the user wants to implement the chosen
   design in a codebase.
 
@@ -48,9 +51,10 @@ iteration, or a human-in-the-loop choice among design directions.
 5. After `present-design-variants`, wait for the user's pick before
    generating the next version. Keep the chosen screen, delete the other
    variant screens, call `get-design-snapshot` with `fileId` for the kept
-   screen, then continue from that single file in a bounded pass. Prefer
-   `edit-design`; if `generate-design` is needed, update only the kept file
-   compactly and stop after the first successful save.
+   screen, then call `edit-design` on that same `fileId` in a bounded pass.
+   Use `mode: "replace-file"` when expanding the representative placeholder
+   into the full chosen direction. Do not call `generate-design` after a
+   variant pick. Stop after the first successful `edit-design` save.
 
 ## Design Quality Bar
 

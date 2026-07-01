@@ -235,6 +235,36 @@ export function isInBackgroundFunctionRuntime(): boolean {
   return false;
 }
 
+export function backgroundRunMarkerExpectsBackgroundRuntime(
+  marker: unknown,
+): boolean {
+  return (
+    typeof marker === "object" &&
+    marker !== null &&
+    (marker as { backgroundFunctionRuntimeExpected?: unknown })
+      .backgroundFunctionRuntimeExpected === true
+  );
+}
+
+export function shouldUseBackgroundFunctionTimeoutForWorker(
+  marker: unknown,
+): boolean {
+  return (
+    isInBackgroundFunctionRuntime() ||
+    backgroundRunMarkerExpectsBackgroundRuntime(marker)
+  );
+}
+
+export function backgroundRuntimeDiagnosticDetail(marker: unknown): string {
+  return [
+    `markerExpected=${backgroundRunMarkerExpectsBackgroundRuntime(marker)}`,
+    `runtimeDetected=${isInBackgroundFunctionRuntime()}`,
+    `globalMarker=${(globalThis as Record<string, unknown>).__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true}`,
+    `lambdaNameEndsBackground=${typeof process.env.AWS_LAMBDA_FUNCTION_NAME === "string" && process.env.AWS_LAMBDA_FUNCTION_NAME.toLowerCase().endsWith("-background")}`,
+    `forceEnv=${typeof process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME === "string" && process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME.trim().length > 0}`,
+  ].join(" ");
+}
+
 function isFlagEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this

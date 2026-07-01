@@ -53,9 +53,10 @@ import {
 import { computeProtectedSegmentIds } from "./context-xray/segments.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  backgroundRuntimeDiagnosticDetail,
   isAgentChatDurableBackgroundEnabled,
-  isInBackgroundFunctionRuntime,
   resolveAgentChatProcessRunDispatchPath,
+  shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -4032,6 +4033,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   requestTurnId?: string | null;
   continuationCount: number;
   runsInBackgroundFunction: boolean;
+  backgroundRuntimeDetail?: string;
   deps?: {
     recordRunDiagnostic?: typeof recordRunDiagnostic;
     insertRun?: typeof insertRun;
@@ -4057,7 +4059,13 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   await record(
     opts.runId,
     RUN_DIAG_STAGE.workerEntered,
-    `runsInBackgroundFunction=${opts.runsInBackgroundFunction} continuationCount=${opts.continuationCount}`,
+    [
+      `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
+      `continuationCount=${opts.continuationCount}`,
+      opts.backgroundRuntimeDetail,
+    ]
+      .filter(Boolean)
+      .join(" "),
   ).catch(() => {});
 
   if (opts.continuationCount > 0) {
@@ -4218,7 +4226,11 @@ export function createProductionAgentHandler(
     // function. Only a true value unlocks the ~13-min soft-timeout budget; a
     // worker on the 60s function keeps the 40s clamp and checkpoints cleanly.
     const runsInBackgroundFunction =
-      isBackgroundWorker && isInBackgroundFunctionRuntime();
+      isBackgroundWorker &&
+      shouldUseBackgroundFunctionTimeoutForWorker(backgroundRunMarker);
+    const backgroundRuntimeDetail = isBackgroundWorker
+      ? backgroundRuntimeDiagnosticDetail(backgroundRunMarker)
+      : "";
     // How many server-driven background continuations have already chained into
     // this logical turn (0 on the first chunk). Used to bound the chain.
     const backgroundContinuationCount =
@@ -4239,6 +4251,7 @@ export function createProductionAgentHandler(
         requestTurnId,
         continuationCount: backgroundContinuationCount,
         runsInBackgroundFunction,
+        backgroundRuntimeDetail,
       });
       if (!earlyClaim.claimed) {
         return { ok: true, skipped: earlyClaim.skipped };
@@ -5001,6 +5014,9 @@ export function createProductionAgentHandler(
       }
 
       let dispatched = false;
+      const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
+      const expectsNetlifyBackgroundFunction =
+        backgroundDispatchPath.startsWith("/.netlify/functions/");
       try {
         await fireInternalDispatch({
           event,
@@ -5014,7 +5030,7 @@ export function createProductionAgentHandler(
           // inline. `fireInternalDispatch` strips the app base path for
           // /.netlify/* targets so the request reaches the host-root function url;
           // the Authorization Bearer HMAC is preserved either way.
-          path: resolveAgentChatProcessRunDispatchPath(),
+          path: backgroundDispatchPath,
           taskId: runId,
           body: {
             ...body,
@@ -5022,6 +5038,8 @@ export function createProductionAgentHandler(
             [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
               runId,
               turnId: effectiveTurnId,
+              backgroundFunctionRuntimeExpected:
+                expectsNetlifyBackgroundFunction,
             },
           },
         });
@@ -5302,6 +5320,8 @@ export function createProductionAgentHandler(
                         runId: nextRunId,
                         turnId: effectiveTurnId,
                         continuationCount: backgroundContinuationCount + 1,
+                        backgroundFunctionRuntimeExpected:
+                          runsInBackgroundFunction,
                       },
                     },
                   });
@@ -5335,7 +5355,13 @@ export function createProductionAgentHandler(
         await recordRunDiagnostic(
           runId,
           RUN_DIAG_STAGE.workerEntered,
-          `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
+          [
+            `runsInBackgroundFunction=${runsInBackgroundFunction}`,
+            `continuationCount=${backgroundContinuationCount}`,
+            backgroundRuntimeDetail,
+          ]
+            .filter(Boolean)
+            .join(" "),
         ).catch(() => {});
         if (isChainedBackgroundContinuation) {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
@@ -5368,7 +5394,9 @@ export function createProductionAgentHandler(
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)
-        .join(" ") + ` total=${Date.now() - setupT0}`;
+        .join(" ") +
+      ` total=${Date.now() - setupT0}` +
+      (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "");
 
     startRun(
       runId,

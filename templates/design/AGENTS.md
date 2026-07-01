@@ -64,8 +64,9 @@ patterns live in `.agents/skills/`.
   URLs, which would navigate the preview iframe to the app itself.
 - To refine an existing design, make the smallest change: read it with
   `get-design-snapshot`, then use `edit-design` (search/replace). Reserve
-  `generate-design` for new files or large structural rewrites; never resend
-  files you aren't changing.
+  `generate-design` for new files. For broad rewrites of an existing selected
+  file, use `edit-design` with `mode: "replace-file"` and the exact `fileId`;
+  never resend files you aren't changing.
 - When the user asks to add tweak controls, preserve existing useful tweaks,
   add or update the requested `tweaks` definitions, and make sure each control
   is backed by a CSS custom property the rendered file actually uses. If source
@@ -222,8 +223,11 @@ patterns live in `.agents/skills/`.
 - For human-in-the-loop UI exploration, create a design shell, call
   `present-design-variants` with 2-5 concise directions (three by default),
   wait for the user to pick one in chat, delete the other generated variant
-  screens with `delete-file`, then use `get-design-snapshot` and
-  `generate-design` or `edit-design` for follow-up refinements.
+  screens with `delete-file`, call `get-design-snapshot` with the selected
+  screen's `fileId`, then call `edit-design` on that same `fileId` for
+  follow-up refinement. Use `mode: "replace-file"` when expanding the
+  representative placeholder into the full chosen direction. Do not call
+  `generate-design` after a variant pick.
 - If inline chat choice buttons are unavailable, the user can tell you the
   preferred screen name. Do not show a separate variant picker or ask them to
   paste a copyable handoff summary.

@@ -6,12 +6,15 @@ import {
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  backgroundRuntimeDiagnosticDetail,
+  backgroundRunMarkerExpectsBackgroundRuntime,
   extractProcessRunId,
   isAgentChatDurableBackgroundEnabled,
   isHostedRuntimeForDurableBackground,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
   resolveAgentChatProcessRunDispatchPath,
+  shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
 
 /**
@@ -189,6 +192,29 @@ describe("isInBackgroundFunctionRuntime (real -background function guard)", () =
       process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME = v;
       expect(isInBackgroundFunctionRuntime()).toBe(false);
     }
+  });
+});
+
+describe("background runtime marker fallback", () => {
+  it("uses the long background timeout when the authenticated dispatch marker proves the Netlify background function URL was targeted", () => {
+    const marker = { backgroundFunctionRuntimeExpected: true };
+
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+    expect(backgroundRunMarkerExpectsBackgroundRuntime(marker)).toBe(true);
+    expect(shouldUseBackgroundFunctionTimeoutForWorker(marker)).toBe(true);
+    expect(backgroundRuntimeDiagnosticDetail(marker)).toContain(
+      "markerExpected=true",
+    );
+    expect(backgroundRuntimeDiagnosticDetail(marker)).toContain(
+      "runtimeDetected=false",
+    );
+  });
+
+  it("does not use the long background timeout for unmarked synchronous re-entry", () => {
+    expect(shouldUseBackgroundFunctionTimeoutForWorker(null)).toBe(false);
+    expect(backgroundRuntimeDiagnosticDetail(null)).toContain(
+      "markerExpected=false",
+    );
   });
 });
 
