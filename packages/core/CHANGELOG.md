@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.26
+
+### Patch Changes
+
+- f041345: Track action-preparation progress by streamed tool-input id so parallel same-name tool calls do not hide real progress.
+
 ## 0.84.25
 
 ### Patch Changes
