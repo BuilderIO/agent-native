@@ -882,6 +882,16 @@ export interface ExecuteBuilderSourceExecutionRequest {
   confirmUnpublish?: boolean;
 }
 
+export interface PrepareBuilderSourceReviewRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceId?: string;
+  changeSetIds?: string[];
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
+}
+
 export interface ExecuteBuilderSourceBatchTransition {
   publicationTransition?: BuilderCmsPublicationTransitionIntent;
   confirmUnpublish?: boolean;
@@ -926,13 +936,58 @@ export interface SetContentDatabaseSourceWriteModeRequest {
   allowPublishWrites?: boolean;
 }
 
-export interface PrepareBuilderSourceReviewRequest {
+export type StageBuilderSourceBulkUpdateRowStatus =
+  | "staged"
+  | "unchanged"
+  | "blocked";
+
+export interface StageBuilderSourceBulkUpdateFieldRequest {
+  propertyId?: string;
+  localFieldKey?: string;
+  sourceFieldKey?: string;
+  value: DocumentPropertyValue;
+}
+
+export interface StageBuilderSourceBulkUpdateRequest {
   databaseId?: string;
   documentId?: string;
   sourceId?: string;
-  pushModeConfirmation?: ContentDatabaseSourcePushMode;
-  publicationTransition?: BuilderCmsPublicationTransitionIntent;
-  confirmUnpublish?: boolean;
+  itemIds?: string[];
+  documentIds?: string[];
+  field: StageBuilderSourceBulkUpdateFieldRequest;
+  dryRun?: boolean;
+}
+
+export interface StageBuilderSourceBulkUpdateRowResult {
+  itemId: string;
+  documentId: string;
+  title: string;
+  status: StageBuilderSourceBulkUpdateRowStatus;
+  message?: string;
+  changeSetId?: string;
+  fieldChange?: ContentDatabaseSourceFieldChange;
+}
+
+export interface StageBuilderSourceBulkUpdateResponse {
+  dryRun: boolean;
+  databaseId: string;
+  documentId: string;
+  sourceId: string;
+  field: {
+    propertyId: string | null;
+    propertyName: string | null;
+    localFieldKey: string;
+    sourceFieldKey: string;
+    sourceFieldLabel: string;
+  };
+  summary: {
+    total: number;
+    staged: number;
+    unchanged: number;
+    blocked: number;
+  };
+  rows: StageBuilderSourceBulkUpdateRowResult[];
+  review: ContentDatabaseSourceReviewPayload | null;
 }
 
 export type BuilderCmsWriteEffect =

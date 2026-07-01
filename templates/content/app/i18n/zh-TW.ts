@@ -601,6 +601,8 @@ const messages = {
     addProperty: "新增屬性",
     back: "返回",
     builderSpace: "Builder 空間",
+    builderBulkUpdateNotStaged: "Builder 批次更新未暫存",
+    builderBulkUpdateStaged: "Builder 批次更新已暫存",
     builderUpdateFailed: "Builder 更新失敗",
     builderWriteModeWasNotChanged: "Builder 寫入模式未更改",
     builderBodiesReadyLocally: "Builder 文章正文已在本機準備好。",

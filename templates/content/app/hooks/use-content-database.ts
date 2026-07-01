@@ -28,6 +28,8 @@ import type {
   RefreshContentDatabaseSourceRequest,
   ReviewContentDatabaseSourceChangeSetRequest,
   SetContentDatabaseSourceWriteModeRequest,
+  StageBuilderSourceBulkUpdateRequest,
+  StageBuilderSourceBulkUpdateResponse,
   StageBuilderRevisionRequest,
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabaseViewRequest,
@@ -609,6 +611,23 @@ export function usePrepareBuilderSourceReview(documentId: string) {
     PrepareBuilderSourceReviewResponse,
     PrepareBuilderSourceReviewRequest
   >("prepare-builder-source-review", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useStageBuilderSourceBulkUpdate(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    StageBuilderSourceBulkUpdateResponse,
+    StageBuilderSourceBulkUpdateRequest
+  >("stage-builder-source-bulk-update", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
