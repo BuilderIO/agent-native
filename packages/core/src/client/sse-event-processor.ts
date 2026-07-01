@@ -168,7 +168,6 @@ type PreparingActionEntry = {
 
 type PreparingActionState = {
   entries?: Map<string, PreparingActionEntry>;
-  noIdStartedToolCounts?: Map<string, number>;
 };
 
 function formatProgressBytes(bytes: number): string {
@@ -267,69 +266,6 @@ function appendActivityTrail(
   }
 }
 
-function deletePreparingActionEntryForToolEvent(
-  state: PreparingActionState,
-  ev: SSEEvent,
-): void {
-  const tool = ev.tool?.trim();
-  const id = ev.id?.trim();
-  if (!state.entries?.size) return;
-  if (id) {
-    state.entries.delete(id);
-    return;
-  }
-  if (!tool) return;
-
-  if (ev.type === "tool_done") {
-    const startedCount = state.noIdStartedToolCounts?.get(tool) ?? 0;
-    if (startedCount > 0) {
-      if (startedCount === 1) {
-        state.noIdStartedToolCounts?.delete(tool);
-      } else {
-        state.noIdStartedToolCounts?.set(tool, startedCount - 1);
-      }
-      deleteOnePreparingActionEntryForTool(state, tool);
-      return;
-    }
-  }
-
-  if (ev.type === "tool_start") {
-    const counts = state.noIdStartedToolCounts ?? new Map<string, number>();
-    state.noIdStartedToolCounts = counts;
-    counts.set(tool, (counts.get(tool) ?? 0) + 1);
-    if (state.entries.has(tool)) state.entries.delete(tool);
-    return;
-  }
-
-  // Legacy production streams may omit ids on tool_start/tool_done. Treat that
-  // as one matching action starting/finishing, not as proof that every parallel
-  // same-tool preparation has completed.
-  deleteOnePreparingActionEntryForTool(state, tool);
-}
-
-function deleteOnePreparingActionEntryForTool(
-  state: PreparingActionState,
-  tool: string,
-): void {
-  if (!state.entries?.size) return;
-  if (state.entries.has(tool)) {
-    state.entries.delete(tool);
-    return;
-  }
-
-  let oldestMatchingKey: string | null = null;
-  let oldestStartedAt = Number.POSITIVE_INFINITY;
-  for (const [key, entry] of state.entries) {
-    if (entry.tool !== tool) continue;
-    const startedAt = entry.startedAt ?? Number.POSITIVE_INFINITY;
-    if (startedAt < oldestStartedAt) {
-      oldestMatchingKey = key;
-      oldestStartedAt = startedAt;
-    }
-  }
-  if (oldestMatchingKey) state.entries.delete(oldestMatchingKey);
-}
-
 function updatePreparingActionState(
   state: PreparingActionState,
   ev: SSEEvent,
@@ -382,10 +318,15 @@ function updatePreparingActionState(
     ev.type === "missing_api_key"
   ) {
     if (ev.type === "tool_start" || ev.type === "tool_done") {
-      deletePreparingActionEntryForToolEvent(state, ev);
+      const tool = ev.tool?.trim();
+      const id = ev.id?.trim();
+      for (const [key, entry] of state.entries ?? []) {
+        if ((id && key === id) || (!id && entry.tool === tool)) {
+          state.entries?.delete(key);
+        }
+      }
     } else {
       state.entries?.clear();
-      state.noIdStartedToolCounts?.clear();
     }
   }
   return undefined;

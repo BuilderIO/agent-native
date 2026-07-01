@@ -312,60 +312,6 @@ function appendCspTokens(
   return next;
 }
 
-const CSP_DIRECTIVE_NAMES = new Set([
-  "base-uri",
-  "block-all-mixed-content",
-  "child-src",
-  "connect-src",
-  "default-src",
-  "fenced-frame-src",
-  "font-src",
-  "form-action",
-  "frame-ancestors",
-  "frame-src",
-  "img-src",
-  "manifest-src",
-  "media-src",
-  "navigate-to",
-  "object-src",
-  "prefetch-src",
-  "referrer",
-  "report-to",
-  "report-uri",
-  "require-sri-for",
-  "require-trusted-types-for",
-  "sandbox",
-  "script-src",
-  "script-src-attr",
-  "script-src-elem",
-  "style-src",
-  "style-src-attr",
-  "style-src-elem",
-  "trusted-types",
-  "upgrade-insecure-requests",
-  "worker-src",
-]);
-
-function splitCspPolicies(policy: string): string[] {
-  const policyBreakPattern = /,\s*([a-z][a-z0-9-]*)(?=\s|;|$)/gi;
-  const policies: string[] = [];
-  let policyStart = 0;
-  let match: RegExpExecArray | null;
-  while ((match = policyBreakPattern.exec(policy))) {
-    if (!CSP_DIRECTIVE_NAMES.has(match[1].toLowerCase())) continue;
-    const previousPolicy = policy.slice(policyStart, match.index).trim();
-    if (previousPolicy) policies.push(previousPolicy);
-    policyStart = match.index + match[0].length - match[1].length;
-  }
-  const finalPolicy = policy.slice(policyStart).trim();
-  if (finalPolicy) policies.push(finalPolicy);
-  return policies;
-}
-
-function usesStrictDynamic(tokens: readonly string[]): boolean {
-  return tokens.some((token) => token.toLowerCase() === "'strict-dynamic'");
-}
-
 function findCspDirective(
   directives: CspDirective[],
   name: string,
@@ -377,29 +323,16 @@ function appendToExistingOrDefaultCspDirective(
   directives: CspDirective[],
   name: string,
   additions: readonly string[],
-  options: { skipStrictDynamicScriptPolicies?: boolean } = {},
 ): void {
   if (!additions.length) return;
   const existing = findCspDirective(directives, name);
   if (existing) {
-    if (
-      options.skipStrictDynamicScriptPolicies &&
-      usesStrictDynamic(existing.tokens)
-    ) {
-      return;
-    }
     existing.tokens = appendCspTokens(existing.tokens, additions);
     return;
   }
 
   const defaultSrc = findCspDirective(directives, "default-src");
   if (!defaultSrc) return;
-  if (
-    options.skipStrictDynamicScriptPolicies &&
-    usesStrictDynamic(defaultSrc.tokens)
-  ) {
-    return;
-  }
   directives.push({
     name,
     tokens: appendCspTokens([...defaultSrc.tokens], additions),
@@ -410,16 +343,9 @@ function appendToExistingCspDirective(
   directives: CspDirective[],
   name: string,
   additions: readonly string[],
-  options: { skipStrictDynamicScriptPolicies?: boolean } = {},
 ): void {
   const existing = findCspDirective(directives, name);
   if (!existing) return;
-  if (
-    options.skipStrictDynamicScriptPolicies &&
-    usesStrictDynamic(existing.tokens)
-  ) {
-    return;
-  }
   existing.tokens = appendCspTokens(existing.tokens, additions);
 }
 
@@ -427,46 +353,25 @@ function augmentExistingCspForFrameworkScripts(
   policy: string,
   options: {
     scriptSrcTokens: readonly string[];
-    preserveStrictScriptPolicies?: boolean;
     gaEnabled: boolean;
   },
 ): string {
-  const policies = splitCspPolicies(policy);
-  if (policies.length > 1) {
-    return policies
-      .map((singlePolicy) =>
-        augmentExistingCspForFrameworkScripts(singlePolicy, options),
-      )
-      .join(", ");
-  }
-
   const directives = parseCsp(policy);
   if (!directives.length) return policy;
-  const scriptSrcUsesStrictDynamic =
-    options.preserveStrictScriptPolicies &&
-    usesStrictDynamic(findCspDirective(directives, "script-src")?.tokens ?? []);
 
   appendToExistingOrDefaultCspDirective(
     directives,
     "script-src",
     options.scriptSrcTokens,
-    {
-      skipStrictDynamicScriptPolicies: options.preserveStrictScriptPolicies,
-    },
   );
   // `script-src-elem` overrides `script-src` for script tags when present.
-  if (!scriptSrcUsesStrictDynamic) {
-    appendToExistingCspDirective(
-      directives,
-      "script-src-elem",
-      options.scriptSrcTokens,
-      {
-        skipStrictDynamicScriptPolicies: options.preserveStrictScriptPolicies,
-      },
-    );
-  }
+  appendToExistingCspDirective(
+    directives,
+    "script-src-elem",
+    options.scriptSrcTokens,
+  );
 
-  if (options.gaEnabled && !scriptSrcUsesStrictDynamic) {
+  if (options.gaEnabled) {
     appendToExistingOrDefaultCspDirective(
       directives,
       "connect-src",
@@ -535,14 +440,17 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
   const gaInlineBody = getGaInlineConfigScriptBody();
   const gaHash = gaInlineBody ? computeInlineScriptHash(gaInlineBody) : null;
   const gaHosts = gaInlineBody ? [...GA_CSP_SCRIPT_HOSTS] : [];
-  const reportOnlyScriptSrcTokens = [
+  const scriptSrcTokens = [
     "'self'",
     ...(sentryHash ? [sentryHash] : []),
     ...(gaHash ? [gaHash] : []),
     ...gaHosts,
   ];
-  const enforcedGaScriptSrcTokens = [...(gaHash ? [gaHash] : []), ...gaHosts];
 
+  const cspAugmentOptions = {
+    scriptSrcTokens,
+    gaEnabled: Boolean(gaInlineBody),
+  };
   const existing = headers.get("content-security-policy") ?? "";
   if (!existing) {
     headers.set(
@@ -552,25 +460,18 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
   } else {
     headers.set(
       "content-security-policy",
-      augmentExistingCspForFrameworkScripts(existing, {
-        scriptSrcTokens: enforcedGaScriptSrcTokens,
-        preserveStrictScriptPolicies: true,
-        gaEnabled: Boolean(gaInlineBody),
-      }),
+      augmentExistingCspForFrameworkScripts(existing, cspAugmentOptions),
     );
   }
 
-  const scriptSrc = `script-src ${reportOnlyScriptSrcTokens.join(" ")}`;
+  const scriptSrc = `script-src ${scriptSrcTokens.join(" ")}`;
   const existingRo = headers.get("content-security-policy-report-only") ?? "";
   if (!existingRo) {
     headers.set("content-security-policy-report-only", scriptSrc);
   } else {
     headers.set(
       "content-security-policy-report-only",
-      augmentExistingCspForFrameworkScripts(existingRo, {
-        scriptSrcTokens: reportOnlyScriptSrcTokens,
-        gaEnabled: Boolean(gaInlineBody),
-      }),
+      augmentExistingCspForFrameworkScripts(existingRo, cspAugmentOptions),
     );
   }
 }
