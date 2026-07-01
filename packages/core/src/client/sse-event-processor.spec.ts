@@ -246,6 +246,122 @@ function preparingActionProgressStream(
   });
 }
 
+function parallelSameToolPreparationStream(
+  tool = "edit-design",
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: `Preparing ${tool} action`,
+            tool,
+            id: "call-a",
+            progressBytes: 65_536,
+          })}\n\n`,
+        ),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "activity",
+                label: `Preparing ${tool} action`,
+                tool,
+                id: "call-b",
+                progressBytes: 32_768,
+              })}\n\n`,
+            ),
+          );
+        }, 30_000),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_start",
+                tool,
+                id: "call-b",
+                input: {},
+              })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_done",
+                tool,
+                id: "call-b",
+                result: "ok",
+              })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+            ),
+          );
+          controller.close();
+        }, SSE_NO_PROGRESS_TIMEOUT_MS + 5_000),
+      );
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+    },
+  });
+}
+
+function noIdPositivePreparationFallbackStream(
+  tool = "edit-design",
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: `Preparing ${tool} action`,
+            tool,
+            progressBytes: 65_536,
+          })}\n\n`,
+        ),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "activity",
+                label: `Preparing ${tool} action`,
+                tool,
+                progressBytes: 32_768,
+              })}\n\n`,
+            ),
+          );
+        }, 30_000),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+            ),
+          );
+          controller.close();
+        }, SSE_NO_PROGRESS_TIMEOUT_MS + 5_000),
+      );
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+    },
+  });
+}
+
 function eventStream(events: unknown[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -461,6 +577,40 @@ describe("SSE event processor no-progress recovery", () => {
     for (let i = 0; i < 4; i++) {
       await vi.advanceTimersByTimeAsync(30_000);
     }
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("tracks parallel same-tool preparation progress by activity id", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        parallelSameToolPreparationStream(),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 5_000);
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("keeps no-id positive preparation heartbeats meaningful", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        noIdPositivePreparationFallbackStream(),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 5_000);
 
     await expect(donePromise).resolves.toBeDefined();
   });

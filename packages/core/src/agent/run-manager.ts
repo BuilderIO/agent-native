@@ -441,7 +441,8 @@ export function startRun(
   const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
     if (event.type === "stream_keepalive") return false;
     if (event.type === "activity" && isPreparingActionActivityEvent(event)) {
-      const toolKey = event.tool?.trim() || event.label.trim();
+      const toolKey =
+        event.id?.trim() || event.tool?.trim() || event.label.trim();
       const progressBytes =
         typeof event.progressBytes === "number" &&
         Number.isFinite(event.progressBytes) &&
@@ -449,6 +450,7 @@ export function startRun(
           ? Math.floor(event.progressBytes)
           : undefined;
       if (progressBytes === undefined) return false;
+      if (!event.id?.trim()) return progressBytes > 0;
       const previousBytes = preparingActivityBytes.get(toolKey) ?? 0;
       if (progressBytes <= previousBytes) {
         preparingActivityBytes.set(
@@ -461,8 +463,7 @@ export function startRun(
       return true;
     }
     if (event.type === "tool_start" || event.type === "tool_done") {
-      const tool = event.tool?.trim();
-      if (tool) preparingActivityBytes.delete(tool);
+      preparingActivityBytes.clear();
     }
     if (
       event.type === "clear" ||

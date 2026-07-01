@@ -903,11 +903,13 @@ describe("runAgentLoop", () => {
       type: "activity",
       label: "Preparing create-document action",
       tool: "create-document",
+      id: "tool-create",
     });
     expect(events).toContainEqual({
       type: "activity",
       label: "Preparing create-document action",
       tool: "create-document",
+      id: "tool-create",
       progressBytes: 8,
     });
     expect(events).toContainEqual(

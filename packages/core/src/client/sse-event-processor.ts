@@ -150,8 +150,8 @@ export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
 
 type ActivityTrailEntry = AgentActivityTrailEntry;
 
-type PreparingActionState = {
-  tool?: string;
+type PreparingActionEntry = {
+  tool: string;
   startedAt?: number;
   lastProgressBytes?: number;
   /**
@@ -164,6 +164,10 @@ type PreparingActionState = {
    * further deltas) can trip it.
    */
   lastProgressAt?: number;
+};
+
+type PreparingActionState = {
+  entries?: Map<string, PreparingActionEntry>;
 };
 
 function formatProgressBytes(bytes: number): string {
@@ -270,21 +274,35 @@ function updatePreparingActionState(
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     const tool = ev.tool?.trim() || undefined;
     if (!tool) return false;
-    if (state.tool !== tool || state.startedAt === undefined) {
-      state.tool = tool;
-      state.startedAt = now;
-      state.lastProgressAt = undefined;
-      state.lastProgressBytes = undefined;
+    const key = ev.id?.trim() || tool;
+    const entries = state.entries ?? new Map<string, PreparingActionEntry>();
+    state.entries = entries;
+    let entry = entries.get(key);
+    if (!entry) {
+      entry = {
+        tool,
+        startedAt: now,
+        lastProgressAt: undefined,
+        lastProgressBytes: undefined,
+      };
+      entries.set(key, entry);
     }
     const progressBytes = activityProgressBytes(ev);
-    const previousBytes = state.lastProgressBytes ?? 0;
+    const previousBytes = entry.lastProgressBytes ?? 0;
     if (progressBytes !== undefined) {
-      state.lastProgressBytes = Math.max(previousBytes, progressBytes);
+      entry.lastProgressBytes = Math.max(previousBytes, progressBytes);
+    }
+    if (!ev.id?.trim()) {
+      if (progressBytes !== undefined && progressBytes > 0) {
+        entry.lastProgressAt = now;
+        return true;
+      }
+      return false;
     }
     if (progressBytes !== undefined && progressBytes > previousBytes) {
       // A byte increase is proof the model is still streaming this action's
       // argument. Repeated zero-byte prep activity is only a heartbeat.
-      state.lastProgressAt = now;
+      entry.lastProgressAt = now;
       return true;
     }
     return false;
@@ -299,10 +317,17 @@ function updatePreparingActionState(
     ev.type === "error" ||
     ev.type === "missing_api_key"
   ) {
-    state.tool = undefined;
-    state.startedAt = undefined;
-    state.lastProgressAt = undefined;
-    state.lastProgressBytes = undefined;
+    if (ev.type === "tool_start" || ev.type === "tool_done") {
+      const tool = ev.tool?.trim();
+      const id = ev.id?.trim();
+      for (const [key, entry] of state.entries ?? []) {
+        if ((id && key === id) || (!id && entry.tool === tool)) {
+          state.entries?.delete(key);
+        }
+      }
+    } else {
+      state.entries?.clear();
+    }
   }
   return undefined;
 }
@@ -313,12 +338,16 @@ function hasStalledPreparingAction(state: PreparingActionState, now: number) {
   // streaming for a long time. `lastProgressAt` advances on every delta
   // heartbeat, so an actively-streaming large output keeps resetting this and
   // survives; a genuinely stuck prep (keepalive-only, no deltas) trips it.
-  return (
-    state.tool !== undefined &&
-    state.startedAt !== undefined &&
-    now - (state.lastProgressAt ?? state.startedAt) >=
-      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS
-  );
+  for (const entry of state.entries?.values() ?? []) {
+    if (
+      entry.startedAt !== undefined &&
+      now - (entry.lastProgressAt ?? entry.startedAt) >=
+        SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function readChunkWithProgressTimeout(
