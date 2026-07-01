@@ -249,26 +249,6 @@ async function primitiveNodeIds(
   );
 }
 
-async function isPrimitiveNestedUnder(
-  page: Page,
-  filename: string,
-  parentNodeId: string,
-  childNodeId: string,
-): Promise<boolean> {
-  const content = await fileContent(page, filename);
-  const parentIndex = content.indexOf(
-    `data-agent-native-node-id="${parentNodeId}"`,
-  );
-  const childIndex = content.indexOf(
-    `data-agent-native-node-id="${childNodeId}"`,
-  );
-  if (parentIndex < 0 || childIndex < 0 || childIndex <= parentIndex) {
-    return false;
-  }
-  const parentCloseIndex = content.indexOf("</div>", parentIndex);
-  return parentCloseIndex > childIndex;
-}
-
 async function primitiveLeftPositions(
   page: Page,
   filename: string,
@@ -288,22 +268,6 @@ async function primitiveLeftPositions(
     },
     { html: content, primitiveKind: kind },
   );
-}
-
-async function primitiveStyleForNode(
-  page: Page,
-  filename: string,
-  nodeId: string,
-): Promise<string> {
-  const content = await fileContent(page, filename);
-  const marker = `data-agent-native-node-id="${nodeId}"`;
-  const index = content.indexOf(marker);
-  if (index < 0) return "";
-  const tagStart = content.lastIndexOf("<", index);
-  const tagEnd = content.indexOf(">", index);
-  if (tagStart < 0 || tagEnd < 0) return "";
-  const tag = content.slice(tagStart, tagEnd + 1);
-  return tag.match(/\sstyle="([^"]*)"/)?.[1] ?? "";
 }
 
 async function dragInEmptyCanvasLeftOf(
