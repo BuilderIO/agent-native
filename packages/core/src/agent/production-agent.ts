@@ -25,7 +25,10 @@ import {
   getFrontmatterValue,
   parseFrontmatter,
 } from "../resources/metadata.js";
-import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import {
+  canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
+} from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   getRequestRunContext,
@@ -458,8 +461,9 @@ export function engineToProvider(engineName: string): string {
  * Resolve the active engine's provider and look up the user's API key for it.
  *
  * If the owner has no scoped key, fall back to provider keys supplied by the
- * hosting environment. This is a read from process-level config, not a
- * request-scoped write to `process.env`.
+ * hosting environment only when the current request can safely use deploy-level
+ * credentials. This is a read from process-level config, not a request-scoped
+ * write to `process.env`.
  *
  * Callers that layer another deployment-key fallback after this should keep the
  * same precedence: scoped key first, host-provided env key second.
@@ -475,6 +479,7 @@ export async function getOwnerActiveApiKey(
     const provider = engineToProvider(activeEngine);
     const userKey = await getOwnerApiKey(provider, ownerEmail);
     if (userKey) return userKey;
+    if (!canUseDeployCredentialFallbackForRequest()) return undefined;
     const envVar = PROVIDER_TO_ENV[provider];
     return envVar ? readDeployCredentialEnv(envVar) : undefined;
   } catch {
@@ -4738,11 +4743,13 @@ export function createProductionAgentHandler(
     // for that provider instead of the global active engine's provider.
     // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
     workerStep("apikey_start");
+    const allowDeployCredentialFallback =
+      canUseDeployCredentialFallbackForRequest();
     let userApiKey: string | undefined;
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
       userApiKey = await getOwnerApiKey(provider, ownerEmail);
-      if (!userApiKey) {
+      if (!userApiKey && allowDeployCredentialFallback) {
         // Read-only env fallback for the requested provider.
         const envVar = PROVIDER_TO_ENV[provider];
         userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
@@ -4755,11 +4762,11 @@ export function createProductionAgentHandler(
 
     // `options.apiKey` is the value the template constructed the plugin with
     // (often wired from a deployment env var). Honor it as host-provided
-    // read-only configuration after scoped keys.
-    const effectiveApiKey =
-      userApiKey ??
-      options.apiKey ??
-      readDeployCredentialEnv("ANTHROPIC_API_KEY");
+    // read-only configuration after scoped keys when deploy fallback is safe.
+    const hostApiKey = allowDeployCredentialFallback
+      ? (options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"))
+      : undefined;
+    const effectiveApiKey = userApiKey ?? hostApiKey;
 
     // Resolve engine — per-request engine override takes priority
     // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default

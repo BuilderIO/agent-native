@@ -445,7 +445,7 @@ describe("resolveBuilderCredential", () => {
     mockReadAppSecret.mockResolvedValue(null);
 
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
-    expect(canUseDeployCredentialFallbackForRequest()).toBe(true);
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
   });
 
   it("does not use deploy-level Builder keys for signed-in Netlify users even without NODE_ENV=production", async () => {
@@ -461,10 +461,10 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveBuilderCredentialSource()).toBeNull();
-    expect(canUseDeployCredentialFallbackForRequest()).toBe(true);
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
   });
 
-  it("uses deploy-level LLM keys for signed-in hosted workspace users without enabling Builder identity keys", async () => {
+  it("does not use deploy-level LLM keys for signed-in hosted workspace users", async () => {
     process.env.NODE_ENV = "development";
     process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
@@ -481,8 +481,8 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveBuilderCredentialSource()).toBeNull();
-    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
-    expect(canUseDeployCredentialFallbackForRequest()).toBe(true);
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
   });
 
   it("honors env Builder keys for a signed-in workspace user when the local dev escape hatch is set", async () => {
@@ -828,16 +828,16 @@ describe("resolveSecret (generic)", () => {
     ]);
   });
 
-  it("consults process.env in an authenticated request when no scoped secret exists", async () => {
+  it("does not consult process.env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
     process.env.OPENAI_API_KEY = "deploy-key";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
-    expect(await resolveSecret("OPENAI_API_KEY")).toBe("deploy-key");
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
   });
 
-  it("keeps generic deploy env secrets available for signed-in production shared-database users even when AGENT_ENGINE is set", async () => {
+  it("blocks generic deploy env secrets for signed-in production shared-database users even when AGENT_ENGINE is set", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_ENGINE = "builder";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
@@ -847,7 +847,7 @@ describe("resolveSecret (generic)", () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
 
-    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
   });
 
   it("uses process.env for authenticated requests on local/single-tenant databases", async () => {

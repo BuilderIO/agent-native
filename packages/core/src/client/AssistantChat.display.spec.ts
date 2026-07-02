@@ -171,6 +171,35 @@ describe("dedupeReconnectContentAgainstMessages", () => {
       dedupeReconnectContentAgainstMessages([repeatedCall], persistedMessages),
     ).toEqual([repeatedCall]);
   });
+
+  it("keeps reconnect completions when the rendered tool call is still pending", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_pending",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    const completedCall = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_pending",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([completedCall], persistedMessages),
+    ).toEqual([completedCall]);
+  });
 });
 
 describe("resolveAssistantChatRunningState", () => {

@@ -1207,9 +1207,9 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(googleEngine);
     });
 
-    it("auto-detects deploy-level provider env keys for signed-in production shared-database users", async () => {
+    it("does not auto-detect deploy-level provider env keys for signed-in production shared-database users", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: hosted env keys should power the selected provider
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: hosted env keys must not power signed-in shared-database users
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue(null),
       }));
@@ -1257,19 +1257,17 @@ describe("AgentEngine registry", () => {
 
       const resolved = await resolveEngine({});
 
-      expect(openAiCreate).toHaveBeenCalledWith({
+      expect(openAiCreate).not.toHaveBeenCalled();
+      expect(anthropicCreate).toHaveBeenCalledWith({
         apiKey: undefined,
-        allowEnvFallback: true,
+        allowEnvFallback: false,
       });
-      expect(anthropicCreate).not.toHaveBeenCalled();
-      expect(resolved).toEqual(
-        expect.objectContaining({ name: "ai-sdk:openai" }),
-      );
+      expect(resolved).toBe(anthropicEngine);
     });
 
-    it("enables deploy env fallback for explicitly selected engines in signed-in production shared-database requests", async () => {
+    it("disables deploy env fallback for explicitly selected engines in signed-in production shared-database requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: explicit engine selection can use hosted env
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: explicit engine selection must not inherit hosted env
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
@@ -1298,7 +1296,7 @@ describe("AgentEngine registry", () => {
 
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
-        allowEnvFallback: true,
+        allowEnvFallback: false,
       });
       expect(resolved).toBe(openAiEngine);
     });

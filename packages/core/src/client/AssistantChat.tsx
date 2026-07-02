@@ -592,18 +592,30 @@ function toolCallIdFromContentPart(part: unknown): string | null {
     : null;
 }
 
-function collectRenderedToolCallIds(messages: readonly unknown[]): Set<string> {
-  const ids = new Set<string>();
+function toolCallPartHasResult(part: unknown): boolean {
+  if (!part || typeof part !== "object") return false;
+  const candidate = part as { type?: unknown; result?: unknown };
+  return candidate.type === "tool-call" && "result" in candidate;
+}
+
+function collectRenderedToolCallStates(
+  messages: readonly unknown[],
+): Map<string, { hasResult: boolean }> {
+  const states = new Map<string, { hasResult: boolean }>();
   for (const message of messages) {
     const msg = (message as { message?: unknown })?.message ?? message;
     const content = (msg as { content?: unknown })?.content;
     if (!Array.isArray(content)) continue;
     for (const part of content) {
       const id = toolCallIdFromContentPart(part);
-      if (id) ids.add(id);
+      if (!id) continue;
+      const existing = states.get(id);
+      states.set(id, {
+        hasResult: Boolean(existing?.hasResult || toolCallPartHasResult(part)),
+      });
     }
   }
-  return ids;
+  return states;
 }
 
 export function dedupeReconnectContentAgainstMessages(
@@ -611,13 +623,15 @@ export function dedupeReconnectContentAgainstMessages(
   messages: readonly unknown[],
 ): ContentPart[] {
   if (content.length === 0 || messages.length === 0) return content;
-  const renderedToolCallIds = collectRenderedToolCallIds(messages);
-  if (renderedToolCallIds.size === 0) return content;
+  const renderedToolCallStates = collectRenderedToolCallStates(messages);
+  if (renderedToolCallStates.size === 0) return content;
 
   let changed = false;
   const filtered = content.filter((part) => {
     const id = toolCallIdFromContentPart(part);
-    if (!id || !renderedToolCallIds.has(id)) return true;
+    const existing = id ? renderedToolCallStates.get(id) : undefined;
+    if (!id || !existing) return true;
+    if (toolCallPartHasResult(part) && !existing.hasResult) return true;
     changed = true;
     return false;
   });

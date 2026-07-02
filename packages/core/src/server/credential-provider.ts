@@ -89,7 +89,11 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 }
 
 export function canUseDeployCredentialFallbackForRequest(): boolean {
-  return true;
+  const email = getRequestUserEmail();
+  if (!email) return true;
+  if (isHostedWorkspaceRuntime()) return false;
+  if (!isProductionLikeRuntime()) return true;
+  return isLocalDatabase();
 }
 
 const BUILDER_CREDENTIAL_KEYS = [
