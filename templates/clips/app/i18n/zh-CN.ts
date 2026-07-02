@@ -400,7 +400,7 @@ const messages = {
     shareLink: "分享链接",
     shareWithAgents: "与代理商分享",
     agentTokenDescription:
-      "该代理 URL 使用短期令牌，因此代理可以在不暴露密码的情况下读取剪辑。",
+      "这个临时代理 URL 可让代理读取剪辑，而无需将其设为公开。它会在两小时后过期。",
     gifPreview: "GIF 预览",
     openPlayer: "开放玩家",
     downloadMp4: "下载MP4",

@@ -428,7 +428,7 @@ const messages = {
     shareLink: "Enlace para compartir",
     shareWithAgents: "Compartir con agentes",
     agentTokenDescription:
-      "Este agente URL utiliza un token de corta duración, por lo que los agentes pueden leer el clip sin exponer la contraseña.",
+      "Esta URL temporal para agentes permite leer el clip sin hacerlo publico. Caduca en dos horas.",
     gifPreview: "vista previa de GIF",
     openPlayer: "jugador abierto",
     downloadMp4: "Descargar MP4",

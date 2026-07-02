@@ -425,7 +425,7 @@ const messages = {
     shareLink: "共有リンク",
     shareWithAgents: "エージェントと共有する",
     agentTokenDescription:
-      "このエージェント URL は有効期間の短いトークンを使用するため、エージェントはパスワードを公開せずにクリップを読み取ることができます。",
+      "この一時的なエージェント URL により、クリップを公開せずにエージェントが読み取れます。2 時間後に期限切れになります。",
     gifPreview: "GIF プレビュー",
     openPlayer: "プレーヤーを開く",
     downloadMp4: "ダウンロード",

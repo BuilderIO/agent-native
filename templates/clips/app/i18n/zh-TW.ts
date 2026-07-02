@@ -400,7 +400,7 @@ const messages = {
     shareLink: "分享連結",
     shareWithAgents: "與 Agent 分享",
     agentTokenDescription:
-      "此 Agent URL 使用短期權杖，因此 Agent 可以在不暴露密碼的情況下讀取剪輯。",
+      "這個臨時 Agent URL 可讓 Agent 讀取剪輯，而不必將其設為公開。它會在兩小時後過期。",
     gifPreview: "GIF 預覽",
     openPlayer: "開啟播放器",
     downloadMp4: "下載 MP4",

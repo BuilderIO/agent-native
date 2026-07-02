@@ -418,7 +418,7 @@ const messages = {
     shareLink: "공유 링크",
     shareWithAgents: "상담원과 공유",
     agentTokenDescription:
-      "이 에이전트 URL는 수명이 짧은 토큰을 사용하므로 에이전트는 비밀번호를 노출하지 않고도 클립을 읽을 수 있습니다.",
+      "이 임시 에이전트 URL을 사용하면 클립을 공개하지 않고도 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
     gifPreview: "GIF 미리보기",
     openPlayer: "플레이어 열기",
     downloadMp4: "MP4 다운로드",

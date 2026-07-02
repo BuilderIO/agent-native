@@ -1461,6 +1461,21 @@ export async function getSessionReplaySummary(
   return rowToSessionRecordingSummary(access.resource, access.role);
 }
 
+export async function getSessionReplayTokenizedSummary(
+  recordingId: string,
+): Promise<SessionRecordingSummary> {
+  const db = getDb() as any;
+  const [row] = await db
+    .select()
+    .from(schema.sessionRecordings)
+    .where(eq(schema.sessionRecordings.id, recordingId))
+    .limit(1);
+  if (!row || !isVisibleSessionRecording(row)) {
+    throw replayError("Session recording not found", 404);
+  }
+  return rowToSessionRecordingSummary(row, "viewer");
+}
+
 function parseInlineReplayEvents(inlineData: string): unknown[] {
   try {
     const parsed = JSON.parse(inlineData);
@@ -1590,6 +1605,47 @@ export async function getSessionReplayEvents(
   unavailableChunks: number;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return getSessionReplayEventsForRecording(recording, options);
+}
+
+export async function getSessionReplayTokenizedEvents(
+  recordingId: string,
+  options: SessionReplayEventReadOptions = {},
+): Promise<{
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    events: unknown[];
+    unavailable?: boolean;
+  }>;
+  eventCount: number;
+  truncated: boolean;
+  unavailableChunks: number;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  return getSessionReplayEventsForRecording(recording, options);
+}
+
+async function getSessionReplayEventsForRecording(
+  recording: SessionRecordingSummary,
+  options: SessionReplayEventReadOptions = {},
+): Promise<{
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    events: unknown[];
+    unavailable?: boolean;
+  }>;
+  eventCount: number;
+  truncated: boolean;
+  unavailableChunks: number;
+}> {
   const maxEvents = Math.min(
     MAX_REPLAY_EVENTS_READ,
     Math.max(1, options.limit ?? MAX_REPLAY_EVENTS_READ),

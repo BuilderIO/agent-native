@@ -1,11 +1,14 @@
 import {
   PromptComposer,
+  useActionMutation,
   useActionQuery,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
 import {
   IconArrowLeft,
+  IconCheck,
+  IconCopy,
   IconExclamationCircle,
   IconKeyboard,
   IconMessageCircle,
@@ -184,7 +187,12 @@ export default function SessionDetailPage() {
             </div>
           ) : null}
         </div>
-        {recording ? <AskSessionPopover recording={recording} /> : null}
+        {recording ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <CopySessionForAgentButton recordingId={recording.id} />
+            <AskSessionPopover recording={recording} />
+          </div>
+        ) : null}
       </div>
 
       {error ? (
@@ -202,6 +210,41 @@ export default function SessionDetailPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CopySessionForAgentButton({ recordingId }: { recordingId: string }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const createLink = useActionMutation(
+    "create-session-replay-agent-link" as any,
+  );
+
+  async function handleCopy() {
+    if (createLink.isPending) return;
+    const result = (await createLink.mutateAsync({
+      recordingId,
+    })) as { url?: string };
+    if (!result?.url) return;
+    await navigator.clipboard.writeText(result.url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={() => void handleCopy()}
+      disabled={createLink.isPending}
+    >
+      {copied ? (
+        <IconCheck className="h-4 w-4" />
+      ) : (
+        <IconCopy className="h-4 w-4" />
+      )}
+      {copied ? t("sessions.copiedForAgent") : t("sessions.copyForAgent")}
+    </Button>
   );
 }
 

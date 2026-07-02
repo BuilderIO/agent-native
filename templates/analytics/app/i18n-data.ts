@@ -830,6 +830,8 @@ const enUS = {
     emptyStepVisit: "Visit app",
     installSnippetTitle: "Add session replay",
     backToSessions: "Back to sessions",
+    copyForAgent: "Copy for agent",
+    copiedForAgent: "Copied",
     askAgent: "Ask agent about this session",
     askSessionTitle: "Ask about this session",
     askSessionDescription:
@@ -6729,6 +6731,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "أي نشاط",
       eventCountCompact: "{{count}} حدث",
       pageCountCompact: "{{count}} صفحة",
+      copyForAgent: "نسخ للوكيل",
+      copiedForAgent: "تم النسخ",
       askSessionTitle: "اسأل عن هذه الجلسة",
       askSessionDescription:
         "أرسل مطالبة مركزة إلى وكيل Analytics مع إرفاق هذا التسجيل كسياق.",
@@ -6759,6 +6763,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "Beliebige Aktivität",
       eventCountCompact: "{{count}} Ereignisse",
       pageCountCompact: "{{count}} Seiten",
+      copyForAgent: "Für Agent kopieren",
+      copiedForAgent: "Kopiert",
       askSessionTitle: "Zu dieser Sitzung fragen",
       askSessionDescription:
         "Sende dem Analytics-Agenten eine gezielte Eingabe mit dieser Wiedergabe als Kontext.",
@@ -6784,6 +6790,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "Cualquier actividad",
       eventCountCompact: "{{count}} eventos",
       pageCountCompact: "{{count}} páginas",
+      copyForAgent: "Copiar para agente",
+      copiedForAgent: "Copiado",
       askSessionTitle: "Preguntar sobre esta sesión",
       askSessionDescription:
         "Envía una pregunta enfocada al agente de Analytics con esta reproducción como contexto.",
@@ -6812,6 +6820,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "Toute activité",
       eventCountCompact: "{{count}} événements",
       pageCountCompact: "{{count}} pages",
+      copyForAgent: "Copier pour l'agent",
+      copiedForAgent: "Copié",
       askSessionTitle: "Poser une question sur cette session",
       askSessionDescription:
         "Envoyez une question ciblée à l'agent Analytics avec cette relecture en contexte.",
@@ -6838,6 +6848,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "कोई भी गतिविधि",
       eventCountCompact: "{{count}} इवेंट",
       pageCountCompact: "{{count}} पेज",
+      copyForAgent: "एजेंट के लिए कॉपी करें",
+      copiedForAgent: "कॉपी हो गया",
       askSessionTitle: "इस सत्र के बारे में पूछें",
       askSessionDescription:
         "इस रीप्ले को संदर्भ के रूप में जोड़कर Analytics एजेंट को केंद्रित प्रॉम्प्ट भेजें।",
@@ -6863,6 +6875,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "任意のアクティビティ",
       eventCountCompact: "{{count}} 件のイベント",
       pageCountCompact: "{{count}} ページ",
+      copyForAgent: "エージェント用にコピー",
+      copiedForAgent: "コピーしました",
       askSessionTitle: "このセッションについて質問",
       askSessionDescription:
         "このリプレイをコンテキストとして添えて、Analytics エージェントに絞り込んだプロンプトを送信します。",
@@ -6888,6 +6902,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "모든 활동",
       eventCountCompact: "{{count}}개 이벤트",
       pageCountCompact: "{{count}}개 페이지",
+      copyForAgent: "에이전트용으로 복사",
+      copiedForAgent: "복사됨",
       askSessionTitle: "이 세션에 대해 질문",
       askSessionDescription:
         "이 리플레이를 컨텍스트로 첨부해 Analytics 에이전트에 집중된 프롬프트를 보냅니다.",
@@ -6913,6 +6929,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "Qualquer atividade",
       eventCountCompact: "{{count}} eventos",
       pageCountCompact: "{{count}} páginas",
+      copyForAgent: "Copiar para agente",
+      copiedForAgent: "Copiado",
       askSessionTitle: "Perguntar sobre esta sessão",
       askSessionDescription:
         "Envie um prompt focado ao agente de Analytics com este replay como contexto.",
@@ -6938,6 +6956,8 @@ const translatedAnalyticsDebtCorrections = {
       anyActivity: "任意活动",
       eventCountCompact: "{{count}} 个事件",
       pageCountCompact: "{{count}} 个页面",
+      copyForAgent: "复制给代理",
+      copiedForAgent: "已复制",
       askSessionTitle: "询问此会话",
       askSessionDescription:
         "将此回放作为上下文，向 Analytics 代理发送聚焦提示。",

@@ -11,6 +11,7 @@ import {
 import {
   getRequestUserEmail,
   signShortLivedToken,
+  verifyShortLivedToken,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {
@@ -65,7 +66,12 @@ import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
 import { getDb, schema } from "../../server/db";
-import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
+import { CLIPS_AGENT_ACCESS_PARAM } from "../../server/lib/public-agent-context";
+import {
+  agentAccessTokenResourceId,
+  buildAgentApiUrls,
+  safeJsonForHtml,
+} from "../../shared/agent-context";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -166,7 +172,12 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       shareUrl: null,
     };
 
-  if (rec.visibility !== "public") {
+  const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
+  const tokenGrantsAgentAccess = agentAccessToken
+    ? verifyShortLivedToken(agentAccessToken, agentAccessTokenResourceId(id)).ok
+    : false;
+
+  if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
     if (!access)
@@ -190,12 +201,15 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     trashedAt: rec.trashedAt,
   };
   const canExposeAgentContext =
-    rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
-  const token =
-    canExposeAgentContext &&
-    rec.password &&
-    getRequestUserEmail() === rec.ownerEmail
-      ? signShortLivedToken({ resourceId: id })
+    (rec.visibility === "public" || tokenGrantsAgentAccess) &&
+    !rec.archivedAt &&
+    !rec.trashedAt;
+  const token = tokenGrantsAgentAccess
+    ? agentAccessToken
+    : canExposeAgentContext &&
+        rec.password &&
+        getRequestUserEmail() === rec.ownerEmail
+      ? signShortLivedToken({ resourceId: agentAccessTokenResourceId(id) })
       : undefined;
   const canExposeAnonymousAgentContext = canExposeAgentContext && !rec.password;
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
@@ -271,7 +285,7 @@ function AgentDiscovery({
         {t("sharePage.agentReadableContext")}
       </a>
       <script
-        type="application/json"
+        type="application/agent-native+json"
         id="clips-agent-context"
         dangerouslySetInnerHTML={{ __html: safeJsonForHtml(payload) }}
       />
