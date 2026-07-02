@@ -1396,14 +1396,32 @@ export function MultiScreenCanvas({
     onSelectionChangeRef.current = onSelectionChange;
   }, [onSelectionChange]);
 
-  useEffect(() => {
-    selectedIdsRef.current = selectedIds;
-    onSelectionChangeRef.current?.(selectedIds);
-  }, [selectedIds]);
+  // Selection is dual-controlled: it is synced FROM the `selectedScreenIds`
+  // prop (see the prop-sync effect below) and CHANGES are reported back to the
+  // parent. Reporting a selection that merely mirrors the prop would round-trip
+  // through the parent (which re-derives/filters the ids) and, when two screens
+  // are created back-to-back, ping-pong the selection between them forever
+  // ("Maximum update depth exceeded" → the editor appears to refresh). Track
+  // the last prop-driven selection and only report genuine, local (user-driven)
+  // divergences from it.
+  const propSyncedSelectionRef = useRef<string[] | null>(null);
+  const isEchoOfPropSelection = useCallback(
+    (ids: string[]) =>
+      propSyncedSelectionRef.current !== null &&
+      sameIds(ids, propSyncedSelectionRef.current),
+    [],
+  );
 
   useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+    if (isEchoOfPropSelection(selectedIds)) return;
+    onSelectionChangeRef.current?.(selectedIds);
+  }, [isEchoOfPropSelection, selectedIds]);
+
+  useEffect(() => {
+    if (isEchoOfPropSelection(selectedIds)) return;
     onScreenSelectionChange?.(selectedIds);
-  }, [onScreenSelectionChange, selectedIds]);
+  }, [isEchoOfPropSelection, onScreenSelectionChange, selectedIds]);
 
   useEffect(() => {
     draftPrimitivesRef.current = draftPrimitives;
@@ -1484,6 +1502,9 @@ export function MultiScreenCanvas({
 
   useEffect(() => {
     if (!selectedScreenIds) return;
+    // Remember the selection we're pushing in from the parent so the report
+    // effects above can recognise (and not echo back) the resulting change.
+    propSyncedSelectionRef.current = selectedScreenIds;
     updateSelectedIds(() => selectedScreenIds);
   }, [screens, selectedScreenIds, updateSelectedIds]);
 
