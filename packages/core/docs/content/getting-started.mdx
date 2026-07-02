@@ -57,95 +57,7 @@ surface to grow from.
 
 An action is one typed operation your agent and UI can both call. Replace the
 starter `hello` action with the first real operation in your domain. This example
-analyzes form responses and returns a native response-insights widget:
-
-```ts
-// actions/analyze-responses.ts
-import { defineAction } from "@agent-native/core/action";
-import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
-import {
-  createDataInsightsWidgetResult,
-  dataInsightsWidgetResultSchema,
-} from "@agent-native/core/data-widgets";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Analyze recent form responses and summarize the trend.",
-  schema: z.object({
-    formId: z.string().default("demo"),
-  }),
-  outputSchema: dataInsightsWidgetResultSchema,
-  chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-    title: "Response insights",
-  },
-  readOnly: true,
-  run: async ({ formId }) =>
-    createDataInsightsWidgetResult({
-      title: "Response insights",
-      display: {
-        title: "42 responses",
-        description: `Completion rose for form ${formId}.`,
-        primaryAction: {
-          label: "Open response insights",
-          href: "/response-insights",
-        },
-      },
-      chartSeries: {
-        type: "bar",
-        xKey: "day",
-        series: [{ key: "responses", label: "Responses" }],
-        data: Array.from({ length: 10 }, (_, day) => ({
-          day: day + 1,
-          responses: Math.round(Math.random() * 10) + 10,
-        })),
-      },
-    }),
-});
-```
-
-Try it directly:
-
-```bash
-pnpm action analyze-responses --formId demo
-```
-
-Then ask the agent in the browser:
-
-> Analyze the recent responses for the demo form.
-
-One action is now reachable from chat, React hooks, CLI, HTTP, MCP, A2A,
-scheduled jobs, and webhooks. Define once, call from anywhere.
-
-## 3. Render the result inline {#render-inline}
-
-The action above declares `outputSchema` and `chatUI.renderer`, so the transcript
-does not have to flatten structured data into prose. Chat renders a native React
-component: chart, table, summary, and a link to the deeper page.
-
-<WireframeBlock id="doc-block-inline-result-wireframe">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card' data-rough><strong>User</strong><p style='margin:8px 0 0'>Analyze the recent responses for the demo form.</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card' data-rough><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>Here are the latest response insights.</p><div class='wf-card' data-rough style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill accent' data-rough>+18%</span></div><div data-rough='line:bottom' style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div data-rough style='height:46%;flex:1;background:color-mix(in srgb, var(--wf-accent) 18%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:72%;flex:1;background:color-mix(in srgb, var(--wf-accent) 28%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:94%;flex:1;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div></div></div><div><strong>Top answers</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>Yes</span><span>31</span></div><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>No</span><span>11</span></div></div><button class='primary' data-rough style='margin-top:16px;width:100%'>Open response insights</button></div></div></div></div></div>"
-    }
-  />
-</WireframeBlock>
-
-Use this step when the result belongs where the agent is speaking:
-
-- setup summaries
-- short reports
-- approvals
-- tables or charts small enough to inspect inline
-- links into durable app views
-
-For more renderer options, see [Native Chat UI](/docs/native-chat-ui). For
-temporary controls the agent creates at runtime, see
-[Generative UI](/docs/generative-ui).
-
-To author your own chart instead of using the built-in data widgets, give the
-action a product-specific renderer id and return your own validated JSON shape:
+analyzes form responses and returns a validated shape for a custom chat chart:
 
 ```ts
 // actions/analyze-responses.ts
@@ -181,13 +93,31 @@ export default defineAction({
       { day: "Mon", responses: 12 },
       { day: "Tue", responses: 18 },
       { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
     ],
   }),
 });
 ```
 
-Then register a React component for that exact renderer id from app startup, for
-example by importing `app/chat-renderers.tsx` once from `app/root.tsx`:
+Try it directly:
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+Then ask the agent in the browser:
+
+> Analyze the recent responses for the demo form.
+
+One action is now reachable from chat, React hooks, CLI, HTTP, MCP, A2A,
+scheduled jobs, and webhooks. Define once, call from anywhere.
+
+## 3. Render the result inline {#render-inline}
+
+The action above declares `outputSchema` and a product-specific
+`chatUI.renderer`, so the transcript does not have to flatten structured data
+into prose. Register a React component for that exact renderer id, for example
+by importing `app/chat-renderers.tsx` once from `app/root.tsx`:
 
 ```tsx
 // app/chat-renderers.tsx
@@ -232,6 +162,32 @@ registerActionChatRenderer({
   Component: ResponseChart,
 });
 ```
+
+Chat now renders your app's own chart component inline, with the validated action
+result as props through the renderer context.
+
+<WireframeBlock id="doc-block-inline-result-wireframe">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card' data-rough><strong>User</strong><p style='margin:8px 0 0'>Analyze the recent responses for the demo form.</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card' data-rough><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>Here are the latest response insights.</p><div class='wf-card' data-rough style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill accent' data-rough>+18%</span></div><div data-rough='line:bottom' style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div data-rough style='height:46%;flex:1;background:color-mix(in srgb, var(--wf-accent) 18%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:72%;flex:1;background:color-mix(in srgb, var(--wf-accent) 28%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:94%;flex:1;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div></div></div><div><strong>Top answers</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>Yes</span><span>31</span></div><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>No</span><span>11</span></div></div><button class='primary' data-rough style='margin-top:16px;width:100%'>Open response insights</button></div></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+Use this step when the result belongs where the agent is speaking:
+
+- setup summaries
+- short reports
+- approvals
+- tables or charts small enough to inspect inline
+- links into durable app views
+
+For reusable generic outputs, the framework also ships built-in
+`data-chart` and `data-table` renderers, plus `data-insights` for combined
+summary/chart/table cards. See [Native Chat UI](/docs/native-chat-ui). For
+temporary controls the agent creates at runtime, see
+[Generative UI](/docs/generative-ui).
 
 ## 4. Persist data in SQL {#persist-data}
 

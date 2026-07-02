@@ -477,19 +477,19 @@ and use [MCP Apps](/docs/mcp-apps) for inline UI in external MCP hosts.
 
 ```ts
 import { defineAction } from "@agent-native/core/action";
-import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
 import {
-  createDataInsightsWidgetResult,
-  dataInsightsWidgetResultSchema,
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
 } from "@agent-native/core/data-widgets";
 
 export default defineAction({
   description: "Summarize response trends.",
   readOnly: true,
-  outputSchema: dataInsightsWidgetResultSchema,
-  chatUI: { renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER },
+  outputSchema: dataChartWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER },
   run: async () =>
-    createDataInsightsWidgetResult({
+    createDataChartWidgetResult({
       title: "Response trends",
       chartSeries: {
         type: "line",
@@ -500,24 +500,17 @@ export default defineAction({
           { day: "Tue", responses: 18 },
         ],
       },
-      table: {
-        columns: [
-          { key: "day", label: "Day" },
-          { key: "responses", label: "Responses", align: "right" },
-        ],
-        rows: [
-          { day: "Mon", responses: 12 },
-          { day: "Tue", responses: 18 },
-        ],
-      },
     }),
 });
 ```
 
 The built-in discriminants are `"data-table"`, `"data-chart"`, and
 `"data-insights"`, with server-safe builders and schemas in
-`@agent-native/core/data-widgets`. See [Native Chat UI](/docs/native-chat-ui)
-for the full result contract and BYO runtime guidance, or
+`@agent-native/core/data-widgets`. Use `data-chart` for chart-only answers,
+`data-table` for SQL/list results, and `data-insights` only when a combined
+summary/chart/table card is the right output. See
+[Native Chat UI](/docs/native-chat-ui) for the full result contract and BYO
+runtime guidance, or
 [Agent Surfaces](/docs/agent-surfaces) for how the same action can stay
 automation-friendly, render in chat, or grow into a full screen.
 
