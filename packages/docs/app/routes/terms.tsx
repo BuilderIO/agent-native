@@ -30,7 +30,7 @@ export const meta = () =>
     {
       name: "description",
       content:
-        "Terms of Service for Agent-Native hosted applications, templates, demos, and official hosted services.",
+        "Terms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.",
     },
     {
       property: "og:title",
@@ -39,7 +39,7 @@ export const meta = () =>
     {
       property: "og:description",
       content:
-        "The terms that apply when Builder.io operates Agent-Native hosted applications and template services.",
+        "The terms that apply when Builder.io operates Agent-Native hosted applications and app services.",
     },
   ]);
 

@@ -21,7 +21,9 @@ export {
   type SizingFieldProps,
 } from "./AutoLayoutMatrix";
 export {
+  ConstraintsPreview,
   ConstraintsWidget,
+  type ConstraintsPreviewProps,
   type ConstraintsValue,
   type ConstraintsWidgetLabels,
   type ConstraintsWidgetProps,
@@ -60,6 +62,7 @@ export {
 } from "./GradientEditor";
 export {
   ImageFillControls,
+  imageFillToBackgroundStyles,
   imageFillToCss,
   parseImageFillCss,
   type ImageFillControlsProps,

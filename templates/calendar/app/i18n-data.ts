@@ -398,6 +398,9 @@ const enUS = {
     googleWarningAfterUnsafe: "to finish connecting.",
     accountConnectedElsewhere: "This account is connected to another login",
     googleConnectionFailed: "Google connection failed",
+    managedCredentialsUnavailable: "Google Calendar is unavailable",
+    managedCredentialsUnavailableDescription:
+      "Calendar's Google connection is not configured for this deployment. Please try again later.",
     thatGoogleAccount: "that Google account",
     signOutThenSignIn: "Sign out, then sign in with {{account}}.",
     signOut: "Sign out",
@@ -452,6 +455,8 @@ const enUS = {
     availabilityDescription: "Set your available hours for bookings.",
     availabilitySaved: "Availability saved",
     availabilitySaveFailed: "Failed to save availability",
+    availabilityUnavailable:
+      "This host's calendar availability can't be checked right now. Please try again later.",
     availableTimes: "Available Times",
     allCount: "All ({{count}})",
     back: "Back",
@@ -9233,6 +9238,107 @@ const translatedCalendarRawBurnDown = {
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
 
+const translatedCalendarAvailabilityFix = {
+  "zh-CN": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar 暂不可用",
+      managedCredentialsUnavailableDescription:
+        "此部署尚未配置 Calendar 的 Google 连接。请稍后再试。",
+    },
+    bookingLinks: {
+      availabilityUnavailable: "目前无法检查此主办人的日历可用性。请稍后再试。",
+    },
+  },
+  "es-ES": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar no está disponible",
+      managedCredentialsUnavailableDescription:
+        "La conexión de Google de Calendar no está configurada para este despliegue. Inténtalo de nuevo más tarde.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "No se puede comprobar ahora la disponibilidad del calendario de este anfitrión. Inténtalo de nuevo más tarde.",
+    },
+  },
+  "fr-FR": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar est indisponible",
+      managedCredentialsUnavailableDescription:
+        "La connexion Google de Calendar n'est pas configurée pour ce déploiement. Réessayez plus tard.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "La disponibilité du calendrier de cet hôte ne peut pas être vérifiée pour le moment. Réessayez plus tard.",
+    },
+  },
+  "de-DE": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar ist nicht verfügbar",
+      managedCredentialsUnavailableDescription:
+        "Die Google-Verbindung von Calendar ist für diese Bereitstellung nicht konfiguriert. Bitte versuche es später erneut.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "Die Kalenderverfügbarkeit dieses Gastgebers kann derzeit nicht geprüft werden. Bitte versuche es später erneut.",
+    },
+  },
+  "ja-JP": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar を利用できません",
+      managedCredentialsUnavailableDescription:
+        "このデプロイでは Calendar の Google 接続が設定されていません。後でもう一度お試しください。",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "この主催者のカレンダーの空き状況を現在確認できません。後でもう一度お試しください。",
+    },
+  },
+  "ko-KR": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar를 사용할 수 없습니다",
+      managedCredentialsUnavailableDescription:
+        "이 배포에는 Calendar의 Google 연결이 구성되어 있지 않습니다. 나중에 다시 시도하세요.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "현재 이 주최자의 캘린더 가능 시간을 확인할 수 없습니다. 나중에 다시 시도하세요.",
+    },
+  },
+  "pt-BR": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar indisponível",
+      managedCredentialsUnavailableDescription:
+        "A conexão do Calendar com o Google não está configurada para esta implantação. Tente novamente mais tarde.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "Não é possível verificar a disponibilidade do calendário deste anfitrião agora. Tente novamente mais tarde.",
+    },
+  },
+  "hi-IN": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar उपलब्ध नहीं है",
+      managedCredentialsUnavailableDescription:
+        "इस deployment के लिए Calendar का Google connection configured नहीं है। कृपया बाद में फिर कोशिश करें।",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "इस host की calendar availability अभी check नहीं की जा सकती। कृपया बाद में फिर कोशिश करें।",
+    },
+  },
+  "ar-SA": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar غير متاح",
+      managedCredentialsUnavailableDescription:
+        "اتصال Google في Calendar غير مهيأ لهذا النشر. يُرجى المحاولة لاحقًا.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "لا يمكن التحقق من توفر تقويم هذا المضيف الآن. يُرجى المحاولة لاحقًا.",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
 function applyTranslatedCalendarOverrides(
   translationSet: Partial<Record<LocaleCode, PartialMessages>>,
 ) {
@@ -9282,3 +9388,4 @@ applyTranslatedCalendarOverrides(translatedCalendarDebtTranslations);
 applyTranslatedCalendarOverrides(translatedCalendarRemainingRaw);
 applyTranslatedCalendarOverrides(translatedCalendarRawBurnDown);
 applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);
+applyTranslatedCalendarOverrides(translatedCalendarAvailabilityFix);

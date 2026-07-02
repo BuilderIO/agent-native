@@ -113,6 +113,8 @@ function supportsClaudeXHigh(model: string) {
   // silently falling back to the lower "high" tier.
   // claude-fable-5 is a Mythos-class model and also supports xhigh.
   if (model.includes("fable-5")) return true;
+  // Sonnet 5 supports the expanded effort ladder through Builder/Anthropic.
+  if (model.includes("sonnet-5")) return true;
   // opus-4-7 introduced xhigh; all opus-4.x successors (4-8, 4-9…) should too.
   const opusMatch = model.match(/opus-4-(\d+)/);
   if (opusMatch) {

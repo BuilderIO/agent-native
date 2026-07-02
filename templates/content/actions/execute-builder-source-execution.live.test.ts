@@ -207,6 +207,7 @@ function buildDeps(args: {
       exists: true,
       published: "draft",
       lastUpdated: NOW,
+      blocksHash: null,
       id: args.source.rows[0]?.sourceRowId ?? "builder-entry-1",
     })),
     reconcileWrite: vi.fn(async (call) => {

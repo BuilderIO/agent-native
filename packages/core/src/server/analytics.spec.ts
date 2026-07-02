@@ -3,12 +3,20 @@ import { afterEach, describe, expect, it } from "vitest";
 import { wrapWithAnalytics } from "./analytics.js";
 
 const previousGaMeasurementId = process.env.GA_MEASUREMENT_ID;
+const previousBakedGaMeasurementId =
+  process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID;
 
 afterEach(() => {
   if (previousGaMeasurementId === undefined) {
     delete process.env.GA_MEASUREMENT_ID;
   } else {
     process.env.GA_MEASUREMENT_ID = previousGaMeasurementId;
+  }
+  if (previousBakedGaMeasurementId === undefined) {
+    delete process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID;
+  } else {
+    process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID =
+      previousBakedGaMeasurementId;
   }
 });
 
@@ -60,5 +68,19 @@ describe("wrapWithAnalytics", () => {
     expect(html.indexOf("googletagmanager.com")).toBeLessThan(
       html.indexOf("</head>"),
     );
+  });
+
+  it("uses the build-baked GA measurement id when runtime env is absent", async () => {
+    delete process.env.GA_MEASUREMENT_ID;
+    process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID = "G-BAKED123";
+
+    const html = await readStream(
+      wrapWithAnalytics(streamFromString("<html><head></head><body /></html>")),
+    );
+
+    expect(html).toContain(
+      "https://www.googletagmanager.com/gtag/js?id=G-BAKED123",
+    );
+    expect(html).toContain(`gtag('config',"G-BAKED123")`);
   });
 });

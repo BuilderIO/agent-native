@@ -163,6 +163,14 @@ export interface AgentChatRequest {
   __backgroundRun?: {
     runId: string;
     turnId?: string;
+    continuationReason?:
+      | "run_timeout"
+      | "loop_limit"
+      | "no_progress"
+      | "stream_ended"
+      | "gateway_timeout"
+      | "network_interrupted";
+    actionPreparationTool?: string;
     /**
      * Number of server-driven background→background continuations already
      * chained into this logical turn (0 on the first chunk). The worker
@@ -207,16 +215,28 @@ export interface AgentChatRequest {
   approvedToolCalls?: string[];
 }
 
+export type AgentToolInput = Record<string, unknown>;
+
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
-  | { type: "activity"; label: string; tool?: string }
+  | {
+      type: "activity";
+      label: string;
+      tool?: string;
+      id?: string;
+      progressBytes?: number;
+    }
   | { type: "stream_keepalive" }
-  | { type: "tool_start"; tool: string; input: Record<string, string> }
+  | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {
       type: "tool_done";
       tool: string;
+      id?: string;
+      input?: AgentToolInput;
       result: string;
+      isError?: boolean;
+      completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
     }

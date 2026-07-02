@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
+import { alias } from "@agent-native/core/db/schema";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -33,6 +33,7 @@ export default defineAction({
         ownerDocumentId: schema.contentDatabases.ownerDocumentId,
         deletedAt: schema.contentDatabases.deletedAt,
         documentTitle: schema.documents.title,
+        documentParentId: schema.documents.parentId,
       })
       .from(schema.contentDatabases)
       .innerJoin(
@@ -80,6 +81,9 @@ export default defineAction({
         documentId: row.documentId,
         ownerDocumentId: row.ownerDocumentId,
         deletedAt: row.deletedAt!,
+        canPermanentlyDelete:
+          row.ownerDocumentId === null ||
+          row.documentParentId !== row.ownerDocumentId,
       })),
     };
   },

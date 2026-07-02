@@ -54,7 +54,7 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
     provider: "openrouter",
     id: "openrouter-key",
     label: "OpenRouter",
-    description: "OpenRouter models with your own OpenRouter key.",
+    description: "OpenRouter models, including GLM 5.2, with your own key.",
   },
   {
     provider: "groq",

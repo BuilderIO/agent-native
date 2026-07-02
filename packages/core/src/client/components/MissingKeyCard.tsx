@@ -12,12 +12,13 @@ export function MissingKeyCard({
   return (
     <div
       style={{
-        border: "1px solid #e2e8f0",
+        border: "1px solid hsl(var(--border))",
         borderRadius: 8,
         padding: "24px 28px",
         maxWidth: 420,
         margin: "32px auto",
-        background: "#f8fafc",
+        background: "hsl(var(--card))",
+        color: "hsl(var(--card-foreground))",
         textAlign: "center",
       }}
     >
@@ -25,13 +26,19 @@ export function MissingKeyCard({
         style={{
           fontSize: 14,
           fontWeight: 600,
-          color: "#334155",
+          color: "hsl(var(--card-foreground))",
           marginBottom: 8,
         }}
       >
         {label}
       </div>
-      <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 16px" }}>
+      <p
+        style={{
+          fontSize: 13,
+          color: "hsl(var(--muted-foreground))",
+          margin: "0 0 16px",
+        }}
+      >
         {message}
       </p>
       <a
@@ -41,8 +48,8 @@ export function MissingKeyCard({
           padding: "8px 16px",
           fontSize: 13,
           fontWeight: 500,
-          color: "#fff",
-          background: "#3b82f6",
+          color: "hsl(var(--primary-foreground))",
+          background: "hsl(var(--primary))",
           borderRadius: 6,
           textDecoration: "none",
         }}

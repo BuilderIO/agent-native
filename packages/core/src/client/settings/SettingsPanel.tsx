@@ -499,12 +499,13 @@ function ManualSetupCard({
 // ─── LLM helpers ────────────────────────────────────────────────────────────
 
 function friendlyModelName(model: string): string {
+  if (model === "z-ai/glm-5.2") return "GLM 5.2";
   const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8,})?$/,
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
-    return `${tier} ${claude[2]}.${claude[3]}`;
+    return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
   if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
   if (/^o\d/.test(model)) return model;
@@ -718,6 +719,10 @@ function LLMSectionInner({
     envVar,
     builderConnected,
   });
+  const manualSetupHint =
+    selectedEngine === "ai-sdk:openrouter"
+      ? "Provide an OpenRouter key to use OpenRouter models like GLM 5.2."
+      : "Choose your AI provider and model.";
 
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
@@ -889,7 +894,7 @@ function LLMSectionInner({
           />
           {!builderConnected && (
             <ManualSetupCard
-              hint="Choose your AI provider and model."
+              hint={manualSetupHint}
               docsUrl={PROVIDER_DOCS[selectedEngine]}
               sourceBadge={sourceBadge}
               docsLabel="Get an API key"

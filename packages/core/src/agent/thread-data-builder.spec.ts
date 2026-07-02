@@ -35,6 +35,34 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it("clears rejected draft text while preserving completed tool results", () => {
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      { seq: 1, event: { type: "tool_done", tool: "query", result: "1" } },
+      { seq: 2, event: { type: "text", text: "Rejected draft" } },
+      { seq: 3, event: { type: "clear" } },
+      { seq: 4, event: { type: "text", text: "Corrected answer" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-clear");
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        result: "1",
+      }),
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
+
   it("persists partial output from internal continuation boundaries", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "partial answer" } },
@@ -577,6 +605,62 @@ describe("mergeThreadDataForClientSave", () => {
     ]);
     expect(merged.messages[0].parentId).toBeNull();
     expect(merged.messages[1].parentId).toBe("user-1");
+  });
+
+  it("drops empty assistant placeholders when the real server answer arrives", () => {
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "test" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "placeholder",
+            role: "assistant",
+            content: [],
+          },
+          parentId: "user-1",
+        },
+      ],
+      headId: "placeholder",
+    };
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "test" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      headId: "server-run-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    expect(merged.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "server-run-1",
+    ]);
+    expect(merged.messages[1].parentId).toBe("user-1");
+    expect(merged.headId).toBe("server-run-1");
   });
 
   it("preserves non-runtime top-level thread metadata across stale client saves", () => {

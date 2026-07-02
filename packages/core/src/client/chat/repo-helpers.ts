@@ -94,6 +94,77 @@ export function dedupeRepoMessagesById<T extends NormalizedRepo>(
   return { ...repo, messages: deduped };
 }
 
+function repoMessageContentIsEmpty(content: unknown): boolean {
+  if (typeof content === "string") return content.trim().length === 0;
+  if (!Array.isArray(content)) return true;
+  return !content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const type = (part as { type?: unknown }).type;
+    if (type === "text") {
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" && text.trim().length > 0;
+    }
+    return true;
+  });
+}
+
+function entryWithParentId(
+  entry: RepoEntry,
+  parentId: string | null,
+): RepoEntry {
+  return { ...entry, parentId };
+}
+
+function repairRepoLinks<T extends NormalizedRepo>(
+  repo: T,
+  entries: RepoEntry[],
+): T {
+  const seenIds = new Set<string>();
+  let previousId: string | null = null;
+  const repaired: RepoEntry[] = [];
+
+  for (const entry of entries) {
+    const id = getRepoMessage(entry)?.id;
+    if (typeof id !== "string" || !id) continue;
+    const requestedParentId = entry.parentId;
+    const parentId =
+      requestedParentId === null
+        ? null
+        : typeof requestedParentId === "string" &&
+            seenIds.has(requestedParentId)
+          ? requestedParentId
+          : previousId;
+    repaired.push(entryWithParentId(entry, parentId));
+    seenIds.add(id);
+    previousId = id;
+  }
+
+  const headId =
+    typeof repo.headId === "string" && seenIds.has(repo.headId)
+      ? repo.headId
+      : previousId;
+  return { ...repo, messages: repaired, headId: headId ?? undefined };
+}
+
+export function dropEmptyAssistantMessages<T extends NormalizedRepo>(
+  repo: T | null | undefined,
+): T | null | undefined {
+  if (!repo || !Array.isArray(repo.messages)) return repo;
+
+  let changed = false;
+  const messages = repo.messages.filter((entry) => {
+    const message = getRepoMessage(entry);
+    const drop =
+      message?.role === "assistant" &&
+      repoMessageContentIsEmpty(message.content);
+    if (drop) changed = true;
+    return !drop;
+  });
+
+  if (!changed) return repo;
+  return repairRepoLinks(repo, messages);
+}
+
 export function isAssistantMessageTerminal(
   message: RepoMessage | null,
 ): boolean {

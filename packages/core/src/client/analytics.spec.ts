@@ -544,6 +544,36 @@ describe("browser analytics pageviews", () => {
     expect(options.beforeSend(nonDocsEvent)).toBe(nonDocsEvent);
   });
 
+  it("uses Sentry's url tag for public docs noise filtering", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      tags: {
+        url: "https://www.agent-native.com/templates/clips",
+      },
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("drops user-aborted browser requests from Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {

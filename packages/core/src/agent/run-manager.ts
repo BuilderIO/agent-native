@@ -16,8 +16,10 @@ import {
   bumpRunProgress,
   reapIfStale,
   reapUnclaimedBackgroundRun,
+  reconcileTerminalRunFromEvents,
   ensureTerminalRunEvent,
   setRunError,
+  setRunTerminalReason,
   STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
@@ -46,8 +48,8 @@ const CLEANUP_DELAY_MS = 5 * 60 * 1000;
  *
  * This MUST fire before the two upstream hard walls that otherwise kill a run
  * mid-turn with no chance to hand off:
- *   1. The Builder model gateway hard-caps a single model call at 45s
- *      (builder-engine.ts MAX_BUILDER_GATEWAY_TIMEOUT_MS) — not raisable.
+ *   1. The Builder model gateway keeps a 45s cap only for hosted foreground
+ *      runs; local and proven background-function runs use longer caps.
  *   2. Serverless functions are hard-killed around 60-65s (the heartbeat then
  *      reaps the row as a stale_run).
  * Production data showed every cutoff landing in the 44-70s window with ZERO
@@ -61,11 +63,12 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
 
 /**
  * Hard ceiling for the hosted soft timeout. On a hosted runtime the
- * auto_continue soft timeout can never usefully exceed this — the gateway
- * (45s) / function (~60s) walls kill the run first, so a larger configured or
- * env value just guarantees the cutoff is a hard error instead of a graceful
- * hand-off. Any resolved value above this is clamped down when hosted. Local
- * dev (non-hosted) is left alone so long-running local turns aren't chunked.
+ * foreground auto_continue soft timeout can never usefully exceed this — the
+ * synchronous function (~60s) wall kills the run first, so a larger configured
+ * or env value just guarantees the cutoff is a hard error instead of a graceful
+ * hand-off. Any resolved value above this is clamped down for hosted foreground
+ * runs. Local dev (non-hosted) is left alone so long-running local turns aren't
+ * chunked.
  *
  * IMPORTANT: this clamp is for the INTERACTIVE / foreground path and must NOT
  * be raised. The foreground POST still rides a synchronous serverless function
@@ -121,7 +124,37 @@ export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
  */
 export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 10 * 60 * 1000;
 
+/** Fast poll cadence while a SQL-backed SSE subscription is actively receiving rows. */
+export const SQL_SUBSCRIPTION_ACTIVE_POLL_MS = 125;
+
+/** Baseline SQL-backed SSE poll cadence when the run is idle. */
+export const SQL_SUBSCRIPTION_IDLE_POLL_MS = 500;
+
+/**
+ * Keep briefly polling quickly after rows arrive so token streams stay smooth,
+ * then back off to the idle cadence if the producer goes quiet.
+ */
+export const SQL_SUBSCRIPTION_ACTIVE_GRACE_MS = 2_000;
+
+/** Keep terminal/status probes at the historical cadence to bound DB work. */
+export const SQL_SUBSCRIPTION_STATUS_POLL_MS = 500;
+
+export function resolveSqlSubscriptionPollMs(
+  now: number,
+  activePollUntil: number,
+): number {
+  return now < activePollUntil
+    ? SQL_SUBSCRIPTION_ACTIVE_POLL_MS
+    : SQL_SUBSCRIPTION_IDLE_POLL_MS;
+}
+
 const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
+
+function isPreparingActionActivityEvent(event: AgentChatEvent): boolean {
+  if (event.type !== "activity") return false;
+  const label = event.label.trim().toLowerCase();
+  return label.startsWith("preparing ") && label.includes(" action");
+}
 
 function getRunErrorMessage(err: unknown): string {
   if (
@@ -292,6 +325,26 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+function terminalReasonForRun(
+  finalStatus: "completed" | "errored" | "aborted",
+  terminalEvent: AgentChatEvent | null,
+  abortReason: string | undefined,
+  completionError: unknown,
+): string {
+  if (terminalEvent?.type === "auto_continue") {
+    return terminalEvent.reason || "auto_continue";
+  }
+  if (terminalEvent?.type === "loop_limit") return "loop_limit";
+  if (terminalEvent?.type === "missing_api_key") return "missing_api_key";
+  if (terminalEvent?.type === "error") {
+    return `error:${terminalEvent.errorCode || "unknown"}`;
+  }
+  if (finalStatus === "aborted") return `aborted:${abortReason ?? "user"}`;
+  if (completionError) return "completion_error";
+  if (finalStatus === "errored") return "error:unknown";
+  return "done";
+}
+
 function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   run.abortReason = reason;
   run.status = "aborted";
@@ -348,11 +401,45 @@ export function startRun(
   activeRuns.set(runId, run);
   threadToRun.set(threadId, runId);
 
+  const captureRunPersistenceError = (
+    error: unknown,
+    phase: "insert-run" | "insert-event",
+    extra: Record<string, unknown> = {},
+  ) => {
+    captureError(error, {
+      route: "/_agent-native/agent-chat",
+      tags: {
+        source: "agent-run-manager",
+        phase,
+        runStatus: run.status,
+      },
+      extra: {
+        runId,
+        threadId,
+        eventCount: run.events.length,
+        startedAt: run.startedAt,
+        ...extra,
+      },
+      contexts: {
+        agentRun: {
+          runId,
+          threadId,
+          status: run.status,
+          phase,
+          eventCount: run.events.length,
+          startedAt: run.startedAt,
+        },
+      },
+    });
+  };
+
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
   const insertRunPromise = insertRun(runId, threadId, options?.turnId).catch(
-    () => {},
+    (error) => {
+      captureRunPersistenceError(error, "insert-run");
+    },
   );
 
   // Per-run event persistence chain: events are chained so SQL inserts commit
@@ -367,11 +454,49 @@ export function startRun(
   // chunk. The stuck-detector threshold is on the order of tens of seconds,
   // so 1s resolution is plenty.
   let lastProgressBumpAt = 0;
+  const preparingActivityBytes = new Map<string, number>();
+  let eventPersistenceErrorCaptured = false;
   const bumpProgressIfDue = () => {
     const now = Date.now();
     if (now - lastProgressBumpAt < 1000) return;
     lastProgressBumpAt = now;
     bumpRunProgress(runId).catch(() => {});
+  };
+  const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
+    if (event.type === "stream_keepalive") return false;
+    if (event.type === "activity" && isPreparingActionActivityEvent(event)) {
+      const toolKey =
+        event.id?.trim() || event.tool?.trim() || event.label.trim();
+      const progressBytes =
+        typeof event.progressBytes === "number" &&
+        Number.isFinite(event.progressBytes) &&
+        event.progressBytes >= 0
+          ? Math.floor(event.progressBytes)
+          : undefined;
+      if (progressBytes === undefined) return false;
+      if (!event.id?.trim()) return progressBytes > 0;
+      const previousBytes = preparingActivityBytes.get(toolKey) ?? 0;
+      if (progressBytes <= previousBytes) {
+        preparingActivityBytes.set(
+          toolKey,
+          Math.max(previousBytes, progressBytes),
+        );
+        return false;
+      }
+      preparingActivityBytes.set(toolKey, progressBytes);
+      return true;
+    }
+    if (event.type === "tool_start" || event.type === "tool_done") {
+      preparingActivityBytes.clear();
+    }
+    if (
+      event.type === "clear" ||
+      event.type === "done" ||
+      event.type === "error"
+    ) {
+      preparingActivityBytes.clear();
+    }
+    return true;
   };
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers).
@@ -423,7 +548,7 @@ export function startRun(
             type: "auto_continue",
             reason: "run_timeout",
           });
-          abort.abort();
+          abort.abort("run_timeout");
         }, softTimeoutMs)
       : null;
   let pendingTerminalEvent: RunEvent | null = null;
@@ -482,8 +607,12 @@ export function startRun(
     // Bump the durable progress timestamp. Distinct from the heartbeat:
     // heartbeat = "process is up", progress = "real work is happening." The
     // gap between them is what the client-side stuck-detector reads to tell
-    // a hung run from a healthy one.
-    bumpProgressIfDue();
+    // a hung run from a healthy one. Keepalive and zero-byte action prep are
+    // liveness only; streamed input bytes, text, and tool lifecycle events are
+    // real progress.
+    if (shouldBumpProgressForEvent(runEvent.event)) {
+      bumpProgressIfDue();
+    }
 
     // Persist event to SQL. Events are chained through persistenceChain so
     // inserts commit in seq order — an out-of-order commit would advance the
@@ -493,7 +622,15 @@ export function startRun(
     const thisInsert = persistenceChain.then(() =>
       insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)),
     );
-    persistenceChain = thisInsert.catch(() => {});
+    persistenceChain = thisInsert.catch((error) => {
+      if (!eventPersistenceErrorCaptured) {
+        eventPersistenceErrorCaptured = true;
+        captureRunPersistenceError(error, "insert-event", {
+          seq: runEvent.seq,
+          eventType: runEvent.event.type,
+        });
+      }
+    });
     const persistence = thisInsert;
     if (!options?.surfacePersistenceError) {
       persistence.catch(() => {});
@@ -590,6 +727,12 @@ export function startRun(
           : run.status === "errored" || completionError
             ? "errored"
             : "completed";
+      const terminalReason = terminalReasonForRun(
+        finalStatus,
+        pendingTerminalEvent?.event ?? null,
+        run.abortReason,
+        completionError,
+      );
 
       // 3. Emit the terminal event only after thread_data is durable. Live
       //    SSE clients close on this event and usually fetch thread_data
@@ -662,7 +805,17 @@ export function startRun(
       try {
         await insertRunPromise;
         if (!terminalPersistenceError) {
-          await updateRunStatusIfRunning(runId, finalStatus);
+          let statusUpdated = false;
+          try {
+            statusUpdated = await updateRunStatusIfRunning(runId, finalStatus);
+          } catch {
+            statusUpdated = false;
+          }
+          if (statusUpdated) {
+            await setRunTerminalReason(runId, terminalReason);
+          } else {
+            await reconcileTerminalRunFromEvents(runId).catch(() => false);
+          }
         }
       } catch {
         // Best-effort — reapIfStale will eventually clean this up via
@@ -831,6 +984,8 @@ function subscribeFromSQL(
   return new ReadableStream({
     async start(controller) {
       let lastSeq = fromSeq;
+      let activePollUntil = 0;
+      let lastStatusCheckAt = 0;
       const ping = () => {
         try {
           controller.enqueue(encoder.encode(`: ping ${Date.now()}\n\n`));
@@ -847,6 +1002,9 @@ function subscribeFromSQL(
         try {
           // Read new events from SQL
           const events = await getRunEventsSince(runId, lastSeq);
+          if (events.length > 0) {
+            activePollUntil = Date.now() + SQL_SUBSCRIPTION_ACTIVE_GRACE_MS;
+          }
           for (const { seq, eventData } of events) {
             // Advance the cursor first, before any parse/enqueue branch can
             // `continue`/`return`. Otherwise a single corrupt (unparseable)
@@ -880,6 +1038,18 @@ function subscribeFromSQL(
 
           // Check if run completed (no terminal event but status changed)
           if (events.length === 0) {
+            const now = Date.now();
+            if (now - lastStatusCheckAt < SQL_SUBSCRIPTION_STATUS_POLL_MS) {
+              if (!cancelled) {
+                const pollMs = resolveSqlSubscriptionPollMs(
+                  now,
+                  activePollUntil,
+                );
+                pollTimer = setTimeout(poll, pollMs);
+              }
+              return;
+            }
+            lastStatusCheckAt = now;
             // Opportunistically reap a stale producer before trusting SQL's
             // "running" status — otherwise a crashed server leaves us polling
             // forever.
@@ -970,7 +1140,11 @@ function subscribeFromSQL(
 
           // Schedule next poll
           if (!cancelled) {
-            pollTimer = setTimeout(poll, 500);
+            const pollMs = resolveSqlSubscriptionPollMs(
+              Date.now(),
+              activePollUntil,
+            );
+            pollTimer = setTimeout(poll, pollMs);
           }
         } catch {
           // SQL error — close stream
@@ -1033,6 +1207,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   lastProgressAt: number | null;
   /** How the run was dispatched (NULL/foreground, background, background-processing). */
   dispatchMode?: string | null;
+  /** Compact terminal classification, e.g. done, run_timeout, stale_run. */
+  terminalReason?: string | null;
   /**
    * Last reached `_process-run` worker stage as a JSON string
    * `{stage,detail?,at}`. Surfaced so a silent background-worker death is
@@ -1099,6 +1275,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
+        terminalReason: sqlRun.terminalReason,
         diagStage: sqlRun.diagStage,
       };
     }
@@ -1126,6 +1303,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
+        terminalReason: sqlRun.terminalReason,
         diagStage: sqlRun.diagStage,
       };
     }

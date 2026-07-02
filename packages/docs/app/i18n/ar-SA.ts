@@ -77,11 +77,11 @@ const arSA = {
   home: {
     hero: {
       badge: "framework مفتوح المصدر",
-      titleLine1: "تطبيقات الوكيل",
-      titleAccent: "تملكها أنت",
+      titleLine1: "framework من أجل",
+      titleAccent: "agentic apps",
       body: "ابدأ مع Chat-first app و app-agent loop. أضف actions وشاشات و jobs و workflows مع نمو agent لديك.",
-      primaryCta: "ابدأ بقالب",
-      secondaryCta: "عرض الوثائق",
+      primaryCta: "جرّب تطبيقًا",
+      secondaryCta: "اقرأ الوثائق",
     },
     code: {
       quickStartComment: "أنشئ app بأمر واحد",
@@ -90,10 +90,109 @@ const arSA = {
       frameworkComment: "يشغل action واحد agent و UI و HTTP و MCP و A2A و CLI.",
       frameworkDescription: "قل مرحبا من app-agent loop المحلي.",
     },
+    actionSurface: {
+      eyebrow: "مصمم بعمق للوكلاء، وليس ذكاء اصطناعياً ملحقاً",
+      title: "إجراء واحد يفتح سطح التطبيق كله",
+      body: "عرّف العملية مرة واحدة. يحولها Agent-Native إلى إجراء UI، وأداة agent، ونقطة HTTP، وسطح MCP/A2A، وأمر CLI، وفحص صلاحيات، وسجل تدقيق.",
+      buildAction: "أنشئ إجراء",
+      benefits: {
+        oneActionDefinition: {
+          title: "تعريف إجراء واحد",
+          body: "UI وagent وHTTP وMCP وA2A وCLI تستدعي العملية نفسها.",
+        },
+        scopedByDefault: {
+          title: "محدد النطاق افتراضياً",
+          body: "Auth والمشاركة والحوكمة وسجلات التدقيق ترافق العمل.",
+        },
+        headedOrHeadless: {
+          title: "Apps وautomations وagents",
+          body: "شغّل نفس operation من chat أو UI أو jobs مجدولة أو queues أو agents خارجية أو scripts.",
+        },
+        contextRichInput: {
+          title: "إدخال غني بالسياق",
+          body: "الدردشة والصوت وskills والتعليمات وحالة UI تبقى داخل الحلقة.",
+        },
+        openAgentProtocols: {
+          title: "بروتوكولات agent مفتوحة",
+          body: "A2A وMCP وMCP apps والوكلاء الخارجيون هي بدائيات على مستوى الإطار.",
+        },
+        observableByDesign: {
+          title: "قابل للمراقبة من التصميم",
+          body: "Traces وevals والتغذية الراجعة وسجل التدقيق تجعل عمل agent قابلاً للفحص.",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "إطار معياري",
+      title: "وحدات مدمجة لتطبيقات agentic",
+      body: "قطع تحقق منها البشر لأجزاء الإنتاج التي لا ينبغي للوكلاء اختراعها من الصفر. استخدمها كما هي، افحص المصدر، أو استبدل الوحدة عندما يحتاج تطبيقك إلى شيء مختلف.",
+      pageBody:
+        "يوفر Agent-Native قطعاً تحقق منها البشر لعمل الإنتاج الذي لا ينبغي للوكلاء ارتجاله من الصفر. استخدمها كما هي، افحص المصدر، أو استبدل الوحدة عندما يحتاج منتجك إلى شيء مختلف.",
+      viewAll: "عرض كل الوحدات",
+      browseApps: "تصفح التطبيقات المبنية من الوحدات",
+      items: {
+        autoStateSyncing: {
+          title: "مزامنة الحالة تلقائياً",
+          body: "تغييرات agent تحدث UI، وتبقى حالة UI مرئية للوكيل دون جسر آخر.",
+        },
+        actions: {
+          title: "الإجراءات",
+          body: "عرّف العمل مرة واحدة واستخدمه من UI وagent وHTTP وMCP وA2A وCLI.",
+        },
+        sqlStateOrm: {
+          title: "حالة SQL وORM",
+          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات غير مرتبطة بالمزود.",
+        },
+        dbAdmin: {
+          title: "إدارة قاعدة البيانات",
+          body: "مخططات قابلة لقراءة agent، وأسطح استعلام، وترحيلات، وأدوات إدارة بلا back office مخصص.",
+        },
+        authGovernance: {
+          title: "المصادقة والحوكمة",
+          body: "تسجيل الدخول، والمؤسسات، وmulti-tenancy، والصلاحيات، والموافقات، وpolicy hooks.",
+        },
+        sharing: {
+          title: "المشاركة",
+          body: "روابط مشاركة، ووصول محدد النطاق، وموارد عامة أو خاصة، وتعليقات، وأسطح مراجعة.",
+        },
+        realtimeCollaboration: {
+          title: "تعاون فوري",
+          body: "تحرير متعدد المستخدمين، وحضور مباشر، وUI متفائلة، وتسوية مدعومة بالخادم.",
+        },
+        agentInteroperability: {
+          title: "تشغيل متبادل بين agents",
+          body: "A2A وMCP وMCP apps ووكلاء خارجيون وharness agents وتسليم بين التطبيقات.",
+        },
+        automationsQueues: {
+          title: "الأتمتة والصفوف",
+          body: "عمل محفز بالأحداث، ومهام مجدولة، وتشغيل بالخلفية، وmutations موثوقة.",
+        },
+        agentUiSurface: {
+          title: "سطح UI للوكيل",
+          body: "دردشة، وskills، وتعليمات، وUI توليدية، وإدخال صوتي، وسياق مرئي للوكيل.",
+        },
+        observability: {
+          title: "قابلية المراقبة",
+          body: "Traces وevals وتغذية راجعة وتجارب وإثبات لما قالت agents إنها فعلته.",
+        },
+        workspaces: {
+          title: "مساحات العمل",
+          body: "Agentic apps قابلة للتركيب تكتشف بعضها وتنسق عبر A2A.",
+        },
+        sourceOwnership: {
+          title: "ملكية المصدر",
+          body: "تعيش docs وsource حيث تستطيع agents فحصها أو fork أو eject أو patch أو استبدالها.",
+        },
+        auditLogs: {
+          title: "سجلات التدقيق",
+          body: "سجل دائم لتغييرات البشر وagents، محدد بالموارد التي يستطيع المستخدمون الوصول إليها.",
+        },
+      },
+    },
     framework: {
       title: "framework لتطبيقات agent-native apps",
       body1:
-        "Agent-Native هو framework مفتوح المصدر لبناء agents كبرمجيات حقيقية: ابدأ مع Chat أو headless agents، ثم أضف UI و jobs والتعاون حول نفس actions.",
+        "Agent-Native هو framework مفتوح المصدر لبناء agentic applications: ابدأ مع Chat، وعرّف actions مشتركة، ثم أضف UI و jobs والتعاون حول نفس state.",
       body2:
         "استخدم قاعدة بياناتك ومزود الاستضافة و model stack وكود app الخاص بك.",
       cta: "اقرأ دليل framework",
@@ -121,9 +220,9 @@ const arSA = {
       },
     },
     templates: {
-      title: "اعمل fork وخصّص app كاملة الميزات",
+      title: "جرّب app من Agent-Native",
       eyebrow: "مجاني 100% ومفتوح المصدر",
-      cta: "عرض كل القوالب",
+      cta: "عرض apps",
     },
     skills: {
       title: "جرّبه مع skill",
@@ -195,12 +294,12 @@ const arSA = {
     },
     quickStart: {
       title: "ابدأ مع أمر واحد",
-      body: "ينشئ أمر واحد app محلية مدعومة ب actions و durable threads و SQLite. استخدم `--headless` بدلا من ذلك عندما لا تريد UI في المتصفح بعد.",
+      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و SQLite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
     },
     finalCta: {
-      title: "software تملكه، مبني لعصر agentic era",
+      title: "software مبني لعصر agentic era",
       body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
-      primaryCta: "ابدأ مع Action",
+      primaryCta: "جرّب تطبيقًا",
       secondaryCta: "اقرأ الوثائق",
       githubCta: "عرض على GitHub",
     },
@@ -309,8 +408,8 @@ const arSA = {
   },
   templatesPage: {
     title: "تطبيقات الوكيل الأصلية مفتوحة المصدر التي تمتلكها",
-    eyebrow: "100% مجاني ومفتوح المصدر",
-    body: "قم بتفرع القالب، وتشغيله محليًا، والسماح للوكيل بتطويره. أنت تمتلك الكود ويمكنك تخصيص كل شيء.",
+    eyebrow: "انسخ تطبيقًا جاهزًا ودع الوكيل يطوره.",
+    body: "يمكنك تخصيص كل شيء.",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",
   },

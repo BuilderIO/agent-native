@@ -6,6 +6,11 @@ import type {
   BuilderCmsModelsResponse,
 } from "../shared/api.js";
 import {
+  builderBlocksHash,
+  builderEntryBlocks,
+  type BuilderContentEntry,
+} from "../shared/builder-mdx.js";
+import {
   normalizeBuilderCmsApiEntry,
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
@@ -23,6 +28,7 @@ export interface BuilderCmsEntryLiveState {
   exists: boolean;
   published: "published" | "draft" | string | null;
   lastUpdated: number | string | null;
+  blocksHash: string | null;
   id: string | null;
 }
 
@@ -42,7 +48,7 @@ const BUILDER_CMS_MAX_READ_LIMIT = 1000;
 const BUILDER_CMS_PAGE_SIZE = 100;
 const BUILDER_CMS_READ_RETRIES = 2;
 const BUILDER_CMS_ENTRY_FIELDS =
-  "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.slug,data.date,data.description,data.status,data.author,data.image";
+  "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.slug,data.date,data.description,data.status,data.author,data.image,data.blocks,data.blocksString";
 
 function builderContentApiHost() {
   return (
@@ -76,6 +82,7 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
           exists: false,
           published: null,
           lastUpdated: null,
+          blocksHash: null,
           id: null,
         };
   }
@@ -84,6 +91,7 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
       exists: false,
       published: null,
       lastUpdated: null,
+      blocksHash: null,
       id: null,
     };
   }
@@ -97,6 +105,7 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
       exists: false,
       published: null,
       lastUpdated: null,
+      blocksHash: null,
       id: null,
     };
   }
@@ -116,10 +125,12 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
       exists: false,
       published: null,
       lastUpdated: null,
+      blocksHash: null,
       id: null,
     };
   }
 
+  const blocks = builderEntryBlocks(record as BuilderContentEntry);
   return {
     exists: true,
     published:
@@ -129,6 +140,7 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
       stringOrNumberFromUnknown(record.updatedDate) ??
       stringOrNumberFromUnknown(record.updatedAt) ??
       stringOrNumberFromUnknown(data.updatedAt),
+    blocksHash: blocks.length > 0 ? builderBlocksHash(blocks) : null,
     id,
   };
 }
@@ -618,6 +630,7 @@ export async function readBuilderCmsEntryLiveState(args: {
       exists: false,
       published: null,
       lastUpdated: null,
+      blocksHash: null,
       id: null,
     };
   }

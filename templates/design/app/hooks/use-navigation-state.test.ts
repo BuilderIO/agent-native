@@ -48,6 +48,46 @@ describe("design navigation state", () => {
     });
   });
 
+  it("round-trips selected layer state through editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      editorView: "overview" as const,
+      screen: "screen-abc",
+      selection: "node-def",
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe(
+      "/design/design_123?view=overview&screen=screen-abc&selection=node-def",
+    );
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      editorView: "overview",
+      screen: "screen-abc",
+      selection: "node-def",
+      path,
+    });
+  });
+
+  it("round-trips the active left rail panel through editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      leftPanel: "tokens" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123?panel=tokens");
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      leftPanel: "tokens",
+      path,
+    });
+  });
+
   it("ignores unknown design tools in navigation commands", () => {
     const command = {
       view: "editor",

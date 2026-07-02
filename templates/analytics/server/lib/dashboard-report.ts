@@ -42,8 +42,8 @@ const DASHBOARD_REPORT_SCREENSHOT_PARAM = "reportScreenshot";
 const DASHBOARD_REPORT_SETTINGS_PARAM = "reportSettings";
 const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
-const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 25_000;
-const SERVERLESS_SECOND_READY_TIMEOUT_MS = 10_000;
+const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 60_000;
+const SERVERLESS_SECOND_READY_TIMEOUT_MS = 30_000;
 const MAX_SCREENSHOT_VIEWPORT_HEIGHT = 30_000;
 const SCREENSHOT_VIEWPORT_PADDING = 64;
 
@@ -249,9 +249,26 @@ async function launchScreenshotBrowser() {
 }
 
 function screenshotTimeoutMs(): number {
+  const configured = positiveIntEnv("DASHBOARD_REPORT_SCREENSHOT_TIMEOUT_MS");
+  if (configured) return configured;
   return isServerlessBrowserRuntime()
     ? SERVERLESS_SCREENSHOT_TIMEOUT_MS
     : LOCAL_SCREENSHOT_TIMEOUT_MS;
+}
+
+function secondReadyTimeoutMs(): number {
+  const configured = positiveIntEnv("DASHBOARD_REPORT_SECOND_READY_TIMEOUT_MS");
+  if (configured) return configured;
+  return isServerlessBrowserRuntime()
+    ? SERVERLESS_SECOND_READY_TIMEOUT_MS
+    : screenshotTimeoutMs();
+}
+
+function positiveIntEnv(name: string): number | null {
+  const raw = process.env[name]?.trim();
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 async function waitForDashboardReportReady(
@@ -393,12 +410,7 @@ async function captureDashboardPng(
     await capture.waitFor({ state: "visible", timeout });
     await waitForDashboardReportReady(page, timeout);
     await scrollDashboardForLazyRendering(page);
-    await waitForDashboardReportReady(
-      page,
-      isServerlessBrowserRuntime()
-        ? SERVERLESS_SECOND_READY_TIMEOUT_MS
-        : timeout,
-    );
+    await waitForDashboardReportReady(page, secondReadyTimeoutMs());
 
     await fitViewportToDashboardCapture(page, capture, attempt.viewport);
     await capture.scrollIntoViewIfNeeded();
@@ -478,17 +490,14 @@ function renderReportEmailHtml(
   return `<!doctype html>
 <html>
   <body style="margin:0;padding:24px;background:#ffffff;color:#171717;font-family:Inter,Arial,sans-serif;">
-    <h3 style="margin:0 0 8px;font-size:18px;line-height:1.35;font-weight:600;">
-      Here's the report of <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">${title}</a> for ${date}.
-    </h3>
+    <p style="margin:0 0 12px;font-size:15px;line-height:1.4;font-weight:600;">
+      Here's your report of <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">${title}</a> for ${date}
+    </p>
     ${screenshotBlock}
     <p style="margin:18px 0 0;color:#525866;font-size:13px;line-height:1.45;">
       <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">Open dashboard</a>
       <span style="color:#9ca3af;"> · </span>
       <a href="${reportSettingsUrl}" style="color:#2563eb;text-decoration:none;">Edit subscription settings</a>
-    </p>
-    <p style="margin:6px 0 0;color:#6b7280;font-size:12px;line-height:1.45;">
-      Change recipients, delivery time, filters, or turn this report on/off.
     </p>
   </body>
 </html>`;
@@ -521,6 +530,7 @@ function reportFilename(title: string): string {
 
 export async function sendDashboardReportSubscription(
   sub: DashboardReportSubscription,
+  options: { requireScreenshot?: boolean } = {},
 ): Promise<{
   dashboardUrl: string;
   recipientCount: number;
@@ -530,6 +540,13 @@ export async function sendDashboardReportSubscription(
 }> {
   const snapshot = await collectReportSnapshot(sub);
   const capture = await captureDashboardPngWithFallback(sub, snapshot);
+  if (!capture.png && options.requireScreenshot) {
+    throw new Error(
+      capture.error
+        ? `Dashboard screenshot unavailable: ${capture.error}`
+        : "Dashboard screenshot unavailable",
+    );
+  }
   const screenshotAttached = Boolean(capture.png);
   const html = renderReportEmailHtml(snapshot, { screenshotAttached });
   const text = renderReportText(snapshot, { screenshotAttached });

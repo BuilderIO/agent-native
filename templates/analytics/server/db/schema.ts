@@ -180,6 +180,61 @@ export const analyticsEvents = table("analytics_events", {
 });
 
 /**
+ * Generic alert rules over first-party analytics events. Rules are owned by a
+ * user/org but can target any app, template, event name, or event property.
+ */
+export const analyticsAlertRules = table("analytics_alert_rules", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  eventName: text("event_name"),
+  filters: text("filters").notNull().default("[]"),
+  thresholdMode: text("threshold_mode", {
+    enum: ["event_count", "distinct_count"],
+  })
+    .notNull()
+    .default("event_count"),
+  distinctBy: text("distinct_by"),
+  threshold: integer("threshold").notNull().default(1),
+  windowMinutes: integer("window_minutes").notNull().default(10),
+  cooldownMinutes: integer("cooldown_minutes").notNull().default(30),
+  severity: text("severity", { enum: ["warning", "critical"] })
+    .notNull()
+    .default("warning"),
+  channels: text("channels").notNull().default('["inbox"]'),
+  emailRecipients: text("email_recipients").notNull().default("[]"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  lastEvaluatedAt: text("last_evaluated_at"),
+  lastTriggeredAt: text("last_triggered_at"),
+  lastStatus: text("last_status", {
+    enum: ["ok", "triggered", "cooldown", "error", "running"],
+  }),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+});
+
+export const analyticsAlertIncidents = table("analytics_alert_incidents", {
+  id: text("id").primaryKey(),
+  ruleId: text("rule_id").notNull(),
+  triggeredAt: text("triggered_at").notNull(),
+  windowStart: text("window_start").notNull(),
+  windowEnd: text("window_end").notNull(),
+  threshold: integer("threshold").notNull(),
+  observedValue: integer("observed_value").notNull(),
+  eventCount: integer("event_count").notNull(),
+  severity: text("severity", { enum: ["warning", "critical"] }).notNull(),
+  channels: text("channels").notNull().default("[]"),
+  sampleEvents: text("sample_events").notNull().default("[]"),
+  notificationId: text("notification_id"),
+  createdAt: text("created_at").notNull().default(now()),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+});
+
+/**
  * Session replay summaries recorded through the first-party analytics replay
  * endpoint. Raw replay chunks live in session_replay_chunks and are only read
  * through scoped replay helpers, not first-party dashboard SQL.

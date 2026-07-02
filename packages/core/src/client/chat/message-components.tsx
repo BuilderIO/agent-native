@@ -760,6 +760,59 @@ export function UserMessage() {
 
 // ─── AssistantMessage ─────────────────────────────────────────────────────────
 
+function assistantMessageHasRenderableContent(message: {
+  content?: unknown;
+}): boolean {
+  const content = message.content;
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const type = (part as { type?: unknown }).type;
+    if (type === "text") {
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" && text.trim().length > 0;
+    }
+    return true;
+  });
+}
+
+function assistantMessageStatusIsTerminal(message: {
+  status?: { type?: unknown };
+}): boolean {
+  const statusType = message.status?.type;
+  return statusType === "complete" || statusType === "incomplete";
+}
+
+export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part): boolean => {
+    if (!part || typeof part !== "object") return false;
+    const record = part as { type?: unknown; result?: unknown };
+    return record.type === "tool-call" && record.result === undefined;
+  });
+}
+
+export function shouldShowAssistantMessageFooter({
+  isLast,
+  chatRunning,
+  hasRenderableContent,
+  statusIsTerminal,
+  hasUnresolvedTool,
+}: {
+  isLast: boolean;
+  chatRunning: boolean;
+  hasRenderableContent: boolean;
+  statusIsTerminal: boolean;
+  hasUnresolvedTool?: boolean;
+}): boolean {
+  if (!hasRenderableContent) return false;
+  if (chatRunning) return false;
+  if (!isLast) return true;
+  if (hasUnresolvedTool) return false;
+  return !chatRunning && statusIsTerminal;
+}
+
 export function AssistantMessage() {
   const [restoreState, setRestoreState] = useState<
     "idle" | "confirming" | "restoring"
@@ -772,7 +825,15 @@ export function AssistantMessage() {
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
-  const isComplete = !isLast || !chatRunning;
+  const hasRenderableContent = assistantMessageHasRenderableContent(msg);
+  const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
+  const isComplete = shouldShowAssistantMessageFooter({
+    isLast,
+    chatRunning,
+    hasRenderableContent,
+    statusIsTerminal: assistantMessageStatusIsTerminal(msg),
+    hasUnresolvedTool,
+  });
   const cpCtx = React.useContext(CheckpointContext);
 
   const handleRestore = useCallback(async () => {
@@ -842,12 +903,14 @@ export function AssistantMessage() {
           p.structuredMeta.toolKind === "write"),
     );
 
+  if (!hasRenderableContent) return null;
+
   return (
     <div
       className="group relative"
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground">
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,
@@ -858,6 +921,9 @@ export function AssistantMessage() {
         />
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
+        )}
+        {isLast && hasUnresolvedTool && !chatRunning && (
+          <RunningActivityStatus label="Thinking" />
         )}
       </div>
       {isComplete && (

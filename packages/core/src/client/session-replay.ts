@@ -8,6 +8,7 @@ type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
   json: string;
   timestampMs: number;
+  type: number | null;
 };
 type ReplayStopFn = () => void;
 export type SessionReplayUrlMatcher =
@@ -19,6 +20,7 @@ interface RrwebRecordOptions {
   emit: (event: ReplayEvent) => void;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet?: boolean;
   blockClass?: string | RegExp;
   blockSelector?: string;
   ignoreClass?: string | RegExp;
@@ -47,6 +49,7 @@ interface SessionReplayState {
   /** Pre-serialized + scrubbed event JSON strings, ready to splice at flush. */
   queue: QueuedReplayEvent[];
   queuedBytes: number;
+  retryBatches: QueuedReplayEvent[][];
   flushTimer: number | null;
   maxDurationTimer: number | null;
   flushing: boolean;
@@ -82,6 +85,7 @@ export interface SessionReplayOptions {
   maxBatchBytes?: number;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet?: boolean;
   blockSelector?: string;
   ignoreSelector?: string;
   maskTextClass?: string | RegExp;
@@ -135,6 +139,7 @@ interface NormalizedSessionReplayOptions {
   maxBatchBytes: number;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet: boolean;
   blockSelector: string;
   ignoreSelector: string;
   maskTextClass: string | RegExp;
@@ -191,6 +196,8 @@ const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
+const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
+const RRWEB_FULL_SNAPSHOT_EVENT_TYPE = 2;
 const URL_LIKE_KEYS = new Set([
   "url",
   "uri",
@@ -215,6 +222,7 @@ function getState(): SessionReplayState {
       sequence: 0,
       queue: [],
       queuedBytes: 0,
+      retryBatches: [],
       flushTimer: null,
       maxDurationTimer: null,
       flushing: false,
@@ -508,6 +516,7 @@ function normalizeOptions(
     ),
     checkoutEveryNth: options.checkoutEveryNth,
     checkoutEveryNms: options.checkoutEveryNms,
+    inlineStylesheet: options.inlineStylesheet ?? true,
     blockSelector: options.blockSelector || DEFAULT_BLOCK_SELECTOR,
     ignoreSelector: options.ignoreSelector || DEFAULT_IGNORE_SELECTOR,
     maskTextClass: options.maskTextClass || DEFAULT_MASK_TEXT_CLASS,
@@ -608,11 +617,10 @@ function enqueueReplayEvent(
   state.queue.push({
     json: serialized,
     timestampMs: replayEventTimestampMs(event),
+    type: typeof event.type === "number" ? event.type : null,
   });
   state.queuedBytes += estimatedBytes;
-  if (state.queue.length >= state.options.maxEventsPerBatch) {
-    void flushSessionReplay("max-events");
-  }
+  flushQueuedReplayIfNeeded(state);
 }
 
 function replayExtraProperties(
@@ -663,11 +671,18 @@ function replayPropertiesForUpload(
   return properties;
 }
 
+interface ReplayUploadPayload {
+  body: string;
+  replayId: string;
+  sessionId: string;
+  sequence: number;
+}
+
 function buildReplayBody(
   state: SessionReplayState,
   reason: string,
   events: QueuedReplayEvent[],
-): string | null {
+): ReplayUploadPayload | null {
   const options = state.options;
   if (!options || !state.replayId) return null;
   const sessionId = getAnalyticsSessionId();
@@ -708,25 +723,34 @@ function buildReplayBody(
     timestamp: new Date().toISOString(),
     properties,
   };
-  state.sequence += 1;
-  persistReplaySequence(
-    sessionId,
-    state.replayId,
-    state.startedAtMs,
-    state.sequence,
-  );
   // Events are already serialized+scrubbed JSON strings; splice them into the
   // envelope without re-serializing the (potentially large) events array.
   const envelopeJson = JSON.stringify(envelope);
-  return `${envelopeJson.slice(0, -1)},"events":[${events
-    .map((event) => event.json)
-    .join(",")}]}`;
+  return {
+    body: `${envelopeJson.slice(0, -1)},"events":[${events
+      .map((event) => event.json)
+      .join(",")}]}`,
+    replayId: state.replayId,
+    sessionId,
+    sequence: state.sequence,
+  };
 }
 
 interface ReplayUploadBody {
   body: BodyInit;
   headers: Record<string, string>;
   compressed: boolean;
+}
+
+function isCrossOriginReplayEndpoint(endpoint: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      new URL(endpoint, window.location.href).origin !== window.location.origin
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function gzipReplayBody(body: string): Promise<Blob | null> {
@@ -742,7 +766,7 @@ async function gzipReplayBody(body: string): Promise<Blob | null> {
       .stream()
       .pipeThrough(new CompressionStream("gzip"));
     const compressed = await new Response(stream).arrayBuffer();
-    return new Blob([compressed], { type: "application/json" });
+    return new Blob([compressed], { type: "application/octet-stream" });
   } catch {
     return null;
   }
@@ -755,7 +779,7 @@ async function buildReplayUploadBody(body: string): Promise<ReplayUploadBody> {
       body: compressed,
       compressed: true,
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/octet-stream",
         "Content-Encoding": "gzip",
       },
     };
@@ -769,24 +793,68 @@ async function buildReplayUploadBody(body: string): Promise<ReplayUploadBody> {
   };
 }
 
+function replayUploadBodyBytes(body: BodyInit): number {
+  if (typeof body === "string") {
+    if (typeof TextEncoder !== "undefined") {
+      return new TextEncoder().encode(body).byteLength;
+    }
+    return body.length;
+  }
+  if (typeof Blob !== "undefined" && body instanceof Blob) {
+    return body.size;
+  }
+  if (body instanceof ArrayBuffer) {
+    return body.byteLength;
+  }
+  if (ArrayBuffer.isView(body)) {
+    return body.byteLength;
+  }
+  return MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES + 1;
+}
+
+function canUseReplayKeepalive(body: BodyInit): boolean {
+  return replayUploadBodyBytes(body) <= MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES;
+}
+
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
+  callbacks: { beforeKeepaliveUpload?: () => void } = {},
 ): Promise<void> {
-  const upload = await buildReplayUploadBody(body);
-  if (!upload.compressed && navigator.sendBeacon) {
-    const sent = navigator.sendBeacon(options.endpoint, body);
-    if (sent) return;
+  if (isCrossOriginReplayEndpoint(options.endpoint)) {
+    const canUseKeepalive = canUseReplayKeepalive(body);
+    if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+    const response = await fetch(options.endpoint, {
+      method: "POST",
+      body,
+      keepalive: canUseKeepalive,
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Session replay upload failed with HTTP ${response.status}`,
+      );
+    }
+    return;
   }
-  await fetch(options.endpoint, {
+
+  const upload = await buildReplayUploadBody(body);
+  const canUseKeepalive = canUseReplayKeepalive(upload.body);
+  if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+  const response = await fetch(options.endpoint, {
     method: "POST",
     body: upload.body,
-    keepalive: true,
+    keepalive: canUseKeepalive,
     headers: {
       ...upload.headers,
       "X-Agent-Native-Analytics-Key": options.publicKey,
     },
-  }).catch(() => {});
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Session replay upload failed with HTTP ${response.status}`,
+    );
+  }
 }
 
 function isFinalFlushReason(reason: string): boolean {
@@ -800,25 +868,117 @@ function isFinalFlushReason(reason: string): boolean {
   ].includes(reason);
 }
 
+function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
+  return (
+    reason === "pagehide" ||
+    reason === "beforeunload" ||
+    reason === "visibility-hidden"
+  );
+}
+
+function hasFullSnapshot(events: QueuedReplayEvent[]): boolean {
+  return events.some((event) => event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE);
+}
+
+function hasPendingReplayBatch(state: SessionReplayState): boolean {
+  return state.retryBatches.length > 0 || state.queue.length > 0;
+}
+
+function shouldFlushQueuedReplay(state: SessionReplayState): boolean {
+  if (!state.options || state.queue.length === 0) return false;
+  return (
+    hasFullSnapshot(state.queue) ||
+    state.queue.length >= state.options.maxEventsPerBatch ||
+    state.queuedBytes >= state.options.maxBatchBytes
+  );
+}
+
+function flushQueuedReplayIfNeeded(state: SessionReplayState): void {
+  const options = state.options;
+  if (!options) return;
+  if (state.retryBatches.length > 0) return;
+  if (!shouldFlushQueuedReplay(state)) return;
+  const reason = hasFullSnapshot(state.queue)
+    ? "full-snapshot"
+    : state.queue.length >= options.maxEventsPerBatch
+      ? "max-events"
+      : "max-bytes";
+  void flushSessionReplay(reason);
+}
+
+function queuedReplayBytes(events: QueuedReplayEvent[]): number {
+  return events.reduce((total, event) => total + event.json.length, 0);
+}
+
+function restoreReplayEvents(
+  state: SessionReplayState,
+  events: QueuedReplayEvent[],
+): void {
+  state.retryBatches.unshift(events);
+}
+
+function advanceReplaySequence(
+  state: SessionReplayState,
+  payload: ReplayUploadPayload,
+): void {
+  if (state.replayId !== payload.replayId) return;
+  state.sequence = Math.max(state.sequence, payload.sequence + 1);
+  persistReplaySequence(
+    payload.sessionId,
+    payload.replayId,
+    state.startedAtMs,
+    state.sequence,
+  );
+}
+
+function rollbackReplaySequenceReservation(
+  state: SessionReplayState,
+  payload: ReplayUploadPayload,
+): void {
+  if (state.replayId !== payload.replayId) return;
+  if (state.sequence !== payload.sequence + 1) return;
+  state.sequence = payload.sequence;
+  persistReplaySequence(
+    payload.sessionId,
+    payload.replayId,
+    state.startedAtMs,
+    state.sequence,
+  );
+}
+
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
-  if (!state.options || state.queue.length === 0 || state.flushing) return;
-  const events = state.queue.splice(0, state.queue.length);
-  state.queuedBytes = 0;
-  const body = buildReplayBody(state, reason, events);
-  if (!body || !state.options) {
-    state.queue = events.concat(state.queue);
-    state.queuedBytes += events.reduce(
-      (total, event) => total + event.json.length,
-      0,
-    );
+  if (!state.options || !hasPendingReplayBatch(state) || state.flushing) return;
+  const events = state.retryBatches.shift() ?? state.queue.splice(0);
+  state.queuedBytes = queuedReplayBytes(state.queue);
+  const payload = buildReplayBody(state, reason, events);
+  if (!payload || !state.options) {
+    restoreReplayEvents(state, events);
     return;
   }
   state.flushing = true;
+  let uploaded = false;
+  let reservedSequence = false;
   try {
-    await sendReplayUpload(state.options, body);
+    await sendReplayUpload(state.options, payload.body, {
+      beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
+        ? () => {
+            advanceReplaySequence(state, payload);
+            reservedSequence = true;
+          }
+        : undefined,
+    });
+    if (!reservedSequence) advanceReplaySequence(state, payload);
+    uploaded = true;
+  } catch (error) {
+    if (reservedSequence) rollbackReplaySequenceReservation(state, payload);
+    restoreReplayEvents(state, events);
+    console.warn("[session-replay] upload failed", error);
   } finally {
     state.flushing = false;
+  }
+  if (uploaded && hasPendingReplayBatch(state)) {
+    flushQueuedReplayIfNeeded(state);
   }
 }
 
@@ -964,6 +1124,7 @@ async function startSessionReplayRecorder(
   state.sequence = replaySession.sequence;
   state.queue = [];
   state.queuedBytes = 0;
+  state.retryBatches = [];
   state.stopRecorder = null;
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
     ? { ...initialProperties }
@@ -976,6 +1137,7 @@ async function startSessionReplayRecorder(
       sampling: normalized.eventSampling,
       checkoutEveryNth: normalized.checkoutEveryNth,
       checkoutEveryNms: normalized.checkoutEveryNms,
+      inlineStylesheet: normalized.inlineStylesheet,
       blockSelector: normalized.blockSelector,
       ignoreSelector: normalized.ignoreSelector,
       maskTextClass: normalized.maskTextClass,

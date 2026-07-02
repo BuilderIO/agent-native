@@ -27,10 +27,14 @@ import {
 } from "@dnd-kit/sortable";
 import type { Document, DocumentTreeNode } from "@shared/api";
 import {
+  IconDatabase,
+  IconFileText,
   IconPlus,
+  IconRestore,
   IconSearch,
   IconStar,
   IconSettings,
+  IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconFolderOpen,
@@ -42,12 +46,34 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  useCreateContentDatabase,
+  useRestoreContentDatabase,
+  useTrashedContentDatabases,
+} from "@/hooks/use-content-database";
 import {
   useDocuments,
   useCreateDocument,
@@ -59,6 +85,10 @@ import {
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
+import {
+  getDocumentSidebarSections,
+  isDirectLocalDocument,
+} from "./document-sidebar-sections";
 import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
 import { NotionButton } from "./NotionButton";
 
@@ -114,27 +144,12 @@ function collectDocumentSubtreeIds(documents: Document[], rootId: string) {
   return deletedIds;
 }
 
-function isDirectLocalDocument(document: Pick<Document, "id" | "source">) {
-  return (
-    document.source?.mode === "local-files" &&
-    (document.id.startsWith("local-file:") ||
-      document.id.startsWith("local-folder:"))
-  );
-}
-
-function isImportedLocalSourceDocument(
-  document: Pick<Document, "id" | "source">,
-) {
-  return (
-    document.source?.mode === "local-files" && !isDirectLocalDocument(document)
-  );
-}
-
 type SidebarSectionId =
   | "local-files"
   | "shared-copies"
   | "private"
-  | "organization";
+  | "organization"
+  | "trash";
 
 export function DocumentSidebar({
   activeDocumentId,
@@ -150,8 +165,11 @@ export function DocumentSidebar({
   const t = useT();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
+  const createDatabase = useCreateContentDatabase(null);
   const deleteDocument = useDeleteDocument();
   const moveDocument = useMoveDocument();
+  const restoreContentDatabase = useRestoreContentDatabase();
+  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const [searchQuery, setSearchQuery] = useState("");
@@ -168,6 +186,7 @@ export function DocumentSidebar({
     "shared-copies": false,
     private: false,
     organization: false,
+    trash: false,
   });
   const localFilesActive = location.pathname.startsWith("/local-files");
   const settingsActive = location.pathname.startsWith("/settings");
@@ -210,27 +229,27 @@ export function DocumentSidebar({
   );
 
   const treeDocuments = filterDocumentTreeDocuments(documents);
-  const localFileMode = documents.some(isDirectLocalDocument);
-  const localSourceDocuments = localFileMode
-    ? treeDocuments.filter(isDirectLocalDocument)
-    : treeDocuments.filter(isImportedLocalSourceDocument);
-  const databaseDocuments = localFileMode
-    ? treeDocuments.filter((document) => !isDirectLocalDocument(document))
-    : treeDocuments.filter(
-        (document) => !isImportedLocalSourceDocument(document),
-      );
+  const {
+    localFileMode,
+    localSourceDocuments,
+    databaseDocuments,
+    favorites,
+    showFavorites,
+  } = getDocumentSidebarSections(documents, treeDocuments);
   const localFileTree = buildDocumentTree(localSourceDocuments);
   const databaseTree = buildDocumentTree(databaseDocuments);
   const privateTree = databaseTree.filter((node) => node.visibility !== "org");
   const organizationTree = databaseTree.filter(
     (node) => node.visibility === "org",
   );
-  const favorites = documents.filter(
-    (d) => d.isFavorite && (localFileMode || !isImportedLocalSourceDocument(d)),
-  );
+  // Match the tree rows' right-side inset so favorite titles clip inside the
+  // visible sidebar instead of widening the scroll surface.
+  const favoriteRowWidth =
+    width === undefined ? undefined : Math.max(224, width - 8);
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
+  const trashItems = trashedDatabases?.databases ?? [];
   const parentByDocumentId = useMemo(
     () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
     [documents],
@@ -375,6 +394,25 @@ export function DocumentSidebar({
       onNavigate,
       queryClient,
     ],
+  );
+
+  const handleCreateDatabase = useCallback(
+    async (parentId?: string | null) => {
+      try {
+        const result = await createDatabase.mutateAsync({
+          parentId: parentId ?? null,
+          title: t("editor.untitledDatabase"),
+        });
+        navigateToDocument(result.database.documentId);
+        onNavigate?.();
+      } catch (err) {
+        toast.error(t("sidebar.failedCreateDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [createDatabase, navigateToDocument, onNavigate, t],
   );
 
   const handleDelete = useCallback(
@@ -537,6 +575,42 @@ export function DocumentSidebar({
     [updateDocument],
   );
 
+  const handleRestoreDatabase = useCallback(
+    async (databaseId: string) => {
+      try {
+        await restoreContentDatabase.mutateAsync({ databaseId });
+        toast.success(t("sidebar.databaseRestored"));
+      } catch (err) {
+        toast.error(t("sidebar.failedRestoreDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [restoreContentDatabase, t],
+  );
+
+  const handlePermanentDeleteDatabase = useCallback(
+    async (documentId: string) => {
+      try {
+        await deleteDocument.mutateAsync({ id: documentId });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-trashed-content-databases"],
+        });
+        toast.success(t("sidebar.databasePermanentlyDeleted"));
+      } catch (err) {
+        toast.error(t("sidebar.failedPermanentDeleteDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [deleteDocument, queryClient, t],
+  );
+
   const filteredDocuments = searchQuery
     ? documents.filter((d) =>
         d.title.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -561,7 +635,8 @@ export function DocumentSidebar({
             navigateToDocument(id);
             onNavigate?.();
           }}
-          onCreateChild={(parentId) => handleCreatePage(parentId)}
+          onCreateChildPage={(parentId) => handleCreatePage(parentId)}
+          onCreateChildDatabase={(parentId) => handleCreateDatabase(parentId)}
           onDelete={handleDelete}
           onToggleFavorite={handleToggleFavorite}
         />
@@ -569,14 +644,70 @@ export function DocumentSidebar({
     </SortableContext>
   );
 
-  const renderNewPageButton = () => (
-    <button
-      className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-      onClick={() => handleCreatePage()}
-    >
-      <IconPlus size={14} className="shrink-0" />
-      <span>{t("sidebar.newPage")}</span>
-    </button>
+  const renderNewButton = () => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          disabled={createDocument.isPending || createDatabase.isPending}
+        >
+          <IconPlus size={14} className="shrink-0" />
+          <span>{t("sidebar.new")}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem
+          disabled={createDocument.isPending}
+          onClick={() => void handleCreatePage()}
+        >
+          <IconFileText className="me-2 size-4" />
+          {t("sidebar.page")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={createDatabase.isPending}
+          onClick={() => void handleCreateDatabase(null)}
+        >
+          <IconDatabase className="me-2 size-4" />
+          {t("sidebar.database")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const renderCollapsedNewButton = () => (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+              disabled={createDocument.isPending || createDatabase.isPending}
+            >
+              <IconPlus size={16} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("sidebar.new")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem
+          disabled={createDocument.isPending}
+          onClick={() => void handleCreatePage()}
+        >
+          <IconFileText className="me-2 size-4" />
+          {t("sidebar.page")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={createDatabase.isPending}
+          onClick={() => void handleCreateDatabase(null)}
+        >
+          <IconDatabase className="me-2 size-4" />
+          {t("sidebar.database")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const renderLocalFilesNavButton = () => (
@@ -699,6 +830,103 @@ export function DocumentSidebar({
     );
   };
 
+  const renderTrashSection = () => {
+    if (trashItems.length === 0) return null;
+    const collapsed = collapsedSections.trash;
+
+    return (
+      <div className="mt-3 border-t border-border/60 pt-2">
+        {renderSectionHeader("trash", t("sidebar.trash"))}
+        {!collapsed && (
+          <div className="px-1 py-1">
+            {trashItems.map((database) => {
+              const title = database.title || t("editor.untitledDatabase");
+              return (
+                <div
+                  key={database.databaseId}
+                  className="group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                >
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("sidebar.restoreDatabaseNamed", {
+                          title,
+                        })}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
+                        disabled={restoreContentDatabase.isPending}
+                        onClick={() =>
+                          void handleRestoreDatabase(database.databaseId)
+                        }
+                      >
+                        <IconRestore size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("sidebar.restoreDatabase")}
+                    </TooltipContent>
+                  </Tooltip>
+                  {database.canPermanentlyDelete && (
+                    <AlertDialog>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AlertDialogTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={t(
+                                "sidebar.deleteDatabaseNamedPermanently",
+                                { title },
+                              )}
+                              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                              disabled={deleteDocument.isPending}
+                            >
+                              <IconTrashX size={14} />
+                            </button>
+                          </AlertDialogTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("sidebar.deletePermanently")}
+                        </TooltipContent>
+                      </Tooltip>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {t("sidebar.deleteDatabasePermanentlyQuestion")}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {t("sidebar.deleteDatabasePermanentlyDescription", {
+                              title,
+                            })}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>
+                            {t("comments.cancel")}
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() =>
+                              void handlePermanentDeleteDatabase(
+                                database.documentId,
+                              )
+                            }
+                          >
+                            {t("sidebar.deletePermanently")}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (collapsed) {
     return (
       <div className="flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-muted/30 py-3 transition-[width] duration-200 ease-out">
@@ -713,17 +941,7 @@ export function DocumentSidebar({
           </TooltipTrigger>
           <TooltipContent>{t("sidebar.expand")}</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-              onClick={() => handleCreatePage()}
-            >
-              <IconPlus size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
-        </Tooltip>
+        {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -873,26 +1091,34 @@ export function DocumentSidebar({
                   ))
                 )}
               </div>
-              {renderNewPageButton()}
+              {renderNewButton()}
             </>
           ) : (
             <>
               {/* Favorites */}
-              {!localFileMode && favorites.length > 0 && (
-                <div className="mb-2">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+              {showFavorites && (
+                <div className="mb-2 min-w-0">
+                  <div className="flex min-w-0 items-center gap-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     <IconStar size={10} />
-                    {t("sidebar.favorites")}
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("sidebar.favorites")}
+                    </span>
                   </div>
                   {favorites.map((doc) => (
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-start rounded-md",
+                        "flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                       )}
+                      style={{
+                        width:
+                          favoriteRowWidth === undefined
+                            ? undefined
+                            : `${favoriteRowWidth}px`,
+                      }}
                       onClick={() => {
                         navigateToDocument(doc.id);
                         onNavigate?.();
@@ -916,7 +1142,7 @@ export function DocumentSidebar({
                     label: t("sidebar.localFiles"),
                     nodes: localFileTree,
                     emptyLabel: t("sidebar.noFilesYet"),
-                    footer: renderNewPageButton(),
+                    footer: renderNewButton(),
                   })}
                   {databaseTree.length > 0
                     ? renderTreeSection({
@@ -927,6 +1153,7 @@ export function DocumentSidebar({
                         className: "mt-3",
                       })
                     : null}
+                  {renderTrashSection()}
                 </>
               ) : (
                 <>
@@ -944,7 +1171,7 @@ export function DocumentSidebar({
                     label: t("sidebar.private"),
                     nodes: privateTree,
                     emptyLabel: t("sidebar.noPrivatePagesYet"),
-                    footer: renderNewPageButton(),
+                    footer: renderNewButton(),
                   })}
 
                   {!isLoading &&
@@ -955,6 +1182,7 @@ export function DocumentSidebar({
                       emptyLabel: t("sidebar.noOrganizationPagesYet"),
                       className: "mt-3",
                     })}
+                  {renderTrashSection()}
                 </>
               )}
             </>

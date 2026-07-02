@@ -21,7 +21,10 @@ import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "../a2a/auth-policy.js";
-import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import {
+  applyAgentTextEventToBuffer,
+  collectFinalResponseTextFromAgentEvents,
+} from "../a2a/response-text.js";
 import { updateTaskStatusMessage } from "../a2a/task-store.js";
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
 import type { ActionHttpConfig } from "../action.js";
@@ -34,8 +37,9 @@ import {
 } from "../agent/app-model-defaults.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
-  extractProcessRunId,
+  backgroundRunMarkerExpectsBackgroundRuntime,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
@@ -62,7 +66,16 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
-import { readBackgroundRunClaim } from "../agent/run-store.js";
+import {
+  CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+  ensureTerminalRunEvent,
+  readBackgroundRunClaim,
+  recordRunDiagnostic,
+  RUN_DIAG_STAGE,
+  setRunError,
+  setRunTerminalReason,
+  updateRunStatusIfRunning,
+} from "../agent/run-store.js";
 import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
@@ -3789,6 +3802,133 @@ export function shouldBlockInProductCodeEditingSurface(input: {
   );
 }
 
+type RecurringJobsRuntimeEnvKey =
+  | "AGENT_NATIVE_DISABLE_RECURRING_JOBS"
+  | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
+  | "APP_URL"
+  | "BETTER_AUTH_URL"
+  | "DEPLOY_URL"
+  | "NODE_ENV"
+  | "URL"
+  | "VITE_APP_URL"
+  | "VITE_WORKSPACE_GATEWAY_URL"
+  | "WORKSPACE_GATEWAY_URL";
+
+type RecurringJobsRuntimeEnv = Partial<
+  Record<RecurringJobsRuntimeEnvKey, string | undefined>
+>;
+
+function isTruthyEnv(value: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
+}
+
+function isLoopbackAppUrl(value: string | undefined): boolean {
+  const raw = value?.trim();
+  if (!raw) return false;
+
+  const candidates = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+    ? [raw]
+    : [raw, `http://${raw}`];
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate);
+      const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+      if (
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "0.0.0.0" ||
+        host === "::1" ||
+        host === "tauri.localhost" ||
+        host.endsWith(".localhost")
+      ) {
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+export function shouldDisableRecurringJobsRuntime(
+  env: RecurringJobsRuntimeEnv = process.env,
+): boolean {
+  if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
+
+  const isLocalRuntime =
+    env.NODE_ENV === "development" ||
+    env.NODE_ENV === "test" ||
+    [
+      env.APP_URL,
+      env.BETTER_AUTH_URL,
+      env.DEPLOY_URL,
+      env.URL,
+      env.VITE_APP_URL,
+      env.VITE_WORKSPACE_GATEWAY_URL,
+      env.WORKSPACE_GATEWAY_URL,
+    ].some(isLoopbackAppUrl);
+
+  if (
+    isLocalRuntime &&
+    isTruthyEnv(env.AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS)
+  ) {
+    return false;
+  }
+
+  return isLocalRuntime;
+}
+
+type AgentChatProcessRunFailureDeps = {
+  readBackgroundRunClaim?: typeof readBackgroundRunClaim;
+  recordRunDiagnostic?: typeof recordRunDiagnostic;
+  setRunError?: typeof setRunError;
+  setRunTerminalReason?: typeof setRunTerminalReason;
+  updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
+  ensureTerminalRunEvent?: typeof ensureTerminalRunEvent;
+};
+
+export async function finalizeClaimedAgentChatProcessRunFailure(
+  runId: string,
+  err: unknown,
+  deps: AgentChatProcessRunFailureDeps = {},
+): Promise<boolean> {
+  const readClaim = deps.readBackgroundRunClaim ?? readBackgroundRunClaim;
+  const record = deps.recordRunDiagnostic ?? recordRunDiagnostic;
+  const setError = deps.setRunError ?? setRunError;
+  const setTerminalReason = deps.setRunTerminalReason ?? setRunTerminalReason;
+  const updateStatus =
+    deps.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
+  const ensureTerminal = deps.ensureTerminalRunEvent ?? ensureTerminalRunEvent;
+  const message = err instanceof Error ? err.message : String(err);
+
+  await record(runId, RUN_DIAG_STAGE.routeThrew, message).catch(() => {});
+
+  const claim = await readClaim(runId).catch(() => null);
+  if (
+    claim?.status !== "running" ||
+    claim.dispatchMode !== "background-processing"
+  ) {
+    return false;
+  }
+
+  await setError(
+    runId,
+    CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
+    `${CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.details} setupError=${message}`,
+  ).catch(() => {});
+  const statusUpdated = await updateStatus(runId, "errored").catch(() => false);
+  if (statusUpdated) {
+    await setTerminalReason(
+      runId,
+      CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
+    ).catch(() => {});
+  }
+  await ensureTerminal(
+    runId,
+    CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+  ).catch(() => {});
+  return true;
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -5042,7 +5182,10 @@ export function createAgentChatPlugin(
                 ],
                 actions: mcpActions,
                 send: (event) => {
-                  if (event.type === "text") accumulatedText += event.text;
+                  accumulatedText = applyAgentTextEventToBuffer(
+                    accumulatedText,
+                    event,
+                  );
                 },
                 signal: controller.signal,
               },
@@ -6491,6 +6634,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }> = [];
           const seenNames = new Set<string>();
 
+          // Bundled template skills are available in production via the
+          // virtual agents bundle, not the runtime filesystem. Surface them in
+          // the slash/skill picker so production users can explicitly invoke
+          // the same skills that are present in the prompt and docs-search.
+          try {
+            const { loadAgentsBundle, getRuntimeSkills } =
+              await import("./agents-bundle.js");
+            const bundle = await loadAgentsBundle();
+            for (const skill of getRuntimeSkills(bundle)) {
+              const fm = parseSkillFrontmatter(skill.content);
+              if (fm.userInvocable === false) continue;
+              const skillName = skill.meta.name || fm.name;
+              if (!skillName || seenNames.has(skillName)) continue;
+              seenNames.add(skillName);
+              skills.push({
+                name: skillName,
+                description: skill.meta.description || fm.description,
+                path: `${skill.dir}/SKILL.md`,
+                source: "codebase",
+              });
+            }
+          } catch {
+            // Bundle unavailable — fall back to dev filesystem/resources below.
+          }
+
           // In dev mode, scan .agents/skills/ plus legacy .agent/skills/.
           if (currentDevMode) {
             try {
@@ -7110,8 +7278,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             let reason = "user";
             try {
               const body = await readBody(event);
-              if (body?.reason === "no_progress") {
-                reason = "no_progress";
+              if (
+                typeof body?.reason === "string" &&
+                /^[a-z0-9_-]{1,64}$/i.test(body.reason)
+              ) {
+                reason = body.reason;
               }
             } catch {
               // Empty/invalid body — keep the default user abort reason.
@@ -7175,6 +7346,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
+            const runClaim = await readBackgroundRunClaim(runId).catch(
+              () => null,
+            );
             const query = getQuery(event);
             const after = parseInt(String(query.after ?? "0"), 10) || 0;
 
@@ -7187,6 +7361,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseHeader(event, "Content-Type", "text/event-stream");
             setResponseHeader(event, "Cache-Control", "no-cache");
             setResponseHeader(event, "Connection", "keep-alive");
+            setResponseHeader(
+              event,
+              "X-Dispatch-Mode",
+              runClaim?.dispatchMode ?? "foreground",
+            );
             return stream;
           }
 
@@ -7248,6 +7427,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // unreadable Netlify background-function logs — read
               // `/runs/active?threadId=...` and inspect `diagStage`.
               dispatchMode: run.dispatchMode ?? null,
+              terminalReason: run.terminalReason ?? null,
               diagStage: run.diagStage ?? null,
               workerStage: workerClaim?.workerStage ?? null,
               // Server clock so the client computes "stuck" elapsed time
@@ -7542,6 +7722,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextTitle,
                   nextPreview,
                   newMessageCount,
+                  { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for both "detach" (scope: null) and "retag" flows.
@@ -7830,18 +8011,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          // DIAGNOSTIC: load the run-store diagnostic recorder. Each stage we
-          // reach is written onto the run row (diag_stage) so a silent failure
-          // INSIDE the Netlify background function — whose logs we cannot read —
-          // is still diagnosable from the client via /runs/active. Best-effort:
-          // the import + every record call is wrapped so diagnostics can never
-          // break the worker path.
-          const diag = await import("../agent/run-store.js")
-            .then((m) => ({
-              record: m.recordRunDiagnostic,
-              stages: m.RUN_DIAG_STAGE,
-            }))
-            .catch(() => null);
 
           // Consume the body ONCE (h3 v2's web Request stream is single-use).
           let processBody: any;
@@ -7850,18 +8019,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           } catch {
             setResponseStatus(event, 400);
             return { error: "Invalid request body" };
-          }
-
-          // Record "the route handler was entered" against the run BEFORE auth
-          // runs. This is the proof the bg-fn invocation actually reached Nitro
-          // (vs. dying at the function entry / never being invoked). The runId
-          // is parsed without authenticating so we can attach it even on a
-          // subsequent auth failure.
-          const diagRunId = extractProcessRunId(processBody);
-          if (diag && diagRunId) {
-            await diag
-              .record(diagRunId, diag.stages.routeEntered)
-              .catch(() => {});
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the
@@ -7878,6 +8035,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // bypassing session auth) inside the unreadable bg function would
             // leave the run to time out with NO clue. The detail carries the
             // status + whether A2A_SECRET is even present in this isolate.
+            const diag = await import("../agent/run-store.js")
+              .then((m) => ({
+                record: m.recordRunDiagnostic,
+                stages: m.RUN_DIAG_STAGE,
+              }))
+              .catch(() => null);
             if (diag && prepared.runId) {
               const a2aPresent = Boolean(
                 process.env.A2A_SECRET && process.env.A2A_SECRET.length > 0,
@@ -7894,27 +8057,58 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: prepared.error };
           }
 
-          // DIAGNOSTIC: auth + body validation passed. Reaching here proves the
-          // request was authenticated and we are about to invoke the worker.
-          if (diag) {
-            await diag
-              .record(prepared.runId, diag.stages.authPassed)
-              .catch(() => {});
+          const preparedMarker = (prepared.body as Record<string, unknown>)[
+            AGENT_CHAT_BACKGROUND_RUN_FIELD
+          ];
+          const expectsBackgroundRuntime =
+            backgroundRunMarkerExpectsBackgroundRuntime(preparedMarker);
+          const runtimeGlobals = globalThis as Record<string, unknown>;
+          const hadExpectedRuntimeMarker = Object.prototype.hasOwnProperty.call(
+            runtimeGlobals,
+            "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
+          );
+          const previousExpectedRuntimeMarker =
+            runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__;
+          if (expectsBackgroundRuntime) {
+            runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
           }
 
-          // Stash the verified+augmented body for the handler — the body stream
-          // is already consumed, so the handler reads this instead.
-          (event as any).context = (event as any).context ?? {};
-          (event as any).context.__agentChatBackgroundBody = prepared.body;
-
-          // Durable owner context: this self-dispatch is cookieless (HMAC-only).
-          // Resolve the owner from the persisted run row, never the request body,
-          // then invoke the normal handler. The shared agent-run context helper
-          // expands that owner into the same user/org AsyncLocalStorage context the
-          // foreground request uses, so credential and data scoping stay aligned.
-          await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
-
           try {
+            // DIAGNOSTIC: load the run-store diagnostic recorder only after the
+            // authenticated marker has been mirrored into globalThis. run-store
+            // can initialize the DB pool; the pool must see the same background
+            // proof as the agent timeout logic before that happens.
+            const diag = await import("../agent/run-store.js")
+              .then((m) => ({
+                record: m.recordRunDiagnostic,
+                stages: m.RUN_DIAG_STAGE,
+              }))
+              .catch(() => null);
+
+            // Record "the route handler was entered" against the run after auth
+            // succeeds. This is the proof the bg-fn invocation actually reached
+            // Nitro (vs. dying at the function entry / never being invoked).
+            if (diag) {
+              await diag
+                .record(prepared.runId, diag.stages.routeEntered)
+                .catch(() => {});
+              await diag
+                .record(prepared.runId, diag.stages.authPassed)
+                .catch(() => {});
+            }
+
+            // Stash the verified+augmented body for the handler — the body stream
+            // is already consumed, so the handler reads this instead.
+            (event as any).context = (event as any).context ?? {};
+            (event as any).context.__agentChatBackgroundBody = prepared.body;
+
+            // Durable owner context: this self-dispatch is cookieless (HMAC-only).
+            // Resolve the owner from the persisted run row, never the request
+            // body, then invoke the normal handler. The shared agent-run context
+            // helper expands that owner into the same user/org AsyncLocalStorage
+            // context the foreground request uses, so credential and data scoping
+            // stay aligned.
+            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
             return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
@@ -7930,19 +8124,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            // DIAGNOSTIC: the worker invocation threw at the route boundary —
-            // record the message so the failure cause is readable client-side.
-            if (diag) {
-              await diag
-                .record(
-                  prepared.runId,
-                  diag.stages.routeThrew,
-                  err instanceof Error ? err.message : String(err),
-                )
-                .catch(() => {});
-            }
+            await finalizeClaimedAgentChatProcessRunFailure(
+              prepared.runId,
+              err,
+            );
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
+          } finally {
+            if (expectsBackgroundRuntime) {
+              if (hadExpectedRuntimeMarker) {
+                runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ =
+                  previousExpectedRuntimeMarker;
+              } else {
+                Reflect.deleteProperty(
+                  runtimeGlobals,
+                  "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
+                );
+              }
+            }
           }
         }),
       );
@@ -7969,56 +8168,69 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
+      const disableRecurringJobsRuntime = shouldDisableRecurringJobsRuntime();
+
       // ─── Recurring Jobs Scheduler ──────────────────────────────────────
       // Poll every 60 seconds for due recurring jobs and execute them.
       // Uses setInterval so it works in all deployment environments without
       // requiring Nitro experimental tasks configuration.
-      try {
-        const { processRecurringJobs } = await import("../jobs/scheduler.js");
+      if (disableRecurringJobsRuntime) {
+        if (process.env.DEBUG) {
+          console.log(
+            "[recurring-jobs] Scheduler disabled for local development",
+          );
+        }
+      } else {
+        try {
+          const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
-        const schedulerDeps = {
-          getActions: () => ({
-            ...templateScripts,
-            ...resourceScripts,
-            ...docsScripts,
-            ...(lazyContext ? frameworkContextTool : {}),
-            ...chatScripts,
-            ...jobTools,
-            ...automationTools,
-            ...notificationTools,
-            ...progressTools,
-            ...fetchTool,
-            ...webSearchTool,
-            ...toolActions,
-          }),
-          getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(
-              owner,
-              lazyContext,
-              options?.appId,
-            );
-            const schemaBlock = lazyContext
-              ? ""
-              : await buildSchemaBlock(owner, databaseToolsMode);
-            return basePrompt + resources + schemaBlock;
-          },
-          apiKey: options?.apiKey,
-          model: options?.model,
-          appId: options?.appId,
-        };
+          const schedulerDeps = {
+            getActions: () => ({
+              ...templateScripts,
+              ...resourceScripts,
+              ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...chatScripts,
+              ...jobTools,
+              ...automationTools,
+              ...notificationTools,
+              ...progressTools,
+              ...fetchTool,
+              ...webSearchTool,
+              ...toolActions,
+            }),
+            getSystemPrompt: async (owner: string) => {
+              const resources = await loadResourcesForPrompt(
+                owner,
+                lazyContext,
+                options?.appId,
+              );
+              const schemaBlock = lazyContext
+                ? ""
+                : await buildSchemaBlock(owner, databaseToolsMode);
+              return basePrompt + resources + schemaBlock;
+            },
+            apiKey: options?.apiKey,
+            model: options?.model,
+            appId: options?.appId,
+          };
 
-        // Start after a 10-second delay to let the server fully initialize
-        setTimeout(() => {
-          setInterval(() => {
-            processRecurringJobs(schedulerDeps).catch((err) => {
-              console.error("[recurring-jobs] Scheduler error:", err?.message);
-            });
-          }, 60_000);
-          if (process.env.DEBUG)
-            console.log("[recurring-jobs] Scheduler started (60s interval)");
-        }, 10_000);
-      } catch (err) {
-        // Jobs module not available — skip silently
+          // Start after a 10-second delay to let the server fully initialize
+          setTimeout(() => {
+            setInterval(() => {
+              processRecurringJobs(schedulerDeps).catch((err) => {
+                console.error(
+                  "[recurring-jobs] Scheduler error:",
+                  err?.message,
+                );
+              });
+            }, 60_000);
+            if (process.env.DEBUG)
+              console.log("[recurring-jobs] Scheduler started (60s interval)");
+          }, 10_000);
+        } catch (err) {
+          // Jobs module not available — skip silently
+        }
       }
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
@@ -8072,43 +8284,51 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       })();
 
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
-      try {
-        const { initTriggerDispatcher } =
-          await import("../triggers/dispatcher.js");
-        await initTriggerDispatcher({
-          getActions: () => ({
-            ...templateScripts,
-            ...resourceScripts,
-            ...docsScripts,
-            ...(lazyContext ? frameworkContextTool : {}),
-            ...chatScripts,
-            ...jobTools,
-            ...automationTools,
-            ...notificationTools,
-            ...progressTools,
-            ...fetchTool,
-            ...webSearchTool,
-            ...toolActions,
-          }),
-          getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(
-              owner,
-              lazyContext,
-              options?.appId,
-            );
-            const schemaBlock = lazyContext
-              ? ""
-              : await buildSchemaBlock(owner, databaseToolsMode);
-            return basePrompt + resources + schemaBlock;
-          },
-          apiKey: options?.apiKey,
-          model: options?.model,
-          appId: options?.appId,
-        });
-        if (process.env.DEBUG)
-          console.log("[triggers] Trigger dispatcher initialized");
-      } catch (err) {
-        // Triggers module not available — skip silently
+      if (disableRecurringJobsRuntime) {
+        if (process.env.DEBUG) {
+          console.log(
+            "[triggers] Trigger dispatcher disabled for local development",
+          );
+        }
+      } else {
+        try {
+          const { initTriggerDispatcher } =
+            await import("../triggers/dispatcher.js");
+          await initTriggerDispatcher({
+            getActions: () => ({
+              ...templateScripts,
+              ...resourceScripts,
+              ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...chatScripts,
+              ...jobTools,
+              ...automationTools,
+              ...notificationTools,
+              ...progressTools,
+              ...fetchTool,
+              ...webSearchTool,
+              ...toolActions,
+            }),
+            getSystemPrompt: async (owner: string) => {
+              const resources = await loadResourcesForPrompt(
+                owner,
+                lazyContext,
+                options?.appId,
+              );
+              const schemaBlock = lazyContext
+                ? ""
+                : await buildSchemaBlock(owner, databaseToolsMode);
+              return basePrompt + resources + schemaBlock;
+            },
+            apiKey: options?.apiKey,
+            model: options?.model,
+            appId: options?.appId,
+          });
+          if (process.env.DEBUG)
+            console.log("[triggers] Trigger dispatcher initialized");
+        } catch (err) {
+          // Triggers module not available — skip silently
+        }
       }
     })().catch((err) => {
       // If the init fails, the routes never get registered and requests

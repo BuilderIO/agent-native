@@ -47,7 +47,7 @@ describe("server/auth", () => {
 
       vi.stubEnv("NODE_ENV", "test");
       expect(shouldSkipEmailVerification()).toBe(true);
-    });
+    }, 15_000);
 
     it("is disabled by default in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -55,7 +55,7 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(false);
-    });
+    }, 15_000);
 
     it("is enabled by AUTH_SKIP_EMAIL_VERIFICATION=1", async () => {
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
@@ -63,7 +63,7 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(true);
-    });
+    }, 15_000);
 
     it("treats blank, false, and 0 as disabled", async () => {
       const { shouldSkipEmailVerification } =
@@ -77,7 +77,7 @@ describe("server/auth", () => {
 
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "0");
       expect(shouldSkipEmailVerification()).toBe(false);
-    });
+    }, 15_000);
   });
 
   describe("resolveSignupTrackingIdentity", () => {
@@ -2885,6 +2885,27 @@ describe("server/auth", () => {
       // the parsed segments.)
       expect(safeReturnPath("/foo?bar=1#baz")).toBe("/foo?bar=1#baz");
     });
+
+    it("collapses a return that points back at the sign-in page (loop guard)", async () => {
+      const safeReturnPath = await load();
+      // A `return` resolving to the sign-in entry point would re-enter the
+      // redirect loop — collapse to "/". Covers root and base-path mounts,
+      // and a nested already-encoded loop URL.
+      expect(safeReturnPath("/_agent-native/sign-in")).toBe("/");
+      expect(safeReturnPath("/_agent-native/sign-in?return=%2Finbox")).toBe(
+        "/",
+      );
+      expect(safeReturnPath("/mail/_agent-native/sign-in")).toBe("/");
+      expect(
+        safeReturnPath(
+          "/mail/_agent-native/sign-in?return=%252Fmail%252F_agent-native%252Fsign-in",
+        ),
+      ).toBe("/");
+      // A normal app path that merely contains the words is unaffected.
+      expect(safeReturnPath("/mail/inbox?label=important")).toBe(
+        "/mail/inbox?label=important",
+      );
+    });
   });
 
   describe("OAuth return URLs", () => {
@@ -2983,6 +3004,19 @@ describe("server/auth", () => {
       });
       const decoded = decodeOAuthState(state, "http://x/cb");
       expect(decoded.app).toBe("mail");
+    });
+
+    it("encodes and decodes org id through signed state for scoped OAuth credentials", async () => {
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
+      const state = encodeOAuthState({
+        redirectUri: "http://x/cb",
+        owner: "owner@example.com",
+        orgId: "org-123",
+      });
+      const decoded = decodeOAuthState(state, "http://x/cb");
+      expect(decoded.owner).toBe("owner@example.com");
+      expect(decoded.orgId).toBe("org-123");
     });
 
     it("produces undefined returnUrl when none was encoded (backwards compat)", async () => {

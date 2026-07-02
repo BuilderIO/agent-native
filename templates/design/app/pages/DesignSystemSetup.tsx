@@ -1,5 +1,4 @@
 import {
-  sendToAgentChat,
   openAgentSidebar,
   useActionQuery,
   appApiPath,
@@ -31,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 interface GitHubLink {
   id: string;
@@ -57,6 +57,20 @@ interface BuilderIndexResult {
   localDesignSystemId?: string;
   uploadedFileCount?: number;
   instructions?: string;
+}
+
+async function readJsonResponse(res: Response): Promise<any> {
+  const text = await res.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: res.ok
+        ? "The server returned an invalid response."
+        : text.slice(0, 240),
+    };
+  }
 }
 
 export default function DesignSystemSetup() {
@@ -127,7 +141,7 @@ export default function DesignSystemSetup() {
             body,
           },
         );
-        const json = await res.json();
+        const json = await readJsonResponse(res);
         if (!res.ok || json?.error) {
           throw new Error(json?.error || `Upload failed (${res.status})`);
         }
@@ -448,7 +462,11 @@ export default function DesignSystemSetup() {
     );
 
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true, newTab: true });
+    sendToDesignAgentChat({
+      message: parts.join("\n"),
+      submit: true,
+      newTab: true,
+    });
     navigate("/design-systems");
   }, [
     hasAnySources,
@@ -1079,19 +1097,19 @@ function BuilderIndexPreview({
         <dt className="text-muted-foreground">
           {"Project" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.projectId}
         </dd>
         <dt className="text-muted-foreground">
           {"Job" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.jobId}
         </dd>
         <dt className="text-muted-foreground">
           {"Design system" /* i18n-ignore Builder indexing field */}
         </dt>
-        <dd className="truncate font-mono text-[11px] text-foreground/80">
+        <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.designSystemId}
         </dd>
       </dl>

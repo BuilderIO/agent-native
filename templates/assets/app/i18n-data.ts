@@ -127,7 +127,10 @@ const brandKitDetailEnUS = {
     "Eight-second product reveal with slow camera push-in",
   imagePromptPlaceholder: "Blog hero for an article about cold-start latency",
   variants: "{{count}} variants",
+  logo: "Logo",
   compositeCanonicalLogo: "Composite canonical logo",
+  compositeCanonicalLogoHint:
+    "Stamps this kit's canonical logo onto every image from this preset. Requires a canonical logo.",
   openChat: "Open chat",
   defaultTextPolicy:
     "Prefer no embedded text. Keep any requested text short and readable.",
@@ -826,6 +829,13 @@ const enUS = {
     noMatchingAssets: "No matching assets across your kits.",
     noMatchingLibraryAssets:
       "No matching {{mediaLabel}} assets in this library.",
+    drafts: "Drafts",
+    allLibraries: "All libraries",
+    noDrafts: "No drafts yet.",
+    noMatchingDrafts: "No matching drafts.",
+    recentDrafts: "Recent Drafts",
+    viewAllDrafts: "View all drafts",
+    draftAsset: "Draft asset",
     noReusableAssets:
       "No reusable assets yet. Select a kit to upload references or generate assets.",
     noNewAssetsUploaded: "No new assets were uploaded.",
@@ -961,7 +971,10 @@ const brandKitDetailArSA = {
   clearSearch: "مسح البحث",
   clearing: "المقاصة...",
   compiledPrompt: "موجه المترجمة",
+  logo: "شعار",
   compositeCanonicalLogo: "الشعار الأساسي المركب",
+  compositeCanonicalLogoHint:
+    "يضيف الشعار الأساسي لهذه المجموعة إلى كل صورة تُنشأ بهذا الإعداد المسبق. يتطلب وجود شعار أساسي.",
   couldNotAddSelectedToReferences: "لا يمكن إضافة الأصول المحددة إلى المراجع.",
   couldNotAddToReferences: "لا يمكن إضافة الأصل إلى المراجع.",
   couldNotArchiveBrandKit: "تعذر أرشفة مجموعة العلامة التجارية.",
@@ -1130,7 +1143,10 @@ const brandKitDetailDeDE = {
   clearSearch: "Suche löschen",
   clearing: "Löschen...",
   compiledPrompt: "Kompilierte Eingabeaufforderung",
+  logo: "Logo",
   compositeCanonicalLogo: "Zusammengesetztes kanonisches Logo",
+  compositeCanonicalLogoHint:
+    "Fügt das kanonische Logo dieses Kits jedem mit dieser Vorlage erstellten Bild hinzu. Erfordert ein kanonisches Logo.",
   couldNotAddSelectedToReferences:
     "Ausgewählte Assets konnten nicht zu Referenzen hinzugefügt werden.",
   couldNotAddToReferences:
@@ -1305,7 +1321,10 @@ const brandKitDetailEsES = {
   clearSearch: "Borrar búsqueda",
   clearing: "Limpiando...",
   compiledPrompt: "Aviso compilado",
+  logo: "Logotipo",
   compositeCanonicalLogo: "Logotipo canónico compuesto",
+  compositeCanonicalLogoHint:
+    "Añade el logotipo canónico de este kit a cada imagen creada con este ajuste. Requiere un logotipo canónico.",
   couldNotAddSelectedToReferences:
     "No se pudieron agregar los recursos seleccionados a las Referencias.",
   couldNotAddToReferences: "No se pudo agregar activo a Referencias.",
@@ -1482,7 +1501,10 @@ const brandKitDetailFrFR = {
   clearSearch: "Effacer la recherche",
   clearing: "Dégagement...",
   compiledPrompt: "Invite compilée",
+  logo: "Logo",
   compositeCanonicalLogo: "Logo canonique composite",
+  compositeCanonicalLogoHint:
+    "Ajoute le logo canonique de ce kit à chaque image créée avec ce préréglage. Nécessite un logo canonique.",
   couldNotAddSelectedToReferences:
     "Impossible d'ajouter les éléments sélectionnés aux références.",
   couldNotAddToReferences: "Impossible d'ajouter un élément aux références.",
@@ -1657,7 +1679,10 @@ const brandKitDetailHiIN = {
   clearSearch: "स्पष्ट खोज",
   clearing: "समाशोधन...",
   compiledPrompt: "शीघ्र संकलित",
+  logo: "लोगो",
   compositeCanonicalLogo: "समग्र विहित लोगो",
+  compositeCanonicalLogoHint:
+    "इस प्रीसेट से बनी हर छवि पर इस किट का विहित लोगो जोड़ता है। इसके लिए विहित लोगो आवश्यक है।",
   couldNotAddSelectedToReferences:
     "चयनित परिसंपत्तियों को संदर्भों में नहीं जोड़ा जा सका.",
   couldNotAddToReferences: "संदर्भों में संपत्ति नहीं जोड़ी जा सकी.",
@@ -1825,7 +1850,10 @@ const brandKitDetailJaJP = {
   clearSearch: "検索をクリア",
   clearing: "クリア中...",
   compiledPrompt: "コンパイルされたプロンプト",
+  logo: "ロゴ",
   compositeCanonicalLogo: "複合正規ロゴ",
+  compositeCanonicalLogoHint:
+    "このプリセットで生成する各画像に、このキットの正規ロゴを合成します。正規ロゴの設定が必要です。",
   couldNotAddSelectedToReferences:
     "選択したアセットを参照に追加できませんでした。",
   couldNotAddToReferences: "アセットを参照に追加できませんでした。",
@@ -1998,7 +2026,10 @@ const brandKitDetailKoKR = {
   clearSearch: "검색 지우기",
   clearing: "지우는 중...",
   compiledPrompt: "컴파일된 프롬프트",
+  logo: "로고",
   compositeCanonicalLogo: "복합 표준 로고",
+  compositeCanonicalLogoHint:
+    "이 프리셋으로 생성되는 모든 이미지에 이 키트의 표준 로고를 합성합니다. 표준 로고가 필요합니다.",
   couldNotAddSelectedToReferences: "선택한 자산을 참조에 추가할 수 없습니다.",
   couldNotAddToReferences: "참조에 자산을 추가할 수 없습니다.",
   couldNotArchiveBrandKit: "브랜드 키트를 보관할 수 없습니다.",
@@ -2165,7 +2196,10 @@ const brandKitDetailPtBR = {
   clearSearch: "Limpar pesquisa",
   clearing: "Limpando...",
   compiledPrompt: "Prompt compilado",
+  logo: "Logotipo",
   compositeCanonicalLogo: "Logotipo canônico composto",
+  compositeCanonicalLogoHint:
+    "Adiciona o logotipo canônico deste kit a cada imagem criada com esta predefinição. Requer um logotipo canônico.",
   couldNotAddSelectedToReferences:
     "Não foi possível adicionar os ativos selecionados às referências.",
   couldNotAddToReferences: "Não foi possível adicionar recurso às referências.",
@@ -2762,6 +2796,12 @@ export const messagesByLocale = {
   "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     library: {
+      allLibraries: "所有库",
+      noDrafts: "暂无草稿。",
+      noMatchingDrafts: "没有匹配的草稿。",
+      recentDrafts: "最近草稿",
+      viewAllDrafts: "查看所有草稿",
+      draftAsset: "草稿资产",
       addAssets: "添加资产",
       addAssetsDescription:
         "上传源素材或生成候选项，然后只将应指导未来生成的资产标记为参考。",
@@ -3292,7 +3332,10 @@ export const messagesByLocale = {
       videoPromptPlaceholder: "8 秒产品展示，慢速推近镜头",
       imagePromptPlaceholder: "关于冷启动延迟文章的博客头图",
       variants: "{{count}} 个变体",
+      logo: "徽标",
       compositeCanonicalLogo: "合成规范徽标",
+      compositeCanonicalLogoHint:
+        "为使用此预设生成的每张图片合成此套件的规范徽标。需要已设置规范徽标。",
       openChat: "打开聊天",
       defaultTextPolicy: "尽量不要嵌入文字。如需文字，请保持简短且易读。",
       generationPresetCreated: "生成预设已创建。",
@@ -3500,6 +3543,12 @@ export const messagesByLocale = {
   }),
   "es-ES": mergeMessages({
     library: {
+      allLibraries: "Todas las bibliotecas",
+      noDrafts: "Aún no hay borradores.",
+      noMatchingDrafts: "No hay borradores coincidentes.",
+      recentDrafts: "Borradores recientes",
+      viewAllDrafts: "Ver todos los borradores",
+      draftAsset: "Borrador",
       addAssets: "Agregar activos",
       addAssetsDescription:
         "Cargue material fuente o genere candidatos, luego marque solo los activos que deberían guiar a las generaciones futuras como referencias.",
@@ -3963,6 +4012,12 @@ export const messagesByLocale = {
   }),
   "fr-FR": mergeMessages({
     library: {
+      allLibraries: "Toutes les bibliothèques",
+      noDrafts: "Aucun brouillon pour l'instant.",
+      noMatchingDrafts: "Aucun brouillon correspondant.",
+      recentDrafts: "Brouillons récents",
+      viewAllDrafts: "Voir tous les brouillons",
+      draftAsset: "Brouillon",
       addAssets: "Ajouter des éléments",
       addAssetsDescription:
         "Téléchargez le matériel source ou générez des candidats, puis marquez uniquement les atouts qui devraient guider les générations futures comme références.",
@@ -4404,6 +4459,12 @@ export const messagesByLocale = {
   }),
   "de-DE": mergeMessages({
     library: {
+      allLibraries: "Alle Bibliotheken",
+      noDrafts: "Noch keine Entwürfe.",
+      noMatchingDrafts: "Keine passenden Entwürfe.",
+      recentDrafts: "Letzte Entwürfe",
+      viewAllDrafts: "Alle Entwürfe anzeigen",
+      draftAsset: "Entwurf",
       addAssets: "Assets hinzufügen",
       addAssetsDescription:
         "Laden Sie Quellmaterial hoch oder generieren Sie Kandidaten und markieren Sie dann nur die Assets, die künftigen Generationen als Referenz dienen sollen.",
@@ -4753,6 +4814,12 @@ export const messagesByLocale = {
   }),
   "ja-JP": mergeMessages({
     library: {
+      allLibraries: "すべてのライブラリ",
+      noDrafts: "下書きはまだありません。",
+      noMatchingDrafts: "一致する下書きはありません。",
+      recentDrafts: "最近の下書き",
+      viewAllDrafts: "すべての下書きを表示",
+      draftAsset: "下書きアセット",
       addAssets: "アセットの追加",
       addAssetsDescription:
         "ソース素材をアップロードするか候補を生成し、将来の世代を導く必要がある資産のみを参照としてマークします。",
@@ -5092,6 +5159,12 @@ export const messagesByLocale = {
   }),
   "ko-KR": mergeMessages({
     library: {
+      allLibraries: "모든 라이브러리",
+      noDrafts: "아직 초안이 없습니다.",
+      noMatchingDrafts: "일치하는 초안이 없습니다.",
+      recentDrafts: "최근 초안",
+      viewAllDrafts: "모든 초안 보기",
+      draftAsset: "초안 자산",
       addAssets: "자산 추가",
       addAssetsDescription:
         "원본 자료를 업로드하거나 후보를 생성한 후, 미래 세대를 이끌어야 할 자산만 참고 자료로 표시하세요.",
@@ -5430,6 +5503,12 @@ export const messagesByLocale = {
   }),
   "pt-BR": mergeMessages({
     library: {
+      allLibraries: "Todas as bibliotecas",
+      noDrafts: "Ainda não há rascunhos.",
+      noMatchingDrafts: "Nenhum rascunho correspondente.",
+      recentDrafts: "Rascunhos recentes",
+      viewAllDrafts: "Ver todos os rascunhos",
+      draftAsset: "Rascunho",
       addAssets: "Adicionar recursos",
       addAssetsDescription:
         "Carregue o material de origem ou gere candidatos e marque apenas os ativos que devem orientar as gerações futuras como referências.",
@@ -5870,6 +5949,12 @@ export const messagesByLocale = {
   }),
   "hi-IN": mergeMessages({
     library: {
+      allLibraries: "सभी लाइब्रेरी",
+      noDrafts: "अभी तक कोई ड्राफ़्ट नहीं।",
+      noMatchingDrafts: "कोई मिलान वाला ड्राफ़्ट नहीं।",
+      recentDrafts: "हाल के ड्राफ़्ट",
+      viewAllDrafts: "सभी ड्राफ़्ट देखें",
+      draftAsset: "ड्राफ़्ट एसेट",
       addAssets: "संपत्तियां जोड़ें",
       addAssetsDescription:
         "स्रोत सामग्री अपलोड करें या उम्मीदवार तैयार करें, फिर केवल उन संपत्तियों को चिह्नित करें जो भविष्य की पीढ़ियों को संदर्भ के रूप में मार्गदर्शन करें।",
@@ -6206,6 +6291,12 @@ export const messagesByLocale = {
   }),
   "ar-SA": mergeMessages({
     library: {
+      allLibraries: "جميع المكتبات",
+      noDrafts: "لا توجد مسودات بعد.",
+      noMatchingDrafts: "لا توجد مسودات مطابقة.",
+      recentDrafts: "المسودات الأخيرة",
+      viewAllDrafts: "عرض جميع المسودات",
+      draftAsset: "مسودة",
       addAssets: "أضف الأصول",
       addAssetsDescription:
         "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",

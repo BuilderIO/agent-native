@@ -85,6 +85,8 @@ import {
   getInitialAgentSidebarOpen,
   setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -546,6 +548,8 @@ export interface AgentPanelProps extends Omit<
    * see the `Layout` files for each template.
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Show the compact scope chip above the composer. Default: true. */
+  showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
@@ -671,6 +675,7 @@ function AgentPanelInner({
   storageKey,
   restoreActiveThread = true,
   scope,
+  showScopeBadge,
   browserTabId,
   threadUrlSync,
   chatNotice,
@@ -969,6 +974,22 @@ function AgentPanelInner({
     (activeMode: PanelMode) => (
       <TooltipProvider delayDuration={200}>
         <div className="flex shrink-0 items-center gap-1">
+          {onCollapse && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onCollapse}
+                  aria-label={t("agentPanel.collapseSidebar")}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <IconX size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("agentPanel.collapseSidebar")}</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -1035,7 +1056,7 @@ function AgentPanelInner({
         </div>
       </TooltipProvider>
     ),
-    [codeAccessEnabled, codeUnavailableDescription, showCliMode, t],
+    [codeAccessEnabled, codeUnavailableDescription, onCollapse, showCliMode, t],
   );
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -1692,6 +1713,7 @@ function AgentPanelInner({
               storageKey={storageKey}
               restoreActiveThread={restoreActiveThread}
               scope={scope}
+              showScopeBadge={showScopeBadge}
               browserTabId={browserTabId}
               threadUrlSync={threadUrlSync}
             />
@@ -2375,6 +2397,8 @@ export interface AgentSidebarProps {
    * Templates compute this from the active route (see template layouts).
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Show the compact scope chip above the composer. Default: true. */
+  showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
@@ -2404,6 +2428,7 @@ export function AgentSidebar({
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
+  showScopeBadge,
   browserTabId,
   threadUrlSync,
 }: AgentSidebarProps) {
@@ -2937,6 +2962,7 @@ export function AgentSidebar({
             }
             storageKey={storageKey}
             scope={scope}
+            showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
           />
@@ -3027,6 +3053,20 @@ export function focusAgentChat() {
  * Dispatches a custom event that AgentSidebar listens for.
  */
 export function AgentToggleButton({ className }: { className?: string }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (detail && typeof detail.open === "boolean") setOpen(detail.open);
+    };
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
+    return () =>
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
+  }, []);
+  // Hide the open-agent button while the agent pane is open; the pane has its
+  // own close button.
+  if (open) return null;
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>

@@ -6,6 +6,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type {
+  ContentDatabaseBodyHydration,
   ContentDatabaseMembership,
   ContentDatabaseResponse,
 } from "../shared/api.js";
@@ -28,7 +29,26 @@ function canManageRole(role: string) {
 type DatabaseMembershipRow = {
   item: typeof schema.contentDatabaseItems.$inferSelect;
   database: typeof schema.contentDatabases.$inferSelect;
+  sourceId?: string | null;
 };
+
+export function serializeBodyHydration(
+  item: typeof schema.contentDatabaseItems.$inferSelect,
+): ContentDatabaseBodyHydration {
+  const status = item.bodyHydrationStatus;
+  return {
+    status:
+      status === "pending" ||
+      status === "hydrating" ||
+      status === "hydrated" ||
+      status === "error"
+        ? status
+        : "hydrated",
+    attemptedAt: item.bodyHydrationAttemptedAt,
+    error: item.bodyHydrationError,
+    version: item.bodyHydrationVersion,
+  };
+}
 
 export function serializeDatabaseMembership(
   row: DatabaseMembershipRow,
@@ -38,6 +58,8 @@ export function serializeDatabaseMembership(
     databaseDocumentId: row.database.documentId,
     databaseTitle: row.database.title || "Untitled database",
     position: row.item.position,
+    sourceId: row.sourceId ?? null,
+    bodyHydration: serializeBodyHydration(row.item),
   };
 }
 
@@ -178,6 +200,7 @@ export async function getContentDatabaseResponse(
       databaseId: item.databaseId,
       document: serializeDocument(document, { item, database }),
       position: item.position,
+      bodyHydration: serializeBodyHydration(item),
       properties: await listPropertiesForDatabase(databaseId, document),
     });
   }
@@ -262,8 +285,8 @@ export async function isSoftDeletedDatabaseDocument(documentId: string) {
 export async function getDatabaseByDocumentId(
   documentId: string,
   options: { includeDeleted?: boolean } = {},
+  db = getDb(),
 ) {
-  const db = getDb();
   const clauses = [eq(schema.contentDatabases.documentId, documentId)];
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
@@ -278,8 +301,8 @@ export async function getDatabaseByDocumentId(
 export async function getDatabaseItemByDocumentId(
   documentId: string,
   options: { includeDeleted?: boolean } = {},
+  db = getDb(),
 ) {
-  const db = getDb();
   const clauses = [eq(schema.contentDatabaseItems.documentId, documentId)];
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
@@ -288,11 +311,19 @@ export async function getDatabaseItemByDocumentId(
     .select({
       item: schema.contentDatabaseItems,
       database: schema.contentDatabases,
+      sourceId: schema.contentDatabaseSourceRows.sourceId,
     })
     .from(schema.contentDatabaseItems)
     .innerJoin(
       schema.contentDatabases,
       eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .leftJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
     )
     .where(and(...clauses));
   return row ?? null;
@@ -301,11 +332,15 @@ export async function getDatabaseItemByDocumentId(
 export async function deleteDatabaseDataForDocument(
   documentId: string,
   ownerEmail: string,
+  db = getDb(),
 ) {
-  const db = getDb();
-  const database = await getDatabaseByDocumentId(documentId, {
-    includeDeleted: true,
-  });
+  const database = await getDatabaseByDocumentId(
+    documentId,
+    {
+      includeDeleted: true,
+    },
+    db,
+  );
   if (database) {
     const definitions = await db
       .select({ id: schema.documentPropertyDefinitions.id })
@@ -327,6 +362,11 @@ export async function deleteDatabaseDataForDocument(
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id));
     for (const source of sources) {
+      await db
+        .delete(schema.contentDatabaseBodyHydrationQueue)
+        .where(
+          eq(schema.contentDatabaseBodyHydrationQueue.sourceId, source.id),
+        );
       await db
         .delete(schema.contentDatabaseSourceExecutions)
         .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id));
@@ -359,10 +399,19 @@ export async function deleteDatabaseDataForDocument(
       .where(eq(schema.contentDatabases.id, database.id));
   }
 
-  const item = await getDatabaseItemByDocumentId(documentId, {
-    includeDeleted: true,
-  });
+  const item = await getDatabaseItemByDocumentId(
+    documentId,
+    {
+      includeDeleted: true,
+    },
+    db,
+  );
   if (item) {
+    await db
+      .delete(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        eq(schema.contentDatabaseBodyHydrationQueue.documentId, documentId),
+      );
     await db
       .delete(schema.documentPropertyValues)
       .where(

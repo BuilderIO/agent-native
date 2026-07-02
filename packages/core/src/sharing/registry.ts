@@ -57,6 +57,24 @@ export interface ShareableResourceRegistration {
    */
   allowPublic?: boolean;
   /**
+   * Optional role granted by a public-by-link read. Most resources should omit
+   * this so public visibility remains viewer-only. Use narrowly for local or
+   * otherwise constrained resources where the resource owner intentionally wants
+   * unauthenticated link holders to do more than view.
+   */
+  publicAccessRole?:
+    | "viewer"
+    | "editor"
+    | "admin"
+    | ((
+        resource: any,
+        ctx: { userEmail?: string; orgId?: string },
+      ) =>
+        | "viewer"
+        | "editor"
+        | "admin"
+        | Promise<"viewer" | "editor" | "admin">);
+  /**
    * When `true`, individual user shares (`principalType: "user"`) must target
    * an email that is already a member of the same org as the resource, OR has
    * a pending invitation to that org. Cross-org user shares are rejected.

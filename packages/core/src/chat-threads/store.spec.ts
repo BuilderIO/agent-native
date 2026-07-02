@@ -60,6 +60,7 @@ const assistantMessage = {
 describe("chat thread store", () => {
   let row: ChatThreadRow | null;
   let conflictOnce: (() => void) | null;
+  let conflictEveryThreadDataUpdate: boolean;
 
   beforeEach(() => {
     row = {
@@ -73,6 +74,7 @@ describe("chat thread store", () => {
       updated_at: 1,
     };
     conflictOnce = null;
+    conflictEveryThreadDataUpdate = false;
     executeMock.mockReset();
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
@@ -103,6 +105,10 @@ describe("chat thread store", () => {
           const applyConflict = conflictOnce;
           conflictOnce = null;
           applyConflict();
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (conflictEveryThreadDataUpdate) {
+          if (row) row = { ...row, updated_at: row.updated_at + 1 };
           return { rows: [], rowsAffected: 0 };
         }
         if (!row || row.id !== args[5] || row.updated_at !== args[6]) {
@@ -172,6 +178,77 @@ describe("chat thread store", () => {
     ]);
     expect(row!.message_count).toBe(2);
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("throws after exhausted thread-data conflicts by default", async () => {
+    conflictEveryThreadDataUpdate = true;
+
+    await expect(
+      updateThreadData(
+        "thread-1",
+        JSON.stringify({ messages: [userMessage] }),
+        "Thread",
+        "make this slide better",
+        1,
+        { maxAttempts: 1 },
+      ),
+    ).rejects.toThrow(
+      "Failed to update chat thread thread-1 after concurrent write conflicts.",
+    );
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("can ignore exhausted conflicts for best-effort client saves", async () => {
+    conflictEveryThreadDataUpdate = true;
+
+    await expect(
+      updateThreadData(
+        "thread-1",
+        JSON.stringify({ messages: [userMessage] }),
+        "Thread",
+        "make this slide better",
+        1,
+        { maxAttempts: 1, ignoreConflicts: true },
+      ),
+    ).resolves.toBeUndefined();
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not retain empty assistant placeholders when saving the real answer", async () => {
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { message: userMessage, parentId: null },
+        {
+          message: { id: "placeholder", role: "assistant", content: [] },
+          parentId: "user-1",
+        },
+      ],
+      headId: "placeholder",
+    });
+    row!.message_count = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [
+          { message: userMessage, parentId: null },
+          { message: assistantMessage, parentId: "user-1" },
+        ],
+        headId: "assistant-1",
+      }),
+      "Thread",
+      "Done.",
+      2,
+    );
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(repo.messages[1].parentId).toBe("user-1");
+    expect(repo.headId).toBe("assistant-1");
+    expect(row!.message_count).toBe(2);
   });
 
   it("lets queued-message clears win while preserving concurrent assistant messages", async () => {

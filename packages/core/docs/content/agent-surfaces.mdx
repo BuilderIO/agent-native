@@ -1,54 +1,56 @@
 ---
 title: "Agent Surfaces"
-description: "Use Agent-Native headlessly, as rich chat, inside an existing app, or as a full agent-native application."
-search: "headless agent rich chat full app BYO agent runtime AgentChatRuntime embed actions MCP A2A HTTP CLI"
+description: "Choose how an agentic app grows from chat to inline UI, durable app pages, embedded sidecars, automation, and external agent access."
+search: "agentic app rich chat native chat UI full app automation headless BYO agent runtime AgentChatRuntime embed actions MCP A2A HTTP CLI"
 ---
 
 # Agent Surfaces
 
-Agent-Native is deliberately composable. You can use the agent without much UI,
-use the UI without the built-in agent runtime, or use both together as a full
-application.
+Agent-Native is deliberately composable. Most apps start with chat, add actions,
+render structured results inline, and then grow durable pages around the same
+SQL state. The same action surface can also power embedded sidecars,
+automation-first jobs, external agents, and custom chat runtimes.
 
 The useful way to choose is not by protocol first. Choose the product surface
 you want, then use the matching primitive.
 
 | Surface                       | Use it when                                                                                                 | Start with                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Headless agent**            | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
 | **Rich chat on Agent-Native** | You want a standalone or embedded chat backed by the built-in agent loop.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| **Native inline UI**          | Action results should render as first-party tables, charts, cards, approvals, or compact reports in chat.   | [Native Chat UI](/docs/native-chat-ui), `chatUI.renderer`, data widget helpers              |
 | **Generated inline UI**       | The agent should create temporary or reusable controls, pickers, calculators, or visualizers inside chat.   | [Generative UI](/docs/generative-ui), `render-inline-extension`, `create-extension`         |
-| **Rich chat on your agent**   | You built the agent elsewhere and want Agent-Native's composer, transcript, tool cards, and native widgets. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
-| **Embedded sidecar**          | You already have a SaaS app and want an agent beside it with page context and host commands.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
 | **Full application**          | Humans and agents should share durable screens, data, navigation, and collaboration.                        | Templates, actions, SQL state, context awareness                                            |
+| **Embedded sidecar**          | You already have a SaaS app and want an agent beside it with page context and host commands.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
+| **Automation-first app**      | Jobs, scripts, another app, or another agent should call the work directly without a browser UI.            | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Rich chat on your agent**   | You built the agent elsewhere and want Agent-Native's composer, transcript, tool cards, and native widgets. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
 
-Those are stages, not separate products. A workflow can start as a headless
-agent with one action, appear in chat as a table or chart, and later become a
-full screen in an app without changing the operation the agent calls.
+Those are stages and deployment shapes, not separate products. A workflow can
+start in chat, appear as a native table or chart, become a durable page in the
+app, and still run from jobs, scripts, MCP, or A2A without changing the operation
+the agent calls.
 
 <Diagram id="doc-block-hvdxgh" title="The surface spectrum" summary={"One action surface, four product shapes — each adds UI without changing the operation underneath."}>
 
 ```html
 <div class="diagram-spectrum">
   <div class="diagram-card">
-    <strong>Headless</strong
-    ><small class="diagram-muted">actions, jobs, scripts, other agents</small>
+    <strong>Chat</strong
+    ><small class="diagram-muted">composer, transcript, tool calls</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <strong>Rich chat</strong
-    ><small class="diagram-muted">composer, transcript, tool cards</small>
+    <strong>Inline UI</strong
+    ><small class="diagram-muted">tables, charts, cards</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <strong>Embedded sidecar</strong
-    ><small class="diagram-muted">agent beside an existing app</small>
+    <strong>App page</strong
+    ><small class="diagram-muted">durable screens, SQL data</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card accent-card">
-    <span class="diagram-pill accent">most UI</span
-    ><strong>Full application</strong
-    ><small class="diagram-muted">durable screens, data, collaboration</small>
+    <span class="diagram-pill accent">most UI</span><strong>Automation</strong
+    ><small class="diagram-muted">jobs, scripts, external agents</small>
   </div>
 </div>
 <div class="diagram-base" data-rough>
@@ -85,27 +87,26 @@ full screen in an app without changing the operation the agent calls.
 
 </Diagram>
 
-## Headless agent {#headless}
+## Automation-first app {#headless}
 
-Use the headless path when no one needs to stare at a custom app screen while
+Use the automation-first path when no one needs a custom browser screen while
 the work runs: scheduled jobs, integrations, backend workflows, CLI loops,
 another agent, or an existing product calling into Agent-Native.
 
-This is also the shape to reach for when **the agent _is_ the product** — the
-app-agent loop is the front door, not a dashboard. You send a request from the
-terminal, Slack, email, a scheduled job, another agent, or Chat — "summarize my
-unread emails," "post the daily metrics to Slack," "find the candidates who
-replied last week" — and the agent acts and returns the result wherever it
-belongs. It is still a real app, not a stateless prompt: actions, auth sessions,
-app state, thread/run history, settings, credentials, and share records all live
-in SQL.
+This is the shape to reach for when automation is the product surface. You send
+a request from the terminal, Slack, email, a scheduled job, another agent, or
+Chat — "summarize my unread emails," "post the daily metrics to Slack," "find
+the candidates who replied last week" — and the agent acts and returns the
+result wherever it belongs. It is still a real app, not a stateless prompt:
+actions, auth sessions, app state, thread/run history, settings, credentials,
+and share records all live in SQL.
 
 Pick this pattern when:
 
 - **The work happens in the background.** Most of the value is created while the user isn't looking — triage agents, daily-report agents, on-call responders.
 - **The output leaves the app.** The agent posts to Slack, sends email, or updates a third-party system; there's nothing to browse in-app.
 - **The domain is one-shot.** Research bot, summary generator, report writer — no persistent object that needs a list view.
-- **You're prototyping.** Ship the agent now; add richer UI later if users want one.
+- **You're prototyping an automation.** Ship the operation now; add chat or app pages when users need to inspect and steer it.
 
 If your product is built around persistent objects users browse, pivot, and
 share — emails, events, documents, charts — pick a [full application](#full-application)
@@ -113,11 +114,11 @@ or a [template](/docs/cloneable-saas) instead; those add a full UI _plus_ the ag
 
 ### What ships in the box {#in-the-box}
 
-A headless app skips weeks of dashboard work, and it's channel-agnostic from day
-one — the same agent runs from the web, Slack, Telegram, email, and other agents
-because everything goes through the agent, not the UI. The trade-off is there's
-no "browse-everything-at-a-glance" view; if users need that, mix patterns and
-add a small status page or list view.
+An automation-first app skips dashboard work, and it is channel-agnostic from
+day one — the same agent runs from the web, Slack, Telegram, email, and other
+agents because everything goes through the same actions. The trade-off is there
+is no "browse-everything-at-a-glance" view; if users need that, start from
+[Chat](/docs/template-chat) or add a small status page or list view.
 
 When you add the built-in Chat shell, the framework provides five management
 surfaces you don't have to build: **Chat** (the main input), **Workspace**
@@ -128,7 +129,7 @@ enough — talk to it, see what it's done, configure how it behaves. Reach for
 [Dispatch template](/docs/template-dispatch) for a workspace-style starting
 point with Slack/Telegram, scheduled jobs, and shared secrets out of the box.
 
-The smallest local path is a headless agent scaffold plus one action:
+The smallest no-browser local path is a scaffold plus one action:
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
@@ -184,8 +185,8 @@ Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSO
 
 This is not a no-database or stateless mode. The app-agent loop stores sessions,
 threads, runs, settings, credentials, application state, and share records in
-SQL. Local development defaults to SQLite; hosted headless apps should use a
-persistent SQL database.
+SQL. Local development defaults to SQLite; hosted automation-first apps should
+use a persistent SQL database.
 
 If you need the whole agent loop headlessly from the project folder, use:
 
@@ -208,14 +209,14 @@ await runAgentLoop({ engine, model, systemPrompt, actions, messages, send });
 ```
 
 For most apps, scheduled prompts and integration webhooks already call this loop
-for you. Reach for it directly only when building a custom headless host, eval
+for you. Reach for it directly only when building a custom no-browser host, eval
 runner, or server-side orchestration surface — see [Server — Production agent
 handler](/docs/server#agent-handler) for the full signature.
 
 ### Running against a folder {#folder-loop}
 
 If your goal is "run an agent against this folder," start with the app-agent
-loop in that folder: scaffold the headless app, add actions/instructions, run
+loop in that folder: scaffold the automation-first app, add actions/instructions, run
 `pnpm agent "..."`. That keeps the work inside the same action/runtime/state
 contract the app will use in production.
 
@@ -226,7 +227,7 @@ start a local agent-native workflow.
 
 ### Cloud repo access {#cloud-repo-access}
 
-For cloud headless apps that need repository access, use the GitHub connector
+For cloud automation-first apps that need repository access, use the GitHub connector
 plus token CRUD model: list repositories, search files, read files, create or
 edit files, delete files, and revoke access through provider-scoped
 credentials. In local development, set the target repository explicitly:
@@ -242,11 +243,11 @@ through the connector layer.
 
 ### Sharing sessions and runs {#sharing-runs}
 
-Headless sessions and runs are durable objects. Shareability should be phased:
-read/share links first, so teammates can inspect sanitized prompts, outputs,
-and run status; permissioned writable collaboration later, so continuing a run,
-approving actions, editing schedules, or changing configuration goes through
-explicit access checks.
+Automation-first sessions and runs are durable objects. Shareability should be
+phased: read/share links first, so teammates can inspect sanitized prompts,
+outputs, and run status; permissioned writable collaboration later, so
+continuing a run, approving actions, editing schedules, or changing
+configuration goes through explicit access checks.
 
 ## Rich chat on Agent-Native {#rich-chat}
 
@@ -487,14 +488,15 @@ want a complete product shape.
 
 ## How to choose {#how-to-choose}
 
-| If you are thinking...                                          | Choose                    |
-| --------------------------------------------------------------- | ------------------------- |
-| "I just need a callable tool or workflow."                      | Headless agent            |
-| "I want the framework's agent, but chat should be the main UI." | Rich chat on Agent-Native |
-| "I want the agent to make an interactive control right now."    | Generated inline UI       |
-| "I already have an agent; I need a polished chat UI for it."    | Rich chat on your agent   |
-| "I already have a SaaS app; add an agent beside it."            | Embedded sidecar          |
-| "The agent and UI should evolve together as the product."       | Full application          |
+| If you are thinking...                                           | Choose                    |
+| ---------------------------------------------------------------- | ------------------------- |
+| "I want the framework's agent, but chat should be the main UI."  | Rich chat on Agent-Native |
+| "The action result should be a chart, table, or typed card."     | Native inline UI          |
+| "I want the agent to make an interactive control right now."     | Generated inline UI       |
+| "The agent and UI should evolve together as the product."        | Full application          |
+| "I already have a SaaS app; add an agent beside it."             | Embedded sidecar          |
+| "I need a callable workflow for jobs, scripts, or other agents." | Automation-first app      |
+| "I already have an agent; I need a polished chat UI for it."     | Rich chat on your agent   |
 
 Keep the contract small: define durable operations as actions, return explicit
 widget results when chat needs rich UI, and add full screens only when users
@@ -502,11 +504,12 @@ need to browse, compare, configure, or collaborate over persistent objects.
 
 ## Related docs {#related-docs}
 
-- [Actions](/docs/actions) — define the headless operation once.
+- [Actions](/docs/actions) — define the operation once.
 - [Native Chat UI](/docs/native-chat-ui) — render typed action results in chat.
 - [Generative UI](/docs/generative-ui) — generate transient or persisted sandboxed UI inline in chat.
 - [Drop-in Agent](/docs/drop-in-agent) — mount chat, sidebar, or panel surfaces.
 - [Component API](/docs/components) — lower-level React chat/composer pieces.
 - [Embedding SDK](/docs/embedding-sdk) — add Agent-Native to an existing app.
+- [Automation-First Apps](/docs/pure-agent-apps) — no-browser apps for jobs, queues, scripts, and external agents.
 - [External Agents](/docs/external-agents) — connect MCP-compatible hosts to an app.
 - [A2A Protocol](/docs/a2a-protocol) — call agents from other agents.
