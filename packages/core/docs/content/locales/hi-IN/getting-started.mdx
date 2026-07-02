@@ -30,56 +30,7 @@ pnpm dev
 
 ## 2. action जोड़ें {#add-an-action}
 
-Action वह typed operation है जिसे agent और UI दोनों call करते हैं. इस flow के लिए `actions/analyze-responses.ts` बनाएं: यह form responses analyze करता है और Response insights लौटाता है.
-
-```ts
-export default defineAction({
-  description: "Analyze recent form responses and summarize the trend.",
-  outputSchema: dataInsightsWidgetResultSchema,
-  chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-    title: "Response insights",
-  },
-  readOnly: true,
-  run: async () =>
-    createDataInsightsWidgetResult({
-      title: "Response insights",
-      display: {
-        title: "42 responses",
-        description: "Completion rose this week.",
-        primaryAction: {
-          label: "प्रतिक्रिया insights खोलें",
-          href: "/response-insights",
-        },
-      },
-      chartSeries: {
-        type: "bar",
-        xKey: "day",
-        series: [{ key: "responses", label: "Responses" }],
-        data: Array.from({ length: 10 }, (_, day) => ({
-          day: day + 1,
-          responses: Math.round(Math.random() * 10) + 10,
-        })),
-      },
-    }),
-});
-```
-
-इसे सीधे चलाएं:
-
-```bash
-pnpm action analyze-responses --formId demo
-```
-
-या browser में agent से पूछें:
-
-> डेमो फ़ॉर्म की हाल की प्रतिक्रियाओं का विश्लेषण करें.
-
-## 3. result को chat में render करें {#render-inline}
-
-क्योंकि action `outputSchema` और `chatUI.renderer` declare करता है, transcript structured data को plain text में नहीं बदलता. यह summary, chart, table और detail page link को native React component के रूप में render करता है. देखें [Native Chat UI](/docs/native-chat-ui).
-
-Built-in data widgets की जगह अपना chart बनाने के लिए action को product-specific renderer id दें और अपनी validated JSON shape लौटाएं:
+Action वह typed operation है जिसे agent और UI दोनों call करते हैं. इस flow के लिए `actions/analyze-responses.ts` बनाएं: यह form responses analyze करता है और custom chat chart के लिए validated shape लौटाता है.
 
 ```ts
 // actions/analyze-responses.ts
@@ -115,12 +66,25 @@ export default defineAction({
       { day: "Mon", responses: 12 },
       { day: "Tue", responses: 18 },
       { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
     ],
   }),
 });
 ```
 
-फिर app startup से उसी exact renderer id के लिए React component register करें, जैसे `app/root.tsx` से `app/chat-renderers.tsx` को एक बार import करके:
+इसे सीधे चलाएं:
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+या browser में agent से पूछें:
+
+> डेमो फ़ॉर्म की हाल की प्रतिक्रियाओं का विश्लेषण करें.
+
+## 3. result को chat में render करें {#render-inline}
+
+क्योंकि action `outputSchema` और product-specific `chatUI.renderer` declare करता है, transcript structured data को plain text में नहीं बदलता. फिर app startup से उसी exact renderer id के लिए React component register करें, जैसे `app/root.tsx` से `app/chat-renderers.tsx` को एक बार import करके:
 
 ```tsx
 // app/chat-renderers.tsx
@@ -165,6 +129,8 @@ registerActionChatRenderer({
   Component: ResponseChart,
 });
 ```
+
+Reusable generic outputs के लिए framework built-in `data-chart` और `data-table` renderers भी देता है, साथ ही combined summary/chart/table cards के लिए `data-insights`. देखें [Native Chat UI](/docs/native-chat-ui).
 
 <WireframeBlock id="doc-block-inline-result-wireframe-hi">
   <Screen

@@ -30,56 +30,7 @@ O template inclui durable chat threads, auth, live sync, diretório `actions/`, 
 
 ## 2. Adicione uma action {#add-an-action}
 
-Uma action é uma operação tipada que o agent e a UI chamam juntos. Para este fluxo, crie `actions/analyze-responses.ts`: ela analisa respostas de formulários e retorna Response insights.
-
-```ts
-export default defineAction({
-  description: "Analyze recent form responses and summarize the trend.",
-  outputSchema: dataInsightsWidgetResultSchema,
-  chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-    title: "Response insights",
-  },
-  readOnly: true,
-  run: async () =>
-    createDataInsightsWidgetResult({
-      title: "Response insights",
-      display: {
-        title: "42 responses",
-        description: "Completion rose this week.",
-        primaryAction: {
-          label: "Abrir insights de respostas",
-          href: "/response-insights",
-        },
-      },
-      chartSeries: {
-        type: "bar",
-        xKey: "day",
-        series: [{ key: "responses", label: "Responses" }],
-        data: Array.from({ length: 10 }, (_, day) => ({
-          day: day + 1,
-          responses: Math.round(Math.random() * 10) + 10,
-        })),
-      },
-    }),
-});
-```
-
-Execute diretamente:
-
-```bash
-pnpm action analyze-responses --formId demo
-```
-
-Ou peça ao agent no navegador:
-
-> Analise as respostas recentes do formulário de demonstração.
-
-## 3. Renderize o resultado no chat {#render-inline}
-
-Como a action declara `outputSchema` e `chatUI.renderer`, o transcript não transforma dados estruturados em texto corrido. Ele renderiza um componente React nativo: resumo, gráfico, tabela e link para a página detalhada. Veja [Native Chat UI](/docs/native-chat-ui).
-
-Para criar seu próprio gráfico em vez de usar os data widgets integrados, dê à action um id de renderer específico do produto e retorne seu próprio formato JSON validado:
+Uma action é uma operação tipada que o agent e a UI chamam juntos. Para este fluxo, crie `actions/analyze-responses.ts`: ela analisa respostas de formulários e retorna um formato validado para um gráfico de chat customizado.
 
 ```ts
 // actions/analyze-responses.ts
@@ -115,12 +66,25 @@ export default defineAction({
       { day: "Mon", responses: 12 },
       { day: "Tue", responses: 18 },
       { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
     ],
   }),
 });
 ```
 
-Depois registre um componente React para esse id exato no startup da app, por exemplo importando `app/chat-renderers.tsx` uma vez a partir de `app/root.tsx`:
+Execute diretamente:
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+Ou peça ao agent no navegador:
+
+> Analise as respostas recentes do formulário de demonstração.
+
+## 3. Renderize o resultado no chat {#render-inline}
+
+Como a action declara `outputSchema` e uma `chatUI.renderer` específica do produto, o transcript não transforma dados estruturados em texto corrido. Registre um componente React para esse id exato no startup da app, por exemplo importando `app/chat-renderers.tsx` uma vez a partir de `app/root.tsx`:
 
 ```tsx
 // app/chat-renderers.tsx
@@ -165,6 +129,8 @@ registerActionChatRenderer({
   Component: ResponseChart,
 });
 ```
+
+Para saídas genéricas reutilizáveis, o framework também oferece renderers integrados `data-chart` e `data-table`, além de `data-insights` para cards combinados de resumo/gráfico/tabela. Veja [Native Chat UI](/docs/native-chat-ui).
 
 <WireframeBlock id="doc-block-inline-result-wireframe-pt">
   <Screen

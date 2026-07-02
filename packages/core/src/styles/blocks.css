@@ -1213,8 +1213,13 @@
     .wf-pill,
     .wf-chip,
     .wf-icon-fallback,
-    [data-rough]:not([data-rough="none"])
-  ) {
+    [style*="border:"],
+    [style*="border-top:"],
+    [style*="border-right:"],
+    [style*="border-bottom:"],
+    [style*="border-left:"],
+    [data-rough]
+  ):not([data-rough="none"]) {
   border-color: transparent !important;
 }
 

@@ -30,56 +30,7 @@ pnpm dev
 
 ## 2. action を追加する {#add-an-action}
 
-action は agent と UI が共有する typed operation です。この流れでは `actions/analyze-responses.ts` を作成し、フォーム回答を分析して Response insights を返します。
-
-```ts
-export default defineAction({
-  description: "Analyze recent form responses and summarize the trend.",
-  outputSchema: dataInsightsWidgetResultSchema,
-  chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-    title: "Response insights",
-  },
-  readOnly: true,
-  run: async () =>
-    createDataInsightsWidgetResult({
-      title: "Response insights",
-      display: {
-        title: "42 responses",
-        description: "Completion rose this week.",
-        primaryAction: {
-          label: "回答インサイトを開く",
-          href: "/response-insights",
-        },
-      },
-      chartSeries: {
-        type: "bar",
-        xKey: "day",
-        series: [{ key: "responses", label: "Responses" }],
-        data: Array.from({ length: 10 }, (_, day) => ({
-          day: day + 1,
-          responses: Math.round(Math.random() * 10) + 10,
-        })),
-      },
-    }),
-});
-```
-
-直接実行できます:
-
-```bash
-pnpm action analyze-responses --formId demo
-```
-
-またはブラウザーで agent に依頼します:
-
-> デモフォームの最近の回答を分析して。
-
-## 3. チャット内に結果を表示する {#render-inline}
-
-action が `outputSchema` と `chatUI.renderer` を宣言しているため、チャットは構造化データを長い文章に潰しません。サマリー、グラフ、テーブル、詳細ページへのリンクをネイティブ React コンポーネントとして表示します。詳しくは [Native Chat UI](/docs/native-chat-ui) を参照してください。
-
-組み込みの data widgets ではなく独自のグラフを作る場合は、action にプロダクト固有の renderer id を付け、検証済みの独自 JSON 形状を返します。
+action は agent と UI が共有する typed operation です。この流れでは `actions/analyze-responses.ts` を作成し、フォーム回答を分析してカスタムチャットグラフ用の検証済み形状を返します。
 
 ```ts
 // actions/analyze-responses.ts
@@ -115,12 +66,25 @@ export default defineAction({
       { day: "Mon", responses: 12 },
       { day: "Tue", responses: 18 },
       { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
     ],
   }),
 });
 ```
 
-次に、app の起動時にその正確な renderer id に対応する React コンポーネントを登録します。たとえば `app/root.tsx` から `app/chat-renderers.tsx` を一度 import します。
+直接実行できます:
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+またはブラウザーで agent に依頼します:
+
+> デモフォームの最近の回答を分析して。
+
+## 3. チャット内に結果を表示する {#render-inline}
+
+action が `outputSchema` とプロダクト固有の `chatUI.renderer` を宣言しているため、チャットは構造化データを長い文章に潰しません。次に、app の起動時にその正確な renderer id に対応する React コンポーネントを登録します。たとえば `app/root.tsx` から `app/chat-renderers.tsx` を一度 import します。
 
 ```tsx
 // app/chat-renderers.tsx
@@ -165,6 +129,8 @@ registerActionChatRenderer({
   Component: ResponseChart,
 });
 ```
+
+再利用できる汎用出力には、framework 組み込みの `data-chart` と `data-table` renderers も使えます。`data-insights` は summary/chart/table を組み合わせたカード向けです。詳しくは [Native Chat UI](/docs/native-chat-ui) を参照してください。
 
 <WireframeBlock id="doc-block-inline-result-wireframe-ja">
   <Screen

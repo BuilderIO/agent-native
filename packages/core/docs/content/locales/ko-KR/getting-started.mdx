@@ -30,56 +30,7 @@ pnpm dev
 
 ## 2. action 추가하기 {#add-an-action}
 
-action은 agent와 UI가 함께 호출하는 typed operation입니다. 이 흐름에서는 `actions/analyze-responses.ts`를 만들고, 폼 응답을 분석해 Response insights를 반환합니다.
-
-```ts
-export default defineAction({
-  description: "Analyze recent form responses and summarize the trend.",
-  outputSchema: dataInsightsWidgetResultSchema,
-  chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-    title: "Response insights",
-  },
-  readOnly: true,
-  run: async () =>
-    createDataInsightsWidgetResult({
-      title: "Response insights",
-      display: {
-        title: "42 responses",
-        description: "Completion rose this week.",
-        primaryAction: {
-          label: "응답 인사이트 열기",
-          href: "/response-insights",
-        },
-      },
-      chartSeries: {
-        type: "bar",
-        xKey: "day",
-        series: [{ key: "responses", label: "Responses" }],
-        data: Array.from({ length: 10 }, (_, day) => ({
-          day: day + 1,
-          responses: Math.round(Math.random() * 10) + 10,
-        })),
-      },
-    }),
-});
-```
-
-직접 실행할 수 있습니다.
-
-```bash
-pnpm action analyze-responses --formId demo
-```
-
-또는 브라우저에서 agent에게 요청합니다.
-
-> 데모 양식의 최근 응답을 분석해 주세요.
-
-## 3. 채팅 안에 결과 렌더링하기 {#render-inline}
-
-action이 `outputSchema`와 `chatUI.renderer`를 선언하므로 transcript가 구조화된 데이터를 긴 텍스트로 바꾸지 않습니다. 요약, 차트, 테이블, 자세한 페이지 링크를 native React component로 렌더링합니다. 자세한 내용은 [Native Chat UI](/docs/native-chat-ui)를 참조하세요.
-
-내장 data widgets 대신 직접 차트를 만들려면 action에 제품별 renderer id를 지정하고 검증된 자체 JSON 형태를 반환합니다.
+action은 agent와 UI가 함께 호출하는 typed operation입니다. 이 흐름에서는 `actions/analyze-responses.ts`를 만들고, 폼 응답을 분석해 custom chat chart를 위한 검증된 형태를 반환합니다.
 
 ```ts
 // actions/analyze-responses.ts
@@ -115,12 +66,25 @@ export default defineAction({
       { day: "Mon", responses: 12 },
       { day: "Tue", responses: 18 },
       { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
     ],
   }),
 });
 ```
 
-그런 다음 app startup에서 정확히 같은 renderer id에 대한 React component를 등록합니다. 예를 들어 `app/root.tsx`에서 `app/chat-renderers.tsx`를 한 번 import합니다.
+직접 실행할 수 있습니다.
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+또는 브라우저에서 agent에게 요청합니다.
+
+> 데모 양식의 최근 응답을 분석해 주세요.
+
+## 3. 채팅 안에 결과 렌더링하기 {#render-inline}
+
+action이 `outputSchema`와 제품별 `chatUI.renderer`를 선언하므로 transcript가 구조화된 데이터를 긴 텍스트로 바꾸지 않습니다. 그런 다음 app startup에서 정확히 같은 renderer id에 대한 React component를 등록합니다. 예를 들어 `app/root.tsx`에서 `app/chat-renderers.tsx`를 한 번 import합니다.
 
 ```tsx
 // app/chat-renderers.tsx
@@ -165,6 +129,8 @@ registerActionChatRenderer({
   Component: ResponseChart,
 });
 ```
+
+재사용 가능한 generic output에는 framework 내장 `data-chart`와 `data-table` renderer도 사용할 수 있고, `data-insights`는 summary/chart/table이 결합된 카드에 사용합니다. 자세한 내용은 [Native Chat UI](/docs/native-chat-ui)를 참조하세요.
 
 <WireframeBlock id="doc-block-inline-result-wireframe-ko">
   <Screen
