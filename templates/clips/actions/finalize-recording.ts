@@ -95,6 +95,9 @@ function chunkIndexFromKey(key: string): number {
 
 const RECORDING_TOO_LARGE_REASON =
   "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.";
+const MEDIA_SERVE_VERIFICATION_TIMEOUT_MS = 8_000;
+const MEDIA_SERVE_VERIFICATION_ATTEMPTS = 3;
+const MEDIA_SERVE_VERIFICATION_BACKOFF_MS = 350;
 
 function stateNumber(
   value: Record<string, unknown> | null | undefined,
@@ -118,6 +121,116 @@ const cliBoolean = z.preprocess((value) => {
   if (value === "false") return false;
   return value;
 }, z.boolean());
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldVerifyServedMediaUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function responseHasReadableMediaBytes(
+  response: Response,
+): Promise<boolean> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const body = await response.arrayBuffer().catch(() => new ArrayBuffer(0));
+    return body.byteLength > 0;
+  }
+
+  try {
+    const { value } = await reader.read();
+    return (value?.byteLength ?? 0) > 0;
+  } catch {
+    return false;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
+async function verifyServedMediaUrl(videoUrl: string): Promise<void> {
+  if (!shouldVerifyServedMediaUrl(videoUrl)) return;
+
+  let lastFailure = "media URL did not serve readable bytes";
+  for (
+    let attempt = 1;
+    attempt <= MEDIA_SERVE_VERIFICATION_ATTEMPTS;
+    attempt++
+  ) {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
+    );
+    try {
+      const response = await fetch(videoUrl, {
+        method: "GET",
+        headers: { Range: "bytes=0-1023" },
+        signal: controller.signal,
+      });
+      const statusOk = response.status === 200 || response.status === 206;
+      if (statusOk && (await responseHasReadableMediaBytes(response))) {
+        return;
+      }
+      lastFailure = `media URL returned HTTP ${response.status}`;
+      if (response.status < 500) break;
+    } catch (err) {
+      lastFailure = err instanceof Error ? err.message : String(err);
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (attempt < MEDIA_SERVE_VERIFICATION_ATTEMPTS) {
+      await sleep(MEDIA_SERVE_VERIFICATION_BACKOFF_MS * attempt);
+    }
+  }
+
+  throw new Error(`Upload was stored-but-unservable: ${lastFailure}`);
+}
+
+async function failStoredButUnservableRecording(params: {
+  id: string;
+  ownerEmail: string;
+  failureReason: string;
+}): Promise<void> {
+  const { id, ownerEmail, failureReason } = params;
+  const now = new Date().toISOString();
+  const db = getDb();
+  await db
+    .update(schema.recordings)
+    .set({
+      status: "failed",
+      failureReason,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+  const uploadStateRaw = await readAppState(`recording-upload-${id}`).catch(
+    () => null,
+  );
+  const uploadState =
+    uploadStateRaw && typeof uploadStateRaw === "object"
+      ? (uploadStateRaw as Record<string, unknown>)
+      : {};
+  await writeAppState(`recording-upload-${id}`, {
+    ...uploadState,
+    recordingId: id,
+    status: "failed",
+    failureReason,
+    updatedAt: now,
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+}
 
 // Flip recording to 'ready', seed transcript row, fire background transcript,
 // emit clip.created. Used by both the resumable and buffered upload paths.
@@ -292,15 +405,10 @@ export default defineAction({
     const id = args.id;
     debugLog("[finalize] starting", { id, ownerEmail });
 
-    // Keys of chunks we normally delete after finalize exits.
-    // Collected as soon as we list chunks and purged in a finally-block so
-    // a throw mid-finalize can't leave multi-gigabyte base64 payloads
-    // lingering in application_state. This was the primary cause of the
-    // server-side half of the 70 GB memory leak — each failed finalize
-    // orphaned one recording's worth of chunks, and with base64 overhead
-    // a 30-minute recording is ~1.5 GB per corpse. Missing storage is the
-    // exception: those chunks stay recoverable until the user connects a
-    // provider and this action runs again.
+    // Keys of chunks to delete in the finally block. Ordinary failures still
+    // purge scratch space; stored-but-unservable provider URLs clear this list
+    // before throwing because these chunks are the buffered path's recovery
+    // copy.
     let chunkKeysToPurge: string[] = [];
     try {
       const [existing] = await db
@@ -415,6 +523,18 @@ export default defineAction({
             { skipCompressionWait: true },
           );
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
+          try {
+            await verifyServedMediaUrl(videoUrl);
+          } catch (err) {
+            const failureReason =
+              err instanceof Error ? err.message : String(err);
+            await failStoredButUnservableRecording({
+              id,
+              ownerEmail,
+              failureReason,
+            });
+            throw err;
+          }
           const result = await markRecordingReady({
             ...readyParams,
             videoUrl,
@@ -494,10 +614,9 @@ export default defineAction({
         id,
         count: chunkKeys.length,
       });
-      // Commit to deleting these keys in the finally below. We collect
-      // the keys NOW (not after success) because a throw in uploadFile
-      // or the drizzle update would otherwise bypass the delete and
-      // orphan the chunks.
+      // Purge on ordinary assembly/upload failures to avoid orphaning large
+      // base64 chunks. Stored-but-unservable verification failures clear this
+      // list before throwing so finalize can be retried from the recovery copy.
       chunkKeysToPurge = chunkKeys;
 
       if (chunkKeys.length === 0) {
@@ -802,19 +921,29 @@ export default defineAction({
         videoUrl: upload.url,
         bytes: uploadData.byteLength,
       });
-      return markRecordingReady({
+      try {
+        await verifyServedMediaUrl(upload.url);
+      } catch (err) {
+        chunkKeysToPurge = [];
+        const failureReason = err instanceof Error ? err.message : String(err);
+        await failStoredButUnservableRecording({
+          id,
+          ownerEmail,
+          failureReason,
+        });
+        throw err;
+      }
+      const result = await markRecordingReady({
         ...readyParams,
         videoUrl: upload.url,
         videoSizeBytes: uploadData.byteLength,
         seekableApplied,
       });
+      return result;
     } finally {
-      // Unconditional chunk scratch-space cleanup. Runs on success AND on
-      // error — a throw during uploadFile / drizzle update / anything else
-      // used to leave gigabytes of base64 chunks in application_state
-      // forever. Best-effort: individual delete failures are logged but
-      // never re-thrown, because re-throwing from a finally would mask the
-      // original error that landed us here.
+      // Best-effort chunk scratch-space cleanup. Stored-but-unservable provider
+      // failures clear this list before throwing so a retry can re-upload from
+      // the buffered recovery copy.
       if (chunkKeysToPurge.length > 0) {
         let purged = 0;
         for (const key of chunkKeysToPurge) {

@@ -545,7 +545,15 @@ export default defineEventHandler(async (event: H3Event) => {
             updatedAt: new Date().toISOString(),
           })
           .where(eq(schema.recordings.id, recordingId));
+        const failedUploadStateRaw = await readAppState(
+          `recording-upload-${recordingId}`,
+        ).catch(() => null);
+        const failedUploadState =
+          failedUploadStateRaw && typeof failedUploadStateRaw === "object"
+            ? (failedUploadStateRaw as Record<string, unknown>)
+            : {};
         await writeAppState(`recording-upload-${recordingId}`, {
+          ...failedUploadState,
           recordingId,
           status: "failed",
           failureReason: err instanceof Error ? err.message : "Finalize failed",
