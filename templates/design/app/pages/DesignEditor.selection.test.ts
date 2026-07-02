@@ -38,6 +38,7 @@ import {
   shouldIgnoreOverviewLayerCreationEcho,
   shouldBlockPendingVisualStyleNavigation,
   shouldShowPendingVisualStyleApply,
+  shouldUseOverviewRuntimeReplacement,
   shouldMirrorSelectedElementToAgentChat,
   sortCodeLayerIdsByTreeOrder,
   formatPendingVisualStylePrompt,
@@ -898,6 +899,33 @@ describe("DesignEditor layer move source snapshots", () => {
     });
 
     expect(after).not.toBe(before);
+  });
+
+  it("uses overview runtime replacement only for inline screens without external snapshots", () => {
+    expect(
+      shouldUseOverviewRuntimeReplacement({
+        sourceType: "inline",
+        externalSnapshotHtml: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseOverviewRuntimeReplacement({
+        sourceType: "inline",
+        externalSnapshotHtml: "<html>snapshot</html>",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseOverviewRuntimeReplacement({
+        sourceType: "localhost",
+        externalSnapshotHtml: "<html>snapshot</html>",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseOverviewRuntimeReplacement({
+        sourceType: "fusion",
+        externalSnapshotHtml: "<html>snapshot</html>",
+      }),
+    ).toBe(false);
   });
 
   it("does not use a stale active snapshot for a different active file", () => {
