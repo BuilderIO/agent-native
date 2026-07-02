@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.42
+
+### Patch Changes
+
+- f24d6d4: Recover durable background agent runs that repeatedly restart the same action input without streaming any bytes.
+
 ## 0.84.41
 
 ### Patch Changes
