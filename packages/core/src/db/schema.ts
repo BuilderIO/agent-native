@@ -19,6 +19,7 @@
 import { sql } from "drizzle-orm";
 import {
   pgTable,
+  alias as pgAlias,
   index as pgIndex,
   text as pgText,
   integer as pgInteger,
@@ -28,6 +29,7 @@ import {
 } from "drizzle-orm/pg-core";
 import {
   sqliteTable,
+  alias as sqliteAlias,
   index as sqliteIndex,
   text as sqliteText,
   integer as sqliteInteger,
@@ -49,6 +51,9 @@ function pg(): boolean {
  */
 export const table: typeof sqliteTable = ((...args: any[]) =>
   pg() ? (pgTable as any)(...args) : (sqliteTable as any)(...args)) as any;
+
+export const alias: typeof sqliteAlias = ((...args: any[]) =>
+  pg() ? (pgAlias as any)(...args) : (sqliteAlias as any)(...args)) as any;
 
 export const index: typeof sqliteIndex = ((...args: any[]) =>
   pg() ? (pgIndex as any)(...args) : (sqliteIndex as any)(...args)) as any;
