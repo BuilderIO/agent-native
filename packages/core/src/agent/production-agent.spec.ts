@@ -4400,6 +4400,55 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(false);
   });
 
+  it("CHAINS a background run that completed tools but stopped before final text", () => {
+    const run = makeRun([
+      { type: "text", text: "I will update it now." },
+      {
+        type: "tool_start",
+        tool: "edit-design",
+        id: "tool-1",
+        input: { fileId: "f1" },
+      },
+      {
+        type: "tool_done",
+        tool: "edit-design",
+        id: "tool-1",
+        input: { fileId: "f1" },
+        result: '{"ok":true}',
+        completedSideEffect: true,
+      },
+      { type: "done" },
+    ]);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
+  });
+
+  it("does NOT chain a background run that sent final text after completed tools", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "tool_done",
+            tool: "edit-design",
+            result: '{"ok":true}',
+            completedSideEffect: true,
+          },
+          { type: "text", text: "Done." },
+          { type: "done" },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
   it("CHAINS a background run that ended at an auto_continue boundary", () => {
     expect(
       shouldChainBackgroundContinuation({
@@ -4480,6 +4529,46 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         },
       ]),
     ).toBeUndefined();
+  });
+
+  it("keeps earlier unfinished action-preparation context when a later parallel input starts and finishes", () => {
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+        {
+          type: "activity",
+          label: "Preparing generate-design action",
+          tool: "generate-design",
+          id: "generate-1",
+          progressBytes: 512,
+        },
+        {
+          type: "tool_start",
+          tool: "generate-design",
+          id: "generate-1",
+          input: { designId: "d1" },
+        },
+        {
+          type: "tool_done",
+          tool: "generate-design",
+          id: "generate-1",
+          input: { designId: "d1" },
+          result: '{"ok":true}',
+        },
+        {
+          type: "error",
+          error: "Builder gateway timed out after 45s",
+          errorCode: "builder_gateway_timeout",
+          recoverable: true,
+        },
+      ]),
+    ).toBe("edit-design");
   });
 
   it("does NOT chain an aborted/user-stopped background run", () => {

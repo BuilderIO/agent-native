@@ -4137,34 +4137,47 @@ function isPreparingActionActivityEvent(
 export function lastUnfinishedPreparingActionToolFromEvents(
   events: readonly AgentChatEvent[],
 ): string | undefined {
-  let active: {
+  const active = new Map<
+    string,
+    {
+      id?: string;
+      order: number;
+      tool: string;
+    }
+  >();
+  const removeMatchingActivePreparation = (event: {
     id?: string;
-    tool: string;
-  } | null = null;
-  for (const event of events) {
+    tool?: string;
+  }) => {
+    const id = event.id?.trim();
+    const tool = event.tool?.trim();
+    if (id) active.delete(`id:${id}`);
+    if (!tool) return;
+    for (const [key, value] of active) {
+      if (value.tool !== tool) continue;
+      if (!id || !value.id) active.delete(key);
+    }
+  };
+  events.forEach((event, order) => {
     if (isPreparingActionActivityEvent(event)) {
       const tool = event.tool?.trim();
       if (tool) {
-        active = {
+        const id = event.id?.trim();
+        const key = id ? `id:${id}` : `tool:${tool}`;
+        active.set(key, {
           tool,
-          ...(event.id?.trim() ? { id: event.id.trim() } : {}),
-        };
+          order,
+          ...(id ? { id } : {}),
+        });
       }
-      continue;
+      return;
     }
     if (event.type === "tool_start" || event.type === "tool_done") {
-      const tool = event.tool?.trim();
-      const id = event.id?.trim();
-      if (
-        active &&
-        ((id && active.id === id) || (!id && tool && active.tool === tool))
-      ) {
-        active = null;
-      }
-      continue;
+      removeMatchingActivePreparation(event);
+      return;
     }
     if (event.type === "error" && isRecoverableContinuationError(event)) {
-      continue;
+      return;
     }
     if (
       event.type === "clear" ||
@@ -4172,10 +4185,45 @@ export function lastUnfinishedPreparingActionToolFromEvents(
       event.type === "error" ||
       event.type === "missing_api_key"
     ) {
-      active = null;
+      active.clear();
+    }
+  });
+  let latest:
+    | {
+        order: number;
+        tool: string;
+      }
+    | undefined;
+  for (const value of active.values()) {
+    if (!latest || value.order > latest.order) {
+      latest = value;
     }
   }
-  return active?.tool;
+  return latest?.tool;
+}
+
+function endsAfterCompletedToolWithoutAssistantFinal(run: ActiveRun): boolean {
+  let completedToolAfterLastAssistantText = false;
+  for (const { event } of run.events) {
+    if (event.type === "text" && event.text.trim().length > 0) {
+      completedToolAfterLastAssistantText = false;
+      continue;
+    }
+    if (event.type === "tool_done" && event.isError !== true) {
+      completedToolAfterLastAssistantText = true;
+      continue;
+    }
+    if (
+      event.type === "clear" ||
+      event.type === "error" ||
+      event.type === "missing_api_key" ||
+      event.type === "auto_continue" ||
+      event.type === "loop_limit"
+    ) {
+      completedToolAfterLastAssistantText = false;
+    }
+  }
+  return completedToolAfterLastAssistantText;
 }
 
 function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {
@@ -4200,7 +4248,17 @@ export function backgroundContinuationReasonForRun(
       new EngineError(last.error, { errorCode: last.errorCode }),
     );
   }
+  if (endsAfterCompletedToolWithoutAssistantFinal(run)) {
+    return "stream_ended";
+  }
   return "run_timeout";
+}
+
+function endsAtContinuationBoundary(run: ActiveRun): boolean {
+  return (
+    endsAtInternalContinuationBoundary(run) ||
+    endsAfterCompletedToolWithoutAssistantFinal(run)
+  );
 }
 
 /**
@@ -4215,9 +4273,8 @@ export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
 /**
  * Whether the background worker should self-fire the next server-driven
  * continuation chunk. True only when this is a background worker run that ended
- * at a recoverable soft-timeout boundary (not aborted/stopped) and the chain is
- * still under its budget. Extracted so the decision is unit testable without
- * booting the whole handler.
+ * at a recoverable unfinished boundary (not aborted/stopped) and the chain is
+ * still under its budget. Aborted / user-stopped runs do NOT chain.
  */
 export function shouldChainBackgroundContinuation(opts: {
   isBackgroundWorker: boolean;
@@ -4227,7 +4284,7 @@ export function shouldChainBackgroundContinuation(opts: {
   return (
     opts.isBackgroundWorker &&
     opts.run.status !== "aborted" &&
-    endsAtInternalContinuationBoundary(opts.run) &&
+    endsAtContinuationBoundary(opts.run) &&
     opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
   );
 }
