@@ -116,9 +116,7 @@ export function DocumentTreeItem({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =
-    sidebarWidth === undefined
-      ? undefined
-      : Math.max(224, sidebarWidth - 8 + depth * 12);
+    sidebarWidth === undefined ? undefined : Math.max(0, sidebarWidth - 8);
   const {
     attributes,
     listeners,
@@ -145,7 +143,7 @@ export function DocumentTreeItem({
         {...(isLocalFileNode ? {} : listeners)}
         aria-label={node.title || "Untitled"}
         className={cn(
-          "group relative flex min-w-56 items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm cursor-pointer select-none",
+          "group relative flex min-w-0 items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm cursor-pointer select-none",
           canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isActive

@@ -29,8 +29,31 @@ describe("document sidebar layout", () => {
     expect(layout).toContain("const MIN_SIDEBAR_WIDTH = 240");
     expect(sidebar).toContain('className="min-w-full w-max py-2 pe-2"');
     expect(treeItem).toContain("const indent = depth * 12 + 12");
-    expect(treeItem).toContain("min-w-56");
+    expect(treeItem).toContain("min-w-0");
     expect(scrollArea).toContain('<ScrollBar orientation="horizontal" />');
+  });
+
+  it("keeps row actions inside the visible sidebar at narrow widths", () => {
+    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
+    const rowWidthBlock = treeItem.slice(
+      treeItem.indexOf("const rowWidth ="),
+      treeItem.indexOf("const {", treeItem.indexOf("const rowWidth =")),
+    );
+
+    expect(treeItem).toContain(": Math.max(0, sidebarWidth - 8)");
+    expect(rowWidthBlock).not.toContain("Math.max(224");
+    expect(rowWidthBlock).not.toContain("+ depth * 12");
+    expect(treeItem).toContain("absolute right-1 top-1/2");
+    expect(treeItem).toContain(
+      "group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+    );
+
+    const sidebarWidth = 180;
+    const rowWidth = Math.max(0, sidebarWidth - 8);
+    const actionsRightEdge = rowWidth - 4;
+
+    expect(rowWidth).toBeLessThanOrEqual(sidebarWidth);
+    expect(actionsRightEdge).toBeLessThanOrEqual(sidebarWidth);
   });
 
   it("gates page tree actions by document capabilities", () => {

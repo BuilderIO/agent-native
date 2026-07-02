@@ -2339,7 +2339,11 @@ function DatabaseItemPreviewSheet({
       <SheetContent
         side="right"
         showOverlay={false}
-        onInteractOutside={(event) => event.preventDefault()}
+        onInteractOutside={(event) => {
+          if (isDatabasePreviewPortalInteraction(event.target)) {
+            event.preventDefault();
+          }
+        }}
         className="flex w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[min(72vw,720px)] sm:!max-w-none lg:w-[50vw] lg:!max-w-[860px]"
       >
         {item ? (
@@ -2368,6 +2372,11 @@ function DatabaseItemPreviewSheet({
       </SheetContent>
     </Sheet>
   );
+}
+
+function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return !!target.closest("[data-database-preview-portal]");
 }
 
 function previewPayloadsEqual(
@@ -2791,7 +2800,11 @@ function DatabaseItemPreview({
                     <IconDots className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuContent
+                  align="end"
+                  className="w-44"
+                  data-database-preview-portal=""
+                >
                   {canEdit ? (
                     <DropdownMenuItem
                       disabled={duplicateItem.isPending}
@@ -2909,7 +2922,7 @@ function DatabaseItemPreview({
         </div>
       )}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent data-database-preview-portal="">
           <AlertDialogHeader>
             <AlertDialogTitle>
               <DatabaseText k="deleteRow2" />

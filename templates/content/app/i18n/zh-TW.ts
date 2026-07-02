@@ -285,6 +285,7 @@ const messages = {
       add: "新增",
       addOption: "新增選項",
       addProperty: "新增屬性",
+      addPropertyFailed: "無法新增屬性。",
       addPropertyLink: "新增 {{name}} 連結",
       addPropertyPerson: "新增 {{name}} 人",
       addPropertyType: "新增 {{type}} 屬性",
