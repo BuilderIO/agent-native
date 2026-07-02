@@ -8,6 +8,10 @@ import type {
   BuilderTextData,
 } from "./builder-docs-blocks";
 import {
+  builderSourceComponentMappingFor,
+  type BuilderSourceComponentMapping,
+} from "./builder-source-component-registry";
+import {
   parseRegistryBlockData,
   serializeRegistryBlockToMdx,
 } from "./nfm-registry";
@@ -386,6 +390,12 @@ function childBlocks(block: unknown): unknown[] {
   return Array.isArray(block.children) ? block.children : [];
 }
 
+function shouldReadThroughBuilderChildren(componentName: string | null) {
+  return (
+    builderSourceComponentMappingFor(componentName).mappingStatus === "unknown"
+  );
+}
+
 function isReadableUnsupportedBuilderPlaceholder(value: string) {
   const trimmed = value.trim();
   return (
@@ -504,7 +514,7 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
       continue;
     }
     const children = childBlocks(block);
-    if (children.length && children.some(builderBlockHasReadableOutput)) {
+    if (shouldReadThroughBuilderChildren(name) && children.length) {
       fingerprint.push(...(await expectedReadableLayoutFingerprint(children)));
       continue;
     }
@@ -786,6 +796,7 @@ function pluralize(count: number, singular: string) {
 
 function builderSourceComponentPreview(
   block: unknown,
+  mapping: BuilderSourceComponentMapping,
 ): Pick<
   SourceComponentData,
   "previewKind" | "previewUrl" | "previewItems" | "preview" | "summary"
@@ -883,12 +894,14 @@ function builderSourceComponentPreview(
     };
   }
   const summary = blockSummary(block);
+  const previewStatus =
+    mapping.mappingStatus === "unknown" ? "warning" : "available";
   return {
     previewKind: "component",
     preview: {
-      status: name ? "available" : "unavailable",
+      status: name ? previewStatus : "unavailable",
       kind: "component",
-      label: name ? `Builder ${name}` : "Builder component",
+      label: mapping.label,
       summary,
     },
     summary,
@@ -1075,6 +1088,23 @@ async function builderBlockToMdx(
     });
   }
 
+  const mapping = builderSourceComponentMappingFor(name);
+  if (mapping.mappingStatus === "preserved") {
+    const data: BuilderRawBlockData = {
+      ...raw,
+      summary: blockSummary(block),
+    };
+    if (childBlocks(block).length) {
+      ctx.warnings.push(
+        `${mapping.label} has child blocks that are preserved only in the raw sidecar.`,
+      );
+    }
+    return serializeRegistryBlockToMdx("builder-raw-block", {
+      id,
+      data,
+    });
+  }
+
   const children = childBlocks(block);
   if (children.length) {
     const childBody = await builderBlocksToMdxBody(children, ctx);
@@ -1104,6 +1134,7 @@ async function builderBlockToReadableMdx(
 ) {
   const name = componentName(block);
   const options = componentOptions(block);
+  const mapping = builderSourceComponentMappingFor(name);
 
   if (name === "Text") {
     return htmlToMarkdown(String(options.text ?? "")).trim();
@@ -1140,14 +1171,14 @@ async function builderBlockToReadableMdx(
   }
 
   const children = childBlocks(block);
-  if (children.length) {
+  if (shouldReadThroughBuilderChildren(name) && children.length) {
     const childBody = await builderBlocksToReadableMdxBody(children, ctx);
     if (childBody) return childBody;
   }
 
   if (name) {
     ctx.warnings.push(
-      `${name} is preserved in the Builder raw sidecar and shown as a read-only source component.`,
+      `${mapping.label} is preserved in the Builder raw sidecar and shown as a read-only source component.`,
     );
   }
   const data: SourceComponentData = {
@@ -1156,9 +1187,20 @@ async function builderBlockToReadableMdx(
     rawRef,
     rawHash: stableHash(block),
     sourceLabel: "Builder body",
-    previewStatus: name ? "available" : "unavailable",
-    title: name ? `Builder ${name}` : "Builder component",
-    ...builderSourceComponentPreview(block),
+    mappingId: mapping.id,
+    mappingStatus: mapping.mappingStatus,
+    mappingReason: mapping.reason,
+    sourceEditState: mapping.sourceEditState,
+    previewStatus:
+      mapping.mappingStatus === "unknown"
+        ? name
+          ? "warning"
+          : "unavailable"
+        : name
+          ? "available"
+          : "unavailable",
+    title: mapping.label,
+    ...builderSourceComponentPreview(block, mapping),
   };
   const id = sourceComponentMarkerIdForBlock(block);
   return serializeRegistryBlockToMdx("source-component", { id, data });
@@ -1262,7 +1304,9 @@ function collectReadableEditableSegments(
       }
       continue;
     }
-    collectReadableEditableSegments(childBlocks(block), segments);
+    if (shouldReadThroughBuilderChildren(name)) {
+      collectReadableEditableSegments(childBlocks(block), segments);
+    }
   }
   return segments;
 }
@@ -1289,7 +1333,9 @@ function builderBlockHasReadableOutput(block: unknown): boolean {
     });
   }
   const children = childBlocks(block);
-  return children.length ? children.some(builderBlockHasReadableOutput) : true;
+  return shouldReadThroughBuilderChildren(name) && children.length
+    ? children.some(builderBlockHasReadableOutput)
+    : true;
 }
 
 function countExpectedReadableSourceComponentMarkers(
@@ -1318,7 +1364,11 @@ function countExpectedReadableSourceComponentMarkers(
       continue;
     }
     const children = childBlocks(block);
-    if (children.length && children.some(builderBlockHasReadableOutput)) {
+    if (
+      shouldReadThroughBuilderChildren(name) &&
+      children.length &&
+      children.some(builderBlockHasReadableOutput)
+    ) {
       count += countExpectedReadableSourceComponentMarkers(children);
       continue;
     }
