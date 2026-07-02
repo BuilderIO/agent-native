@@ -120,6 +120,7 @@ import {
   IconTerminal2,
   IconLink,
   IconLock,
+  IconPuzzle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -170,6 +171,7 @@ import {
   EditPanel,
   type InspectCodeData,
   type InspectorTab,
+  type ScreenGeometrySelection,
 } from "@/components/design/EditPanel";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import { InspectorAiActions } from "@/components/design/inspector/InspectorAiActions";
@@ -188,6 +190,7 @@ import {
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
 import {
+  getInitialFrameGeometry,
   MultiScreenCanvas,
   OVERVIEW_FRAME_WIDTH,
   type CanvasLayerMarqueeSelection,
@@ -433,6 +436,47 @@ export function getSelectedScreenIdsForEditorState(args: {
         : [];
   }
   return activeFileId ? [activeFileId] : [];
+}
+
+export function getSelectedScreenGeometryForInspector(args: {
+  selectedInspectorElementCount: number;
+  selectedScreenIds: string[];
+  overviewScreens: Array<{
+    id: string;
+    filename: string;
+    title?: string;
+    width?: number;
+    height?: number;
+  }>;
+  canvasFrameGeometryById: CanvasFrameGeometryById;
+}): ScreenGeometrySelection | null {
+  if (args.selectedInspectorElementCount > 0) return null;
+  if (args.selectedScreenIds.length !== 1) return null;
+  const screenId = args.selectedScreenIds[0];
+  if (!screenId) return null;
+  const screenIndex = args.overviewScreens.findIndex(
+    (screen) => screen.id === screenId,
+  );
+  if (screenIndex < 0) return null;
+  const screen = args.overviewScreens[screenIndex];
+  if (!screen) return null;
+  const fallbackGeometry = getInitialFrameGeometry(screenIndex, {
+    width: screen.width ?? 1280,
+    height: screen.height ?? 2560,
+  });
+  const persistedGeometry = args.canvasFrameGeometryById[screenId] ?? {};
+  const geometry = {
+    ...fallbackGeometry,
+    ...persistedGeometry,
+  };
+  return {
+    id: screen.id,
+    title: screen.title ?? prettyScreenName(screen.filename),
+    x: geometry.x,
+    y: geometry.y,
+    width: geometry.width,
+    height: geometry.height,
+  };
 }
 
 function fileIdFromLayerSelectionId(
@@ -1719,12 +1763,10 @@ function designEditorCommandFromSearchParams(
   if (editorView === "overview" || editorView === "single") {
     command.editorView = editorView;
   }
-  if (
-    inspector === "design" ||
-    inspector === "tweaks" ||
-    inspector === "extensions"
-  ) {
+  if (inspector === "design" || inspector === "tweaks") {
     command.inspectorTab = inspector;
+  } else if (inspector === "extensions") {
+    command.leftPanel = "tools";
   }
   if (leftPanel) command.leftPanel = leftPanel;
   if (screen) command.screen = screen;
@@ -3605,7 +3647,7 @@ function DesignWorkspaceRail({
     {
       panel: "tools",
       label: t("designEditor.leftRail.tools"),
-      icon: <IconTerminal2 className="size-[15px]" />,
+      icon: <IconPuzzle className="size-[15px]" />,
     },
     {
       panel: "tokens",
@@ -4946,11 +4988,6 @@ export default function DesignEditor() {
   useEffect(() => {
     if (hasSelectedElement) focusDesignInspectorForSelection();
   }, [focusDesignInspectorForSelection, hasSelectedElement]);
-
-  useEffect(() => {
-    if (hasSelectedElement) return;
-    setActiveInspectorTab("tweaks");
-  }, [hasSelectedElement]);
 
   const startSidebarResize = useCallback(
     (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) => {
@@ -6655,13 +6692,9 @@ export default function DesignEditor() {
       if (target && !targetFile) return false;
 
       const inspectorTab =
-        command.inspectorTab === "design" ||
-        command.inspectorTab === "tweaks" ||
-        command.inspectorTab === "extensions"
+        command.inspectorTab === "design" || command.inspectorTab === "tweaks"
           ? command.inspectorTab
-          : command.inspector === "design" ||
-              command.inspector === "tweaks" ||
-              command.inspector === "extensions"
+          : command.inspector === "design" || command.inspector === "tweaks"
             ? command.inspector
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
@@ -8047,13 +8080,6 @@ export default function DesignEditor() {
     selectedElement?.sourceId,
   ]);
   useEffect(() => {
-    const urlParams = new URLSearchParams(location.search);
-    const urlKeepsExtensionsInspector =
-      urlParams.get("inspector") === "extensions" ||
-      urlParams.get("inspectorTab") === "extensions";
-    if (activeInspectorTab === "extensions" && urlKeepsExtensionsInspector) {
-      return;
-    }
     clearShaderFillPreview();
   }, [
     activeInspectorTab,
@@ -14615,6 +14641,19 @@ ${serializedHtml}
           : [],
     [selectedElement, selectedLayerTargets],
   );
+  const selectedScreenGeometry = useMemo<ScreenGeometrySelection | null>(() => {
+    return getSelectedScreenGeometryForInspector({
+      selectedInspectorElementCount: selectedInspectorElements.length,
+      selectedScreenIds,
+      overviewScreens,
+      canvasFrameGeometryById,
+    });
+  }, [
+    canvasFrameGeometryById,
+    overviewScreens,
+    selectedInspectorElements.length,
+    selectedScreenIds,
+  ]);
 
   const layerPanelSelectedIds = useMemo(
     () =>
@@ -17925,6 +17964,7 @@ ${serializedHtml}
                 <EditPanel
                   selectedElement={selectedElement}
                   selectedElements={selectedInspectorElements}
+                  selectedScreenGeometry={selectedScreenGeometry}
                   pageStyles={pageStyles}
                   zoom={zoom}
                   headerTrailing={renderZoomControl("inspector")}
@@ -17945,13 +17985,6 @@ ${serializedHtml}
                     })
                   }
                   onRequestTweaks={handleRequestTweaks}
-                  extensionsPanel={
-                    <DesignExtensionsPanel
-                      context={designExtensionContext}
-                      hideAssetLibrary
-                      title={t("designEditor.extensions")}
-                    />
-                  }
                   onStyleChange={handleStyleChange}
                   onStylesChange={handleStylesChange}
                   onExport={handleInspectorExport}

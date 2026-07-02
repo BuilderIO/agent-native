@@ -32,6 +32,7 @@ import {
   isScreenRootElementInfo,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
+  getSelectedScreenGeometryForInspector,
   shouldReplacePreviewAfterVisualStyleCommit,
   shouldLimitEditorChromeUntilContentReady,
   shouldEscapeToOverview,
@@ -65,6 +66,75 @@ describe("DesignEditor overview selection state", () => {
         viewMode: "single",
       }),
     ).toEqual(["screen-active"]);
+  });
+});
+
+describe("DesignEditor selected screen inspector geometry", () => {
+  const overviewScreens = [
+    {
+      id: "screen-a",
+      filename: "index.html",
+      title: "Home",
+      width: 1280,
+      height: 800,
+    },
+    {
+      id: "screen-b",
+      filename: "pricing.html",
+      width: 390,
+      height: 844,
+    },
+  ];
+
+  it("uses persisted canvas frame geometry for the selected screen", () => {
+    expect(
+      getSelectedScreenGeometryForInspector({
+        selectedInspectorElementCount: 0,
+        selectedScreenIds: ["screen-a"],
+        overviewScreens,
+        canvasFrameGeometryById: {
+          "screen-a": { x: 24, y: 48, width: 360, height: 225 },
+        },
+      }),
+    ).toEqual({
+      id: "screen-a",
+      title: "Home",
+      x: 24,
+      y: 48,
+      width: 360,
+      height: 225,
+    });
+  });
+
+  it("falls back to the rendered overview frame geometry when none is persisted", () => {
+    expect(
+      getSelectedScreenGeometryForInspector({
+        selectedInspectorElementCount: 0,
+        selectedScreenIds: ["screen-b"],
+        overviewScreens,
+        canvasFrameGeometryById: {},
+      }),
+    ).toMatchObject({
+      id: "screen-b",
+      title: "Pricing",
+      x: 376,
+      y: 0,
+      width: 320,
+      height: 693,
+    });
+  });
+
+  it("does not replace DOM layer geometry while an element is selected", () => {
+    expect(
+      getSelectedScreenGeometryForInspector({
+        selectedInspectorElementCount: 1,
+        selectedScreenIds: ["screen-a"],
+        overviewScreens,
+        canvasFrameGeometryById: {
+          "screen-a": { x: 24, y: 48, width: 360, height: 225 },
+        },
+      }),
+    ).toBeNull();
   });
 });
 
