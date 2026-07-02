@@ -7346,6 +7346,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
+            const runClaim = await readBackgroundRunClaim(runId).catch(
+              () => null,
+            );
             const query = getQuery(event);
             const after = parseInt(String(query.after ?? "0"), 10) || 0;
 
@@ -7358,6 +7361,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseHeader(event, "Content-Type", "text/event-stream");
             setResponseHeader(event, "Cache-Control", "no-cache");
             setResponseHeader(event, "Connection", "keep-alive");
+            setResponseHeader(
+              event,
+              "X-Dispatch-Mode",
+              runClaim?.dispatchMode ?? "foreground",
+            );
             return stream;
           }
 

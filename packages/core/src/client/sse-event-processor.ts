@@ -148,6 +148,16 @@ export class AgentAutoContinueSignal extends Error {
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
 
+export interface SSEStreamOptions {
+  /**
+   * Durable background runs have their own server-side liveness budget and
+   * heartbeat. While one is active, keepalive-only periods and zero-byte
+   * action-preparation activity should keep the client attached instead of
+   * aborting and starting duplicate continuations.
+   */
+  durableBackgroundRun?: boolean;
+}
+
 type ActivityTrailEntry = AgentActivityTrailEntry;
 
 type PreparingActionEntry = {
@@ -193,9 +203,13 @@ function isPreparingActionActivity(ev: SSEEvent): boolean {
 function isMeaningfulProgressEvent(
   ev: SSEEvent,
   actionPreparationProgress?: boolean,
+  options?: SSEStreamOptions,
 ): boolean {
-  if (ev.type === "stream_keepalive") return false;
+  if (ev.type === "stream_keepalive") {
+    return options?.durableBackgroundRun === true;
+  }
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
+    if (options?.durableBackgroundRun === true) return true;
     return actionPreparationProgress === true;
   }
   return true;
@@ -345,7 +359,12 @@ function updatePreparingActionState(
   return undefined;
 }
 
-function hasStalledPreparingAction(state: PreparingActionState, now: number) {
+function hasStalledPreparingAction(
+  state: PreparingActionState,
+  now: number,
+  options?: SSEStreamOptions,
+) {
+  if (options?.durableBackgroundRun === true) return false;
   // Fire only when a tool input has gone SILENT — no further streaming deltas
   // for the whole window — never merely because a large input has been
   // streaming for a long time. `lastProgressAt` advances on every delta
@@ -1193,6 +1212,7 @@ export async function* readSSEStream(
   tabId: string | undefined,
   onSeq?: (seq: number) => void,
   runId?: string | null,
+  options?: SSEStreamOptions,
 ): AsyncGenerator<ChatModelRunResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -1278,7 +1298,7 @@ export async function* readSSEStream(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress)) {
+        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
@@ -1320,7 +1340,9 @@ export async function* readSSEStream(
         );
 
         if (result) yield withStreamMetadata(result);
-        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
+        if (
+          hasStalledPreparingAction(preparingActionState, Date.now(), options)
+        ) {
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
@@ -1384,6 +1406,7 @@ export async function readSSEStreamRaw(
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
   onSeq?: (seq: number) => void,
+  options?: SSEStreamOptions,
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -1444,7 +1467,7 @@ export async function readSSEStreamRaw(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress)) {
+        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
@@ -1502,7 +1525,9 @@ export async function readSSEStreamRaw(
               : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
-        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
+        if (
+          hasStalledPreparingAction(preparingActionState, Date.now(), options)
+        ) {
           onUpdate(contentSnapshot(content));
           throw new AgentAutoContinueSignal({
             reason: "no_progress",

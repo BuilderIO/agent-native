@@ -5106,6 +5106,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", runId);
+          setResponseHeader(event, "X-Dispatch-Mode", "background");
           return stream;
         }
         // A background worker owns this run but we cannot subscribe — surface an
@@ -5912,6 +5913,7 @@ export function createProductionAgentHandler(
     setResponseHeader(event, "Cache-Control", "no-cache");
     setResponseHeader(event, "Connection", "keep-alive");
     setResponseHeader(event, "X-Run-Id", runId);
+    setResponseHeader(event, "X-Dispatch-Mode", "foreground");
 
     return stream;
   });

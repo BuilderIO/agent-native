@@ -1418,6 +1418,7 @@ export function createAgentChatAdapter(
       const turnId = generateTurnId();
       let runId: string | null = null;
       let lastSeq = -1;
+      let currentRunDispatchMode: string | null = null;
       let currentMessageText = normalizeMentions(
         recoveryMessageText.trim() || userMessageText,
       );
@@ -1579,6 +1580,17 @@ export function createAgentChatAdapter(
         }
       };
 
+      const updateCurrentRunDispatchMode = (value: unknown) => {
+        if (typeof value !== "string") return;
+        const mode = value.trim();
+        if (mode) currentRunDispatchMode = mode;
+      };
+
+      const currentSSEOptions = () => ({
+        durableBackgroundRun:
+          currentRunDispatchMode?.startsWith("background") === true,
+      });
+
       const captureChatClientError = (
         error: unknown,
         phase: string,
@@ -1687,6 +1699,9 @@ export function createAgentChatAdapter(
                 reconnectErrorCaptured = true;
                 break;
               }
+              updateCurrentRunDispatchMode(
+                reconnectRes.headers.get("X-Dispatch-Mode"),
+              );
 
               for await (const result of readSSEStream(
                 reconnectRes.body,
@@ -1698,6 +1713,7 @@ export function createAgentChatAdapter(
                   if (threadId) updateActiveRunSeq(seq);
                 },
                 runId,
+                currentSSEOptions(),
               )) {
                 yield withRequestModeMetadata(result);
               }
@@ -1778,6 +1794,7 @@ export function createAgentChatAdapter(
               }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
+                updateCurrentRunDispatchMode(active.dispatchMode);
                 const activeStatus =
                   typeof active.status === "string" ? active.status : "";
                 const activeTurnId =
@@ -1851,6 +1868,7 @@ export function createAgentChatAdapter(
                   typeof active.dispatchMode === "string"
                     ? active.dispatchMode
                     : "";
+                updateCurrentRunDispatchMode(dispatchMode);
                 if (activeRunId === interruptedRunId) {
                   if (dispatchMode.startsWith("background")) continue;
                   return false;
@@ -2429,6 +2447,7 @@ export function createAgentChatAdapter(
 
             // Track the run ID for reconnection
             runId = res.headers.get("X-Run-Id");
+            updateCurrentRunDispatchMode(res.headers.get("X-Dispatch-Mode"));
             if (runId && !attemptedRunIds.includes(runId)) {
               attemptedRunIds.push(runId);
             }
@@ -2448,6 +2467,7 @@ export function createAgentChatAdapter(
                 }
               },
               runId,
+              currentSSEOptions(),
             )) {
               yield withRequestModeMetadata(result);
             }
