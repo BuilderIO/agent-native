@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.84.59
+
+### Patch Changes
+
+- 13379f1: Fix empty responses from non-Anthropic models (GPT-5.x, Gemini) on the Builder
+  gateway. Action tool schemas generated from `z.record(...)` emitted a
+  `propertyNames` JSON Schema keyword that OpenAI's function-calling validator
+  rejects with `400 invalid_function_parameters`, producing an empty assistant
+  turn. Tool schemas now strip `propertyNames` so they stay portable across
+  providers (Anthropic already ignored it).
+
 ## 0.84.58
 
 ### Patch Changes
