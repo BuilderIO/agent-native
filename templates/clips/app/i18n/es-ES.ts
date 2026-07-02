@@ -654,6 +654,9 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     s3SecretAccessKeyLabel: "Clave de acceso secreta",
     s3RegionLabel: "Región",
     s3PublicBaseUrlLabel: "URL base pública",
+    s3UrlInvalid: "Debe ser una URL válida (p. ej. https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid: "El nombre del bucket debe tener 3–63 letras minúsculas, números o guiones",
+    s3RegionInvalid: "Debe ser una región válida (p. ej. us-east-1) o \"auto\"",
     apiSetup: "Configuración de IA",
     apiSetupDescription:
       "Conecta IA con créditos gratis de Builder.io o tus propias claves LLM.",

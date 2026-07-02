@@ -399,19 +399,22 @@ export default function SettingsIndexRoute() {
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
+  const [s3Errors, setS3Errors] = useState<Record<string, string>>({});
   const [s3Expanded, setS3Expanded] = useState(false);
   const [apiKeysExpanded, setApiKeysExpanded] = useState(false);
   const [apiKeyValues, setApiKeyValues] = useState<Record<string, string>>({});
   const [apiKeyStatus, setApiKeyStatus] = useState<Record<string, boolean>>({});
+  const [secretLast4, setSecretLast4] = useState<Record<string, string>>({});
   const [apiKeyStatusLoading, setApiKeyStatusLoading] = useState(true);
   const [savingApiKey, setSavingApiKey] = useState<string | null>(null);
 
   const refreshApiKeyStatus = useCallback(async () => {
     setApiKeyStatusLoading(true);
     try {
-      const [envRes, secretsRes] = await Promise.all([
+      const [envRes, secretsRes, adhocRes] = await Promise.all([
         fetch(agentNativePath("/_agent-native/env-status")),
         fetch(agentNativePath("/_agent-native/secrets")),
+        fetch(agentNativePath("/_agent-native/secrets/adhoc")),
       ]);
       const envData = envRes.ok
         ? ((await envRes.json()) as Array<{
@@ -425,12 +428,24 @@ export default function SettingsIndexRoute() {
             status?: string;
           }>)
         : [];
+      const adhocData = adhocRes.ok
+        ? ((await adhocRes.json()) as Array<{
+            name: string;
+            last4?: string;
+          }>)
+        : [];
       const next = Object.fromEntries(
         envData.map((entry) => [entry.key, Boolean(entry.configured)]),
       );
       for (const entry of secretsData) {
         next[entry.key] = entry.status === "set";
       }
+      const nextLast4: Record<string, string> = {};
+      for (const entry of adhocData) {
+        next[entry.name] = true;
+        if (entry.last4) nextLast4[entry.name] = entry.last4;
+      }
+      setSecretLast4(nextLast4);
       setApiKeyStatus(next);
     } catch {
       setApiKeyStatus({});
@@ -477,7 +492,40 @@ export default function SettingsIndexRoute() {
     }
   }
 
+  function validateS3Values(
+    values: Record<string, string>,
+  ): Record<string, string> {
+    const errors: Record<string, string> = {};
+    const urlFields = ["S3_ENDPOINT", "S3_PUBLIC_BASE_URL"];
+    for (const key of urlFields) {
+      const val = (values[key] ?? "").trim();
+      if (!val) continue;
+      try {
+        const parsed = new URL(val);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          errors[key] = t("settings.s3UrlInvalid");
+        }
+      } catch {
+        errors[key] = t("settings.s3UrlInvalid");
+      }
+    }
+    const bucket = (values["S3_BUCKET"] ?? "").trim();
+    if (bucket && !/^[a-z0-9][a-z0-9\-.]{1,61}[a-z0-9]$/.test(bucket)) {
+      errors["S3_BUCKET"] = t("settings.s3BucketInvalid");
+    }
+    const region = (values["S3_REGION"] ?? "").trim();
+    if (region && !/^[a-z]{2,}-[a-z]+-\d+$|^auto$/.test(region)) {
+      errors["S3_REGION"] = t("settings.s3RegionInvalid");
+    }
+    return errors;
+  }
+
   async function handleSaveS3Storage() {
+    const validationErrors = validateS3Values(s3Values);
+    if (Object.keys(validationErrors).length > 0) {
+      setS3Errors(validationErrors);
+      return;
+    }
     const s3Configured = storageStatus.data?.activeProvider?.id === "s3";
     const missing = s3Configured
       ? []
@@ -785,31 +833,68 @@ export default function SettingsIndexRoute() {
                       <CollapsibleContent>
                         <div className="space-y-4 border-t border-border px-3 py-4">
                           <div className="grid gap-4 sm:grid-cols-2">
-                            {S3_STORAGE_FIELDS.map((field) => (
-                              <div key={field.key} className="space-y-1.5">
-                                <Label htmlFor={field.key}>
-                                  {t(field.labelKey)}
-                                </Label>
-                                <Input
-                                  id={field.key}
-                                  type={
-                                    "secret" in field && field.secret
-                                      ? "password"
-                                      : "text"
-                                  }
-                                  value={s3Values[field.key] ?? ""}
-                                  onChange={(event) =>
-                                    setS3Values((current) => ({
-                                      ...current,
-                                      [field.key]: event.target.value,
-                                    }))
-                                  }
-                                  placeholder={field.placeholder}
-                                  autoComplete="off"
-                                  disabled={savingStorage}
-                                />
-                              </div>
-                            ))}
+                            {S3_STORAGE_FIELDS.map((field) => {
+                              const configured = Boolean(
+                                apiKeyStatus[field.key],
+                              );
+                              const last4 = secretLast4[field.key];
+                              return (
+                                <div key={field.key} className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Label htmlFor={field.key}>
+                                      {t(field.labelKey)}
+                                    </Label>
+                                    {configured ? (
+                                      <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
+                                        <IconCheck className="h-3 w-3" />
+                                        {last4
+                                          ? `••••${last4}`
+                                          : t("settings.keySet")}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <Input
+                                    id={field.key}
+                                    type={
+                                      "secret" in field && field.secret
+                                        ? "password"
+                                        : "text"
+                                    }
+                                    value={s3Values[field.key] ?? ""}
+                                    onChange={(event) => {
+                                      setS3Values((current) => ({
+                                        ...current,
+                                        [field.key]: event.target.value,
+                                      }));
+                                      if (s3Errors[field.key]) {
+                                        setS3Errors((current) => {
+                                          const next = { ...current };
+                                          delete next[field.key];
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    placeholder={
+                                      configured
+                                        ? t("settings.replaceKey")
+                                        : field.placeholder
+                                    }
+                                    autoComplete="off"
+                                    disabled={savingStorage}
+                                    className={
+                                      s3Errors[field.key]
+                                        ? "border-destructive"
+                                        : undefined
+                                    }
+                                  />
+                                  {s3Errors[field.key] ? (
+                                    <p className="text-[11px] text-destructive">
+                                      {s3Errors[field.key]}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
                           </div>
 
                           <div className="flex justify-end">

@@ -637,6 +637,9 @@ const messages = {
     s3SecretAccessKeyLabel: "مفتاح الوصول السري",
     s3RegionLabel: "المنطقة",
     s3PublicBaseUrlLabel: "عنوان URL الأساسي العام",
+    s3UrlInvalid: "يجب أن يكون عنوان URL صالحًا (مثال: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid: "يجب أن يتكون اسم الحاوية من 3 إلى 63 حرفًا صغيرًا أو رقمًا أو شرطة",
+    s3RegionInvalid: "يجب أن تكون منطقة صالحة (مثال: us-east-1) أو \"auto\"",
     apiSetup: "إعداد الذكاء الاصطناعي",
     apiSetupDescription:
       "صِل الذكاء الاصطناعي باستخدام أرصدة Builder.io المجانية أو مفاتيح LLM الخاصة بك.",

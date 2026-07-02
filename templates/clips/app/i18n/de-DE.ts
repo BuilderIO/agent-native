@@ -662,6 +662,9 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     s3SecretAccessKeyLabel: "Geheimer Zugriffsschlüssel",
     s3RegionLabel: "Übersetzt: Region",
     s3PublicBaseUrlLabel: "Öffentliche Basis-URL",
+    s3UrlInvalid: "Muss eine gültige URL sein (z. B. https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid: "Bucket-Name muss 3–63 Kleinbuchstaben, Zahlen oder Bindestriche enthalten",
+    s3RegionInvalid: "Muss eine gültige Region sein (z. B. us-east-1) oder \"auto\"",
     apiSetup: "KI-Einrichtung",
     apiSetupDescription:
       "Verbinde KI mit kostenlosen Builder.io-Credits oder deinen eigenen LLM-Schlüsseln.",

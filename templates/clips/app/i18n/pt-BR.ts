@@ -652,6 +652,9 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     s3SecretAccessKeyLabel: "Chave de acesso secreta",
     s3RegionLabel: "Região",
     s3PublicBaseUrlLabel: "URL base pública",
+    s3UrlInvalid: "Deve ser uma URL válida (ex.: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid: "O nome do bucket deve ter 3–63 letras minúsculas, números ou hifens",
+    s3RegionInvalid: "Deve ser uma região válida (ex.: us-east-1) ou \"auto\"",
     apiSetup: "Configuração de IA",
     apiSetupDescription:
       "Conecte IA com créditos grátis da Builder.io ou suas próprias chaves LLM.",
