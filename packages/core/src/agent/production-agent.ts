@@ -5475,13 +5475,19 @@ export function createProductionAgentHandler(
           turnId: effectiveTurnId,
         }
       : null;
+    const willChainBackgroundContinuation = (run: ActiveRun) =>
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker,
+        run,
+        continuationCount: backgroundContinuationCount,
+      });
 
     const completeTrackedProgressRun = async (
       run: ActiveRun,
       completionError?: unknown,
     ) => {
       if (!trackedProgressRunId || !trackedProgressOwner) return;
-      if (!completionError && endsAtContinuationBoundary(run)) {
+      if (!completionError && willChainBackgroundContinuation(run)) {
         return;
       }
       const terminalStatus =
@@ -5577,7 +5583,7 @@ export function createProductionAgentHandler(
               if (
                 isBackgroundWorker &&
                 run.status === "errored" &&
-                !endsAtContinuationBoundary(run)
+                !willChainBackgroundContinuation(run)
               ) {
                 const errEvent = [...run.events]
                   .reverse()
@@ -5606,30 +5612,24 @@ export function createProductionAgentHandler(
               // agent-teams `fireInternalDispatch({ body: { mode: "continue" }})`
               // chain. Bounded by MAX_BACKGROUND_RUN_CONTINUATIONS. Aborted /
               // user-stopped runs do NOT chain.
-              if (
-                shouldChainBackgroundContinuation({
-                  // Self-chain server-side for EVERY durable worker, not only the
-                  // ones inside a `-background` function. Server-driven
-                  // continuation is the whole point of durable background: the run
-                  // must survive the client disconnecting (closed tab), so it
-                  // cannot depend on the browser re-POSTing `auto_continue`. A
-                  // worker on the regular ~60s function — a Netlify routing miss,
-                  // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
-                  // never emits a `-background` function — checkpoints at the 40s
-                  // soft-timeout and self-dispatches the next 40s chunk; a worker
-                  // in a real `-background` function chains ~13-min chunks. Only
-                  // the per-chunk BUDGET differs by function type (gated by
-                  // `runsInBackgroundFunction` at the startRun call below); the
-                  // continuation itself must stay server-driven on both. (The
-                  // self-chain is only reachable when the initial dispatch already
-                  // succeeded — a dispatch fast-fail degrades to the inline
-                  // foreground fallback, which is not a worker and rides the
-                  // connected client's auto_continue instead.)
-                  isBackgroundWorker,
-                  run,
-                  continuationCount: backgroundContinuationCount,
-                })
-              ) {
+              // Self-chain server-side for EVERY durable worker, not only the
+              // ones inside a `-background` function. Server-driven
+              // continuation is the whole point of durable background: the run
+              // must survive the client disconnecting (closed tab), so it
+              // cannot depend on the browser re-POSTing `auto_continue`. A
+              // worker on the regular ~60s function — a Netlify routing miss,
+              // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
+              // never emits a `-background` function — checkpoints at the 40s
+              // soft-timeout and self-dispatches the next 40s chunk; a worker
+              // in a real `-background` function chains ~13-min chunks. Only
+              // the per-chunk BUDGET differs by function type (gated by
+              // `runsInBackgroundFunction` at the startRun call below); the
+              // continuation itself must stay server-driven on both. (The
+              // self-chain is only reachable when the initial dispatch already
+              // succeeded — a dispatch fast-fail degrades to the inline
+              // foreground fallback, which is not a worker and rides the
+              // connected client's auto_continue instead.)
+              if (willChainBackgroundContinuation(run)) {
                 // Mint the next chunk's runId here and sign the dispatch token
                 // over it, so the `_process-run` route's HMAC check and the
                 // worker's run identity agree. Fresh runId (not this chunk's) so
