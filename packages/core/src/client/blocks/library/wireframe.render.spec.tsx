@@ -92,6 +92,9 @@ describe("wireframe auto-height frame", () => {
     expect(HTML_ROUGH_SELECTOR).toContain(".wf-pill");
     expect(HTML_ROUGH_SELECTOR).toContain(".wf-chip");
     expect(HTML_ROUGH_SELECTOR).toContain(".wf-icon-fallback");
+    expect(HTML_ROUGH_SELECTOR).toContain("[style*='border:']");
+    expect(HTML_ROUGH_SELECTOR).toContain("[style*='border-bottom:']");
+    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-frame-target");
   });
 
   it("hides standard primitive borders after rough.js redraws them", () => {
@@ -102,13 +105,16 @@ describe("wireframe auto-height frame", () => {
       )?.[0] ?? "";
 
     expect(hideRule).toContain("button");
-    expect(hideRule).toContain('[data-rough]:not([data-rough="none"])');
+    expect(hideRule).toContain("[data-rough]");
     expect(hideRule).toContain(".wf-btn");
     expect(hideRule).toContain(".wf-card");
     expect(hideRule).toContain(".wf-box");
     expect(hideRule).toContain(".wf-pill");
     expect(hideRule).toContain(".wf-chip");
     expect(hideRule).toContain(".wf-icon-fallback");
+    expect(hideRule).toContain('[style*="border:"]');
+    expect(hideRule).toContain('[style*="border-bottom:"]');
+    expect(hideRule).toContain(':not([data-rough="none"])');
   });
 
   it("strips theme-breaking Tailwind color and shadow classes from wireframes", () => {

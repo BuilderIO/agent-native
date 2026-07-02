@@ -30,56 +30,7 @@ pnpm dev
 
 ## 2. أضف action {#add-an-action}
 
-Action هي عملية typed operation مشتركة بين agent و UI. في هذا المسار أنشئ `actions/analyze-responses.ts`: تحلل ردود النماذج وتعيد Response insights.
-
-```ts
-export default defineAction({
-  description: "Analyze recent form responses and summarize the trend.",
-  outputSchema: dataInsightsWidgetResultSchema,
-  chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-    title: "Response insights",
-  },
-  readOnly: true,
-  run: async () =>
-    createDataInsightsWidgetResult({
-      title: "Response insights",
-      display: {
-        title: "42 responses",
-        description: "Completion rose this week.",
-        primaryAction: {
-          label: "افتح رؤى الردود",
-          href: "/response-insights",
-        },
-      },
-      chartSeries: {
-        type: "bar",
-        xKey: "day",
-        series: [{ key: "responses", label: "Responses" }],
-        data: Array.from({ length: 10 }, (_, day) => ({
-          day: day + 1,
-          responses: Math.round(Math.random() * 10) + 10,
-        })),
-      },
-    }),
-});
-```
-
-شغلها مباشرة:
-
-```bash
-pnpm action analyze-responses --formId demo
-```
-
-أو اسأل agent في المتصفح:
-
-> حلّل الردود الأخيرة لنموذج العرض.
-
-## 3. اعرض النتيجة داخل الدردشة {#render-inline}
-
-لأن action تعلن `outputSchema` و `chatUI.renderer`، لا يحول transcript البيانات المنظمة إلى نص عادي. يعرض مكون React أصليًا: ملخصًا ورسمًا وجدولًا ورابطًا إلى الصفحة التفصيلية. راجع [Native Chat UI](/docs/native-chat-ui).
-
-لإنشاء رسمك الخاص بدل استخدام data widgets المدمجة، أعط action معرّف renderer خاصًا بالمنتج وأعد شكل JSON الخاص بك بعد التحقق منه:
+Action هي عملية typed operation مشتركة بين agent و UI. في هذا المسار أنشئ `actions/analyze-responses.ts`: تحلل ردود النماذج وتعيد شكلاً موثقًا لرسم مخصص داخل الدردشة.
 
 ```ts
 // actions/analyze-responses.ts
@@ -115,12 +66,25 @@ export default defineAction({
       { day: "Mon", responses: 12 },
       { day: "Tue", responses: 18 },
       { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
     ],
   }),
 });
 ```
 
-ثم سجّل مكون React لذلك المعرّف نفسه عند بدء التطبيق، مثل استيراد `app/chat-renderers.tsx` مرة واحدة من `app/root.tsx`:
+شغلها مباشرة:
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+أو اسأل agent في المتصفح:
+
+> حلّل الردود الأخيرة لنموذج العرض.
+
+## 3. اعرض النتيجة داخل الدردشة {#render-inline}
+
+لأن action تعلن `outputSchema` و `chatUI.renderer` خاصًا بالمنتج، لا يحول transcript البيانات المنظمة إلى نص عادي. سجّل مكون React لذلك المعرّف نفسه عند بدء التطبيق، مثل استيراد `app/chat-renderers.tsx` مرة واحدة من `app/root.tsx`:
 
 ```tsx
 // app/chat-renderers.tsx
@@ -165,6 +129,8 @@ registerActionChatRenderer({
   Component: ResponseChart,
 });
 ```
+
+للمخرجات العامة القابلة لإعادة الاستخدام، يوفّر framework أيضًا renderers مدمجة هي `data-chart` و `data-table`، إضافة إلى `data-insights` لبطاقات تجمع الملخص والرسم والجدول. راجع [Native Chat UI](/docs/native-chat-ui).
 
 <WireframeBlock id="doc-block-inline-result-wireframe-ar">
   <Screen

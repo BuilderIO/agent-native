@@ -56,8 +56,8 @@ import {
  * - The plan-only prototype runtime, design-element selection, and legacy region
  *   fallback are intentionally NOT ported; those are plan-canvas features, not
  *   part of the document-block render. The kit element vocabulary, the `--wf-*`
- *   token contract, and the `.plan-wf` / `[data-rough]` classes the overlay
- *   measures are preserved exactly.
+ *   token contract, and the `.plan-wf` / `.wf-*` / `[data-rough]` classes the
+ *   overlay measures are preserved exactly.
  *
  * The section carries the app-neutral `an-block` class plus the legacy
  * `plan-block` class so plan renders byte-identically while any other app gets
