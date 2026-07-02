@@ -3832,26 +3832,88 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    var pendingPlainPasteHotkeyTimer = null;
+    function clearPendingPlainPasteHotkey() {
+      if (pendingPlainPasteHotkeyTimer === null) return;
+      window.clearTimeout(pendingPlainPasteHotkeyTimer);
+      pendingPlainPasteHotkeyTimer = null;
+    }
+    function postDesignHotkey(payload) {
+      window.parent.postMessage(
+        {
+          type: "design-hotkey",
+          key: payload.key,
+          code: payload.code,
+          metaKey: !!payload.metaKey,
+          ctrlKey: !!payload.ctrlKey,
+          shiftKey: !!payload.shiftKey,
+          altKey: !!payload.altKey,
+          repeat: !!payload.repeat
+        },
+        "*"
+      );
+    }
     document.addEventListener(
       "keydown",
       function(e) {
         if (!shouldForwardDesignHotkey(e)) return;
+        var key = e.key;
+        var normalized = key && key.length === 1 ? key.toLowerCase() : key;
+        var primary = e.metaKey || e.ctrlKey;
+        var plainPasteHotkey = primary && normalized === "v" && !e.altKey && !e.shiftKey;
         if (e.key === "Escape" && cancelActiveBridgeDrag()) {
           stopNativeInteraction(e);
           return;
         }
+        var payload = {
+          key: e.key,
+          code: e.code,
+          metaKey: !!e.metaKey,
+          ctrlKey: !!e.ctrlKey,
+          shiftKey: !!e.shiftKey,
+          altKey: !!e.altKey,
+          repeat: !!e.repeat
+        };
+        if (plainPasteHotkey) {
+          clearPendingPlainPasteHotkey();
+          pendingPlainPasteHotkeyTimer = window.setTimeout(function() {
+            pendingPlainPasteHotkeyTimer = null;
+            postDesignHotkey(payload);
+          }, 0);
+          return;
+        }
         stopNativeInteraction(e);
         if (e.key === "Escape") clearRuntimeSelection();
+        postDesignHotkey(payload);
+      },
+      true
+    );
+    function hasFigmaClipboardPayload(value) {
+      return /<[^>]+\\sdata-(metadata|buffer)=["'][^"']*\\((figmeta|figma)\\)[^"']*["']/i.test(
+        String(value || "")
+      );
+    }
+    function getFigmaClipboardContent(data) {
+      if (!data || !data.getData) return "";
+      var html = data.getData("text/html") || "";
+      if (hasFigmaClipboardPayload(html)) return html;
+      var text = data.getData("text/plain") || "";
+      return hasFigmaClipboardPayload(text) ? text : "";
+    }
+    document.addEventListener(
+      "paste",
+      function(e) {
+        if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target) || isEditorTypingTarget(e.target)) {
+          return;
+        }
+        var content = getFigmaClipboardContent(e.clipboardData);
+        clearPendingPlainPasteHotkey();
+        if (!content) return;
+        stopNativeInteraction(e);
         window.parent.postMessage(
           {
-            type: "design-hotkey",
-            key: e.key,
-            code: e.code,
-            metaKey: !!e.metaKey,
-            ctrlKey: !!e.ctrlKey,
-            shiftKey: !!e.shiftKey,
-            altKey: !!e.altKey,
-            repeat: !!e.repeat
+            type: "figma-clipboard-paste",
+            content
           },
           "*"
         );

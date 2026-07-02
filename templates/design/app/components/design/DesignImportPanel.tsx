@@ -5,6 +5,7 @@ import {
   IconChevronRight,
   IconCircleCheck,
   IconCode,
+  IconCopy,
   IconHtml,
   IconUpload,
 } from "@tabler/icons-react";
@@ -23,6 +24,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import {
+  getFigmaClipboardContent,
+  importResultSummary,
+  looksLikeStandaloneHtml,
+  VISUAL_EDIT_CONNECT_COMMAND,
+  type ImportResult,
+} from "@/lib/design-import";
 import { cn } from "@/lib/utils";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
@@ -31,31 +39,7 @@ interface DesignImportPanelProps {
   context: Pick<DesignExtensionSlotContext, "designId" | "viewMode">;
 }
 
-interface ImportResult {
-  designId?: string;
-  files?: Array<{ id: string; filename: string }>;
-  warnings?: string[];
-  error?: string;
-}
-
-type ImportMode = "figma-paste" | "fig-file" | "html";
-
-function hasFigmaPayload(html: string): boolean {
-  return /\(figmeta\)|\(figma\)|data-metadata=|data-buffer=/i.test(html);
-}
-
-function looksLikeHtml(value: string): boolean {
-  return /<(html|body|main|section|div|article|header|footer|button|img)\b/i.test(
-    value,
-  );
-}
-
-function resultSummary(result: ImportResult | undefined, fallback: string) {
-  const count = result?.files?.length ?? 0;
-  if (count === 0) return fallback;
-  if (count === 1) return `Imported ${result!.files![0]!.filename}.`;
-  return `Imported ${count} screens.`;
-}
+type ImportMode = "figma-paste" | "fig-file" | "html" | "local-app";
 
 export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const t = useT();
@@ -78,7 +62,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
         queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
         queryClient.invalidateQueries({ queryKey: ["action"] }),
       ]);
-      toast.success(resultSummary(result, fallback));
+      toast.success(importResultSummary(result, fallback));
       if (result?.warnings?.length) {
         toast.warning(t("designEditor.import.warningsToast"), {
           description: result.warnings[0],
@@ -91,7 +75,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
 
   const importHtmlString = useCallback(
     (content: string, originalName?: string) => {
-      if (!looksLikeHtml(content)) {
+      if (!looksLikeStandaloneHtml(content)) {
         toast.error(t("designEditor.import.errors.notHtml"));
         return;
       }
@@ -129,13 +113,14 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
       const text = event.clipboardData.getData("text/plain");
       const content = html || text;
       if (!content) return;
-      if (hasFigmaPayload(content)) {
+      const figmaContent = getFigmaClipboardContent(event.clipboardData);
+      if (figmaContent) {
         event.preventDefault();
         importSource.mutate(
           {
             designId: context.designId,
             sourceType: "figma-paste-html",
-            content,
+            content: figmaContent,
             originalName: "figma-paste.html",
           },
           {
@@ -157,7 +142,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
         );
         return;
       }
-      if (looksLikeHtml(content)) {
+      if (looksLikeStandaloneHtml(content)) {
         event.preventDefault();
         importHtmlString(content, "pasted-html.html");
       }
@@ -233,23 +218,32 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     toast.success(t("designEditor.import.visualEditSent"));
   }, [t]);
 
+  const copyVisualEditCommand = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(VISUAL_EDIT_CONNECT_COMMAND);
+      toast.success(t("designEditor.copied"));
+    } catch {
+      toast.error(t("designEditor.toasts.clipboardBlocked"));
+    }
+  }, [t]);
+
   const busy = importSource.isPending || uploading;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex h-16 shrink-0 items-center border-b border-border/60 px-4">
+      <div className="flex h-14 shrink-0 items-center border-b border-border/60 px-3.5">
         <div className="min-w-0">
-          <h3 className="truncate text-xl font-semibold tracking-tight text-foreground">
+          <h3 className="truncate text-base font-semibold tracking-tight text-foreground">
             {t("designEditor.import.title")}
           </h3>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
             {"Bring source screens into this design" /* i18n-ignore */}
           </p>
         </div>
       </div>
 
-      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-4">
-        <div className="space-y-1">
+      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 pb-4 pt-3">
+        <div className="space-y-0.5">
           <ImportSourceRow
             id="figma-paste-import"
             icon={<IconBrandFigma className="size-3.5" />}
@@ -264,10 +258,11 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               )
             }
           >
-            <div className="p-2.5">
+            <div className="p-2">
               <div
                 role="textbox"
                 tabIndex={0}
+                data-hotkeys-scope="text"
                 aria-label={t("designEditor.import.figmaPasteTarget")}
                 onPaste={handlePaste}
                 className={cn(
@@ -290,7 +285,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               setActiveMode((mode) => (mode === "fig-file" ? null : "fig-file"))
             }
           >
-            <div className="space-y-2 p-2.5">
+            <div className="space-y-2 p-2">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -330,7 +325,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               setActiveMode((mode) => (mode === "html" ? null : "html"))
             }
           >
-            <div className="space-y-2 p-2.5">
+            <div className="space-y-2 p-2">
               <Textarea
                 value={htmlText}
                 onChange={(event) => setHtmlText(event.target.value)}
@@ -369,11 +364,11 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
           </ImportSourceRow>
         </div>
 
-        <div className="mt-5 border-t border-border/60 pt-4">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">
+        <div className="mt-4 border-t border-border/60 pt-3">
+          <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
             {"More sources" /* i18n-ignore */}
           </p>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <CompactSourceRow
               icon={<IconBrandGithub className="size-3.5" />}
               title={t("designEditor.import.githubTitle")}
@@ -382,24 +377,47 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               }
               badge={t("designEditor.import.comingSoon")}
             />
-            <CompactSourceRow
+            <ImportSourceRow
+              id="local-app-import"
               icon={<IconCode className="size-3.5" />}
               title={t("designEditor.import.localTitle")}
-              description={
-                "Connect a running app with visual-edit." /* i18n-ignore */
+              description={t("designEditor.import.localDescription")}
+              isOpen={activeMode === "local-app"}
+              onToggle={() =>
+                setActiveMode((mode) =>
+                  mode === "local-app" ? null : "local-app",
+                )
               }
-              badge={t("designEditor.import.comingSoon")}
-              action={
+            >
+              <div className="space-y-2 p-2">
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  {t("designEditor.import.visualEditGuidance")}
+                </p>
+                <div className="flex items-center gap-1.5 rounded-md border border-border/70 bg-muted/40 p-1.5">
+                  <code className="min-w-0 flex-1 truncate font-mono text-[10px] leading-5 text-foreground/80">
+                    {VISUAL_EDIT_CONNECT_COMMAND}
+                  </code>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 shrink-0 px-1.5 text-[10px]"
+                    onClick={copyVisualEditCommand}
+                  >
+                    <IconCopy className="size-3" />
+                    {"Copy" /* i18n-ignore */}
+                  </Button>
+                </div>
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-[11px]"
+                  variant="outline"
+                  className="h-7 w-full justify-center text-[11px]"
                   onClick={askVisualEdit}
                 >
                   {t("designEditor.import.useVisualEditNow")}
                 </Button>
-              }
-            />
+              </div>
+            </ImportSourceRow>
           </div>
         </div>
 
@@ -448,24 +466,24 @@ function ImportSourceRow({
         aria-controls={id}
         onClick={onToggle}
         className={cn(
-          "group flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-accent/60 active:bg-accent",
+          "group flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/60 active:bg-accent",
           isOpen && "bg-accent/45",
         )}
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/70 text-muted-foreground transition-colors group-hover:border-border group-hover:bg-muted">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/70 text-muted-foreground transition-colors group-hover:border-border group-hover:bg-muted">
           {icon}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium leading-tight text-foreground">
+          <span className="block truncate text-[13px] font-medium leading-tight text-foreground">
             {title}
           </span>
-          <span className="mt-0.5 line-clamp-1 text-xs leading-snug text-muted-foreground">
+          <span className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-muted-foreground">
             {description}
           </span>
         </span>
         <IconChevronRight
           className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
+            "size-3.5 shrink-0 text-muted-foreground transition-transform",
             isOpen && "rotate-90",
           )}
         />
@@ -473,7 +491,7 @@ function ImportSourceRow({
       {isOpen ? (
         <div
           id={id}
-          className="mb-2 mt-1 overflow-hidden rounded-md border border-border/70 bg-background/70"
+          className="mb-1.5 mt-1 overflow-hidden rounded-md border border-border/70 bg-background/70"
         >
           {children}
         </div>
@@ -496,13 +514,13 @@ function CompactSourceRow({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-2 text-left opacity-85">
+    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left opacity-85">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/50 text-muted-foreground">
         {icon}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="truncate text-xs font-medium text-foreground">
+          <span className="truncate text-[13px] font-medium text-foreground">
             {title}
           </span>
           <Badge variant="secondary" className="h-4 px-1 text-[9px]">

@@ -373,6 +373,7 @@ interface DesignCanvasProps {
   }) => void;
   onElementDblClickText?: (info: ElementInfo) => void;
   onIframeHotkey?: (event: IframeHotkeyPayload) => void;
+  onFigmaClipboardPaste?: (event: IframeFigmaClipboardPastePayload) => void;
   onIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onEditorDragStateChange?: (active: boolean) => void;
   onVisualStructureChange?: (
@@ -612,6 +613,10 @@ export interface IframeHotkeyPayload {
   repeat: boolean;
 }
 
+export interface IframeFigmaClipboardPastePayload {
+  content: string;
+}
+
 export interface IframeContextMenuPayload {
   clientX: number;
   clientY: number;
@@ -653,6 +658,7 @@ export function DesignCanvas({
   onTextEditingStateChange,
   onElementDblClickText,
   onIframeHotkey,
+  onFigmaClipboardPaste,
   onIframeContextMenu,
   onEditorDragStateChange,
   onVisualStructureChange,
@@ -1168,6 +1174,12 @@ export function DesignCanvas({
         });
         return;
       }
+      if (e.data.type === "figma-clipboard-paste") {
+        const content =
+          typeof e.data.content === "string" ? e.data.content : "";
+        if (content) onFigmaClipboardPaste?.({ content });
+        return;
+      }
       if (e.data.type === "element-contextmenu") {
         const clientX = Number(e.data.clientX);
         const clientY = Number(e.data.clientY);
@@ -1291,6 +1303,7 @@ export function DesignCanvas({
     onTextEditingStateChange,
     onElementDblClickText,
     onIframeHotkey,
+    onFigmaClipboardPaste,
     onIframeContextMenu,
     onEditorDragStateChange,
     onVisualStructureChange,

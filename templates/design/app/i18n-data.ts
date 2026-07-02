@@ -301,10 +301,9 @@ const enUS = {
       githubDescription:
         "Coming soon: import screens and components directly from a repository.",
       localTitle: "Local app / VS Code",
-      localDescription:
-        "Coming soon: connect a running local app and import URL-backed screens.",
+      localDescription: "Connect a running local app with visual-edit.",
       visualEditGuidance:
-        "Today, ask the agent to use visual-edit. It can run the app, call `npx @agent-native/core@latest design connect`, and add URL-backed screens.",
+        "Start your app, run the command below from the app repo, then ask the agent to use the visual-edit skill to add URL-backed screens.",
       useVisualEditNow: "Use visual-edit now",
       comingSoon: "Coming soon",
       warningsToast: "Import completed with warnings",
@@ -10116,9 +10115,9 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
         localTitle: "本機 app / VS Code",
-        localDescription: "即將推出：連接執行中的本機 app 並匯入 URL 螢幕。",
+        localDescription: "使用 visual-edit 連接執行中的本機 app。",
         visualEditGuidance:
-          "目前可請代理使用 visual-edit。它可以執行 app、呼叫 `npx @agent-native/core@latest design connect`，並新增 URL 螢幕。",
+          "啟動 app，在 app repo 中執行下方命令，然後請代理使用 visual-edit skill 新增 URL 螢幕。",
         useVisualEditNow: "立即使用 visual-edit",
         comingSoon: "即將推出",
         warningsToast: "匯入完成但有警告",
@@ -10158,9 +10157,9 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
         localTitle: "本地 app / VS Code",
-        localDescription: "即将推出：连接正在运行的本地 app 并导入 URL 屏幕。",
+        localDescription: "使用 visual-edit 连接正在运行的本地 app。",
         visualEditGuidance:
-          "现在可以让代理使用 visual-edit。它可以运行 app，调用 `npx @agent-native/core@latest design connect`，并添加 URL 屏幕。",
+          "启动 app，在 app repo 中运行下方命令，然后让代理使用 visual-edit skill 添加 URL 屏幕。",
         useVisualEditNow: "立即使用 visual-edit",
         comingSoon: "即将推出",
         warningsToast: "导入完成但有警告",
@@ -10202,10 +10201,9 @@ const designImportOverrides = {
         githubDescription:
           "Próximamente: importar pantallas y componentes directamente desde un repositorio.",
         localTitle: "App local / VS Code",
-        localDescription:
-          "Próximamente: conectar una app local en ejecución e importar pantallas con URL.",
+        localDescription: "Conecta una app local en ejecución con visual-edit.",
         visualEditGuidance:
-          "Hoy puedes pedir al agente que use visual-edit. Puede ejecutar la app, llamar a `npx @agent-native/core@latest design connect` y añadir pantallas con URL.",
+          "Inicia tu app, ejecuta el comando siguiente desde el repo de la app y luego pide al agente que use la skill visual-edit para añadir pantallas con URL.",
         useVisualEditNow: "Usar visual-edit ahora",
         comingSoon: "Próximamente",
         warningsToast: "La importación terminó con advertencias",
@@ -10248,9 +10246,9 @@ const designImportOverrides = {
           "Bientôt : importer des écrans et composants directement depuis un dépôt.",
         localTitle: "App locale / VS Code",
         localDescription:
-          "Bientôt : connecter une app locale en cours d’exécution et importer des écrans par URL.",
+          "Connectez une app locale en cours d’exécution avec visual-edit.",
         visualEditGuidance:
-          "Aujourd’hui, demandez à l’agent d’utiliser visual-edit. Il peut lancer l’app, appeler `npx @agent-native/core@latest design connect` et ajouter des écrans par URL.",
+          "Lancez votre app, exécutez la commande ci-dessous depuis le dépôt de l’app, puis demandez à l’agent d’utiliser la skill visual-edit pour ajouter des écrans par URL.",
         useVisualEditNow: "Utiliser visual-edit maintenant",
         comingSoon: "Bientôt",
         warningsToast: "Import terminé avec avertissements",
@@ -10292,10 +10290,9 @@ const designImportOverrides = {
         githubDescription:
           "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
         localTitle: "Lokale App / VS Code",
-        localDescription:
-          "Demnächst: eine laufende lokale App verbinden und URL-basierte Bildschirme importieren.",
+        localDescription: "Verbinde eine laufende lokale App mit visual-edit.",
         visualEditGuidance:
-          "Heute kannst du den Agenten bitten, visual-edit zu verwenden. Er kann die App starten, `npx @agent-native/core@latest design connect` aufrufen und URL-basierte Bildschirme hinzufügen.",
+          "Starte deine App, führe den folgenden Befehl im App-Repo aus und bitte den Agenten dann, die visual-edit-Skill zu verwenden, um URL-basierte Bildschirme hinzuzufügen.",
         useVisualEditNow: "visual-edit jetzt verwenden",
         comingSoon: "Demnächst",
         warningsToast: "Import mit Warnungen abgeschlossen",
@@ -10337,10 +10334,9 @@ const designImportOverrides = {
         githubDescription:
           "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",
         localTitle: "ローカル app / VS Code",
-        localDescription:
-          "近日対応: 実行中のローカル app に接続し、URL ベースの画面をインポートします。",
+        localDescription: "visual-edit で実行中のローカル app に接続します。",
         visualEditGuidance:
-          "現在はエージェントに visual-edit の使用を依頼できます。app を起動し、`npx @agent-native/core@latest design connect` を呼び出して URL ベースの画面を追加できます。",
+          "app を起動し、app repo で下のコマンドを実行してから、エージェントに visual-edit skill で URL ベースの画面を追加するよう依頼してください。",
         useVisualEditNow: "visual-edit を今すぐ使う",
         comingSoon: "近日対応",
         warningsToast: "警告付きでインポートが完了しました",
@@ -10382,10 +10378,9 @@ const designImportOverrides = {
         githubDescription:
           "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
         localTitle: "로컬 app / VS Code",
-        localDescription:
-          "곧 제공: 실행 중인 로컬 app을 연결하고 URL 기반 화면을 가져옵니다.",
+        localDescription: "visual-edit로 실행 중인 로컬 app을 연결합니다.",
         visualEditGuidance:
-          "지금은 에이전트에게 visual-edit 사용을 요청하세요. app을 실행하고 `npx @agent-native/core@latest design connect`를 호출한 뒤 URL 기반 화면을 추가할 수 있습니다.",
+          "app을 시작하고 app repo에서 아래 명령을 실행한 다음, 에이전트에게 visual-edit skill로 URL 기반 화면을 추가해 달라고 요청하세요.",
         useVisualEditNow: "지금 visual-edit 사용",
         comingSoon: "곧 제공",
         warningsToast: "경고와 함께 가져오기가 완료되었습니다",
@@ -10427,10 +10422,9 @@ const designImportOverrides = {
         githubDescription:
           "Em breve: importe telas e componentes diretamente de um repositório.",
         localTitle: "App local / VS Code",
-        localDescription:
-          "Em breve: conecte um app local em execução e importe telas por URL.",
+        localDescription: "Conecte um app local em execução com visual-edit.",
         visualEditGuidance:
-          "Hoje, peça ao agente para usar visual-edit. Ele pode executar o app, chamar `npx @agent-native/core@latest design connect` e adicionar telas por URL.",
+          "Inicie seu app, execute o comando abaixo no repo do app e depois peça ao agente para usar a skill visual-edit para adicionar telas por URL.",
         useVisualEditNow: "Usar visual-edit agora",
         comingSoon: "Em breve",
         warningsToast: "Importação concluída com avisos",
@@ -10472,10 +10466,9 @@ const designImportOverrides = {
         githubDescription:
           "जल्द आ रहा है: repository से screens और components सीधे import करें।",
         localTitle: "स्थानीय app / VS Code",
-        localDescription:
-          "जल्द आ रहा है: चल रहे local app को connect करके URL-backed screens import करें।",
+        localDescription: "चल रहे local app को visual-edit से connect करें।",
         visualEditGuidance:
-          "आज agent से visual-edit skill इस्तेमाल करने को कहें। यह app चला सकता है, `npx @agent-native/core@latest design connect` call कर सकता है, और URL-backed screens जोड़ सकता है।",
+          "अपना app शुरू करें, app repo से नीचे वाला command चलाएँ, फिर agent से visual-edit skill इस्तेमाल करके URL-backed screens जोड़ने को कहें।",
         useVisualEditNow: "अभी visual-edit इस्तेमाल करें",
         comingSoon: "जल्द आ रहा है",
         warningsToast: "Import warnings के साथ पूरा हुआ",
@@ -10516,10 +10509,9 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
         localTitle: "تطبيق محلي / VS Code",
-        localDescription:
-          "قريبا: توصيل تطبيق محلي قيد التشغيل واستيراد شاشات مدعومة بروابط URL.",
+        localDescription: "وصّل تطبيقا محليا قيد التشغيل باستخدام visual-edit.",
         visualEditGuidance:
-          "اليوم، اطلب من الوكيل استخدام visual-edit. يمكنه تشغيل التطبيق واستدعاء `npx @agent-native/core@latest design connect` وإضافة شاشات مدعومة بروابط URL.",
+          "شغّل التطبيق، ثم نفّذ الأمر أدناه من مستودع التطبيق، وبعدها اطلب من الوكيل استخدام مهارة visual-edit لإضافة شاشات مدعومة بروابط URL.",
         useVisualEditNow: "استخدم visual-edit الآن",
         comingSoon: "قريبا",
         warningsToast: "اكتمل الاستيراد مع تحذيرات",
