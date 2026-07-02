@@ -105,6 +105,7 @@ function makeHarness() {
 async function flush() {
   await act(async () => {
     await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.resolve();
   });
 }

@@ -715,6 +715,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       try {
         return await updateDocument.mutateAsync({
           id: documentId,
+          loadedUpdatedAt: documentUpdatedAtRef.current ?? undefined,
           ...updates,
         });
       } catch (error) {

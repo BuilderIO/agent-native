@@ -258,8 +258,8 @@ const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "full_page",
 ];
 const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
-const BUILDER_SOURCE_CONTINUATION_STALL_MS = 45_000;
-const BUILDER_SOURCE_CONTINUATION_MAX_WATCHDOG_REFIRES = 2;
+const BUILDER_SOURCE_CONTINUATION_STALL_MS = 5_000;
+const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
 type CreateDatabaseRowHandler = (
   title?: string,
 ) => Promise<ContentDatabaseItem | null>;
@@ -914,15 +914,16 @@ function DatabaseTable({
         refires: 0,
       };
     }
+    const refireDelay = builderSourceContinuationWatchdogDelay(
+      builderContinuationWatchdogRef.current.refires,
+    );
     const timer = window.setTimeout(() => {
       const watchdog = builderContinuationWatchdogRef.current;
       if (watchdog.key !== continuationKey) return;
       if (
-        builderSourceContinuationWatchdogDecision(watchdog.refires) === "error"
-      ) {
-        setBuilderContinuationClientErrorKey(continuationKey);
+        builderSourceContinuationWatchdogDecision(watchdog.refires) !== "refire"
+      )
         return;
-      }
       builderContinuationWatchdogRef.current = {
         key: continuationKey,
         refires: watchdog.refires + 1,
@@ -937,7 +938,7 @@ function DatabaseTable({
           onError: () => setBuilderContinuationClientErrorKey(continuationKey),
         },
       );
-    }, BUILDER_SOURCE_CONTINUATION_STALL_MS);
+    }, refireDelay);
     return () => window.clearTimeout(timer);
   }, [
     builderContinuationClientErrorKey,
@@ -5549,7 +5550,7 @@ function AddSourceView({
   }) => void;
 }) {
   const db = useDatabaseT();
-  const query = useContentDatabases({ enabled: true });
+  const query = useContentDatabases({ enabled: true, excludeDatabaseIds });
   // Exclude this database (no self-reference) and any table already federated
   // onto it — those live in the "Connected sources" group above.
   const excluded = new Set(excludeDatabaseIds);
@@ -5755,9 +5756,14 @@ function builderSourceContinuationProgressPercent(
 }
 
 function builderSourceContinuationWatchdogDecision(refires: number) {
-  return refires >= BUILDER_SOURCE_CONTINUATION_MAX_WATCHDOG_REFIRES
-    ? "error"
-    : "refire";
+  return "refire";
+}
+
+function builderSourceContinuationWatchdogDelay(refires: number) {
+  return Math.min(
+    BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS,
+    BUILDER_SOURCE_CONTINUATION_STALL_MS * 2 ** Math.max(0, refires),
+  );
 }
 
 function sourceRoleLabel(

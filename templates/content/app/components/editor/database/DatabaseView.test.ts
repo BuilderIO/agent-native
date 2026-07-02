@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   builderSourceContinuationKey,
+  builderSourceContinuationWatchdogDelay,
   builderSourceContinuationProgressPercent,
   builderSourceContinuationWatchdogDecision,
   builderSourceRowFetchStatus,
@@ -89,9 +90,14 @@ describe("Builder source continuation state", () => {
     ).toBeNull();
   });
 
-  it("turns repeated watchdog refires into a retryable error state", () => {
+  it("keeps watchdog continuation automatic with capped backoff", () => {
     expect(builderSourceContinuationWatchdogDecision(0)).toBe("refire");
     expect(builderSourceContinuationWatchdogDecision(1)).toBe("refire");
-    expect(builderSourceContinuationWatchdogDecision(2)).toBe("error");
+    expect(builderSourceContinuationWatchdogDecision(20)).toBe("refire");
+    expect(builderSourceContinuationWatchdogDelay(0)).toBe(5_000);
+    expect(builderSourceContinuationWatchdogDelay(1)).toBe(10_000);
+    expect(builderSourceContinuationWatchdogDelay(2)).toBe(20_000);
+    expect(builderSourceContinuationWatchdogDelay(3)).toBe(30_000);
+    expect(builderSourceContinuationWatchdogDelay(20)).toBe(30_000);
   });
 });

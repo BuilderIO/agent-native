@@ -577,6 +577,44 @@ describe("database source helpers", () => {
     expect(pending).toHaveLength(0);
   });
 
+  it("does NOT diff source-materialized date values after property normalization", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+          sourceValuesJson: JSON.stringify({
+            "data.date": "2026-07-02T18:45:00.000Z",
+          }),
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Same title"]]),
+      storedChangeSets: [],
+      localValuesByDocument: new Map([
+        [
+          "doc-1",
+          new Map([
+            ["prop-date", { start: "2026-07-02T18:45", includeTime: true }],
+          ]),
+        ],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-date",
+          localFieldKey: "prop-date",
+          sourceFieldKey: "data.date",
+          sourceFieldLabel: "Date",
+          propertyType: "date",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(0);
+  });
+
   it("treats duplicate Builder natural keys as ambiguous rather than guessing a row link", () => {
     const entries = [
       {

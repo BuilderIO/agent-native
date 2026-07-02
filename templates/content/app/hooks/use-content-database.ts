@@ -674,12 +674,16 @@ export function useBuilderCmsModels(enabled: boolean) {
 
 export function useContentDatabases(args: {
   excludeDatabaseId?: string;
+  excludeDatabaseIds?: string[];
   enabled: boolean;
 }) {
   return useActionQuery<ListContentDatabasesResponse>(
     "list-content-databases",
     args.enabled
-      ? { excludeDatabaseId: args.excludeDatabaseId ?? undefined }
+      ? {
+          excludeDatabaseId: args.excludeDatabaseId ?? undefined,
+          excludeDatabaseIds: args.excludeDatabaseIds ?? undefined,
+        }
       : undefined,
     { enabled: args.enabled, retry: false },
   );

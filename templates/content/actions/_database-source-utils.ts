@@ -473,6 +473,17 @@ function sameSourceFieldValue(a: unknown, b: unknown): boolean {
   return normalize(a) === normalize(b);
 }
 
+function sameMappedSourceFieldValue(
+  localValue: unknown,
+  sourceValue: unknown,
+  type: DocumentProperty["definition"]["type"] | null | undefined,
+): boolean {
+  const normalizedSourceValue = type
+    ? normalizePropertyValue(type, sourceValue)
+    : sourceValue;
+  return sameSourceFieldValue(localValue, normalizedSourceValue);
+}
+
 function stringSourceValue(
   values: Record<string, DocumentPropertyValue>,
   key: string,
@@ -1370,6 +1381,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     localFieldKey: string;
     sourceFieldKey: string;
     sourceFieldLabel: string;
+    propertyType?: DocumentProperty["definition"]["type"] | null;
   }>;
   // Row-union scoping (multi-source). Documents owned by ANOTHER source must
   // never be create candidates for this one — each row belongs to exactly one
@@ -1429,13 +1441,19 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         if (!rowLocalValues.has(field.localFieldKey)) continue;
         const localValue = rowLocalValues.get(field.localFieldKey);
         const baseValue = rowSourceValues[field.sourceFieldKey];
-        if (sameSourceFieldValue(localValue, baseValue)) continue;
+        if (
+          sameMappedSourceFieldValue(localValue, baseValue, field.propertyType)
+        ) {
+          continue;
+        }
         fieldChanges.push({
           propertyId: field.propertyId,
           propertyName: field.sourceFieldLabel,
           localFieldKey: field.localFieldKey,
           sourceFieldKey: field.sourceFieldKey,
-          currentValue: (baseValue ?? null) as DocumentPropertyValue,
+          currentValue: (field.propertyType
+            ? normalizePropertyValue(field.propertyType, baseValue)
+            : (baseValue ?? null)) as DocumentPropertyValue,
           proposedValue: localValue as DocumentPropertyValue,
         });
       }
@@ -1752,6 +1770,7 @@ async function loadSourceSnapshot(
       .select({
         id: schema.documentPropertyDefinitions.id,
         name: schema.documentPropertyDefinitions.name,
+        type: schema.documentPropertyDefinitions.type,
       })
       .from(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id)),
@@ -1759,6 +1778,12 @@ async function loadSourceSnapshot(
 
   const propertyNameById = new Map(
     propertyDefs.map((row) => [row.id, row.name]),
+  );
+  const propertyTypeById = new Map(
+    propertyDefs.map((row) => [
+      row.id,
+      row.type as DocumentProperty["definition"]["type"],
+    ]),
   );
   const fields = fieldRows.map((row) =>
     serializeSourceField(
@@ -1871,6 +1896,9 @@ async function loadSourceSnapshot(
       localFieldKey: row.localFieldKey,
       sourceFieldKey: row.sourceFieldKey,
       sourceFieldLabel: row.sourceFieldLabel,
+      propertyType: row.propertyId
+        ? (propertyTypeById.get(row.propertyId) ?? null)
+        : null,
     }));
   // Row-union ownership scoping (Builder only). Determine which documents belong
   // to OTHER sources and whether this source is the primary (oldest), so the
