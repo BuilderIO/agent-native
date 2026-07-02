@@ -3391,6 +3391,13 @@ const AssistantChatInner = forwardRef<
     queryKey: ["guided-questions"],
     ...(browserTabId ? { browserTabId } : {}),
   });
+  const hasComposerAccessoryAboveStack = Boolean(
+    composerError ||
+    showComposerSlot ||
+    showCenteredEmptyThreadFooterSlot ||
+    (guidedQuestions && guidedQuestions.length > 0) ||
+    showPlanModeCallout,
+  );
 
   // Human-in-the-loop approvals: when the user approves a paused `needsApproval`
   // tool call, re-issue the turn carrying the call's approval key so the server
@@ -3835,7 +3842,12 @@ const AssistantChatInner = forwardRef<
                     </button>
                   </div>
                 )}
-                <div className="agent-composer-stack">
+                <div
+                  className="agent-composer-stack"
+                  data-agent-composer-adjacent-ui={
+                    hasComposerAccessoryAboveStack ? "true" : undefined
+                  }
+                >
                   {missingApiKey &&
                   !authError &&
                   missingApiKeySetupAboveComposer ? (

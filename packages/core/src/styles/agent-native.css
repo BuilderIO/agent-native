@@ -688,6 +688,12 @@
   width: 100%;
 }
 
+.agent-composer-stack[data-agent-composer-adjacent-ui="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .agent-composer-setup-card {
   width: 100%;
 }
@@ -702,7 +708,7 @@
 }
 
 [data-agent-empty-state="centered"]
-  > .agent-composer-stack
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"])
   > .agent-composer-setup-card {
   position: absolute;
   left: 0;
@@ -711,13 +717,13 @@
 }
 
 [data-agent-empty-state="centered"]
-  > .agent-composer-stack
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"])
   > .agent-composer-setup-card[data-agent-composer-setup-position="above"] {
   bottom: calc(100% + 0.5rem);
 }
 
 [data-agent-empty-state="centered"]
-  > .agent-composer-stack
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"])
   > .agent-composer-setup-card[data-agent-composer-setup-position="below"] {
   top: calc(100% + 0.5rem);
 }

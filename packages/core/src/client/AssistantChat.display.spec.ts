@@ -106,7 +106,7 @@ describe("resolveAssistantChatSubmitIntent", () => {
 });
 
 describe("centered empty chat setup layout", () => {
-  it("floats the setup card outside the centered composer stack", () => {
+  it("floats the setup card outside the centered composer stack unless adjacent UI needs space", () => {
     const css = readFileSync("src/styles/agent-native.css", {
       encoding: "utf8",
     });
@@ -114,11 +114,16 @@ describe("centered empty chat setup layout", () => {
       encoding: "utf8",
     });
 
+    expect(source).toContain("hasComposerAccessoryAboveStack");
+    expect(source).toContain("data-agent-composer-adjacent-ui");
     expect(source).toContain('className="agent-composer-stack"');
     expect(source).toContain('data-agent-composer-setup-position="above"');
     expect(source).toContain('data-agent-composer-setup-position="below"');
     expect(css).toMatch(
-      /\[data-agent-empty-state="centered"\]\s*>\s*\.agent-composer-stack\s*>\s*\.agent-composer-setup-card\s*\{[^}]*position:\s*absolute;/s,
+      /\[data-agent-empty-state="centered"\]\s*>\s*\.agent-composer-stack:not\(\[data-agent-composer-adjacent-ui="true"\]\)\s*>\s*\.agent-composer-setup-card\s*\{[^}]*position:\s*absolute;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-composer-stack\[data-agent-composer-adjacent-ui="true"\]\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*gap:\s*0\.5rem;/s,
     );
     expect(css).toMatch(
       /data-agent-composer-setup-position="above"\]\s*\{[^}]*bottom:\s*calc\(100% \+ 0\.5rem\);/s,
