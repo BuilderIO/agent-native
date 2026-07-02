@@ -583,6 +583,47 @@ export function reconnectActivityFallbackContent(
   ];
 }
 
+function toolCallIdFromContentPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as { type?: unknown; toolCallId?: unknown };
+  if (candidate.type !== "tool-call") return null;
+  return typeof candidate.toolCallId === "string" && candidate.toolCallId
+    ? candidate.toolCallId
+    : null;
+}
+
+function collectRenderedToolCallIds(messages: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    const msg = (message as { message?: unknown })?.message ?? message;
+    const content = (msg as { content?: unknown })?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      const id = toolCallIdFromContentPart(part);
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+export function dedupeReconnectContentAgainstMessages(
+  content: ContentPart[],
+  messages: readonly unknown[],
+): ContentPart[] {
+  if (content.length === 0 || messages.length === 0) return content;
+  const renderedToolCallIds = collectRenderedToolCallIds(messages);
+  if (renderedToolCallIds.size === 0) return content;
+
+  let changed = false;
+  const filtered = content.filter((part) => {
+    const id = toolCallIdFromContentPart(part);
+    if (!id || !renderedToolCallIds.has(id)) return true;
+    changed = true;
+    return false;
+  });
+  return changed ? filtered : content;
+}
+
 const RECOVERY_USER_MESSAGE_PREFIXES = [
   "Continue from where you left off",
   "Continue from where you stopped",
@@ -3200,14 +3241,19 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
+  const visibleReconnectContent = useMemo(
+    () => dedupeReconnectContentAgainstMessages(reconnectContent, messages),
+    [messages, reconnectContent],
+  );
+
   const autoscrollFollowKey = useMemo(
     () =>
       [
         messages.map(messageFollowKey).join(";"),
         `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
-        `r:${reconnectContentFollowKey(reconnectContent)}`,
+        `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
       ].join(";;"),
-    [messages, queuedMessages, reconnectContent],
+    [messages, queuedMessages, visibleReconnectContent],
   );
 
   const {
@@ -3706,8 +3752,10 @@ const AssistantChatInner = forwardRef<
                         />
                       )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectContent.length > 0 && (
-                          <ReconnectStreamMessage content={reconnectContent} />
+                        visibleReconnectContent.length > 0 && (
+                          <ReconnectStreamMessage
+                            content={visibleReconnectContent}
+                          />
                         )}
                       {(isReconnecting || reconnectFrozen) &&
                         reconnectContent.length === 0 &&

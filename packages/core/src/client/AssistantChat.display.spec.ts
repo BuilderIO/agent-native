@@ -22,6 +22,7 @@ import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
   assistantUiRecoverableRenderErrorKind,
+  dedupeReconnectContentAgainstMessages,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
@@ -102,6 +103,73 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+});
+
+describe("dedupeReconnectContentAgainstMessages", () => {
+  it("hides replayed reconnect tool calls already present in thread messages", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "write-file",
+            argsText: "{}",
+            args: {},
+            result: "ok",
+          },
+        ],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "write-file",
+            argsText: "{}",
+            args: {},
+            result: "ok",
+          },
+          { type: "text", text: "Continuing..." },
+        ],
+        persistedMessages,
+      ),
+    ).toEqual([{ type: "text", text: "Continuing..." }]);
+  });
+
+  it("keeps distinct repeated tool calls with different ids", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const repeatedCall = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_2",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([repeatedCall], persistedMessages),
+    ).toEqual([repeatedCall]);
   });
 });
 
@@ -352,7 +420,7 @@ describe("waitForThreadRunToClear", () => {
 
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    expect(renderSource).toContain("reconnectContent.length > 0");
+    expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
