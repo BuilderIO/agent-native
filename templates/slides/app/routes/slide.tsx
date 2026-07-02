@@ -10,9 +10,9 @@ import { useSearchParams } from "react-router";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import messages from "@/i18n/en-US";
 import type { AspectRatio } from "@/lib/aspect-ratios";
-import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 
 export function meta() {
   return [{ title: messages.raw.slidePreviewTitle }];

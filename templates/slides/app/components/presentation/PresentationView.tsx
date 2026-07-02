@@ -15,11 +15,12 @@ import type {
   AnimationType,
 } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
-import type { DesignSystemData } from "../../../shared/api";
 import {
   findLegacyAnimationContainer,
   resolveSlideAnimationElement,
 } from "@/lib/slide-animation-elements";
+
+import type { DesignSystemData } from "../../../shared/api";
 
 interface PresentationViewProps {
   slides: Slide[];

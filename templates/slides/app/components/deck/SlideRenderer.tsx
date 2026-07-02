@@ -13,8 +13,8 @@ import rehypeRaw from "rehype-raw";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
-import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
 import { DEFAULT_DESIGN_SYSTEM } from "@/hooks/use-deck-design-system";
+import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
 import {
   sanitizeCssValue,
   sanitizeSlideHtml,
