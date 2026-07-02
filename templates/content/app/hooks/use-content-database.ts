@@ -13,6 +13,7 @@ import type {
   ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
+  DatabaseItemsBatchRequest,
   DisconnectContentDatabaseSourceRequest,
   ExecuteBuilderSourceBatchRequest,
   ExecuteBuilderSourceBatchResponse,
@@ -22,6 +23,8 @@ import type {
   PrepareBuilderSourceExecutionRequest,
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
+  ProcessBuilderBodyHydrationRequest,
+  ProcessBuilderBodyHydrationResponse,
   RefreshContentDatabaseSourceRequest,
   ReviewContentDatabaseSourceChangeSetRequest,
   SetContentDatabaseSourceWriteModeRequest,
@@ -256,6 +259,40 @@ export function useDuplicateDatabaseItem(documentId: string) {
   });
 }
 
+export function useDuplicateDatabaseItems(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
+    "duplicate-database-items",
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: contentDatabaseQueryKey(documentId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      },
+    },
+  );
+}
+
+export function useDeleteDatabaseItems(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
+    "delete-database-items",
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: contentDatabaseQueryKey(documentId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      },
+    },
+  );
+}
+
 export function useMoveDatabaseItem(documentId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<ContentDatabaseResponse, MoveDatabaseItemRequest>(
@@ -404,6 +441,28 @@ export function useRefreshContentDatabaseSource(documentId: string) {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
+    },
+  });
+}
+
+export function useProcessBuilderBodyHydration(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ProcessBuilderBodyHydrationResponse,
+    ProcessBuilderBodyHydrationRequest
+  >("process-builder-body-hydration", {
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+      if (variables?.documentId) {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: variables.documentId }],
+        });
+      }
     },
   });
 }

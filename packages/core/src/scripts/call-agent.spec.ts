@@ -23,6 +23,8 @@ vi.mock("../a2a/client.js", () => ({
   },
   A2AClient: class A2AClient {},
   callAgent: callAgentMock,
+  shouldPreferGlobalA2ASecret: (orgSecret?: string) =>
+    !!process.env.A2A_SECRET?.trim() || !orgSecret,
   signA2AToken: vi.fn(async () => "signed-token"),
 }));
 

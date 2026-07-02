@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -101,14 +101,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Resolve Comment",
-      description:
-        "Open the Agent-Native Plan surface to manage comment thread statuses.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
   },
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();

@@ -1,6 +1,14 @@
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  "delete-file": "remove screen",
+  "get-design-snapshot": "get screen snapshot",
+  "edit-design": "edit screen",
+};
+
 export function humanizeToolName(toolName: string | undefined): string {
   const raw = (toolName ?? "").trim();
   if (!raw) return "tool";
+  const displayName = TOOL_DISPLAY_NAMES[raw];
+  if (displayName) return displayName;
 
   let name = raw;
   if (name.startsWith("mcp__")) {

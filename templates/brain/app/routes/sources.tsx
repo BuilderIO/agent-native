@@ -1064,7 +1064,7 @@ function ProviderCatalog({
           </div>
         </div>
       ) : connectionProviders.length ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="brain-provider-catalog-grid grid gap-3">
           {connectionProviders.map((provider) => {
             const workspace = provider.workspaceConnection;
             const grantState = workspace?.grantState ?? "not_connected";
@@ -1523,7 +1523,7 @@ function SourceListItem({
   return (
     <Card className="overflow-hidden shadow-none">
       <CardContent className="p-4">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,auto)_auto] xl:items-center">
+        <div className="brain-source-card-grid grid gap-4">
           <div className="flex min-w-0 items-start gap-3">
             <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/35">
               <Icon className="size-4 text-muted-foreground" />

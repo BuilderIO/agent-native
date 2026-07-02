@@ -64,4 +64,16 @@ export const createRecordingSchema = z.object({
     .enum(["private", "org", "public"])
     .optional()
     .describe("Initial share visibility for the recording"),
+  mimeType: z
+    .string()
+    .optional()
+    .describe(
+      "MIME type the browser will record (e.g. video/webm, video/mp4). Used to initialize the resumable session with the correct content type.",
+    ),
+  requestStreaming: z
+    .boolean()
+    .optional()
+    .describe(
+      "Opt in to the resumable streaming upload path. Only send this when the caller can produce 256 KiB-aligned chunks (GCS requirement). Defaults to false — callers that omit this always get the buffered path.",
+    ),
 });

@@ -4,9 +4,9 @@ import {
   useId,
   useRef,
   useState,
-  type ComponentType,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,7 @@ import {
   type ScrubExpressionOptions,
 } from "./scrub-input-utils";
 
-type ScrubInputIcon = ComponentType<{ className?: string }>;
+type ScrubInputIcon = (props: { className?: string }) => ReactNode;
 
 export interface ScrubInputChangeMeta {
   source: "commit" | "keyboard" | "scrub";
@@ -39,13 +39,15 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   onChange: (value: number, meta: ScrubInputChangeMeta) => void;
   id?: string;
   step?: number;
-  icon?: ScrubInputIcon;
+  icon?: ScrubInputIcon | null;
   disabled?: boolean;
   placeholder?: string;
+  mixed?: boolean;
   className?: string;
   inputClassName?: string;
   labelClassName?: string;
   ariaLabel?: string;
+  tooltipLabel?: string;
 }
 
 export function ScrubInput({
@@ -61,16 +63,22 @@ export function ScrubInput({
   icon: Icon = IconArrowsHorizontal,
   disabled = false,
   placeholder,
+  mixed = false,
   className,
   inputClassName,
   labelClassName,
   ariaLabel,
+  tooltipLabel,
 }: ScrubInputProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const [draft, setDraft] = useState(() =>
-    formatScrubValue(value, { unit, precision }),
+    mixed ? "Mixed" : formatScrubValue(value, { unit, precision }),
   );
+  // Track the latest draft in a ref so commitDraft always reads the most
+  // up-to-date value even if the blur event fires before the React state
+  // update has been committed to the render tree (concurrent mode / batching).
+  const draftRef = useRef(draft);
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -83,27 +91,44 @@ export function ScrubInput({
   });
 
   useEffect(() => {
-    if (!focused) setDraft(formatScrubValue(value, { unit, precision }));
-  }, [focused, precision, unit, value]);
+    if (!focused) {
+      const formatted = mixed
+        ? "Mixed"
+        : formatScrubValue(value, { unit, precision });
+      draftRef.current = formatted;
+      setDraft(formatted);
+    }
+  }, [focused, mixed, precision, unit, value]);
 
   const options = { unit, min, max, precision };
+  const resolvedTooltipLabel = tooltipLabel ?? ariaLabel ?? label;
 
   const setNextValue = (nextValue: number, meta: ScrubInputChangeMeta) => {
     const normalized = normalizeScrubNumber(nextValue, options);
     onChange(normalized, meta);
-    setDraft(formatScrubValue(normalized, options));
+    const formatted = formatScrubValue(normalized, options);
+    draftRef.current = formatted;
+    setDraft(formatted);
   };
 
   const commitDraft = () => {
-    const parsed = parseScrubExpression(draft, value, options);
+    // Always read from the ref so we use the latest typed value even if the
+    // React render with the updated draft state hasn't committed yet (e.g.
+    // when blur fires in the same synchronous batch as the last onChange).
+    const currentDraft = draftRef.current;
+    if (mixed && currentDraft === "Mixed") return;
+    const parsed = parseScrubExpression(currentDraft, value, options);
     if (!parsed) {
-      setDraft(formatScrubValue(value, options));
+      const reverted = mixed ? "Mixed" : formatScrubValue(value, options);
+      draftRef.current = reverted;
+      setDraft(reverted);
       return;
     }
 
+    draftRef.current = parsed.normalized;
     setDraft(parsed.normalized);
     if (parsed.value !== value) {
-      onChange(parsed.value, { source: "commit", expression: draft });
+      onChange(parsed.value, { source: "commit", expression: currentDraft });
     }
   };
 
@@ -131,7 +156,9 @@ export function ScrubInput({
 
     if (event.key === "Escape") {
       event.preventDefault();
-      setDraft(formatScrubValue(value, options));
+      const reverted = mixed ? "Mixed" : formatScrubValue(value, options);
+      draftRef.current = reverted;
+      setDraft(reverted);
       skipNextBlurCommitRef.current = true;
       event.currentTarget.blur();
     }
@@ -194,7 +221,7 @@ export function ScrubInput({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
             className={cn(
-              "flex h-6 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 rounded-sm text-[11px] text-muted-foreground transition-colors",
+              "flex h-6 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 rounded-sm !text-[11px] text-muted-foreground transition-colors",
               "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
               dragging &&
                 "bg-[var(--design-editor-control-bg)] text-foreground",
@@ -202,11 +229,11 @@ export function ScrubInput({
               labelClassName,
             )}
           >
-            <Icon className="size-3 shrink-0" />
+            {Icon ? <Icon className="size-3 shrink-0" /> : null}
             <span className="truncate">{label}</span>
           </Label>
         </TooltipTrigger>
-        <TooltipContent>{`${label} — drag to scrub · ↑↓ step · Shift ×10 · ⌥ fine`}</TooltipContent>
+        <TooltipContent>{resolvedTooltipLabel}</TooltipContent>
       </Tooltip>
       <Input
         ref={inputRef}
@@ -228,13 +255,17 @@ export function ScrubInput({
           }
           commitDraft();
         }}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          draftRef.current = event.target.value;
+          setDraft(event.target.value);
+        }}
         onKeyDown={handleKeyDown}
         className={cn(
           // Compact design-editor: h-6, 11px tabular text, ring-1 with no offset.
-          "h-6 text-[11px] tabular-nums",
+          "h-6 !text-[11px] tabular-nums",
           "focus-visible:ring-1 focus-visible:ring-offset-0",
           inputClassName,
+          mixed && "text-muted-foreground",
         )}
       />
     </div>

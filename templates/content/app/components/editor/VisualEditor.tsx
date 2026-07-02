@@ -66,7 +66,10 @@ import {
   type NotionPageLink,
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
-import { RegistryBlockNode } from "./extensions/registryBlocks";
+import {
+  LockedSourceComponentBlocks,
+  RegistryBlockNode,
+} from "./extensions/registryBlocks";
 import { VideoNode } from "./extensions/VideoNode";
 import {
   getImageFiles,
@@ -1307,6 +1310,7 @@ export function createVisualEditorExtensions({
       // `VisualEditor` below. Mounted after the Notion nodes and before the
       // Markdown extension so the NFM <-> doc round-trip recognizes the node.
       RegistryBlockNode,
+      LockedSourceComponentBlocks,
       ContentReferenceNode.configure({
         currentPath: localFilePath ?? null,
         referenceDepth,

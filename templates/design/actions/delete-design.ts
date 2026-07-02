@@ -16,6 +16,26 @@ export default defineAction({
 
     const db = getDb();
 
+    await db
+      .delete(schema.designShares)
+      .where(eq(schema.designShares.resourceId, id));
+
+    await db
+      .delete(schema.componentIndex)
+      .where(eq(schema.componentIndex.designId, id));
+
+    await db
+      .delete(schema.motionTimeline)
+      .where(eq(schema.motionTimeline.designId, id));
+
+    await db
+      .delete(schema.designState)
+      .where(eq(schema.designState.designId, id));
+
+    await db
+      .delete(schema.designReviewSnapshot)
+      .where(eq(schema.designReviewSnapshot.designId, id));
+
     // Delete associated files first
     await db
       .delete(schema.designFiles)

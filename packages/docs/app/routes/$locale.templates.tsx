@@ -1,1 +1,1 @@
-export { default } from "./templates";
+export { default, loader } from "./templates";

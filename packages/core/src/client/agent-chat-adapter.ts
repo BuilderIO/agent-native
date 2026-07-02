@@ -1,5 +1,6 @@
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
+import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
 import type {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
@@ -17,6 +18,7 @@ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   AgentAutoContinueSignal,
   type AgentActivityTrailEntry,
+  type AgentAutoContinueErrorInfo,
   type ContentPart,
   readSSEStream,
   settleInterruptedToolCalls,
@@ -92,6 +94,12 @@ const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3;
 // round re-sending any large pasted payload) before bailing. Catching the
 // repeat ends it in a few rounds with a clear, actionable message instead.
 const MAX_REPEATED_TRANSIENT_CONTINUATIONS = 3;
+// How many consecutive continuations that only reach the SAME "preparing
+// action" activity card we tolerate before giving up. This catches runs that
+// keep timing out while assembling a large tool payload: they are not empty,
+// and the narration may vary enough to bypass the text-repeat guard, but the
+// real tool never starts.
+const MAX_REPEATED_ACTION_PREPARATION_CONTINUATIONS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
@@ -696,6 +704,60 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
   );
 }
 
+const COMPLETED_TOOL_TIMEOUT_NAME_RE =
+  /^(add|apply|archive|capture|create|delete|deploy|duplicate|edit|generate|grant|insert|migrate|move|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
+const COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST = new Set([
+  "connect-assets-mcp",
+  "import-design-tokens",
+]);
+
+function isCompletedToolTimeoutCandidate(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+): boolean {
+  if (part.completedSideEffect === false) return false;
+  if (part.completedSideEffect === true) return true;
+  const toolName = part.toolName.toLowerCase();
+  return (
+    COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST.has(toolName) ||
+    COMPLETED_TOOL_TIMEOUT_NAME_RE.test(toolName)
+  );
+}
+
+function lastCompletedTimeoutCandidateTool(
+  content: ContentPart[],
+): Extract<ContentPart, { type: "tool-call" }> | undefined {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined &&
+      part.isError !== true &&
+      isCompletedToolTimeoutCandidate(part)
+    ) {
+      return part;
+    }
+  }
+  return undefined;
+}
+
+function humanizeActionName(toolName: string): string {
+  return toolName
+    .replace(/^agent:/, "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+}
+
+function completedToolTimeoutMessage(toolName: string): string {
+  if (toolName === "generate-design" || toolName === "update-design") {
+    return "The design was saved, but the assistant timed out before sending its final note. You can open the generated design from the completed tool card above.";
+  }
+  if (toolName === "present-design-variants") {
+    return "The design variants were saved, but the assistant timed out before sending its final note. You can review the completed variants from the tool card above.";
+  }
+  return `The ${humanizeActionName(toolName)} action completed, but the assistant timed out before sending its final response. The saved result is in the completed tool card above.`;
+}
+
 /**
  * Signature of the *unique* sentence-like segments in a continuation's newly
  * streamed text, used to detect a degenerate repetition loop. A stuck model
@@ -746,6 +808,37 @@ function lastActivityTool(
   return undefined;
 }
 
+function formatActivityTrail(
+  trail: readonly AgentActivityTrailEntry[],
+): string | undefined {
+  const items = trail
+    .slice(-8)
+    .map((entry) => {
+      const label = entry.label.replace(/\s+/g, " ").trim();
+      const tool = entry.tool?.replace(/\s+/g, " ").trim();
+      if (label && tool && label !== tool) return `${label} (${tool})`;
+      return label || tool || "";
+    })
+    .filter(Boolean);
+  return items.length > 0 ? items.join(" > ") : undefined;
+}
+
+function lastUnresolvedToolActivity(
+  content: ContentPart[],
+): string | undefined {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.activity === true &&
+      part.result === undefined
+    ) {
+      return part.toolName;
+    }
+  }
+  return undefined;
+}
+
 function snapshotContent(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
     part.type === "text" ? { ...part } : { ...part, args: { ...part.args } },
@@ -784,6 +877,8 @@ function toolContinuationKey(
     stableJson(part.args),
     part.result === undefined ? "pending" : "done",
     part.result ?? "",
+    part.isError === true ? "error" : "",
+    part.completedSideEffect === true ? "side-effect" : "",
     part.activity === true ? "activity" : "tool",
     part.mcpApp ? "mcp-app" : "",
   ].join("\u0000");
@@ -833,38 +928,6 @@ function contentAfterContinuationPrefix(
   return [...delta, ...content.slice(contentIndex)];
 }
 
-// Concrete "ship a compact first version, then refine incrementally" guidance
-// keyed by the large-payload action the model was cut off while preparing. A run
-// cut off mid-stream while streaming one big tool input (extension HTML, a full
-// design file set, an entire dashboard config) re-streams the SAME oversized
-// payload on every continuation and never finishes inside the soft-timeout
-// window — the classic thrash loop. Pointing the resumed model at the
-// incremental-edit path for that specific action is what breaks the loop.
-// Returns undefined for tools with no known incremental counterpart so the
-// caller falls back to generic compact-first advice.
-function incrementalActionGuidance(tool: string): string | undefined {
-  switch (tool) {
-    case "create-extension":
-    case "update-extension":
-      return "create a compact working v1 with `create-extension`, then use focused `update-extension` edits for refinements";
-    case "generate-design":
-    case "update-design":
-      return "persist a minimal first version (fewer files) with `generate-design`, then refine individual files with `edit-design` search/replace instead of resending everything";
-    case "create-visual-plan":
-    case "create-ui-plan":
-    case "create-plan-design":
-    case "create-prototype-plan":
-      return "create the plan with its core sections or first screen, then expand it with `update-visual-plan`/`patch-visual-plan-source` follow-up edits";
-    case "update-visual-plan":
-    case "patch-visual-plan-source":
-      return "apply smaller, targeted `patch-visual-plan-source` edits rather than rewriting the whole plan in one call";
-    case "update-dashboard":
-      return "save a small dashboard first, then add panels one at a time with `update-dashboard` incremental `ops` edits instead of authoring the whole config in one call";
-    default:
-      return undefined;
-  }
-}
-
 function autoContinueMessage(signal: AgentAutoContinueSignal): string {
   const tool = lastActivityTool(signal.activityTrail);
   const reason =
@@ -884,13 +947,12 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
   // toward a compact first version it can actually finish in a single run, then
   // incremental refinements — never re-streaming the same oversized payload.
   const cutoffPreparingAction =
-    signal.reason === "run_timeout" || signal.reason === "stream_ended";
+    signal.reason === "run_timeout" ||
+    signal.reason === "stream_ended" ||
+    signal.reason === "no_progress";
   let actionInputNote = "";
   if (cutoffPreparingAction && tool) {
-    const guidance = incrementalActionGuidance(tool);
-    actionInputNote = guidance
-      ? `\n\nThe previous run was cut off while preparing the \`${tool}\` action input before the action could finish. Avoid spending another whole run assembling one large tool payload — ${guidance}.`
-      : `\n\nThe previous run was cut off while preparing the \`${tool}\` action input before the action could finish. Avoid re-assembling one large tool payload: produce a compact first result you can finish in a single run, then refine it with smaller follow-up edits.`;
+    actionInputNote = actionPreparationContinuationNote(tool);
   }
   return `${AUTO_CONTINUE_PROMPT}\n\n${AUTO_CONTINUE_COMPLETION_GUARD}\n\nInternal note: ${reason}${actionInputNote}`;
 }
@@ -1318,6 +1380,8 @@ export function createAgentChatAdapter(
       const turnId = generateTurnId();
       let runId: string | null = null;
       let lastSeq = -1;
+      const seenRunSeqs = new Map<string, number>();
+      let currentRunDispatchMode: string | null = null;
       let currentMessageText = normalizeMentions(
         recoveryMessageText.trim() || userMessageText,
       );
@@ -1348,21 +1412,54 @@ export function createAgentChatAdapter(
       // its own budget rather than inheriting the prior payload's.
       let lastInFlightToolSignature: string | undefined;
       let repeatedInFlightToolCount = 0;
+      let recoveryGaveUpOnInFlightTool = false;
       const MAX_REPEATED_INFLIGHT_TOOL_STALLS = 3;
+      let lastPreparingToolName: string | undefined;
+      let repeatedActionPreparationCount = 0;
+      let recoveryGaveUpOnActionPreparation = false;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
       let lastAutoContinueReason: string | null = null;
+      let lastRecoverableRunError: AgentAutoContinueErrorInfo | null = null;
+      let lastActivityTrail: AgentActivityTrailEntry[] = [];
       const attemptedRunIds: string[] = [];
       let authRecoveryAttempted = false;
       let continuationToolCallCounter = 0;
       const nextContinuationToolCallId = () =>
         `continuation_tc_${++continuationToolCallCounter}`;
 
+      const runDebugContextDetails = (): string => {
+        const pageOrigin =
+          typeof window !== "undefined" && window.location?.origin
+            ? window.location.origin
+            : "";
+        return [
+          `api_url: ${apiUrl}`,
+          pageOrigin ? `page_origin: ${pageOrigin}` : "",
+          tabId ? `tab_id: ${tabId}` : "",
+          threadId ? `thread_id: ${threadId}` : "",
+          `turn_id: ${turnId}`,
+          runId ? `current_run: ${runId}` : "",
+          attemptedRunIds.length > 0
+            ? `attempted_runs: ${attemptedRunIds.join(", ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      };
+
       const connectionRecoveryDetails = (): string => {
         return [
+          runDebugContextDetails(),
           lastAutoContinueReason
             ? `last_auto_continue_reason: ${lastAutoContinueReason}`
+            : "",
+          lastRecoverableRunError?.errorCode
+            ? `last_recoverable_error_code: ${lastRecoverableRunError.errorCode}`
+            : "",
+          lastRecoverableRunError?.message
+            ? `last_recoverable_error: ${lastRecoverableRunError.message}`
             : "",
           `stale_run_continuations: ${staleRunContinuationAttempts}`,
           `stalled_transient_continuations: ${stalledTransientContinuationAttempts}`,
@@ -1372,18 +1469,31 @@ export function createAgentChatAdapter(
           lastInFlightToolName
             ? `last_inflight_tool: ${lastInFlightToolName}`
             : "",
-          `total_transient_continuations: ${totalTransientContinuationAttempts}`,
-          attemptedRunIds.length > 0
-            ? `attempted_runs: ${attemptedRunIds.join(", ")}`
+          `repeated_action_preparation_stalls: ${repeatedActionPreparationCount}`,
+          lastPreparingToolName
+            ? `last_preparing_tool: ${lastPreparingToolName}`
             : "",
+          formatActivityTrail(lastActivityTrail)
+            ? `activity_trail: ${formatActivityTrail(lastActivityTrail)}`
+            : "",
+          `total_transient_continuations: ${totalTransientContinuationAttempts}`,
         ]
           .filter(Boolean)
           .join("\n");
       };
 
       const exhaustedRecoveryMessage = (reason?: string): string => {
+        if (recoveryGaveUpOnInFlightTool) {
+          return "The agent got stuck waiting for the same tool to finish, so I stopped the automatic retries. The tool did not report a completed result.";
+        }
         if (recoveryGaveUpOnRepetition) {
           return "The agent got stuck repeating the same response without finishing, so I stopped the automatic retries. This often happens when it tries to re-type a large pasted file into one action — starting a new chat, or asking for a smaller first step, usually gets it unstuck.";
+        }
+        if (recoveryGaveUpOnActionPreparation) {
+          const tool = lastPreparingToolName
+            ? ` the ${humanizeActionName(lastPreparingToolName)} action`
+            : " the same action";
+          return `The agent got stuck preparing${tool} input and never started the tool, so I stopped the automatic retries. Try a smaller first step or a more compact version of the request.`;
         }
         if (
           content.length === 0 &&
@@ -1433,6 +1543,38 @@ export function createAgentChatAdapter(
         }
       };
 
+      const updateCurrentRunDispatchMode = (value: unknown) => {
+        if (typeof value !== "string") return;
+        const mode = value.trim();
+        if (mode) currentRunDispatchMode = mode;
+      };
+
+      const rememberRunSeq = (seq: number) => {
+        lastSeq = seq;
+        if (runId) {
+          seenRunSeqs.set(runId, seq);
+        }
+      };
+
+      const reconnectCursorForRun = (
+        nextRunId: string,
+        previousRunId: string | null,
+      ) => {
+        const rememberedSeq = seenRunSeqs.get(nextRunId);
+        if (rememberedSeq !== undefined) {
+          lastSeq = rememberedSeq;
+          return;
+        }
+        if (previousRunId !== nextRunId) {
+          lastSeq = -1;
+        }
+      };
+
+      const currentSSEOptions = () => ({
+        durableBackgroundRun:
+          currentRunDispatchMode?.startsWith("background") === true,
+      });
+
       const captureChatClientError = (
         error: unknown,
         phase: string,
@@ -1454,6 +1596,7 @@ export function createAgentChatAdapter(
             lastSeq,
             contentParts: content.length,
             attemptedRunIds: [...attemptedRunIds],
+            activityTrail: [...lastActivityTrail],
             startupRecoveryAttempts,
             staleRunContinuationAttempts,
             stalledTransientContinuationAttempts,
@@ -1461,6 +1604,8 @@ export function createAgentChatAdapter(
             repeatedTransientContinuationAttempts,
             repeatedInFlightToolCount,
             lastInFlightToolName,
+            repeatedActionPreparationCount,
+            lastPreparingToolName,
             totalTransientContinuationAttempts,
             ...extra,
           },
@@ -1478,6 +1623,8 @@ export function createAgentChatAdapter(
               repeatedTransientContinuationAttempts,
               repeatedInFlightToolCount,
               lastInFlightToolName,
+              repeatedActionPreparationCount,
+              lastPreparingToolName,
               totalTransientContinuationAttempts,
             },
           },
@@ -1536,6 +1683,9 @@ export function createAgentChatAdapter(
                 reconnectErrorCaptured = true;
                 break;
               }
+              updateCurrentRunDispatchMode(
+                reconnectRes.headers.get("X-Dispatch-Mode"),
+              );
 
               for await (const result of readSSEStream(
                 reconnectRes.body,
@@ -1543,10 +1693,11 @@ export function createAgentChatAdapter(
                 toolCallCounter,
                 tabId,
                 (seq) => {
-                  lastSeq = seq;
+                  rememberRunSeq(seq);
                   if (threadId) updateActiveRunSeq(seq);
                 },
                 runId,
+                currentSSEOptions(),
               )) {
                 yield withRequestModeMetadata(result);
               }
@@ -1627,6 +1778,7 @@ export function createAgentChatAdapter(
               }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
+                updateCurrentRunDispatchMode(active.dispatchMode);
                 const activeStatus =
                   typeof active.status === "string" ? active.status : "";
                 const activeTurnId =
@@ -1635,12 +1787,13 @@ export function createAgentChatAdapter(
                   return false;
                 }
                 const activeRunId = String(active.runId);
+                const previousRunId = runId;
                 runId = activeRunId;
                 if (!attemptedRunIds.includes(activeRunId)) {
                   attemptedRunIds.push(activeRunId);
                 }
-                lastSeq = -1;
-                setActiveRun({ threadId, runId: activeRunId, lastSeq: -1 });
+                reconnectCursorForRun(activeRunId, previousRunId);
+                setActiveRun({ threadId, runId: activeRunId, lastSeq });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               }
@@ -1666,6 +1819,85 @@ export function createAgentChatAdapter(
           return false;
         };
 
+        const reconnectBackgroundContinuationForRunTimeout =
+          async function* (): AsyncGenerator<
+            ChatModelRunResult,
+            boolean,
+            unknown
+          > {
+            if (!threadId || !runId) return false;
+            const interruptedRunId = runId;
+            const interruptedLastSeq = lastSeq;
+            let lastActiveRunError: unknown = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
+              if (attempt > 0) {
+                await delay(500, abortSignal);
+              }
+              if (abortSignal.aborted) return true;
+              try {
+                const activeRes = await fetch(
+                  `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+                  { signal: abortSignal },
+                );
+                if (!activeRes.ok) {
+                  if (activeRes.status === 404) return false;
+                  lastActiveRunError = new Error(
+                    `Active run lookup failed: ${activeRes.status}`,
+                  );
+                  continue;
+                }
+                const active = await activeRes.json();
+                if (!active?.active || !active.runId) return false;
+                const activeRunId = String(active.runId);
+                const dispatchMode =
+                  typeof active.dispatchMode === "string"
+                    ? active.dispatchMode
+                    : "";
+                updateCurrentRunDispatchMode(dispatchMode);
+                if (activeRunId === interruptedRunId) {
+                  if (dispatchMode.startsWith("background")) continue;
+                  return false;
+                }
+                const activeTurnId =
+                  typeof active.turnId === "string" ? active.turnId : "";
+                const activeStatus =
+                  typeof active.status === "string" ? active.status : "";
+                if (!dispatchMode.startsWith("background")) return false;
+                if (activeTurnId && activeTurnId !== turnId) return false;
+                if (activeStatus !== "running" && activeStatus !== "starting") {
+                  return false;
+                }
+                const previousRunId = runId;
+                runId = activeRunId;
+                if (!attemptedRunIds.includes(activeRunId)) {
+                  attemptedRunIds.push(activeRunId);
+                }
+                reconnectCursorForRun(activeRunId, previousRunId);
+                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                const reconnected = yield* reconnectCurrentRun();
+                if (reconnected) return true;
+              } catch (activeErr: unknown) {
+                if (
+                  activeErr instanceof Error &&
+                  activeErr.name === "AbortError"
+                ) {
+                  clearActiveRun();
+                  return true;
+                }
+                lastActiveRunError = activeErr;
+              }
+            }
+            if (lastActiveRunError) {
+              captureChatClientError(
+                lastActiveRunError,
+                "reconnect-background-continuation-failed",
+              );
+            }
+            runId = interruptedRunId;
+            lastSeq = interruptedLastSeq;
+            return false;
+          };
+
         const visibleContentForContinuation = (): ContentPart[] => {
           return contentAfterContinuationPrefix(
             content,
@@ -1675,31 +1907,43 @@ export function createAgentChatAdapter(
 
         const prepareAutoContinuation = (
           signal: AgentAutoContinueSignal,
-        ): { ok: boolean; resetVisibleContent: boolean } => {
+        ): {
+          ok: boolean;
+          resetVisibleContent: boolean;
+          completedToolName?: string;
+        } => {
           lastAutoContinueReason = signal.reason;
+          lastActivityTrail = [...signal.activityTrail];
+          if (signal.errorInfo) {
+            lastRecoverableRunError = signal.errorInfo;
+          }
           const isTransient = signal.reason !== "loop_limit";
           const visibleContent = visibleContentForContinuation();
-          const currentPartialHistory =
+          let currentPartialHistory =
             contentToContinuationHistory(visibleContent);
           // Real, content-weight progress: streamed text or a completed tool
           // result. Used to reset the stalled/empty counters so trivial
           // whitespace-only output cannot keep the run alive indefinitely.
           const madeContentProgress = hasContinuationProgress(visibleContent);
           // An action was streamed but has not returned yet (a tool_start with
-          // no tool_done), or the activity trail shows the server was working
-          // on a tool. A run_timeout that fires in this window means the agent
-          // was actively making progress — the server's foldAssistantTurn
-          // persisted the in-flight call — so it must NOT count against the
-          // stalled/empty continuation budgets.
-          const hasInFlightTool =
-            hasInFlightToolCall(visibleContent) ||
-            Boolean(lastActivityTool(signal.activityTrail));
+          // no tool_done). This is durable enough to survive continuation: the
+          // server already emitted a real tool call. A tool-scoped activity
+          // card ("Preparing generate-design") is useful UI, but it happens
+          // before tool_start; treating it as progress caused silent retry
+          // loops when the LLM timed out while assembling a large tool input.
+          const hasInFlightTool = hasInFlightToolCall(visibleContent);
+          const completedTool = lastCompletedTimeoutCandidateTool(content);
           // Either real output or an actively-running tool counts as progress
           // for the stalled/empty caps.
           const madeProgress = madeContentProgress || hasInFlightTool;
           const madeDurableToolProgress = visibleContent.some(
-            (part) => part.type === "tool-call" && part.result !== undefined,
+            (part) =>
+              part.type === "tool-call" &&
+              part.activity !== true &&
+              part.result !== undefined,
           );
+          const currentPreparingToolName =
+            lastUnresolvedToolActivity(visibleContent);
           // In-flight tool stall guard. When the same write tool is stuck
           // in-flight because the connection keeps dropping (stream_ended),
           // hasInFlightTool=true keeps madeProgress=true and completely
@@ -1708,11 +1952,11 @@ export function createAgentChatAdapter(
           // MAX_REPEATED_INFLIGHT_TOOL_STALLS consecutive stream_ended events,
           // bail with a clear message.
           //
-          // Only count stream_ended (connection drop / reconnect failed), NOT
-          // run_timeout (server legitimately still executing a slow tool). A
-          // run_timeout with an in-flight tool means the server is actively
-          // working and reconnection may still recover the result; a repeated
-          // stream_ended means the connection keeps breaking under that payload.
+          // Count broken streams (connection drop / reconnect failed) and
+          // no_progress stalls (the client aborts a stream that stayed open but
+          // stopped producing events). Do NOT count run_timeout: with an
+          // in-flight tool that means the server is still actively executing a
+          // slow action and reconnection may recover the result.
           const currentInFlightToolPart = visibleContent.find(
             (p): p is Extract<ContentPart, { type: "tool-call" }> =>
               p.type === "tool-call" &&
@@ -1723,8 +1967,9 @@ export function createAgentChatAdapter(
           const currentInFlightToolSignature = currentInFlightToolPart
             ? inFlightToolInputSignature(currentInFlightToolPart)
             : undefined;
-          const isConnectionDrop = signal.reason === "stream_ended";
-          if (currentInFlightToolName && isConnectionDrop) {
+          const isBrokenInFlightTool =
+            signal.reason === "stream_ended" || signal.reason === "no_progress";
+          if (currentInFlightToolName && isBrokenInFlightTool) {
             if (
               currentInFlightToolName === lastInFlightToolName &&
               currentInFlightToolSignature === lastInFlightToolSignature
@@ -1740,6 +1985,27 @@ export function createAgentChatAdapter(
             }
           } else if (!currentInFlightToolName) {
             repeatedInFlightToolCount = 0;
+          }
+
+          const isRepeatedActionPreparationCandidate =
+            signal.reason !== "loop_limit" &&
+            currentPreparingToolName !== undefined &&
+            !hasInFlightTool &&
+            !madeDurableToolProgress;
+          if (isRepeatedActionPreparationCandidate) {
+            if (currentPreparingToolName === lastPreparingToolName) {
+              repeatedActionPreparationCount += 1;
+            } else {
+              repeatedActionPreparationCount = 0;
+              lastPreparingToolName = currentPreparingToolName;
+            }
+          } else if (
+            !currentPreparingToolName ||
+            hasInFlightTool ||
+            madeDurableToolProgress
+          ) {
+            repeatedActionPreparationCount = 0;
+            lastPreparingToolName = undefined;
           }
 
           // Degenerate repetition guard. When the model gets stuck re-streaming
@@ -1763,13 +2029,39 @@ export function createAgentChatAdapter(
             emptyTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
+            // If a tool already completed, do not turn a missing closing
+            // sentence into a scary connection failure. Give the model one
+            // continuation opportunity (the completed tool itself counts as
+            // progress on the first timeout); if the follow-up produces no new
+            // content, stop locally with a clear completed-tool warning.
+            if (
+              signal.reason === "run_timeout" &&
+              completedTool &&
+              !hasInFlightToolCall(content) &&
+              !currentPreparingToolName &&
+              !madeContentProgress &&
+              !hasInFlightTool
+            ) {
+              return {
+                ok: false,
+                resetVisibleContent: false,
+                completedToolName: completedTool.toolName,
+              };
+            }
             // Bail when the same write tool is stuck in-flight across too many
             // consecutive continuations. Checked before the text-repeat guard
             // because hasInFlightTool=true would mask the repeat as progress.
             if (
               repeatedInFlightToolCount >= MAX_REPEATED_INFLIGHT_TOOL_STALLS
             ) {
-              recoveryGaveUpOnRepetition = true;
+              recoveryGaveUpOnInFlightTool = true;
+              return { ok: false, resetVisibleContent: false };
+            }
+            if (
+              repeatedActionPreparationCount >
+              MAX_REPEATED_ACTION_PREPARATION_CONTINUATIONS
+            ) {
+              recoveryGaveUpOnActionPreparation = true;
               return { ok: false, resetVisibleContent: false };
             }
             // Bail fast on a non-advancing repetition loop, well before the
@@ -1830,6 +2122,18 @@ export function createAgentChatAdapter(
                 MAX_TOTAL_TRANSIENT_CONTINUATIONS
             ) {
               return { ok: false, resetVisibleContent: false };
+            }
+          }
+
+          if (isTransient) {
+            const settledInterruptedTools = settleInterruptedToolCalls(
+              visibleContent,
+              undefined,
+              { includeActivity: true },
+            );
+            if (settledInterruptedTools) {
+              currentPartialHistory =
+                contentToContinuationHistory(visibleContent);
             }
           }
 
@@ -2010,13 +2314,14 @@ export function createAgentChatAdapter(
                 }
                 if (activeRunId) {
                   try {
+                    const previousRunId = runId;
                     runId = activeRunId;
                     if (!attemptedRunIds.includes(runId)) {
                       attemptedRunIds.push(runId);
                     }
-                    lastSeq = -1;
+                    reconnectCursorForRun(activeRunId, previousRunId);
                     if (threadId) {
-                      setActiveRun({ threadId, runId, lastSeq: -1 });
+                      setActiveRun({ threadId, runId, lastSeq });
                     }
                     const reconnected = yield* reconnectCurrentRun();
                     if (reconnected) return;
@@ -2129,6 +2434,7 @@ export function createAgentChatAdapter(
 
             // Track the run ID for reconnection
             runId = res.headers.get("X-Run-Id");
+            updateCurrentRunDispatchMode(res.headers.get("X-Dispatch-Mode"));
             if (runId && !attemptedRunIds.includes(runId)) {
               attemptedRunIds.push(runId);
             }
@@ -2142,12 +2448,13 @@ export function createAgentChatAdapter(
               toolCallCounter,
               tabId,
               (seq) => {
-                lastSeq = seq;
+                rememberRunSeq(seq);
                 if (runId && threadId) {
                   updateActiveRunSeq(seq);
                 }
               },
               runId,
+              currentSSEOptions(),
             )) {
               yield withRequestModeMetadata(result);
             }
@@ -2166,6 +2473,11 @@ export function createAgentChatAdapter(
               if (err.reason === "no_progress") {
                 await abortCurrentRun();
               }
+              if (err.reason === "run_timeout" && !err.errorInfo) {
+                const reconnected =
+                  yield* reconnectBackgroundContinuationForRunTimeout();
+                if (reconnected) return;
+              }
               if (err.reason === "stream_ended") {
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return;
@@ -2174,15 +2486,53 @@ export function createAgentChatAdapter(
               }
               const continuation = prepareAutoContinuation(err);
               if (!continuation.ok) {
-                const message = exhaustedRecoveryMessage(err.reason);
+                if (continuation.completedToolName) {
+                  const message = completedToolTimeoutMessage(
+                    continuation.completedToolName,
+                  );
+                  content.push({ type: "text", text: message });
+                  yield {
+                    content: [...content],
+                    status: {
+                      type: "complete" as const,
+                      reason: "stop" as const,
+                    },
+                    metadata: {
+                      custom: {
+                        ...(runId ? { runId } : {}),
+                        runWarning: {
+                          message,
+                          errorCode: "final_response_timeout_after_tool",
+                          recoverable: true,
+                        },
+                      },
+                    },
+                  };
+                  clearActiveRun();
+                  return;
+                }
+                const preservedError =
+                  err.errorInfo ?? lastRecoverableRunError ?? null;
+                const message =
+                  preservedError?.message ??
+                  exhaustedRecoveryMessage(err.reason);
+                const details = [
+                  preservedError?.details,
+                  connectionRecoveryDetails(),
+                ]
+                  .filter(Boolean)
+                  .join("\n\n");
+                const errorCode =
+                  preservedError?.errorCode ?? "connection_error";
                 captureChatClientError(err, "auto-continuation-exhausted", {
                   autoContinueReason: err.reason,
+                  ...(errorCode ? { errorCode } : {}),
                 });
                 const runError = {
                   message,
-                  details: connectionRecoveryDetails(),
-                  errorCode: "connection_error",
-                  recoverable: true,
+                  ...(details ? { details } : {}),
+                  errorCode,
+                  recoverable: preservedError?.recoverable ?? true,
                   ...(runId ? { runId } : {}),
                 };
                 if (typeof window !== "undefined") {
@@ -2192,10 +2542,16 @@ export function createAgentChatAdapter(
                     }),
                   );
                 }
-                settleInterruptedToolCalls(content);
+                settleInterruptedToolCalls(content, undefined, {
+                  includeActivity: true,
+                });
                 content.push({
                   type: "text",
-                  text: `Something went wrong: ${message}`,
+                  text: formatChatErrorText(
+                    message,
+                    preservedError?.upgradeUrl,
+                    errorCode,
+                  ),
                 });
                 yield {
                   content: [...content],
@@ -2285,10 +2641,16 @@ export function createAgentChatAdapter(
             if (activeReconnected) return;
 
             if (err instanceof AgentStartupTimeoutError) {
+              if (startupRecoveryAttempts < MAX_STARTUP_RECOVERY_ATTEMPTS) {
+                await retryDelay(startupRecoveryAttempts++, abortSignal);
+                if (abortSignal.aborted) return;
+                continue;
+              }
               const message =
-                "The agent chat endpoint accepted the request but did not start streaming in time. This usually means prompt setup, the LLM gateway, or the provider is stalled.";
+                "The agent chat endpoint did not start streaming in time after several recovery attempts. This usually means prompt setup, the LLM gateway, or the provider is stalled.";
               captureChatClientError(err, "startup-timeout", {
                 timeoutMs: err.timeoutMs,
+                startupRecoveryAttempts,
               });
               const runError = {
                 message,
@@ -2327,6 +2689,31 @@ export function createAgentChatAdapter(
                 new AgentAutoContinueSignal({ reason: "stream_ended" }),
               );
               if (!continuation.ok) {
+                if (continuation.completedToolName) {
+                  const message = completedToolTimeoutMessage(
+                    continuation.completedToolName,
+                  );
+                  content.push({ type: "text", text: message });
+                  yield {
+                    content: [...content],
+                    status: {
+                      type: "complete" as const,
+                      reason: "stop" as const,
+                    },
+                    metadata: {
+                      custom: {
+                        ...(runId ? { runId } : {}),
+                        runWarning: {
+                          message,
+                          errorCode: "final_response_timeout_after_tool",
+                          recoverable: true,
+                        },
+                      },
+                    },
+                  };
+                  clearActiveRun();
+                  return;
+                }
                 const message = exhaustedRecoveryMessage("stream_ended");
                 captureChatClientError(err, "recovery-exhausted");
                 const runError = {
@@ -2343,7 +2730,9 @@ export function createAgentChatAdapter(
                     }),
                   );
                 }
-                settleInterruptedToolCalls(content);
+                settleInterruptedToolCalls(content, undefined, {
+                  includeActivity: true,
+                });
                 content.push({
                   type: "text",
                   text: `Something went wrong: ${message}`,

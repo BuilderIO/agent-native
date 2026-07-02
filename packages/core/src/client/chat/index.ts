@@ -16,6 +16,7 @@ export {
   AGENT_CHAT_VIEW_TRANSITION_NAME,
   consumeAgentChatHomeHandoff,
   getAgentChatViewTransitionStyle,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   startAgentChatViewTransition,

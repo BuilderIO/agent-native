@@ -231,6 +231,13 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 | `1`  | 최소 하나의 평가가 임계값 미만의 점수를 얻었거나 제품군에 오류가 발생했습니다.   |
 | `2`  | 잘못된 인수(예: `[0, 1]` 외부의 `--threshold`).                                  |
 
+### 게이트된 평가 건너뛰기 {#skipping}
+
+수동, 야간 또는 시크릿이 필요한 평가 스위트에는 `skipReason`를 사용하세요.
+건너뛴 평가는 에이전트나 scorer를 실행하지 않고, 스위트를 실패시키지
+않으며, JSON 출력에 `status: "skipped"` 및 `skipReason`로 표시됩니다.
+저렴한 결정적 커버리지는 일반 PR CI에 유지하세요.
+
 ### CI 배포 게이트로 {#ci}
 
 배포 전에 실행되는 파이프라인에 추가하세요:

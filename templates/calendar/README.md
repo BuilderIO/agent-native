@@ -1,41 +1,35 @@
 # Calendar
 
-Google Calendar integration with a Calendly-style public booking page.
+An open-source, agent-native alternative to the Google Calendar + Calendly combo.
+An agent-powered calendar with Google Calendar sync and Calendly-style public
+booking links — schedule, find slots, and manage availability in plain English.
 
-## Setup
+**Live app: [calendar.agent-native.com](https://calendar.agent-native.com)**
 
-### 1. Install dependencies
-
-```bash
-pnpm install
-```
-
-### 2. Google OAuth Setup (optional)
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a project and enable the Google Calendar API
-3. Create OAuth 2.0 credentials (Web application type)
-4. Set the authorized redirect URI to `http://localhost:5173/_agent-native/google/callback`
-5. Add credentials in the app's Settings page, or set them only in a local
-   `.env` / deployment secret. Never commit real credential values:
-   ```
-   GOOGLE_CLIENT_ID=your-client-id
-   GOOGLE_CLIENT_SECRET=your-client-secret
-   ```
-
-### 3. Run
-
-```bash
-pnpm dev
-```
-
-Open http://localhost:5173
+Connect your Google Calendar and the agent can read your schedule, find free
+slots, create events, and manage booking links. Anything you can do in the UI,
+the agent can do through the same actions.
 
 ## Features
 
-- Monthly/weekly/daily calendar views
-- Google Calendar sync (pull-based)
-- Event CRUD (local + Google)
-- Configurable availability schedule
-- Public booking page at `/book/meeting`
-- Real-time updates via SSE when agent modifies data
+- Day, week, and month views with multiple Google accounts overlayed.
+- Google Calendar sync and read-only ICS feed subscriptions.
+- Weekly availability with timezone support for slot-finding.
+- Calendly-style public booking links at `/book/{slug}` with custom fields.
+- Ask the agent anything schedule-related, from "am I free Thursday?" to
+  creating and rescheduling events.
+- Share booking links with teammates and required co-hosts.
+
+## Develop locally
+
+Scaffold your own copy and run it:
+
+```bash
+npx @agent-native/core@latest create my-calendar --standalone --template calendar
+cd my-calendar
+pnpm install
+pnpm dev
+```
+
+Connecting Google Calendar in dev needs a Google OAuth client — see the docs for
+setup. Full docs: [agent-native.com/docs/template-calendar](https://agent-native.com/docs/template-calendar).

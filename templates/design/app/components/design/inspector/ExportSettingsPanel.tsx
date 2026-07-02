@@ -57,6 +57,9 @@ const DEFAULT_LABELS: ExportSettingsPanelLabels = {
 
 const DEFAULT_FORMATS: ExportFormat[] = ["png", "jpg", "svg", "pdf", "webp"];
 
+const controlChromeClass =
+  "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground shadow-none hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus:ring-1 focus:ring-[var(--design-editor-accent-color)] focus:ring-offset-0 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0";
+
 // Export scale bounds — must match the clamp in DesignEditor's PNG/SVG export
 // handlers so the panel never promises a range the exporter won't render.
 const MIN_EXPORT_SCALE = 0.1;
@@ -135,13 +138,18 @@ function ScaleSelect({
         }
       }}
     >
-      <SelectTrigger className="h-6 w-14 shrink-0 px-1.5 text-[11px]">
+      <SelectTrigger
+        className={cn(
+          "h-6 w-14 shrink-0 px-1.5 !text-[11px]",
+          controlChromeClass,
+        )}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
           {SCALE_PRESETS.map((p) => (
-            <SelectItem key={p.value} value={p.value} className="text-[11px]">
+            <SelectItem key={p.value} value={p.value} className="!text-[11px]">
               {p.label}
             </SelectItem>
           ))}
@@ -233,7 +241,7 @@ export function ExportSettingsPanel({
     <div className={cn("space-y-1.5", className)}>
       {/* Section header: title left, "+" right — matches the design editor export header */}
       <div className="flex h-6 items-center justify-between">
-        <span className="text-[11px] font-medium text-muted-foreground">
+        <span className="!text-[11px] font-medium text-muted-foreground">
           {copy.title}
         </span>
         <button
@@ -267,7 +275,7 @@ export function ExportSettingsPanel({
         variant="outline"
         disabled={isDisabled}
         onClick={handleExport}
-        className="h-6 w-full px-2 text-[11px]"
+        className={cn("h-6 w-full px-2 !text-[11px]", controlChromeClass)}
       >
         <IconDownload className="size-3.5" />
         {copy.export}
@@ -324,7 +332,10 @@ function ExportRow({
               onPatchRow(row.id, { customScale: false });
             }
           }}
-          className="h-6 w-14 shrink-0 px-1.5 text-[11px] tabular-nums"
+          className={cn(
+            "h-6 w-14 shrink-0 px-1.5 !text-[11px] tabular-nums md:!text-[11px]",
+            controlChromeClass,
+          )}
           aria-label="Scale"
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
@@ -352,7 +363,12 @@ function ExportRow({
           onPatchRow(row.id, { format: format as ExportFormat })
         }
       >
-        <SelectTrigger className="h-6 min-w-0 flex-1 px-1.5 text-[11px]">
+        <SelectTrigger
+          className={cn(
+            "h-6 min-w-0 flex-1 px-1.5 !text-[11px]",
+            controlChromeClass,
+          )}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -361,7 +377,7 @@ function ExportRow({
               <SelectItem
                 key={format}
                 value={format}
-                className="text-[11px] uppercase"
+                className="!text-[11px] uppercase"
               >
                 {format.toUpperCase()}
               </SelectItem>
@@ -376,7 +392,10 @@ function ExportRow({
         disabled={isDisabled}
         onChange={(e) => onPatchRow(row.id, { suffix: e.target.value })}
         placeholder={labels.suffix}
-        className="h-6 min-w-0 flex-1 px-1.5 text-[11px]"
+        className={cn(
+          "h-6 min-w-0 flex-1 px-1.5 !text-[11px] md:!text-[11px]",
+          controlChromeClass,
+        )}
         aria-label={labels.suffix}
       />
 

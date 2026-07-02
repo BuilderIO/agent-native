@@ -102,6 +102,9 @@ export function buildRegistrySlashItems(
       //     not a content-authoring block.
       //   - `inline-database` is registered in Phase 2 for render/round-trip
       //     compatibility; Phase 3 owns the `/database` insertion flow.
+      //   - `source-component` is emitted by provider hydration to preserve
+      //     source-native blocks; users should not author raw preservation
+      //     markers by hand.
       // The genuinely document-friendly rich blocks (callout, decision, diagram,
       // wireframe, and the dev-doc/structured set) ARE offered.
       includeSpec: (spec) =>
@@ -110,6 +113,7 @@ export function buildRegistrySlashItems(
           "question-form",
           "visual-questions",
           "inline-database",
+          "source-component",
         ].includes(spec.type),
       toItem: (spec, insert) => ({
         title: spec.label,

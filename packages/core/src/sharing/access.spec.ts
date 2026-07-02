@@ -314,6 +314,90 @@ describe("shareable resource access helpers", () => {
     );
   });
 
+  it("allows a resource registration to explicitly upgrade public-by-link access", async () => {
+    const publicEditType = "qa-doc-public-editor";
+    registerShareableResource({
+      type: publicEditType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Public Editable Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      publicAccessRole: (resource) =>
+        resource.id === "doc-public-edit" ? "editor" : "viewer",
+    });
+
+    await insertDoc({
+      id: "doc-public-view",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+    await insertDoc({
+      id: "doc-public-edit",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({}, async () => {
+      await expect(
+        resolveAccess(publicEditType, "doc-public-view"),
+      ).resolves.toMatchObject({ role: "viewer" });
+      await expect(
+        assertAccess(publicEditType, "doc-public-view", "editor"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        assertAccess(publicEditType, "doc-public-edit", "editor"),
+      ).resolves.toMatchObject({ role: "editor" });
+    });
+  });
+
+  it("rejects visibility changes from org and public viewer access", async () => {
+    await insertDoc({
+      id: "doc-org-viewer-policy",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+    await insertDoc({
+      id: "doc-public-viewer-policy",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-org-viewer-policy",
+          visibility: "private",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-public-viewer-policy",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    const rows = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.ownerEmail, outsiderEmail));
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "doc-org-viewer-policy",
+          visibility: "org",
+        }),
+        expect.objectContaining({
+          id: "doc-public-viewer-policy",
+          visibility: "public",
+        }),
+      ]),
+    );
+  });
+
   it("matches owner and user-share emails case-insensitively", async () => {
     await insertDoc({
       id: "doc-owned-case",
@@ -415,6 +499,13 @@ describe("shareable resource access helpers", () => {
           visibility: "org",
         }),
       ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-actions",
+          visibility: "private",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
@@ -466,6 +557,11 @@ describe("shareable resource access helpers", () => {
       principalId: viewerEmail,
       role: "admin",
     });
+    const [doc] = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.id, "doc-actions"));
+    expect(doc).toMatchObject({ visibility: "org" });
   });
 
   it("upserts and revokes user shares case-insensitively", async () => {

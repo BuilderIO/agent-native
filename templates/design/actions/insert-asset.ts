@@ -57,6 +57,14 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function createInsertedNodeId(prefix: string): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+      : Math.random().toString(36).slice(2, 14);
+  return `inserted-${prefix}-${random}`;
+}
+
 function insertBeforeClosingTag(
   html: string,
   closingTag: "main" | "body",
@@ -70,6 +78,7 @@ function insertBeforeClosingTag(
 function appendAssetMarkup(
   html: string,
   args: z.infer<typeof schemaInput>,
+  nodeId: string,
 ): string {
   const label = args.title?.trim() || args.altText?.trim() || "Generated asset";
   const escapedUrl = escapeHtml(args.assetUrl);
@@ -82,7 +91,7 @@ function appendAssetMarkup(
       ? `<video src="${escapedUrl}" controls class="w-full rounded-xl object-cover"></video>`
       : `<img src="${escapedUrl}" alt="${escapeHtml(args.altText?.trim() || label)}" class="w-full rounded-xl object-cover" />`;
   const snippet = `
-    <section class="mx-auto my-8 max-w-5xl px-4" data-agent-native-asset${assetIdAttr}>
+    <section class="mx-auto my-8 max-w-5xl px-4" data-agent-native-asset data-agent-native-node-id="${escapeHtml(nodeId)}" data-agent-native-layer-name="${escapedLabel}"${assetIdAttr}>
       <figure class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         ${media}
         <figcaption class="px-4 py-3 text-sm text-slate-600">${escapedLabel}</figcaption>
@@ -191,7 +200,8 @@ export default defineAction({
       // Collab read is best-effort; fall back to stored content.
     }
 
-    const content = appendAssetMarkup(base, args);
+    const insertedNodeId = createInsertedNodeId("asset");
+    const content = appendAssetMarkup(base, args, insertedNodeId);
     const now = new Date().toISOString();
     await db
       .update(schema.designFiles)
@@ -213,6 +223,8 @@ export default defineAction({
       fileId: file.id,
       filename: file.filename,
       inserted: true,
+      insertedNodeId,
+      insertedSelector: `[data-agent-native-node-id="${insertedNodeId}"]`,
       assetId: args.assetId ?? null,
       assetUrl: args.assetUrl,
     };

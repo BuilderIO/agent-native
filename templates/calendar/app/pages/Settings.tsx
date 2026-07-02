@@ -47,6 +47,7 @@ import {
   useDisconnectZoom,
   useZoomStatus,
 } from "@/hooks/use-zoom-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 import changelog from "../../CHANGELOG.md?raw";
 
@@ -70,6 +71,7 @@ export default function Settings() {
   const disconnectZoom = useDisconnectZoom();
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const canOfferGoogleOAuthSetup = shouldOfferGoogleOAuthSetup();
 
   const [timezone, setTimezone] = useState("");
   const [bookingTitle, setBookingTitle] = useState("");
@@ -333,7 +335,7 @@ export default function Settings() {
           </Card>
 
           {/* Google Setup Wizard */}
-          {!googleStatus.data?.connected && (
+          {!googleStatus.data?.connected && canOfferGoogleOAuthSetup && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">

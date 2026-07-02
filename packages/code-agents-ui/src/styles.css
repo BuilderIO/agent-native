@@ -2,31 +2,31 @@
 
 /* ─── Agent-Native Code shadcn/template alignment ─────────────── */
 .code-agents-surface {
-  --background: 220 6% 6%;
+  --background: 0 0% 13%;
   --foreground: 0 0% 90%;
-  --card: 220 5% 6%;
+  --card: 0 0% 15%;
   --card-foreground: 0 0% 90%;
-  --popover: 220 5% 8%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 90%;
   --primary: 0 0% 75%;
-  --primary-foreground: 220 6% 6%;
-  --secondary: 220 4% 12%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 90%;
-  --muted: 220 4% 10%;
-  --muted-foreground: 220 4% 60%;
-  --accent: 220 4% 13%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
   --destructive: 0 63% 51%;
   --destructive-foreground: 0 0% 98%;
-  --border: 220 4% 14%;
-  --input: 220 4% 14%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 0 0% 60%;
   --radius: 0.5rem;
-  --sidebar-background: 220 6% 4%;
-  --sidebar-foreground: 220 4% 60%;
-  --sidebar-accent: 220 4% 10%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-accent: 0 0% 16%;
   --sidebar-accent-foreground: 0 0% 90%;
-  --sidebar-border: 220 4% 10%;
+  --sidebar-border: 0 0% 20%;
   --ease: 120ms cubic-bezier(0.16, 1, 0.3, 1);
   --code-agents-chat-max: 700px;
   --code-agents-rail-gutter: 8px;
@@ -1157,17 +1157,17 @@
 
 [data-agent-native-tooltip="true"],
 [data-agent-native-composer-popover="true"] {
-  --background: 220 6% 6%;
+  --background: 0 0% 13%;
   --foreground: 0 0% 90%;
-  --popover: 220 5% 8%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 90%;
-  --muted: 220 4% 10%;
-  --muted-foreground: 220 4% 60%;
-  --accent: 220 4% 13%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
-  --border: 220 4% 16%;
+  --border: 0 0% 24%;
   --primary: 0 0% 75%;
-  --primary-foreground: 220 6% 6%;
+  --primary-foreground: 0 0% 10%;
   --radius: 0.5rem;
 }
 
@@ -1393,15 +1393,15 @@
 }
 
 .code-agents-select-content {
-  --background: 220 6% 6%;
+  --background: 0 0% 13%;
   --foreground: 0 0% 90%;
-  --popover: 220 5% 8%;
+  --popover: 0 0% 15%;
   --popover-foreground: 0 0% 90%;
-  --muted: 220 4% 10%;
-  --muted-foreground: 220 4% 60%;
-  --accent: 220 4% 13%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
-  --border: 220 4% 16%;
+  --border: 0 0% 24%;
   --radius: 0.5rem;
   border: 1px solid hsl(var(--border));
   border-radius: calc(var(--radius) + 1px);
@@ -1921,9 +1921,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border: 1px solid hsl(var(--border, 220 4% 14%));
+  border: 1px solid hsl(var(--border, 0 0% 24%));
   border-radius: calc(var(--radius, 0.5rem) - 2px);
-  background: hsl(var(--card, 220 5% 7%));
+  background: hsl(var(--card, 0 0% 15%));
   color: hsl(var(--foreground, 0 0% 90%) / 0.86);
   padding: 0 9px;
   font: inherit;
@@ -1940,8 +1940,8 @@
 
 .desktop-select-trigger:hover,
 .desktop-select-trigger[data-state="open"] {
-  border-color: hsl(var(--border, 220 4% 14%));
-  background: hsl(var(--accent, 220 4% 13%));
+  border-color: hsl(var(--border, 0 0% 24%));
+  background: hsl(var(--accent, 0 0% 18%));
   color: hsl(var(--foreground, 0 0% 90%));
 }
 
@@ -1956,7 +1956,7 @@
 
 .desktop-select-trigger svg {
   flex: 0 0 auto;
-  color: hsl(var(--muted-foreground, 220 4% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 60%));
 }
 
 .desktop-select-content {
@@ -1964,9 +1964,9 @@
   min-width: 184px;
   max-width: 260px;
   overflow: hidden;
-  border: 1px solid hsl(var(--border, 220 4% 16%));
+  border: 1px solid hsl(var(--border, 0 0% 24%));
   border-radius: calc(var(--radius, 0.5rem) + 2px);
-  background: hsl(var(--popover, 220 5% 8%));
+  background: hsl(var(--popover, 0 0% 15%));
   color: hsl(var(--popover-foreground, 0 0% 90%));
   box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.42),
@@ -1999,7 +1999,7 @@
   display: grid;
   place-items: center;
   height: 22px;
-  color: hsl(var(--muted-foreground, 220 4% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 60%));
 }
 
 .desktop-select-item {
@@ -2020,7 +2020,7 @@
 }
 
 .desktop-select-item[data-highlighted] {
-  background: hsl(var(--accent, 220 4% 13%));
+  background: hsl(var(--accent, 0 0% 18%));
   color: hsl(var(--foreground, 0 0% 90%));
 }
 
@@ -2052,7 +2052,7 @@
 
 .desktop-select-item__description {
   display: block;
-  color: hsl(var(--muted-foreground, 220 4% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 60%));
   font-size: 11px;
   line-height: 1.35;
 }
@@ -2061,9 +2061,9 @@
   z-index: 300;
   min-width: 210px;
   overflow: hidden;
-  border: 1px solid hsl(var(--border, 220 4% 16%));
+  border: 1px solid hsl(var(--border, 0 0% 24%));
   border-radius: calc(var(--radius, 0.5rem) + 2px);
-  background: hsl(var(--popover, 220 5% 8%));
+  background: hsl(var(--popover, 0 0% 15%));
   color: hsl(var(--popover-foreground, 0 0% 90%));
   padding: 5px;
   box-shadow:
@@ -2109,7 +2109,7 @@
 
 .desktop-dropdown-label {
   padding: 7px 9px 5px;
-  color: hsl(var(--muted-foreground, 220 4% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 60%));
   font-size: 11px;
   font-weight: 500;
 }
@@ -2137,7 +2137,7 @@
   position: absolute;
   left: 9px;
   top: 10px;
-  color: hsl(var(--muted-foreground, 220 4% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 60%));
 }
 
 .desktop-dropdown-item__main {
@@ -2150,13 +2150,13 @@
 
 .desktop-dropdown-item__description {
   padding-left: 22px;
-  color: hsl(var(--muted-foreground, 220 4% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 60%));
   font-size: 11px;
   line-height: 1.35;
 }
 
 .desktop-dropdown-item[data-highlighted] {
-  background: hsl(var(--accent, 220 4% 13%));
+  background: hsl(var(--accent, 0 0% 18%));
   color: hsl(var(--foreground, 0 0% 90%));
 }
 
@@ -2168,7 +2168,7 @@
 .desktop-dropdown-separator {
   height: 1px;
   margin: 5px 4px;
-  background: hsl(var(--border, 220 4% 16%));
+  background: hsl(var(--border, 0 0% 24%));
 }
 
 .code-agents-permission--compact .code-agents-mode-select {

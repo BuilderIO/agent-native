@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   makeLocalhostRouteId,
   normalizeDesignSourceType,
+  parseDataLocProvenance,
   titleFromRoutePath,
 } from "./source-mode";
 
@@ -31,5 +32,19 @@ describe("source mode helpers", () => {
     expect(makeLocalhostRouteId("/*")).toBe("route-wildcard");
     expect(titleFromRoutePath("/design/:id")).toBe("Design Id");
     expect(titleFromRoutePath("/*")).toBe("Wildcard");
+  });
+
+  it("parses data-loc provenance from the right so Windows paths survive", () => {
+    expect(parseDataLocProvenance("C:/src/App.tsx:12:3")).toEqual({
+      sourceFile: "C:/src/App.tsx",
+      line: 12,
+      column: 3,
+    });
+    expect(parseDataLocProvenance("/src/App.tsx:12")).toEqual({
+      sourceFile: "/src/App.tsx",
+      line: 12,
+      column: undefined,
+    });
+    expect(parseDataLocProvenance("not-a-location")).toBeNull();
   });
 });

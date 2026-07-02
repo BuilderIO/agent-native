@@ -19,6 +19,7 @@ interface RrwebRecordOptions {
   emit: (event: ReplayEvent) => void;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet?: boolean;
   blockClass?: string | RegExp;
   blockSelector?: string;
   ignoreClass?: string | RegExp;
@@ -82,6 +83,7 @@ export interface SessionReplayOptions {
   maxBatchBytes?: number;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet?: boolean;
   blockSelector?: string;
   ignoreSelector?: string;
   maskTextClass?: string | RegExp;
@@ -135,6 +137,7 @@ interface NormalizedSessionReplayOptions {
   maxBatchBytes: number;
   checkoutEveryNth?: number;
   checkoutEveryNms?: number;
+  inlineStylesheet: boolean;
   blockSelector: string;
   ignoreSelector: string;
   maskTextClass: string | RegExp;
@@ -191,7 +194,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
-const MAX_KEEPALIVE_REPLAY_BODY_BYTES = 60 * 1024;
+const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
 const URL_LIKE_KEYS = new Set([
   "url",
   "uri",
@@ -509,6 +512,7 @@ function normalizeOptions(
     ),
     checkoutEveryNth: options.checkoutEveryNth,
     checkoutEveryNms: options.checkoutEveryNms,
+    inlineStylesheet: options.inlineStylesheet ?? true,
     blockSelector: options.blockSelector || DEFAULT_BLOCK_SELECTOR,
     ignoreSelector: options.ignoreSelector || DEFAULT_IGNORE_SELECTOR,
     maskTextClass: options.maskTextClass || DEFAULT_MASK_TEXT_CLASS,
@@ -735,6 +739,17 @@ interface ReplayUploadBody {
   compressed: boolean;
 }
 
+function isCrossOriginReplayEndpoint(endpoint: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      new URL(endpoint, window.location.href).origin !== window.location.origin
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function gzipReplayBody(body: string): Promise<Blob | null> {
   if (
     typeof CompressionStream === "undefined" ||
@@ -748,7 +763,7 @@ async function gzipReplayBody(body: string): Promise<Blob | null> {
       .stream()
       .pipeThrough(new CompressionStream("gzip"));
     const compressed = await new Response(stream).arrayBuffer();
-    return new Blob([compressed], { type: "application/json" });
+    return new Blob([compressed], { type: "application/octet-stream" });
   } catch {
     return null;
   }
@@ -761,7 +776,7 @@ async function buildReplayUploadBody(body: string): Promise<ReplayUploadBody> {
       body: compressed,
       compressed: true,
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/octet-stream",
         "Content-Encoding": "gzip",
       },
     };
@@ -791,16 +806,39 @@ function replayUploadBodyBytes(body: BodyInit): number {
   if (ArrayBuffer.isView(body)) {
     return body.byteLength;
   }
-  return MAX_KEEPALIVE_REPLAY_BODY_BYTES + 1;
+  return MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES + 1;
+}
+
+function canUseReplayKeepalive(body: BodyInit): boolean {
+  return replayUploadBodyBytes(body) <= MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES;
 }
 
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
 ): Promise<void> {
+  if (isCrossOriginReplayEndpoint(options.endpoint)) {
+    const canUseKeepalive = canUseReplayKeepalive(body);
+    if (canUseKeepalive && navigator.sendBeacon) {
+      const sent = navigator.sendBeacon(options.endpoint, body);
+      if (sent) return;
+    }
+    const response = await fetch(options.endpoint, {
+      method: "POST",
+      body,
+      keepalive: canUseKeepalive,
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Session replay upload failed with HTTP ${response.status}`,
+      );
+    }
+    return;
+  }
+
   const upload = await buildReplayUploadBody(body);
-  const canUseKeepalive =
-    replayUploadBodyBytes(upload.body) <= MAX_KEEPALIVE_REPLAY_BODY_BYTES;
+  const canUseKeepalive = canUseReplayKeepalive(upload.body);
   if (!upload.compressed && canUseKeepalive && navigator.sendBeacon) {
     const sent = navigator.sendBeacon(options.endpoint, body);
     if (sent) return;
@@ -1034,6 +1072,7 @@ async function startSessionReplayRecorder(
       sampling: normalized.eventSampling,
       checkoutEveryNth: normalized.checkoutEveryNth,
       checkoutEveryNms: normalized.checkoutEveryNms,
+      inlineStylesheet: normalized.inlineStylesheet,
       blockSelector: normalized.blockSelector,
       ignoreSelector: normalized.ignoreSelector,
       maskTextClass: normalized.maskTextClass,

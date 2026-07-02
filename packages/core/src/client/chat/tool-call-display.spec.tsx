@@ -10,6 +10,8 @@ import {
   ChatRunningContext,
   ReconnectStreamMessage,
   ToolCallDisplay,
+  ToolCallFallback,
+  TOOL_LONG_RUNNING_HINT_DELAY_MS,
 } from "./tool-call-display.js";
 import {
   clearReservedToolRenderersForTests,
@@ -113,6 +115,40 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Ada");
   });
 
+  it("renders chart-only data insight payloads without a table", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult({ table: undefined })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Responses by day");
+    expect(container.textContent).not.toContain("Recent rows");
+    expect(container.textContent).not.toContain("Ada");
+  });
+
+  it("renders table-only data insight payloads without a chart", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult({ chartSeries: undefined })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Recent rows");
+    expect(container.textContent).toContain("Ada");
+    expect(container.textContent).not.toContain("Responses by day");
+  });
+
   it("falls back for malformed widget payloads", () => {
     act(() => {
       root.render(
@@ -143,6 +179,193 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("Asked forms");
     expect(container.textContent).not.toContain("Recent rows");
+  });
+
+  it("shows activity tool cards as running even between continuation posts", () => {
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ToolCallFallback
+            toolName="generate-design"
+            args={{}}
+            argsText=""
+            activity
+          />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("generate design");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  it("shows a subtle long-running hint after a running tool stays active", () => {
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        root.render(
+          <ToolCallDisplay toolName="edit-design" args={{}} isRunning={true} />,
+        );
+      });
+
+      expect(container.textContent).toContain("edit screen");
+      expect(container.textContent).not.toContain(
+        "Large updates can take a minute or two.",
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(container.textContent).toContain(
+        "Still working. Large updates can take a minute or two.",
+      );
+
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="edit-design"
+            args={{}}
+            isRunning={false}
+          />,
+        );
+      });
+
+      expect(container.textContent).not.toContain(
+        "Large updates can take a minute or two.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the long-running hint for structured tool rows", () => {
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="edit-file"
+            args={{}}
+            structuredMeta={{
+              toolKind: "edit",
+              filePath: "app.tsx",
+              oldText: "before",
+              newText: "after",
+            }}
+            isRunning={true}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain("app.tsx");
+      expect(container.textContent).not.toContain(
+        "Large updates can take a minute or two.",
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(container.textContent).toContain(
+        "Still working. Large updates can take a minute or two.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the long-running hint for renderer-backed tool rows", () => {
+    vi.useFakeTimers();
+    registerToolRenderer({
+      id: "app.long-renderer",
+      match: "custom-long-renderer",
+      Component: AppRenderer,
+    });
+
+    try {
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="custom-long-renderer"
+            args={{}}
+            isRunning={true}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain("App renderer wins");
+      expect(container.textContent).not.toContain(
+        "Large updates can take a minute or two.",
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(container.textContent).toContain(
+        "Still working. Large updates can take a minute or two.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets generic tool rows fill the assistant message column", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="hubspot-deals"
+          args={{ query: "recent deals" }}
+          isRunning={true}
+        />,
+      );
+    });
+
+    const row = container.querySelector("button")?.parentElement;
+    expect(row?.className).toContain("w-full");
+    expect(container.querySelector("button")?.className).toContain("w-full");
+  });
+
+  it("shows a compact repeat count for coalesced tool rows", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="update-dashboard"
+          args={{ dashboardId: "dash-1" }}
+          result="saved"
+          isRunning={false}
+          repeatCount={3}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("update dashboard");
+    expect(container.textContent).toContain("3x");
+  });
+
+  it("shows reconnect activity cards as running without global chat state", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "activity-1",
+        toolName: "generate-design",
+        argsText: "",
+        args: {},
+        activity: true,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("generate design");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
   it("renders explicit native widgets ahead of MCP Apps metadata", () => {
@@ -200,6 +423,42 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("Top customers");
     expect(container.textContent).toContain("Ada");
+  });
+
+  it("honors chart action renderers over combined insight payloads", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult()}
+          chatUI={{ renderer: "core.data-chart" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Responses by day");
+    expect(container.textContent).not.toContain("Recent rows");
+    expect(container.textContent).not.toContain("Ada");
+  });
+
+  it("honors table action renderers over combined insight payloads", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult()}
+          chatUI={{ renderer: "core.data-table" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Recent rows");
+    expect(container.textContent).toContain("Ada");
+    expect(container.textContent).not.toContain("Responses by day");
   });
 
   it("renders action-declared inline extensions natively", () => {
