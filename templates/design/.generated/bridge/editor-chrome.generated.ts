@@ -3889,7 +3889,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     function hasFigmaClipboardPayload(value) {
-      return /\\((figmeta|figma)\\)/i.test(String(value || ""));
+      return /<[^>]+\\sdata-(metadata|buffer)=["'][^"']*\\((figmeta|figma)\\)[^"']*["']/i.test(
+        String(value || "")
+      );
     }
     function getFigmaClipboardContent(data) {
       if (!data || !data.getData) return "";
@@ -3905,8 +3907,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var content = getFigmaClipboardContent(e.clipboardData);
-        if (!content) return;
         clearPendingPlainPasteHotkey();
+        if (!content) return;
         stopNativeInteraction(e);
         window.parent.postMessage(
           {

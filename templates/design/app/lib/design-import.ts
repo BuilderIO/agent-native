@@ -9,7 +9,9 @@ export const VISUAL_EDIT_CONNECT_COMMAND =
   "npx @agent-native/core@latest design connect";
 
 export function hasFigmaClipboardPayload(value: string): boolean {
-  return /\((figmeta|figma)\)/i.test(value);
+  return /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
+    value,
+  );
 }
 
 export function looksLikeStandaloneHtml(value: string): boolean {

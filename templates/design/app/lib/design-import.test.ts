@@ -55,6 +55,17 @@ describe("design import clipboard helpers", () => {
     ).toBeNull();
   });
 
+  it("does not treat plain text Figma mentions as Figma payloads", () => {
+    expect(
+      getFigmaClipboardContent(
+        clipboardData({
+          "text/html": "",
+          "text/plain": "Please paste this near the (figma) mockup.",
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("recognizes standalone HTML separately from Figma payloads", () => {
     expect(looksLikeStandaloneHtml("<section>Hero</section>")).toBe(true);
     expect(looksLikeStandaloneHtml("plain text")).toBe(false);

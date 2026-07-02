@@ -5027,7 +5027,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   );
 
   function hasFigmaClipboardPayload(value) {
-    return /\((figmeta|figma)\)/i.test(String(value || ""));
+    return /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
+      String(value || ""),
+    );
   }
 
   function getFigmaClipboardContent(data) {
@@ -5048,8 +5050,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         return;
       }
       var content = getFigmaClipboardContent(e.clipboardData);
-      if (!content) return;
       clearPendingPlainPasteHotkey();
+      if (!content) return;
       stopNativeInteraction(e);
       (window.parent as Window).postMessage(
         {
