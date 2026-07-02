@@ -3020,13 +3020,7 @@ export async function runAgentLoop(opts: {
             const contentHasPreparedToolCall = event.parts.some(
               (part) => part.type === "tool-call",
             );
-            const contentHasAssistantText = event.parts.some(
-              (part) =>
-                part.type === "text" &&
-                typeof part.text === "string" &&
-                part.text.length > 0,
-            );
-            if (contentHasPreparedToolCall || contentHasAssistantText) {
+            if (contentHasPreparedToolCall) {
               clearActiveToolInputs();
               resetZeroByteToolInputRestart();
             }
