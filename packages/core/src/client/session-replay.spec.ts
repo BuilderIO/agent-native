@@ -517,8 +517,8 @@ describe("session replay", () => {
     expect(stop).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to raw sendBeacon uploads when gzip is unavailable", async () => {
-    installBrowser("https://app.agent-native.com/inbox");
+  it("falls back to raw fetch uploads when gzip is unavailable", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
     const sendBeacon = vi.fn(() => true);
     vi.stubGlobal("navigator", { sendBeacon });
     vi.stubGlobal("CompressionStream", undefined);
@@ -536,13 +536,17 @@ describe("session replay", () => {
       flushIntervalMs: 100_000,
     });
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
-    await waitForAssertion(() => expect(sendBeacon).toHaveBeenCalledTimes(1));
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
-    expect(sendBeacon).toHaveBeenCalledWith(
-      "https://analytics.example.test/session-replay",
-      expect.any(String),
+    expect(sendBeacon).not.toHaveBeenCalled();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://analytics.example.test/session-replay");
+    expect(headerValue(init.headers, "content-type")).toBe(
+      "text/plain;charset=UTF-8",
     );
-    const body = JSON.parse(String(sendBeacon.mock.calls[0][1]));
+    expect(init.keepalive).toBe(true);
+    expect(headerValue(init.headers, "content-encoding")).toBeUndefined();
+    const body = await parseReplayUpload(init);
     expect(body.events[0].data.href).toBe("/inbox");
   });
 

@@ -817,10 +817,6 @@ async function sendReplayUpload(
 ): Promise<void> {
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
     const canUseKeepalive = canUseReplayKeepalive(body);
-    if (canUseKeepalive && navigator.sendBeacon) {
-      const sent = navigator.sendBeacon(options.endpoint, body);
-      if (sent) return;
-    }
     const response = await fetch(options.endpoint, {
       method: "POST",
       body,
@@ -837,10 +833,6 @@ async function sendReplayUpload(
 
   const upload = await buildReplayUploadBody(body);
   const canUseKeepalive = canUseReplayKeepalive(upload.body);
-  if (!upload.compressed && canUseKeepalive && navigator.sendBeacon) {
-    const sent = navigator.sendBeacon(options.endpoint, body);
-    if (sent) return;
-  }
   const response = await fetch(options.endpoint, {
     method: "POST",
     body: upload.body,
