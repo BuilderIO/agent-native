@@ -223,6 +223,53 @@ describe("seedDatabaseItemDocumentCaches", () => {
     });
   });
 
+  it("skips get-document body seeding for rows whose Builder body is still hydrating", () => {
+    const queryClient = new QueryClient();
+    const item: ContentDatabaseItem = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Builder blog launch",
+        content: "",
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+          sourceId: "builder-source",
+          bodyHydration: {
+            status: "hydrating",
+            attemptedAt: "2026-07-02T12:00:00.000Z",
+            error: null,
+            version: null,
+          },
+        },
+      },
+      properties: [],
+      bodyHydration: {
+        status: "hydrating",
+        attemptedAt: "2026-07-02T12:00:00.000Z",
+        error: null,
+        version: null,
+      },
+    };
+
+    seedDatabaseItemDocumentCaches(queryClient, item);
+
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
+    expect(
+      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+    ).toEqual({
+      documentId: "row-page",
+      databaseId: "database",
+      properties: [],
+    });
+  });
+
   it("does not overwrite an already-warm get-document cache", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(documentQueryKey("row-page"), {

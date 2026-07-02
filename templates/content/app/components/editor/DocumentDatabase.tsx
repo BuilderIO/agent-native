@@ -136,6 +136,7 @@ import {
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  isContentDatabaseUnavailable,
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
   useAttachContentDatabaseSource,
@@ -168,6 +169,8 @@ import {
 import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../actions/_builder-cms-write-adapter.js";
+import { databaseItemBodyHydrationIsPending } from "./body-hydration";
+import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
 import { type BuilderReviewPublicationTransitions } from "./database-sources/BuilderSourceReviewDialog";
 import { DocumentBlockFields } from "./DocumentBlockFields";
@@ -496,7 +499,12 @@ function DatabaseTable({
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
-  const data = database.data;
+  // A deleted/missing database resolves to the unavailable union (no
+  // `database` field) — treat it as no data; the surrounding page/wrapper
+  // owns the user-facing "Database unavailable" state.
+  const data = isContentDatabaseUnavailable(database.data)
+    ? undefined
+    : database.data;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
@@ -2432,6 +2440,8 @@ function DatabaseItemPreview({
   const previewTitle = databaseItemPreviewTitle(item);
   const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
   const canManage = document?.canManage ?? item.document.canManage ?? false;
+  const bodyHydrationPending = databaseItemBodyHydrationIsPending(item);
+  const previewCanEdit = canEdit && !bodyHydrationPending;
   const location = useLocation();
   // Seed the displayed title/content from a RETAINED dirty controller's pending
   // edit if one exists for this doc (reopen-before-evict), so an unsaved peek
@@ -2472,6 +2482,8 @@ function DatabaseItemPreview({
   updateDocumentRef.current = updateDocument;
   const queryClientRef = useRef(queryClient);
   queryClientRef.current = queryClient;
+  const bodyHydrationPendingRef = useRef(bodyHydrationPending);
+  bodyHydrationPendingRef.current = bodyHydrationPending;
   // Doc ids that have been deleted in this peek's lifetime. A pending save must
   // never resurrect a deleted document, so dispatch is suppressed for these.
   const deletedIdsRef = useRef<Set<string>>(new Set());
@@ -2493,6 +2505,10 @@ function DatabaseItemPreview({
         new Promise((resolve, reject) => {
           // A just-deleted doc must not be re-dispatched (resurrection guard).
           if (deletedIdsRef.current.has(id)) {
+            resolve(undefined);
+            return;
+          }
+          if (bodyHydrationPendingRef.current) {
             resolve(undefined);
             return;
           }
@@ -2607,7 +2623,7 @@ function DatabaseItemPreview({
   ]);
 
   useEffect(() => {
-    if (!focusTitle || !canEdit || isLoading || !document) return;
+    if (!focusTitle || !previewCanEdit || isLoading || !document) return;
 
     const frame = requestAnimationFrame(() => {
       titleInputRef.current?.focus();
@@ -2616,22 +2632,22 @@ function DatabaseItemPreview({
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [canEdit, document, focusTitle, isLoading, onTitleFocused]);
+  }, [document, focusTitle, isLoading, onTitleFocused, previewCanEdit]);
 
   function handleTitleChange(nextTitle: string) {
     setLocalTitle(nextTitle);
-    if (!canEdit || !document) return;
+    if (!previewCanEdit || !document) return;
     saveControllerRef.current?.changeTitle(nextTitle);
   }
 
   function handleContentChange(nextContent: string) {
     setLocalContent(nextContent);
-    if (!canEdit || !document) return;
+    if (!previewCanEdit || !document) return;
     saveControllerRef.current?.changeContent(nextContent);
   }
 
   function handleIconChange(nextIcon: string | null) {
-    if (!canEdit || !document) return;
+    if (!previewCanEdit || !document) return;
     setLocalIcon(nextIcon);
     updateDocument.mutate(
       { id: document.id, icon: nextIcon },
@@ -2851,7 +2867,7 @@ function DatabaseItemPreview({
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto w-full max-w-3xl px-6 pt-8 pb-12">
             <div className="mb-5 flex items-start gap-3">
-              {canEdit ? (
+              {previewCanEdit ? (
                 <EmojiPicker
                   icon={localIcon}
                   variant="compact"
@@ -2869,7 +2885,7 @@ function DatabaseItemPreview({
                 ref={titleInputRef}
                 rows={1}
                 value={localTitle}
-                readOnly={!canEdit}
+                readOnly={!previewCanEdit}
                 aria-label={db("previewPageTitle")}
                 placeholder={db("untitled")}
                 onChange={(event) => handleTitleChange(event.target.value)}
@@ -2880,12 +2896,21 @@ function DatabaseItemPreview({
             {previewDocument.databaseMembership ? (
               <DocumentProperties
                 documentId={previewDocument.id}
-                canEdit={canEdit}
+                canEdit={previewCanEdit}
                 popoversPortalled={false}
               />
             ) : null}
             <div className="pt-6">
               {(() => {
+                if (bodyHydrationPending) {
+                  return (
+                    <BuilderBodySyncingNotice
+                      title={db("builderBodySyncing")}
+                      description={db("builderBodySyncingDescription")}
+                    />
+                  );
+                }
+
                 // The peek's primary "Content" Blocks field is the document body.
                 // No collab in the peek (ydoc=null), so it's a plain rich-text
                 // editor saving through the preview document save path.
@@ -2896,7 +2921,7 @@ function DatabaseItemPreview({
                     content={localContent}
                     onChange={handleContentChange}
                     ydoc={null}
-                    editable={canEdit}
+                    editable={previewCanEdit}
                   />
                 );
 
@@ -2909,7 +2934,7 @@ function DatabaseItemPreview({
                   return (
                     <DocumentBlockFields
                       documentId={previewDocument.id}
-                      canEdit={canEdit}
+                      canEdit={previewCanEdit}
                       primaryEditor={primaryEditor}
                     />
                   );

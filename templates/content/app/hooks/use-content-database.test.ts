@@ -357,6 +357,33 @@ describe("readCachedContentDatabaseResponse", () => {
       readCachedContentDatabaseResponse(queryClient, "database-page"),
     ).toBe(exact);
   });
+
+  it("never seeds an unavailable (deleted database) payload", () => {
+    const unavailable = {
+      available: false,
+      reason: "deleted",
+      databaseId: "database",
+      documentId: "database-page",
+      message: 'Database "database" has been deleted',
+    };
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      contentDatabaseQueryKey("database-page"),
+      unavailable,
+    );
+    queryClient.setQueryData(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      unavailable,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(undefined);
+  });
 });
 
 describe("invalidateBuilderBodyHydrationQueries", () => {

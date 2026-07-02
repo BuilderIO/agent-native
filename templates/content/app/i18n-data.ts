@@ -32,6 +32,9 @@ const databaseMessages = {
   builderBodiesQueued: "{{count}} queued",
   builderBodySync: "Body sync",
   builderBodySyncFailed: "{{count}} failed",
+  builderBodySyncing: "Content is still syncing from Builder",
+  builderBodySyncingDescription:
+    "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
   builderBodiesHydrated: "{{hydrated}} of {{total}} bodies hydrated",
   builderRowsFetched: "{{count}} Builder rows fetched",
   builderRowsFetchingMore: "fetching more rows",
@@ -1883,6 +1886,7 @@ const editorMediaMessages = {
   generatingAltText: "Generating alt text...",
   image: "Image",
   imageAdded: "Image added",
+  imageBroken: "Image could not be loaded",
   imageCommentWithAlt: "Image: {{alt}}",
   imageCopied: "Image copied.",
   imageDownloadStarted: "Image download started.",
@@ -2252,7 +2256,12 @@ const enUS = {
     noDocumentSelected: "No document selected",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
+    collabConnectingReadOnly:
+      "Connecting live editor. Showing a read-only snapshot.",
     documentTitle: "Document title",
+    builderBodySyncing: "Content is still syncing from Builder",
+    builderBodySyncingDescription:
+      "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
     localFileSavedHistoryNotUpdated:
       "Local file saved, but history was not updated",
     reorderField: "Reorder {{name}}",
@@ -4475,6 +4484,10 @@ const databaseExactEnglishMessagesByLocale = {
 const editorMessagesByLocale = {
   "zh-CN": {
     noDocumentSelected: "未选择文档",
+    collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
+    builderBodySyncing: "内容仍在从 Builder 同步",
+    builderBodySyncingDescription:
+      "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
     creatingDatabase: "正在创建内联数据库...",
     databaseCreated: "内联数据库已创建",
     describeWhatToGenerate: "描述要生成什么...",
@@ -4534,6 +4547,7 @@ const editorMessagesByLocale = {
       generatingAltText: "正在生成替代文本...",
       image: "图片",
       imageAdded: "图片已添加",
+      imageBroken: "图片无法加载",
       imageCommentWithAlt: "图片：{{alt}}",
       imageCopied: "图像已复制。",
       imageDownloadStarted: "图像下载开始。",
@@ -4793,6 +4807,11 @@ const editorMessagesByLocale = {
   },
   "es-ES": {
     noDocumentSelected: "Ningún documento seleccionado",
+    collabConnectingReadOnly:
+      "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
+    builderBodySyncing: "El contenido aún se está sincronizando desde Builder",
+    builderBodySyncingDescription:
+      "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
     creatingDatabase: "Creando base de datos integrada...",
     databaseCreated: "Base de datos integrada creada",
     describeWhatToGenerate: "Describe qué generar...",
@@ -4854,6 +4873,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Generando texto alternativo...",
       image: "Imagen",
       imageAdded: "Imagen agregada",
+      imageBroken: "No se pudo cargar la imagen",
       imageCommentWithAlt: "Imagen: {{alt}}",
       imageCopied: "Imagen copiada.",
       imageDownloadStarted: "Se inició la descarga de la imagen.",
@@ -5121,6 +5141,12 @@ const editorMessagesByLocale = {
   },
   "fr-FR": {
     noDocumentSelected: "Aucun document sélectionné",
+    collabConnectingReadOnly:
+      "Connexion de l'éditeur en direct. Affichage d'un instantané en lecture seule.",
+    builderBodySyncing:
+      "Le contenu est encore en cours de synchronisation depuis Builder",
+    builderBodySyncingDescription:
+      "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
     creatingDatabase: "Création d'une base de données intégrée...",
     databaseCreated: "Base de données intégrée créée",
     describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
@@ -5184,6 +5210,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Génération du texte alternatif...",
       image: "Images",
       imageAdded: "Image ajoutée",
+      imageBroken: "L'image n'a pas pu être chargée",
       imageCommentWithAlt: "Image : {{alt}}",
       imageCopied: "Image copiée.",
       imageDownloadStarted: "Le téléchargement de l'image a commencé.",
@@ -5451,6 +5478,11 @@ const editorMessagesByLocale = {
   },
   "de-DE": {
     noDocumentSelected: "Kein Dokument ausgewählt",
+    collabConnectingReadOnly:
+      "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
+    builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
+    builderBodySyncingDescription:
+      "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
     creatingDatabase: "Inline-Datenbank wird erstellt...",
     databaseCreated: "Inline-Datenbank erstellt",
     describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
@@ -5514,6 +5546,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Alternativtext wird generiert...",
       image: "Bild",
       imageAdded: "Bild hinzugefügt",
+      imageBroken: "Bild konnte nicht geladen werden",
       imageCommentWithAlt: "Bild: {{alt}}",
       imageCopied: "Bild kopiert.",
       imageDownloadStarted: "Bild-Download gestartet.",
@@ -5786,6 +5819,11 @@ const editorMessagesByLocale = {
   },
   "ja-JP": {
     noDocumentSelected: "ドキュメントが選択されていません",
+    collabConnectingReadOnly:
+      "ライブエディターに接続中。読み取り専用のスナップショットを表示しています。",
+    builderBodySyncing: "コンテンツはまだ Builder から同期中です",
+    builderBodySyncingDescription:
+      "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
     creatingDatabase: "インラインデータベースを作成しています...",
     databaseCreated: "インラインデータベースが作成されました",
     describeWhatToGenerate: "何を生成するかを説明します...",
@@ -5845,6 +5883,7 @@ const editorMessagesByLocale = {
       generatingAltText: "代替テキストを生成しています...",
       image: "画像",
       imageAdded: "画像追加",
+      imageBroken: "画像を読み込めませんでした",
       imageCommentWithAlt: "画像: {{alt}}",
       imageCopied: "画像をコピーしました。",
       imageDownloadStarted: "画像のダウンロードが始まりました。",
@@ -6111,6 +6150,11 @@ const editorMessagesByLocale = {
   },
   "ko-KR": {
     noDocumentSelected: "선택한 문서가 없습니다.",
+    collabConnectingReadOnly:
+      "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
+    builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
+    builderBodySyncingDescription:
+      "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
     creatingDatabase: "인라인 데이터베이스 생성 중...",
     databaseCreated: "인라인 데이터베이스가 생성되었습니다.",
     describeWhatToGenerate: "무엇을 생성할지 설명하세요...",
@@ -6170,6 +6214,7 @@ const editorMessagesByLocale = {
       generatingAltText: "대체 텍스트 생성 중...",
       image: "이미지",
       imageAdded: "이미지가 추가됨",
+      imageBroken: "이미지를 불러올 수 없습니다",
       imageCommentWithAlt: "이미지: {{alt}}",
       imageCopied: "이미지가 복사되었습니다.",
       imageDownloadStarted: "이미지 다운로드가 시작되었습니다.",
@@ -6435,6 +6480,11 @@ const editorMessagesByLocale = {
   },
   "pt-BR": {
     noDocumentSelected: "Nenhum documento selecionado",
+    collabConnectingReadOnly:
+      "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
+    builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
+    builderBodySyncingDescription:
+      "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
     creatingDatabase: "Criando banco de dados embutido...",
     databaseCreated: "Banco de dados embutido criado",
     describeWhatToGenerate: "Descreva o que gerar...",
@@ -6496,6 +6546,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Gerando texto alternativo...",
       image: "Imagem",
       imageAdded: "Imagem adicionada",
+      imageBroken: "Não foi possível carregar a imagem",
       imageCommentWithAlt: "Imagem: {{alt}}",
       imageCopied: "Imagem copiada.",
       imageDownloadStarted: "O download da imagem foi iniciado.",
@@ -6765,6 +6816,11 @@ const editorMessagesByLocale = {
   },
   "hi-IN": {
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
+    collabConnectingReadOnly:
+      "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
+    builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
+    builderBodySyncingDescription:
+      "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
     creatingDatabase: "इनलाइन डेटाबेस बनाया जा रहा है...",
     databaseCreated: "इनलाइन डेटाबेस बनाया गया",
     describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
@@ -6824,6 +6880,7 @@ const editorMessagesByLocale = {
       generatingAltText: "वैकल्पिक टेक्स्ट जनरेट किया जा रहा है...",
       image: "छवि",
       imageAdded: "छवि जोड़ी गई",
+      imageBroken: "छवि लोड नहीं हो सकी",
       imageCommentWithAlt: "छवि: {{alt}}",
       imageCopied: "छवि कॉपी की गई.",
       imageDownloadStarted: "छवि डाउनलोड प्रारंभ हुआ.",
@@ -7086,6 +7143,11 @@ const editorMessagesByLocale = {
   },
   "ar-SA": {
     noDocumentSelected: "لم يتم تحديد أي مستند",
+    collabConnectingReadOnly:
+      "جارٍ الاتصال بالمحرر المباشر. يتم عرض لقطة للقراءة فقط.",
+    builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
+    builderBodySyncingDescription:
+      "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
     creatingDatabase: "جارٍ إنشاء قاعدة بيانات مضمنة...",
     databaseCreated: "تم إنشاء قاعدة البيانات المضمنة",
     describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
@@ -7145,6 +7207,7 @@ const editorMessagesByLocale = {
       generatingAltText: "جارٍ إنشاء نص بديل...",
       image: "صورة",
       imageAdded: "تمت إضافة الصورة",
+      imageBroken: "تعذّر تحميل الصورة",
       imageCommentWithAlt: "الصورة: {{alt}}",
       imageCopied: "تم نسخ الصورة.",
       imageDownloadStarted: "بدأ تنزيل الصورة.",
@@ -7662,6 +7725,9 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["zh-CN"],
       builderBodiesReadyLocally: "Builder 文章正文已在本地准备就绪。",
       builderBodySync: "正文同步",
+      builderBodySyncing: "内容仍在从 Builder 同步",
+      builderBodySyncingDescription:
+        "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
       builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
       builderRowsFinishingUp: "Builder 行即将完成加载。",
       builderRowsLoadingBackground: "Builder 仍在后台加载行。",
@@ -7802,6 +7868,10 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Los cuerpos de los artículos de Builder están listos localmente.",
       builderBodySync: "Sincronización del cuerpo",
+      builderBodySyncing:
+        "El contenido aún se está sincronizando desde Builder",
+      builderBodySyncingDescription:
+        "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
       builderRowsFetchedSoFar: "{{count}} filas obtenidas hasta ahora.",
       builderRowsFinishingUp:
         "Las filas de Builder están terminando de cargarse.",
@@ -7955,6 +8025,10 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Les corps d’articles Builder sont prêts localement.",
       builderBodySync: "Synchronisation du corps",
+      builderBodySyncing:
+        "Le contenu est encore en cours de synchronisation depuis Builder",
+      builderBodySyncingDescription:
+        "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
       builderRowsFetchedSoFar: "{{count}} lignes récupérées jusqu’à présent.",
       builderRowsFinishingUp: "Les lignes Builder terminent leur chargement.",
       builderRowsLoadingBackground:
@@ -8110,6 +8184,9 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["de-DE"],
       builderBodiesReadyLocally: "Builder-Artikelinhalte sind lokal bereit.",
       builderBodySync: "Inhaltssynchronisierung",
+      builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
+      builderBodySyncingDescription:
+        "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
       builderRowsFetchedSoFar: "{{count}} Zeilen bisher abgerufen.",
       builderRowsFinishingUp: "Builder-Zeilen werden fertig geladen.",
       builderRowsLoadingBackground:
@@ -8266,6 +8343,9 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Builder の記事本文はローカルで準備できています。",
       builderBodySync: "本文同期",
+      builderBodySyncing: "コンテンツはまだ Builder から同期中です",
+      builderBodySyncingDescription:
+        "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
       builderRowsFetchedSoFar: "現在 {{count}} 行を取得済みです。",
       builderRowsFinishingUp: "Builder 行の読み込みを完了しています。",
       builderRowsLoadingBackground:
@@ -8416,6 +8496,9 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ko-KR"],
       builderBodiesReadyLocally: "Builder 문서 본문이 로컬에서 준비되었습니다.",
       builderBodySync: "본문 동기화",
+      builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
+      builderBodySyncingDescription:
+        "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
       builderRowsFetchedSoFar: "지금까지 {{count}}개 행을 가져왔습니다.",
       builderRowsFinishingUp: "Builder 행 로드를 마무리하는 중입니다.",
       builderRowsLoadingBackground:
@@ -8559,6 +8642,9 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Os corpos dos artigos do Builder estão prontos localmente.",
       builderBodySync: "Sincronização do corpo",
+      builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
+      builderBodySyncingDescription:
+        "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
       builderRowsFetchedSoFar: "{{count}} linhas buscadas até agora.",
       builderRowsFinishingUp:
         "As linhas do Builder estão terminando de carregar.",
@@ -8714,6 +8800,9 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["hi-IN"],
       builderBodiesReadyLocally: "Builder लेखों की बॉडी स्थानीय रूप से तैयार है।",
       builderBodySync: "बॉडी सिंक",
+      builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
+      builderBodySyncingDescription:
+        "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
       builderRowsFetchedSoFar: "अब तक {{count}} पंक्तियां लाई गईं।",
       builderRowsFinishingUp: "Builder पंक्तियां लोड होना पूरा कर रही हैं।",
       builderRowsLoadingBackground:
@@ -8855,6 +8944,9 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ar-SA"],
       builderBodiesReadyLocally: "أصبحت نصوص مقالات Builder جاهزة محليًا.",
       builderBodySync: "مزامنة النص",
+      builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
+      builderBodySyncingDescription:
+        "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
       builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",
       builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
       builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",
