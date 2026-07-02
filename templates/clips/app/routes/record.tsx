@@ -1576,11 +1576,15 @@ export default function RecordRoute() {
         const parallelChunks = chunkDescs.slice(0, -1);
 
         const chunkAbort = new AbortController();
-        abort.signal.addEventListener(
-          "abort",
-          () => chunkAbort.abort(abort.signal.reason),
-          { once: true },
-        );
+        if (abort.signal.aborted) {
+          chunkAbort.abort(abort.signal.reason);
+        } else {
+          abort.signal.addEventListener(
+            "abort",
+            () => chunkAbort.abort(abort.signal.reason),
+            { once: true },
+          );
+        }
 
         const finalChunk = { result: null as Record<string, unknown> | null };
         let uploadError: Error | null = null;
@@ -1603,8 +1607,10 @@ export default function RecordRoute() {
               });
             } catch (err) {
               if (chunkAbort.signal.aborted) return;
-              uploadError = err instanceof Error ? err : new Error(String(err));
-              chunkAbort.abort(uploadError);
+              if (!uploadError) {
+                uploadError = err instanceof Error ? err : new Error(String(err));
+                chunkAbort.abort(uploadError);
+              }
               return;
             }
 
@@ -1618,8 +1624,10 @@ export default function RecordRoute() {
                 }),
               );
               (error as Error & { status?: number }).status = chunkRes.status;
-              uploadError = error;
-              chunkAbort.abort(uploadError);
+              if (!uploadError) {
+                uploadError = error;
+                chunkAbort.abort(uploadError);
+              }
               return;
             }
           }

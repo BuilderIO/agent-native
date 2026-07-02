@@ -1120,7 +1120,23 @@ export class RecorderEngine {
       hasCamera,
     };
     this.lastFinalizeMeta = finalizeMeta;
-    this.cleanupTracks();
+
+    // Stop camera and mic hardware immediately — privacy-sensitive inputs no
+    // longer needed once the final chunk is flushed. The composite and display
+    // streams are intentionally left alive: the caller holds a compositeStream
+    // reference for an unawaited thumbnail capture in screen+camera mode.
+    // Full stream teardown happens in the finally block below.
+    this.cameraLive = false;
+    this.audioMixSources = [];
+    this.audioMixCtx?.close().catch(() => {});
+    this.audioMixCtx = null;
+    for (const s of [this.cameraStream, this.rawCameraStream, this.micStream]) {
+      s?.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch {}
+      });
+    }
 
     // Drain any legacy in-flight chunk uploads before we either compress or
     // upload. New recordings upload after stop(), but keeping this guard makes
@@ -1699,6 +1715,7 @@ export class RecorderEngine {
       });
     }
     let uploadError: Error | null = null;
+    let completedCount = 0;
 
     const worker = async () => {
       while (queue.length > 0) {
@@ -1713,11 +1730,17 @@ export class RecorderEngine {
             mimeType,
             signal: chunkAbort.signal,
           });
-          this.opts.onChunk?.({ index, bytes: slice.size, total: totalSlices });
+          this.opts.onChunk?.({
+            index: completedCount++,
+            bytes: slice.size,
+            total: totalSlices,
+          });
         } catch (err) {
           if (chunkAbort.signal.aborted) return;
-          uploadError = err instanceof Error ? err : new Error(String(err));
-          chunkAbort.abort(uploadError);
+          if (!uploadError) {
+            uploadError = err instanceof Error ? err : new Error(String(err));
+            chunkAbort.abort(uploadError);
+          }
           return;
         }
       }
