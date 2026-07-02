@@ -4992,6 +4992,40 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     true,
   );
 
+  function hasFigmaClipboardPayload(value) {
+    return /\(figmeta\)|\(figma\)|data-metadata=|data-buffer=/i.test(
+      String(value || ""),
+    );
+  }
+
+  function getFigmaClipboardContent(data) {
+    if (!data || !data.getData) return "";
+    var html = data.getData("text/html") || "";
+    if (hasFigmaClipboardPayload(html)) return html;
+    var text = data.getData("text/plain") || "";
+    return hasFigmaClipboardPayload(text) ? text : "";
+  }
+
+  document.addEventListener(
+    "paste",
+    function (e) {
+      if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target)) {
+        return;
+      }
+      var content = getFigmaClipboardContent(e.clipboardData);
+      if (!content) return;
+      stopNativeInteraction(e);
+      (window.parent as Window).postMessage(
+        {
+          type: "figma-clipboard-paste",
+          content: content,
+        },
+        "*",
+      );
+    },
+    true,
+  );
+
   function placeTextCaretFromPoint(target, clientX, clientY) {
     try {
       var range = null;

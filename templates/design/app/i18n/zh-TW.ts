@@ -294,9 +294,9 @@ const messages = {
       githubTitle: "GitHub",
       githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
       localTitle: "本機 app / VS Code",
-      localDescription: "即將推出：連接執行中的本機 app 並匯入 URL 螢幕。",
+      localDescription: "使用 visual-edit 連接執行中的本機 app。",
       visualEditGuidance:
-        "目前可請代理使用 visual-edit。它可以執行 app、呼叫 `npx @agent-native/core@latest design connect`，並新增 URL 螢幕。",
+        "啟動 app，在 app repo 中執行下方命令，然後請代理使用 visual-edit skill 新增 URL 螢幕。",
       useVisualEditNow: "立即使用 visual-edit",
       comingSoon: "即將推出",
       warningsToast: "匯入完成但有警告",

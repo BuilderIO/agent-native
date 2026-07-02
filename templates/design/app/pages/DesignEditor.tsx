@@ -274,6 +274,11 @@ import {
   sendToDesignAgentChat,
 } from "@/lib/agent-chat";
 import {
+  getFigmaClipboardContent,
+  importResultSummary,
+  type ImportResult,
+} from "@/lib/design-import";
+import {
   clearPendingGeneration,
   hasFreshPendingGeneration,
   isPendingGenerationStale,
@@ -11241,6 +11246,82 @@ export default function DesignEditor() {
     ],
   );
 
+  const importFigmaClipboardIntoDesign = useCallback(
+    async (content: string) => {
+      if (!id) return;
+      if (!canEditDesign) {
+        toast.error("Import requires editor access" /* i18n-ignore */);
+        return;
+      }
+      try {
+        const result = (await callAction("import-design-source", {
+          designId: id,
+          sourceType: "figma-paste-html",
+          content,
+          originalName: "figma-paste.html",
+        })) as ImportResult;
+        if (result?.error) throw new Error(result.error);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
+          queryClient.invalidateQueries({ queryKey: ["action"] }),
+        ]);
+        toast.success(
+          importResultSummary(result, t("designEditor.import.figmaSuccess")),
+        );
+        if (result?.warnings?.length) {
+          toast.warning(t("designEditor.import.warningsToast"), {
+            description: result.warnings[0],
+          });
+        }
+        navigate(`/design/${result?.designId ?? id}?view=overview`);
+      } catch (error) {
+        toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
+          description:
+            error instanceof Error ? error.message : t("common.genericError"),
+        });
+      }
+    },
+    [canEditDesign, id, navigate, queryClient, t],
+  );
+
+  const handleCanvasFigmaClipboardPaste = useCallback(
+    ({ content }: { content: string }) => {
+      void importFigmaClipboardIntoDesign(content);
+    },
+    [importFigmaClipboardIntoDesign],
+  );
+
+  const handleEditorPaste = useCallback(
+    (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (isDesignHotkeyEditableTarget(event.target)) return;
+      const figmaContent = getFigmaClipboardContent(event.clipboardData);
+      if (figmaContent) {
+        event.preventDefault();
+        void importFigmaClipboardIntoDesign(figmaContent);
+        return;
+      }
+      if (canEditDesign && hasCanvasClipboard) {
+        event.preventDefault();
+        handlePasteSelection();
+      }
+    },
+    [
+      canEditDesign,
+      handlePasteSelection,
+      hasCanvasClipboard,
+      importFigmaClipboardIntoDesign,
+    ],
+  );
+
+  useEffect(() => {
+    if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
+    document.addEventListener("paste", handleEditorPaste, true);
+    return () => {
+      document.removeEventListener("paste", handleEditorPaste, true);
+    };
+  }, [embedded, handleEditorPaste, pendingQuestions]);
+
   const handlePasteOverSelection = useCallback(() => {
     const entries = getCanvasClipboardEntries();
     if (!activeFile || entries.length === 0) return;
@@ -13119,7 +13200,7 @@ export default function DesignEditor() {
     onCommentTool: canEditDesign ? handlePinToolToggle : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
-    onPaste: canEditDesign ? () => handlePasteSelection() : undefined,
+    onPaste: undefined,
     onCut: canEditDesign ? handleCutSelection : undefined,
     onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
     onCopyProps: canEditDesign ? handleCopyProps : undefined,
@@ -17572,6 +17653,9 @@ ${serializedHtml}
                               handleScreenElementClear(screen.id)
                             }
                             onIframeHotkey={handleIframeHotkey}
+                            onFigmaClipboardPaste={
+                              handleCanvasFigmaClipboardPaste
+                            }
                             onIframeContextMenu={handleIframeContextMenu}
                             onVisualStyleChange={(selector, styles, info) =>
                               handleScreenVisualStyleChange(
@@ -17696,6 +17780,7 @@ ${serializedHtml}
                           setSelectedLayerIdsState([]);
                         }}
                         onIframeHotkey={handleIframeHotkey}
+                        onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
                         onIframeContextMenu={handleIframeContextMenu}
                         onVisualStyleChange={handleVisualStyleChange}
                         onVisualStructureChange={handleVisualStructureChange}
