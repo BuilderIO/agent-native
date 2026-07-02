@@ -17396,6 +17396,9 @@ ${serializedHtml}
                           : undefined
                       }
                       onBoardIframeHotkey={handleIframeHotkey}
+                      onBoardFigmaClipboardPaste={
+                        handleCanvasFigmaClipboardPaste
+                      }
                       onBoardIframeContextMenu={handleIframeContextMenu}
                       onBoardTextEditingStateChange={setTextEditingState}
                       onBoardElementDblClickText={

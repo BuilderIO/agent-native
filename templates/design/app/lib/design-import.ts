@@ -6,7 +6,7 @@ export interface ImportResult {
 }
 
 export const VISUAL_EDIT_CONNECT_COMMAND =
-  "npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon";
+  "npx @agent-native/core@latest design connect";
 
 export function hasFigmaClipboardPayload(value: string): boolean {
   return /\(figmeta\)|\(figma\)|data-metadata=|data-buffer=/i.test(value);

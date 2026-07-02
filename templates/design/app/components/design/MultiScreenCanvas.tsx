@@ -53,6 +53,7 @@ import {
   LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT,
   appendHitTestResponder,
   type IframeContextMenuPayload,
+  type IframeFigmaClipboardPastePayload,
   type IframeHotkeyPayload,
 } from "./DesignCanvas";
 import {
@@ -323,6 +324,9 @@ interface MultiScreenCanvasProps {
   onBoardElementClear?: () => void;
   onBoardElementDblClickText?: (info: ElementInfo) => void;
   onBoardIframeHotkey?: (event: IframeHotkeyPayload) => void;
+  onBoardFigmaClipboardPaste?: (
+    event: IframeFigmaClipboardPastePayload,
+  ) => void;
   onBoardIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onBoardTextEditingStateChange?: (state: {
     active: boolean;
@@ -1142,6 +1146,7 @@ export function MultiScreenCanvas({
   onBoardElementClear,
   onBoardElementDblClickText,
   onBoardIframeHotkey,
+  onBoardFigmaClipboardPaste,
   onBoardIframeContextMenu,
   onBoardTextEditingStateChange,
   boardClearSelectionRequest,
@@ -4949,6 +4954,7 @@ export function MultiScreenCanvas({
                   onElementHover={onBoardElementHover ?? (() => {})}
                   onClearSelection={onBoardElementClear}
                   onIframeHotkey={onBoardIframeHotkey}
+                  onFigmaClipboardPaste={onBoardFigmaClipboardPaste}
                   onIframeContextMenu={onBoardIframeContextMenu}
                   onVisualStructureChange={onBoardVisualStructureChange}
                   onVisualStyleChange={onBoardVisualStyleChange}
