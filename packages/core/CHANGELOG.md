@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.41
+
+### Patch Changes
+
+- a8548bc: Continue durable background runs when a chunk completes tool calls without final assistant text.
+
 ## 0.84.40
 
 ### Patch Changes
